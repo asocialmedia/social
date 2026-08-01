@@ -38,7 +38,7 @@ function initializeResend(): void {
   }
 }
 
-const SENDER = "zephyyrr.in";
+const SENDER = "asocialmedia.cc";
 const TRAILING_SLASH_REGEX = /\/$/;
 
 function getBaseUrl(): string {

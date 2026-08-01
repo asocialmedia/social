@@ -1,7 +1,7 @@
 {
   "name": "@zephyr/auth",
   "description": "Zephyr's authentication & email service package",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "license": "AGPL-3.0",
   "private": true,
   "scripts": {
@@ -24,7 +24,7 @@
     }
   },
   "dependencies": {
-    "@prisma/client": "^7.7.0",
+    "@prisma/client": "7.8.0",
     "@t3-oss/env-nextjs": "^0.13.11",
     "@zephyr/db": "workspace:*",
     "better-auth": "^1.6.5",

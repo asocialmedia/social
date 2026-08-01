@@ -1,8 +1,8 @@
 {
   "name": "zephyr",
-  "version": "1.0.31",
+  "version": "1.0.35",
   "license": "AGPL-3.0",
-  "homepage": "https://zephyyrr.in",
+  "homepage": "https://asocialmedia.cc",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -44,7 +44,7 @@
     "lefthook": "^2.1.6",
     "meilisearch": "^0.54.0",
     "portless": "^0.10.3",
-    "prisma": "^7.7.0",
+    "prisma": "7.8.0",
     "turbo": "^2.9.6",
     "typescript": "^6.0.3",
     "ultracite": "^7.6.0"

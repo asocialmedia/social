@@ -13,7 +13,7 @@
 <div align="center">
   
   <a href="https://github.com/zephverse/zephyr">
-    <img src="https://storage-r2.zephyyrr.in/Assets/zephyr-githubanner.jpg" alt="Zephyr Banner" width="90%"/>
+    <img src="https://zr2.asocialmedia.cc/Assets/zephyr-githubanner.jpg" alt="Zephyr Banner" width="90%"/>
   </a>
   
   <br>
@@ -40,8 +40,8 @@ Oh, and it's open source. Because the audacity of building this should be public
 
 | Logo | About |
 | -- | -- |
-| <img src="https://storage-r2.zephyyrr.in/Assets/zephyr-logo.png" alt="Zephyr Logo" width="120px"/> | **Zephyr ✦ Zephverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Zephverse<br>- A unified algorithm that actually learns *you* |
-| <img src="https://storage-r2.zephyyrr.in/Assets/zeph.png" alt="Zeph AI Logo" width="120px"/> | **Zeph ✦ Companion**<br><br>- Your AI companion that lives inside the Zephverse<br>- Remembers everything across the entire platform<br>- Helps you write, refine, and post better<br>- Knows your context wherever you go<br>- Not a chatbot. A companion. |
+| <img src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png" alt="Zephyr Logo" width="120px"/> | **Zephyr ✦ Zephverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Zephverse<br>- A unified algorithm that actually learns *you* |
+| <img src="https://zr2.asocialmedia.cc/Assets/zeph.png" alt="Zeph AI Logo" width="120px"/> | **Zeph ✦ Companion**<br><br>- Your AI companion that lives inside the Zephverse<br>- Remembers everything across the entire platform<br>- Helps you write, refine, and post better<br>- Knows your context wherever you go<br>- Not a chatbot. A companion. |
 
 <sub><em>Logos that you will see frequently</em></sub>
 
@@ -62,9 +62,9 @@ The more you do, the more it reflects who you actually are. Not who an algorithm
 #### *<div align="center"><sub>With Zephyr's enhancement from Singularity Works, we are excited to announce a renewed focus on enhancing user experience & idea.</sub></div>*
 
 <p align="center">
-  <img src="https://storage-r2.zephyyrr.in/Assets/singxzephyr-banner.jpg"
+  <img src="https://zr2.asocialmedia.cc/Assets/singxzephyr-banner.jpg"
       alt="Singularity Works × Zephyr collaboration artwork" width="80%">
-  <!-- <img src="https://storage-r2.zephyyrr.in/Assets/singxzep-github-banner.jpg"
+  <!-- <img src="https://zr2.asocialmedia.cc/Assets/singxzep-github-banner.jpg"
       alt="Zephyr atmospheric artwork" width="80%"> -->
   <br>
   <sub><em>Artwork by the Singularity Works team</em></sub>
@@ -103,22 +103,22 @@ This isn't a feature list. It's a different way of thinking about what social so
 <table align="center">
   <tr>
     <td align="center">
-      <a href="https://zephyyrr.in">
-        <img src="https://storage-r2.zephyyrr.in/Assets/zephyr-logo.png" alt="Zephyr Logo" width="80px"/><br>
+      <a href="https://asocialmedia.cc">
+        <img src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png" alt="Zephyr Logo" width="80px"/><br>
         <strong>Zephyr</strong><br>
         <sub>Social media aggregator</sub>
       </a>
     </td>
     <td align="center">
-      <a href="https://zephyyrr.in">
-        <img src="https://storage-r2.zephyyrr.in/Assets/zeph.png" alt="Zeph AI" width="80px"/><br>
+      <a href="https://asocialmedia.cc">
+        <img src="https://zr2.asocialmedia.cc/Assets/zeph.png" alt="Zeph AI" width="80px"/><br>
         <strong>Zeph AI (WIP)</strong><br>
         <sub>Your Companion for Zephyr</sub>
       </a>
     </td>
     <td align="center">
       <a href="https://itssingularity.com">
-        <img src="https://storage-r2.singularityworks.xyz/brand-icons/sw-logo.png" alt="SW Logo" width="80px"/><br>
+        <img src="https://swr2.itssingularity.com/brand-icons/sw-logo.png" alt="SW Logo" width="80px"/><br>
         <strong>Singularity Works</strong><br>
         <sub>A product studio engineering agency</sub>
       </a>

@@ -212,9 +212,9 @@ export default function PrivacyPolicyPage() {
                 reached at{" "}
                 <Link
                   className="text-primary hover:underline"
-                  href="mailto:zephyyrrnyx@gmail.com"
+                  href="mailto:hello@asocialmedia.cc"
                 >
-                  zephyyrrnyx@gmail.com
+                  hello@asocialmedia.cc
                 </Link>
                 .
               </p>
@@ -358,9 +358,9 @@ export default function PrivacyPolicyPage() {
                   Email:{" "}
                   <Link
                     className="text-primary hover:underline"
-                    href="mailto:zephyyrrnyx@gmail.com"
+                    href="mailto:hello@asocialmedia.cc"
                   >
-                    zephyyrrnyx@gmail.com
+                    hello@asocialmedia.cc
                   </Link>
                 </p>
               </div>

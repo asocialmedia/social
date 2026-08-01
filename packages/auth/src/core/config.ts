@@ -370,7 +370,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
         ? {
             crossSubDomainCookies: {
               enabled: true,
-              domain: ".zephyyrr.in",
+              domain: ".asocialmedia.cc",
             },
           }
         : {}),
@@ -391,7 +391,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       "https://auth.localhost",
       "http://localhost:3000",
       "http://localhost:3001",
-      "https://zephyyrr.in",
+      "https://asocialmedia.cc",
     ],
 
     telemetry: {

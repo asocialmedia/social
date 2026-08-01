@@ -79,7 +79,7 @@ export const metadata: Metadata = {
   },
   manifest: "site.webmanifest",
   verification: {
-    me: ["https://folio.zephyyrr.in"],
+    me: ["https://przknv.cc"],
   },
 };
 
@@ -136,9 +136,9 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
       <meta content="Zephyr" name="apple-mobile-web-app-title" />
       <link href="/site.webmanifest" rel="manifest" />
       <script
-        data-website-id="13fdaf65-e304-4dae-a966-02f376e8c8fb"
+        data-website-id="e9ee46c1-9c4a-4e03-a5e0-133af1b65fb9"
         defer
-        src="https://tracking.zephyyrr.in/script.js"
+        src="https://tracking.przknv.cc/script.js"
       />
     </head>
     <body className={"min-h-screen font-sans antialiased"}>

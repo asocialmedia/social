@@ -19,7 +19,7 @@ function addCorsHeaders(response: Response) {
   const corsHeaders = {
     "Access-Control-Allow-Origin":
       process.env.NODE_ENV === "production"
-        ? process.env.NEXT_PUBLIC_URL || "https://zephyyrr.in"
+        ? process.env.NEXT_PUBLIC_URL || "https://asocialmedia.cc"
         : "https://social.localhost",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "Access-Control-Allow-Origin":
           process.env.NODE_ENV === "production"
-            ? process.env.NEXT_PUBLIC_URL || "https://zephyyrr.in"
+            ? process.env.NEXT_PUBLIC_URL || "https://asocialmedia.cc"
             : "https://social.localhost",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers":
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       headers: {
         "Access-Control-Allow-Origin":
           process.env.NODE_ENV === "production"
-            ? process.env.NEXT_PUBLIC_URL || "https://zephyyrr.in"
+            ? process.env.NEXT_PUBLIC_URL || "https://asocialmedia.cc"
             : "https://social.localhost",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers":
@@ -101,7 +101,7 @@ export function OPTIONS() {
     headers: {
       "Access-Control-Allow-Origin":
         process.env.NODE_ENV === "production"
-          ? process.env.NEXT_PUBLIC_URL || "https://zephyyrr.in"
+          ? process.env.NEXT_PUBLIC_URL || "https://asocialmedia.cc"
           : "https://social.localhost",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers":

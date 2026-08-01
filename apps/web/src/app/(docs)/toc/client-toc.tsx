@@ -995,15 +995,14 @@ export default function TermsPage() {
               </h3>
               <p>
                 For your security and to prevent fraud, we exclusively
-                communicate through our official email domains: "@zephyyrr.in"
-                (e.g., updates@zephyyrr.in) and our verified Gmail address
-                (zephyyrrnyx@gmail.com). Any communication claiming to be from
-                Zephyr that originates from other email addresses should be
-                treated as potentially fraudulent. We strongly encourage users
-                to verify email authenticity and report any suspicious
-                communications to our security team. Never share sensitive
-                information or account credentials in response to emails from
-                unverified sources.
+                communicate through our official email domains:
+                "asocialmedia.cc" (e.g., hello@asocialmedia.cc). Any
+                communication claiming to be from Zephyr that originates from
+                other email addresses should be treated as potentially
+                fraudulent. We strongly encourage users to verify email
+                authenticity and report any suspicious communications to our
+                security team. Never share sensitive information or account
+                credentials in response to emails from unverified sources.
               </p>
 
               <h3 className="font-medium text-xl">
@@ -1015,9 +1014,9 @@ export default function TermsPage() {
                 services. Our primary points of contact is{" "}
                 <Link
                   className="text-primary hover:underline"
-                  href="mailto:zephyyrrnyx@gmail.com"
+                  href="mailto:hello@asocialmedia.cc"
                 >
-                  zephyyrrnyx@gmail.com
+                  hello@asocialmedia.cc
                 </Link>
                 . This address is monitored regularly during business hours to
                 ensure timely responses to user communications. For enhanced
@@ -1062,13 +1061,13 @@ export default function TermsPage() {
                 fraudulent communications, always verify that emails from Zephyr
                 originate from our official domains. Our legitimate email
                 communications will only come from addresses ending in
-                "@zephyyrr.in" or our verified address "zephyyrrnyx@gmail.com".
-                We employ industry-standard email authentication protocols (SPF,
-                DKIM, and DMARC) to prevent email spoofing. If you receive any
-                suspicious communications claiming to be from Zephyr from other
-                email addresses, please forward them to our security team (me)
-                at zephyyrrnyx@gmail.com and do not click on any links or
-                download any attachments from these suspicious sources.
+                "@asocialmedia.cc". We employ industry-standard email
+                authentication protocols (SPF, DKIM, and DMARC) to prevent email
+                spoofing. If you receive any suspicious communications claiming
+                to be from Zephyr from other email addresses, please forward
+                them to our security team (me) at hello@asocialmedia.cc and do
+                not click on any links or download any attachments from these
+                suspicious sources.
               </p>
             </div>
           </section>

@@ -36,7 +36,7 @@ export const keys = createEnv({
     NEXT_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
     TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
     BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
-    SUPPORT_EMAIL: z.email().default("info@zephyyrr.in"),
+    SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
   },
 
   client: {

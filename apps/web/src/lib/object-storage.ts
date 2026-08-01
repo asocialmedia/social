@@ -20,7 +20,7 @@ export const zephobClient = new S3Client({
   region: "ap-south-1",
   endpoint:
     env.NODE_ENV === "production"
-      ? env.ZEPHOB_PRODUCTION_ENDPOINT || "https://objectstorage.zephyyrr.in"
+      ? env.ZEPHOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc"
       : zephobLocalEndpoint,
   credentials: {
     accessKeyId: env.ZEPHOB_ROOT_USER,
@@ -49,7 +49,7 @@ export const getPublicUrl = (key: string) => {
   const endpoint = env.ZEPHOB_ENDPOINT ?? zephobLocalEndpoint;
 
   const productionEndpoint =
-    env.ZEPHOB_PRODUCTION_ENDPOINT || "https://objectstorage.zephyyrr.in";
+    env.ZEPHOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc";
 
   const finalEndpoint =
     env.NODE_ENV === "production"

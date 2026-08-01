@@ -158,7 +158,7 @@ export default function Error({
                 <RotateCcw className="h-4 w-4" />
                 Try Again
               </span>
-              <div className="absolute inset-0 h-full w-full bg-gradient-to-r from-destructive/50 to-destructive opacity-50 blur-lg transition-all group-hover:opacity-75" />
+              <div className="absolute inset-0 h-full w-full bg-linear-to-r from-destructive/50 to-destructive opacity-50 blur-lg transition-all group-hover:opacity-75" />
             </Button>
 
             <Button
@@ -206,7 +206,7 @@ export default function Error({
               <span>or</span>
               <Link
                 className="text-primary hover:underline"
-                href="mailto:zephyyrrnyx@gmail.com"
+                href="mailto:hello@asocialmedia.cc"
               >
                 contact support
               </Link>

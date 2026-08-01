@@ -33,7 +33,7 @@ export const VerificationEmail = ({
           <Section style={header}>
             <Img
               alt={`${emailConfig.company.name} logo`}
-              src="https://storage-r2.zephyyrr.in/Assets/zephyr-logo.png"
+              src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png"
               style={logo}
               width={120}
             />
@@ -99,7 +99,7 @@ export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => (
           <Section style={header}>
             <Img
               alt={`${emailConfig.company.name} logo`}
-              src="https://storage-r2.zephyyrr.in/Assets/zephyr-logo.png"
+              src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png"
               style={logo}
               width={120}
             />
