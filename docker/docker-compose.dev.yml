@@ -192,27 +192,6 @@ services:
 
         echo 'Object storage initialization complete!'
 
-  rabbitmq-dev:
-    container_name: zephdev-rabbitmq
-    image: rabbitmq:4.2.5
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin123
-    volumes:
-      - rabbitmq_data_dev:/var/lib/rabbitmq
-    networks:
-      - dev_network
-    healthcheck:
-      test: [ "CMD", "rabbitmq-diagnostics", "ping" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-
   meilisearch-dev:
     container_name: zephdev-meilisearch
     image: getmeili/meilisearch:latest
@@ -257,32 +236,6 @@ services:
         "/usr/local/bin/meilisearch-init.sh",
       ]
 
-  timescaledb-dev:
-    container_name: zephdev-timescaledb
-    image: timescale/timescaledb:latest-pg18
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: zephyr-logs
-    ports:
-      - "5434:5432"
-    volumes:
-      - timescaledb_data_dev:/var/lib/postgresql/data
-    command: >
-      postgres -c listen_addresses='*' -c max_connections=50 -c
-      shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c
-      effective_cache_size=256MB -c wal_level=replica -c max_wal_senders=4 -c
-      log_statement=none -c timezone=UTC
-    networks:
-      - dev_network
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d zephyr-logs" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-
 networks:
   dev_network:
     driver: bridge
@@ -297,9 +250,5 @@ volumes:
     name: zephdev-zephob-data
   redisinsight:
     name: zephdev-redisinsight-data
-  rabbitmq_data_dev:
-    name: zephdev-rabbitmq-data
   meilisearch_data_dev:
     name: zephdev-meilisearch-data
-  timescaledb_data_dev:
-    name: zephdev-timescaledb-data

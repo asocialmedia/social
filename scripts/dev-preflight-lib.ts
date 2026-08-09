@@ -64,8 +64,6 @@ export const DEFAULT_PREFLIGHT_CONFIG: PreflightConfig = {
     "redis-dev",
     "zephob-dev",
     "meilisearch-dev",
-    "rabbitmq-dev",
-    "timescaledb-dev",
   ],
 };
 

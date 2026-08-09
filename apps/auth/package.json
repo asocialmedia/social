@@ -1,6 +1,6 @@
 {
   "name": "@zephyr/auth-app",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Zephyr Auth Service",
   "private": true,
   "scripts": {

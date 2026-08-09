@@ -11,16 +11,8 @@ export const keys = createEnv({
     ZEPHOB_BUCKET_NAME: z.string().min(1).default("uploads"),
     ZEPHOB_ENDPOINT: z.url(),
     ZEPHOB_PRODUCTION_ENDPOINT: z.url().optional(),
-    ZEPHOB_ENABLE_OBJECT_LOCKING: z.enum(["on", "off"]).default("on"),
-    RABBITMQ_URL: z.url().default("amqp://admin:admin123@localhost:5672"),
     MEILISEARCH_URL: z.url().default("http://localhost:7700"),
     MEILISEARCH_MASTER_KEY: z.string().default("masterKey123"),
-    TIMESCALEDB_URL: z
-      .url()
-      .default(
-        "postgresql://postgres:postgres@localhost:5434/zephyr-logs?schema=public"
-      ),
-    CRON_SECRET: z.string().optional(),
     CRON_SECRET_KEY: z.string().optional(),
     NODE_ENV: z
       .enum(["development", "production", "test"])
@@ -48,15 +40,11 @@ export const keys = createEnv({
     ZEPHOB_BUCKET_NAME: process.env.ZEPHOB_BUCKET_NAME,
     ZEPHOB_ENDPOINT: process.env.ZEPHOB_ENDPOINT,
     ZEPHOB_PRODUCTION_ENDPOINT: process.env.ZEPHOB_PRODUCTION_ENDPOINT,
-    ZEPHOB_ENABLE_OBJECT_LOCKING: process.env.ZEPHOB_ENABLE_OBJECT_LOCKING,
-    RABBITMQ_URL: process.env.RABBITMQ_URL,
     MEILISEARCH_URL: process.env.MEILISEARCH_URL,
     MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
-    TIMESCALEDB_URL: process.env.TIMESCALEDB_URL,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
-    CRON_SECRET: process.env.CRON_SECRET,
     CRON_SECRET_KEY: process.env.CRON_SECRET_KEY,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,

@@ -1,7 +1,7 @@
 {
   "name": "@zephyr/auth",
   "description": "Zephyr's authentication & email service package",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "license": "AGPL-3.0",
   "private": true,
   "scripts": {
@@ -32,7 +32,6 @@
     "email-validator": "^2.0.4",
     "jose": "^6.2.2",
     "next": "^16.2.4",
-    "node-email-verifier": "^3.4.1",
     "pg": "^8.20.0",
     "react": "^19.2.5",
     "zod": "^4.3.6"
