@@ -13,7 +13,7 @@
 <div align="center">
   
   <a href="https://github.com/asocialmedia/social">
-    <img src="https://zr2.asocialmedia.cc/Assets/asm-githubanner.jpg" alt="Asocialmedia Banner" width="90%"/>
+    <img src="https://zr2.asocialmedia.cc/Assets/zephyr-githubanner.jpg" alt="Asocialmedia Banner" width="90%"/>
   </a>
   
   <br>
@@ -40,7 +40,7 @@ Oh, and it's open source. Because the audacity of building this should be public
 
 | Logo | About |
 | -- | -- |
-| <img src="https://zr2.asocialmedia.cc/Assets/asm-logo.png" alt="Asocialmedia Logo" width="120px"/> | **Asocialmedia ✦ Asocialverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Asocialverse<br>- A unified algorithm that actually learns *you* |
+| <img src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png" alt="Asocialmedia Logo" width="120px"/> | **Asocialmedia ✦ Asocialverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Asocialverse<br>- A unified algorithm that actually learns *you* |
 | <img src="https://zr2.asocialmedia.cc/Assets/zeph.png" alt="Zeph AI Logo" width="120px"/> | **Zeph ✦ Companion**<br><br>- Your AI companion that lives inside the Asocialverse<br>- Remembers everything across the entire platform<br>- Helps you write, refine, and post better<br>- Knows your context wherever you go<br>- Not a chatbot. A companion. |
 
 <sub><em>Logos that you will see frequently</em></sub>
@@ -62,7 +62,7 @@ The more you do, the more it reflects who you actually are. Not who an algorithm
 #### *<div align="center"><sub>With Asocialmedia's enhancement from Singularity Works, we are excited to announce a renewed focus on enhancing user experience & idea.</sub></div>*
 
 <p align="center">
-  <img src="https://zr2.asocialmedia.cc/Assets/singxasm-banner.jpg"
+  <img src="https://zr2.asocialmedia.cc/Assets/singxzephyr-banner.jpg"
       alt="Singularity Works × Asocialmedia collaboration artwork" width="80%">
   <!-- <img src="https://zr2.asocialmedia.cc/Assets/singxzep-github-banner.jpg"
       alt="Asocialmedia atmospheric artwork" width="80%"> -->
@@ -104,7 +104,7 @@ This isn't a feature list. It's a different way of thinking about what social so
   <tr>
     <td align="center">
       <a href="https://asocialmedia.cc">
-        <img src="https://zr2.asocialmedia.cc/Assets/asm-logo.png" alt="Asocialmedia Logo" width="80px"/><br>
+        <img src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png" alt="Asocialmedia Logo" width="80px"/><br>
         <strong>Asocialmedia</strong><br>
         <sub>Social media aggregator</sub>
       </a>
