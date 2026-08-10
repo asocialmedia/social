@@ -12,7 +12,7 @@ import {
 } from "@asm/ui/shadui/form";
 import resetImage from "@assets/auth/confirm-reset-image.jpg";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Lock } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -79,63 +79,6 @@ function ConfirmPasswordFieldRenderer({
     </FormItem>
   );
 }
-
-const PasswordResetAnimation = () => (
-  <motion.div className="relative mx-auto mb-8 h-24 w-24">
-    <motion.div
-      animate={{
-        scale: [1, 1.1, 1],
-        opacity: [0.5, 1, 0.5],
-      }}
-      className="absolute inset-0"
-      transition={{
-        duration: 2,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: "easeInOut",
-      }}
-    >
-      <div className="h-full w-full rounded-full bg-blue-400/10" />
-    </motion.div>
-
-    <motion.div
-      animate={{ rotate: 360 }}
-      className="absolute inset-0"
-      transition={{
-        duration: 10,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: "linear",
-      }}
-    >
-      {["top", "right", "bottom", "left"].map((position, index) => (
-        <motion.div
-          className="absolute h-2 w-2"
-          key={`loading-${position}`}
-          style={{
-            top: "50%",
-            left: "50%",
-            transform: `rotate(${index * 90}deg) translate(32px) rotate(-${index * 90}deg)`,
-          }}
-        >
-          <div className="h-full w-full rounded-full bg-blue-400/60" />
-        </motion.div>
-      ))}
-    </motion.div>
-
-    <motion.div
-      animate={{
-        scale: [1, 1.1, 1],
-      }}
-      className="absolute inset-0 flex items-center justify-center"
-      transition={{
-        duration: 2,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: "easeInOut",
-      }}
-    >
-      <Lock className="h-8 w-8 text-blue-400" />
-    </motion.div>
-  </motion.div>
-);
 
 export default function ConfirmResetForm() {
   const [token, setToken] = useState<string | null>(null);
@@ -315,7 +258,7 @@ export default function ConfirmResetForm() {
         className="relative flex min-h-screen overflow-hidden bg-background"
         initial={{ opacity: 0 }}
       >
-        <div className="absolute inset-0 z-0 bg-gradient-to-bl from-blue-400/5 via-background to-background/95" />
+        <div className="absolute inset-0 z-0 bg-gradient-to-bl from-primary/5 via-background to-background/95" />
         <motion.div
           animate={{ opacity: 1, x: 0 }}
           className="absolute left-20 hidden h-full items-center md:flex"
@@ -323,14 +266,7 @@ export default function ConfirmResetForm() {
           transition={{ delay: 0.3 }}
         >
           <div className="relative">
-            <h1
-              className="absolute origin-center -rotate-90 transform select-none whitespace-nowrap font-bold text-6xl text-blue-400/20 tracking-wider xl:text-8xl 2xl:text-9xl"
-              style={{
-                transformOrigin: "center",
-                left: "-50%",
-                transform: "translateX(-50%) translateY(-50%) rotate(-90deg)",
-              }}
-            >
+            <h1 className="vertical-left absolute top-1/2 left-0 -translate-y-1/2 select-none whitespace-nowrap font-bold text-3d text-6xl tracking-wider xl:text-8xl 2xl:text-9xl">
               CONFIRM
             </h1>
           </div>
@@ -339,19 +275,19 @@ export default function ConfirmResetForm() {
         <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
           <motion.div
             animate={{ y: 0, opacity: 1 }}
-            className="relative flex w-full max-w-5xl flex-col-reverse overflow-hidden rounded-2xl border border-white/10 bg-card/40 shadow-2xl backdrop-blur-xl lg:flex-row"
+            className="relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[560px] lg:flex-row"
             initial={{ y: 20, opacity: 0 }}
             transition={{ delay: 0.2 }}
           >
             <motion.div
               animate={{ opacity: 1, x: 0 }}
-              className="relative min-h-[200px] w-full bg-blue-400/80 lg:min-h-[600px] lg:w-1/2"
+              className="relative hidden w-full bg-primary/80 lg:flex lg:h-full lg:w-1/2"
               initial={{ opacity: 0, x: -50 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
             >
               <motion.div
                 animate={{ opacity: 1 }}
-                className="absolute inset-0 bg-gradient-to-b from-transparent to-blue-400/20"
+                className="absolute inset-0 bg-gradient-to-b from-transparent to-primary/20"
                 initial={{ opacity: 0 }}
                 transition={{ duration: 1 }}
               />
@@ -365,18 +301,16 @@ export default function ConfirmResetForm() {
               />
             </motion.div>
 
-            <div className="relative z-10 flex w-full flex-col justify-center px-6 py-12 sm:px-8 lg:w-1/2">
+            <div className="relative z-10 flex w-full flex-col justify-center px-6 py-10 sm:px-8 lg:w-1/2">
               <motion.div
                 animate={{ opacity: 1, y: 0 }}
                 className="mx-auto w-full max-w-sm"
                 initial={{ opacity: 0, y: 20 }}
                 transition={{ delay: 0.4 }}
               >
-                <PasswordResetAnimation />
-
                 <motion.h2
                   animate={{ opacity: 1 }}
-                  className="mb-6 text-center font-bold text-3xl text-blue-400"
+                  className="mb-6 text-center font-bold text-3xl text-[#ff9500]"
                   initial={{ opacity: 0 }}
                   transition={{ delay: 0.5 }}
                 >
@@ -401,9 +335,10 @@ export default function ConfirmResetForm() {
                     />
 
                     <LoadingButton
-                      className="w-full bg-blue-400 hover:bg-blue-500"
+                      className="w-full"
                       loading={isPending}
                       type="submit"
+                      variant="premium"
                     >
                       Reset Password
                     </LoadingButton>
@@ -420,7 +355,6 @@ export default function ConfirmResetForm() {
           initial={{ opacity: 0 }}
           style={{
             backgroundImage: `url(${resetImage.src})`,
-            backgroundColor: "rgba(96, 165, 250, 0.1)",
           }}
           transition={{ duration: 1 }}
         />
