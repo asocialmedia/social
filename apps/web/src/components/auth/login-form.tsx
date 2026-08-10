@@ -37,7 +37,6 @@ export default function LoginForm() {
     username?: boolean;
     password?: boolean;
   }>({});
-  const [hoveredField, setHoveredField] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -125,18 +124,6 @@ export default function LoginForm() {
     router.push("/");
   }
 
-  const handleUsernameMouseEnter = useCallback(() => {
-    setHoveredField("username");
-  }, []);
-
-  const handlePasswordMouseEnter = useCallback(() => {
-    setHoveredField("password");
-  }, []);
-
-  const handleFieldMouseLeave = useCallback(() => {
-    setHoveredField(null);
-  }, []);
-
   const renderUsernameField = useCallback(
     ({ field }: { field: ControllerRenderProps<LoginValues, "username"> }) => (
       <FormItem>
@@ -151,14 +138,8 @@ export default function LoginForm() {
                 errorFields.username
                   ? "border-destructive/50 bg-destructive/10"
                   : ""
-              } ${
-                hoveredField === "username"
-                  ? "border-primary shadow-lg shadow-primary/20"
-                  : ""
               }`}
               name="username"
-              onMouseEnter={handleUsernameMouseEnter}
-              onMouseLeave={handleFieldMouseLeave}
             />
             {errorFields.username ? (
               <motion.div
@@ -174,7 +155,7 @@ export default function LoginForm() {
         <FormMessage />
       </FormItem>
     ),
-    [errorFields, handleFieldMouseLeave, handleUsernameMouseEnter, hoveredField]
+    [errorFields]
   );
 
   const renderPasswordField = useCallback(
@@ -191,21 +172,15 @@ export default function LoginForm() {
                 errorFields.password
                   ? "border-destructive/50 bg-destructive/10"
                   : ""
-              } ${
-                hoveredField === "password"
-                  ? "border-primary shadow-lg shadow-primary/20"
-                  : ""
               }`}
               name="password"
-              onMouseEnter={handlePasswordMouseEnter}
-              onMouseLeave={handleFieldMouseLeave}
             />
           </div>
         </FormControl>
         <FormMessage />
       </FormItem>
     ),
-    [errorFields, handleFieldMouseLeave, handlePasswordMouseEnter, hoveredField]
+    [errorFields]
   );
 
   const handleResendVerification = async () => {
@@ -341,7 +316,12 @@ export default function LoginForm() {
             />
           </div>
 
-          <LoadingButton className="w-full" loading={isPending} type="submit">
+          <LoadingButton
+            className="w-full"
+            loading={isPending}
+            type="submit"
+            variant="premium"
+          >
             Log in
           </LoadingButton>
         </form>

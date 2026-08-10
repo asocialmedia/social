@@ -13,7 +13,7 @@ export default function AuthButtonWrapper({
   return (
     <motion.div
       animate={{ opacity: 1, y: 0 }}
-      className="mb-3 w-full"
+      className="mb-2 w-full"
       initial={{ opacity: 0, y: 20 }}
       transition={{
         duration: 0.3,
@@ -21,7 +21,7 @@ export default function AuthButtonWrapper({
       }}
     >
       <div
-        className={`group relative overflow-hidden rounded-lg backdrop-blur-md transition-all duration-500 ease-in-out hover:shadow-lg hover:shadow-primary/20 hover:ring-1 hover:ring-primary ${className}`}
+        className={`group relative overflow-hidden rounded-lg backdrop-blur-md transition-all duration-500 ease-in-out ${className}`}
       >
         <div className="relative bg-background/50 transition-colors group-hover:bg-background/70">
           {children}

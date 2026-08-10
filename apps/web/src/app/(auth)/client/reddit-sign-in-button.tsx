@@ -31,14 +31,14 @@ export default function RedditSignInButton({
 
   return (
     <Button
-      className="w-full border-0 bg-[#FF4500] py-5 text-white backdrop-blur-xs transition-all duration-300 hover:bg-[#E03D00]"
+      className="btn-social h-auto w-full rounded-xl py-2.5 text-sm transition-all duration-300 hover:bg-transparent hover:text-inherit"
       disabled={disabled}
       onClick={handleRedditSignIn}
-      variant="outline"
+      variant="ghost"
     >
-      <div className="flex items-center justify-center gap-3 py-6">
+      <div className="flex items-center justify-center gap-2">
         {loading ? (
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <RedditIcon />
         )}
@@ -52,9 +52,9 @@ function RedditIcon() {
   return (
     // biome-ignore lint/a11y/noSvgWithoutTitle: Reddit icon is purely decorative
     <svg
-      height="22"
+      height="16"
       viewBox="0 0 800 800"
-      width="24"
+      width="18"
       xmlns="http://www.w3.org/2000/svg"
     >
       <circle cx="400" cy="400" fill="#ff4500" r="400" />

@@ -1,7 +1,6 @@
 "use client";
 
 import { type SignUpValues, signUpSchema } from "@asm/auth/validation";
-import { FlipWords } from "@asm/ui/components/ui/flip-words";
 import { useToast } from "@asm/ui/hooks/use-toast";
 import { useVerification } from "@asm/ui/providers/verification";
 import { Button } from "@asm/ui/shadui/button";
@@ -51,14 +50,6 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { useSignupUrlState } from "@/hooks/use-signup-url-state";
 import { PasswordStrengthChecker } from "./password-strength-checker";
 
-const texts = [
-  "All your worlds, one feed.",
-  "The pulse of your digital life.",
-  "Stream everything that matters.",
-  "Unify your social universe.",
-  "Where every post finds you.",
-];
-
 const DIGITS_ONLY_REGEX = /^\d*$/;
 const OTP_SLOT_IDS = [
   "slot-0",
@@ -103,7 +94,6 @@ export default function SignUpForm() {
   const [password, setPassword] = useState("");
   const [isPending, startTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(false);
-  const [hoveredField, setHoveredField] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   const [otpError, setOtpError] = useState(false);
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
@@ -237,30 +227,6 @@ export default function SignUpForm() {
     [toast]
   );
 
-  const handleUsernameMouseEnter = useCallback(() => {
-    setHoveredField("username");
-  }, []);
-
-  const handleEmailMouseEnter = useCallback(() => {
-    setHoveredField("email");
-  }, []);
-
-  const handlePasswordMouseEnter = useCallback(() => {
-    setHoveredField("password");
-  }, []);
-
-  const handleAgeVerifyMouseEnter = useCallback(() => {
-    setHoveredField("ageVerify");
-  }, []);
-
-  const handleTermsMouseEnter = useCallback(() => {
-    setHoveredField("terms");
-  }, []);
-
-  const handleFieldMouseLeave = useCallback(() => {
-    setHoveredField(null);
-  }, []);
-
   const handleAgeVerifyChange = useCallback((checked: boolean) => {
     setIsAgeVerified(checked);
   }, []);
@@ -288,14 +254,8 @@ export default function SignUpForm() {
               placeholder="cooluser"
               {...field}
               autoComplete="username"
-              className={`transition-all duration-500 ease-in-out ${
-                hoveredField === "username"
-                  ? "border-primary shadow-lg shadow-primary/20"
-                  : ""
-              }`}
+              className="transition-all duration-500 ease-in-out"
               name="username"
-              onMouseEnter={handleUsernameMouseEnter}
-              onMouseLeave={handleFieldMouseLeave}
             />
             <User className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
@@ -303,7 +263,7 @@ export default function SignUpForm() {
         <FormMessage />
       </FormItem>
     ),
-    [handleFieldMouseLeave, handleUsernameMouseEnter, hoveredField]
+    []
   );
 
   const renderEmailField = useCallback(
@@ -317,14 +277,8 @@ export default function SignUpForm() {
               type="email"
               {...field}
               autoComplete="email"
-              className={`transition-all duration-500 ease-in-out ${
-                hoveredField === "email"
-                  ? "border-primary shadow-lg shadow-primary/20"
-                  : ""
-              }`}
+              className="transition-all duration-500 ease-in-out"
               name="email"
-              onMouseEnter={handleEmailMouseEnter}
-              onMouseLeave={handleFieldMouseLeave}
             />
             <Mail className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
@@ -332,7 +286,7 @@ export default function SignUpForm() {
         <FormMessage />
       </FormItem>
     ),
-    [handleEmailMouseEnter, handleFieldMouseLeave, hoveredField]
+    []
   );
 
   const renderPasswordField = useCallback(
@@ -344,15 +298,9 @@ export default function SignUpForm() {
             placeholder="••••••••"
             {...field}
             autoComplete="new-password"
-            className={`transition-all duration-500 ease-in-out ${
-              hoveredField === "password"
-                ? "border-primary shadow-lg shadow-primary/20"
-                : ""
-            }`}
+            className="transition-all duration-500 ease-in-out"
             name="password"
             onChange={handlePasswordChange(field)}
-            onMouseEnter={handlePasswordMouseEnter}
-            onMouseLeave={handleFieldMouseLeave}
           />
         </FormControl>
         <PasswordStrengthChecker
@@ -363,14 +311,7 @@ export default function SignUpForm() {
         <FormMessage />
       </FormItem>
     ),
-    [
-      form,
-      handleFieldMouseLeave,
-      handlePasswordChange,
-      handlePasswordMouseEnter,
-      hoveredField,
-      password,
-    ]
+    [form, handlePasswordChange, password]
   );
 
   const onSubmit = (values: SignUpValues) => {
@@ -874,12 +815,6 @@ export default function SignUpForm() {
 
   return (
     <div>
-      <div className="mb-6 text-center text-sm">
-        <FlipWords
-          className="font-semibold text-gray-500 sm:text-base"
-          words={texts}
-        />
-      </div>
       <div className="relative">
         <AnimatePresence initial={false} mode="wait">
           {!showOTPPanel && (
@@ -922,18 +857,12 @@ export default function SignUpForm() {
                   />
 
                   <div className="space-y-3 pt-2">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2.5">
                       <Checkbox
                         checked={isAgeVerified}
-                        className={`border-primary/20 transition-all duration-500 ease-in-out data-[state=checked]:border-primary/80 data-[state=checked]:bg-primary/80 ${
-                          hoveredField === "ageVerify"
-                            ? "border-primary shadow-lg shadow-primary/20"
-                            : ""
-                        }`}
+                        className="transition-all duration-500 ease-in-out"
                         id={ageVerifyId}
                         onCheckedChange={handleAgeVerifyChange}
-                        onMouseEnter={handleAgeVerifyMouseEnter}
-                        onMouseLeave={handleFieldMouseLeave}
                       />
                       <label
                         className="text-muted-foreground text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -943,18 +872,12 @@ export default function SignUpForm() {
                       </label>
                     </div>
 
-                    <div className="flex items-start space-x-2">
+                    <div className="flex items-start space-x-2.5">
                       <Checkbox
                         checked={acceptedTerms}
-                        className={`mt-1 border-primary/20 transition-all duration-500 ease-in-out data-[state=checked]:border-primary/80 data-[state=checked]:bg-primary/80 ${
-                          hoveredField === "terms"
-                            ? "border-primary shadow-lg shadow-primary/20"
-                            : ""
-                        }`}
+                        className="mt-0.5 transition-all duration-500 ease-in-out"
                         id={termsId}
                         onCheckedChange={handleTermsChange}
-                        onMouseEnter={handleTermsMouseEnter}
-                        onMouseLeave={handleFieldMouseLeave}
                       />
                       <label
                         className="text-muted-foreground text-sm leading-tight peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -981,6 +904,7 @@ export default function SignUpForm() {
                       className="my-4 w-full"
                       loading={isPending || isLoading || isStarting}
                       type="submit"
+                      variant="premium"
                     >
                       Create account
                     </LoadingButton>

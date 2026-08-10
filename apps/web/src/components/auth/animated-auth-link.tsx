@@ -8,10 +8,16 @@ import {
 } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 interface AnimatedAuthLinkProps {
   href: string;
+  onSwitch?: () => void;
   previewImage: string;
   text: string;
 }
@@ -106,6 +112,7 @@ export default function AnimatedAuthLink({
   href,
   text,
   previewImage,
+  onSwitch,
 }: AnimatedAuthLinkProps) {
   const [isHovered, setIsHovered] = useState(false);
   const mouseX = useMotionValue(0);
@@ -147,11 +154,22 @@ export default function AnimatedAuthLink({
     }
   }, [isMobile]);
 
+  const handleClick = useCallback(
+    (event: ReactMouseEvent<HTMLAnchorElement>) => {
+      if (onSwitch) {
+        event.preventDefault();
+        onSwitch();
+      }
+    },
+    [onSwitch]
+  );
+
   return (
     <>
       <Link
         className="group relative inline-block px-2 py-1"
         href={href}
+        onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
