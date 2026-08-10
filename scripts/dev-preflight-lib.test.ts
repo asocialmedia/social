@@ -13,6 +13,7 @@ import {
   PREFLIGHT_CHECK_ORDER,
   type PreflightCheckKey,
   type PreflightCheckState,
+  parseServiceSnapshots,
   type ServiceSnapshot,
   shouldUseSudoForPortless,
   withinTtl,
@@ -51,6 +52,101 @@ describe("service snapshot helpers", () => {
       "redis-dev (unhealthy)",
       "meilisearch-dev (exited)",
     ]);
+  });
+
+  test("parses newline-delimited JSON from Docker compose ps", () => {
+    const output = [
+      JSON.stringify({
+        Health: "healthy",
+        Service: "postgres-dev",
+        State: "running",
+      }),
+      JSON.stringify({
+        Health: "healthy",
+        Service: "redis-dev",
+        State: "running",
+      }),
+    ].join("\n");
+
+    const snapshots = parseServiceSnapshots(output);
+    expect(snapshots).toEqual([
+      {
+        Health: "healthy",
+        Name: undefined,
+        Service: "postgres-dev",
+        State: "running",
+      },
+      {
+        Health: "healthy",
+        Name: undefined,
+        Service: "redis-dev",
+        State: "running",
+      },
+    ]);
+  });
+
+  test("parses a JSON array from podman-compose ps", () => {
+    const output = JSON.stringify([
+      {
+        Names: ["asmdb"],
+        State: "running",
+        Status: "Up 2 hours (healthy)",
+        Labels: { "com.docker.compose.service": "postgres-dev" },
+      },
+      {
+        Names: ["asmdev-asmob"],
+        State: "stopped",
+        Status: "Exited (1) 2 seconds ago",
+        Labels: { "com.docker.compose.service": "asmob-dev" },
+      },
+      {
+        Names: ["asmdev-meilisearch"],
+        State: "running",
+        Status: "Up 2 hours",
+        Labels: { "com.docker.compose.service": "meilisearch-dev" },
+      },
+    ]);
+
+    const snapshots = parseServiceSnapshots(output);
+    expect(snapshots).toEqual([
+      {
+        Health: "healthy",
+        Name: "asmdb",
+        Service: "postgres-dev",
+        State: "running",
+      },
+      {
+        Health: "",
+        Name: "asmdev-asmob",
+        Service: "asmob-dev",
+        State: "stopped",
+      },
+      {
+        Health: "",
+        Name: "asmdev-meilisearch",
+        Service: "meilisearch-dev",
+        State: "running",
+      },
+    ]);
+  });
+
+  test("returns an empty list for empty compose ps output", () => {
+    expect(parseServiceSnapshots("")).toEqual([]);
+    expect(parseServiceSnapshots("   \n  ")).toEqual([]);
+  });
+
+  test("uses the top-level Service field over labels", () => {
+    const output = JSON.stringify([
+      {
+        Names: ["custom-name"],
+        Service: "postgres-dev",
+        State: "running",
+        Labels: { "com.docker.compose.service": "ignored" },
+      },
+    ]);
+
+    const snapshots = parseServiceSnapshots(output);
+    expect(snapshots[0]?.Service).toBe("postgres-dev");
   });
 });
 

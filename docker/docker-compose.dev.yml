@@ -138,7 +138,7 @@ services:
     environment:
       RUSTFS_ACCESS_KEY: ${ASMOB_ROOT_USER:-asmob-admin}
       RUSTFS_SECRET_KEY: ${ASMOB_ROOT_PASSWORD:-asmob-admin}
-      RUSTFS_CONSOLE_ENABLE: true
+      RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
       RUSTFS_REGION: ${ASMOB_REGION:-ap-south-1}
     volumes:
@@ -199,7 +199,7 @@ services:
       - "7700:7700"
     environment:
       MEILI_MASTER_KEY: masterKey123
-      MEILI_NO_ANALYTICS: true
+      MEILI_NO_ANALYTICS: "true"
     volumes:
       - meilisearch_data_dev:/meili_data
     networks:

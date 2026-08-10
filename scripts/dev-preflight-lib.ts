@@ -90,6 +90,57 @@ export function getMissingServices(
   return requiredServices.filter((service) => !byService.has(service));
 }
 
+export interface RawContainerStatus {
+  Health?: string;
+  Labels?: Record<string, string>;
+  Names?: string[];
+  Service?: string;
+  State?: string;
+  Status?: string;
+}
+
+const HEALTH_STATUS_PATTERN = /\((healthy|unhealthy|starting)\)/;
+
+export function parseContainerSnapshot(
+  raw: RawContainerStatus
+): ServiceSnapshot {
+  const state = raw.State || "";
+  const health =
+    raw.Health || raw.Status?.match(HEALTH_STATUS_PATTERN)?.[1] || "";
+  const service =
+    raw.Service ||
+    raw.Labels?.["com.docker.compose.service"] ||
+    raw.Names?.[0] ||
+    "";
+
+  return {
+    Health: health,
+    Name: raw.Names?.[0],
+    Service: service,
+    State: state,
+  };
+}
+
+export function parseServiceSnapshots(stdout: string): ServiceSnapshot[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  let rawRecords: RawContainerStatus[];
+  if (trimmed.startsWith("[")) {
+    rawRecords = JSON.parse(trimmed) as RawContainerStatus[];
+  } else {
+    rawRecords = trimmed
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as RawContainerStatus);
+  }
+
+  return rawRecords.map(parseContainerSnapshot);
+}
+
 export function getUnhealthyServices(
   snapshots: ServiceSnapshot[],
   requiredServices: string[]

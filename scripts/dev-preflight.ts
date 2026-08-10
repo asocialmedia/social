@@ -21,6 +21,7 @@ import {
   PREFLIGHT_CHECK_ORDER,
   type PreflightCheckKey,
   type PreflightCheckState,
+  parseServiceSnapshots,
   type ServiceSnapshot,
   shouldUseSudoForPortless,
   withinTtl,
@@ -177,13 +178,7 @@ async function getServiceSnapshot() {
     fatal(`Docker compose status failed: ${result.stderr || "unknown error"}`);
   }
 
-  const lines = result.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const snapshots = lines.map((line) => JSON.parse(line) as ServiceSnapshot);
-  return snapshots;
+  return parseServiceSnapshots(result.stdout);
 }
 
 async function getOneShotStatus(containerName: string): Promise<OneShotStatus> {
