@@ -236,7 +236,6 @@ export function createAuthConfig(config: AuthConfig = {}) {
     plugins: [
       username(),
       jwt(),
-      nextCookies(),
       adminPlugin(),
       ...(sendVerificationOTP
         ? [
@@ -249,6 +248,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
             }),
           ]
         : []),
+      nextCookies(),
     ],
 
     emailAndPassword: {
