@@ -15,8 +15,8 @@ export function FossBanner({ className }: FossBannerProps) {
         <h3 className="font-semibold">Open Source Project</h3>
       </div>
       <p className="text-muted-foreground text-sm">
-        Asocialmedia is a Free and Open Source Software (FOSS) project. We welcome
-        contributions and suggestions to improve our platform. Visit our{" "}
+        Asocialmedia is a Free and Open Source Software (FOSS) project. We
+        welcome contributions and suggestions to improve our platform. Visit our{" "}
         <Link
           className="font-medium text-primary hover:underline"
           href="https://github.com/asocialmedia/social"

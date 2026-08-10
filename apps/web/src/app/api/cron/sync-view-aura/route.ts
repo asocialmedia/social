@@ -42,76 +42,85 @@ async function awardViewAura() {
 
     log(`📊 Found ${posts.length} posts to process`);
 
-    for (const post of posts) {
+    async function processPost(postIndex: number): Promise<void> {
+      if (postIndex >= posts.length) {
+        return;
+      }
+
+      const post = posts[postIndex];
+
       try {
         const lastAwardedCount = post.lastAwardedViewCount || 0;
         const currentViews = post.viewCount;
 
-        if (currentViews <= lastAwardedCount) {
-          continue;
-        }
+        if (currentViews > lastAwardedCount) {
+          const previousFifties = Math.floor(
+            lastAwardedCount / VIEWS_AURA_CONFIG.fiftyViews.threshold
+          );
+          const currentFifties = Math.floor(
+            currentViews / VIEWS_AURA_CONFIG.fiftyViews.threshold
+          );
+          const previousThousands = Math.floor(
+            lastAwardedCount / VIEWS_AURA_CONFIG.thousandViews.threshold
+          );
+          const currentThousands = Math.floor(
+            currentViews / VIEWS_AURA_CONFIG.thousandViews.threshold
+          );
 
-        const previousFifties = Math.floor(
-          lastAwardedCount / VIEWS_AURA_CONFIG.fiftyViews.threshold
-        );
-        const currentFifties = Math.floor(
-          currentViews / VIEWS_AURA_CONFIG.fiftyViews.threshold
-        );
-        const previousThousands = Math.floor(
-          lastAwardedCount / VIEWS_AURA_CONFIG.thousandViews.threshold
-        );
-        const currentThousands = Math.floor(
-          currentViews / VIEWS_AURA_CONFIG.thousandViews.threshold
-        );
+          const fiftyMilestonesReached = currentFifties - previousFifties;
+          const thousandMilestonesReached =
+            currentThousands - previousThousands;
 
-        const fiftyMilestonesReached = currentFifties - previousFifties;
-        const thousandMilestonesReached = currentThousands - previousThousands;
+          const auraToAward =
+            fiftyMilestonesReached * VIEWS_AURA_CONFIG.fiftyViews.aura +
+            thousandMilestonesReached * VIEWS_AURA_CONFIG.thousandViews.aura;
 
-        const auraToAward =
-          fiftyMilestonesReached * VIEWS_AURA_CONFIG.fiftyViews.aura +
-          thousandMilestonesReached * VIEWS_AURA_CONFIG.thousandViews.aura;
+          if (auraToAward > 0) {
+            await prisma.$transaction(async (tx) => {
+              await tx.post.update({
+                where: { id: post.id },
+                data: {
+                  aura: { increment: auraToAward },
+                  lastAwardedViewCount: currentViews,
+                },
+              });
 
-        if (auraToAward > 0) {
-          await prisma.$transaction(async (tx) => {
-            await tx.post.update({
-              where: { id: post.id },
-              data: {
-                aura: { increment: auraToAward },
-                lastAwardedViewCount: currentViews,
-              },
+              await tx.user.update({
+                where: { id: post.userId },
+                data: {
+                  aura: { increment: auraToAward },
+                },
+              });
+
+              await tx.auraLog.create({
+                data: {
+                  userId: post.userId,
+                  issuerId: post.userId,
+                  amount: auraToAward,
+                  type: "POST_VIEWS_MILESTONE",
+                  postId: post.id,
+                },
+              });
+
+              log(
+                `✨ Awarded ${auraToAward} aura to post ${post.id} and user ${post.userId} (${currentViews} views)`
+              );
             });
 
-            await tx.user.update({
-              where: { id: post.userId },
-              data: {
-                aura: { increment: auraToAward },
-              },
-            });
-
-            await tx.auraLog.create({
-              data: {
-                userId: post.userId,
-                issuerId: post.userId,
-                amount: auraToAward,
-                type: "POST_VIEWS_MILESTONE",
-                postId: post.id,
-              },
-            });
-
-            log(
-              `✨ Awarded ${auraToAward} aura to post ${post.id} and user ${post.userId} (${currentViews} views)`
-            );
-          });
-
-          results.auraAwarded += auraToAward;
-          results.processedPosts++;
+            results.auraAwarded += auraToAward;
+            results.processedPosts += 1;
+          }
         }
       } catch (error) {
         const errorMessage = `Error processing post ${post.id}: ${error instanceof Error ? error.message : String(error)}`;
         log(`❌ ${errorMessage}`);
         results.errors.push(errorMessage);
       }
+
+      await processPost(postIndex + 1);
     }
+
+    await processPost(0);
 
     const summary = {
       success: true,

@@ -1,6 +1,5 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import {
   type UpdateUserProfileValues,
   updateUserProfileSchema,
@@ -17,11 +16,51 @@ import {
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
 import { Textarea } from "@asm/ui/shadui/textarea";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { UserCircle } from "lucide-react";
 import { motion } from "motion/react";
-import { useForm } from "react-hook-form";
+import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { useUpdateProfileMutation } from "../../users/[username]/avatar-mutations";
+
+function DisplayNameFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<UpdateUserProfileValues, "displayName">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>Display Name</FormLabel>
+      <FormControl>
+        <Input
+          {...field}
+          className="bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
+        />
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function BioFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<UpdateUserProfileValues, "bio">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>Bio</FormLabel>
+      <FormControl>
+        <Textarea
+          {...field}
+          className="min-h-[120px] resize-none bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
+          placeholder="Tell us about yourself"
+        />
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
 
 interface ProfileSettingsProps {
   user: UserData;
@@ -91,18 +130,7 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
               <FormField
                 control={form.control}
                 name="displayName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Display Name</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        className="bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={DisplayNameFieldRenderer}
               />
             </motion.div>
 
@@ -114,19 +142,7 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
               <FormField
                 control={form.control}
                 name="bio"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Bio</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        className="min-h-[120px] resize-none bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
-                        placeholder="Tell us about yourself"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={BioFieldRenderer}
               />
             </motion.div>
 

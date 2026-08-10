@@ -21,11 +21,11 @@ const CommentSkeleton: React.FC<CommentSkeletonProps> = ({
         <div className="h-4 w-1/2 animate-pulse rounded-sm bg-muted" />
       </div>
     </div>
-    {showActions && (
+    {showActions ? (
       <div className="ms-auto">
         <div className="h-8 w-8 animate-pulse rounded-md bg-muted opacity-0 transition-opacity group-hover/comment:opacity-100" />
       </div>
-    )}
+    ) : null}
   </div>
 );
 

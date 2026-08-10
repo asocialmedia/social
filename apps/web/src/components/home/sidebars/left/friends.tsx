@@ -135,13 +135,13 @@ const Friends: React.FC<FriendsProps> = ({ isCollapsed }) => {
         </CardContent>
       </Card>
 
-      {userToUnfollow && (
+      {userToUnfollow ? (
         <UnfollowUserDialog
           onClose={handleCloseDialog}
           open={!!userToUnfollow}
           user={userToUnfollow}
         />
-      )}
+      ) : null}
     </>
   );
 };

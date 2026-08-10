@@ -2,6 +2,7 @@
 
 import { Grid, List } from "lucide-react";
 import { motion } from "motion/react";
+import { useCallback } from "react";
 
 interface ViewSwitcherProps {
   onChange: (view: "grid" | "list") => void;
@@ -9,10 +10,13 @@ interface ViewSwitcherProps {
 }
 
 export const ViewSwitcher = ({ view, onChange }: ViewSwitcherProps) => {
+  const handleListClick = useCallback(() => onChange("list"), [onChange]);
+  const handleGridClick = useCallback(() => onChange("grid"), [onChange]);
+
   return (
     <div className="flex items-center justify-center gap-6">
       {/* biome-ignore lint/a11y/useButtonType: ignore */}
-      <button className="group relative pb-1" onClick={() => onChange("list")}>
+      <button className="group relative pb-1" onClick={handleListClick}>
         <List
           className={`h-4 w-4 transition-colors ${
             view === "list" ? "text-primary" : "text-muted-foreground"
@@ -30,7 +34,7 @@ export const ViewSwitcher = ({ view, onChange }: ViewSwitcherProps) => {
       </button>
 
       {/* biome-ignore lint/a11y/useButtonType: ignore */}
-      <button className="group relative pb-1" onClick={() => onChange("grid")}>
+      <button className="group relative pb-1" onClick={handleGridClick}>
         <Grid
           className={`h-4 w-4 transition-colors ${
             view === "grid" ? "text-primary" : "text-muted-foreground"

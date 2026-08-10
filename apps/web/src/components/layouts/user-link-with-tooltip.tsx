@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import type { UserData } from "@asm/db";
+import { useQuery } from "@tanstack/react-query";
 import { HTTPError } from "ky";
 import Link from "next/link";
 import type { PropsWithChildren } from "react";

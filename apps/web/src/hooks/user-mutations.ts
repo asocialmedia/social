@@ -1,7 +1,7 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { debugLog } from "@asm/config/debug";
 import type { FollowerInfo, UserData } from "@asm/db";
 import { useToast } from "@asm/ui/hooks/use-toast";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import kyInstance from "@/lib/ky";
 
 const QUERY_KEYS = {

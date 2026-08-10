@@ -7,8 +7,7 @@ import NextraTheme from "./_components/nextra-theme";
 
 export const metadata: Metadata = {
   title: "Asocialmedia Docs",
-  description:
-    "Documentation for Asocialmedia for developers to get started.",
+  description: "Documentation for Asocialmedia for developers to get started.",
   icons: {
     icon: { url: "/favicon.svg", type: "image/svg+xml" },
   },

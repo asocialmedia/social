@@ -1,6 +1,5 @@
 "use client";
 
-import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -10,16 +9,13 @@ import {
   DialogTrigger,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import { Check, Copy, Download, Mail, Share2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
+import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import {
   FaFacebook,
@@ -295,6 +291,13 @@ const ShareButton = ({
     }
   };
 
+  const handleThumbnailError = useCallback(
+    (e: SyntheticEvent<HTMLImageElement>) => {
+      e.currentTarget.src = FALLBACK_THUMBNAIL;
+    },
+    []
+  );
+
   const downloadQrCode = async () => {
     try {
       const svg = document.querySelector(".qr-code svg");
@@ -363,20 +366,18 @@ const ShareButton = ({
               transition={{ duration: 0.15 }}
             >
               <TabsContent className="mt-4" value="social">
-                {thumbnail && (
+                {thumbnail ? (
                   <div className="relative mb-4 h-32 overflow-hidden rounded-lg">
                     <Image
                       alt="Post thumbnail"
                       className="object-cover"
                       fill
-                      onError={(e) => {
-                        e.currentTarget.src = FALLBACK_THUMBNAIL;
-                      }}
+                      onError={handleThumbnailError}
                       src={thumbnail || FALLBACK_THUMBNAIL}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
                   </div>
-                )}
+                ) : null}
 
                 <div className="grid grid-cols-3 gap-3">
                   {socialShareOptions.map((option) => {
@@ -541,11 +542,11 @@ const ShareButton = ({
           <div className="text-muted-foreground text-xs">
             Share this content responsibly
           </div>
-          {isLoading && (
+          {isLoading ? (
             <div className="text-muted-foreground text-xs">
               Loading share statistics...
             </div>
-          )}
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

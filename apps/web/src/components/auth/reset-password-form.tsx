@@ -1,7 +1,5 @@
 "use client";
 
-import resetImage from "@assets/auth/password-reset-image.jpg";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { EMAIL_REGEX, USERNAME_REGEX } from "@asm/auth/validation";
 import { useToast } from "@asm/ui/hooks/use-toast";
 import {
@@ -13,13 +11,15 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
+import resetImage from "@assets/auth/password-reset-image.jpg";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, KeyRound, Mail } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
 import { LoadingButton } from "./loading-button";
@@ -66,6 +66,31 @@ const floatAnimation = {
     y: [-10, 10, -10],
   },
 };
+
+function IdentifierFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<FormValues, "identifier">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>Username or Email</FormLabel>
+      <FormControl>
+        <div className="relative">
+          <Input
+            {...field}
+            className="pr-10 focus-visible:ring-blue-400"
+            placeholder="Enter your username or email"
+            type="text"
+            value={field.value ?? ""}
+          />
+          <Mail className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        </div>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
 
 function ResetAnimation() {
   return (
@@ -287,24 +312,7 @@ export default function ResetPasswordForm() {
                           <FormField
                             control={form.control}
                             name="identifier"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Username or Email</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <Input
-                                      {...field}
-                                      className="pr-10 focus-visible:ring-blue-400"
-                                      placeholder="Enter your username or email"
-                                      type="text"
-                                      value={field.value ?? ""}
-                                    />
-                                    <Mail className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
+                            render={IdentifierFieldRenderer}
                           />
                           <LoadingButton
                             className="w-full bg-blue-400 hover:bg-blue-500"

@@ -38,11 +38,11 @@ export default async function Page(props: PageProps) {
           <div className="mt-2 flex-none">
             <Friends isCollapsed={false} />
           </div>
-          {userData && (
+          {userData ? (
             <div className="mt-auto mb-4">
               <ProfileCard userData={userData} />
             </div>
-          )}
+          ) : null}
         </div>
       </aside>
 

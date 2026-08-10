@@ -4,16 +4,16 @@ import { getSessionFromApi } from "@/lib/session";
 
 const searchSuggestionsCache = {
   addToHistory(_userId: string, _query: string) {
-    return;
+    // Search suggestion history persistence is currently disabled
   },
   addSuggestion(_query: string) {
-    return;
+    // Search suggestion persistence is currently disabled
   },
   removeHistoryItem(_userId: string, _query: string) {
-    return;
+    // Search suggestion history removal is currently disabled
   },
   clearHistory(_userId: string) {
-    return;
+    // Search suggestion history clearing is currently disabled
   },
 };
 
@@ -79,7 +79,7 @@ export async function DELETE(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const searchParams = req.nextUrl.searchParams;
+    const { searchParams } = req.nextUrl;
     const type = searchParams.get("type");
     const query = searchParams.get("query");
 

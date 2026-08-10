@@ -8,11 +8,33 @@ import {
   SelectValue,
 } from "@asm/ui/shadui/select";
 import { motion } from "motion/react";
+import { useCallback } from "react";
 import { CATEGORIES, PRIORITIES } from "../../constants";
 import type { StepProps } from "../../types";
 import { stepVariants } from "./variants";
 
 export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
+  const handleCategoryChange = useCallback(
+    (value: string) => {
+      setFormData({ ...formData, category: value });
+    },
+    [formData, setFormData]
+  );
+
+  const handlePriorityChange = useCallback(
+    (value: string) => {
+      setFormData({ ...formData, priority: value });
+    },
+    [formData, setFormData]
+  );
+
+  const handleSubjectChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData({ ...formData, subject: e.target.value });
+    },
+    [formData, setFormData]
+  );
+
   return (
     <motion.div
       animate="center"
@@ -29,12 +51,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
       </div>
 
       <div className="space-y-4">
-        <Select
-          onValueChange={(value) =>
-            setFormData({ ...formData, category: value })
-          }
-          value={formData.category}
-        >
+        <Select onValueChange={handleCategoryChange} value={formData.category}>
           <SelectTrigger className="w-full bg-background/50 backdrop-blur-sm">
             <SelectValue placeholder="Select category" />
           </SelectTrigger>
@@ -47,12 +64,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
           </SelectContent>
         </Select>
 
-        <Select
-          onValueChange={(value) =>
-            setFormData({ ...formData, priority: value })
-          }
-          value={formData.priority}
-        >
+        <Select onValueChange={handlePriorityChange} value={formData.priority}>
           <SelectTrigger className="w-full bg-background/50 backdrop-blur-sm">
             <SelectValue placeholder="Select priority" />
           </SelectTrigger>
@@ -67,9 +79,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
 
         <Input
           className="w-full bg-background/50 backdrop-blur-sm"
-          onChange={(e) =>
-            setFormData({ ...formData, subject: e.target.value })
-          }
+          onChange={handleSubjectChange}
           placeholder="Subject"
           required
           value={formData.subject}

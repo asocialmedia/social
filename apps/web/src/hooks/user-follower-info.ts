@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import type { FollowerInfo, UserData } from "@asm/db";
+import { useQuery } from "@tanstack/react-query";
 import kyInstance from "@/lib/ky";
 
 export default function useFollowerInfo(

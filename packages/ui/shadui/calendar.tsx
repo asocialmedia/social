@@ -6,13 +6,30 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
 } from "@radix-ui/react-icons";
-import * as React from "react";
+import { type ComponentProps, type JSX, useEffect, useRef } from "react";
 import {
+  type ChevronProps,
   type DayButton,
   DayPicker,
   getDefaultClassNames,
 } from "react-day-picker";
 import { cn } from "../lib/utils";
+
+function CalendarChevron({
+  className,
+  orientation,
+  ...props
+}: ChevronProps): JSX.Element {
+  if (orientation === "left") {
+    return <ChevronLeftIcon className={cn("size-4", className)} {...props} />;
+  }
+
+  if (orientation === "right") {
+    return <ChevronRightIcon className={cn("size-4", className)} {...props} />;
+  }
+
+  return <ChevronDownIcon className={cn("size-4", className)} {...props} />;
+}
 
 function Calendar({
   className,
@@ -22,7 +39,7 @@ function Calendar({
   formatters,
   components,
   ...props
-}: React.ComponentProps<typeof DayPicker>) {
+}: ComponentProps<typeof DayPicker>) {
   const defaultClassNames = getDefaultClassNames();
 
   return (
@@ -120,26 +137,7 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Chevron: ({ className, orientation, ...props }) => {
-          if (orientation === "left") {
-            return (
-              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
-            );
-          }
-
-          if (orientation === "right") {
-            return (
-              <ChevronRightIcon
-                className={cn("size-4", className)}
-                {...props}
-              />
-            );
-          }
-
-          return (
-            <ChevronDownIcon className={cn("size-4", className)} {...props} />
-          );
-        },
+        Chevron: CalendarChevron,
         DayButton: CalendarDayButton,
         ...components,
       }}
@@ -159,11 +157,11 @@ function CalendarDayButton({
   day,
   modifiers,
   ...props
-}: React.ComponentProps<typeof DayButton>) {
+}: ComponentProps<typeof DayButton>) {
   const defaultClassNames = getDefaultClassNames();
 
-  const ref = React.useRef<HTMLButtonElement>(null);
-  React.useEffect(() => {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
     if (modifiers.focused) {
       ref.current?.focus();
     }

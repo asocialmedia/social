@@ -5,11 +5,24 @@
     "ultracite/biome/react",
     "ultracite/biome/next"
   ],
+  "assist": {
+    "actions": {
+      "source": {
+        "useSortedKeys": "off"
+      }
+    }
+  },
   "linter": {
     "rules": {
       "suspicious": {
         "noConsole": "off",
-        "noUnknownAtRules": "off"
+        "noUnknownAtRules": "off",
+        "noUnknownAttribute": {
+          "level": "error",
+          "options": {
+            "ignore": ["cmdk-input-wrapper"]
+          }
+        }
       }
     }
   },

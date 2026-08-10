@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import type * as React from "react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 import { SparklesCore } from "./sparkles";
 
@@ -19,6 +19,14 @@ export const Cover = ({
 
   const [containerWidth, setContainerWidth] = useState(0);
   const [beamPositions, setBeamPositions] = useState<number[]>([]);
+
+  const handleMouseEnter = useCallback(() => {
+    setHovered(true);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setHovered(false);
+  }, []);
 
   useEffect(() => {
     if (ref.current) {
@@ -39,12 +47,12 @@ export const Cover = ({
     // biome-ignore lint/a11y/noStaticElementInteractions: Presentational hover effects only
     <span
       className="group/cover relative inline-block rounded-xs bg-neutral-100 px-2 py-2 transition duration-200 hover:bg-neutral-900 dark:bg-neutral-900"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       ref={ref}
     >
       <AnimatePresence>
-        {hovered && (
+        {hovered ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 h-full w-full overflow-hidden"
@@ -87,7 +95,7 @@ export const Cover = ({
               />
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
       {beamPositions.map((position, _index) => (
         <Beam

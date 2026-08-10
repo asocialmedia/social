@@ -27,7 +27,7 @@ export async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = sessionResponse.user;
+    const { user } = sessionResponse;
 
     const { userIds } = await request.json();
     const { postId } = await ctx.params;

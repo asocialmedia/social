@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UserData } from "@asm/db";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface MentionsResponse {
   mentions: UserData[];

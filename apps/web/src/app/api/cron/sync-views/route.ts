@@ -1,12 +1,6 @@
-import {
-  POST_VIEWS_KEY_PREFIX,
-  POST_VIEWS_SET,
-  prisma,
-  redis,
-} from "@asm/db";
+import { POST_VIEWS_KEY_PREFIX, POST_VIEWS_SET, prisma, redis } from "@asm/db";
 import { NextResponse } from "next/server";
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: View count sync involves multiple Redis operations, batch processing, and data validation
 async function syncViewCounts() {
   const logs: string[] = [];
   const startTime = Date.now();
@@ -75,8 +69,15 @@ async function syncViewCounts() {
     const batchSize = 100;
     const updates: { postId: string; views: number }[] = [];
 
-    for (let i = 0; i < postsWithViews.length; i += batchSize) {
-      const batch = postsWithViews.slice(i, i + batchSize);
+    async function processReadBatches(batchStartIndex: number): Promise<void> {
+      if (batchStartIndex >= postsWithViews.length) {
+        return;
+      }
+
+      const batch = postsWithViews.slice(
+        batchStartIndex,
+        batchStartIndex + batchSize
+      );
       const pipeline = redis.pipeline();
 
       for (const postId of batch) {
@@ -84,42 +85,50 @@ async function syncViewCounts() {
       }
 
       const batchResults = await pipeline.exec();
-      if (!batchResults) {
-        continue;
+      if (batchResults) {
+        batch.forEach((postId, index) => {
+          const [error, value] = batchResults[index] || [];
+          if (error) {
+            results.errors.push(
+              `Error getting views for post ${postId}: ${error}`
+            );
+            return;
+          }
+
+          const redisViews = Number(value) || 0;
+          const dbViews = existingPostMap.get(postId) || 0;
+          const totalViews = dbViews + redisViews;
+
+          // Only update if we have new views to add
+          if (redisViews > 0) {
+            updates.push({ postId, views: totalViews });
+            log(
+              `Post ${postId}: Adding Redis views ${redisViews} to DB views ${dbViews} = ${totalViews}`
+            );
+          } else {
+            results.skippedPosts += 1;
+            log(`Post ${postId}: Skipped (No new Redis views)`);
+          }
+        });
       }
 
-      batch.forEach((postId, index) => {
-        const [error, value] = batchResults[index] || [];
-        if (error) {
-          results.errors.push(
-            `Error getting views for post ${postId}: ${error}`
-          );
-          return;
-        }
-
-        const redisViews = Number(value) || 0;
-        const dbViews = existingPostMap.get(postId) || 0;
-        const totalViews = dbViews + redisViews;
-
-        // Only update if we have new views to add
-        if (redisViews > 0) {
-          updates.push({ postId, views: totalViews });
-          log(
-            `Post ${postId}: Adding Redis views ${redisViews} to DB views ${dbViews} = ${totalViews}`
-          );
-        } else {
-          results.skippedPosts++;
-          log(`Post ${postId}: Skipped (No new Redis views)`);
-        }
-      });
+      await processReadBatches(batchStartIndex + batchSize);
     }
+
+    await processReadBatches(0);
 
     log(`🔄 Found ${updates.length} posts needing updates`);
 
     // 5. Update posts in batches
-    for (let i = 0; i < updates.length; i += batchSize) {
-      const batch = updates.slice(i, i + batchSize);
-      const batchNumber = Math.floor(i / batchSize) + 1;
+    async function processUpdateBatches(
+      batchStartIndex: number
+    ): Promise<void> {
+      if (batchStartIndex >= updates.length) {
+        return;
+      }
+
+      const batch = updates.slice(batchStartIndex, batchStartIndex + batchSize);
+      const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
       const totalBatches = Math.ceil(updates.length / batchSize);
 
       try {
@@ -137,7 +146,7 @@ async function syncViewCounts() {
           `✅ Batch ${batchNumber}/${totalBatches}: Updated ${batch.length} posts`
         );
 
-        if (i + batchSize < updates.length) {
+        if (batchStartIndex + batchSize < updates.length) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
       } catch (error) {
@@ -147,7 +156,11 @@ async function syncViewCounts() {
         log(`❌ ${errorMessage}`);
         results.errors.push(errorMessage);
       }
+
+      await processUpdateBatches(batchStartIndex + batchSize);
     }
+
+    await processUpdateBatches(0);
 
     if (updates.length > 0) {
       const clearPipeline = redis.pipeline();
@@ -165,8 +178,17 @@ async function syncViewCounts() {
     if (nonExistentPosts.length > 0) {
       log(`🧹 Found ${nonExistentPosts.length} non-existent posts to clean up`);
 
-      for (let i = 0; i < nonExistentPosts.length; i += batchSize) {
-        const batch = nonExistentPosts.slice(i, i + batchSize);
+      async function processCleanupBatches(
+        batchStartIndex: number
+      ): Promise<void> {
+        if (batchStartIndex >= nonExistentPosts.length) {
+          return;
+        }
+
+        const batch = nonExistentPosts.slice(
+          batchStartIndex,
+          batchStartIndex + batchSize
+        );
         const pipeline = redis.pipeline();
 
         for (const postId of batch) {
@@ -176,7 +198,11 @@ async function syncViewCounts() {
 
         await pipeline.exec();
         results.deletedKeys += batch.length * 2;
+
+        await processCleanupBatches(batchStartIndex + batchSize);
       }
+
+      await processCleanupBatches(0);
 
       log(`✅ Cleaned up ${nonExistentPosts.length} non-existent posts`);
     }

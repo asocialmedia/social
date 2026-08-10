@@ -72,13 +72,13 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
                 <div className="text-muted-foreground">@{user.username}</div>
               </Link>
             </div>
-            {user.bio && (
+            {user.bio ? (
               <Linkify>
                 <div className="line-clamp-4 whitespace-pre-line text-card-foreground">
                   {user.bio}
                 </div>
               </Linkify>
-            )}
+            ) : null}
             <div className="text-card-foreground">
               <FollowerCount initialState={followerState} userId={user.id} />
             </div>

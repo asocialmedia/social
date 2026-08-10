@@ -79,11 +79,11 @@ async function proxy(request: NextRequest) {
       responseHeaders.append(key, value);
     });
 
-    const hostForCookie = (
+    const [hostForCookie] = (
       request.headers.get("x-forwarded-host") ||
       request.nextUrl.host ||
       ""
-    ).split(":")[0];
+    ).split(":");
     const getSetCookie = (
       upstream.headers as unknown as { getSetCookie?: () => string[] }
     ).getSetCookie?.bind(upstream.headers);

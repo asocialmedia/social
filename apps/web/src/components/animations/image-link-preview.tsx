@@ -8,7 +8,7 @@ import {
 } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 interface HelpLinkProps {
   href: string;
@@ -130,13 +130,25 @@ export function HelpLink({ href, text, previewImage }: HelpLinkProps) {
     };
   }, [mouseX, mouseY, isMobile]);
 
+  const handleMouseEnter = useCallback(() => {
+    if (!isMobile) {
+      setIsHovered(true);
+    }
+  }, [isMobile]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!isMobile) {
+      setIsHovered(false);
+    }
+  }, [isMobile]);
+
   return (
     <>
       <Link
         className="group relative inline-block px-2 py-1"
         href={href}
-        onMouseEnter={() => !isMobile && setIsHovered(true)}
-        onMouseLeave={() => !isMobile && setIsHovered(false)}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <motion.div
           animate={{ opacity: 1, y: 0 }}

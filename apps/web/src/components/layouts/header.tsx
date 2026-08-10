@@ -24,7 +24,7 @@ import { Playwrite_CA } from "next/font/google";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getRandomFact } from "@/components/constants/loading-facts";
 import MobileSearchButton from "@/components/layouts/mobile/mobile-search-button";
 import SearchToggle from "@/components/layouts/search-toggle";
@@ -56,6 +56,25 @@ const MobileMoreMenu = ({
     }
   }, [open]);
 
+  const handleOpen = useCallback(() => setOpen(true), [setOpen]);
+  const handleClose = useCallback(() => setOpen(false), [setOpen]);
+  const handleBackdropClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.currentTarget === e.target) {
+        setOpen(false);
+      }
+    },
+    [setOpen]
+  );
+  const handleBackdropMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.currentTarget === e.target) {
+        setOpen(false);
+      }
+    },
+    [setOpen]
+  );
+
   return (
     <>
       {!hideTrigger && (
@@ -67,10 +86,7 @@ const MobileMoreMenu = ({
           {/** biome-ignore lint/a11y/noNoninteractiveElementInteractions: ignore */}
           {/** biome-ignore lint/a11y/noStaticElementInteractions: ignore */}
           {/** biome-ignore lint/a11y/useKeyWithClickEvents: ignore */}
-          <div
-            className="flex flex-col items-center"
-            onClick={() => setOpen(true)}
-          >
+          <div className="flex flex-col items-center" onClick={handleOpen}>
             <div className="relative flex items-center justify-center">
               <MoreHorizontal className="h-[18px] w-[18px] text-muted-foreground" />
             </div>
@@ -81,16 +97,16 @@ const MobileMoreMenu = ({
         </motion.div>
       )}
 
-      {open && (
+      {open ? (
         <div className="fixed inset-0 z-[200] md:hidden">
           {/** biome-ignore lint/a11y/noNoninteractiveElementInteractions: ignore */}
           {/** biome-ignore lint/a11y/noStaticElementInteractions: ignore */}
           {/** biome-ignore lint/a11y/useKeyWithClickEvents: ignore */}
           <div
             className="fixed inset-0 bg-background/90 backdrop-blur-lg"
-            onClick={() => setOpen(false)}
+            onClick={handleClose}
           />
-          {fact && (
+          {fact ? (
             <div className="fixed top-4 right-0 left-0 z-[202] flex justify-center px-4">
               <div className="rounded-full border border-border/50 bg-card/80 px-3 py-1.5 text-center shadow-sm backdrop-blur">
                 <span className="text-[11px] text-muted-foreground leading-snug">
@@ -98,22 +114,14 @@ const MobileMoreMenu = ({
                 </span>
               </div>
             </div>
-          )}
+          ) : null}
           {/** biome-ignore lint/a11y/noNoninteractiveElementInteractions: ignore */}
           {/** biome-ignore lint/a11y/noStaticElementInteractions: ignore */}
           {/** biome-ignore lint/a11y/useKeyWithClickEvents: ignore */}
           <div
             className="fixed inset-0 z-[201] flex items-center justify-center p-3"
-            onClick={(e) => {
-              if (e.currentTarget === e.target) {
-                setOpen(false);
-              }
-            }}
-            onMouseDown={(e) => {
-              if (e.currentTarget === e.target) {
-                setOpen(false);
-              }
-            }}
+            onClick={handleBackdropClick}
+            onMouseDown={handleBackdropMouseDown}
           >
             <motion.div
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -125,7 +133,7 @@ const MobileMoreMenu = ({
               <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card p-4 shadow-lg backdrop-blur-xl">
                 <button
                   className="absolute top-2 right-2 rounded-full p-1.5 text-muted-foreground hover:bg-primary/10"
-                  onClick={() => setOpen(false)}
+                  onClick={handleClose}
                   type="button"
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -134,7 +142,7 @@ const MobileMoreMenu = ({
                   <Link
                     className="flex flex-col items-center justify-center rounded-xl border border-border/50 p-3 hover:bg-primary/10"
                     href="/discover"
-                    onClick={() => setOpen(false)}
+                    onClick={handleClose}
                   >
                     <Compass className="h-5 w-5" />
                     <span className="mt-1 text-xs">Discover</span>
@@ -142,7 +150,7 @@ const MobileMoreMenu = ({
                   <Link
                     className="flex flex-col items-center justify-center rounded-xl border border-border/50 p-3 hover:bg-primary/10"
                     href="/settings"
-                    onClick={() => setOpen(false)}
+                    onClick={handleClose}
                   >
                     <Settings className="h-5 w-5" />
                     <span className="mt-1 text-xs">Settings</span>
@@ -152,7 +160,7 @@ const MobileMoreMenu = ({
             </motion.div>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 };
@@ -235,6 +243,14 @@ const Header: React.FC<HeaderProps> = ({
 
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const next = value === "for-you" ? "/" : "/?tab=following";
+      router.push(next);
+    },
+    [router]
+  );
+
   return (
     <>
       <motion.header
@@ -266,10 +282,7 @@ const Header: React.FC<HeaderProps> = ({
           {isActivePath("/") && (
             <Tabs
               className="contents"
-              onValueChange={(value) => {
-                const next = value === "for-you" ? "/" : "/?tab=following";
-                router.push(next);
-              }}
+              onValueChange={handleTabChange}
               value={tab}
             >
               <TabsList className="contents">

@@ -1,9 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import type { UserData as BaseUserData } from "@asm/db";
 import { Card } from "@asm/ui/shadui/card";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { BadgeCheckIcon, Users } from "lucide-react";
 import { motion } from "motion/react";

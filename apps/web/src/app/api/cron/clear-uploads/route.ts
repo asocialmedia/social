@@ -2,7 +2,6 @@ import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { deleteAvatar } from "@/lib/object-storage";
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Media cleanup involves multiple batch operations, file processing, and error handling
 async function clearUploads() {
   const logs: string[] = [];
   const startTime = Date.now();
@@ -51,9 +50,19 @@ async function clearUploads() {
 
     if (unusedMedia.length > 0) {
       const batchSize = 50;
-      for (let i = 0; i < unusedMedia.length; i += batchSize) {
-        const batch = unusedMedia.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
+
+      async function processMediaBatches(
+        batchStartIndex: number
+      ): Promise<void> {
+        if (batchStartIndex >= unusedMedia.length) {
+          return;
+        }
+
+        const batch = unusedMedia.slice(
+          batchStartIndex,
+          batchStartIndex + batchSize
+        );
+        const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
         const totalBatches = Math.ceil(unusedMedia.length / batchSize);
 
         log(
@@ -69,12 +78,12 @@ async function clearUploads() {
           Age: ${Math.floor((Date.now() - file.createdAt.getTime()) / (1000 * 60 * 60))} hours`);
         }
 
-        const _deleteResults = await Promise.allSettled(
+        await Promise.allSettled(
           batch.map(async (media) => {
             if (media.key) {
               try {
                 await deleteAvatar(media.key);
-                results.mediaDeleted++;
+                results.mediaDeleted += 1;
                 log(`✅ Deleted file: ${media.key}`);
                 return true;
               } catch (error) {
@@ -107,10 +116,14 @@ async function clearUploads() {
           results.errors.push(errorMessage);
         }
 
-        if (i + batchSize < unusedMedia.length) {
+        if (batchStartIndex + batchSize < unusedMedia.length) {
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
+
+        await processMediaBatches(batchStartIndex + batchSize);
       }
+
+      await processMediaBatches(0);
     }
 
     // 2. Handle orphaned avatars
@@ -132,16 +145,26 @@ async function clearUploads() {
 
     if (orphanedAvatars.length > 0) {
       const batchSize = 25;
-      for (let i = 0; i < orphanedAvatars.length; i += batchSize) {
-        const batch = orphanedAvatars.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
+
+      async function processAvatarBatches(
+        batchStartIndex: number
+      ): Promise<void> {
+        if (batchStartIndex >= orphanedAvatars.length) {
+          return;
+        }
+
+        const batch = orphanedAvatars.slice(
+          batchStartIndex,
+          batchStartIndex + batchSize
+        );
+        const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
         const totalBatches = Math.ceil(orphanedAvatars.length / batchSize);
 
         log(
           `\n🔄 Processing avatars batch ${batchNumber}/${totalBatches} (${batch.length} avatars)`
         );
 
-        const _avatarResults = await Promise.allSettled(
+        await Promise.allSettled(
           batch.map(async (user) => {
             if (user.avatarKey) {
               try {
@@ -150,7 +173,7 @@ async function clearUploads() {
                   where: { id: user.id },
                   data: { avatarKey: null },
                 });
-                results.avatarsDeleted++;
+                results.avatarsDeleted += 1;
                 log(
                   `✅ Deleted orphaned avatar for user ${user.username}: ${user.avatarKey}`
                 );
@@ -168,10 +191,14 @@ async function clearUploads() {
           })
         );
 
-        if (i + batchSize < orphanedAvatars.length) {
+        if (batchStartIndex + batchSize < orphanedAvatars.length) {
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
+
+        await processAvatarBatches(batchStartIndex + batchSize);
       }
+
+      await processAvatarBatches(0);
     }
 
     const summary = {

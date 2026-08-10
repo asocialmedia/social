@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import { useCallback } from "react";
 import LoadingButton from "@/components/auth/loading-button";
 import { useDeleteCommentMutation } from "./mutations";
 
@@ -23,6 +24,10 @@ export default function DeleteCommentDialog({
   onClose,
 }: DeleteCommentDialogProps) {
   const mutation = useDeleteCommentMutation();
+
+  const handleDelete = useCallback(() => {
+    mutation.mutate(comment.id, { onSuccess: onClose });
+  }, [comment.id, mutation, onClose]);
 
   function handleOpenChange(isOpen: boolean) {
     if (!(isOpen && mutation.isPending)) {
@@ -43,7 +48,7 @@ export default function DeleteCommentDialog({
         <DialogFooter>
           <LoadingButton
             loading={mutation.isPending}
-            onClick={() => mutation.mutate(comment.id, { onSuccess: onClose })}
+            onClick={handleDelete}
             variant="destructive"
           >
             Delete

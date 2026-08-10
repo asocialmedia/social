@@ -1,10 +1,10 @@
+import type { PostsPage } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type InfiniteData,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { PostsPage } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { submitPost, updatePostMentions } from "./actions";
 
 interface PostInput {
@@ -31,8 +31,8 @@ export function useSubmitPostMutation() {
     mutationFn: async (input: PostInput) => {
       const payload = {
         content: input.content,
-        mediaIds: input.mediaIds || [],
-        tags: input.tags || [],
+        mediaIds: input.mediaIds,
+        tags: input.tags,
         mentions: Array.isArray(input.mentions)
           ? input.mentions.filter(Boolean)
           : [],

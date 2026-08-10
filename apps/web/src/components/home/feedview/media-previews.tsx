@@ -3,7 +3,7 @@ import { Button } from "@asm/ui/shadui/button";
 import { FileAudioIcon, FileCode, FileIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
@@ -22,6 +22,18 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
   const isMobile = useMediaQuery("(max-width: 768px)");
 
   const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+
+  const handleShowAll = useCallback(() => {
+    setShowAll(true);
+  }, []);
+
+  const handleShowLess = useCallback(() => {
+    setShowAll(false);
+  }, []);
+
+  const handleCloseViewer = useCallback(() => {
+    setSelectedIndex(null);
+  }, []);
 
   const videoOverlayVariants = {
     initial: { opacity: 0, scale: 0.8 },
@@ -203,6 +215,11 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     size?: "small" | "large";
   }) => {
     const isSmall = size === "small";
+
+    const handleSelect = useCallback(() => {
+      setSelectedIndex(index);
+    }, [index]);
+
     return (
       <motion.div
         animate={{ opacity: 1, y: 0 }}
@@ -213,7 +230,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         exit={{ opacity: 0, y: -20 }}
         initial={{ opacity: 0, y: 20 }}
         layout
-        onClick={() => setSelectedIndex(index)}
+        onClick={handleSelect}
         transition={{ duration: 0.2, delay: index * 0.05 }}
       >
         {renderPreview(media, index, isSmall)}
@@ -238,11 +255,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
                 <p className="font-medium text-sm">
                   {remainingCount} more items
                 </p>
-                <Button
-                  onClick={() => setShowAll(true)}
-                  size="sm"
-                  variant="secondary"
-                >
+                <Button onClick={handleShowAll} size="sm" variant="secondary">
                   Show All
                 </Button>
               </div>
@@ -274,7 +287,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         <button
           aria-label="Show all media"
           className="relative w-full cursor-pointer overflow-hidden rounded-lg bg-primary/5 shadow-xs transition-all duration-300 hover:bg-primary/10 hover:shadow-md"
-          onClick={() => setShowAll(true)}
+          onClick={handleShowAll}
           type="button"
         >
           <div className="flex h-32 items-center justify-between p-4">
@@ -336,7 +349,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       {!showAll && attachments.length > initialCount && <ShowMoreSection />}
 
       <AnimatePresence>
-        {showAll && (
+        {showAll ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="flex justify-center pb-4"
@@ -344,14 +357,14 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
             initial={{ opacity: 0 }}
           >
             <Button
-              onClick={() => setShowAll(false)}
+              onClick={handleShowLess}
               size={isMobile ? "sm" : "default"}
               variant="ghost"
             >
               Show Less
             </Button>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       {selectedIndex !== null && (
@@ -359,7 +372,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
           initialIndex={selectedIndex}
           isOpen={selectedIndex !== null}
           media={attachments}
-          onClose={() => setSelectedIndex(null)}
+          onClose={handleCloseViewer}
         />
       )}
     </motion.div>

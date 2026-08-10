@@ -32,11 +32,11 @@ export default async function Page() {
           <div className="mt-2 flex-none">
             <SuggestedConnections />
           </div>
-          {userData && (
+          {userData ? (
             <div className="mt-auto mb-4">
               <ProfileCard userData={userData} />
             </div>
-          )}
+          ) : null}
         </div>
       </aside>
 

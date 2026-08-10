@@ -80,7 +80,9 @@ export const validateBucket = async () => {
       return false;
     }
     console.error("Error validating bucket:", error);
-    throw new Error(`Failed to validate bucket: ${(error as Error).message}`);
+    throw new Error(`Failed to validate bucket: ${(error as Error).message}`, {
+      cause: error,
+    });
   }
 };
 
@@ -128,7 +130,7 @@ export const uploadToAsmob = async (file: File, userId: string) => {
       buffer = Buffer.from(arrayBuffer);
     } catch (error) {
       console.error("Buffer conversion error:", error);
-      throw new Error("Failed to process file data");
+      throw new Error("Failed to process file data", { cause: error });
     }
 
     await asmobClient.send(
@@ -237,7 +239,7 @@ export const uploadAvatar = async (file: File, userId: string) => {
       buffer = Buffer.from(arrayBuffer);
     } catch (error) {
       console.error("Buffer conversion error:", error);
-      throw new Error("Failed to process avatar image");
+      throw new Error("Failed to process avatar image", { cause: error });
     }
 
     await asmobClient.send(
@@ -355,6 +357,8 @@ export const deleteAvatar = async (key: string) => {
       key,
     });
 
-    throw new Error(`Failed to delete avatar: ${errorMessage}`);
+    throw new Error(`Failed to delete avatar: ${errorMessage}`, {
+      cause: error,
+    });
   }
 };

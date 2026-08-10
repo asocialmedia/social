@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Tag } from "@asm/db";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 
 interface TagResponse {
   tags: string[];
@@ -35,24 +36,27 @@ export function useTags(postId?: string) {
     enabled: false,
   });
 
-  const searchTags = async (query: string) => {
-    try {
-      if (!query.trim()) {
-        queryClient.setQueryData(["tagSuggestions"], { tags: [] });
-        return;
+  const searchTags = useCallback(
+    async (query: string) => {
+      try {
+        if (!query.trim()) {
+          queryClient.setQueryData(["tagSuggestions"], { tags: [] });
+          return;
+        }
+        const res = await fetch(`/api/tags?q=${encodeURIComponent(query)}`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch tags");
+        }
+        const data = await res.json();
+        queryClient.setQueryData(["tagSuggestions"], data);
+        return data;
+      } catch (error) {
+        console.error("Error searching tags:", error);
+        return { tags: [] };
       }
-      const res = await fetch(`/api/tags?q=${encodeURIComponent(query)}`);
-      if (!res.ok) {
-        throw new Error("Failed to fetch tags");
-      }
-      const data = await res.json();
-      queryClient.setQueryData(["tagSuggestions"], data);
-      return data;
-    } catch (error) {
-      console.error("Error searching tags:", error);
-      return { tags: [] };
-    }
-  };
+    },
+    [queryClient]
+  );
 
   const updateTags = useMutation({
     mutationFn: async (tags: string[]) => {

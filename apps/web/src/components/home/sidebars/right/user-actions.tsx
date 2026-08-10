@@ -57,6 +57,6 @@ export async function getSuggestedConnections() {
     return JSON.parse(JSON.stringify(shuffled));
   } catch (error) {
     console.error("Error in getSuggestedConnections:", error);
-    throw new Error("Failed to fetch suggested connections");
+    throw new Error("Failed to fetch suggested connections", { cause: error });
   }
 }

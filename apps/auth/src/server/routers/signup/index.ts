@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { env } from "@root/env";
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma, redis } from "@asm/db";
+import { env } from "@root/env";
 import { z } from "zod";
 import { procedure, router } from "../../trpc";
 import { emailRouter } from "../email";
@@ -65,7 +65,7 @@ async function verifyEmailOtp(
   });
 
   const v = allVerifications.find((record) => {
-    const storedOtp = record.value.split(":")[0];
+    const [storedOtp] = record.value.split(":");
     return storedOtp === otp;
   });
 
@@ -795,8 +795,8 @@ export const signupRouter = router({
           }
 
           try {
-            const emailLower = input.email.toLowerCase();
-            const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
+            const pendingEmailLower = input.email.toLowerCase();
+            const betterAuthIdentifier = `email-verification-otp-${pendingEmailLower}`;
             const deletedCount = await prisma.verification.deleteMany({
               where: {
                 OR: [
@@ -806,7 +806,12 @@ export const signupRouter = router({
                       mode: "insensitive",
                     },
                   },
-                  { identifier: { equals: emailLower, mode: "insensitive" } },
+                  {
+                    identifier: {
+                      equals: pendingEmailLower,
+                      mode: "insensitive",
+                    },
+                  },
                 ],
               },
             });

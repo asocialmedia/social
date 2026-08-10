@@ -36,21 +36,17 @@ async function collectTestFilesRecursive(
   const entries = await readdir(directory, { withFileTypes: true });
   const files: string[] = [];
 
+  const directoryEntries = entries.filter(
+    (entry) => entry.isDirectory() && !IGNORE_DIRS.has(entry.name)
+  );
+  const nestedFiles = await Promise.all(
+    directoryEntries.map((entry) =>
+      collectTestFilesRecursive(join(directory, entry.name), rootDir)
+    )
+  );
+  files.push(...nestedFiles.flat());
+
   for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (IGNORE_DIRS.has(entry.name)) {
-        continue;
-      }
-
-      files.push(
-        ...(await collectTestFilesRecursive(
-          join(directory, entry.name),
-          rootDir
-        ))
-      );
-      continue;
-    }
-
     if (!(entry.isFile() && isTestFile(entry.name))) {
       continue;
     }

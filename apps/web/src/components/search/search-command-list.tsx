@@ -10,6 +10,7 @@ import {
   CommandList,
 } from "@asm/ui/shadui/command";
 import { History, TrendingUp, X } from "lucide-react";
+import { type MouseEvent, useCallback } from "react";
 
 interface SearchCommandListProps {
   history?: string[];
@@ -28,6 +29,26 @@ export function SearchCommandList({
   onClearHistory,
   onRemoveHistoryItem,
 }: SearchCommandListProps) {
+  const handleClearHistory = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      onClearHistory?.();
+    },
+    [onClearHistory]
+  );
+
+  const handleRemoveHistoryItem = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const { query } = e.currentTarget.dataset;
+      if (query !== undefined) {
+        onRemoveHistoryItem?.(query);
+      }
+    },
+    [onRemoveHistoryItem]
+  );
+
   return (
     <Command className="rounded-xl border bg-popover/95 shadow-lg backdrop-blur-xl">
       <CommandList>
@@ -60,19 +81,16 @@ export function SearchCommandList({
           <CommandGroup className="space-y-1.5">
             <div className="flex items-center justify-between px-2 pb-2">
               <span className="font-medium text-sm">Recent Searches</span>
-              {onClearHistory && (
+              {onClearHistory ? (
                 <Button
                   className="h-auto px-2 py-1 text-muted-foreground text-xs hover:text-primary"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onClearHistory();
-                  }}
+                  onClick={handleClearHistory}
                   size="sm"
                   variant="ghost"
                 >
                   Clear all
                 </Button>
-              )}
+              ) : null}
             </div>
             {history.map((query) => (
               <CommandItem
@@ -83,20 +101,17 @@ export function SearchCommandList({
               >
                 <History className="h-4 w-4 text-muted-foreground" />
                 <span className="flex-1">{query}</span>
-                {onRemoveHistoryItem && (
+                {onRemoveHistoryItem ? (
                   <Button
                     className="h-auto p-1 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onRemoveHistoryItem(query);
-                    }}
+                    data-query={query}
+                    onClick={handleRemoveHistoryItem}
                     size="sm"
                     variant="ghost"
                   >
                     <X className="h-3 w-3 text-muted-foreground hover:text-primary" />
                   </Button>
-                )}
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>

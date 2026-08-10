@@ -418,7 +418,7 @@ export async function runCoverageForScope(
 export async function runCoverageCli(
   args = Bun.argv.slice(2)
 ): Promise<number> {
-  const scopeInput = args[0];
+  const [scopeInput] = args;
 
   const usage =
     "Usage: bun scripts/run-coverage-suite.ts <all|unit|integration>";

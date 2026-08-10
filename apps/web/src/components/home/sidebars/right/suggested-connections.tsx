@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { toast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -10,11 +9,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@asm/ui/shadui/card";
+import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, UserRound, Users } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import FollowButton, {
   preloadFollowButton,
 } from "@/components/layouts/follow-button";
@@ -99,6 +99,10 @@ const SuggestedConnections: React.FC = () => {
     }
   };
 
+  const handleRefetch = useCallback(() => {
+    refetch();
+  }, [refetch]);
+
   if (isLoading) {
     return <SuggestedConnectionsSkeleton />;
   }
@@ -122,7 +126,7 @@ const SuggestedConnections: React.FC = () => {
             </p>
             <Button
               className="mt-4"
-              onClick={() => refetch()}
+              onClick={handleRefetch}
               size="sm"
               variant="outline"
             >

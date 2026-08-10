@@ -13,7 +13,7 @@ import { motion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { getAvatarUrl } from "@/lib/utils/get-avatar-url";
 
@@ -31,6 +31,7 @@ const PreviewImage = ({
   user: UserData;
 }) => {
   const [imageError, setImageError] = useState(false);
+  const handleImageError = useCallback(() => setImageError(true), []);
 
   return (
     <motion.div
@@ -60,7 +61,7 @@ const PreviewImage = ({
               alt={user.displayName || user.username}
               className="object-cover opacity-90"
               fill
-              onError={() => setImageError(true)}
+              onError={handleImageError}
               sizes="140px"
               src={getAvatarUrl(user.avatarUrl)}
             />
@@ -75,11 +76,11 @@ const PreviewImage = ({
           <p className="truncate text-muted-foreground text-xs">
             @{user.username}
           </p>
-          {user.bio && (
+          {user.bio ? (
             <p className="line-clamp-2 text-muted-foreground text-xs opacity-80">
               {user.bio}
             </p>
-          )}
+          ) : null}
         </div>
       </motion.div>
     </motion.div>
@@ -93,6 +94,13 @@ export const FriendListItem: React.FC<FriendListItemProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [bgImageError, setBgImageError] = useState(false);
+  const handleMouseEnter = useCallback(() => setIsHovered(true), []);
+  const handleMouseLeave = useCallback(() => setIsHovered(false), []);
+  const handleBgImageError = useCallback(() => setBgImageError(true), []);
+  const handleUnfollow = useCallback(
+    () => onUnfollow(user),
+    [onUnfollow, user]
+  );
 
   return (
     <motion.div
@@ -102,8 +110,8 @@ export const FriendListItem: React.FC<FriendListItemProps> = ({
       exit={{ opacity: 0, y: -20 }}
       initial={{ opacity: 0, y: 20 }}
       layout
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {isHovered && !bgImageError && (
         <motion.div
@@ -116,7 +124,7 @@ export const FriendListItem: React.FC<FriendListItemProps> = ({
             alt=""
             className="object-cover"
             fill
-            onError={() => setBgImageError(true)}
+            onError={handleBgImageError}
             src={getAvatarUrl(user.avatarUrl)}
           />
         </motion.div>
@@ -163,7 +171,7 @@ export const FriendListItem: React.FC<FriendListItemProps> = ({
           <DropdownMenuContent align="end">
             <DropdownMenuItem
               className="text-destructive"
-              onClick={() => onUnfollow(user)}
+              onClick={handleUnfollow}
             >
               <UserMinus className="mr-2 h-4 w-4" />
               Unfollow

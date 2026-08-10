@@ -1,7 +1,5 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import { env } from "@root/env";
 import { type SignUpValues, signUpSchema } from "@asm/auth/validation";
 import { FlipWords } from "@asm/ui/components/ui/flip-words";
 import { useToast } from "@asm/ui/hooks/use-toast";
@@ -26,10 +24,13 @@ import {
   useRateLimitCountdown,
   useSignupStore,
 } from "@asm/ui/store/signup-store";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { env } from "@root/env";
 import { AlertCircle, ArrowLeft, Mail, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import {
+  type ChangeEvent,
   useCallback,
   useEffect,
   useId,
@@ -38,6 +39,7 @@ import {
   useTransition,
 } from "react";
 import {
+  type ControllerRenderProps,
   type FieldValues,
   type SubmitErrorHandler,
   useForm,
@@ -216,7 +218,7 @@ export default function SignUpForm() {
 
   const handleInvalidSubmit: SubmitErrorHandler<FieldValues> = useCallback(
     (errors) => {
-      const firstError = Object.values(errors)[0];
+      const [firstError] = Object.values(errors);
       const errorMessage =
         (firstError?.message as string) || "Please check your input";
 
@@ -227,12 +229,148 @@ export default function SignUpForm() {
         duration: 3000,
       });
 
-      const firstErrorField = Object.keys(errors)[0];
+      const [firstErrorField] = Object.keys(errors);
       if (firstErrorField) {
         scrollToError(firstErrorField);
       }
     },
     [toast]
+  );
+
+  const handleUsernameMouseEnter = useCallback(() => {
+    setHoveredField("username");
+  }, []);
+
+  const handleEmailMouseEnter = useCallback(() => {
+    setHoveredField("email");
+  }, []);
+
+  const handlePasswordMouseEnter = useCallback(() => {
+    setHoveredField("password");
+  }, []);
+
+  const handleAgeVerifyMouseEnter = useCallback(() => {
+    setHoveredField("ageVerify");
+  }, []);
+
+  const handleTermsMouseEnter = useCallback(() => {
+    setHoveredField("terms");
+  }, []);
+
+  const handleFieldMouseLeave = useCallback(() => {
+    setHoveredField(null);
+  }, []);
+
+  const handleAgeVerifyChange = useCallback((checked: boolean) => {
+    setIsAgeVerified(checked);
+  }, []);
+
+  const handleTermsChange = useCallback((checked: boolean) => {
+    setAcceptedTerms(checked);
+  }, []);
+
+  const handlePasswordChange = useCallback(
+    (field: ControllerRenderProps<SignUpValues, "password">) =>
+      (event: ChangeEvent<HTMLInputElement>) => {
+        field.onChange(event);
+        setPassword(event.target.value);
+      },
+    []
+  );
+
+  const renderUsernameField = useCallback(
+    ({ field }: { field: ControllerRenderProps<SignUpValues, "username"> }) => (
+      <FormItem>
+        <FormLabel>Username</FormLabel>
+        <FormControl>
+          <div className="relative">
+            <Input
+              placeholder="cooluser"
+              {...field}
+              autoComplete="username"
+              className={`transition-all duration-500 ease-in-out ${
+                hoveredField === "username"
+                  ? "border-primary shadow-lg shadow-primary/20"
+                  : ""
+              }`}
+              name="username"
+              onMouseEnter={handleUsernameMouseEnter}
+              onMouseLeave={handleFieldMouseLeave}
+            />
+            <User className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          </div>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    [handleFieldMouseLeave, handleUsernameMouseEnter, hoveredField]
+  );
+
+  const renderEmailField = useCallback(
+    ({ field }: { field: ControllerRenderProps<SignUpValues, "email"> }) => (
+      <FormItem>
+        <FormLabel>Email</FormLabel>
+        <FormControl>
+          <div className="relative">
+            <Input
+              placeholder="you@example.com"
+              type="email"
+              {...field}
+              autoComplete="email"
+              className={`transition-all duration-500 ease-in-out ${
+                hoveredField === "email"
+                  ? "border-primary shadow-lg shadow-primary/20"
+                  : ""
+              }`}
+              name="email"
+              onMouseEnter={handleEmailMouseEnter}
+              onMouseLeave={handleFieldMouseLeave}
+            />
+            <Mail className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          </div>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    [handleEmailMouseEnter, handleFieldMouseLeave, hoveredField]
+  );
+
+  const renderPasswordField = useCallback(
+    ({ field }: { field: ControllerRenderProps<SignUpValues, "password"> }) => (
+      <FormItem>
+        <FormLabel>Password</FormLabel>
+        <FormControl>
+          <PasswordInput
+            placeholder="••••••••"
+            {...field}
+            autoComplete="new-password"
+            className={`transition-all duration-500 ease-in-out ${
+              hoveredField === "password"
+                ? "border-primary shadow-lg shadow-primary/20"
+                : ""
+            }`}
+            name="password"
+            onChange={handlePasswordChange(field)}
+            onMouseEnter={handlePasswordMouseEnter}
+            onMouseLeave={handleFieldMouseLeave}
+          />
+        </FormControl>
+        <PasswordStrengthChecker
+          password={password}
+          setPassword={setPassword}
+          setValue={form.setValue}
+        />
+        <FormMessage />
+      </FormItem>
+    ),
+    [
+      form,
+      handleFieldMouseLeave,
+      handlePasswordChange,
+      handlePasswordMouseEnter,
+      hoveredField,
+      password,
+    ]
   );
 
   const onSubmit = (values: SignUpValues) => {
@@ -312,7 +450,7 @@ export default function SignUpForm() {
             isLimited: true,
           });
 
-          const resetTime = result.rateLimitInfo.resetTime;
+          const { resetTime } = result.rateLimitInfo;
           const now = Math.floor(Date.now() / 1000);
           const waitTime = resetTime
             ? Math.max(0, Math.ceil((resetTime - now) / 60))
@@ -358,168 +496,381 @@ export default function SignUpForm() {
     });
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: it's fine
-  const handleOTPVerification = async (otpValue: string) => {
-    try {
-      setVerifying(true);
-      setOtpError(false);
-      const email = currentEmail || form.getValues("email");
-      const authBase = env.NEXT_PUBLIC_AUTH_URL;
-      const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          id: 1,
-          json: {
-            email,
-            otp: otpValue,
-            otpVerified: true,
-          },
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}) as unknown);
-
-      if (!(res.ok && data?.result?.data?.json?.success)) {
-        const serverError =
-          data?.result?.error?.message ||
-          data?.result?.data?.json?.error ||
-          "Signup completion failed";
-
-        const rateLimitInfo = data?.result?.data?.json;
-
-        let userFriendlyError = "Something went wrong. Please try again.";
-        let errorTitle = "Verification Failed";
-
-        if (serverError === "invalid-otp") {
-          userFriendlyError =
-            "The verification code is incorrect or has expired. Please check and try again.";
-          errorTitle = "Wrong Code";
-          setOtpError(true);
-          setOtp("");
-        } else if (serverError === "user-exists") {
-          userFriendlyError =
-            "An account with this email or username already exists.";
-          errorTitle = "Account Already Exists";
-          clearSignupState();
-          setTimeout(() => {
-            window.location.href = "/login";
-          }, 2000);
-        } else if (serverError === "no-pending-signup") {
-          userFriendlyError =
-            "Your verification session has expired. Please start the signup process again.";
-          errorTitle = "Session Expired";
-          clearSignupState();
-          setTimeout(() => {
-            window.location.reload();
-          }, 2000);
-        } else if (serverError === "rate-limited") {
-          const resetTime = rateLimitInfo?.resetTime;
-          const now = Math.floor(Date.now() / 1000);
-          const waitTime = resetTime
-            ? Math.max(0, Math.ceil((resetTime - now) / 60))
-            : 60;
-
-          userFriendlyError =
-            waitTime > 0
-              ? `You've been creating accounts too quickly. Please take a ${waitTime}-minute break and try again.`
-              : "Too many signup attempts. Please wait a moment and try again.";
-          errorTitle = "Rate Limited";
-          setOtpError(true);
-          setOtp("");
-        }
-
-        console.error("OTP verification error:", serverError);
-        toast({
-          variant: "destructive",
-          title: errorTitle,
-          description: userFriendlyError,
-          duration: serverError === "rate-limited" ? 8000 : 5000,
-        });
-        return;
-      }
-
-      const responseData = data?.result?.data?.json;
-      const responseEmail = responseData?.email;
-      const responsePassword = form.getValues("password");
-
-      if (responseEmail && responsePassword) {
-        try {
-          console.log("Attempting auto-login after OTP verification");
-          const { authClient } = await import("@/lib/auth");
-
-          const loginResult = await authClient.signIn.email({
-            email: responseEmail,
-            password: responsePassword,
-            callbackURL: "/",
-            fetchOptions: {
-              onSuccess: () => {
-                console.log("Auto-login successful");
-              },
-              onError: (ctx) => {
-                console.error("Auto-login error:", ctx.error);
-                throw new Error(ctx.error.message || "Auto-login failed");
-              },
+  const handleOTPVerification = useCallback(
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: it's fine
+    async (otpValue: string) => {
+      try {
+        setVerifying(true);
+        setOtpError(false);
+        const email = currentEmail || form.getValues("email");
+        const authBase = env.NEXT_PUBLIC_AUTH_URL;
+        const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            id: 1,
+            json: {
+              email,
+              otp: otpValue,
+              otpVerified: true,
             },
-          });
+          }),
+        });
 
-          if (loginResult?.data) {
-            console.log("Auto-login completed successfully");
-            verificationChannel.current?.postMessage("verification-success");
-            setIsVerifying(true);
+        const data = await res.json().catch(() => ({}) as unknown);
+
+        if (!(res.ok && data?.result?.data?.json?.success)) {
+          const serverError =
+            data?.result?.error?.message ||
+            data?.result?.data?.json?.error ||
+            "Signup completion failed";
+
+          const rateLimitInfo = data?.result?.data?.json;
+
+          let userFriendlyError = "Something went wrong. Please try again.";
+          let errorTitle = "Verification Failed";
+
+          if (serverError === "invalid-otp") {
+            userFriendlyError =
+              "The verification code is incorrect or has expired. Please check and try again.";
+            errorTitle = "Wrong Code";
+            setOtpError(true);
+            setOtp("");
+          } else if (serverError === "user-exists") {
+            userFriendlyError =
+              "An account with this email or username already exists.";
+            errorTitle = "Account Already Exists";
             clearSignupState();
-            toast({
-              title: "Welcome to Asocialmedia! 🎉",
-              description:
-                "Your account has been created and you're now logged in.",
-            });
+            setTimeout(() => {
+              window.location.href = "/login";
+            }, 2000);
+          } else if (serverError === "no-pending-signup") {
+            userFriendlyError =
+              "Your verification session has expired. Please start the signup process again.";
+            errorTitle = "Session Expired";
+            clearSignupState();
+            setTimeout(() => {
+              window.location.reload();
+            }, 2000);
+          } else if (serverError === "rate-limited") {
+            const resetTime = rateLimitInfo?.resetTime;
+            const now = Math.floor(Date.now() / 1000);
+            const waitTime = resetTime
+              ? Math.max(0, Math.ceil((resetTime - now) / 60))
+              : 60;
 
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            window.location.href = "/";
-            return;
+            userFriendlyError =
+              waitTime > 0
+                ? `You've been creating accounts too quickly. Please take a ${waitTime}-minute break and try again.`
+                : "Too many signup attempts. Please wait a moment and try again.";
+            errorTitle = "Rate Limited";
+            setOtpError(true);
+            setOtp("");
           }
-        } catch (signError) {
-          console.error("Auto sign-in failed:", signError);
+
+          console.error("OTP verification error:", serverError);
           toast({
-            title: "Account Created! 🎉",
-            description:
-              "Your account has been created. Please log in to continue.",
+            variant: "destructive",
+            title: errorTitle,
+            description: userFriendlyError,
+            duration: serverError === "rate-limited" ? 8000 : 5000,
           });
-          clearSignupState();
-          setTimeout(() => {
-            window.location.href = "/login";
-          }, 1000);
           return;
         }
-      }
 
-      setIsVerifying(true);
-      clearSignupState();
+        const responseData = data?.result?.data?.json;
+        const responseEmail = responseData?.email;
+        const responsePassword = form.getValues("password");
+
+        if (responseEmail && responsePassword) {
+          try {
+            console.log("Attempting auto-login after OTP verification");
+            const { authClient } = await import("@/lib/auth");
+
+            const loginResult = await authClient.signIn.email({
+              email: responseEmail,
+              password: responsePassword,
+              callbackURL: "/",
+              fetchOptions: {
+                onSuccess: () => {
+                  console.log("Auto-login successful");
+                },
+                onError: (ctx) => {
+                  console.error("Auto-login error:", ctx.error);
+                  throw new Error(ctx.error.message || "Auto-login failed");
+                },
+              },
+            });
+
+            if (loginResult?.data) {
+              console.log("Auto-login completed successfully");
+              verificationChannel.current?.postMessage("verification-success");
+              setIsVerifying(true);
+              clearSignupState();
+              toast({
+                title: "Welcome to Asocialmedia! 🎉",
+                description:
+                  "Your account has been created and you're now logged in.",
+              });
+
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              window.location.href = "/";
+              return;
+            }
+          } catch (signError) {
+            console.error("Auto sign-in failed:", signError);
+            toast({
+              title: "Account Created! 🎉",
+              description:
+                "Your account has been created. Please log in to continue.",
+            });
+            clearSignupState();
+            setTimeout(() => {
+              window.location.href = "/login";
+            }, 1000);
+            return;
+          }
+        }
+
+        setIsVerifying(true);
+        clearSignupState();
+        toast({
+          title: "Welcome to Asocialmedia! 🎉",
+          description:
+            "Your account has been created successfully. Please log in.",
+        });
+        verificationChannel.current?.postMessage("verification-success");
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 1000);
+      } catch (verificationError) {
+        const message =
+          verificationError instanceof Error
+            ? verificationError.message
+            : "OTP verification failed";
+        toast({
+          variant: "destructive",
+          title: "Verification Failed",
+          description: message,
+        });
+        throw verificationError;
+      } finally {
+        setVerifying(false);
+      }
+    },
+    [clearSignupState, currentEmail, form, setIsVerifying, setVerifying, toast]
+  );
+
+  const handleBackToCodeEntry = useCallback(() => {
+    setOTPState(currentEmail || form.getValues("email"));
+  }, [currentEmail, form, setOTPState]);
+
+  const handleResendVerificationLink = useCallback(async () => {
+    if (!canResend()) {
+      return;
+    }
+    setResending(true);
+    const { sendVerificationLink } = await import(
+      "@/app/(auth)/signup/actions"
+    );
+    const res = await sendVerificationLink(
+      currentEmail || form.getValues("email")
+    );
+    if (res.success) {
+      resetResendCountdown();
+      startResendCountdown();
+      setRateLimit("resend", { isLimited: false });
       toast({
-        title: "Welcome to Asocialmedia! 🎉",
-        description:
-          "Your account has been created successfully. Please log in.",
+        title: "Email Sent!",
+        description: "A new verification link has been sent to your email.",
       });
-      verificationChannel.current?.postMessage("verification-success");
-      setTimeout(() => {
-        window.location.href = "/login";
-      }, 1000);
-    } catch (verificationError) {
-      const message =
-        verificationError instanceof Error
-          ? verificationError.message
-          : "OTP verification failed";
+    } else if (res.rateLimited && res.rateLimitInfo) {
+      setRateLimit("resend", {
+        remaining: res.rateLimitInfo.remaining,
+        resetTime: res.rateLimitInfo.resetTime,
+        isLimited: true,
+      });
       toast({
         variant: "destructive",
-        title: "Verification Failed",
-        description: message,
+        title: "Rate Limited!",
+        description: res.error || "Too many requests. Try again later.",
       });
-      throw verificationError;
-    } finally {
-      setVerifying(false);
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Failed to Send",
+        description: res.error || "Failed to send verification link.",
+      });
     }
-  };
+    setResending(false);
+  }, [
+    canResend,
+    currentEmail,
+    form,
+    resetResendCountdown,
+    setRateLimit,
+    setResending,
+    startResendCountdown,
+    toast,
+  ]);
+
+  const handleResendOtpButton = useCallback(async () => {
+    if (!canResend()) {
+      return;
+    }
+    setTooltipDismissed(true);
+    setResending(true);
+    const { resendVerificationEmail } = await import(
+      "@/app/(auth)/signup/actions"
+    );
+    const result = await resendVerificationEmail(
+      currentEmail || form.getValues("email")
+    );
+    if (result.success) {
+      resetCountdown();
+      startCountdown();
+      setOtp("");
+      setTooltipDismissed(false);
+      setRateLimit("resend", { isLimited: false });
+      toast({
+        title: "Code Sent!",
+        description: "A new verification code has been sent.",
+      });
+    } else if (result.rateLimited && result.rateLimitInfo) {
+      setRateLimit("resend", {
+        remaining: result.rateLimitInfo.remaining,
+        resetTime: result.rateLimitInfo.resetTime,
+        isLimited: true,
+      });
+      toast({
+        variant: "destructive",
+        title: "Rate Limited!",
+        description: result.error || "Too many requests. Try again later.",
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Failed to Resend",
+        description: result.error || "Failed to resend verification code.",
+      });
+    }
+    setResending(false);
+  }, [
+    canResend,
+    currentEmail,
+    form,
+    resetCountdown,
+    setRateLimit,
+    setResending,
+    startCountdown,
+    toast,
+  ]);
+
+  const handleOtpChange = useCallback(
+    (val: string) => {
+      if (DIGITS_ONLY_REGEX.test(val)) {
+        setOtp(val);
+        setOtpError(false);
+        if (val.length === 6) {
+          handleOTPVerification(val);
+        }
+      } else {
+        setOtpError(true);
+        toast({
+          variant: "destructive",
+          title: "Numbers only, please!",
+          description: "We're looking for digits, not your life story!",
+          duration: 2000,
+        });
+      }
+    },
+    [handleOTPVerification, toast]
+  );
+
+  const handleResendOtpCode = useCallback(async () => {
+    if (!canResend()) {
+      return;
+    }
+    setResending(true);
+    const { resendVerificationEmail } = await import(
+      "@/app/(auth)/signup/actions"
+    );
+    const result = await resendVerificationEmail(
+      currentEmail || form.getValues("email")
+    );
+    if (result.success) {
+      resetOtpResendCountdown();
+      startOtpResendCountdown();
+      setOtp("");
+      setRateLimit("resend", { isLimited: false });
+      toast({
+        title: "Code Sent!",
+        description: "A new verification code has been sent.",
+      });
+    } else if (result.rateLimited && result.rateLimitInfo) {
+      setRateLimit("resend", {
+        remaining: result.rateLimitInfo.remaining,
+        resetTime: result.rateLimitInfo.resetTime,
+        isLimited: true,
+      });
+      toast({
+        variant: "destructive",
+        title: "Rate Limited!",
+        description: result.error || "Too many requests. Try again later.",
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Failed to Resend",
+        description: result.error || "Failed to resend verification code.",
+      });
+    }
+    setResending(false);
+  }, [
+    canResend,
+    currentEmail,
+    form,
+    resetOtpResendCountdown,
+    setRateLimit,
+    setResending,
+    startOtpResendCountdown,
+    toast,
+  ]);
+
+  const handleVerifyViaEmailLink = useCallback(async () => {
+    const { sendVerificationLink } = await import(
+      "@/app/(auth)/signup/actions"
+    );
+    const res = await sendVerificationLink(
+      currentEmail || form.getValues("email")
+    );
+    if (res.success) {
+      setEmailVerificationState(currentEmail || form.getValues("email"));
+      setRateLimit("resend", { isLimited: false });
+      toast({
+        title: "Email Link Sent!",
+        description: "Check your inbox for the verification link.",
+      });
+    } else if (res.rateLimited && res.rateLimitInfo) {
+      setRateLimit("resend", {
+        remaining: res.rateLimitInfo.remaining,
+        resetTime: res.rateLimitInfo.resetTime,
+        isLimited: true,
+      });
+      toast({
+        variant: "destructive",
+        title: "Rate Limited!",
+        description: res.error || "Too many requests. Try again later.",
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Failed to Send",
+        description: res.error || "Failed to send verification link.",
+      });
+    }
+  }, [currentEmail, form, setEmailVerificationState, setRateLimit, toast]);
 
   return (
     <div>
@@ -546,104 +897,28 @@ export default function SignUpForm() {
                   noValidate
                   onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)}
                 >
-                  {error && (
+                  {error ? (
                     <div className="rounded-lg bg-destructive/15 p-3 text-center text-destructive text-sm">
                       <p className="flex items-center justify-center gap-2">
                         <AlertCircle className="h-5 w-5 shrink-0" />
                         {error}
                       </p>
                     </div>
-                  )}
+                  ) : null}
                   <FormField
                     control={form.control}
                     name="username"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Username</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Input
-                              placeholder="cooluser"
-                              {...field}
-                              autoComplete="username"
-                              className={`transition-all duration-500 ease-in-out ${
-                                hoveredField === "username"
-                                  ? "border-primary shadow-lg shadow-primary/20"
-                                  : ""
-                              }`}
-                              name="username"
-                              onMouseEnter={() => setHoveredField("username")}
-                              onMouseLeave={() => setHoveredField(null)}
-                            />
-                            <User className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={renderUsernameField}
                   />
                   <FormField
                     control={form.control}
                     name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Input
-                              placeholder="you@example.com"
-                              type="email"
-                              {...field}
-                              autoComplete="email"
-                              className={`transition-all duration-500 ease-in-out ${
-                                hoveredField === "email"
-                                  ? "border-primary shadow-lg shadow-primary/20"
-                                  : ""
-                              }`}
-                              name="email"
-                              onMouseEnter={() => setHoveredField("email")}
-                              onMouseLeave={() => setHoveredField(null)}
-                            />
-                            <Mail className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={renderEmailField}
                   />
                   <FormField
                     control={form.control}
                     name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <PasswordInput
-                            placeholder="••••••••"
-                            {...field}
-                            autoComplete="new-password"
-                            className={`transition-all duration-500 ease-in-out ${
-                              hoveredField === "password"
-                                ? "border-primary shadow-lg shadow-primary/20"
-                                : ""
-                            }`}
-                            name="password"
-                            onChange={(e) => {
-                              field.onChange(e);
-                              setPassword(e.target.value);
-                            }}
-                            onMouseEnter={() => setHoveredField("password")}
-                            onMouseLeave={() => setHoveredField(null)}
-                          />
-                        </FormControl>
-                        <PasswordStrengthChecker
-                          password={password}
-                          setPassword={setPassword}
-                          setValue={form.setValue}
-                        />
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={renderPasswordField}
                   />
 
                   <div className="space-y-3 pt-2">
@@ -656,11 +931,9 @@ export default function SignUpForm() {
                             : ""
                         }`}
                         id={ageVerifyId}
-                        onCheckedChange={(checked) =>
-                          setIsAgeVerified(checked as boolean)
-                        }
-                        onMouseEnter={() => setHoveredField("ageVerify")}
-                        onMouseLeave={() => setHoveredField(null)}
+                        onCheckedChange={handleAgeVerifyChange}
+                        onMouseEnter={handleAgeVerifyMouseEnter}
+                        onMouseLeave={handleFieldMouseLeave}
                       />
                       <label
                         className="text-muted-foreground text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -679,11 +952,9 @@ export default function SignUpForm() {
                             : ""
                         }`}
                         id={termsId}
-                        onCheckedChange={(checked) =>
-                          setAcceptedTerms(checked as boolean)
-                        }
-                        onMouseEnter={() => setHoveredField("terms")}
-                        onMouseLeave={() => setHoveredField(null)}
+                        onCheckedChange={handleTermsChange}
+                        onMouseEnter={handleTermsMouseEnter}
+                        onMouseLeave={handleFieldMouseLeave}
                       />
                       <label
                         className="text-muted-foreground text-sm leading-tight peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -730,7 +1001,7 @@ export default function SignUpForm() {
             </motion.div>
           )}
 
-          {showOTPPanel && (
+          {showOTPPanel ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
               className="relative space-y-6"
@@ -749,9 +1020,7 @@ export default function SignUpForm() {
                 >
                   <button
                     className="group -mt-2 mb-2 -ml-2 flex items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground"
-                    onClick={() => {
-                      setOTPState(currentEmail || form.getValues("email"));
-                    }}
+                    onClick={handleBackToCodeEntry}
                     type="button"
                   >
                     <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
@@ -784,50 +1053,7 @@ export default function SignUpForm() {
                       <Button
                         className="w-full cursor-pointer bg-accent text-accent-foreground"
                         disabled={isResending || !canResend()}
-                        onClick={async () => {
-                          if (!canResend()) {
-                            return;
-                          }
-                          setResending(true);
-                          const { sendVerificationLink } = await import(
-                            "@/app/(auth)/signup/actions"
-                          );
-                          const res = await sendVerificationLink(
-                            currentEmail || form.getValues("email")
-                          );
-                          if (res.success) {
-                            resetResendCountdown();
-                            startResendCountdown();
-                            setRateLimit("resend", { isLimited: false });
-                            toast({
-                              title: "Email Sent!",
-                              description:
-                                "A new verification link has been sent to your email.",
-                            });
-                          } else if (res.rateLimited && res.rateLimitInfo) {
-                            setRateLimit("resend", {
-                              remaining: res.rateLimitInfo.remaining,
-                              resetTime: res.rateLimitInfo.resetTime,
-                              isLimited: true,
-                            });
-                            toast({
-                              variant: "destructive",
-                              title: "Rate Limited!",
-                              description:
-                                res.error ||
-                                "Too many requests. Try again later.",
-                            });
-                          } else {
-                            toast({
-                              variant: "destructive",
-                              title: "Failed to Send",
-                              description:
-                                res.error ||
-                                "Failed to send verification link.",
-                            });
-                          }
-                          setResending(false);
-                        }}
+                        onClick={handleResendVerificationLink}
                         type="button"
                         variant="secondary"
                       >
@@ -907,56 +1133,7 @@ export default function SignUpForm() {
                           }
                           className="group relative h-12 w-12 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 sm:h-16 sm:w-16"
                           disabled={!canResend() || count > 0}
-                          onClick={async () => {
-                            if (!canResend()) {
-                              return;
-                            }
-                            setTooltipDismissed(true);
-                            setResending(true);
-                            const { resendVerificationEmail } = await import(
-                              "@/app/(auth)/signup/actions"
-                            );
-                            const result = await resendVerificationEmail(
-                              currentEmail || form.getValues("email")
-                            );
-                            if (result.success) {
-                              resetCountdown();
-                              startCountdown();
-                              setOtp("");
-                              setTooltipDismissed(false);
-                              setRateLimit("resend", { isLimited: false });
-                              toast({
-                                title: "Code Sent!",
-                                description:
-                                  "A new verification code has been sent.",
-                              });
-                            } else if (
-                              result.rateLimited &&
-                              result.rateLimitInfo
-                            ) {
-                              setRateLimit("resend", {
-                                remaining: result.rateLimitInfo.remaining,
-                                resetTime: result.rateLimitInfo.resetTime,
-                                isLimited: true,
-                              });
-                              toast({
-                                variant: "destructive",
-                                title: "Rate Limited!",
-                                description:
-                                  result.error ||
-                                  "Too many requests. Try again later.",
-                              });
-                            } else {
-                              toast({
-                                variant: "destructive",
-                                title: "Failed to Resend",
-                                description:
-                                  result.error ||
-                                  "Failed to resend verification code.",
-                              });
-                            }
-                            setResending(false);
-                          }}
+                          onClick={handleResendOtpButton}
                           type="button"
                         >
                           <svg
@@ -1025,24 +1202,7 @@ export default function SignUpForm() {
                           containerClassName="w-full"
                           disabled={isVerifyingOTP || count === 0}
                           maxLength={6}
-                          onChange={(val) => {
-                            if (DIGITS_ONLY_REGEX.test(val)) {
-                              setOtp(val);
-                              setOtpError(false);
-                              if (val.length === 6) {
-                                handleOTPVerification(val);
-                              }
-                            } else {
-                              setOtpError(true);
-                              toast({
-                                variant: "destructive",
-                                title: "Numbers only, please!",
-                                description:
-                                  "We're looking for digits, not your life story!",
-                                duration: 2000,
-                              });
-                            }
-                          }}
+                          onChange={handleOtpChange}
                           pattern="[0-9]*"
                           value={otp}
                         >
@@ -1072,7 +1232,7 @@ export default function SignUpForm() {
                       </motion.div>
 
                       <AnimatePresence mode="wait">
-                        {isVerifyingOTP && (
+                        {isVerifyingOTP ? (
                           <motion.div
                             animate={{ opacity: 1, y: 0 }}
                             className="flex items-center justify-center gap-2 text-primary text-sm"
@@ -1091,7 +1251,7 @@ export default function SignUpForm() {
                             />
                             <span>Verifying your code...</span>
                           </motion.div>
-                        )}
+                        ) : null}
                         {!isVerifyingOTP && otpError && (
                           <motion.div
                             animate={{ opacity: 1, y: 0 }}
@@ -1111,7 +1271,7 @@ export default function SignUpForm() {
 
                     <div className="space-y-2">
                       <AnimatePresence>
-                        {otpResendCount === 0 && (
+                        {otpResendCount === 0 ? (
                           <motion.div
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
@@ -1121,104 +1281,19 @@ export default function SignUpForm() {
                             <Button
                               className="w-full cursor-pointer"
                               disabled={isResending || !canResend()}
-                              onClick={async () => {
-                                if (!canResend()) {
-                                  return;
-                                }
-                                setResending(true);
-                                const { resendVerificationEmail } =
-                                  await import("@/app/(auth)/signup/actions");
-                                const result = await resendVerificationEmail(
-                                  currentEmail || form.getValues("email")
-                                );
-                                if (result.success) {
-                                  resetOtpResendCountdown();
-                                  startOtpResendCountdown();
-                                  setOtp("");
-                                  setRateLimit("resend", { isLimited: false });
-                                  toast({
-                                    title: "Code Sent!",
-                                    description:
-                                      "A new verification code has been sent.",
-                                  });
-                                } else if (
-                                  result.rateLimited &&
-                                  result.rateLimitInfo
-                                ) {
-                                  setRateLimit("resend", {
-                                    remaining: result.rateLimitInfo.remaining,
-                                    resetTime: result.rateLimitInfo.resetTime,
-                                    isLimited: true,
-                                  });
-                                  toast({
-                                    variant: "destructive",
-                                    title: "Rate Limited!",
-                                    description:
-                                      result.error ||
-                                      "Too many requests. Try again later.",
-                                  });
-                                } else {
-                                  toast({
-                                    variant: "destructive",
-                                    title: "Failed to Resend",
-                                    description:
-                                      result.error ||
-                                      "Failed to resend verification code.",
-                                  });
-                                }
-                                setResending(false);
-                              }}
+                              onClick={handleResendOtpCode}
                               type="button"
                               variant="default"
                             >
                               {isResending ? "Sending..." : "Resend Code"}
                             </Button>
                           </motion.div>
-                        )}
+                        ) : null}
                       </AnimatePresence>
 
                       <Button
                         className="w-full cursor-pointer bg-accent text-accent-foreground"
-                        onClick={async () => {
-                          const { sendVerificationLink } = await import(
-                            "@/app/(auth)/signup/actions"
-                          );
-                          const res = await sendVerificationLink(
-                            currentEmail || form.getValues("email")
-                          );
-                          if (res.success) {
-                            setEmailVerificationState(
-                              currentEmail || form.getValues("email")
-                            );
-                            setRateLimit("resend", { isLimited: false });
-                            toast({
-                              title: "Email Link Sent!",
-                              description:
-                                "Check your inbox for the verification link.",
-                            });
-                          } else if (res.rateLimited && res.rateLimitInfo) {
-                            setRateLimit("resend", {
-                              remaining: res.rateLimitInfo.remaining,
-                              resetTime: res.rateLimitInfo.resetTime,
-                              isLimited: true,
-                            });
-                            toast({
-                              variant: "destructive",
-                              title: "Rate Limited!",
-                              description:
-                                res.error ||
-                                "Too many requests. Try again later.",
-                            });
-                          } else {
-                            toast({
-                              variant: "destructive",
-                              title: "Failed to Send",
-                              description:
-                                res.error ||
-                                "Failed to send verification link.",
-                            });
-                          }
-                        }}
+                        onClick={handleVerifyViaEmailLink}
                         type="button"
                         variant="secondary"
                       >
@@ -1229,7 +1304,7 @@ export default function SignUpForm() {
                 </motion.div>
               )}
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
     </div>

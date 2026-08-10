@@ -56,7 +56,7 @@ export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
             {story.title}
           </a>
 
-          {domain && (
+          {domain ? (
             <div className="mt-1">
               <Badge
                 className="text-xs hover:bg-orange-500/10 hover:text-orange-500"
@@ -66,7 +66,7 @@ export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
                 {domain}
               </Badge>
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-2 text-muted-foreground text-xs">

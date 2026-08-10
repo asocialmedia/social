@@ -1,6 +1,5 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import { USERNAME_REGEX } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
 import { useToast } from "@asm/ui/hooks/use-toast";
@@ -13,10 +12,11 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { KeyRound, Mail } from "lucide-react";
 import { motion } from "motion/react";
-import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { useCallback, useState, useTransition } from "react";
+import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
 import { LoadingButton } from "@/components/auth/loading-button";
@@ -50,6 +50,25 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
       identifier: user.email || user.username || "",
     },
   });
+
+  const renderIdentifierField = useCallback(
+    ({ field }: { field: ControllerRenderProps<FormValues, "identifier"> }) => (
+      <FormItem>
+        <FormLabel>Username or Email</FormLabel>
+        <FormControl>
+          <Input
+            {...field}
+            className="bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
+            disabled={isEmailSent}
+            placeholder="Enter your username or email to reset password"
+            type="text"
+          />
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    [isEmailSent]
+  );
 
   function onSubmit(values: FormValues) {
     startTransition(async () => {
@@ -114,21 +133,7 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
                 <FormField
                   control={form.control}
                   name="identifier"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Username or Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          className="bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
-                          disabled={isEmailSent}
-                          placeholder="Enter your username or email to reset password"
-                          type="text"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={renderIdentifierField}
                 />
 
                 <LoadingButton

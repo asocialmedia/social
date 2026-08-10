@@ -12,7 +12,7 @@ import { AtSign, Sparkles } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { cn } from "@/lib/utils";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
@@ -102,24 +102,47 @@ export function MentionTags({
     }
   }, [initialMentions, localMentions]);
 
-  const handleMentionsUpdate = async (newMentions: UserData[]) => {
-    try {
-      setLocalMentions(newMentions);
-      setIsEditing(false);
+  const handleMentionsUpdate = useCallback(
+    async (newMentions: UserData[]) => {
+      try {
+        setLocalMentions(newMentions);
+        setIsEditing(false);
 
-      if (postId) {
-        await updateMentions.mutateAsync(newMentions.map((m) => m.id));
+        if (postId) {
+          await updateMentions.mutateAsync(newMentions.map((m) => m.id));
+        }
+        onMentionsChange?.(newMentions);
+      } catch (error) {
+        setLocalMentions(initialMentions);
+        console.error("Failed to update mentions:", error);
       }
-      onMentionsChange?.(newMentions);
-    } catch (error) {
-      setLocalMentions(initialMentions);
-      console.error("Failed to update mentions:", error);
+    },
+    [postId, updateMentions, onMentionsChange, initialMentions]
+  );
+
+  const handleHoverEnd = useCallback(() => {
+    setHoveredTag(null);
+  }, []);
+
+  const handleHoverStart = useCallback((e: PointerEvent) => {
+    const target = e.currentTarget as HTMLElement | null;
+    const tagId = target?.dataset.tagId;
+    if (tagId !== undefined) {
+      setHoveredTag(tagId);
     }
-  };
+  }, []);
+
+  const handleEditClick = useCallback(() => {
+    setIsEditing(true);
+  }, []);
+
+  const handleCloseEdit = useCallback(() => {
+    setIsEditing(false);
+  }, []);
 
   const getTagWidth = (user: UserData) => {
     const displayName = user.displayName || user.username;
-    const username = user.username;
+    const { username } = user;
     const displayNameLength = displayName.length;
     const usernameLength = username.length;
     const maxLength = Math.max(displayNameLength, usernameLength);
@@ -159,9 +182,10 @@ export function MentionTags({
                 >
                   <motion.div
                     className="group relative cursor-pointer"
+                    data-tag-id={user.id}
                     layout
-                    onHoverEnd={() => setHoveredTag(null)}
-                    onHoverStart={() => setHoveredTag(user.id)}
+                    onHoverEnd={handleHoverEnd}
+                    onHoverStart={handleHoverStart}
                     variants={tagVariants}
                     whileHover="hover"
                   >
@@ -210,7 +234,7 @@ export function MentionTags({
                 </Link>
               ))}
 
-              {isOwner && (
+              {isOwner ? (
                 <motion.div
                   className="relative"
                   layout
@@ -223,7 +247,7 @@ export function MentionTags({
                       "h-7 border-blue-400/15 bg-blue-500/5 hover:border-blue-500/30 hover:bg-blue-500/10",
                       "font-normal"
                     )}
-                    onClick={() => setIsEditing(true)}
+                    onClick={handleEditClick}
                     size="sm"
                     variant="outline"
                   >
@@ -239,7 +263,7 @@ export function MentionTags({
                     }}
                   />
                 </motion.div>
-              )}
+              ) : null}
             </AnimatePresence>
           </motion.div>
         </div>
@@ -259,7 +283,7 @@ export function MentionTags({
           </DialogDescription>
           <MentionTagEditor
             initialMentions={localMentions}
-            onCloseAction={() => setIsEditing(false)}
+            onCloseAction={handleCloseEdit}
             onMentionsUpdateAction={handleMentionsUpdate}
             postId={postId}
           />

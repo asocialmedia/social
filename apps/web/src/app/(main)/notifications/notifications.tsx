@@ -1,12 +1,12 @@
 "use client";
 
+import type { NotificationsPage } from "@asm/db";
 import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { NotificationsPage } from "@asm/db";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import PostsOnlyLoadingSkeleton from "@/components/layouts/skeletons/post-only-loading-skeleton";
@@ -54,6 +54,12 @@ export default function Notifications() {
 
   const notifications = data?.pages.flatMap((page) => page.notifications) || [];
 
+  const handleBottomReached = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetching]);
+
   if (status === "pending") {
     return <PostsOnlyLoadingSkeleton />;
   }
@@ -77,12 +83,12 @@ export default function Notifications() {
   return (
     <InfiniteScrollContainer
       className="space-y-5"
-      onBottomReached={() => hasNextPage && !isFetching && fetchNextPage()}
+      onBottomReached={handleBottomReached}
     >
       {notifications.map((notification) => (
         <Notification key={notification.id} notification={notification} />
       ))}
-      {isFetchingNextPage && <LoadMoreSkeleton />}
+      {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
     </InfiniteScrollContainer>
   );
 }

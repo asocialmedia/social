@@ -131,8 +131,8 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.GOOGLE_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/google`,
       mapProfileToUser(profile: GoogleProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("google");
@@ -144,8 +144,8 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.GITHUB_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/github`,
       mapProfileToUser(profile: GithubProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("github");
@@ -157,8 +157,8 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.DISCORD_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/discord`,
       mapProfileToUser(profile: DiscordProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("discord");
@@ -170,8 +170,8 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.TWITTER_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/twitter`,
       mapProfileToUser(profile: TwitterProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("twitter");
@@ -183,8 +183,8 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.REDDIT_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/reddit`,
       mapProfileToUser(profile: RedditProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("reddit");
@@ -257,7 +257,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       password: {
         // @ts-expect-error types are wrong
         hash: async (...args: unknown[]) => {
-          const maybeInput = args[0];
+          const [maybeInput] = args;
           let plainPassword: string | undefined;
           if (typeof maybeInput === "string") {
             plainPassword = maybeInput;

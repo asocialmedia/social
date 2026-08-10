@@ -2,11 +2,13 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import { Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import SearchField from "./search-field";
 
 export default function SearchToggle() {
   const [open, setOpen] = useState(true);
+
+  const handleOpen = useCallback(() => setOpen(true), []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -30,7 +32,7 @@ export default function SearchToggle() {
       ) : (
         <Button
           className="h-11 rounded-xl border border-border/50 bg-background/40 px-3 text-muted-foreground hover:bg-background/60 hover:text-foreground"
-          onClick={() => setOpen(true)}
+          onClick={handleOpen}
           variant="ghost"
         >
           <Search className="h-5 w-5" />

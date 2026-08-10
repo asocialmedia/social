@@ -25,16 +25,29 @@ function LinkifyUrl({ children }: LinkifyProps) {
   );
 }
 
+function renderUsernameLink(match: string, key: number) {
+  return (
+    <UserLinkWithTooltip key={key} username={match.slice(1)}>
+      {match}
+    </UserLinkWithTooltip>
+  );
+}
+
+function renderHashtagLink(match: string, key: number) {
+  return (
+    <Link
+      className="text-primary hover:underline"
+      href={`/hashtag/${match.slice(1)}`}
+      key={key}
+    >
+      {match}
+    </Link>
+  );
+}
+
 function LinkifyUsername({ children }: LinkifyProps) {
   return (
-    <LinkIt
-      component={(match, key) => (
-        <UserLinkWithTooltip key={key} username={match.slice(1)}>
-          {match}
-        </UserLinkWithTooltip>
-      )}
-      regex={usernameRegex}
-    >
+    <LinkIt component={renderUsernameLink} regex={usernameRegex}>
       {children}
     </LinkIt>
   );
@@ -42,18 +55,7 @@ function LinkifyUsername({ children }: LinkifyProps) {
 
 function LinkifyHashtag({ children }: LinkifyProps) {
   return (
-    <LinkIt
-      component={(match, key) => (
-        <Link
-          className="text-primary hover:underline"
-          href={`/hashtag/${match.slice(1)}`}
-          key={key}
-        >
-          {match}
-        </Link>
-      )}
-      regex={hashtagRegex}
-    >
+    <LinkIt component={renderHashtagLink} regex={hashtagRegex}>
       {children}
     </LinkIt>
   );

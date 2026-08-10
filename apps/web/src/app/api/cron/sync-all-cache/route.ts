@@ -60,8 +60,15 @@ async function syncViewCounts(log: (message: string) => void, results: any) {
           update !== null && update.views > 0
       );
 
-    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
-      const batch = updates.slice(i, i + BATCH_SIZE);
+    async function processViewBatches(batchStartIndex: number): Promise<void> {
+      if (batchStartIndex >= updates.length) {
+        return;
+      }
+
+      const batch = updates.slice(
+        batchStartIndex,
+        batchStartIndex + BATCH_SIZE
+      );
       await prisma.$transaction(
         batch.map(({ postId, views }) =>
           prisma.post.update({
@@ -71,11 +78,14 @@ async function syncViewCounts(log: (message: string) => void, results: any) {
         )
       );
       log(
-        `Updated batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(
+        `Updated batch ${Math.floor(batchStartIndex / BATCH_SIZE) + 1} of ${Math.ceil(
           updates.length / BATCH_SIZE
         )}`
       );
+      await processViewBatches(batchStartIndex + BATCH_SIZE);
     }
+
+    await processViewBatches(0);
 
     results.viewCountsSync = updates.length;
     log(`✅ Synced view counts for ${updates.length} posts`);
@@ -97,32 +107,44 @@ async function syncShareStats(log: (message: string) => void, results: any) {
     const platforms = ["twitter", "facebook", "linkedin"];
     let syncedCount = 0;
 
-    for (const post of posts) {
-      for (const platform of platforms) {
-        const stats = await shareStatsCache.getStats(post.id, platform);
-        if (stats.shares > 0 || stats.clicks > 0) {
-          await prisma.shareStats.upsert({
-            where: {
-              postId_platform: {
+    async function syncShareStatsForPost(postIndex: number): Promise<void> {
+      if (postIndex >= posts.length) {
+        return;
+      }
+
+      const post = posts[postIndex];
+      await Promise.all(
+        platforms.map(async (platform) => {
+          const stats = await shareStatsCache.getStats(post.id, platform);
+          if (stats.shares > 0 || stats.clicks > 0) {
+            await prisma.shareStats.upsert({
+              where: {
+                postId_platform: {
+                  postId: post.id,
+                  platform,
+                },
+              },
+              create: {
                 postId: post.id,
                 platform,
+                shares: stats.shares,
+                clicks: stats.clicks,
               },
-            },
-            create: {
-              postId: post.id,
-              platform,
-              shares: stats.shares,
-              clicks: stats.clicks,
-            },
-            update: {
-              shares: stats.shares,
-              clicks: stats.clicks,
-            },
-          });
-          syncedCount++;
-        }
-      }
+              update: {
+                shares: stats.shares,
+                clicks: stats.clicks,
+              },
+            });
+            syncedCount += 1;
+          }
+        })
+      );
+
+      await syncShareStatsForPost(postIndex + 1);
     }
+
+    await syncShareStatsForPost(0);
+
     results.shareStatsSync = syncedCount;
     log(`✅ Synced ${syncedCount} share stats records`);
   } catch (error) {
@@ -154,17 +176,22 @@ async function syncAvatars(log: (message: string) => void, results: any) {
       select: { id: true, avatarUrl: true, avatarKey: true },
     });
 
-    let syncedCount = 0;
-    for (const user of users) {
-      if (user.avatarUrl) {
-        await avatarCache.set(user.id, {
-          url: user.avatarUrl,
-          key: user.avatarKey || "",
-          updatedAt: new Date().toISOString(),
-        });
-        syncedCount++;
-      }
-    }
+    const syncedCount = (
+      await Promise.all(
+        users.map(async (user) => {
+          if (user.avatarUrl) {
+            await avatarCache.set(user.id, {
+              url: user.avatarUrl,
+              key: user.avatarKey || "",
+              updatedAt: new Date().toISOString(),
+            });
+            return 1;
+          }
+          return 0;
+        })
+      )
+    ).reduce<number>((sum, value) => sum + value, 0);
+
     results.avatarsSync = syncedCount;
     log(`✅ Synced ${syncedCount} avatar records`);
   } catch (error) {
@@ -190,8 +217,14 @@ async function syncFollowerInfo(log: (message: string) => void, results: any) {
       },
     });
 
-    for (let i = 0; i < users.length; i += BATCH_SIZE) {
-      const batch = users.slice(i, i + BATCH_SIZE);
+    async function processFollowerBatches(
+      batchStartIndex: number
+    ): Promise<void> {
+      if (batchStartIndex >= users.length) {
+        return;
+      }
+
+      const batch = users.slice(batchStartIndex, batchStartIndex + BATCH_SIZE);
       await Promise.all(
         batch.map(async (user) => {
           await followerInfoCache.set(user.id, {
@@ -203,11 +236,15 @@ async function syncFollowerInfo(log: (message: string) => void, results: any) {
         })
       );
       log(
-        `Processed batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(
+        `Processed batch ${Math.floor(batchStartIndex / BATCH_SIZE) + 1} of ${Math.ceil(
           users.length / BATCH_SIZE
         )}`
       );
+      await processFollowerBatches(batchStartIndex + BATCH_SIZE);
     }
+
+    await processFollowerBatches(0);
+
     results.followerInfoSync = users.length;
     log(`✅ Synced follower info for ${users.length} users`);
   } catch (error) {

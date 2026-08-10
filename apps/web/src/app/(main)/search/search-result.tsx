@@ -1,11 +1,12 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
 import type { PostsPage } from "@asm/db";
 import { Alert, AlertDescription } from "@asm/ui/shadui/alert";
 import { Separator } from "@asm/ui/shadui/separator";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { FileText, Search } from "lucide-react";
 import { motion } from "motion/react";
+import { useCallback } from "react";
 import Post from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -42,6 +43,12 @@ export default function SearchResults({ query }: SearchResultsProps) {
   });
 
   const posts = data?.pages.flatMap((page) => page.posts) || [];
+
+  const handleBottomReached = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetching]);
 
   if (status === "pending") {
     return <PostsLoadingSkeleton />;
@@ -92,9 +99,7 @@ export default function SearchResults({ query }: SearchResultsProps) {
 
             <InfiniteScrollContainer
               className="space-y-5"
-              onBottomReached={() =>
-                hasNextPage && !isFetching && fetchNextPage()
-              }
+              onBottomReached={handleBottomReached}
             >
               {posts.map((post) => (
                 <motion.div
@@ -106,7 +111,7 @@ export default function SearchResults({ query }: SearchResultsProps) {
                   <Post post={post} />
                 </motion.div>
               ))}
-              {isFetchingNextPage && <LoadMoreSkeleton />}
+              {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
             </InfiniteScrollContainer>
           </section>
         </>

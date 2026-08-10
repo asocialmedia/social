@@ -7,7 +7,7 @@ import type { Variants } from "motion/react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import AnimatedAuthLink from "@/components/auth/animated-auth-link";
 import AuthButtonWrapper from "@/components/auth/auth-button-wrapper";
 import LoginForm from "@/components/auth/login-form";
@@ -132,8 +132,21 @@ export default function ClientLoginPage() {
     "google" | "reddit" | "github" | "discord" | "twitter" | null
   >(null);
   const isLoading = activeProvider !== null;
-  const start = (p: NonNullable<typeof activeProvider>) => setActiveProvider(p);
   const end = () => setActiveProvider(null);
+
+  const handleGithubStart = useCallback(() => setActiveProvider("github"), []);
+  const handleDiscordStart = useCallback(
+    () => setActiveProvider("discord"),
+    []
+  );
+  const handleTwitterStart = useCallback(
+    () => setActiveProvider("twitter"),
+    []
+  );
+  const handleGoogleStart = useCallback(() => setActiveProvider("google"), []);
+  const handleRedditStart = useCallback(() => setActiveProvider("reddit"), []);
+  const handleShowLess = useCallback(() => setShowMoreOptions(false), []);
+  const handleShowMore = useCallback(() => setShowMoreOptions(true), []);
 
   return (
     <AnimatePresence>
@@ -216,7 +229,7 @@ export default function ClientLoginPage() {
                             disabled={isLoading && activeProvider !== "github"}
                             loading={activeProvider === "github"}
                             onEnd={end}
-                            onStart={() => start("github")}
+                            onStart={handleGithubStart}
                           />
                         </AuthButtonWrapper>
                         <AuthButtonWrapper className="h-full">
@@ -224,7 +237,7 @@ export default function ClientLoginPage() {
                             disabled={isLoading && activeProvider !== "discord"}
                             loading={activeProvider === "discord"}
                             onEnd={end}
-                            onStart={() => start("discord")}
+                            onStart={handleDiscordStart}
                           />
                         </AuthButtonWrapper>
                         <AuthButtonWrapper className="h-full">
@@ -232,7 +245,7 @@ export default function ClientLoginPage() {
                             disabled={isLoading && activeProvider !== "twitter"}
                             loading={activeProvider === "twitter"}
                             onEnd={end}
-                            onStart={() => start("twitter")}
+                            onStart={handleTwitterStart}
                           />
                         </AuthButtonWrapper>
                       </div>
@@ -242,7 +255,7 @@ export default function ClientLoginPage() {
                           animate={{ opacity: 1 }}
                           className="inline-flex cursor-pointer items-center justify-center gap-1 text-muted-foreground text-sm transition-colors duration-300 hover:text-primary"
                           initial={{ opacity: 0 }}
-                          onClick={() => setShowMoreOptions(false)}
+                          onClick={handleShowLess}
                           transition={{
                             duration: 0.3,
                             delay: 0.2,
@@ -260,7 +273,7 @@ export default function ClientLoginPage() {
                             disabled={isLoading && activeProvider !== "google"}
                             loading={activeProvider === "google"}
                             onEnd={end}
-                            onStart={() => start("google")}
+                            onStart={handleGoogleStart}
                           />
                         </AuthButtonWrapper>
                         <AuthButtonWrapper className="w-full">
@@ -268,7 +281,7 @@ export default function ClientLoginPage() {
                             disabled={isLoading && activeProvider !== "reddit"}
                             loading={activeProvider === "reddit"}
                             onEnd={end}
-                            onStart={() => start("reddit")}
+                            onStart={handleRedditStart}
                           />
                         </AuthButtonWrapper>
                       </div>
@@ -285,7 +298,7 @@ export default function ClientLoginPage() {
                         <button
                           className="cursor-pointer text-muted-foreground text-sm transition-colors duration-300 hover:text-primary"
                           disabled={isLoading}
-                          onClick={() => setShowMoreOptions(true)}
+                          onClick={handleShowMore}
                           type="button"
                         >
                           See more options

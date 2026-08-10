@@ -4,6 +4,7 @@ import { debugLog } from "@asm/config/debug";
 import { Button } from "@asm/ui/shadui/button";
 import dynamic from "next/dynamic";
 import type React from "react";
+import { useCallback } from "react";
 import { ErrorBoundary } from "@/components/misc/error-boundary";
 
 const ClientFollowButton = dynamic(
@@ -26,15 +27,17 @@ interface FollowButtonProps {
   userId: string;
 }
 
-const WrappedClientFollowButton: React.FC<FollowButtonProps> = (props) => (
-  <ErrorBoundary
-    onReset={() => {
-      debugLog.component("Follow button error boundary reset:", props.userId);
-    }}
-  >
-    <ClientFollowButton {...props} />
-  </ErrorBoundary>
-);
+const WrappedClientFollowButton: React.FC<FollowButtonProps> = (props) => {
+  const handleBoundaryReset = useCallback(() => {
+    debugLog.component("Follow button error boundary reset:", props.userId);
+  }, [props.userId]);
+
+  return (
+    <ErrorBoundary onReset={handleBoundaryReset}>
+      <ClientFollowButton {...props} />
+    </ErrorBoundary>
+  );
+};
 
 const FollowButton: React.FC<FollowButtonProps> = ({
   userId,

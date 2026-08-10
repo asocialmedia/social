@@ -35,7 +35,7 @@ export async function invalidateTrendingTopicsCache(): Promise<
 > {
   try {
     const newTopics = await getTrendingTopicsFromDb();
-    if (!newTopics || newTopics.length === 0) {
+    if (newTopics.length === 0) {
       throw new Error("No new topics found");
     }
 
@@ -51,7 +51,7 @@ export async function getTrendingTopics(): Promise<TrendingTopic[]> {
   try {
     const cachedTopics = await trendingTopicsCache.get();
 
-    if (cachedTopics && cachedTopics.length > 0) {
+    if (cachedTopics.length > 0) {
       if (await trendingTopicsCache.shouldRefresh()) {
         backgroundRefreshTopics();
       }
@@ -74,7 +74,7 @@ export async function getTrendingTopics(): Promise<TrendingTopic[]> {
 export async function backgroundRefreshTopics(): Promise<void> {
   try {
     const topics = await getTrendingTopicsFromDb();
-    if (topics && topics.length > 0) {
+    if (topics.length > 0) {
       await trendingTopicsCache.set(topics);
     }
   } catch (error) {

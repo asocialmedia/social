@@ -1,18 +1,14 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
 import type { HNStory as HnStoryType } from "@asm/aggregator/hackernews";
 import type { PostsPage } from "@asm/db";
 import { HNStory } from "@asm/ui/components/hackernews";
 import { Card } from "@asm/ui/shadui/card";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Newspaper, Terminal } from "lucide-react";
 import { motion } from "motion/react";
+import { useCallback } from "react";
 import Post from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -80,6 +76,18 @@ export default function Bookmarks() {
     Boolean
   );
   const hnStories = hnData?.pages.flatMap((page) => page.stories) || [];
+
+  const handleBottomReachedPosts = useCallback(() => {
+    if (hasNextPosts && !isFetchingPosts) {
+      fetchNextPosts();
+    }
+  }, [fetchNextPosts, hasNextPosts, isFetchingPosts]);
+
+  const handleBottomReachedHn = useCallback(() => {
+    if (hasNextHn && !isFetchingHn) {
+      fetchNextHn();
+    }
+  }, [fetchNextHn, hasNextHn, isFetchingHn]);
 
   if (postsStatus === "pending" || hnStatus === "pending") {
     return <PostsOnlyLoadingSkeleton />;
@@ -162,26 +170,24 @@ export default function Bookmarks() {
         <TabsContent value="posts">
           <InfiniteScrollContainer
             className="space-y-5"
-            onBottomReached={() =>
-              hasNextPosts && !isFetchingPosts && fetchNextPosts()
-            }
+            onBottomReached={handleBottomReachedPosts}
           >
             {posts.map((post) => (
               <Post key={post.id} post={post} />
             ))}
-            {isFetchingNextPosts && <LoadMoreSkeleton />}
+            {isFetchingNextPosts ? <LoadMoreSkeleton /> : null}
           </InfiniteScrollContainer>
         </TabsContent>
 
         <TabsContent value="hackernews">
           <InfiniteScrollContainer
             className="space-y-4"
-            onBottomReached={() => hasNextHn && !isFetchingHn && fetchNextHn()}
+            onBottomReached={handleBottomReachedHn}
           >
             {hnStories.map((story) => (
               <HNStory key={story.id} story={story} />
             ))}
-            {isFetchingNextHn && <LoadMoreSkeleton />}
+            {isFetchingNextHn ? <LoadMoreSkeleton /> : null}
           </InfiniteScrollContainer>
         </TabsContent>
       </motion.div>

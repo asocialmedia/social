@@ -1,12 +1,7 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { Globe2Icon, UsersIcon } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type React from "react";
@@ -69,7 +64,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   return (
     <div className="flex min-h-screen flex-col">
       <div className="flex flex-1">
-        {showLeftSidebar && <LeftSideBar />}
+        {showLeftSidebar ? <LeftSideBar /> : null}
         <main
           className={`flex-1 overflow-y-auto ${
             showLeftSidebar || showRightSidebar ? "" : "w-full"
@@ -170,7 +165,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
             </>
           )}
         </main>
-        {showRightSidebar && (
+        {showRightSidebar ? (
           <div className="relative hidden w-80 bg-[hsl(var(--background-alt))] md:block">
             <div ref={rightSidebarRef}>
               <RightSideBar userData={userData} />
@@ -183,7 +178,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
               <StickyFooter />
             </div>
           </div>
-        )}
+        ) : null}
       </div>
       <ScrollUpButton isVisible={showScrollUpButton} />
     </div>

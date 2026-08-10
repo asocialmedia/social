@@ -39,12 +39,12 @@ export const FlipWords = ({
     [currentWord]
   );
 
+  const handleExitComplete = useCallback(() => {
+    setIsAnimating(false);
+  }, []);
+
   return (
-    <AnimatePresence
-      onExitComplete={() => {
-        setIsAnimating(false);
-      }}
-    >
+    <AnimatePresence onExitComplete={handleExitComplete}>
       <motion.div
         animate={{
           opacity: 1,

@@ -8,10 +8,25 @@ import {
   SelectValue,
 } from "@asm/ui/shadui/select";
 import { motion } from "motion/react";
+import { useCallback } from "react";
 import { SUPPORT_TYPES } from "../../constants";
 import type { StepProps } from "../../types";
 
 export function StepOne({ formData, setFormData, onNext }: StepProps) {
+  const handleEmailChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData({ ...formData, email: e.target.value });
+    },
+    [formData, setFormData]
+  );
+
+  const handleTypeChange = useCallback(
+    (value: string) => {
+      setFormData({ ...formData, type: value });
+    },
+    [formData, setFormData]
+  );
+
   return (
     <motion.div
       animate="center"
@@ -30,17 +45,14 @@ export function StepOne({ formData, setFormData, onNext }: StepProps) {
       <div className="space-y-4">
         <Input
           className="w-full bg-background/50 backdrop-blur-sm"
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          onChange={handleEmailChange}
           placeholder="Your email address"
           required
           type="email"
           value={formData.email}
         />
 
-        <Select
-          onValueChange={(value) => setFormData({ ...formData, type: value })}
-          value={formData.type}
-        >
+        <Select onValueChange={handleTypeChange} value={formData.type}>
           <SelectTrigger className="w-full bg-background/50 backdrop-blur-sm">
             <SelectValue placeholder="Type of support needed" />
           </SelectTrigger>

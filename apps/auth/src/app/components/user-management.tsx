@@ -100,24 +100,24 @@ export default function UserManagement({
       </main>
 
       <AnimatePresence>
-        {modalAction && selectedUser && (
+        {modalAction && selectedUser ? (
           <ActionModal
             action={modalAction}
             onCancelAction={handleCancel}
             onConfirmAction={handleConfirm}
             user={selectedUser}
           />
-        )}
+        ) : null}
       </AnimatePresence>
 
       <AnimatePresence>
-        {showUpdateModal && selectedUser && (
+        {showUpdateModal && selectedUser ? (
           <UserUpdateModal
             onCloseAction={handleUpdateClose}
             onSuccessAction={handleUpdateSuccess}
             user={selectedUser}
           />
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

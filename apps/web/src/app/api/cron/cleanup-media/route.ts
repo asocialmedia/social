@@ -5,7 +5,6 @@ import { asmobClient } from "@/lib/object-storage";
 
 const ASMOB_BUCKET = process.env.ASMOB_BUCKET_NAME || "uploads";
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Media cleanup requires multiple storage operations and batch processing
 async function cleanupUnusedMedia() {
   const logs: string[] = [];
   const startTime = Date.now();
@@ -58,9 +57,17 @@ async function cleanupUnusedMedia() {
       }
 
       const batchSize = 50;
-      for (let i = 0; i < validMedia.length; i += batchSize) {
-        const batch = validMedia.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
+
+      async function processBatches(batchStartIndex: number): Promise<void> {
+        if (batchStartIndex >= validMedia.length) {
+          return;
+        }
+
+        const batch = validMedia.slice(
+          batchStartIndex,
+          batchStartIndex + batchSize
+        );
+        const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
         const totalBatches = Math.ceil(validMedia.length / batchSize);
 
         log(
@@ -81,7 +88,7 @@ async function cleanupUnusedMedia() {
 
           asmobResults.forEach((result, index) => {
             if (result.status === "fulfilled") {
-              results.deletedFromZephob++;
+              results.deletedFromZephob += 1;
               if (batch[index]) {
                 log(`✅ Deleted from storage: ${batch[index].key}`);
               }
@@ -103,7 +110,7 @@ async function cleanupUnusedMedia() {
           results.deletedFromDb += dbResult.count;
           log(`✅ Deleted ${dbResult.count} records from database`);
 
-          if (i + batchSize < validMedia.length) {
+          if (batchStartIndex + batchSize < validMedia.length) {
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
         } catch (error) {
@@ -113,7 +120,11 @@ async function cleanupUnusedMedia() {
           log(`❌ ${errorMessage}`);
           results.errors.push(errorMessage);
         }
+
+        await processBatches(batchStartIndex + batchSize);
       }
+
+      await processBatches(0);
     } else {
       log("✨ No valid media files to delete");
     }

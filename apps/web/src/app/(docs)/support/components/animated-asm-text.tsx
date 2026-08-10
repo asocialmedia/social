@@ -5,7 +5,9 @@ interface AnimatedAsocialmediaTextProps {
   className?: string;
 }
 
-export const AnimatedAsocialmediaText = ({ className }: AnimatedAsocialmediaTextProps) => {
+export const AnimatedAsocialmediaText = ({
+  className,
+}: AnimatedAsocialmediaTextProps) => {
   const letters = "ZEPHYR.".split("");
 
   return (

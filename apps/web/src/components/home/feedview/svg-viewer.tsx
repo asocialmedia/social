@@ -13,7 +13,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 import { cn } from "@/lib/utils";
 
@@ -56,13 +56,13 @@ export function SVGViewer({
     };
   }, []);
 
-  const toggleFullscreen = async () => {
+  const toggleFullscreen = useCallback(async () => {
     if (isFullscreen) {
       await document.exitFullscreen();
     } else {
       await containerRef.current?.requestFullscreen();
     }
-  };
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -88,57 +88,123 @@ export function SVGViewer({
     };
   }, []);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({
-      x: e.clientX - position.x,
-      y: e.clientY - position.y,
-    });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
-      setPosition({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      setIsDragging(true);
+      setDragStart({
+        x: e.clientX - position.x,
+        y: e.clientY - position.y,
       });
-    }
-  };
+    },
+    [position]
+  );
 
-  const handleMouseUp = () => {
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDragging) {
+        setPosition({
+          x: e.clientX - dragStart.x,
+          y: e.clientY - dragStart.y,
+        });
+      }
+    },
+    [dragStart, isDragging]
+  );
+
+  const handleMouseUp = useCallback(() => {
     setIsDragging(false);
-  };
+  }, []);
 
-  const resetView = () => {
+  const resetView = useCallback(() => {
     setScale(1);
     setRotation(0);
     setFlipX(false);
     setFlipY(false);
     setPosition({ x: 0, y: 0 });
-  };
+  }, []);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      setIsDragging(true);
-      setDragStart({
-        x: e.touches[0].clientX - position.x,
-        y: e.touches[0].clientY - position.y,
-      });
-    }
-  };
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 1) {
+        setIsDragging(true);
+        setDragStart({
+          x: e.touches[0].clientX - position.x,
+          y: e.touches[0].clientY - position.y,
+        });
+      }
+    },
+    [position]
+  );
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (isDragging && e.touches.length === 1) {
-      setPosition({
-        x: e.touches[0].clientX - dragStart.x,
-        y: e.touches[0].clientY - dragStart.y,
-      });
-    }
-  };
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (isDragging && e.touches.length === 1) {
+        setPosition({
+          x: e.touches[0].clientX - dragStart.x,
+          y: e.touches[0].clientY - dragStart.y,
+        });
+      }
+    },
+    [dragStart, isDragging]
+  );
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = useCallback(() => {
     setIsDragging(false);
-  };
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+    }
+  }, []);
+
+  const handleFrameError = useCallback(() => {
+    setHasError(true);
+    onLoad?.();
+  }, [onLoad]);
+
+  const handleFrameLoad = useCallback(() => {
+    setHasError(false);
+    onLoad?.();
+  }, [onLoad]);
+
+  const handleToggleControls = useCallback(() => {
+    setShowControls((prev) => !prev);
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setScale((prev) => Math.max(prev - 0.1, 0.1));
+  }, []);
+  const handleZoomIn = useCallback(() => {
+    setScale((prev) => Math.min(prev + 0.1, 5));
+  }, []);
+  const handleScaleChange = useCallback((values: number[]) => {
+    const [value] = values;
+    if (value !== undefined) {
+      setScale(value);
+    }
+  }, []);
+  const handleRotateLeft = useCallback(() => {
+    setRotation((prev) => prev - 90);
+  }, []);
+  const handleRotateRight = useCallback(() => {
+    setRotation((prev) => prev + 90);
+  }, []);
+  const handleFlipX = useCallback(() => {
+    setFlipX((prev) => !prev);
+  }, []);
+  const handleFlipY = useCallback(() => {
+    setFlipY((prev) => !prev);
+  }, []);
 
   // biome-ignore lint/correctness/noNestedComponentDefinitions: Controls component uses parent state and is tightly coupled
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: SVG controls component handles multiple interaction states and styling logic
@@ -165,7 +231,7 @@ export function SVGViewer({
           <div className="flex gap-2">
             <Button
               className="bg-background/50 hover:bg-background/80"
-              onClick={() => setScale((prev) => Math.max(prev - 0.1, 0.1))}
+              onClick={handleZoomOut}
               size={isMobile ? "sm" : "icon"}
               variant="secondary"
             >
@@ -174,7 +240,7 @@ export function SVGViewer({
             </Button>
             <Button
               className="bg-background/50 hover:bg-background/80"
-              onClick={() => setScale((prev) => Math.min(prev + 0.1, 5))}
+              onClick={handleZoomIn}
               size={isMobile ? "sm" : "icon"}
               variant="secondary"
             >
@@ -186,7 +252,7 @@ export function SVGViewer({
             className={isMobile ? "w-full" : "w-32"}
             max={5}
             min={0.1}
-            onValueChange={([value]) => value !== undefined && setScale(value)}
+            onValueChange={handleScaleChange}
             step={0.1}
             value={[scale]}
           />
@@ -195,7 +261,7 @@ export function SVGViewer({
         <div className={cn("flex gap-2", isMobile && "flex-wrap")}>
           <Button
             className="bg-background/50 hover:bg-background/80"
-            onClick={() => setRotation((prev) => prev - 90)}
+            onClick={handleRotateLeft}
             size={isMobile ? "sm" : "icon"}
             variant="secondary"
           >
@@ -204,7 +270,7 @@ export function SVGViewer({
           </Button>
           <Button
             className="bg-background/50 hover:bg-background/80"
-            onClick={() => setRotation((prev) => prev + 90)}
+            onClick={handleRotateRight}
             size={isMobile ? "sm" : "icon"}
             variant="secondary"
           >
@@ -216,7 +282,7 @@ export function SVGViewer({
               "bg-background/50 hover:bg-background/80",
               flipX && "bg-primary/20"
             )}
-            onClick={() => setFlipX((prev) => !prev)}
+            onClick={handleFlipX}
             size={isMobile ? "sm" : "icon"}
             variant="secondary"
           >
@@ -228,7 +294,7 @@ export function SVGViewer({
               "bg-background/50 hover:bg-background/80",
               flipY && "bg-primary/20"
             )}
-            onClick={() => setFlipY((prev) => !prev)}
+            onClick={handleFlipY}
             size={isMobile ? "sm" : "icon"}
             variant="secondary"
           >
@@ -273,7 +339,7 @@ export function SVGViewer({
             </svg>
             {isMobile && "Reset"}
           </Button>
-          {onDownload && (
+          {onDownload ? (
             <Button
               className="bg-background/50 hover:bg-background/80"
               onClick={onDownload}
@@ -283,7 +349,7 @@ export function SVGViewer({
               <Download className={cn("h-4 w-4", isMobile && "mr-2")} />
               {isMobile && "Download"}
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     );
@@ -301,7 +367,7 @@ export function SVGViewer({
       {isMobile && (
         <Button
           className="absolute top-4 right-4 z-50 bg-background/50"
-          onClick={() => setShowControls(!showControls)}
+          onClick={handleToggleControls}
           size="icon"
           variant="ghost"
         >
@@ -323,21 +389,7 @@ export function SVGViewer({
         <div
           aria-label="Interactive SVG viewer - drag to pan, pinch to zoom"
           className="cursor-move focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          onKeyDown={(e) => {
-            // Handle keyboard navigation for accessibility
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-            }
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-            }
-            if (e.key === "ArrowLeft") {
-              e.preventDefault();
-            }
-            if (e.key === "ArrowRight") {
-              e.preventDefault();
-            }
-          }}
+          onKeyDown={handleKeyDown}
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseUp}
           onMouseMove={handleMouseMove}
@@ -357,14 +409,8 @@ export function SVGViewer({
           {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: iframe is interactive and needs load/error handlers */}
           <iframe
             className="h-full w-full"
-            onError={() => {
-              setHasError(true);
-              onLoad?.();
-            }}
-            onLoad={(_e) => {
-              setHasError(false);
-              onLoad?.();
-            }}
+            onError={handleFrameError}
+            onLoad={handleFrameLoad}
             ref={iframeRef}
             src={url}
             style={{
@@ -387,11 +433,11 @@ export function SVGViewer({
         </div>
       </div>
 
-      {hasError && (
+      {hasError ? (
         <div className="absolute inset-0 flex items-center justify-center bg-background/50">
           <p className="text-destructive">Failed to load SVG file</p>
         </div>
-      )}
+      ) : null}
 
       <div className="absolute bottom-4 left-4 rounded-sm bg-background/80 px-2 py-1 text-sm">
         {(scale * 100).toFixed(0)}%

@@ -16,9 +16,9 @@ import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import { AttachmentPreview } from "./attachment-preview";
 import { FileInput } from "./file-input";
 import "./styles.css";
-import { useQuery } from "@tanstack/react-query";
 import type { TagWithCount, UserData } from "@asm/db";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
+import { useQuery } from "@tanstack/react-query";
 import { MentionTags } from "@/components/tags/mention-tags";
 import { Tags } from "@/components/tags/tags";
 import kyInstance from "@/lib/ky";
@@ -203,6 +203,10 @@ export default function PostEditor() {
     hnShareStore,
   ]);
 
+  const handleRemoveHnStory = useCallback(() => {
+    hnShareStore.clearState();
+  }, [hnShareStore]);
+
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLInputElement>) => {
       const files = Array.from(e.clipboardData.items)
@@ -232,7 +236,7 @@ export default function PostEditor() {
         </div>
         <div className="w-full">
           <AnimatePresence>
-            {isEditorFocused && (
+            {isEditorFocused ? (
               <motion.div
                 animate={{ opacity: 1, height: "auto" }}
                 className="mb-3 space-y-3"
@@ -253,7 +257,7 @@ export default function PostEditor() {
                   onMentionsChange={handleMentionsChange}
                 />
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
 
           <div {...rootProps}>
@@ -274,7 +278,7 @@ export default function PostEditor() {
                 editor={editor}
                 onPaste={onPaste}
               />
-              {isDragActive && (
+              {isDragActive ? (
                 <motion.div
                   animate={{ opacity: 1 }}
                   className="absolute inset-0 flex items-center justify-center rounded-2xl bg-primary/10 backdrop-blur-sm"
@@ -285,15 +289,15 @@ export default function PostEditor() {
                     Drop files here
                   </p>
                 </motion.div>
-              )}
-              {isHnSharing && sharedHnStory && (
+              ) : null}
+              {isHnSharing && sharedHnStory ? (
                 <div className="mt-3">
                   <HNStoryPreview
-                    onRemoveAction={() => hnShareStore.clearState()}
+                    onRemoveAction={handleRemoveHnStory}
                     story={sharedHnStory}
                   />
                 </div>
-              )}
+              ) : null}
               {/* Hidden file input for drag & drop - positioned absolutely to avoid interfering with editor clicks */}
               <input
                 {...getInputProps()}
@@ -344,7 +348,7 @@ export default function PostEditor() {
 
         <div className="flex items-center gap-3">
           <AnimatePresence>
-            {isUploading && (
+            {isUploading ? (
               <motion.div
                 animate={{ opacity: 1, x: 0 }}
                 className="flex items-center gap-2"
@@ -356,7 +360,7 @@ export default function PostEditor() {
                 </span>
                 <Loader2 className="size-5 animate-spin text-primary" />
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <FileInput
@@ -389,6 +393,13 @@ function AttachmentPreviews({
   attachments,
   removeAttachment,
 }: AttachmentPreviewsProps) {
+  const handleRemoveClick = useCallback(
+    (attachment: Attachment) => () => {
+      removeAttachment(attachment.file.name);
+    },
+    [removeAttachment]
+  );
+
   return (
     <motion.div
       animate="visible"
@@ -415,7 +426,7 @@ function AttachmentPreviews({
         >
           <AttachmentPreview
             attachment={attachment}
-            onRemoveClick={() => removeAttachment(attachment.file.name)}
+            onRemoveClick={handleRemoveClick(attachment)}
           />
         </motion.div>
       ))}

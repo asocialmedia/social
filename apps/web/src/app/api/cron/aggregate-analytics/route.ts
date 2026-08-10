@@ -1,7 +1,6 @@
 import { prisma, redis } from "@asm/db";
 import { NextResponse } from "next/server";
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Analytics aggregation requires multiple data processing steps
 async function aggregateAnalytics() {
   const logs: string[] = [];
   const startTime = Date.now();
@@ -25,9 +24,9 @@ async function aggregateAnalytics() {
     try {
       await redis.ping();
       log("✅ Redis connection successful");
-    } catch {
+    } catch (redisError) {
       log("❌ Redis connection failed");
-      throw new Error("Redis connection failed");
+      throw new Error("Redis connection failed", { cause: redisError });
     }
 
     // 1. Aggregate post views
@@ -37,37 +36,51 @@ async function aggregateAnalytics() {
 
     const viewsData: { postId: string; views: number }[] = [];
 
-    for (const postId of postViews) {
-      try {
-        const views = await redis.get(`post:views:${postId}`);
-        if (views) {
-          viewsData.push({
-            postId,
-            views: Number.parseInt(views, 10),
-          });
+    const viewEntries = await Promise.all(
+      postViews.map(async (postId) => {
+        try {
+          const views = await redis.get(`post:views:${postId}`);
+          if (views) {
+            return { postId, views: Number.parseInt(views, 10) };
+          }
+          return null;
+        } catch (error) {
+          const errorMessage = `Error processing views for post ${postId}: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`;
+          log(`❌ ${errorMessage}`);
+          results.errors.push(errorMessage);
+          return null;
         }
-        results.processedViews++;
+      })
+    );
 
-        if (results.processedViews % 100 === 0) {
-          log(
-            `🔄 Processed ${results.processedViews}/${postViews.length} post views`
-          );
-        }
-      } catch (error) {
-        const errorMessage = `Error processing views for post ${postId}: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`;
-        log(`❌ ${errorMessage}`);
-        results.errors.push(errorMessage);
+    for (const entry of viewEntries) {
+      if (entry) {
+        viewsData.push(entry);
+      }
+      results.processedViews += 1;
+
+      if (results.processedViews % 100 === 0) {
+        log(
+          `🔄 Processed ${results.processedViews}/${postViews.length} post views`
+        );
       }
     }
 
     const batchSize = 100;
     log(`\n📝 Updating post view counts in batches of ${batchSize}`);
 
-    for (let i = 0; i < viewsData.length; i += batchSize) {
-      const batch = viewsData.slice(i, i + batchSize);
-      const batchNumber = Math.floor(i / batchSize) + 1;
+    async function updatePostBatches(batchStartIndex: number): Promise<void> {
+      if (batchStartIndex >= viewsData.length) {
+        return;
+      }
+
+      const batch = viewsData.slice(
+        batchStartIndex,
+        batchStartIndex + batchSize
+      );
+      const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
       const totalBatches = Math.ceil(viewsData.length / batchSize);
 
       try {
@@ -84,7 +97,7 @@ async function aggregateAnalytics() {
           `✅ Batch ${batchNumber}/${totalBatches}: Updated ${batch.length} posts`
         );
 
-        if (i + batchSize < viewsData.length) {
+        if (batchStartIndex + batchSize < viewsData.length) {
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
       } catch (error) {
@@ -94,7 +107,11 @@ async function aggregateAnalytics() {
         log(`❌ ${errorMessage}`);
         results.errors.push(errorMessage);
       }
+
+      await updatePostBatches(batchStartIndex + batchSize);
     }
+
+    await updatePostBatches(0);
 
     // 2. Aggregate user metrics
     log("\n👥 Starting user metrics aggregation");
@@ -116,9 +133,18 @@ async function aggregateAnalytics() {
     results.processedUsers = userMetrics.length;
     log(`Found ${userMetrics.length} users to process`);
 
-    for (let i = 0; i < userMetrics.length; i += batchSize) {
-      const batch = userMetrics.slice(i, i + batchSize);
-      const batchNumber = Math.floor(i / batchSize) + 1;
+    async function updateMetricsBatches(
+      batchStartIndex: number
+    ): Promise<void> {
+      if (batchStartIndex >= userMetrics.length) {
+        return;
+      }
+
+      const batch = userMetrics.slice(
+        batchStartIndex,
+        batchStartIndex + batchSize
+      );
+      const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
       const totalBatches = Math.ceil(userMetrics.length / batchSize);
 
       const pipeline = redis.pipeline();
@@ -141,7 +167,7 @@ async function aggregateAnalytics() {
           `✅ Batch ${batchNumber}/${totalBatches}: Updated metrics for ${batch.length} users`
         );
 
-        if (i + batchSize < userMetrics.length) {
+        if (batchStartIndex + batchSize < userMetrics.length) {
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
       } catch (error) {
@@ -151,7 +177,11 @@ async function aggregateAnalytics() {
         log(`❌ ${errorMessage}`);
         results.errors.push(errorMessage);
       }
+
+      await updateMetricsBatches(batchStartIndex + batchSize);
     }
+
+    await updateMetricsBatches(0);
 
     const summary = {
       success: true,

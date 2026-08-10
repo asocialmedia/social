@@ -1,7 +1,7 @@
 "use client";
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { HNApiResponse } from "@asm/aggregator/hackernews";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
   ChevronDown,
@@ -11,7 +11,7 @@ import {
   Search,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "../../hooks/use-toast";
 import { Button } from "../../shadui/button";
 import { Card } from "../../shadui/card";
@@ -73,7 +73,7 @@ export function HNFeed() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     try {
       await hackerNewsMutations.refreshCache();
       await queryClient.invalidateQueries({ queryKey: ["hackernews"] });
@@ -84,11 +84,11 @@ export function HNFeed() {
     } catch (error) {
       toast({
         title: "Error",
-        description: (error as Error)?.message || "Failed to refresh stories",
+        description: (error as Error).message || "Failed to refresh stories",
         variant: "destructive",
       });
     }
-  };
+  }, [queryClient, toast]);
 
   useEffect(() => {
     if (isError) {
@@ -123,17 +123,23 @@ export function HNFeed() {
 
   const totalStories = data?.pages[0]?.total || 0;
 
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    queryClient.resetQueries({ queryKey: ["hackernews"] });
-  };
+  const handleTabChange = useCallback(
+    (value: string) => {
+      setActiveTab(value);
+      queryClient.resetQueries({ queryKey: ["hackernews"] });
+    },
+    [queryClient]
+  );
 
-  const handleSortChange = (value: SortOption) => {
-    setSortBy(value);
-    queryClient.resetQueries({ queryKey: ["hackernews"] });
-  };
+  const handleSortChange = useCallback(
+    (value: SortOption) => {
+      setSortBy(value);
+      queryClient.resetQueries({ queryKey: ["hackernews"] });
+    },
+    [queryClient]
+  );
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     try {
       setIsLoadingMore(true);
       await fetchNextPage();
@@ -146,7 +152,7 @@ export function HNFeed() {
     } finally {
       setIsLoadingMore(false);
     }
-  };
+  }, [fetchNextPage, toast]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-background/50">
@@ -226,7 +232,7 @@ export function HNFeed() {
                               ))}
                             </div>
 
-                            {hasNextPage && (
+                            {hasNextPage ? (
                               <motion.div
                                 animate={{ opacity: 1 }}
                                 className="flex justify-center py-8"
@@ -262,7 +268,7 @@ export function HNFeed() {
                                   )}
                                 </Button>
                               </motion.div>
-                            )}
+                            ) : null}
                           </>
                         ) : (
                           <EmptyState onRefresh={handleRefresh} type={tab.id} />

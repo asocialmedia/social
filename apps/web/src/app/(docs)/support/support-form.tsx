@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FossBanner } from "@/components/misc/foss-banner";
 import { AnimatedAsocialmediaText } from "./components/animated-asm-text";
 import { GithubIssueButton } from "./components/github-issue-button";
@@ -43,28 +43,29 @@ export default function SupportForm() {
         key: string;
         name: string;
         type: string;
-      }[] = [];
-      for (const file of attachments) {
-        const uploadFormData = new FormData();
-        uploadFormData.append("file", file.file);
+      }[] = await Promise.all(
+        attachments.map(async (file) => {
+          const uploadFormData = new FormData();
+          uploadFormData.append("file", file.file);
 
-        const response = await fetch("/api/support/upload", {
-          method: "POST",
-          body: uploadFormData,
-        });
+          const response = await fetch("/api/support/upload", {
+            method: "POST",
+            body: uploadFormData,
+          });
 
-        if (!response.ok) {
-          throw new Error("Failed to upload attachments");
-        }
+          if (!response.ok) {
+            throw new Error("Failed to upload attachments");
+          }
 
-        const data = await response.json();
-        uploadedFiles.push({
-          url: data.url,
-          key: data.key,
-          name: file.name,
-          type: file.type,
-        });
-      }
+          const data = await response.json();
+          return {
+            url: data.url,
+            key: data.key,
+            name: file.name,
+            type: file.type,
+          };
+        })
+      );
 
       const response = await fetch("/api/support", {
         method: "POST",
@@ -174,48 +175,55 @@ export default function SupportForm() {
       return;
     }
 
-    for (const file of Array.from(files)) {
-      if (!validateFile(file)) {
-        continue;
-      }
+    await Promise.all(
+      Array.from(files).map(async (file) => {
+        if (!validateFile(file)) {
+          return;
+        }
 
-      try {
-        const data = await uploadFile(file);
+        try {
+          const data = await uploadFile(file);
 
-        setAttachments((prev) => [
-          ...prev,
-          {
-            name: file.name,
-            file,
-            url: data.url,
-            key: data.key,
-            originalName: data.originalName,
-            size: data.size,
-            type: data.type,
-            isUploading: false,
-          },
-        ]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              file,
+              url: data.url,
+              key: data.key,
+              originalName: data.originalName,
+              size: data.size,
+              type: data.type,
+              isUploading: false,
+            },
+          ]);
 
-        toast({
-          title: "Success",
-          description: "File uploaded successfully",
-        });
-      } catch (error: unknown) {
-        console.error("Upload error:", error);
-        toast({
-          title: "Upload failed",
-          description:
-            error instanceof Error ? error.message : "Failed to upload file",
-          variant: "destructive",
-        });
-      }
-    }
+          toast({
+            title: "Success",
+            description: "File uploaded successfully",
+          });
+        } catch (error: unknown) {
+          console.error("Upload error:", error);
+          toast({
+            title: "Upload failed",
+            description:
+              error instanceof Error ? error.message : "Failed to upload file",
+            variant: "destructive",
+          });
+        }
+      })
+    );
   };
 
   const formContainerVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
   };
+
+  const handleNextToStepTwo = useCallback(() => setStep(2), []);
+  const handleNextToStepThree = useCallback(() => setStep(3), []);
+  const handleBackToStepOne = useCallback(() => setStep(1), []);
+  const handleBackToStepTwo = useCallback(() => setStep(2), []);
 
   useEffect(
     () => () => {
@@ -253,15 +261,15 @@ export default function SupportForm() {
               {step === 1 && (
                 <StepOne
                   formData={formData}
-                  onNext={() => setStep(2)}
+                  onNext={handleNextToStepTwo}
                   setFormData={setFormData}
                 />
               )}
               {step === 2 && (
                 <StepTwo
                   formData={formData}
-                  onBack={() => setStep(1)}
-                  onNext={() => setStep(3)}
+                  onBack={handleBackToStepOne}
+                  onNext={handleNextToStepThree}
                   setFormData={setFormData}
                 />
               )}
@@ -272,7 +280,7 @@ export default function SupportForm() {
                   formData={formData}
                   handleFileUpload={handleFileUpload}
                   loading={loading}
-                  onBack={() => setStep(2)}
+                  onBack={handleBackToStepTwo}
                   setAttachments={setAttachments}
                   setFormData={setFormData}
                 />

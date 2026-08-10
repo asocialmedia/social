@@ -18,7 +18,7 @@ export default function LoadingButton({
       disabled={loading || disabled}
       {...props}
     >
-      {loading && <Loader2 className="size-5 animate-spin" />}
+      {loading ? <Loader2 className="size-5 animate-spin" /> : null}
       {props.children}
     </Button>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, TagWithCount } from "@asm/db";
+import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Separator } from "@asm/ui/shadui/separator";
@@ -59,6 +59,36 @@ const PostCard: React.FC<PostCardProps> = ({
     setPost(updatedPost);
   }, []);
 
+  const handleMentionsChange = useCallback(
+    (newMentions: UserData[]) => {
+      handlePostUpdate({
+        ...post,
+        mentions: newMentions.map((mentionUser) => ({
+          id: `${post.id}-${mentionUser.id}`,
+          postId: post.id,
+          userId: mentionUser.id,
+          user: mentionUser,
+          createdAt: new Date(),
+        })),
+      });
+    },
+    [handlePostUpdate, post]
+  );
+
+  const handleTagsChange = useCallback(
+    (newTags: TagWithCount[]) => {
+      handlePostUpdate({
+        ...post,
+        tags: newTags,
+      });
+    },
+    [handlePostUpdate, post]
+  );
+
+  const handleToggleComments = useCallback(() => {
+    setShowComments((prev) => !prev);
+  }, []);
+
   // biome-ignore lint/correctness/noNestedComponentDefinitions: PostContent uses extensive parent component state and props, making it reasonable to keep nested
   const PostContent = () => (
     <>
@@ -68,18 +98,7 @@ const PostCard: React.FC<PostCardProps> = ({
             isOwner={post.user.id === user.id}
             // biome-ignore lint/suspicious/noExplicitAny: Post.mentions comes from the database and is typed as 'any' there
             mentions={post.mentions.map((m) => m.user as any)}
-            onMentionsChange={(newMentions) => {
-              handlePostUpdate({
-                ...post,
-                mentions: newMentions.map((mentionUser) => ({
-                  id: `${post.id}-${mentionUser.id}`,
-                  postId: post.id,
-                  userId: mentionUser.id,
-                  user: mentionUser,
-                  createdAt: new Date(),
-                })),
-              });
-            }}
+            onMentionsChange={handleMentionsChange}
             postId={post.id}
           />
         </div>
@@ -145,12 +164,7 @@ const PostCard: React.FC<PostCardProps> = ({
         <div className="mt-2 mb-2">
           <Tags
             isOwner={post.user.id === user.id}
-            onTagsChange={(newTags) => {
-              handlePostUpdate({
-                ...post,
-                tags: newTags,
-              });
-            }}
+            onTagsChange={handleTagsChange}
             postId={post.id}
             tags={post.tags as TagWithCount[]}
           />
@@ -163,7 +177,7 @@ const PostCard: React.FC<PostCardProps> = ({
         </p>
       </Linkify>
 
-      {post.hnStoryShare && (
+      {post.hnStoryShare ? (
         <div className="mb-4">
           <div className="mb-2 flex items-center text-muted-foreground text-xs sm:text-sm">
             <Share2 className="mr-1.5 h-3.5 w-3.5 text-orange-500 sm:h-4 sm:w-4" />
@@ -173,7 +187,7 @@ const PostCard: React.FC<PostCardProps> = ({
             <HNStoryCard hnStory={post.hnStoryShare} />
           </div>
         </div>
-      )}
+      ) : null}
 
       {!!post.attachments.length && (
         <div className="max-w-full overflow-hidden">
@@ -193,10 +207,7 @@ const PostCard: React.FC<PostCardProps> = ({
           postId={post.id}
         />
         <div className="flex items-center space-x-2">
-          <CommentButton
-            onClick={() => setShowComments(!showComments)}
-            post={post}
-          />
+          <CommentButton onClick={handleToggleComments} post={post} />
           <ShareButton
             description={post.content}
             postId={post.id}
@@ -214,7 +225,7 @@ const PostCard: React.FC<PostCardProps> = ({
           </Link>
         </div>
       </div>
-      {showComments && <Comments post={post} />}
+      {showComments ? <Comments post={post} /> : null}
     </>
   );
 
@@ -231,9 +242,9 @@ const PostCard: React.FC<PostCardProps> = ({
         <div
           className={`group/post ${post.hnStoryShare ? "relative pb-1" : ""}`}
         >
-          {post.hnStoryShare && (
+          {post.hnStoryShare ? (
             <div className="absolute top-0 left-0 h-full w-1 rounded-full bg-gradient-to-b from-orange-400 to-yellow-500" />
-          )}
+          ) : null}
           <div className={`p-4 ${post.hnStoryShare ? "pl-5" : ""}`}>
             <PostContent />
           </div>

@@ -33,7 +33,9 @@ function initializeResend(): void {
       resend = new Resend(env.RESEND_API_KEY);
     } catch (error) {
       console.error("Failed to initialize Resend:", error);
-      throw new Error("Email service initialization failed");
+      throw new Error("Email service initialization failed", {
+        cause: error,
+      });
     }
   }
 }

@@ -33,7 +33,7 @@ function doesKeyContainSearchQuery(key: string, searchQuery: string): boolean {
     }
 
     const keyData = key.slice(prefix.length);
-    const base64Part = keyData.split(":")[0];
+    const [base64Part] = keyData.split(":");
     if (!base64Part) {
       return false;
     }
@@ -179,9 +179,8 @@ export const userCache = {
 
   async scanAndDeleteKeys(pattern: string): Promise<void> {
     const BATCH_SIZE = 100;
-    let cursor = 0;
 
-    do {
+    const scanBatch = async (cursor: number): Promise<void> => {
       const [newCursor, keys] = await redis.scan(
         cursor,
         "MATCH",
@@ -198,8 +197,13 @@ export const userCache = {
         await pipeline.exec();
       }
 
-      cursor = Number.parseInt(newCursor, 10);
-    } while (cursor !== 0);
+      const nextCursor = Number.parseInt(newCursor, 10);
+      if (nextCursor !== 0) {
+        await scanBatch(nextCursor);
+      }
+    };
+
+    await scanBatch(0);
   },
 
   async invalidateAllUserCaches(userId?: string): Promise<void> {
@@ -430,10 +434,11 @@ export const userCache = {
 
       if (keysToDelete.length > 0) {
         const batchSize = 100;
+        const batches: string[][] = [];
         for (let i = 0; i < keysToDelete.length; i += batchSize) {
-          const batch = keysToDelete.slice(i, i + batchSize);
-          await redis.del(...batch);
+          batches.push(keysToDelete.slice(i, i + batchSize));
         }
+        await Promise.all(batches.map((batch) => redis.del(...batch)));
       }
     } catch (error) {
       console.error("Error invalidating search cache:", error);

@@ -1,9 +1,9 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
+import { useQueryClient } from "@tanstack/react-query";
 import { AtSign, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -32,6 +32,16 @@ const MentionedUsersBar = () => {
       queryClient.invalidateQueries({ queryKey: ["mentionedUsers"] });
     });
   }, [queryClient]);
+
+  const handleHoverEnd = useCallback(() => setHoveredUser(null), []);
+  const handleHoverStart = useCallback((e: PointerEvent) => {
+    const userId = (e.currentTarget as HTMLElement | null)?.getAttribute(
+      "data-user-id"
+    );
+    if (userId) {
+      setHoveredUser(userId);
+    }
+  }, []);
 
   if (!(mentionedUsers?.length || isLoading)) {
     return null;
@@ -77,11 +87,12 @@ const MentionedUsersBar = () => {
               <motion.li
                 animate={{ opacity: 1, y: 0 }}
                 className="group relative"
+                data-user-id={user.id}
                 exit={{ opacity: 0, x: -10 }}
                 initial={{ opacity: 0, y: 10 }}
                 key={user.id}
-                onHoverEnd={() => setHoveredUser(null)}
-                onHoverStart={() => setHoveredUser(user.id)}
+                onHoverEnd={handleHoverEnd}
+                onHoverStart={handleHoverStart}
                 transition={{ delay: index * 0.05 }}
               >
                 <Link
@@ -99,7 +110,7 @@ const MentionedUsersBar = () => {
                         exit={{ opacity: 0, scale: 1.1 }}
                         initial={{ opacity: 0, scale: 0.9 }}
                       >
-                        {user.avatarUrl && (
+                        {user.avatarUrl ? (
                           <div className="absolute inset-0 flex items-center justify-center">
                             <Image
                               alt={user.username}
@@ -109,7 +120,7 @@ const MentionedUsersBar = () => {
                               width={120}
                             />
                           </div>
-                        )}
+                        ) : null}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -119,7 +130,7 @@ const MentionedUsersBar = () => {
                       <span className="w-5 font-medium text-blue-500/50 text-xs">
                         #{index + 1}
                       </span>
-                      {user.avatarUrl && (
+                      {user.avatarUrl ? (
                         <div className="relative h-6 w-6 overflow-hidden rounded-full border border-blue-500/20">
                           <Image
                             alt={user.username}
@@ -128,7 +139,7 @@ const MentionedUsersBar = () => {
                             src={user.avatarUrl}
                           />
                         </div>
-                      )}
+                      ) : null}
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-medium text-foreground text-sm transition-colors group-hover:text-blue-500">
                           @{user.username}
@@ -158,7 +169,7 @@ const MentionedUsersBar = () => {
       </CardContent>
 
       <AnimatePresence>
-        {(isPending || isLoading) && (
+        {isPending || isLoading ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 z-20 flex items-center justify-center bg-background/50 backdrop-blur-sm"
@@ -167,7 +178,7 @@ const MentionedUsersBar = () => {
           >
             <RefreshCw className="h-5 w-5 animate-spin text-blue-500" />
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </Card>
   );

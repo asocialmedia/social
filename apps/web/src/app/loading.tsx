@@ -56,7 +56,7 @@ export default function Loading() {
 
         <div className="fixed inset-x-0 bottom-0 pb-8">
           <AnimatePresence>
-            {showHomeLink && (
+            {showHomeLink ? (
               <motion.div
                 animate={{ opacity: 1, y: 0 }}
                 className="flex justify-center"
@@ -73,7 +73,7 @@ export default function Loading() {
                   </Button>
                 </Link>
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
         </div>
 

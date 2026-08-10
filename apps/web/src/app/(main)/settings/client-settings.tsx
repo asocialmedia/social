@@ -1,12 +1,7 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { motion } from "motion/react";
 import { AnimatedAsocialmediaText } from "@/app/(auth)/client/client-login-page";
 import { FossBanner } from "@/components/misc/foss-banner";

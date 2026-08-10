@@ -10,12 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { BookOpen, Edit, Plus, Settings, Upload } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";

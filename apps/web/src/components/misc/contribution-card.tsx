@@ -1,7 +1,7 @@
 "use client";
 
-import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { Button } from "@asm/ui/shadui/button";
+import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { ChevronRight, Code2, GitPullRequest, Star } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";

@@ -165,7 +165,9 @@ export async function requestPasswordReset(
   }
 }
 
-export async function resetPassword(data: z.infer<typeof resetPasswordSchema>) {
+export async function resetPassword(
+  data: z.infer<typeof resetPasswordSchema>
+): Promise<{ success?: boolean; error?: string }> {
   try {
     const { token, password } = resetPasswordSchema.parse(data);
 

@@ -1,13 +1,14 @@
+import type { VoteInfo } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import {
   type QueryKey,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { VoteInfo } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
-import { Button } from "@asm/ui/shadui/button";
 import { ArrowBigDown, ArrowBigUp } from "lucide-react";
+import { useCallback } from "react";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
@@ -127,6 +128,9 @@ export default function AuraVoteButton({
     return newVote - oldVote;
   };
 
+  const handleVoteUp = useCallback(() => mutate(1), [mutate]);
+  const handleVoteDown = useCallback(() => mutate(-1), [mutate]);
+
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -134,7 +138,7 @@ export default function AuraVoteButton({
           "group rounded-md p-1 text-muted-foreground hover:border hover:border-orange-500 hover:bg-orange-100 hover:bg-orange/10 hover:shadow-md",
           data.userVote === 1 && "bg-orange-100/10"
         )}
-        onClick={() => mutate(1)}
+        onClick={handleVoteUp}
         type="button"
         variant="ghost"
       >
@@ -155,7 +159,7 @@ export default function AuraVoteButton({
           "group rounded-md p-1 text-muted-foreground hover:border hover:border-violet-500 hover:bg-violet-100 hover:bg-violet/10 hover:shadow-md",
           data.userVote === -1 && "bg-violet-100/10"
         )}
-        onClick={() => mutate(-1)}
+        onClick={handleVoteDown}
         type="button"
         variant="ghost"
       >

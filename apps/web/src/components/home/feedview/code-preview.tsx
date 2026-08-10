@@ -10,7 +10,7 @@ import {
   FileIcon,
   WrapTextIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
   oneDark,
@@ -89,7 +89,7 @@ export function CodePreview({
     fetchCode();
   }, [mediaId]);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(content);
       setCopied(true);
@@ -105,11 +105,15 @@ export function CodePreview({
         variant: "destructive",
       });
     }
-  };
+  }, [content, toast]);
 
-  const toggleFullScreen = () => {
-    setIsFullScreen(!isFullScreen);
-  };
+  const toggleFullScreen = useCallback(() => {
+    setIsFullScreen((current) => !current);
+  }, []);
+
+  const toggleWrapCode = useCallback(() => {
+    setWrapCode((current) => !current);
+  }, []);
 
   if (error) {
     return (
@@ -137,7 +141,7 @@ export function CodePreview({
       </div>
       <div className="flex items-center gap-2">
         <Button
-          onClick={() => setWrapCode(!wrapCode)}
+          onClick={toggleWrapCode}
           size="icon"
           title={wrapCode ? "Disable line wrap" : "Enable line wrap"}
           variant="ghost"

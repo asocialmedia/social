@@ -14,6 +14,7 @@ import {
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import Link from "next/link";
 import type React from "react";
+import { useCallback } from "react";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -95,9 +96,20 @@ export function MobileUserMenu({
     staleTime: 1000 * 60 * 5,
   });
 
+  const handleThemeClick = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      const value = e.currentTarget.getAttribute("data-theme-value");
+      if (value) {
+        setThemeAction(value);
+        onCloseAction();
+      }
+    },
+    [onCloseAction, setThemeAction]
+  );
+
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen ? (
         <div className="fixed inset-0 z-[200]">
           <motion.div
             animate={{ opacity: 1 }}
@@ -152,13 +164,13 @@ export function MobileUserMenu({
                       <p className="text-muted-foreground text-sm">
                         {user.username ? `@${user.username}` : user.email}
                       </p>
-                      {user.bio && (
+                      {user.bio ? (
                         <div className="mt-2 flex items-center justify-center gap-1 text-muted-foreground/60">
                           <Quote className="size-4" />
                           <p className="text-sm italic">{user.bio}</p>
                           <Quote className="size-4" />
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
 
@@ -203,11 +215,9 @@ export function MobileUserMenu({
                                 ? "bg-primary/20 text-primary"
                                 : "hover:bg-primary/10"
                             }`}
+                            data-theme-value={value}
                             key={value}
-                            onClick={() => {
-                              setThemeAction(value);
-                              onCloseAction();
-                            }}
+                            onClick={handleThemeClick}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                           >
@@ -235,7 +245,7 @@ export function MobileUserMenu({
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
 import type { PostsPage } from "@asm/db";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import FeedView from "@/components/home/feed-view";
+import { useCallback } from "react";
+import { FeedView } from "@/components/home/feed-view";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import PostsLoadingSkeleton from "@/components/posts/posts-loading-skeleton";
 import kyInstance from "@/lib/ky";
@@ -31,6 +32,12 @@ export default function FollowingFeed() {
 
   const posts = data?.pages.flatMap((page) => page.posts) || [];
 
+  const handleBottomReached = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetching]);
+
   if (status === "pending") {
     return <PostsLoadingSkeleton />;
   }
@@ -52,13 +59,11 @@ export default function FollowingFeed() {
   }
 
   return (
-    <InfiniteScrollContainer
-      onBottomReached={() => hasNextPage && !isFetching && fetchNextPage()}
-    >
+    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       <FeedView posts={posts} />
-      {isFetchingNextPage && (
+      {isFetchingNextPage ? (
         <Loader2 className="mx-auto my-3 animate-spin bg-background" />
-      )}
+      ) : null}
     </InfiniteScrollContainer>
   );
 }

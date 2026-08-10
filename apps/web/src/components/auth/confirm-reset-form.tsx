@@ -1,7 +1,5 @@
 "use client";
 
-import resetImage from "@assets/auth/confirm-reset-image.jpg";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -12,12 +10,14 @@ import {
   FormLabel,
   FormMessage,
 } from "@asm/ui/shadui/form";
+import resetImage from "@assets/auth/confirm-reset-image.jpg";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, Lock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { useCallback, useEffect, useState, useTransition } from "react";
+import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { resetPassword } from "@/app/(auth)/reset-password/server-actions";
 import { LoadingButton } from "./loading-button";
@@ -39,6 +39,46 @@ const schema = z
     message: "Passwords don't match",
     path: ["confirmPassword"],
   });
+
+type ConfirmResetFormValues = z.infer<typeof schema>;
+
+function PasswordFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<ConfirmResetFormValues, "password">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>New Password</FormLabel>
+      <FormControl>
+        <div className="relative">
+          <PasswordInput {...field} className="focus-visible:ring-blue-400" />
+        </div>
+      </FormControl>
+      {/* @ts-expect-error */}
+      <PasswordStrengthChecker password={field.value} />
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function ConfirmPasswordFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<ConfirmResetFormValues, "confirmPassword">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>Confirm Password</FormLabel>
+      <FormControl>
+        <div className="relative">
+          <PasswordInput {...field} className="focus-visible:ring-blue-400" />
+        </div>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
 
 const PasswordResetAnimation = () => (
   <motion.div className="relative mx-auto mb-8 h-24 w-24">
@@ -106,7 +146,11 @@ export default function ConfirmResetForm() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const form = useForm<z.infer<typeof schema>>({
+  const handleRequestNewLink = useCallback(() => {
+    router.push("/reset-password");
+  }, [router]);
+
+  const form = useForm<ConfirmResetFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       password: "",
@@ -161,7 +205,7 @@ export default function ConfirmResetForm() {
     validateToken(tokenParam);
   }, [searchParams, router, toast]);
 
-  function onSubmit(values: z.infer<typeof schema>) {
+  function onSubmit(values: ConfirmResetFormValues) {
     if (!(token && isTokenValid)) {
       return;
     }
@@ -255,7 +299,7 @@ export default function ConfirmResetForm() {
           </p>
           <Button
             className="bg-blue-400 text-white hover:bg-blue-500"
-            onClick={() => router.push("/reset-password")}
+            onClick={handleRequestNewLink}
           >
             Request New Reset Link
           </Button>
@@ -347,41 +391,13 @@ export default function ConfirmResetForm() {
                     <FormField
                       control={form.control}
                       name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>New Password</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <PasswordInput
-                                {...field}
-                                className="focus-visible:ring-blue-400"
-                              />
-                            </div>
-                          </FormControl>
-                          {/* @ts-expect-error */}
-                          <PasswordStrengthChecker password={field.value} />
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                      render={PasswordFieldRenderer}
                     />
 
                     <FormField
                       control={form.control}
                       name="confirmPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Confirm Password</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <PasswordInput
-                                {...field}
-                                className="focus-visible:ring-blue-400"
-                              />
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
+                      render={ConfirmPasswordFieldRenderer}
                     />
 
                     <LoadingButton

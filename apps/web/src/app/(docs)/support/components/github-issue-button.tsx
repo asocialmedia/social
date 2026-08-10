@@ -1,5 +1,5 @@
-import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { Button } from "@asm/ui/shadui/button";
+import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { motion } from "motion/react";
 
 export function GithubIssueButton() {

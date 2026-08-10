@@ -1,16 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import type { UserData } from "@asm/db";
 import { useToast } from "@asm/ui/hooks/use-toast";
 import { Card } from "@asm/ui/shadui/card";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { useQuery } from "@tanstack/react-query";
 import { AtSignIcon, FileTextIcon } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";
@@ -79,14 +74,7 @@ const ProfileFeedView: React.FC<ProfileFeedViewProps> = ({
   }
 
   return (
-    <ErrorBoundary
-      FallbackComponent={(props: ReactErrorBoundaryFallbackProps) => (
-        <ErrorFallback
-          error={props.error instanceof Error ? props.error : null}
-          resetErrorBoundary={() => props.resetErrorBoundary()}
-        />
-      )}
-    >
+    <ErrorBoundary FallbackComponent={ProfileFeedErrorFallback}>
       <div className="flex-1 bg-background p-4 text-foreground md:p-8">
         <motion.main
           animate={{ opacity: 1 }}
@@ -192,6 +180,16 @@ const ProfileFeedView: React.FC<ProfileFeedViewProps> = ({
 };
 
 export default ProfileFeedView;
+
+const ProfileFeedErrorFallback = ({
+  error,
+  resetErrorBoundary,
+}: ReactErrorBoundaryFallbackProps) => (
+  <ErrorFallback
+    error={error instanceof Error ? error : null}
+    resetErrorBoundary={resetErrorBoundary}
+  />
+);
 
 const ProfileHeader: React.FC<{ userData: UserData }> = ({ userData }) => {
   const { data: avatarData } = useQuery({

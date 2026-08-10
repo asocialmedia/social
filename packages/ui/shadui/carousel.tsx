@@ -1,7 +1,7 @@
 "use client";
 
-import { ArrowLeftIcon, ArrowRightIcon } from "@radix-ui/react-icons";
 import { Button } from "@asm/ui/shadui/button";
+import { ArrowLeftIcon, ArrowRightIcon } from "@radix-ui/react-icons";
 import useEmblaCarousel, {
   type UseEmblaCarouselType,
 } from "embla-carousel-react";

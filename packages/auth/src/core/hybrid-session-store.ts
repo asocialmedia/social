@@ -208,20 +208,22 @@ export class HybridSessionStore {
     try {
       const keys = await this.redis.keys(`${REDIS_SESSION_PREFIX}*`);
 
-      for (const key of keys) {
-        const token = key.replace(REDIS_SESSION_PREFIX, "");
-        const session = await this.getFromRedis(token);
+      await Promise.all(
+        keys.map(async (key) => {
+          const token = key.replace(REDIS_SESSION_PREFIX, "");
+          const session = await this.getFromRedis(token);
 
-        if (session && session.expiresAt <= new Date()) {
-          await this.updateInPostgreSQL(session.id, {
-            syncStatus: "expired",
-            lastSyncedAt: new Date(),
-          });
+          if (session && session.expiresAt <= new Date()) {
+            await this.updateInPostgreSQL(session.id, {
+              syncStatus: "expired",
+              lastSyncedAt: new Date(),
+            });
 
-          await this.deleteFromRedis(token);
-          console.log(`Archived expired session ${session.id} to PostgreSQL`);
-        }
-      }
+            await this.deleteFromRedis(token);
+            console.log(`Archived expired session ${session.id} to PostgreSQL`);
+          }
+        })
+      );
     } catch (error) {
       console.error("Session sync failed:", error);
     }
@@ -266,19 +268,21 @@ export class HybridSessionStore {
   ): Promise<HybridSession | null> {
     const keys = await this.redis.keys(`${REDIS_SESSION_PREFIX}*`);
 
-    for (const key of keys) {
-      const session = await this.getFromRedis(
-        key.replace(REDIS_SESSION_PREFIX, "")
-      );
-      if (session && session.id === id) {
-        const updatedSession = {
-          ...session,
-          ...updates,
-          updatedAt: new Date(),
-        };
-        await this.storeInRedis(updatedSession);
-        return updatedSession;
-      }
+    const sessions = await Promise.all(
+      keys.map(async (key) =>
+        this.getFromRedis(key.replace(REDIS_SESSION_PREFIX, ""))
+      )
+    );
+
+    const session = sessions.find((s) => s && s.id === id) ?? null;
+    if (session) {
+      const updatedSession = {
+        ...session,
+        ...updates,
+        updatedAt: new Date(),
+      };
+      await this.storeInRedis(updatedSession);
+      return updatedSession;
     }
 
     return null;
@@ -305,15 +309,13 @@ export class HybridSessionStore {
     const userSessionsKey = `${REDIS_USER_SESSIONS_PREFIX}${userId}`;
     const tokens = await this.redis.smembers(userSessionsKey);
 
-    const sessions: HybridSession[] = [];
-    for (const token of tokens) {
-      const session = await this.getFromRedis(token);
-      if (session) {
-        sessions.push(session);
-      }
-    }
+    const sessions = await Promise.all(
+      tokens.map(async (token) => this.getFromRedis(token))
+    );
 
-    return sessions;
+    return sessions.filter(
+      (session): session is HybridSession => session !== null
+    );
   }
 
   private async deleteUserSessionsFromRedis(userId: string): Promise<void> {

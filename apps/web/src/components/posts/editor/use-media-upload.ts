@@ -33,7 +33,12 @@ export default function useMediaUpload() {
       const { mediaId, url } = await response.json();
       return { mediaId, url };
     } catch (error: unknown) {
-      throw new Error(error instanceof Error ? error.message : "Upload failed");
+      throw new Error(
+        error instanceof Error ? error.message : "Upload failed",
+        {
+          cause: error,
+        }
+      );
     }
   }
 
@@ -73,7 +78,7 @@ export default function useMediaUpload() {
                   : a
               )
             );
-            completed++;
+            completed += 1;
             setUploadProgress((completed / files.length) * 100);
           } catch (error: unknown) {
             toast({

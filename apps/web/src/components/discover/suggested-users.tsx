@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UserData } from "@asm/db";
 import { Card } from "@asm/ui/shadui/card";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
@@ -10,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheckIcon, MessageSquare, Sparkles, Users } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -43,6 +43,14 @@ const MutualFollowers = ({
   followers: NonNullable<EnhancedUserData["mutualFollowers"]>;
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+
+  const handleMouseEnter = useCallback(() => {
+    setIsHovered(true);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsHovered(false);
+  }, []);
 
   if (followers.length === 0) {
     return null;
@@ -79,8 +87,8 @@ const MutualFollowers = ({
           animate={{ opacity: isHovered ? 1 : 0.7 }}
           className="text-muted-foreground text-xs"
           initial={false}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
         >
           Followed by{" "}
           {displayedFollowers.map((follower, index) => (
@@ -127,10 +135,22 @@ const UserCard = ({
 }: {
   user: EnhancedUserData;
   index: number;
-  onFollowed: () => void;
+  onFollowed: (userId: string) => void;
   initialFollowState?: boolean;
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+
+  const handleHoverEnd = useCallback(() => {
+    setIsHovered(false);
+  }, []);
+
+  const handleHoverStart = useCallback(() => {
+    setIsHovered(true);
+  }, []);
+
+  const handleFollowed = useCallback(() => {
+    onFollowed(user.id);
+  }, [onFollowed, user.id]);
 
   return (
     <motion.div
@@ -139,8 +159,8 @@ const UserCard = ({
       exit={{ opacity: 0, scale: 0.8, y: 20 }}
       initial={{ opacity: 0, scale: 0.8 }}
       layout
-      onHoverEnd={() => setIsHovered(false)}
-      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={handleHoverEnd}
+      onHoverStart={handleHoverStart}
       transition={{
         layout: { duration: 0.3 },
         opacity: { duration: 0.2 },
@@ -248,7 +268,7 @@ const UserCard = ({
             </div>
 
             <AnimatePresence>
-              {user.bio && (
+              {user.bio ? (
                 <motion.div
                   animate={{ opacity: 1, height: "auto" }}
                   className="overflow-hidden"
@@ -262,11 +282,11 @@ const UserCard = ({
                     </p>
                   </Linkify>
                 </motion.div>
-              )}
+              ) : null}
             </AnimatePresence>
-            {user.mutualFollowers && (
+            {user.mutualFollowers ? (
               <MutualFollowers followers={user.mutualFollowers} />
-            )}
+            ) : null}
           </div>
           <motion.div
             animate={{
@@ -283,7 +303,7 @@ const UserCard = ({
                 followers: user._count.followers,
                 isFollowedByUser: initialFollowState ?? false,
               }}
-              onFollowed={onFollowed}
+              onFollowed={handleFollowed}
               userId={user.id}
             />
           </motion.div>
@@ -409,7 +429,7 @@ const SuggestedUsers: React.FC<SuggestedUsersProps> = ({ userId }) => {
               <UserCard
                 index={index}
                 initialFollowState={user.followState?.isFollowedByUser}
-                onFollowed={() => handleUserFollowed(user.id)}
+                onFollowed={handleUserFollowed}
                 user={{
                   ...user,
                   _count: {

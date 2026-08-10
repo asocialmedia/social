@@ -13,7 +13,7 @@ export async function PATCH(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = session.data.user;
+    const { user } = session.data;
 
     const body = await request.json();
     const { email } = emailSchema.parse(body);

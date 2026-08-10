@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -9,9 +8,10 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { ScrollArea } from "@asm/ui/shadui/scroll-area";
+import { useQuery } from "@tanstack/react-query";
 import { Ghost, SearchIcon, Users2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { type ChangeEvent, useCallback, useState } from "react";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 
@@ -80,6 +80,10 @@ export default function FollowersList({
       user.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleSearchChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
   return (
     <Dialog onOpenChange={onCloseAction} open={isOpen}>
       <DialogContent className="max-h-[90vh] overflow-hidden border border-accent/20 bg-background/95 backdrop-blur-md sm:max-w-[425px]">
@@ -103,7 +107,7 @@ export default function FollowersList({
           <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="border-accent/20 bg-background/50 pl-9 backdrop-blur-xs focus:border-primary/50"
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleSearchChange}
             placeholder="Search followers..."
             value={searchQuery}
           />

@@ -9,7 +9,8 @@ import PostEditorPage from "./post-editor-page";
 
 export const metadata: Metadata = {
   title: "Compose New Post | Asocialmedia",
-  description: "Share your thoughts, code, and media with the Asocialmedia community",
+  description:
+    "Share your thoughts, code, and media with the Asocialmedia community",
 };
 
 export default async function Page() {
@@ -25,11 +26,11 @@ export default async function Page() {
             isCollapsed={false}
             stickyTop="5rem"
           />
-          {userData && (
+          {userData ? (
             <div className="mt-auto mb-4">
               <ProfileCard userData={userData} />
             </div>
-          )}
+          ) : null}
         </div>
       </aside>
 
