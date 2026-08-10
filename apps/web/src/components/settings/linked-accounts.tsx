@@ -159,28 +159,12 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
           provider="Google"
         />
         <AccountCard
-          icon="github"
-          isConnected={!!user.githubId}
-          isLoading={loadingProvider === "github"}
+          icon="reddit"
+          isConnected={!!user.redditId}
+          isLoading={loadingProvider === "reddit"}
           onConnect={handleLink}
           onDisconnect={handleUnlink}
-          provider="GitHub"
-        />
-        <AccountCard
-          icon="discord"
-          isConnected={!!user.discordId}
-          isLoading={loadingProvider === "discord"}
-          onConnect={handleLink}
-          onDisconnect={handleUnlink}
-          provider="Discord"
-        />
-        <AccountCard
-          icon="twitter"
-          isConnected={!!user.twitterId}
-          isLoading={loadingProvider === "twitter"}
-          onConnect={handleLink}
-          onDisconnect={handleUnlink}
-          provider="Twitter"
+          provider="Reddit"
         />
       </motion.div>
     </motion.div>

@@ -9,11 +9,8 @@ import {
   username,
 } from "better-auth/plugins";
 import type {
-  DiscordProfile,
-  GithubProfile,
   GoogleProfile,
   RedditProfile,
-  TwitterProfile,
 } from "better-auth/social-providers";
 import { env } from "../../env";
 import { hashPasswordWithScrypt, verifyPasswordWithScrypt } from "./password";
@@ -74,30 +71,13 @@ export interface AuthConfig {
   }) => Promise<void>;
 }
 
-type SocialProviderName =
-  | "google"
-  | "github"
-  | "discord"
-  | "twitter"
-  | "reddit";
+type SocialProviderName = "google" | "reddit";
 
 interface UsernameMapping {
   username: string;
 }
 
 interface SocialProvidersConfig {
-  discord?: {
-    clientId: string;
-    clientSecret: string;
-    redirectURI: string;
-    mapProfileToUser: (profile: DiscordProfile) => UsernameMapping;
-  };
-  github?: {
-    clientId: string;
-    clientSecret: string;
-    redirectURI: string;
-    mapProfileToUser: (profile: GithubProfile) => UsernameMapping;
-  };
   google?: {
     clientId: string;
     clientSecret: string;
@@ -109,12 +89,6 @@ interface SocialProvidersConfig {
     clientSecret: string;
     redirectURI: string;
     mapProfileToUser: (profile: RedditProfile) => UsernameMapping;
-  };
-  twitter?: {
-    clientId: string;
-    clientSecret: string;
-    redirectURI: string;
-    mapProfileToUser: (profile: TwitterProfile) => UsernameMapping;
   };
 }
 
@@ -136,45 +110,6 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       },
     };
     trustedProviders.push("google");
-  }
-
-  if (env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET) {
-    socialProviders.github = {
-      clientId: env.GITHUB_CLIENT_ID,
-      clientSecret: env.GITHUB_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/github`,
-      mapProfileToUser(profile: GithubProfile): UsernameMapping {
-        const derivedUsername = deriveUsernameFromProfile(profile);
-        return { username: derivedUsername };
-      },
-    };
-    trustedProviders.push("github");
-  }
-
-  if (env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET) {
-    socialProviders.discord = {
-      clientId: env.DISCORD_CLIENT_ID,
-      clientSecret: env.DISCORD_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/discord`,
-      mapProfileToUser(profile: DiscordProfile): UsernameMapping {
-        const derivedUsername = deriveUsernameFromProfile(profile);
-        return { username: derivedUsername };
-      },
-    };
-    trustedProviders.push("discord");
-  }
-
-  if (env.TWITTER_CLIENT_ID && env.TWITTER_CLIENT_SECRET) {
-    socialProviders.twitter = {
-      clientId: env.TWITTER_CLIENT_ID,
-      clientSecret: env.TWITTER_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/twitter`,
-      mapProfileToUser(profile: TwitterProfile): UsernameMapping {
-        const derivedUsername = deriveUsernameFromProfile(profile);
-        return { username: derivedUsername };
-      },
-    };
-    trustedProviders.push("twitter");
   }
 
   if (env.REDDIT_CLIENT_ID && env.REDDIT_CLIENT_SECRET) {

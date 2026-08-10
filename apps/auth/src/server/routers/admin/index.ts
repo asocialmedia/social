@@ -710,9 +710,6 @@ export const adminRouter = router({
           SELECT
             CASE
               WHEN google_id IS NOT NULL THEN 'google'
-              WHEN github_id IS NOT NULL THEN 'github'
-              WHEN discord_id IS NOT NULL THEN 'discord'
-              WHEN twitter_id IS NOT NULL THEN 'twitter'
               WHEN reddit_id IS NOT NULL THEN 'reddit'
               ELSE 'email'
             END as provider,
