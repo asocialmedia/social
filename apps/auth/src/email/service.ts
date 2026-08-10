@@ -1,4 +1,4 @@
-import { validateEmailAdvanced } from "@zephyr/auth";
+import { validateEmailAdvanced } from "@asm/auth";
 import { Resend } from "resend";
 import { env } from "../../env";
 import { emailConfig } from "./config";
@@ -136,7 +136,7 @@ export async function sendVerificationEmail(
 
   try {
     const { error } = await resend.emails.send({
-      from: `🪁 Zephyr <no-reply@${SENDER}>`,
+      from: `🪁 Asocialmedia <no-reply@${SENDER}>`,
       to: email,
       subject: emailConfig.templates.verification.subject,
       html: await getVerificationEmailHtml(verificationUrl),
@@ -223,9 +223,9 @@ export async function sendVerificationOTP(
 
   try {
     const { error } = await resend.emails.send({
-      from: `🪁 Zephyr <no-reply@${SENDER}>`,
+      from: `🪁 Asocialmedia <no-reply@${SENDER}>`,
       to: email,
-      subject: "Your Verification Code - Zephyr",
+      subject: "Your Verification Code - Asocialmedia",
       html: await getOTPVerificationEmailHtml(otp),
     });
 
@@ -274,7 +274,7 @@ export async function sendPasswordResetEmail(
     }
 
     const { error } = await resend.emails.send({
-      from: `🔒 Zephyr <no-reply@${SENDER}>`,
+      from: `🔒 Asocialmedia <no-reply@${SENDER}>`,
       to: email,
       subject: emailConfig.templates.passwordReset.subject,
       html: await getPasswordResetEmailHtml(resetUrl),

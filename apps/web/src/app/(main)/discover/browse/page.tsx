@@ -7,7 +7,7 @@ import { getSessionFromApi } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "Browse Users",
-  description: "Browse all users on Zephyr",
+  description: "Browse all users on Asocialmedia",
 };
 
 export default async function BrowsePage() {

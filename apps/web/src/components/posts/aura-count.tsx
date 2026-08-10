@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { VoteInfo } from "@zephyr/db";
+import type { VoteInfo } from "@asm/db";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import { Flame } from "lucide-react";
 import { useEffect, useState } from "react";
 import kyInstance from "@/lib/ky";

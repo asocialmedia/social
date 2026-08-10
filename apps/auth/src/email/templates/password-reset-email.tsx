@@ -20,7 +20,7 @@ export const PasswordResetEmail = ({ resetUrl }: PasswordResetEmailProps) => (
   <Html>
     <Head />
     <Preview>
-      We received a request to reset your Zephyr password. Click to reset it
+      We received a request to reset your Asocialmedia password. Click to reset it
       now.
     </Preview>
     <Body style={main}>
@@ -28,7 +28,7 @@ export const PasswordResetEmail = ({ resetUrl }: PasswordResetEmailProps) => (
         <Section style={box}>
           <Text style={heading}>Password Reset Request 🔒</Text>
           <Text style={paragraph}>
-            We received a request to reset your password for your Zephyr
+            We received a request to reset your password for your Asocialmedia
             account.
           </Text>
 

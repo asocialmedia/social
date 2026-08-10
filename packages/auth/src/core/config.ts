@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";

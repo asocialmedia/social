@@ -1,8 +1,8 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { Card, CardContent, CardTitle } from "@zephyr/ui/shadui/card";
-import { ScrollArea } from "@zephyr/ui/shadui/scroll-area";
+import type { UserData } from "@asm/db";
+import { Card, CardContent, CardTitle } from "@asm/ui/shadui/card";
+import { ScrollArea } from "@asm/ui/shadui/scroll-area";
 import { Users } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";

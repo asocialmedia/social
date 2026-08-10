@@ -1,7 +1,7 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import { useState } from "react";
 import EditProfileDialog from "@/components/layouts/edit-profile-dialog";
 import { cn } from "@/lib/utils";

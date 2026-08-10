@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@zephyr/db";
+import { getUserDataSelect, prisma } from "@asm/db";
 import { cache } from "react";
 
 export const getUserData = cache(async (userId: string) => {

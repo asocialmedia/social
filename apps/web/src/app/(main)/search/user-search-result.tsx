@@ -1,9 +1,9 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { UserData } from "@zephyr/db";
-import { Alert, AlertDescription } from "@zephyr/ui/shadui/alert";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { UserData } from "@asm/db";
+import { Alert, AlertDescription } from "@asm/ui/shadui/alert";
+import { Button } from "@asm/ui/shadui/button";
 import { Users2, VerifiedIcon } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";

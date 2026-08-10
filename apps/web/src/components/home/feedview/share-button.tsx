@@ -1,21 +1,21 @@
 "use client";
 
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@zephyr/ui/shadui/dialog";
-import { Input } from "@zephyr/ui/shadui/input";
+} from "@asm/ui/shadui/dialog";
+import { Input } from "@asm/ui/shadui/input";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@zephyr/ui/shadui/tabs";
+} from "@asm/ui/shadui/tabs";
 import { Check, Copy, Download, Mail, Share2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";

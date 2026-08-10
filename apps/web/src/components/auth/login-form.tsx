@@ -2,8 +2,8 @@
 
 import supportImage from "@assets/previews/help.png";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type LoginValues, loginSchema } from "@zephyr/auth/validation";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import { type LoginValues, loginSchema } from "@asm/auth/validation";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -11,8 +11,8 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
 import { AlertCircle, Mail, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";

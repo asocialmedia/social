@@ -1,4 +1,4 @@
-import { prisma, redis } from "@zephyr/db";
+import { prisma, redis } from "@asm/db";
 
 export interface HybridSession {
   createdAt: Date;

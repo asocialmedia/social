@@ -1,7 +1,7 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { PostsPage } from "@zephyr/db";
+import type { PostsPage } from "@asm/db";
 import { Loader2 } from "lucide-react";
 import React, { useMemo } from "react";
 import Post from "@/components/home/feedview/post-card";

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Tag } from "@zephyr/db";
+import type { Tag } from "@asm/db";
 
 interface TagResponse {
   tags: string[];

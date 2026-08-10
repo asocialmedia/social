@@ -21,7 +21,7 @@
   scripts = {
     db-gen.exec = "bun run db:gen";
     db-push.exec = "bun run db:push";
-    db-studio.exec = "bun run --filter=@zephyr/db studio";
+    db-studio.exec = "bun run --filter=@asm/db studio";
     dev.exec = "bun run dev";
     check.exec = "bun run check";
     check-types.exec = "bun run check-types";

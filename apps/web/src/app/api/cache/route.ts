@@ -1,4 +1,4 @@
-import { followerInfoCache } from "@zephyr/db";
+import { followerInfoCache } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export const dynamic = "force-dynamic";

@@ -1,8 +1,8 @@
 "use client";
 
-import type { TrendingTopic } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import type { TrendingTopic } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { LucideTrendingUp, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";

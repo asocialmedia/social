@@ -1,13 +1,13 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import { AtSign, Sparkles } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion, type Variants } from "motion/react";

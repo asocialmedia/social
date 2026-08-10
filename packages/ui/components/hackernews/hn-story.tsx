@@ -58,7 +58,7 @@ export function HNStory({ story }: HnStoryProps) {
   const hnShareStore = useHnShareStore();
   const router = useRouter();
 
-  const handleShareToZephyr = (e: React.MouseEvent) => {
+  const handleShareToAsocialmedia = (e: React.MouseEvent) => {
     e.stopPropagation();
     hnShareStore.startSharing({
       id: story.id,
@@ -261,11 +261,11 @@ export function HNStory({ story }: HnStoryProps) {
 
           <motion.button
             className="group flex cursor-pointer items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-orange-500"
-            onClick={handleShareToZephyr}
+            onClick={handleShareToAsocialmedia}
             whileHover={{ scale: 1.05 }}
           >
             <Share2 className="h-4 w-4 rotate-90" />
-            <span>Share to Zephyr</span>
+            <span>Share to Asocialmedia</span>
           </motion.button>
 
           <motion.button

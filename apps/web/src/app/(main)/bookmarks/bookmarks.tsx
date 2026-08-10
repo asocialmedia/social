@@ -1,16 +1,16 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { HNStory as HnStoryType } from "@zephyr/aggregator/hackernews";
-import type { PostsPage } from "@zephyr/db";
-import { HNStory } from "@zephyr/ui/components/hackernews";
-import { Card } from "@zephyr/ui/shadui/card";
+import type { HNStory as HnStoryType } from "@asm/aggregator/hackernews";
+import type { PostsPage } from "@asm/db";
+import { HNStory } from "@asm/ui/components/hackernews";
+import { Card } from "@asm/ui/shadui/card";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@zephyr/ui/shadui/tabs";
+} from "@asm/ui/shadui/tabs";
 import { Newspaper, Terminal } from "lucide-react";
 import { motion } from "motion/react";
 import Post from "@/components/home/feedview/post-card";

@@ -33,7 +33,7 @@ export type PreflightCheckKey =
   | "init-jobs"
   | "postgres"
   | "redis"
-  | "zephob"
+  | "asmob"
   | "meilisearch"
   | "portless";
 
@@ -52,7 +52,7 @@ export const PREFLIGHT_CHECK_ORDER: Array<{
   { key: "init-jobs", label: "init" },
   { key: "postgres", label: "pg" },
   { key: "redis", label: "rd" },
-  { key: "zephob", label: "obj" },
+  { key: "asmob", label: "obj" },
   { key: "meilisearch", label: "mei" },
   { key: "portless", label: "ptl" },
 ];
@@ -62,7 +62,7 @@ export const DEFAULT_PREFLIGHT_CONFIG: PreflightConfig = {
   requiredServices: [
     "postgres-dev",
     "redis-dev",
-    "zephob-dev",
+    "asmob-dev",
     "meilisearch-dev",
   ],
 };

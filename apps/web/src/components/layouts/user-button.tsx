@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +21,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
+} from "@asm/ui/shadui/dropdown-menu";
 import {
   Check,
   LogOutIcon,

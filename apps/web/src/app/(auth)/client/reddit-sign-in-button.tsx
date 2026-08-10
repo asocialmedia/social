@@ -1,4 +1,4 @@
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth";
 

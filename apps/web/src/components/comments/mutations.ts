@@ -4,8 +4,8 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { CommentsPage } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import type { CommentsPage } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import { deleteComment, submitComment } from "./actions";
 
 export function useSubmitCommentMutation(postId: string) {

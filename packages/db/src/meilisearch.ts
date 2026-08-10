@@ -1,14 +1,14 @@
-import { MeiliSearch } from "meilisearch";
+import { Meilisearch } from "meilisearch";
 import { keys } from "../keys";
 
-let meilisearch: MeiliSearch | null = null;
+let meilisearch: Meilisearch | null = null;
 
-function getMeiliSearchClient(): MeiliSearch {
+function getMeiliSearchClient(): Meilisearch {
   if (!meilisearch) {
     try {
-      meilisearch = new MeiliSearch({
-        host: keys.MEILISEARCH_URL,
+      meilisearch = new Meilisearch({
         apiKey: keys.MEILISEARCH_MASTER_KEY,
+        host: keys.MEILISEARCH_URL,
       });
     } catch (error) {
       console.error("Failed to initialize MeiliSearch client:", error);
@@ -36,7 +36,50 @@ export interface UserSearchDocument {
 }
 
 export const userSearchIndex = {
-  name: "users",
+  async deleteAllUsers(): Promise<void> {
+    try {
+      const client = getMeiliSearchClient();
+      const index = client.index(this.name);
+      await index.deleteAllDocuments();
+    } catch (error) {
+      console.error("Error deleting all users from search index:", error);
+      throw error;
+    }
+  },
+
+  async deleteUser(userId: string): Promise<void> {
+    try {
+      const client = getMeiliSearchClient();
+      const index = client.index(this.name);
+      await index.deleteDocument(userId);
+    } catch (error) {
+      console.error("Error deleting user from search index:", error);
+      throw error;
+    }
+  },
+
+  async getUser(userId: string): Promise<UserSearchDocument | null> {
+    try {
+      const client = getMeiliSearchClient();
+      const index = client.index(this.name);
+      const result = await index.getDocument(userId);
+      return result as UserSearchDocument;
+    } catch (error) {
+      console.error("Error getting user from search index:", error);
+      return null;
+    }
+  },
+
+  async indexUsers(users: UserSearchDocument[]): Promise<void> {
+    try {
+      const client = getMeiliSearchClient();
+      const index = client.index(this.name);
+      await index.addDocuments(users);
+    } catch (error) {
+      console.error("Error indexing users:", error);
+      throw error;
+    }
+  },
 
   async initialize(): Promise<void> {
     try {
@@ -91,39 +134,7 @@ export const userSearchIndex = {
       throw error;
     }
   },
-
-  async indexUsers(users: UserSearchDocument[]): Promise<void> {
-    try {
-      const client = getMeiliSearchClient();
-      const index = client.index(this.name);
-      await index.addDocuments(users);
-    } catch (error) {
-      console.error("Error indexing users:", error);
-      throw error;
-    }
-  },
-
-  async updateUser(user: UserSearchDocument): Promise<void> {
-    try {
-      const client = getMeiliSearchClient();
-      const index = client.index(this.name);
-      await index.updateDocuments([user]);
-    } catch (error) {
-      console.error("Error updating user in search index:", error);
-      throw error;
-    }
-  },
-
-  async deleteUser(userId: string): Promise<void> {
-    try {
-      const client = getMeiliSearchClient();
-      const index = client.index(this.name);
-      await index.deleteDocument(userId);
-    } catch (error) {
-      console.error("Error deleting user from search index:", error);
-      throw error;
-    }
-  },
+  name: "users",
 
   async search(
     query: string,
@@ -146,11 +157,6 @@ export const userSearchIndex = {
       const index = client.index(this.name);
 
       const searchParams = {
-        q: query,
-        limit: options.limit || 20,
-        offset: options.offset || 0,
-        filter: options.filter || [],
-        sort: options.sort || ["createdAt:desc"],
         attributesToRetrieve: options.attributesToRetrieve || [
           "id",
           "username",
@@ -165,16 +171,21 @@ export const userSearchIndex = {
           "bio",
           "avatarUrl",
         ],
+        filter: options.filter || [],
+        limit: options.limit || 20,
+        offset: options.offset || 0,
+        q: query,
+        sort: options.sort || ["createdAt:desc"],
       };
 
       const result = await index.search(query, searchParams);
 
       return {
-        hits: result.hits as UserSearchDocument[],
-        total: result.estimatedTotalHits || 0,
-        offset: result.offset || 0,
-        limit: result.limit || 20,
         estimatedTotalHits: result.estimatedTotalHits || 0,
+        hits: result.hits as UserSearchDocument[],
+        limit: result.limit || 20,
+        offset: result.offset || 0,
+        total: result.estimatedTotalHits || 0,
       };
     } catch (error) {
       console.error("Error searching users:", error);
@@ -182,25 +193,13 @@ export const userSearchIndex = {
     }
   },
 
-  async getUser(userId: string): Promise<UserSearchDocument | null> {
+  async updateUser(user: UserSearchDocument): Promise<void> {
     try {
       const client = getMeiliSearchClient();
       const index = client.index(this.name);
-      const result = await index.getDocument(userId);
-      return result as UserSearchDocument;
+      await index.updateDocuments([user]);
     } catch (error) {
-      console.error("Error getting user from search index:", error);
-      return null;
-    }
-  },
-
-  async deleteAllUsers(): Promise<void> {
-    try {
-      const client = getMeiliSearchClient();
-      const index = client.index(this.name);
-      await index.deleteAllDocuments();
-    } catch (error) {
-      console.error("Error deleting all users from search index:", error);
+      console.error("Error updating user in search index:", error);
       throw error;
     }
   },

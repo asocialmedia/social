@@ -2,7 +2,7 @@ import {
   type NotificationsPage,
   notificationsInclude,
   prisma,
-} from "@zephyr/db";
+} from "@asm/db";
 import type { NextRequest } from "next/server";
 import { getSessionFromApi } from "@/lib/session";
 

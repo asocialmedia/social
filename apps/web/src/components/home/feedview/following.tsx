@@ -1,7 +1,7 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { PostsPage } from "@zephyr/db";
+import type { PostsPage } from "@asm/db";
 import { Loader2 } from "lucide-react";
 import FeedView from "@/components/home/feed-view";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";

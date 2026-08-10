@@ -1,5 +1,5 @@
-import type { PostData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { PostData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import LoadingButton from "@/components/auth/loading-button";
 import { useDeletePostMutation } from "@/posts/mutations";
 

@@ -1,4 +1,4 @@
-import { prisma, redis } from "@zephyr/db";
+import { prisma, redis } from "@asm/db";
 import { NextResponse } from "next/server";
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Analytics aggregation requires multiple data processing steps

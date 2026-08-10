@@ -1,10 +1,10 @@
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import { FileAudioIcon, FileCode, FileIcon, ImageIcon } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";

@@ -1,6 +1,6 @@
-import { hybridSessionStore } from "@zephyr/auth/core";
-import { debugLog } from "@zephyr/config/debug";
-import { prisma } from "@zephyr/db";
+import { hybridSessionStore } from "@asm/auth/core";
+import { debugLog } from "@asm/config/debug";
+import { prisma } from "@asm/db";
 import { z } from "zod";
 import { procedure, protectedProcedure, router } from "../../trpc";
 import { auditLogout, checkLogoutRateLimit } from "../security";
@@ -33,7 +33,7 @@ export const authRouter = router({
     .mutation(async ({ input }) => {
       try {
         const { validateJWTToken, cacheJWTValidation } = await import(
-          "@zephyr/auth/core"
+          "@asm/auth/core"
         );
         const validation = await validateJWTToken(input.token);
 

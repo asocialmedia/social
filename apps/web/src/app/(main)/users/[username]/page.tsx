@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@zephyr/db";
+import { getUserDataSelect, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import { getSessionFromApi } from "@/lib/session";

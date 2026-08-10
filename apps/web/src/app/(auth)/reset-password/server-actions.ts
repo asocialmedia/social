@@ -1,8 +1,8 @@
 "use server";
 
-import { EMAIL_REGEX, USERNAME_REGEX } from "@zephyr/auth/validation";
-import { debugLog } from "@zephyr/config/debug";
-import { prisma } from "@zephyr/db";
+import { EMAIL_REGEX, USERNAME_REGEX } from "@asm/auth/validation";
+import { debugLog } from "@asm/config/debug";
+import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { authClient } from "@/lib/auth";

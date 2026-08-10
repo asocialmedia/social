@@ -1,5 +1,5 @@
-import { Card } from "@zephyr/ui/shadui/card";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+import { Card } from "@asm/ui/shadui/card";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 
 export default function LoadMoreSkeleton() {
   return (

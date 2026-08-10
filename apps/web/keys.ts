@@ -3,54 +3,53 @@ import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
 
 export const keys = createEnv({
-  server: {
-    DATABASE_URL: z.url(),
-    REDIS_URL: z.url(),
-    ZEPHOB_ROOT_USER: z.string().min(1).default("zephob-admin"),
-    ZEPHOB_ROOT_PASSWORD: z.string().min(1).default("zephob-admin"),
-    ZEPHOB_BUCKET_NAME: z.string().min(1).default("uploads"),
-    ZEPHOB_ENDPOINT: z.url(),
-    ZEPHOB_PRODUCTION_ENDPOINT: z.url().optional(),
-    MEILISEARCH_URL: z.url().default("http://localhost:7700"),
-    MEILISEARCH_MASTER_KEY: z.string().default("masterKey123"),
-    CRON_SECRET_KEY: z.string().optional(),
-    NODE_ENV: z
-      .enum(["development", "production", "test"])
-      .default("development"),
-    NEXT_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
-    TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
-    BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
-    SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
-  },
-
   client: {
+    NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
     NEXT_PUBLIC_PORT: z
       .string()
       .transform((val) => Number.parseInt(val, 10))
       .default(3000),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
-    NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
   },
 
   runtimeEnv: {
-    DATABASE_URL: process.env.DATABASE_URL,
-    REDIS_URL: process.env.REDIS_URL,
-    ZEPHOB_ROOT_USER: process.env.ZEPHOB_ROOT_USER,
-    ZEPHOB_ROOT_PASSWORD: process.env.ZEPHOB_ROOT_PASSWORD,
-    ZEPHOB_BUCKET_NAME: process.env.ZEPHOB_BUCKET_NAME,
-    ZEPHOB_ENDPOINT: process.env.ZEPHOB_ENDPOINT,
-    ZEPHOB_PRODUCTION_ENDPOINT: process.env.ZEPHOB_PRODUCTION_ENDPOINT,
-    MEILISEARCH_URL: process.env.MEILISEARCH_URL,
-    MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
-    NODE_ENV: process.env.NODE_ENV,
-    NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
-    TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
-    CRON_SECRET_KEY: process.env.CRON_SECRET_KEY,
-    SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
+    ASMOB_BUCKET_NAME: process.env.ASMOB_BUCKET_NAME,
+    ASMOB_ENDPOINT: process.env.ASMOB_ENDPOINT,
+    ASMOB_PRODUCTION_ENDPOINT: process.env.ASMOB_PRODUCTION_ENDPOINT,
+    ASMOB_ROOT_PASSWORD: process.env.ASMOB_ROOT_PASSWORD,
+    ASMOB_ROOT_USER: process.env.ASMOB_ROOT_USER,
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,
+    CRON_SECRET_KEY: process.env.CRON_SECRET_KEY,
+    DATABASE_URL: process.env.DATABASE_URL,
+    MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
+    MEILISEARCH_URL: process.env.MEILISEARCH_URL,
+    NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
     NEXT_PUBLIC_PORT: process.env.NEXT_PUBLIC_PORT,
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
-    NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
+    NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
+    NODE_ENV: process.env.NODE_ENV,
+    REDIS_URL: process.env.REDIS_URL,
+    SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
+    TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
+  },
+  server: {
+    ASMOB_BUCKET_NAME: z.string().min(1).default("uploads"),
+    ASMOB_ENDPOINT: z.url(),
+    ASMOB_PRODUCTION_ENDPOINT: z.url().optional(),
+    ASMOB_ROOT_PASSWORD: z.string().min(1).default("asmob-admin"),
+    ASMOB_ROOT_USER: z.string().min(1).default("asmob-admin"),
+    BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
+    CRON_SECRET_KEY: z.string().optional(),
+    DATABASE_URL: z.url(),
+    MEILISEARCH_MASTER_KEY: z.string().default("masterKey123"),
+    MEILISEARCH_URL: z.url().default("http://localhost:7700"),
+    NEXT_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
+    NODE_ENV: z
+      .enum(["development", "production", "test"])
+      .default("development"),
+    REDIS_URL: z.url(),
+    SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
+    TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
   },
 
   skipValidation: process.env.NODE_ENV === "production",

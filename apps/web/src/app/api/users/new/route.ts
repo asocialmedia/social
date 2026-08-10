@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@zephyr/db";
+import { getUserDataSelect, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {

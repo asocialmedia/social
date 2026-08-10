@@ -1,4 +1,4 @@
-import type { HNStory } from "@zephyr/aggregator/hackernews";
+import type { HNStory } from "@asm/aggregator/hackernews";
 
 export interface FetchStoriesParams {
   limit: number;

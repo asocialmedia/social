@@ -4,9 +4,9 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { BookmarkInfo } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { BookmarkInfo } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import { Bookmark } from "lucide-react";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";

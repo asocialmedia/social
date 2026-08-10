@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { deleteAvatar } from "@/lib/object-storage";
 

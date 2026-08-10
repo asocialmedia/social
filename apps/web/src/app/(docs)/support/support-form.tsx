@@ -1,13 +1,13 @@
 "use client";
 
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { FossBanner } from "@/components/misc/foss-banner";
-import { AnimatedZephyrText } from "./components/animated-zephyr-text";
+import { AnimatedAsocialmediaText } from "./components/animated-asm-text";
 import { GithubIssueButton } from "./components/github-issue-button";
 import { StepIndicator } from "./components/step-indicator";
 import { StepOne } from "./components/steps/step-one";
@@ -315,7 +315,7 @@ export default function SupportForm() {
         </motion.div>
       </motion.div>
 
-      <AnimatedZephyrText className="fixed right-8 bottom-8" />
+      <AnimatedAsocialmediaText className="fixed right-8 bottom-8" />
     </div>
   );
 }

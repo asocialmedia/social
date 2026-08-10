@@ -1,17 +1,17 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { UserData as BaseUserData } from "@zephyr/db";
-import { Card } from "@zephyr/ui/shadui/card";
-import { Input } from "@zephyr/ui/shadui/input";
+import type { UserData as BaseUserData } from "@asm/db";
+import { Card } from "@asm/ui/shadui/card";
+import { Input } from "@asm/ui/shadui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@zephyr/ui/shadui/select";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+} from "@asm/ui/shadui/select";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { BadgeCheckIcon, Search, Users } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";

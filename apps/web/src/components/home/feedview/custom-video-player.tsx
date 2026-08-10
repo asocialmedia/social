@@ -1,11 +1,11 @@
 "use client";
-import { Slider } from "@zephyr/ui/shadui/slider";
+import { Slider } from "@asm/ui/shadui/slider";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import {
   FastForward,
   Maximize,
@@ -294,7 +294,7 @@ export const CustomVideoPlayer = ({
 
       <div className="absolute top-4 left-4 z-40 opacity-30 transition-opacity duration-300 hover:opacity-60">
         <span className="font-medium text-sm text-white drop-shadow-lg">
-          Zephyr
+          Asocialmedia
         </span>
       </div>
 

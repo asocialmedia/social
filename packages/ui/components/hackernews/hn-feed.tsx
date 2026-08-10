@@ -1,7 +1,7 @@
 "use client";
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import type { HNApiResponse } from "@zephyr/aggregator/hackernews";
+import type { HNApiResponse } from "@asm/aggregator/hackernews";
 import {
   Briefcase,
   ChevronDown,

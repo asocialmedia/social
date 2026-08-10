@@ -1,7 +1,7 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { PostsPage } from "@zephyr/db";
+import type { PostsPage } from "@asm/db";
 import { useMemo } from "react";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";

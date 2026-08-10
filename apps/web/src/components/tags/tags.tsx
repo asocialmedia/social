@@ -1,14 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import type { TagWithCount } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { TagWithCount } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import { Hash, Plus } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion, type Variants } from "motion/react";

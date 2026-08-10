@@ -1,4 +1,4 @@
-# Zephyr guidelines:
+# Asocialmedia guidelines:
 
 - use bun for the package manager
 - this is a monorepo, so use workspaces to manage dependencies and shared code between packages
@@ -10,6 +10,6 @@
 - write tests for your code to ensure it works as expected and to catch any potential bugs early on
 - write unit, integration, and end-to-end tests as appropriate for the functionality you are implementing
 - use descriptive variable and function names to improve code readability and maintainability
-- import shared modules using workspace names: `@zephyr/shared` instead of relative paths like `../../../shared`
+- import shared modules using workspace names: `@asm/shared` instead of relative paths like `../../../shared`
 - don't use `/* */` comments, instead use `//` for single-line and multi-line comments
 - use git for version control, and commit your changes with descriptive commit messages in the format of `feat`: New feature, `fix`: Bug fix, `docs`: Documentation, `style`: Formatting, `refactor`: Code change, `test`: Adding tests, `chore`: Maintenance, `perf`: Performance, `ci`: Continuous integration, `build`: Build system, `revert`: Revert changes, `wip`: Work in progress example: `feat[MODULE]: Add new module`

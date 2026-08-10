@@ -1,12 +1,12 @@
 "use client";
 
-import type { FollowerInfo, UserData } from "@zephyr/db";
+import type { FollowerInfo, UserData } from "@asm/db";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import Link from "next/link";
 import { type PropsWithChildren, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";

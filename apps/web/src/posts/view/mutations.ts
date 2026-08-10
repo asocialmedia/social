@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { debugLog } from "@zephyr/config/debug";
+import { debugLog } from "@asm/config/debug";
 
 export function useIncrementViewMutation() {
   return useMutation({

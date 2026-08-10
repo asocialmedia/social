@@ -9,7 +9,7 @@ import {
 } from "bun:test";
 
 type CreateAuthConfigInput = Parameters<
-  typeof import("@zephyr/auth/core")["createAuthConfig"]
+  typeof import("@asm/auth/core")["createAuthConfig"]
 >[0];
 
 type AuthConfigInput = Exclude<CreateAuthConfigInput, undefined>;
@@ -40,7 +40,7 @@ const mockCreateAuthConfig = mock(
   (cfg: CreateAuthConfigInput = {}): CreateAuthConfigInput => cfg
 );
 
-mock.module("@zephyr/auth/core", () => ({
+mock.module("@asm/auth/core", () => ({
   createAuthConfig: mockCreateAuthConfig,
 }));
 

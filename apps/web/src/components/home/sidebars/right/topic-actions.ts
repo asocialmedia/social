@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma, type TrendingTopic, trendingTopicsCache } from "@zephyr/db";
+import { prisma, type TrendingTopic, trendingTopicsCache } from "@asm/db";
 
 async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
   try {

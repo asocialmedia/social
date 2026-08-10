@@ -1,18 +1,16 @@
-import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
-import { zodResolver } from "@hookform/resolvers/zod";
 import {
   type UpdateUserProfileValues,
   updateUserProfileSchema,
-} from "@zephyr/auth/validation";
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+} from "@asm/auth/validation";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import {
   Form,
   FormControl,
@@ -20,10 +18,12 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Label } from "@zephyr/ui/shadui/label";
-import { Textarea } from "@zephyr/ui/shadui/textarea";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
+import { Label } from "@asm/ui/shadui/label";
+import { Textarea } from "@asm/ui/shadui/textarea";
+import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera } from "lucide-react";
 import Image, { type StaticImageData } from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -55,11 +55,11 @@ export default function EditProfileDialog({
 }: EditProfileDialogProps) {
   const { toast } = useToast();
   const form = useForm<UpdateUserProfileValues>({
-    resolver: zodResolver(updateUserProfileSchema),
     defaultValues: {
-      displayName: user.displayName,
       bio: user.bio || "",
+      displayName: user.displayName,
     },
+    resolver: zodResolver(updateUserProfileSchema),
   });
 
   const [croppedAvatar, setCroppedAvatar] = useState<Blob | null>(null);
@@ -73,8 +73,8 @@ export default function EditProfileDialog({
       setCroppedAvatar(null);
       setGifToCenter(null);
       form.reset({
-        displayName: user.displayName,
         bio: user.bio || "",
+        displayName: user.displayName,
       });
     }
   }, [open, user, form.reset]);
@@ -83,13 +83,13 @@ export default function EditProfileDialog({
     const hasProfileChanges =
       values.displayName !== user.displayName || values.bio !== user.bio;
     const hasAvatarChanges = croppedAvatar || gifToCenter;
-    return { hasProfileChanges, hasAvatarChanges };
+    return { hasAvatarChanges, hasProfileChanges };
   };
 
   const updateProfile = async (values: UpdateUserProfileValues) => {
     await profileMutation.mutateAsync({
-      values,
       userId: user.id,
+      values,
     });
   };
 
@@ -103,8 +103,8 @@ export default function EditProfileDialog({
     if (file) {
       await mutation.mutateAsync({
         file,
-        userId: user.id,
         oldAvatarKey: user.avatarKey || undefined,
+        userId: user.id,
       });
     }
   };
@@ -115,8 +115,8 @@ export default function EditProfileDialog({
 
       if (!(hasProfileChanges || hasAvatarChanges)) {
         toast({
-          title: "No changes",
           description: "No changes were made to your profile",
+          title: "No changes",
         });
         return;
       }
@@ -131,15 +131,15 @@ export default function EditProfileDialog({
 
       onOpenChange(false);
       toast({
-        title: "Success",
         description: "Profile updated successfully",
+        title: "Success",
       });
     } catch (error) {
       console.error("Failed to update profile:", error);
       toast({
-        title: "Error",
         description:
           error instanceof Error ? error.message : "An error occurred",
+        title: "Error",
         variant: "destructive",
       });
     }
@@ -268,8 +268,8 @@ function AvatarInput({
       const maxSize = 10 * 1024 * 1024;
       if (file.size > maxSize) {
         toast({
-          title: "File too large",
           description: "Image must be less than 10MB",
+          title: "File too large",
           variant: "destructive",
         });
         return;
@@ -297,9 +297,9 @@ function AvatarInput({
       } catch (error) {
         console.error("Error resizing image:", error);
         toast({
-          title: "Error processing image",
           description:
             "Failed to resize the image. Please try again with a different image.",
+          title: "Error processing image",
           variant: "destructive",
         });
         resetInput();
@@ -337,7 +337,7 @@ function AvatarInput({
             src={avatarSrc}
             unoptimized={
               typeof avatarSrc === "string" &&
-              (avatarSrc.endsWith(".gif") || avatarSrc.includes("zephob"))
+              (avatarSrc.endsWith(".gif") || avatarSrc.includes("asmob"))
             }
             width={150}
           />
@@ -357,10 +357,10 @@ function AvatarInput({
       {gifToCenter && (
         <GifCenteringDialog
           currentValues={{
-            displayName: form.getValues("displayName"),
             bio: form.getValues("bio"),
-            userId: user.id,
+            displayName: form.getValues("displayName"),
             oldAvatarKey: user.avatarKey || undefined,
+            userId: user.id,
           }}
           gifFile={gifToCenter}
           onClose={() => {

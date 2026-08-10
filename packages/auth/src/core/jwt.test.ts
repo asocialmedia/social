@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { CachedSession } from "@zephyr/db";
+import type { CachedSession } from "@asm/db";
 import { SignJWT } from "jose";
 
 const originalConsoleError = console.error;
@@ -23,7 +23,7 @@ const originalEnv = {
   NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
 };
 
-mock.module("@zephyr/db", () => ({
+mock.module("@asm/db", () => ({
   jwtSessionCache: jwtSessionCacheMock,
   prisma: {},
   redis: {},

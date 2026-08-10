@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { PostData } from "@zephyr/db";
+import type { PostData } from "@asm/db";
 
 export function updatePostInCaches(
   queryClient: QueryClient,

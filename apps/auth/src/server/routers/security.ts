@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { debugLog } from "@zephyr/config/debug";
-import { redis } from "@zephyr/db";
+import { debugLog } from "@asm/config/debug";
+import { redis } from "@asm/db";
 import { procedure, router } from "../trpc";
 
 function hashPII(value: string): string {

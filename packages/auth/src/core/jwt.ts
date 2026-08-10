@@ -1,4 +1,4 @@
-import { type CachedSession, jwtSessionCache } from "@zephyr/db";
+import { type CachedSession, jwtSessionCache } from "@asm/db";
 import { type JWTPayload, jwtVerify } from "jose";
 
 export interface JWTValidationResult {

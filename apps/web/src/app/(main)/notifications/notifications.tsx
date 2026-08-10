@@ -5,7 +5,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { NotificationsPage } from "@zephyr/db";
+import type { NotificationsPage } from "@asm/db";
 import { useEffect } from "react";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";

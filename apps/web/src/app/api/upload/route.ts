@@ -1,6 +1,6 @@
-import { type MediaType, prisma } from "@zephyr/db";
+import { type MediaType, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
-import { uploadToZephob } from "@/lib/object-storage";
+import { uploadToAsmob } from "@/lib/object-storage";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -20,28 +20,28 @@ export async function POST(request: Request) {
 
   console.log("Uploading file:", {
     name: file.name,
-    type: file.type,
-    size: file.size,
     postId,
+    size: file.size,
+    type: file.type,
   });
 
-  const upload = await uploadToZephob(file, user.id);
+  const upload = await uploadToAsmob(file, user.id);
 
   const media = await prisma.media.create({
     data: {
-      url: upload.url,
-      type: upload.type as MediaType,
       key: upload.key,
       mimeType: upload.mimeType,
-      size: upload.size,
       postId,
+      size: upload.size,
+      type: upload.type as MediaType,
+      url: upload.url,
     },
   });
 
   return NextResponse.json({
-    mediaId: media.id,
-    url: upload.url,
     key: upload.key,
+    mediaId: media.id,
     type: media.type,
+    url: upload.url,
   });
 }

@@ -1,4 +1,4 @@
-import type { NotificationData, NotificationType } from "@zephyr/db";
+import type { NotificationData, NotificationType } from "@asm/db";
 import { AtSign, Heart, MessageCircle, User2 } from "lucide-react";
 import Link from "next/link";
 import type { JSX } from "react";

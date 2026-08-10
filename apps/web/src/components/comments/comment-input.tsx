@@ -1,6 +1,6 @@
-import type { PostData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Input } from "@zephyr/ui/shadui/input";
+import type { PostData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Input } from "@asm/ui/shadui/input";
 import { Loader2, SendHorizonal } from "lucide-react";
 import type React from "react";
 import { useState } from "react";

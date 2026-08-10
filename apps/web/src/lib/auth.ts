@@ -13,7 +13,7 @@ export const authClient: ReturnType<typeof createAuthClient> = createAuthClient(
   }
 );
 
-export type { Session, User } from "@zephyr/auth/core";
+export type { Session, User } from "@asm/auth/core";
 
 export function getAuthToken(): string | null {
   if (typeof window !== "undefined") {

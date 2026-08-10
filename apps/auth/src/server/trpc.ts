@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
-import { getSessionFromRequest } from "@zephyr/auth/core";
+import { getSessionFromRequest } from "@asm/auth/core";
 import superjson from "superjson";
 
 export async function createContext(opts: FetchCreateContextFnOptions) {

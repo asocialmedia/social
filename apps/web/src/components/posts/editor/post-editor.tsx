@@ -17,8 +17,8 @@ import { AttachmentPreview } from "./attachment-preview";
 import { FileInput } from "./file-input";
 import "./styles.css";
 import { useQuery } from "@tanstack/react-query";
-import type { TagWithCount, UserData } from "@zephyr/db";
-import { useHnShareStore } from "@zephyr/ui/store/hn-share-store";
+import type { TagWithCount, UserData } from "@asm/db";
+import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { MentionTags } from "@/components/tags/mention-tags";
 import { Tags } from "@/components/tags/tags";
 import kyInstance from "@/lib/ky";
@@ -337,7 +337,7 @@ export default function PostEditor() {
               className="pointer-events-none font-medium text-xs hover:text-primary"
               variants={textVariants}
             >
-              Zephyr
+              Asocialmedia
             </motion.div>
           </div>
         </motion.div>

@@ -1,5 +1,5 @@
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { motion } from "motion/react";
 
 export function GithubIssueButton() {
@@ -11,7 +11,7 @@ export function GithubIssueButton() {
         variant="outline"
       >
         <a
-          href="https://github.com/zephverse/zephyr/issues/new/"
+          href="https://github.com/asocialmedia/social/issues/new/"
           rel="noopener noreferrer"
           target="_blank"
         >

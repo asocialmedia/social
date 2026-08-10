@@ -2,8 +2,8 @@
 
 import resetImage from "@assets/auth/password-reset-image.jpg";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { EMAIL_REGEX, USERNAME_REGEX } from "@zephyr/auth/validation";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import { EMAIL_REGEX, USERNAME_REGEX } from "@asm/auth/validation";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -11,8 +11,8 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
 import { ArrowLeft, KeyRound, Mail } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion } from "motion/react";

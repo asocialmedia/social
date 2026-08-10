@@ -3,7 +3,7 @@ import {
   POST_VIEWS_SET,
   prisma,
   redis,
-} from "@zephyr/db";
+} from "@asm/db";
 import { NextResponse } from "next/server";
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: View count sync involves multiple Redis operations, batch processing, and data validation

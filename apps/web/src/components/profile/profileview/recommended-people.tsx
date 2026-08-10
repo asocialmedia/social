@@ -1,8 +1,8 @@
 "use client";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@zephyr/ui/shadui/avatar";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@asm/ui/shadui/avatar";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";

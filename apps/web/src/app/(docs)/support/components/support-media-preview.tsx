@@ -1,4 +1,4 @@
-import type { Media } from "@zephyr/db";
+import type { Media } from "@asm/db";
 import { MediaPreviews } from "@/components/home/feedview/media-previews";
 import { AttachmentPreview } from "@/components/posts/editor/attachment-preview";
 import type { Attachment } from "../types";

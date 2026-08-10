@@ -1,4 +1,4 @@
-import type { CommentData } from "@zephyr/db";
+import type { CommentData } from "@asm/db";
 import Link from "next/link";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";

@@ -1,8 +1,8 @@
 "use client";
 
-import type { HNStoryType } from "@zephyr/ui/components";
-import { Badge } from "@zephyr/ui/shadui/badge";
-import { Card } from "@zephyr/ui/shadui/card";
+import type { HNStoryType } from "@asm/ui/components";
+import { Badge } from "@asm/ui/shadui/badge";
+import { Card } from "@asm/ui/shadui/card";
 import {
   ExternalLink,
   Link,

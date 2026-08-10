@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import type { Metadata } from "next";
 import NavigationCard from "@/components/home/sidebars/left/navigation-card";
 import ProfileCard from "@/components/home/sidebars/right/profile-card";

@@ -1,4 +1,4 @@
-import { avatarCache, prisma } from "@zephyr/db";
+import { avatarCache, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { deleteAvatar, uploadAvatar } from "@/lib/object-storage";
 

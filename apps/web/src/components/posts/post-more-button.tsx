@@ -1,13 +1,13 @@
-import type { PostData, TagWithCount, UserData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Dialog, DialogContent, DialogTitle } from "@zephyr/ui/shadui/dialog";
+import type { PostData, TagWithCount, UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
+} from "@asm/ui/shadui/dropdown-menu";
 import { AtSign, MoreHorizontal, Tags, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { MentionTags } from "@/components/tags/mention-tags";

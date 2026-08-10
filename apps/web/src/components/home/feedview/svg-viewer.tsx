@@ -1,5 +1,5 @@
-import { Button } from "@zephyr/ui/shadui/button";
-import { Slider } from "@zephyr/ui/shadui/slider";
+import { Button } from "@asm/ui/shadui/button";
+import { Slider } from "@asm/ui/shadui/slider";
 import {
   Download,
   FlipHorizontal,

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { env } from "@root/env";
-import { hashPasswordWithScrypt } from "@zephyr/auth/core";
-import { debugLog } from "@zephyr/config/debug";
-import { prisma, redis } from "@zephyr/db";
+import { hashPasswordWithScrypt } from "@asm/auth/core";
+import { debugLog } from "@asm/config/debug";
+import { prisma, redis } from "@asm/db";
 import { z } from "zod";
 import { procedure, router } from "../../trpc";
 import { emailRouter } from "../email";

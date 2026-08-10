@@ -86,7 +86,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate Prisma client
-        run: bun run --filter=@zephyr/db db:generate
+        run: bun run --filter=@asm/db db:generate
 
       - name: Check lint/format
         run: bun run check
@@ -174,17 +174,17 @@ jobs:
               {
                 app: 'web',
                 dockerfile: './apps/web/Dockerfile',
-                image: 'zephyr-web',
+                image: 'asm-web',
               },
               {
                 app: 'auth',
                 dockerfile: './apps/auth/Dockerfile',
-                image: 'zephyr-auth',
+                image: 'asm-auth',
               },
               {
                 app: 'docs',
                 dockerfile: './apps/docs/Dockerfile',
-                image: 'zephyr-docs',
+                image: 'asm-docs',
               },
             ]
 
@@ -274,10 +274,10 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            io.zephyr.app=${{ matrix.app }}
-            io.zephyr.app-version=${{ steps.version.outputs.app_version }}
-            io.zephyr.root-version=${{ steps.version.outputs.root_version }}
-            io.zephyr.pr-number=${{ needs.detect-pr-merge.outputs.merge-pr-number }}
+            io.asm.app=${{ matrix.app }}
+            io.asm.app-version=${{ steps.version.outputs.app_version }}
+            io.asm.root-version=${{ steps.version.outputs.root_version }}
+            io.asm.pr-number=${{ needs.detect-pr-merge.outputs.merge-pr-number }}
 
       - name: Build and push Docker image (multi-arch)
         uses: useblacksmith/build-push-action@v2
@@ -396,9 +396,9 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - zephyr-web
-          - zephyr-auth
-          - zephyr-docs
+          - asm-web
+          - asm-auth
+          - asm-docs
     steps:
       - name: Delete old package versions (keep last 10)
         uses: actions/delete-package-versions@v5
@@ -474,7 +474,7 @@ jobs:
             '' \
             'SCHEMA_PATH="/app/packages/db/prisma/schema.prisma"' \
             'MIGRATIONS_PATH="/app/packages/db/prisma/migrations"' \
-            'TEMP_CONFIG="/tmp/zephyr-prisma.config.ts"' \
+            'TEMP_CONFIG="/tmp/asm-prisma.config.ts"' \
             'DB_URL="${DATABASE_URL:-${POSTGRES_PRISMA_URL:-${POSTGRES_URL_NON_POOLING:-}}}"' \
             '' \
             'if [ -z "$DB_URL" ]; then' \
@@ -519,7 +519,7 @@ jobs:
           )"
 
           CREATE_PAYLOAD=$(jq -n \
-            --arg name "zephyr-prisma-sync-${GITHUB_RUN_ID}" \
+            --arg name "asm-prisma-sync-${GITHUB_RUN_ID}" \
             --arg command "$PRISMA_COMMAND" \
             --arg appId "$DOKPLOY_AUTH_APP_ID" \
             '{

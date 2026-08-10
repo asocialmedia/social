@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 import type React from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import ProfileCard from "./right/profile-card";

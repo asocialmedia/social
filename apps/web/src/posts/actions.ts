@@ -6,7 +6,7 @@ import {
   POST_VIEWS_SET,
   prisma,
   redis,
-} from "@zephyr/db";
+} from "@asm/db";
 import { authClient } from "@/lib/auth";
 
 export async function deletePost(id: string) {

@@ -1,14 +1,14 @@
 "use client";
 
-import type { SearchSuggestion } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { SearchSuggestion } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandItem,
   CommandList,
-} from "@zephyr/ui/shadui/command";
+} from "@asm/ui/shadui/command";
 import { History, TrendingUp, X } from "lucide-react";
 
 interface SearchCommandListProps {

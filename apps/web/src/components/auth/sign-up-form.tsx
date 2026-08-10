@@ -2,12 +2,12 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { env } from "@root/env";
-import { type SignUpValues, signUpSchema } from "@zephyr/auth/validation";
-import { FlipWords } from "@zephyr/ui/components/ui/flip-words";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { useVerification } from "@zephyr/ui/providers/verification";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Checkbox } from "@zephyr/ui/shadui/checkbox";
+import { type SignUpValues, signUpSchema } from "@asm/auth/validation";
+import { FlipWords } from "@asm/ui/components/ui/flip-words";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { useVerification } from "@asm/ui/providers/verification";
+import { Button } from "@asm/ui/shadui/button";
+import { Checkbox } from "@asm/ui/shadui/checkbox";
 import {
   Form,
   FormControl,
@@ -15,17 +15,17 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
-} from "@zephyr/ui/shadui/input-otp";
+} from "@asm/ui/shadui/input-otp";
 import {
   useRateLimitCountdown,
   useSignupStore,
-} from "@zephyr/ui/store/signup-store";
+} from "@asm/ui/store/signup-store";
 import { AlertCircle, ArrowLeft, Mail, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -282,7 +282,7 @@ export default function SignUpForm() {
             if (loginResult?.data) {
               setRateLimit("start", { isLimited: false });
               toast({
-                title: "Welcome to Zephyr! 🎉",
+                title: "Welcome to Asocialmedia! 🎉",
                 description:
                   "Account created and signed in. Email verification is bypassed on localhost development.",
               });
@@ -470,7 +470,7 @@ export default function SignUpForm() {
             setIsVerifying(true);
             clearSignupState();
             toast({
-              title: "Welcome to Zephyr! 🎉",
+              title: "Welcome to Asocialmedia! 🎉",
               description:
                 "Your account has been created and you're now logged in.",
             });
@@ -497,7 +497,7 @@ export default function SignUpForm() {
       setIsVerifying(true);
       clearSignupState();
       toast({
-        title: "Welcome to Zephyr! 🎉",
+        title: "Welcome to Asocialmedia! 🎉",
         description:
           "Your account has been created successfully. Please log in.",
       });

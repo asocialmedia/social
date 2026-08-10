@@ -1,15 +1,15 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UserData } from "@zephyr/db";
-import { Card } from "@zephyr/ui/shadui/card";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+import type { UserData } from "@asm/db";
+import { Card } from "@asm/ui/shadui/card";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import { BadgeCheckIcon, MessageSquare, Sparkles, Users } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";

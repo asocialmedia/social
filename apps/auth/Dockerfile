@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
 FROM oven/bun:slim AS builder
-LABEL org.opencontainers.image.title="Zephyr Auth Service" \
-      org.opencontainers.image.description="Authentication service for Zephyr" \
-      org.opencontainers.image.vendor="Zephyr"
+LABEL org.opencontainers.image.title="Asocialmedia Auth Service" \
+      org.opencontainers.image.description="Authentication service for Asocialmedia" \
+      org.opencontainers.image.vendor="Asocialmedia"
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json bun.lock ./

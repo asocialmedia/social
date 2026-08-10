@@ -9,7 +9,7 @@ export default withNextra({
   images: {
     unoptimized: true,
   },
-  transpilePackages: ["@zephyr/ui", "@zephyr/config"],
+  transpilePackages: ["@asm/ui", "@asm/config"],
   turbopack: {
     resolveAlias: {
       "next-mdx-import-source-file": "./src/mdx-components.js",

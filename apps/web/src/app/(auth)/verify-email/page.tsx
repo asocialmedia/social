@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -121,7 +121,7 @@ const VerificationAnimation = () => {
   );
 };
 
-const AnimatedZephyrText = () => {
+const AnimatedAsocialmediaText = () => {
   const letters = "ZEPHYR.".split("");
 
   return (
@@ -356,7 +356,7 @@ export default function VerifyEmailPage() {
             initial={{ opacity: 0 }}
             transition={{ delay: 0.5 }}
           >
-            <AnimatedZephyrText />
+            <AnimatedAsocialmediaText />
           </motion.div>
         </div>
       </motion.div>

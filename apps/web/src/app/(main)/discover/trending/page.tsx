@@ -6,8 +6,8 @@ import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
 export const metadata: Metadata = {
-  title: "Trending Users | Zephyr",
-  description: "Discover trending users on Zephyr",
+  title: "Trending Users | Asocialmedia",
+  description: "Discover trending users on Asocialmedia",
 };
 
 export default async function TrendingPage() {

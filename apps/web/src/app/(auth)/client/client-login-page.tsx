@@ -70,7 +70,7 @@ const contentAnimation: Variants = {
   }),
 };
 
-export const AnimatedZephyrText = () => {
+export const AnimatedAsocialmediaText = () => {
   const letters = "ZEPHYR.".split("");
 
   return (
@@ -394,7 +394,7 @@ export default function ClientLoginPage() {
         </div>
 
         <div className="pointer-events-none fixed right-4 bottom-4 z-10 select-none font-bold text-4xl text-primary/50 sm:text-6xl">
-          <AnimatedZephyrText />
+          <AnimatedAsocialmediaText />
         </div>
 
         <motion.div

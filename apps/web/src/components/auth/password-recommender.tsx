@@ -1,6 +1,6 @@
 "use client";
 
-import type { SignUpValues } from "@zephyr/auth/validation";
+import type { SignUpValues } from "@asm/auth/validation";
 import { ArrowRight, Lightbulb, Wand2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";

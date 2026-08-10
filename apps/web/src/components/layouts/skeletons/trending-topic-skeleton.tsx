@@ -1,4 +1,4 @@
-import { Card, CardContent, CardTitle } from "@zephyr/ui/shadui/card";
+import { Card, CardContent, CardTitle } from "@asm/ui/shadui/card";
 import { LucideTrendingUp } from "lucide-react";
 
 const TrendingTopicsSkeleton = () => (

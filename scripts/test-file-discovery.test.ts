@@ -20,7 +20,7 @@ describe("test-file-discovery", () => {
   });
 
   test("collects tests by scope and ignores generated directories", async () => {
-    sandbox = await mkdtemp(join(tmpdir(), "zephyr-test-discovery-"));
+    sandbox = await mkdtemp(join(tmpdir(), "asm-test-discovery-"));
 
     await ensureFile(join(sandbox, "apps", "auth", "alpha.test.ts"));
     await ensureFile(join(sandbox, "apps", "auth", "beta.integration.test.ts"));

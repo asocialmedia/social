@@ -3,7 +3,7 @@ import {
   type PostsPage,
   type Prisma,
   prisma,
-} from "@zephyr/db";
+} from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(request: Request) {

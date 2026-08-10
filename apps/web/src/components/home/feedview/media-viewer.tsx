@@ -2,10 +2,10 @@
 
 import fallbackImage from "@assets/fallbacks/fallback.png";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import type { Media } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Dialog, DialogContent, DialogTitle } from "@zephyr/ui/shadui/dialog";
+import type { Media } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
+import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import { ChevronLeft, ChevronRight, Download, FileIcon, X } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";

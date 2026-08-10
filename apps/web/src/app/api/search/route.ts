@@ -1,4 +1,4 @@
-import { getPostDataInclude, type PostsPage, prisma } from "@zephyr/db";
+import { getPostDataInclude, type PostsPage, prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { getSessionFromApi } from "@/lib/session";
 

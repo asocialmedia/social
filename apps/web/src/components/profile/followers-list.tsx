@@ -6,9 +6,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
-import { Input } from "@zephyr/ui/shadui/input";
-import { ScrollArea } from "@zephyr/ui/shadui/scroll-area";
+} from "@asm/ui/shadui/dialog";
+import { Input } from "@asm/ui/shadui/input";
+import { ScrollArea } from "@asm/ui/shadui/scroll-area";
 import { Ghost, SearchIcon, Users2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";

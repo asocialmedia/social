@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card } from "@zephyr/ui/shadui/card";
+import { Button } from "@asm/ui/shadui/button";
+import { Card } from "@asm/ui/shadui/card";
 import { AlertCircle, Edit, Eye, UserCog, X } from "lucide-react";
 import { motion } from "motion/react";
 import type { ModalAction, User } from "../types/types";

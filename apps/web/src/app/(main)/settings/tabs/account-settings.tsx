@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -10,9 +10,9 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Separator } from "@zephyr/ui/shadui/separator";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
+import { Separator } from "@asm/ui/shadui/separator";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";

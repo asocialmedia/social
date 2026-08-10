@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@zephyr/ui/shadui/badge";
+import { Badge } from "@asm/ui/shadui/badge";
 import { formatDistanceToNow } from "date-fns";
 import {
   ExternalLink,

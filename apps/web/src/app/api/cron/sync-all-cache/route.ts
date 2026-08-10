@@ -8,7 +8,7 @@ import {
   shareStatsCache,
   tagCache,
   trendingTopicsCache,
-} from "@zephyr/db";
+} from "@asm/db";
 import { NextResponse } from "next/server";
 
 const BATCH_SIZE = 100;

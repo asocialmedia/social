@@ -1,4 +1,4 @@
-import { redis } from "@zephyr/db";
+import { redis } from "@asm/db";
 
 const RATE_LIMIT_PREFIX = "ratelimit:hn:";
 const WINDOW_SIZE = 60;

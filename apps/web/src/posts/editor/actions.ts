@@ -1,13 +1,13 @@
 "use server";
 
-import type { CreatePostInput } from "@zephyr/auth/validation";
-import { createPostSchema } from "@zephyr/auth/validation";
+import type { CreatePostInput } from "@asm/auth/validation";
+import { createPostSchema } from "@asm/auth/validation";
 import {
   getPostDataInclude,
   postViewsCache,
   prisma,
   tagCache,
-} from "@zephyr/db";
+} from "@asm/db";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {

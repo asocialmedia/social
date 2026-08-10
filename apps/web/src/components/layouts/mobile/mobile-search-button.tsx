@@ -24,7 +24,7 @@ export default function MobileSearchButton() {
         type="button"
       >
         <HashIcon className="h-4 w-4" />
-        <span className="block w-full truncate text-xs">Search Zephyr…</span>
+        <span className="block w-full truncate text-xs">Search Asocialmedia…</span>
       </button>
 
       <AnimatePresence>

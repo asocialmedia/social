@@ -16,13 +16,13 @@ export class HackerNewsAPI {
 
   constructor() {
     this.client = ky.create({
-      prefixUrl: HN_API_BASE,
-      timeout: DEFAULT_TIMEOUT,
+      prefix: HN_API_BASE,
       retry: {
         limit: 3,
         methods: ["GET"],
         statusCodes: [408, 429, 500, 502, 503, 504],
       },
+      timeout: DEFAULT_TIMEOUT,
     });
   }
 
@@ -148,8 +148,8 @@ export class HackerNewsAPI {
       });
 
       return {
-        stories,
         hasMore: end < allStories.length,
+        stories,
         total: allStories.length,
       };
     } catch (error) {

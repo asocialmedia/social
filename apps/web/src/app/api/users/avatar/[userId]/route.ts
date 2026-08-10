@@ -1,4 +1,4 @@
-import { avatarCache, prisma } from "@zephyr/db";
+import { avatarCache, prisma } from "@asm/db";
 import { type NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";

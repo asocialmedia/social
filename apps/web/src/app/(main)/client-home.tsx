@@ -1,12 +1,12 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@zephyr/ui/shadui/tabs";
+} from "@asm/ui/shadui/tabs";
 import { Globe2Icon, UsersIcon } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type React from "react";

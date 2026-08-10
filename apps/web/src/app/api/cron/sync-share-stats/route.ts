@@ -1,4 +1,4 @@
-import { prisma, redis, shareStatsCache } from "@zephyr/db";
+import { prisma, redis, shareStatsCache } from "@asm/db";
 import { NextResponse } from "next/server";
 
 const SHARE_STATS_PREFIX = "share:stats:";

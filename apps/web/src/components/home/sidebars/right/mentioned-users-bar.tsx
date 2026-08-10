@@ -1,9 +1,9 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import type { UserData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import type { UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { AtSign, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";

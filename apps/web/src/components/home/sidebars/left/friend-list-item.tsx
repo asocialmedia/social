@@ -1,13 +1,13 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
+} from "@asm/ui/shadui/dropdown-menu";
 import { ImageOff, MoreHorizontal, UserMinus } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";

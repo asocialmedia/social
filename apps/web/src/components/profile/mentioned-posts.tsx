@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Separator } from "@zephyr/ui/shadui/separator";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+import { Separator } from "@asm/ui/shadui/separator";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { AtSignIcon, MessageSquareIcon } from "lucide-react";
 import { motion } from "motion/react";
 import React, { useMemo } from "react";

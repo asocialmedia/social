@@ -1,4 +1,4 @@
-import { prisma, tagCache } from "@zephyr/db";
+import { prisma, tagCache } from "@asm/db";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {

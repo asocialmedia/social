@@ -1,7 +1,7 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import type { UserData } from "@asm/db";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Flame, Users } from "lucide-react";
 import Link from "next/link";
 import type React from "react";

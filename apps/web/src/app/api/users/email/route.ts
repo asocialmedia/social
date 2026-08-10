@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { z } from "zod";
 import { authClient } from "@/lib/auth";
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { CompassIcon, Home, Newspaper, Search, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
@@ -54,7 +54,7 @@ export default function NavigationCard({
 
         <div className="block w-full">
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Link className="block w-full" href="/search?q=zephyr">
+            <Link className="block w-full" href="/search?q=asocialmedia">
               <Button
                 className={`w-full ${
                   isCollapsed ? "justify-center" : "justify-start"
@@ -90,7 +90,7 @@ export default function NavigationCard({
                     isCollapsed ? "" : "mr-4"
                   }`}
                 />
-                {!isCollapsed && <span>Zephyrians</span>}
+                {!isCollapsed && <span>Asocialmedia users</span>}
               </Button>
             </Link>
           </motion.div>

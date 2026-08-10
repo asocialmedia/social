@@ -1,11 +1,11 @@
-import type { CommentData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { CommentData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
+} from "@asm/ui/shadui/dropdown-menu";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import DeleteCommentDialog from "./delete-comment-dialog";

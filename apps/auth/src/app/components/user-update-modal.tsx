@@ -1,18 +1,18 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card } from "@zephyr/ui/shadui/card";
-import { Checkbox } from "@zephyr/ui/shadui/checkbox";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Label } from "@zephyr/ui/shadui/label";
+import { Button } from "@asm/ui/shadui/button";
+import { Card } from "@asm/ui/shadui/card";
+import { Checkbox } from "@asm/ui/shadui/checkbox";
+import { Input } from "@asm/ui/shadui/input";
+import { Label } from "@asm/ui/shadui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@zephyr/ui/shadui/select";
-import { Textarea } from "@zephyr/ui/shadui/textarea";
+} from "@asm/ui/shadui/select";
+import { Textarea } from "@asm/ui/shadui/textarea";
 import { AlertTriangle, UserCog, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";

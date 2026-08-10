@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ScrollUpButton from "@/components/layouts/scroll-up-button";

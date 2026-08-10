@@ -14,20 +14,20 @@ import { uploadToasts } from "./utils/upload-messages";
 
 const isClient = typeof window !== "undefined";
 
-const zephobLocalEndpoint = env.ZEPHOB_ENDPOINT;
+const asmobLocalEndpoint = env.ASMOB_ENDPOINT;
 
-export const zephobClient = new S3Client({
-  region: "ap-south-1",
+export const asmobClient = new S3Client({
+  credentials: {
+    accessKeyId: env.ASMOB_ROOT_USER,
+    secretAccessKey: env.ASMOB_ROOT_PASSWORD,
+  },
   endpoint:
     env.NODE_ENV === "production"
-      ? env.ZEPHOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc"
-      : zephobLocalEndpoint,
-  credentials: {
-    accessKeyId: env.ZEPHOB_ROOT_USER,
-    secretAccessKey: env.ZEPHOB_ROOT_PASSWORD,
-  },
+      ? env.ASMOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc"
+      : asmobLocalEndpoint,
   forcePathStyle: true,
   maxAttempts: 3,
+  region: "ap-south-1",
   requestHandler:
     typeof window === "undefined"
       ? new NodeHttpHandler({
@@ -39,33 +39,33 @@ export const zephobClient = new S3Client({
         }),
 });
 
-export const ZEPHOB_BUCKET = env.ZEPHOB_BUCKET_NAME;
+export const ASMOB_BUCKET = env.ASMOB_BUCKET_NAME;
 
 export const getPublicUrl = (key: string) => {
   if (!key) {
     throw new Error("File key is required");
   }
 
-  const endpoint = env.ZEPHOB_ENDPOINT ?? zephobLocalEndpoint;
+  const endpoint = env.ASMOB_ENDPOINT ?? asmobLocalEndpoint;
 
   const productionEndpoint =
-    env.ZEPHOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc";
+    env.ASMOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc";
 
   const finalEndpoint =
     env.NODE_ENV === "production"
       ? productionEndpoint
       : endpoint || "http://localhost:9090";
 
-  return `${finalEndpoint}/${ZEPHOB_BUCKET}/${encodeURIComponent(key)}`;
+  return `${finalEndpoint}/${ASMOB_BUCKET}/${encodeURIComponent(key)}`;
 };
 
 export const validateBucket = async () => {
   try {
     const { HeadBucketCommand } = await import("@aws-sdk/client-s3");
 
-    await zephobClient.send(
+    await asmobClient.send(
       new HeadBucketCommand({
-        Bucket: ZEPHOB_BUCKET,
+        Bucket: ASMOB_BUCKET,
       })
     );
     return true;
@@ -76,7 +76,7 @@ export const validateBucket = async () => {
       (error as { $metadata?: { httpStatusCode: number } }).$metadata
         ?.httpStatusCode === 404
     ) {
-      console.warn(`Bucket "${ZEPHOB_BUCKET}" does not exist`);
+      console.warn(`Bucket "${ASMOB_BUCKET}" does not exist`);
       return false;
     }
     console.error("Error validating bucket:", error);
@@ -86,14 +86,14 @@ export const validateBucket = async () => {
 
 export const generatePresignedUrl = async (key: string) => {
   const command = new GetObjectCommand({
-    Bucket: ZEPHOB_BUCKET,
+    Bucket: ASMOB_BUCKET,
     Key: key,
   });
 
-  return await getSignedUrl(zephobClient, command, { expiresIn: 3600 });
+  return await getSignedUrl(asmobClient, command, { expiresIn: 3600 });
 };
 
-export const uploadToZephob = async (file: File, userId: string) => {
+export const uploadToAsmob = async (file: File, userId: string) => {
   if (!(file && userId)) {
     throw new Error("File and userId are required");
   }
@@ -105,17 +105,15 @@ export const uploadToZephob = async (file: File, userId: string) => {
   try {
     console.log("Starting upload:", {
       name: file.name,
-      type: file.type,
       size: file.size,
+      type: file.type,
     });
 
     validateFile(file);
 
     const bucketOk = await validateBucket();
     if (!bucketOk) {
-      throw new Error(
-        `Object storage bucket "${ZEPHOB_BUCKET}" does not exist`
-      );
+      throw new Error(`Object storage bucket "${ASMOB_BUCKET}" does not exist`);
     }
 
     const fileConfig = getFileConfigFromMime(file.type);
@@ -133,18 +131,18 @@ export const uploadToZephob = async (file: File, userId: string) => {
       throw new Error("Failed to process file data");
     }
 
-    await zephobClient.send(
+    await asmobClient.send(
       new PutObjectCommand({
-        Bucket: ZEPHOB_BUCKET,
-        Key: key,
         Body: buffer,
+        Bucket: ASMOB_BUCKET,
         ContentType: getContentType(file.name),
+        Key: key,
         Metadata: {
-          userId,
-          originalName: file.name,
-          uploadedAt: new Date().toISOString(),
           category: fileConfig?.category || "DOCUMENT",
           fileType: extension,
+          originalName: file.name,
+          uploadedAt: new Date().toISOString(),
+          userId,
         },
       })
     );
@@ -160,14 +158,14 @@ export const uploadToZephob = async (file: File, userId: string) => {
     }
 
     return {
-      key,
-      url,
-      type: fileConfig?.category || "DOCUMENT",
-      mimeType: file.type,
-      size: file.size,
-      originalName: file.name,
       extension,
+      key,
+      mimeType: file.type,
+      originalName: file.name,
+      size: file.size,
       tag: fileConfig?.tag,
+      type: fileConfig?.category || "DOCUMENT",
+      url,
     };
   } catch (error) {
     console.error("Object storage upload error:", error);
@@ -186,10 +184,10 @@ export const uploadToZephob = async (file: File, userId: string) => {
 export const checkFileExists = async (key: string) => {
   try {
     const command = new GetObjectCommand({
-      Bucket: ZEPHOB_BUCKET,
+      Bucket: ASMOB_BUCKET,
       Key: key,
     });
-    await zephobClient.send(command);
+    await asmobClient.send(command);
     return true;
   } catch {
     return false;
@@ -215,9 +213,9 @@ export const uploadAvatar = async (file: File, userId: string) => {
     ];
 
     console.log("Avatar upload started:", {
-      fileType: file.type,
       fileName: file.name,
       fileSize: file.size,
+      fileType: file.type,
     });
 
     if (!supportedTypes.includes(file.type)) {
@@ -242,20 +240,20 @@ export const uploadAvatar = async (file: File, userId: string) => {
       throw new Error("Failed to process avatar image");
     }
 
-    await zephobClient.send(
+    await asmobClient.send(
       new PutObjectCommand({
-        Bucket: ZEPHOB_BUCKET,
-        Key: key,
         Body: buffer,
+        Bucket: ASMOB_BUCKET,
+        CacheControl: "public, max-age=31536000",
         ContentType: file.type,
+        Key: key,
         Metadata: {
-          userId,
-          originalName: file.name,
-          uploadedAt: new Date().toISOString(),
           category: "AVATAR",
           fileType: file.name.split(".").pop()?.toLowerCase() || "",
+          originalName: file.name,
+          uploadedAt: new Date().toISOString(),
+          userId,
         },
-        CacheControl: "public, max-age=31536000",
       })
     );
 
@@ -269,17 +267,17 @@ export const uploadAvatar = async (file: File, userId: string) => {
 
     console.log("Avatar upload successful:", {
       key,
-      url,
       size: file.size,
+      url,
     });
 
     return {
       key,
-      url,
-      type: "IMAGE",
       mimeType: file.type,
-      size: file.size,
       originalName: file.name,
+      size: file.size,
+      type: "IMAGE",
+      url,
     };
   } catch (error) {
     console.error("Avatar upload error:", error);
@@ -299,8 +297,8 @@ export const uploadAvatar = async (file: File, userId: string) => {
       error,
       file: {
         name: file.name,
-        type: file.type,
         size: file.size,
+        type: file.type,
       },
       userId,
     });
@@ -323,9 +321,9 @@ export const deleteAvatar = async (key: string) => {
 
     const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
 
-    await zephobClient.send(
+    await asmobClient.send(
       new DeleteObjectCommand({
-        Bucket: ZEPHOB_BUCKET,
+        Bucket: ASMOB_BUCKET,
         Key: key,
       })
     );

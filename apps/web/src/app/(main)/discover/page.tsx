@@ -9,7 +9,7 @@ import { getSessionFromApi } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "Discover",
-  description: "Discover and connect with amazing people on Zephyr",
+  description: "Discover and connect with amazing people on Asocialmedia",
 };
 
 export default async function DiscoveryPage() {

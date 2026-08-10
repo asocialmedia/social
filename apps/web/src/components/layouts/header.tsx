@@ -1,14 +1,14 @@
 "use client";
 
-import { Cover } from "@zephyr/ui/components/ui/cover";
-import { Badge } from "@zephyr/ui/shadui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@zephyr/ui/shadui/tabs";
+import { Cover } from "@asm/ui/components/ui/cover";
+import { Badge } from "@asm/ui/shadui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import {
   Bookmark,
   Compass,
@@ -249,7 +249,7 @@ const Header: React.FC<HeaderProps> = ({
               whileHover={{ scale: 1.05 }}
             >
               <span className={playwriteCa.className}>
-                <Cover className="text-primary">zephyr.</Cover>
+                <Cover className="text-primary">asocialmedia.</Cover>
               </span>
             </motion.h1>
           </Link>

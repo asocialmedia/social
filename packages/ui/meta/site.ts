@@ -1,5 +1,5 @@
 export const siteConfig = {
-  name: "Zephyr",
+  name: "Asocialmedia",
   description:
     "The last social platform you'll ever need. Open source, cozy, and slightly unhinged.",
   url: "https://asocialmedia.cc",
@@ -23,7 +23,7 @@ export const siteConfig = {
   authors: [{ name: "parazeeknova", url: "https://przknv.cc" }],
   creator: "Harsh Sahu",
   links: {
-    github: "https://github.com/zephverse/zephyr",
+    github: "https://github.com/asocialmedia/social",
     twitter: "https://twitter.com/parazeeknova",
   },
 } as const;

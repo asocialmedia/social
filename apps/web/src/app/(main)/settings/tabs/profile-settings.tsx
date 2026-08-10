@@ -4,9 +4,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   type UpdateUserProfileValues,
   updateUserProfileSchema,
-} from "@zephyr/auth/validation";
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+} from "@asm/auth/validation";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -14,9 +14,9 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Textarea } from "@zephyr/ui/shadui/textarea";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
+import { Textarea } from "@asm/ui/shadui/textarea";
 import { UserCircle } from "lucide-react";
 import { motion } from "motion/react";
 import { useForm } from "react-hook-form";

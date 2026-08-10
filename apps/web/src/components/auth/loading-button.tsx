@@ -1,4 +1,4 @@
-import { Button, type ButtonProps } from "@zephyr/ui/shadui/button";
+import { Button, type ButtonProps } from "@asm/ui/shadui/button";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 

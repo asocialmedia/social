@@ -1,9 +1,9 @@
 "use client";
 
-import type { PostData, TagWithCount } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
-import { Separator } from "@zephyr/ui/shadui/separator";
+import type { PostData, TagWithCount } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
+import { Separator } from "@asm/ui/shadui/separator";
 import { ArrowUpRight, Eye, Flame, MessageSquare, Share2 } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";

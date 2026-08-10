@@ -61,7 +61,7 @@ const contentAnimation: Variants = {
   }),
 };
 
-const AnimatedZephyrText = () => {
+const AnimatedAsocialmediaText = () => {
   const letters = "ZEPHYR.".split("");
 
   return (
@@ -198,7 +198,7 @@ export default function ClientSignupPage() {
           </motion.div>
         </div>
 
-        <AnimatedZephyrText />
+        <AnimatedAsocialmediaText />
 
         <motion.div
           animate={{ opacity: 0.05 }}

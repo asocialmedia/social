@@ -1,7 +1,7 @@
 "use client";
 
-import { debugLog } from "@zephyr/config/debug";
-import { Button } from "@zephyr/ui/shadui/button";
+import { debugLog } from "@asm/config/debug";
+import { Button } from "@asm/ui/shadui/button";
 import dynamic from "next/dynamic";
 import type React from "react";
 import { ErrorBoundary } from "@/components/misc/error-boundary";

@@ -8,8 +8,8 @@ import { getSessionFromApi } from "@/lib/session";
 import PostEditorPage from "./post-editor-page";
 
 export const metadata: Metadata = {
-  title: "Compose New Post | Zephyr",
-  description: "Share your thoughts, code, and media with the Zephyr community",
+  title: "Compose New Post | Asocialmedia",
+  description: "Share your thoughts, code, and media with the Asocialmedia community",
 };
 
 export default async function Page() {

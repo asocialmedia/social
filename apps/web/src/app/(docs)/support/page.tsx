@@ -6,7 +6,7 @@ import SupportForm from "./support-form";
 export const metadata: Metadata = {
   title: "Support",
   description:
-    "Get help, report bugs, or share your suggestions with the Zephyr team",
+    "Get help, report bugs, or share your suggestions with the Asocialmedia team",
 };
 
 export default function SupportPage() {

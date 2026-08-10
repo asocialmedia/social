@@ -1,5 +1,5 @@
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import { motion } from "motion/react";
 import Image from "next/image";
 import { useState } from "react";

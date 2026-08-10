@@ -2,8 +2,8 @@
 
 import resetImage from "@assets/auth/confirm-reset-image.jpg";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Form,
   FormControl,
@@ -11,7 +11,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
+} from "@asm/ui/shadui/form";
 import { AlertCircle, Lock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";

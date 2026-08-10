@@ -1,5 +1,5 @@
-import type { Media } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { Media } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import { FileAudioIcon, FileCode, FileIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";

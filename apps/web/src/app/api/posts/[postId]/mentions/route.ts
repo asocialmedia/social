@@ -1,4 +1,4 @@
-import { NotificationType, prisma } from "@zephyr/db";
+import { NotificationType, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(

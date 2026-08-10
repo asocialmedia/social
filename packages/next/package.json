@@ -1,23 +1,23 @@
 {
-  "name": "@zephyr/next",
-  "description": "Zephyr Next.js package contains shared configs for Next.js",
-  "version": "1.0.2",
+  "name": "@asm/next",
+  "version": "1.0.3",
   "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "description": "Asocialmedia Next.js package contains shared configs for Next.js",
   "exports": {
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
   },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "^16.2.4"
+    "next": "^16.3.0"
   },
   "devDependencies": {
-    "@zephyr/config": "workspace:*"
+    "@asm/config": "workspace:*"
   }
 }

@@ -21,24 +21,24 @@ import {
 describe("service snapshot helpers", () => {
   test("detects missing required services", () => {
     const snapshots: ServiceSnapshot[] = [
-      { Service: "postgres-dev", State: "running", Health: "healthy" },
-      { Service: "redis-dev", State: "running", Health: "healthy" },
+      { Health: "healthy", Service: "postgres-dev", State: "running" },
+      { Health: "healthy", Service: "redis-dev", State: "running" },
     ];
 
     const missing = getMissingServices(snapshots, [
       "postgres-dev",
       "redis-dev",
-      "zephob-dev",
+      "asmob-dev",
     ]);
 
-    expect(missing).toEqual(["zephob-dev"]);
+    expect(missing).toEqual(["asmob-dev"]);
   });
 
   test("detects unhealthy services by state and health", () => {
     const snapshots: ServiceSnapshot[] = [
-      { Service: "postgres-dev", State: "running", Health: "healthy" },
-      { Service: "redis-dev", State: "running", Health: "unhealthy" },
-      { Service: "meilisearch-dev", State: "exited", Health: "" },
+      { Health: "healthy", Service: "postgres-dev", State: "running" },
+      { Health: "unhealthy", Service: "redis-dev", State: "running" },
+      { Health: "", Service: "meilisearch-dev", State: "exited" },
     ];
 
     const unhealthy = getUnhealthyServices(snapshots, [
@@ -94,12 +94,12 @@ describe("output validators", () => {
 describe("cache and fingerprint helpers", () => {
   test("keeps runtime fingerprint stable for equivalent snapshots", () => {
     const a: ServiceSnapshot[] = [
-      { Service: "redis-dev", State: "running", Health: "healthy" },
-      { Service: "postgres-dev", State: "running", Health: "healthy" },
+      { Health: "healthy", Service: "redis-dev", State: "running" },
+      { Health: "healthy", Service: "postgres-dev", State: "running" },
     ];
     const b: ServiceSnapshot[] = [
-      { Service: "postgres-dev", State: "running", Health: "healthy" },
-      { Service: "redis-dev", State: "running", Health: "healthy" },
+      { Health: "healthy", Service: "postgres-dev", State: "running" },
+      { Health: "healthy", Service: "redis-dev", State: "running" },
     ];
 
     expect(buildRuntimeFingerprint(a)).toBe(buildRuntimeFingerprint(b));

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 
 interface UseBrowseUsersOptions {
   searchTerm: string;

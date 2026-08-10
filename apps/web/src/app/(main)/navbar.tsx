@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import Header from "@/components/layouts/header";
 import { getSessionFromApi } from "@/lib/session";
 

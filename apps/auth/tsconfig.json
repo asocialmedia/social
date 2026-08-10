@@ -1,11 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@zephyr/config/nextjs.config.json",
+  "extends": "@asm/config/nextjs.config.json",
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],
       "@root/*": ["./*"],
-      "@zephyr/*": ["../../packages/*/src"]
+      "@asm/*": ["../../packages/*/src"]
     },
     "strictNullChecks": true,
     "types": ["bun-types"]

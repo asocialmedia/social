@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { CommentsPage, PostData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { CommentsPage, PostData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 import Comment from "./comment";

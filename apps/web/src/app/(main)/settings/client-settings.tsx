@@ -1,14 +1,14 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@zephyr/ui/shadui/tabs";
+} from "@asm/ui/shadui/tabs";
 import { motion } from "motion/react";
-import { AnimatedZephyrText } from "@/app/(auth)/client/client-login-page";
+import { AnimatedAsocialmediaText } from "@/app/(auth)/client/client-login-page";
 import { FossBanner } from "@/components/misc/foss-banner";
 import { LegalLinksCard } from "@/components/misc/legal-links-card";
 import AccountSettings from "./tabs/account-settings";
@@ -105,7 +105,7 @@ export default function ClientSettings({ user }: ClientSettingsProps) {
         </div>
       </motion.div>
       <div className="hidden md:block">
-        <AnimatedZephyrText />
+        <AnimatedAsocialmediaText />
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ describe("run-coverage-suite", () => {
 
   beforeEach(async () => {
     console.error = mock(() => undefined) as typeof console.error;
-    sandbox = await mkdtemp(join(tmpdir(), "zephyr-run-coverage-suite-"));
+    sandbox = await mkdtemp(join(tmpdir(), "asm-run-coverage-suite-"));
     originalCwd = process.cwd();
     process.chdir(sandbox);
 

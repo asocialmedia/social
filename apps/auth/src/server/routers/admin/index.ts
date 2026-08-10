@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
-import { debugLog } from "@zephyr/config/debug";
-import { prisma, userCache, userSearchIndex } from "@zephyr/db";
+import { debugLog } from "@asm/config/debug";
+import { prisma, userCache, userSearchIndex } from "@asm/db";
 import { z } from "zod";
 import type { User } from "../../../app/types/types";
 import { adminProcedure, router, t } from "../../trpc";

@@ -1,5 +1,5 @@
 import { keys } from "@root/keys";
-import { debugLog } from "@zephyr/config/debug";
+import { debugLog } from "@asm/config/debug";
 import type { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";

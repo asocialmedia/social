@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import SearchField from "./search-field";

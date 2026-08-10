@@ -1,9 +1,9 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { PostsPage } from "@zephyr/db";
-import { Alert, AlertDescription } from "@zephyr/ui/shadui/alert";
-import { Separator } from "@zephyr/ui/shadui/separator";
+import type { PostsPage } from "@asm/db";
+import { Alert, AlertDescription } from "@asm/ui/shadui/alert";
+import { Separator } from "@asm/ui/shadui/separator";
 import { FileText, Search } from "lucide-react";
 import { motion } from "motion/react";
 import Post from "@/components/home/feedview/post-card";

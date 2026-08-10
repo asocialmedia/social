@@ -1,8 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SearchSuggestion } from "@zephyr/db";
-import { Input } from "@zephyr/ui/shadui/input";
+import type { SearchSuggestion } from "@asm/db";
+import { Input } from "@asm/ui/shadui/input";
 import { HashIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";

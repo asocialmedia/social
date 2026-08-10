@@ -1,11 +1,11 @@
 /** biome-ignore-all lint/a11y/noSvgWithoutTitle: not needed */
 "use client";
 
-import { useDebounce } from "@zephyr/ui/hooks/use-debounce";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { cn } from "@zephyr/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@zephyr/ui/shadui/avatar";
-import { Button } from "@zephyr/ui/shadui/button";
+import { useDebounce } from "@asm/ui/hooks/use-debounce";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { cn } from "@asm/ui/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@asm/ui/shadui/avatar";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Ban,
   Check,

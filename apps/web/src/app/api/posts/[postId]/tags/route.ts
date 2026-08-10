@@ -1,4 +1,4 @@
-import { prisma, tagCache } from "@zephyr/db";
+import { prisma, tagCache } from "@asm/db";
 import { type NextRequest, NextResponse } from "next/server";
 import { getSessionFromApi } from "@/lib/session";
 

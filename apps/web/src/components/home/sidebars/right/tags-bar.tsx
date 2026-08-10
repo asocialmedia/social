@@ -1,9 +1,9 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import type { Tag } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import type { Tag } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Hash, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";

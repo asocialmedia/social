@@ -1,4 +1,4 @@
-import { getPostDataInclude, prisma, type UserData } from "@zephyr/db";
+import { getPostDataInclude, prisma, type UserData } from "@asm/db";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";

@@ -7,7 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import type { EmailValidationResult } from "@zephyr/auth";
+import type { EmailValidationResult } from "@asm/auth";
 
 interface ResendSendResult {
   data: { id: string } | null;
@@ -55,7 +55,7 @@ describe("email service", () => {
   beforeEach(async () => {
     mock.restore();
 
-    mock.module("@zephyr/auth", () => ({
+    mock.module("@asm/auth", () => ({
       validateEmailAdvanced: mockValidateEmailAdvanced,
     }));
 

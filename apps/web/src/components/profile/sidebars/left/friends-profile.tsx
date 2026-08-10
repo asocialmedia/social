@@ -1,7 +1,7 @@
 "use client";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@zephyr/ui/shadui/avatar";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@asm/ui/shadui/avatar";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import type React from "react";
 
 interface FriendsProps {

@@ -1,7 +1,7 @@
 "use server";
 
-import { createCommentSchema } from "@zephyr/auth/validation";
-import { getCommentDataInclude, type PostData, prisma } from "@zephyr/db";
+import { createCommentSchema } from "@asm/auth/validation";
+import { getCommentDataInclude, type PostData, prisma } from "@asm/db";
 
 export async function submitComment({
   post,

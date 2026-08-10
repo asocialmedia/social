@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { DesignSystemProvider, SofiaProSoft } from "@zephyr/ui";
-import { colors } from "@zephyr/ui/meta/colors";
-import { siteConfig } from "@zephyr/ui/meta/site";
+import { DesignSystemProvider, SofiaProSoft } from "@asm/ui";
+import { colors } from "@asm/ui/meta/colors";
+import { siteConfig } from "@asm/ui/meta/site";
 import type { ReactNode } from "react";
 
 export const viewport: Viewport = {
@@ -133,7 +133,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
       <meta content="yes" name="mobile-web-app-capable" />
       <meta content="yes" name="apple-mobile-web-app-capable" />
       <meta content="default" name="apple-mobile-web-app-status-bar-style" />
-      <meta content="Zephyr" name="apple-mobile-web-app-title" />
+      <meta content="Asocialmedia" name="apple-mobile-web-app-title" />
       <link href="/site.webmanifest" rel="manifest" />
       <script
         data-website-id="e9ee46c1-9c4a-4e03-a5e0-133af1b65fb9"
