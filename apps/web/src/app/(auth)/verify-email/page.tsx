@@ -1,10 +1,10 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const ERROR_MESSAGES = {
   "invalid-token": "The verification link is invalid.",
@@ -121,7 +121,7 @@ const VerificationAnimation = () => {
   );
 };
 
-const AnimatedZephyrText = () => {
+const AnimatedAsocialmediaText = () => {
   const letters = "ZEPHYR.".split("");
 
   return (
@@ -187,6 +187,10 @@ export default function VerifyEmailPage() {
     []
   );
   const verificationAttempted = useRef(false);
+
+  const handleBackToLogin = useCallback(() => {
+    router.push("/login");
+  }, [router]);
 
   useEffect(() => {
     const error = searchParams.get("error");
@@ -340,10 +344,7 @@ export default function VerifyEmailPage() {
                 <p className="text-center text-muted-foreground">
                   {errorMessage}
                 </p>
-                <Button
-                  className="mt-4 w-full"
-                  onClick={() => router.push("/login")}
-                >
+                <Button className="mt-4 w-full" onClick={handleBackToLogin}>
                   Back to Login
                 </Button>
               </motion.div>
@@ -356,7 +357,7 @@ export default function VerifyEmailPage() {
             initial={{ opacity: 0 }}
             transition={{ delay: 0.5 }}
           >
-            <AnimatedZephyrText />
+            <AnimatedAsocialmediaText />
           </motion.div>
         </div>
       </motion.div>

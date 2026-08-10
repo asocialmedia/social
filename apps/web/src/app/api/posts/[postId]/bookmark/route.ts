@@ -1,5 +1,5 @@
-import type { BookmarkInfo } from "@zephyr/db";
-import { prisma } from "@zephyr/db";
+import type { BookmarkInfo } from "@asm/db";
+import { prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(

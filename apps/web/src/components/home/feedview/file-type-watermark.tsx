@@ -7,7 +7,7 @@ import {
   VideoIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { FILE_CONFIGS, type FileTypeConfig } from "@/lib/utils/mime-utils";
 
@@ -59,11 +59,19 @@ export const FileTypeWatermark = ({
   const { category, tag } = config || fallbackConfig;
   const Icon = iconMap[tag.icon as keyof typeof iconMap] || FileIcon;
 
+  const handleMouseEnter = useCallback(() => {
+    setIsHovered(true);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsHovered(false);
+  }, []);
+
   return (
     <motion.div
       className="absolute right-2 bottom-2 z-20 overflow-hidden"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       whileHover={animations.container.hover}
     >
       <motion.div

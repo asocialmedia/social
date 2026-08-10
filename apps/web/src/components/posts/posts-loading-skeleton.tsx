@@ -1,5 +1,5 @@
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+import { Card, CardContent } from "@asm/ui/shadui/card";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type React from "react";
 
 const STORY_SKELETON_IDS = [

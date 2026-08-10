@@ -24,7 +24,7 @@ export const VerificationEmail = ({
   <Html>
     <Head />
     <Preview>
-      Welcome to Zephyr! Click to verify your email and complete your
+      Welcome to Asocialmedia! Click to verify your email and complete your
       registration.
     </Preview>
     <Body style={main}>
@@ -33,7 +33,7 @@ export const VerificationEmail = ({
           <Section style={header}>
             <Img
               alt={`${emailConfig.company.name} logo`}
-              src="https://storage-r2.zephyyrr.in/Assets/zephyr-logo.png"
+              src="https://zr2.asocialmedia.cc/Assets/asm-logo.png"
               style={logo}
               width={120}
             />
@@ -92,14 +92,14 @@ interface OTPVerificationEmailProps {
 export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => (
   <Html lang="en">
     <Head />
-    <Preview>Your verification code for Zephyr</Preview>
+    <Preview>Your verification code for Asocialmedia</Preview>
     <Body style={main}>
       <Container style={container}>
         <Section style={outerCard}>
           <Section style={header}>
             <Img
               alt={`${emailConfig.company.name} logo`}
-              src="https://storage-r2.zephyyrr.in/Assets/zephyr-logo.png"
+              src="https://zr2.asocialmedia.cc/Assets/asm-logo.png"
               style={logo}
               width={120}
             />

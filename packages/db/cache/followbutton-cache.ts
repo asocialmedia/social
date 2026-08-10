@@ -1,4 +1,4 @@
-import { debugLog } from "@zephyr/config/debug";
+import { debugLog } from "@asm/config/debug";
 import { CACHE_KEYS } from "../constants/cache-keys";
 import type { FollowerInfo } from "../src/client";
 import { redis } from "../src/redis";

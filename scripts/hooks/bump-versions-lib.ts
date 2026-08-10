@@ -115,9 +115,10 @@ async function bumpVersions(
 ): Promise<void> {
   const targets = getVersionTargets(changedPackages);
 
-  for (const target of targets) {
+  await targets.reduce(async (previousBump, target) => {
+    await previousBump;
     await bumpVersion(target, context);
-  }
+  }, Promise.resolve());
 }
 
 export async function runBumpVersionWithContext(context: BumpContext) {

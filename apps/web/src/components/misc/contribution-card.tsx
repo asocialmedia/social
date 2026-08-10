@@ -1,7 +1,7 @@
 "use client";
 
+import { Button } from "@asm/ui/shadui/button";
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
-import { Button } from "@zephyr/ui/shadui/button";
 import { ChevronRight, Code2, GitPullRequest, Star } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
@@ -22,7 +22,7 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
           variant="ghost"
         >
           <Link
-            href="https://github.com/zephverse/zephyr"
+            href="https://github.com/asocialmedia/social"
             rel="noopener noreferrer"
             target="_blank"
           >
@@ -38,17 +38,17 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
       <div className="space-y-4 p-4">
         <div className="flex items-center gap-2 text-primary">
           <GitPullRequest className="h-5 w-5" />
-          <h3 className="font-semibold">Contribute to Zephyr</h3>
+          <h3 className="font-semibold">Contribute to Asocialmedia</h3>
         </div>
 
         <p className="text-muted-foreground text-sm">
-          Help us make Zephyr better! We welcome all contributions.
+          Help us make Asocialmedia better! We welcome all contributions.
         </p>
 
         <div className="space-y-2">
           <Link
             className="group flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-accent"
-            href="https://github.com/zephverse/zephyr"
+            href="https://github.com/asocialmedia/social"
             rel="noopener noreferrer"
             target="_blank"
           >
@@ -61,7 +61,7 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
 
           <Link
             className="group flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-accent"
-            href="https://github.com/zephverse/zephyr/issues"
+            href="https://github.com/asocialmedia/social/issues"
             rel="noopener noreferrer"
             target="_blank"
           >
@@ -80,7 +80,7 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
         >
           <Button asChild className="w-full gap-2" size="sm" variant="outline">
             <Link
-              href="https://github.com/zephverse/zephyr"
+              href="https://github.com/asocialmedia/social"
               rel="noopener noreferrer"
               target="_blank"
             >

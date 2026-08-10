@@ -1,14 +1,11 @@
 "use client";
 
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
-import { FossBanner } from "@/components/misc/foss-banner";
-import { AnimatedZephyrText } from "./components/animated-zephyr-text";
-import { GithubIssueButton } from "./components/github-issue-button";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StepIndicator } from "./components/step-indicator";
 import { StepOne } from "./components/steps/step-one";
 import { StepThree } from "./components/steps/step-three";
@@ -43,28 +40,29 @@ export default function SupportForm() {
         key: string;
         name: string;
         type: string;
-      }[] = [];
-      for (const file of attachments) {
-        const uploadFormData = new FormData();
-        uploadFormData.append("file", file.file);
+      }[] = await Promise.all(
+        attachments.map(async (file) => {
+          const uploadFormData = new FormData();
+          uploadFormData.append("file", file.file);
 
-        const response = await fetch("/api/support/upload", {
-          method: "POST",
-          body: uploadFormData,
-        });
+          const response = await fetch("/api/support/upload", {
+            method: "POST",
+            body: uploadFormData,
+          });
 
-        if (!response.ok) {
-          throw new Error("Failed to upload attachments");
-        }
+          if (!response.ok) {
+            throw new Error("Failed to upload attachments");
+          }
 
-        const data = await response.json();
-        uploadedFiles.push({
-          url: data.url,
-          key: data.key,
-          name: file.name,
-          type: file.type,
-        });
-      }
+          const data = await response.json();
+          return {
+            url: data.url,
+            key: data.key,
+            name: file.name,
+            type: file.type,
+          };
+        })
+      );
 
       const response = await fetch("/api/support", {
         method: "POST",
@@ -174,48 +172,55 @@ export default function SupportForm() {
       return;
     }
 
-    for (const file of Array.from(files)) {
-      if (!validateFile(file)) {
-        continue;
-      }
+    await Promise.all(
+      Array.from(files).map(async (file) => {
+        if (!validateFile(file)) {
+          return;
+        }
 
-      try {
-        const data = await uploadFile(file);
+        try {
+          const data = await uploadFile(file);
 
-        setAttachments((prev) => [
-          ...prev,
-          {
-            name: file.name,
-            file,
-            url: data.url,
-            key: data.key,
-            originalName: data.originalName,
-            size: data.size,
-            type: data.type,
-            isUploading: false,
-          },
-        ]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              file,
+              url: data.url,
+              key: data.key,
+              originalName: data.originalName,
+              size: data.size,
+              type: data.type,
+              isUploading: false,
+            },
+          ]);
 
-        toast({
-          title: "Success",
-          description: "File uploaded successfully",
-        });
-      } catch (error: unknown) {
-        console.error("Upload error:", error);
-        toast({
-          title: "Upload failed",
-          description:
-            error instanceof Error ? error.message : "Failed to upload file",
-          variant: "destructive",
-        });
-      }
-    }
+          toast({
+            title: "Success",
+            description: "File uploaded successfully",
+          });
+        } catch (error: unknown) {
+          console.error("Upload error:", error);
+          toast({
+            title: "Upload failed",
+            description:
+              error instanceof Error ? error.message : "Failed to upload file",
+            variant: "destructive",
+          });
+        }
+      })
+    );
   };
 
   const formContainerVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
   };
+
+  const handleNextToStepTwo = useCallback(() => setStep(2), []);
+  const handleNextToStepThree = useCallback(() => setStep(3), []);
+  const handleBackToStepOne = useCallback(() => setStep(1), []);
+  const handleBackToStepTwo = useCallback(() => setStep(2), []);
 
   useEffect(
     () => () => {
@@ -230,38 +235,28 @@ export default function SupportForm() {
 
   return (
     <div className="relative">
-      <Link
-        className="fixed top-8 left-8 flex items-center gap-2 text-muted-foreground transition-colors hover:text-primary"
-        href="/"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Home
-      </Link>
-
       <motion.div
         animate="visible"
-        className="mx-auto mt-8 max-w-2xl"
         initial="hidden"
         variants={formContainerVariants}
       >
-        <div className="rounded-xl border bg-card/30 p-6 shadow-lg backdrop-blur-md">
+        <div className="space-y-5">
           <StepIndicator currentStep={step} totalSteps={3} />
-          <GithubIssueButton />
 
-          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <form className="space-y-5" onSubmit={handleSubmit}>
             <AnimatePresence mode="wait">
               {step === 1 && (
                 <StepOne
                   formData={formData}
-                  onNext={() => setStep(2)}
+                  onNext={handleNextToStepTwo}
                   setFormData={setFormData}
                 />
               )}
               {step === 2 && (
                 <StepTwo
                   formData={formData}
-                  onBack={() => setStep(1)}
-                  onNext={() => setStep(3)}
+                  onBack={handleBackToStepOne}
+                  onNext={handleNextToStepThree}
                   setFormData={setFormData}
                 />
               )}
@@ -272,50 +267,34 @@ export default function SupportForm() {
                   formData={formData}
                   handleFileUpload={handleFileUpload}
                   loading={loading}
-                  onBack={() => setStep(2)}
+                  onBack={handleBackToStepTwo}
                   setAttachments={setAttachments}
                   setFormData={setFormData}
                 />
               )}
             </AnimatePresence>
 
-            <motion.div
-              animate={{ scaleX: 1 }}
-              className="h-2 w-full overflow-hidden rounded-full bg-muted/50 backdrop-blur-sm"
-              initial={{ scaleX: 0 }}
-            >
+            <motion.div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <motion.div
                 animate={{ width: `${(step / 3) * 100}%` }}
-                className="h-full bg-primary"
+                className="h-full bg-gradient-to-r from-[#ff9500] to-[#e65500]"
                 initial={{ width: "33.33%" }}
                 transition={{ duration: 0.3 }}
               />
             </motion.div>
           </form>
-        </div>
 
-        <FossBanner className="mt-6" />
-
-        <motion.div
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-6 rounded-lg border bg-card/30 p-4 text-muted-foreground text-sm backdrop-blur-md"
-          initial={{ opacity: 0, y: 20 }}
-          transition={{ delay: 0.5 }}
-        >
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="font-medium">Privacy Notice</span>
+          <div className="text-center">
+            <Link
+              className="inline-flex items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-primary"
+              href="/login"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to login
+            </Link>
           </div>
-          <p className="mt-2">
-            To prevent abuse and ensure service quality, we collect and store
-            certain information including browser details and
-            sumuted-foregroundissionsm timestamps. This data is used solely for
-            rate limiting and system improvements.
-          </p>
-        </motion.div>
+        </div>
       </motion.div>
-
-      <AnimatedZephyrText className="fixed right-8 bottom-8" />
     </div>
   );
 }

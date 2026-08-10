@@ -1,7 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import type { MouseEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import MentionedUsersBar from "./mentioned-users-bar";
 import TagsBar from "./tags-bar";
@@ -89,6 +90,14 @@ export function TrendingTabs() {
     };
   }, [isAutoSwitching]);
 
+  const handleTabClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    const tabId = e.currentTarget.getAttribute("data-tab-id") as TabId | null;
+    if (tabId) {
+      setActiveTab(tabId);
+      setIsAutoSwitching(false);
+    }
+  }, []);
+
   return (
     <div className="space-y-3">
       <div className="relative">
@@ -103,11 +112,9 @@ export function TrendingTabs() {
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"
               )}
+              data-tab-id={tab.id}
               key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id);
-                setIsAutoSwitching(false);
-              }}
+              onClick={handleTabClick}
             >
               <span className="relative z-10">{tab.label}</span>
               {activeTab === tab.id && (
@@ -121,7 +128,7 @@ export function TrendingTabs() {
           ))}
         </div>
 
-        {isAutoSwitching && (
+        {isAutoSwitching ? (
           <div className="absolute -bottom-2 left-0 mt-1 mb-1 h-[2px] w-full overflow-hidden rounded-full bg-muted/30">
             <motion.div
               animate={{
@@ -134,7 +141,7 @@ export function TrendingTabs() {
               }}
             />
           </div>
-        )}
+        ) : null}
       </div>
 
       <TabContent activeTab={activeTab} />

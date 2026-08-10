@@ -1,10 +1,10 @@
 "use client";
 
+import { debugLog } from "@asm/config/debug";
+import type { FollowerInfo } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import { useQueryClient } from "@tanstack/react-query";
-import { debugLog } from "@zephyr/config/debug";
-import type { FollowerInfo } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
 import { useAtom } from "jotai/react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
@@ -78,13 +78,13 @@ const ButtonContent = ({
       ) : (
         <>
           <span>{isFollowing ? "Following" : "Follow"}</span>
-          {isFollowing && (
+          {isFollowing ? (
             <motion.div
               animate={{ scale: 1 }}
               className="h-1.5 w-1.5 rounded-full bg-green-500"
               initial={{ scale: 0 }}
             />
-          )}
+          ) : null}
         </>
       )}
     </motion.div>
@@ -257,7 +257,7 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
         <ButtonContent isFollowing={isFollowing} isLoading={isLoading} />
 
         <AnimatePresence>
-          {isLoading && (
+          {isLoading ? (
             <motion.div
               animate={{ x: "100%" }}
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
@@ -269,7 +269,7 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
                 ease: "linear",
               }}
             />
-          )}
+          ) : null}
         </AnimatePresence>
       </Button>
     </motion.div>

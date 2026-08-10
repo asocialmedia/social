@@ -1,5 +1,5 @@
-import { debugLog } from "@zephyr/config/debug";
-import { type FollowerInfo, followerInfoCache, prisma } from "@zephyr/db";
+import { debugLog } from "@asm/config/debug";
+import { type FollowerInfo, followerInfoCache, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 

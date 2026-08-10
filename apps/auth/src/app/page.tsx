@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth/config";

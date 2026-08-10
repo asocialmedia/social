@@ -14,7 +14,7 @@ const mockGetSessionFromRequest = mock(
   })
 );
 
-mock.module("@zephyr/auth/core", () => ({
+mock.module("@asm/auth/core", () => ({
   getSessionFromRequest: mockGetSessionFromRequest,
 }));
 

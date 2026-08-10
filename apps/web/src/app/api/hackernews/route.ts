@@ -1,4 +1,4 @@
-import { hackerNewsAPI } from "@zephyr/aggregator/hackernews";
+import { hackerNewsAPI } from "@asm/aggregator/hackernews";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 

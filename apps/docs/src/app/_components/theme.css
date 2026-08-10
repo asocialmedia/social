@@ -1,29 +1,29 @@
 :root {
   /* Base palette (light by default) */
-  --zephyr-bg: #ffffff;
-  --zephyr-bg-muted: #f6f8fa;
-  --zephyr-panel: #ffffff;
-  --zephyr-border: #e5e7eb;
-  --zephyr-text: #0f141a;
-  --zephyr-text-muted: #64748b;
+  --asm-bg: #ffffff;
+  --asm-bg-muted: #f6f8fa;
+  --asm-panel: #ffffff;
+  --asm-border: #e5e7eb;
+  --asm-text: #0f141a;
+  --asm-text-muted: #64748b;
 
   /* Accent colors */
-  --zephyr-accent: #111111;
-  --zephyr-accent-foreground: #ffffff;
-  --zephyr-accent-muted: #141414;
+  --asm-accent: #111111;
+  --asm-accent-foreground: #ffffff;
+  --asm-accent-muted: #141414;
 
   /* Info/States */
-  --zephyr-success: #22c55e;
-  --zephyr-warning: #f59e0b;
-  --zephyr-danger: #ef4444;
+  --asm-success: #22c55e;
+  --asm-warning: #f59e0b;
+  --asm-danger: #ef4444;
 
   /* Code blocks */
-  --zephyr-code-bg: #f6f8fa;
+  --asm-code-bg: #f6f8fa;
 }
 
-.zephyr-theme {
-  color: var(--zephyr-text);
-  background-color: var(--zephyr-bg);
+.asm-theme {
+  color: var(--asm-text);
+  background-color: var(--asm-bg);
 }
 
 /* Nextra theme vars mapping */
@@ -35,27 +35,27 @@
 
 /* Components overrides */
 .nextra-content a {
-  color: var(--zephyr-accent);
+  color: var(--asm-accent);
 }
 
 .nextra-content a:hover {
-  color: var(--zephyr-accent-foreground);
-  background: color-mix(in oklab, var(--zephyr-accent) 15%, transparent);
+  color: var(--asm-accent-foreground);
+  background: color-mix(in oklab, var(--asm-accent) 15%, transparent);
 }
 
 .nextra-nav-container,
 .nextra-sidebar-container {
-  background-color: var(--zephyr-panel);
-  border-color: var(--zephyr-border);
+  background-color: var(--asm-panel);
+  border-color: var(--asm-border);
 }
 
 /* .nextra-toc {
-  background-color: var(--zephyr-panel);
-  border-color: var(--zephyr-border);
+  background-color: var(--asm-panel);
+  border-color: var(--asm-border);
 } */
 
 .nextra-code-block pre {
-  background-color: var(--zephyr-code-bg);
+  background-color: var(--asm-code-bg);
 }
 
 /* Buttons / inputs */
@@ -63,33 +63,33 @@ button,
 input,
 select,
 textarea {
-  color: var(--zephyr-text);
+  color: var(--asm-text);
 }
 
 button[type="button"],
 button[type="submit"] {
-  color: var(--zephyr-accent-foreground);
-  background-color: var(--zephyr-accent);
+  color: var(--asm-accent-foreground);
+  background-color: var(--asm-accent);
 }
 
 button[type="button"]:hover,
 button[type="submit"]:hover {
-  background-color: var(--zephyr-accent-muted);
+  background-color: var(--asm-accent-muted);
 }
 
 /* Dark theme overrides */
 @media (prefers-color-scheme: dark) {
   :root {
-    --zephyr-bg: #111111;
-    --zephyr-bg-muted: #0f141a;
-    --zephyr-panel: #0e0e0e;
-    --zephyr-border: #1f2b3a;
-    --zephyr-text: #e6edf3;
-    --zephyr-text-muted: #a3b1c2;
-    --zephyr-accent: #111111;
-    --zephyr-accent-foreground: #ffffff;
-    --zephyr-accent-muted: #141414;
-    --zephyr-code-bg: #0d1117;
+    --asm-bg: #111111;
+    --asm-bg-muted: #0f141a;
+    --asm-panel: #0e0e0e;
+    --asm-border: #1f2b3a;
+    --asm-text: #e6edf3;
+    --asm-text-muted: #a3b1c2;
+    --asm-accent: #111111;
+    --asm-accent-foreground: #ffffff;
+    --asm-accent-muted: #141414;
+    --asm-code-bg: #0d1117;
 
     /* Orange primary for dark mode */
     --nextra-primary-hue: 28;
@@ -101,16 +101,16 @@ button[type="submit"]:hover {
 /* Explicit theme class/data overrides */
 html.dark,
 html[data-theme="dark"] {
-  --zephyr-bg: #111111;
-  --zephyr-bg-muted: #0f141a;
-  --zephyr-panel: #0e0e0e;
-  --zephyr-border: #1f2b3a;
-  --zephyr-text: #e6edf3;
-  --zephyr-text-muted: #a3b1c2;
-  --zephyr-accent: #111111;
-  --zephyr-accent-foreground: #ffb950;
-  --zephyr-accent-muted: #141414;
-  --zephyr-code-bg: #0d1117;
+  --asm-bg: #111111;
+  --asm-bg-muted: #0f141a;
+  --asm-panel: #0e0e0e;
+  --asm-border: #1f2b3a;
+  --asm-text: #e6edf3;
+  --asm-text-muted: #a3b1c2;
+  --asm-accent: #111111;
+  --asm-accent-foreground: #ffb950;
+  --asm-accent-muted: #141414;
+  --asm-code-bg: #0d1117;
 
   /* Orange primary for dark mode */
   --nextra-primary-hue: 28;
@@ -120,16 +120,16 @@ html[data-theme="dark"] {
 
 html.light,
 html[data-theme="light"] {
-  --zephyr-bg: #ffffff;
-  --zephyr-bg-muted: #f6f8fa;
-  --zephyr-panel: #ffffff;
-  --zephyr-border: #e5e7eb;
-  --zephyr-text: #0f141a;
-  --zephyr-text-muted: #64748b;
-  --zephyr-accent: #ffffff;
-  --zephyr-accent-foreground: #161616;
-  --zephyr-accent-muted: #f6f8fa;
-  --zephyr-code-bg: #f6f8fa;
+  --asm-bg: #ffffff;
+  --asm-bg-muted: #f6f8fa;
+  --asm-panel: #ffffff;
+  --asm-border: #e5e7eb;
+  --asm-text: #0f141a;
+  --asm-text-muted: #64748b;
+  --asm-accent: #ffffff;
+  --asm-accent-foreground: #161616;
+  --asm-accent-muted: #f6f8fa;
+  --asm-code-bg: #f6f8fa;
 
   /* Orange primary for light mode */
   --nextra-primary-hue: 28;

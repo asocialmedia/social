@@ -2,7 +2,7 @@ import { env } from "../../env";
 
 export const emailConfig = {
   company: {
-    name: "Zephyr",
+    name: "Asocialmedia",
     website: env.NEXT_PUBLIC_URL,
     supportEmail: env.SUPPORT_EMAIL,
   },
@@ -27,7 +27,7 @@ export const emailConfig = {
         emoji: "🌐 ",
         title: "Unified Social Feed",
         description:
-          "Experience all your social media in one place. Zephyr seamlessly aggregates content from Twitter, Reddit, 4chan, and more into a single, customizable feed. No more platform hopping!",
+          "Experience all your social media in one place. Asocialmedia seamlessly aggregates content from Twitter, Reddit, 4chan, and more into a single, customizable feed. No more platform hopping!",
       },
       {
         emoji: "⚡ ",
@@ -39,14 +39,14 @@ export const emailConfig = {
         emoji: "🐙 ",
         title: "Open Source Freedom",
         description:
-          "Zephyr is proudly Free and Open Source Software (FOSS). Inspect the code, suggest features, contribute improvements, and help build a more connected social media experience for everyone. More eyes make for better software!",
+          "Asocialmedia is proudly Free and Open Source Software (FOSS). Inspect the code, suggest features, contribute improvements, and help build a more connected social media experience for everyone. More eyes make for better software!",
       },
     ],
   },
 
   social: {
     github: {
-      url: "https://github.com/zephverse/zephyr",
+      url: "https://github.com/asocialmedia/social",
       icon: "https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png",
     },
     discord: {
@@ -72,7 +72,7 @@ export const emailConfig = {
 
   templates: {
     verification: {
-      subject: "🎉 One Last Step to Join the Zephyr!",
+      subject: "🎉 One Last Step to Join the Asocialmedia!",
       buttonText: "Verify Email Address",
       expiryTime: "1 hour",
     },
@@ -85,15 +85,15 @@ export const emailConfig = {
 
   project: {
     description:
-      "Zephyr is a social media aggregator that aggregates content from various social media platforms and displays them in a single feed. Completely FOSS and open to contributions.",
+      "Asocialmedia is a social media aggregator that aggregates content from various social media platforms and displays them in a single feed. Completely FOSS and open to contributions.",
     stats: {
       stars: "⭐ Star on GitHub",
       contribute: "🛠️ Contribute",
       community: "👥 Join Community",
     },
     links: {
-      repo: "https://github.com/zephverse/zephyr",
-      contribute: "https://github.com/zephverse/zephyr/contribute",
+      repo: "https://github.com/asocialmedia/social",
+      contribute: "https://github.com/asocialmedia/social/contribute",
       discord: "https://discordapp.com/users/parazeeknova",
     },
   },

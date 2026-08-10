@@ -7,7 +7,7 @@ import { getSessionFromApi } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "New Users",
-  description: "Discover new users on Zephyr",
+  description: "Discover new users on Asocialmedia",
 };
 
 export default async function NewUsersPage() {

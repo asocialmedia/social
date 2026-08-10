@@ -1,5 +1,5 @@
-import { debugLog } from "@zephyr/config/debug";
-import { postViewsCache } from "@zephyr/db";
+import { debugLog } from "@asm/config/debug";
+import { postViewsCache } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 

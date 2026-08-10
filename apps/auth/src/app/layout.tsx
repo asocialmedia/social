@@ -5,8 +5,8 @@ import { TRPCProvider } from "./trpc/provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Zephyr Auth | User Management",
-  description: "Zephyr Auth Service",
+  title: "Asocialmedia Auth | User Management",
+  description: "Asocialmedia Auth Service",
   icons: {
     icon: { url: "/favicon.svg", type: "image/svg+xml" },
   },

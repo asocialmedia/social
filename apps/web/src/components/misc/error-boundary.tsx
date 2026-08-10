@@ -1,5 +1,5 @@
-import { debugLog } from "@zephyr/config/debug";
-import { Button } from "@zephyr/ui/shadui/button";
+import { debugLog } from "@asm/config/debug";
+import { Button } from "@asm/ui/shadui/button";
 import { AlertCircle } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 

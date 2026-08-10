@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card } from "@zephyr/ui/shadui/card";
+import { Button } from "@asm/ui/shadui/button";
+import { Card } from "@asm/ui/shadui/card";
 import { AlertCircle, Edit, Eye, UserCog, X } from "lucide-react";
 import { motion } from "motion/react";
 import type { ModalAction, User } from "../types/types";
@@ -19,6 +19,10 @@ export default function ActionModal({
   onConfirmAction,
   onCancelAction,
 }: ActionModalProps) {
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+  };
+
   const getModalConfig = () => {
     switch (action) {
       case "view":
@@ -87,7 +91,7 @@ export default function ActionModal({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         initial={{ scale: 0.95, opacity: 0 }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={handleCardClick}
         transition={{ duration: 0.15, ease: "easeOut" }}
       >
         <Card className="w-full max-w-md border-border bg-card p-6">
@@ -129,7 +133,7 @@ export default function ActionModal({
               </Button>
             )}
             <Button
-              className={`transition-all duration-150 hover:scale-105 ${config.confirmClass || ""}`}
+              className="transition-all duration-150 hover:scale-105"
               onClick={onConfirmAction}
               variant={config.confirmVariant}
             >

@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Eye, ThumbsUp } from "lucide-react";
 import type React from "react";
 

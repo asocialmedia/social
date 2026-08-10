@@ -1,6 +1,7 @@
+import type { CommentsPage, PostData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { CommentsPage, PostData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import { useCallback } from "react";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 import Comment from "./comment";
@@ -31,6 +32,10 @@ export default function Comments({ post }: CommentsProps) {
 
   const comments = data?.pages.flatMap((page) => page.comments) || [];
 
+  const handleLoadPrevious = useCallback(() => {
+    fetchNextPage();
+  }, [fetchNextPage]);
+
   if (status === "pending") {
     return <CommentsSkeleton />;
   }
@@ -38,16 +43,16 @@ export default function Comments({ post }: CommentsProps) {
   return (
     <div className="mt-4 space-y-3">
       <CommentInput post={post} />
-      {hasNextPage && (
+      {hasNextPage ? (
         <Button
           className="mx-auto block"
           disabled={isFetching}
-          onClick={() => fetchNextPage()}
+          onClick={handleLoadPrevious}
           variant="link"
         >
           Load previous eddies
         </Button>
-      )}
+      ) : null}
       {status === "success" && !comments.length && (
         <p className="text-center text-muted-foreground">No eddy yet.</p>
       )}

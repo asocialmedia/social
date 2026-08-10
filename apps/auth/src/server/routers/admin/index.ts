@@ -1,6 +1,6 @@
+import { debugLog } from "@asm/config/debug";
+import { prisma, userCache, userSearchIndex } from "@asm/db";
 import { TRPCError } from "@trpc/server";
-import { debugLog } from "@zephyr/config/debug";
-import { prisma, userCache, userSearchIndex } from "@zephyr/db";
 import { z } from "zod";
 import type { User } from "../../../app/types/types";
 import { adminProcedure, router, t } from "../../trpc";
@@ -70,16 +70,18 @@ async function syncUsersWithMeiliSearch(
   action: "updateRole" | "updateEmailVerification" | "deleteUsers"
 ): Promise<void> {
   if (action === "deleteUsers") {
-    for (const userId of userIds) {
-      try {
-        await userSearchIndex.deleteUser(userId);
-      } catch (meiliError) {
-        console.warn(
-          `Failed to delete user ${userId} from MeiliSearch:`,
-          meiliError
-        );
-      }
-    }
+    await Promise.all(
+      userIds.map(async (userId) => {
+        try {
+          await userSearchIndex.deleteUser(userId);
+        } catch (meiliError) {
+          console.warn(
+            `Failed to delete user ${userId} from MeiliSearch:`,
+            meiliError
+          );
+        }
+      })
+    );
   } else {
     const updatedUsers = await prisma.user.findMany({
       where: { id: { in: userIds } },
@@ -99,29 +101,31 @@ async function syncUsersWithMeiliSearch(
       },
     });
 
-    for (const user of updatedUsers) {
-      try {
-        await userSearchIndex.updateUser({
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName,
-          displayUsername: user.displayUsername,
-          email: user.email,
-          role: user.role,
-          aura: user.aura,
-          emailVerified: user.emailVerified,
-          createdAt: user.createdAt.toISOString(),
-          updatedAt: user.updatedAt.toISOString(),
-          bio: user.bio,
-          avatarUrl: user.avatarUrl,
-        });
-      } catch (meiliError) {
-        console.warn(
-          `Failed to update user ${user.id} in MeiliSearch:`,
-          meiliError
-        );
-      }
-    }
+    await Promise.all(
+      updatedUsers.map(async (user) => {
+        try {
+          await userSearchIndex.updateUser({
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            displayUsername: user.displayUsername,
+            email: user.email,
+            role: user.role,
+            aura: user.aura,
+            emailVerified: user.emailVerified,
+            createdAt: user.createdAt.toISOString(),
+            updatedAt: user.updatedAt.toISOString(),
+            bio: user.bio,
+            avatarUrl: user.avatarUrl,
+          });
+        } catch (meiliError) {
+          console.warn(
+            `Failed to update user ${user.id} in MeiliSearch:`,
+            meiliError
+          );
+        }
+      })
+    );
   }
 }
 
@@ -297,10 +301,12 @@ export const adminRouter = router({
         return { success: true };
       } catch (error) {
         console.error("Failed to update user role:", error);
-        throw new TRPCError({
+        const trpcError = new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to update user role",
+          cause: error,
         });
+        throw trpcError;
       }
     }),
 
@@ -704,9 +710,6 @@ export const adminRouter = router({
           SELECT
             CASE
               WHEN google_id IS NOT NULL THEN 'google'
-              WHEN github_id IS NOT NULL THEN 'github'
-              WHEN discord_id IS NOT NULL THEN 'discord'
-              WHEN twitter_id IS NOT NULL THEN 'twitter'
               WHEN reddit_id IS NOT NULL THEN 'reddit'
               ELSE 'email'
             END as provider,
@@ -955,9 +958,9 @@ export const adminRouter = router({
         await userCache.invalidateSearchCache();
         await userCache.invalidateUserList();
         await userCache.invalidateUserStats();
-        for (const userId of userIds) {
-          await userCache.invalidateUserDetail(userId);
-        }
+        await Promise.all(
+          userIds.map((userId) => userCache.invalidateUserDetail(userId))
+        );
 
         return {
           success: true,
@@ -967,10 +970,12 @@ export const adminRouter = router({
         };
       } catch (error) {
         console.error("Bulk operation error:", error);
-        throw new TRPCError({
+        const trpcError = new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to perform bulk operation",
+          cause: error,
         });
+        throw trpcError;
       }
     }),
 

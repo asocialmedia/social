@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { Session, User } from "@zephyr/auth/core";
+import type { Session, User } from "@asm/auth/core";
 import type { NextRequest } from "next/server";
 
 type SessionResult = {

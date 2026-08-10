@@ -1,12 +1,13 @@
 "use client";
 
+import type { UserData } from "@asm/db";
+import { Alert, AlertDescription } from "@asm/ui/shadui/alert";
+import { Button } from "@asm/ui/shadui/button";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { UserData } from "@zephyr/db";
-import { Alert, AlertDescription } from "@zephyr/ui/shadui/alert";
-import { Button } from "@zephyr/ui/shadui/button";
 import { Users2, VerifiedIcon } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
+import { useCallback } from "react";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -55,6 +56,10 @@ export default function UserSearchResults({ query }: { query: string }) {
 
   const users = data?.pages.flatMap((page) => page.users) || [];
 
+  const handleLoadMore = useCallback(() => {
+    fetchNextPage();
+  }, [fetchNextPage]);
+
   if (status === "pending") {
     return (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -101,7 +106,7 @@ export default function UserSearchResults({ query }: { query: string }) {
         ))}
       </motion.div>
 
-      {hasNextPage && (
+      {hasNextPage ? (
         <motion.div
           animate={{ opacity: 1 }}
           className="mt-6"
@@ -111,13 +116,13 @@ export default function UserSearchResults({ query }: { query: string }) {
           <Button
             className="w-full"
             disabled={isFetchingNextPage}
-            onClick={() => fetchNextPage()}
+            onClick={handleLoadMore}
             variant="outline"
           >
             {isFetchingNextPage ? "Loading more people..." : "Show more people"}
           </Button>
         </motion.div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -147,20 +152,20 @@ function UserCard({ user }: { user: UserData }) {
               >
                 {user.displayName}
               </Link>
-              {user.emailVerified && (
+              {user.emailVerified ? (
                 <VerifiedIcon className="h-4 w-4 shrink-0 text-primary" />
-              )}
+              ) : null}
             </div>
             <div className="truncate text-muted-foreground text-sm">
               @{user.username}
             </div>
-            {user.bio && (
+            {user.bio ? (
               <Linkify>
                 <p className="mt-2 line-clamp-2 text-muted-foreground text-sm">
                   {user.bio}
                 </p>
               </Linkify>
-            )}
+            ) : null}
             <div className="mt-4 flex items-center gap-4 text-sm">
               <span className="text-muted-foreground">
                 <span className="font-medium text-foreground">

@@ -1,13 +1,13 @@
 "use client";
 
+import type { SearchSuggestion } from "@asm/db";
+import { Input } from "@asm/ui/shadui/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SearchSuggestion } from "@zephyr/db";
-import { Input } from "@zephyr/ui/shadui/input";
 import { HashIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
 import { searchMutations } from "../search/mutations";
@@ -87,20 +87,49 @@ export default function SearchField({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSearch = (searchQuery: string) => {
-    if (!searchQuery.trim()) {
-      return;
-    }
-    setOpen(false);
-    onAfterSearch?.();
-    searchMutation.mutate(searchQuery.trim());
-    router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-  };
+  const handleSearch = useCallback(
+    (searchQuery: string) => {
+      if (!searchQuery.trim()) {
+        return;
+      }
+      setOpen(false);
+      onAfterSearch?.();
+      searchMutation.mutate(searchQuery.trim());
+      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    },
+    [onAfterSearch, router, searchMutation]
+  );
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     handleSearch(input);
   };
+
+  const handleBlur = useCallback(() => setIsFocused(false), []);
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+    setOpen(true);
+  }, []);
+  const handleFocus = useCallback(() => {
+    setOpen(true);
+    setIsFocused(true);
+  }, []);
+  const handleClearHistory = useCallback(() => {
+    clearHistoryMutation.mutate();
+  }, [clearHistoryMutation]);
+  const handleRemoveHistoryItem = useCallback(
+    (query: string) => {
+      removeHistoryItemMutation.mutate(query);
+    },
+    [removeHistoryItemMutation]
+  );
+  const handleSelectAction = useCallback(
+    (value: string) => {
+      setInput(value);
+      handleSearch(value);
+    },
+    [handleSearch]
+  );
 
   const placeholders = [
     "Type a thought… maybe it's brilliant, maybe it's coffee.",
@@ -136,15 +165,9 @@ export default function SearchField({
           aria-label="Search"
           autoComplete="off"
           className="h-10 rounded-xl bg-muted pl-9 outline-none ring-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 md:h-11"
-          onBlur={() => setIsFocused(false)}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => {
-            setOpen(true);
-            setIsFocused(true);
-          }}
+          onBlur={handleBlur}
+          onChange={handleChange}
+          onFocus={handleFocus}
           placeholder=""
           ref={inputRef}
           type="text"
@@ -179,14 +202,9 @@ export default function SearchField({
           <SearchCommandList
             history={history}
             input={input}
-            onClearHistory={() => clearHistoryMutation.mutate()}
-            onRemoveHistoryItem={(query) =>
-              removeHistoryItemMutation.mutate(query)
-            }
-            onSelectAction={(value) => {
-              setInput(value);
-              handleSearch(value);
-            }}
+            onClearHistory={handleClearHistory}
+            onRemoveHistoryItem={handleRemoveHistoryItem}
+            onSelectAction={handleSelectAction}
             suggestions={suggestions}
           />
         </div>

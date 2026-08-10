@@ -1,15 +1,10 @@
 "use client";
 
+import type { PostData } from "@asm/db";
+import { Card, CardContent } from "@asm/ui/shadui/card";
+import { Separator } from "@asm/ui/shadui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useQueryClient } from "@tanstack/react-query";
-import type { PostData } from "@zephyr/db";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
-import { Separator } from "@zephyr/ui/shadui/separator";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@zephyr/ui/shadui/tabs";
 import { motion } from "motion/react";
 import React, { useEffect, useMemo, useState } from "react";
 import PostCard from "./feedview/post-card";
@@ -165,5 +160,3 @@ export const FeedView: React.FC<FeedViewProps> = ({ posts: initialPosts }) => {
     </main>
   );
 };
-
-export default FeedView;

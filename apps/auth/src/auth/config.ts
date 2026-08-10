@@ -1,4 +1,4 @@
-import { createAuthConfig, type EmailService } from "@zephyr/auth/core";
+import { createAuthConfig, type EmailService } from "@asm/auth/core";
 import { env } from "../../env";
 import {
   sendPasswordResetEmail,

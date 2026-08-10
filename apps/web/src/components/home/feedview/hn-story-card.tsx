@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@zephyr/ui/shadui/badge";
+import { Badge } from "@asm/ui/shadui/badge";
 import { formatDistanceToNow } from "date-fns";
 import {
   ExternalLink,
@@ -48,7 +48,7 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
           {hnStory.title}
         </a>
 
-        {domain && (
+        {domain ? (
           <div className="mt-2 flex flex-wrap items-center">
             <Badge
               className="max-w-[200px] truncate bg-background/80 px-2 text-xs hover:bg-orange-500/10 hover:text-orange-500 sm:max-w-full"
@@ -58,7 +58,7 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
               <span className="truncate">{domain}</span>
             </Badge>
           </div>
-        )}
+        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs sm:gap-2">

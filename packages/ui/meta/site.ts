@@ -1,8 +1,8 @@
 export const siteConfig = {
-  name: "Zephyr",
+  name: "Asocialmedia",
   description:
-    "A modern social aggregator combining social media, open-source communities, and content creation.",
-  url: "https://zephyyrr.in",
+    "The last social platform you'll ever need. Open source, cozy, and slightly unhinged.",
+  url: "https://asocialmedia.cc",
   ogImage: "og-image.png",
   keywords: [
     "social platform",
@@ -20,10 +20,10 @@ export const siteConfig = {
     "content discovery",
     "digital collaboration",
   ].join(", "),
-  authors: [{ name: "parazeeknova", url: "https://folio.zephyyrr.in" }],
+  authors: [{ name: "parazeeknova", url: "https://przknv.cc" }],
   creator: "Harsh Sahu",
   links: {
-    github: "https://github.com/zephverse/zephyr",
+    github: "https://github.com/asocialmedia/social",
     twitter: "https://twitter.com/parazeeknova",
   },
 } as const;

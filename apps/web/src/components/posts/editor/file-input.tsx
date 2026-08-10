@@ -1,12 +1,19 @@
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import { FileAudioIcon, FileCode, FileIcon, ImageIcon } from "lucide-react";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/utils";
 
 interface FileInputProps {
@@ -66,6 +73,30 @@ const FileButton = ({
   disabled,
   handleFileSelect,
 }: FileButtonProps) => {
+  const handleClick = useCallback(() => {
+    inputRef.current?.click();
+  }, [inputRef]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (!isMobile) {
+      setHoveredButton(type);
+    }
+  }, [isMobile, setHoveredButton, type]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!isMobile) {
+      setHoveredButton(null);
+    }
+  }, [isMobile, setHoveredButton]);
+
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      handleFileSelect(e.target.files);
+      e.target.value = "";
+    },
+    [handleFileSelect]
+  );
+
   const ButtonContent = (
     <Button
       className={cn(
@@ -85,9 +116,9 @@ const FileButton = ({
         disabled && "cursor-not-allowed opacity-50"
       )}
       disabled={disabled}
-      onClick={() => inputRef.current?.click()}
-      onMouseEnter={() => !isMobile && setHoveredButton(type)}
-      onMouseLeave={() => !isMobile && setHoveredButton(null)}
+      onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       size="icon"
       variant="ghost"
     >
@@ -117,10 +148,7 @@ const FileButton = ({
             capture={capture}
             className="sr-only"
             multiple
-            onChange={(e) => {
-              handleFileSelect(e.target.files);
-              e.target.value = "";
-            }}
+            onChange={handleChange}
             ref={inputRef}
             type="file"
           />
@@ -145,10 +173,7 @@ const FileButton = ({
             capture={capture}
             className="sr-only"
             multiple
-            onChange={(e) => {
-              handleFileSelect(e.target.files);
-              e.target.value = "";
-            }}
+            onChange={handleChange}
             ref={inputRef}
             type="file"
           />
@@ -169,12 +194,15 @@ export function FileInput({ onFilesSelected, disabled }: FileInputProps) {
     null
   );
 
-  const handleFileSelect = (files: FileList | null) => {
-    const fileArray = Array.from(files || []);
-    if (fileArray.length) {
-      onFilesSelected(fileArray);
-    }
-  };
+  const handleFileSelect = useCallback(
+    (files: FileList | null) => {
+      const fileArray = Array.from(files || []);
+      if (fileArray.length) {
+        onFilesSelected(fileArray);
+      }
+    },
+    [onFilesSelected]
+  );
 
   return (
     <>

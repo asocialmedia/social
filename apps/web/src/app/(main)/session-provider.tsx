@@ -1,6 +1,6 @@
 "use client";
 
-import type { Session, User } from "@zephyr/auth/core";
+import type { Session, User } from "@asm/auth/core";
 import type React from "react";
 import { createContext, useContext } from "react";
 

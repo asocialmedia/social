@@ -174,6 +174,220 @@
   }
 }
 
+@layer components {
+  /* ── 3D Orange Button ─────────────────────────────────────────── */
+  .btn-3d {
+    font-size: 18px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: -0.3px;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+    outline: none;
+    background: linear-gradient(to bottom, #ff9500, #e65500);
+    border-radius: 9999px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.6),
+      0 3px 5px rgba(0, 0, 0, 0.08),
+      0 8px 16px -4px rgba(0, 0, 0, 0.15);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .btn-3d:hover {
+    background: linear-gradient(to bottom, #ffa629, #f56a14);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+      inset 0 2px 3px rgba(255, 255, 255, 0.6),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 2px 2px rgba(255, 255, 255, 0.7),
+      0 5px 8px rgba(0, 0, 0, 0.1),
+      0 12px 20px -4px rgba(0, 0, 0, 0.2);
+    transform: translateY(-1px);
+  }
+
+  .btn-3d:active {
+    background: linear-gradient(to bottom, #e65500, #d44a00);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      inset 0 1px 2px rgba(0, 0, 0, 0.18),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 0 0 rgba(255, 255, 255, 0),
+      0 1px 2px rgba(0, 0, 0, 0.08),
+      0 2px 4px -2px rgba(0, 0, 0, 0.12);
+    transform: translateY(1px);
+  }
+
+  .btn-3d:disabled {
+    text-shadow: none;
+    background: linear-gradient(to bottom, #ffc480, #ffab66);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      inset 0 1px 2px rgba(255, 255, 255, 0.4),
+      0 0 0 1px rgba(170, 60, 0, 0.4),
+      0 1px 1px rgba(255, 255, 255, 0.5),
+      0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+
+  /* ── Premium Input Field ──────────────────────────────────────── */
+  .premium-input {
+    padding: 6px 16px;
+    -webkit-font-smoothing: antialiased;
+    color: #e8e8e8;
+    background-color: #232323;
+    border-radius: 12px;
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.25),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 1px 1px rgba(255, 255, 255, 0.04);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-input::placeholder {
+    color: rgba(232, 232, 232, 0.45);
+  }
+
+  .premium-input:focus {
+    outline: none;
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.02),
+      0 0 0 1px #e65500,
+      0 0 0 4px rgba(255, 149, 0, 0.25),
+      0 1px 1px rgba(255, 255, 255, 0.8);
+  }
+
+  /* ── Tactile Checkbox ─────────────────────────────────────────── */
+  .premium-checkbox {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    background-color: #232323;
+    border-radius: 6px;
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.1),
+      0 1px 1px rgba(255, 255, 255, 0.05);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-checkbox:hover {
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.35),
+      0 1px 1px rgba(255, 255, 255, 0.05);
+  }
+
+  .premium-checkbox:checked,
+  .premium-checkbox[data-state="checked"] {
+    background: linear-gradient(#ff9500, #e65500);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+      inset 0 1px 1.5px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.5),
+      0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .premium-checkbox::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    content: "";
+    background: transparent;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    border-radius: 3px;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-checkbox:checked::after,
+  .premium-checkbox[data-state="checked"]::after {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* ── Social Auth Button (dark tactile) ────────────────────────── */
+  .btn-social {
+    color: #e8e8e8;
+    outline: none;
+    background-color: #232323;
+    border-radius: 12px;
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.05),
+      0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .btn-social:hover,
+  .btn-social:focus,
+  .btn-social:focus-visible,
+  .btn-social:active {
+    outline: none;
+    outline-style: none;
+  }
+
+  .btn-social:hover {
+    color: #ffffff;
+    background: linear-gradient(to bottom, #ffa629, #f56a14);
+    box-shadow:
+      0 5px 8px rgba(0, 0, 0, 0.1),
+      0 12px 20px -4px rgba(0, 0, 0, 0.2);
+    transform: translateY(-1px);
+  }
+
+  .btn-social:active {
+    background-color: #1d1d1d;
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  /* ── 3D Embossed Text ─────────────────────────────────────────── */
+  .text-3d {
+    color: #ff9500;
+    -webkit-text-stroke: 1px rgba(255, 255, 255, 0.5);
+    text-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.6),
+      0 2px 0 rgba(255, 149, 0, 0.35),
+      0 3px 0 rgba(230, 85, 0, 0.45),
+      0 4px 0 rgba(170, 60, 0, 0.55),
+      0 5px 0 rgba(120, 40, 0, 0.6),
+      0 7px 12px rgba(0, 0, 0, 0.5);
+  }
+
+  /* ── Premium Select Trigger ───────────────────────────────────── */
+  .premium-select {
+    color: #e8e8e8;
+    outline: none;
+    background-color: #232323;
+    border-radius: 12px;
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.25),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 1px 1px rgba(255, 255, 255, 0.04);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-select:focus {
+    outline: none;
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.02),
+      0 0 0 1px #e65500,
+      0 0 0 4px rgba(255, 149, 0, 0.25),
+      0 1px 1px rgba(255, 255, 255, 0.8);
+  }
+}
+
 @layer utilities {
   .glass-effect {
     @apply bg-background/40 backdrop-blur-md border border-border/50;

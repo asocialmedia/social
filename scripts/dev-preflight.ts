@@ -21,6 +21,7 @@ import {
   PREFLIGHT_CHECK_ORDER,
   type PreflightCheckKey,
   type PreflightCheckState,
+  parseServiceSnapshots,
   type ServiceSnapshot,
   shouldUseSudoForPortless,
   withinTtl,
@@ -29,10 +30,10 @@ import {
 const CACHE_FILE = join(process.cwd(), ".cache", "dev-preflight.json");
 const CACHE_TTL_MS = 20_000;
 const CACHE_VERSION = 1;
-const ZEPHOB_ACCESS_KEY = process.env.ZEPHOB_ROOT_USER ?? "zephob-admin";
-const ZEPHOB_SECRET_KEY = process.env.ZEPHOB_ROOT_PASSWORD ?? "zephob-admin";
-const ZEPHOB_REGION = process.env.ZEPHOB_REGION ?? "ap-south-1";
-const ZEPHOB_INTERNAL_ENDPOINT = "http://zephob-dev:9000";
+const ASMOB_ACCESS_KEY = process.env.ASMOB_ROOT_USER ?? "asmob-admin";
+const ASMOB_SECRET_KEY = process.env.ASMOB_ROOT_PASSWORD ?? "asmob-admin";
+const ASMOB_REGION = process.env.ASMOB_REGION ?? "ap-south-1";
+const ASMOB_INTERNAL_ENDPOINT = "http://asmob-dev:9000";
 
 const checkStates = new Map<PreflightCheckKey, PreflightCheckState>(
   PREFLIGHT_CHECK_ORDER.map((item) => [item.key, "pending"])
@@ -102,8 +103,8 @@ async function runCmd(args: string[]) {
 
 async function runInteractiveCmd(args: string[]) {
   const proc = Bun.spawn(args, {
-    stdin: "inherit",
     stderr: "inherit",
+    stdin: "inherit",
     stdout: "inherit",
   });
 
@@ -177,13 +178,7 @@ async function getServiceSnapshot() {
     fatal(`Docker compose status failed: ${result.stderr || "unknown error"}`);
   }
 
-  const lines = result.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const snapshots = lines.map((line) => JSON.parse(line) as ServiceSnapshot);
-  return snapshots;
+  return parseServiceSnapshots(result.stdout);
 }
 
 async function getOneShotStatus(containerName: string): Promise<OneShotStatus> {
@@ -245,7 +240,7 @@ async function assertPostgresSchemaReady() {
     "-U",
     "postgres",
     "-d",
-    "zephyr",
+    "asocialmedia",
     "-At",
     "-c",
     "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE');",
@@ -273,7 +268,7 @@ async function assertRedisReady() {
     "redis-dev",
     "redis-cli",
     "-a",
-    "zephyrredis",
+    "asmredis",
     "PING",
   ]);
 
@@ -290,18 +285,18 @@ async function assertBucketsReady() {
     "run",
     "--rm",
     "--network",
-    "zephdev-network",
+    "asmdev-network",
     "-e",
-    `AWS_ACCESS_KEY_ID=${ZEPHOB_ACCESS_KEY}`,
+    `AWS_ACCESS_KEY_ID=${ASMOB_ACCESS_KEY}`,
     "-e",
-    `AWS_SECRET_ACCESS_KEY=${ZEPHOB_SECRET_KEY}`,
+    `AWS_SECRET_ACCESS_KEY=${ASMOB_SECRET_KEY}`,
     "-e",
-    `AWS_DEFAULT_REGION=${ZEPHOB_REGION}`,
+    `AWS_DEFAULT_REGION=${ASMOB_REGION}`,
     "amazon/aws-cli:2.17.53",
     "s3api",
     "list-buckets",
     "--endpoint-url",
-    ZEPHOB_INTERNAL_ENDPOINT,
+    ASMOB_INTERNAL_ENDPOINT,
     "--query",
     "Buckets[].Name",
     "--output",
@@ -325,17 +320,17 @@ async function assertBucketsReady() {
 
 async function assertInitJobsCompleted() {
   const [schemaInit, objectInit] = await Promise.all([
-    getOneShotStatus("zephdev-schema-init"),
-    getOneShotStatus("zephdev-zephob-init"),
+    getOneShotStatus("asmdev-schema-init"),
+    getOneShotStatus("asmdev-asmob-init"),
   ]);
 
   if (!areInitJobsComplete(schemaInit, objectInit)) {
     if (!schemaInit.exists) {
-      fatal("Schema init job has not been created yet (zephdev-schema-init)");
+      fatal("Schema init job has not been created yet (asmdev-schema-init)");
     }
     if (!objectInit.exists) {
       fatal(
-        "Object storage init job has not been created yet (zephdev-zephob-init)"
+        "Object storage init job has not been created yet (asmdev-asmob-init)"
       );
     }
     if (!schemaInit.status.startsWith("Exited (0)")) {
@@ -437,7 +432,7 @@ async function getComposeFileFingerprint() {
 }
 
 async function run() {
-  intro("zephdev preflight");
+  intro("asmdev preflight");
   renderProgress();
 
   let snapshots: ServiceSnapshot[] = [];
@@ -501,15 +496,15 @@ async function run() {
   setCheckState("redis", redisStatus);
   activeCheck = null;
 
-  activeCheck = "zephob";
-  setCheckState("zephob", "running");
-  const zephobStatus = await withCache(
+  activeCheck = "asmob";
+  setCheckState("asmob", "running");
+  const asmobStatus = await withCache(
     cache,
-    "zephob",
-    `${composeFingerprint}:${runtimeFingerprint}:${ZEPHOB_ACCESS_KEY}:${ZEPHOB_REGION}`,
+    "asmob",
+    `${composeFingerprint}:${runtimeFingerprint}:${ASMOB_ACCESS_KEY}:${ASMOB_REGION}`,
     () => assertBucketsReady()
   );
-  setCheckState("zephob", zephobStatus);
+  setCheckState("asmob", asmobStatus);
   activeCheck = null;
 
   activeCheck = "meilisearch";
@@ -531,7 +526,7 @@ async function run() {
 
   await setCache(cache);
   finishProgressLine();
-  log.success("Zephyr goes brr");
+  log.success("Asocialmedia goes brr");
   outro("Preflight checks passed");
 }
 

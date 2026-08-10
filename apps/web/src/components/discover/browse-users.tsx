@@ -1,22 +1,22 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import type { UserData as BaseUserData } from "@zephyr/db";
-import { Card } from "@zephyr/ui/shadui/card";
-import { Input } from "@zephyr/ui/shadui/input";
+import type { UserData as BaseUserData } from "@asm/db";
+import { Card } from "@asm/ui/shadui/card";
+import { Input } from "@asm/ui/shadui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@zephyr/ui/shadui/select";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+} from "@asm/ui/shadui/select";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 import { BadgeCheckIcon, Search, Users } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import useDebounce from "@/hooks/use-debounce";
@@ -37,6 +37,13 @@ const BrowseUsers: React.FC<BrowseUsersProps> = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("followers");
   const debouncedSearch = useDebounce(searchTerm, 300);
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearchTerm(e.target.value);
+    },
+    []
+  );
 
   const { data: users, isLoading } = useQuery<UserData[]>({
     queryKey: ["browse-users", debouncedSearch, sortBy],
@@ -87,7 +94,7 @@ const BrowseUsers: React.FC<BrowseUsersProps> = () => {
           <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={handleSearchChange}
             placeholder="Search users..."
             value={searchTerm}
           />

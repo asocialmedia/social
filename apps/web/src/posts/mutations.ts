@@ -1,10 +1,10 @@
+import type { PostsPage } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type InfiniteData,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { PostsPage } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
 import { usePathname, useRouter } from "next/navigation";
 import { deletePost } from "./actions";
 

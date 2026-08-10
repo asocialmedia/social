@@ -26,12 +26,13 @@ export interface HNApiResponse {
 
 export class HackerNewsError extends Error {
   statusCode = 500;
-  context?: unknown;
 
-  constructor(message: string, statusCode = 500, context?: unknown) {
-    super(message);
+  constructor(
+    message: string,
+    options: { cause?: unknown; statusCode?: number } = {}
+  ) {
+    super(message, options);
     this.name = "HackerNewsError";
-    this.statusCode = statusCode;
-    this.context = context;
+    this.statusCode = options.statusCode ?? 500;
   }
 }

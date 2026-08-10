@@ -1,11 +1,10 @@
+import { prisma } from "@asm/db";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { prisma } from "@zephyr/db";
 import { NextResponse } from "next/server";
-import { zephobClient } from "@/lib/object-storage";
+import { asmobClient } from "@/lib/object-storage";
 
-const ZEPHOB_BUCKET = process.env.ZEPHOB_BUCKET_NAME || "uploads";
+const ASMOB_BUCKET = process.env.ASMOB_BUCKET_NAME || "uploads";
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Media cleanup requires multiple storage operations and batch processing
 async function cleanupUnusedMedia() {
   const logs: string[] = [];
   const startTime = Date.now();
@@ -16,29 +15,29 @@ async function cleanupUnusedMedia() {
   };
 
   const results = {
-    foundFiles: 0,
-    deletedFromZephob: 0,
     deletedFromDb: 0,
+    deletedFromZephob: 0,
     errors: [] as string[],
+    foundFiles: 0,
   };
 
   try {
     log("🚀 Starting media cleanup process");
 
     const unusedMedia = await prisma.media.findMany({
+      select: {
+        createdAt: true,
+        id: true,
+        key: true,
+        mimeType: true,
+        size: true,
+        type: true,
+      },
       where: {
-        postId: null,
         createdAt: {
           lte: new Date(Date.now() - 24 * 60 * 60 * 1000),
         },
-      },
-      select: {
-        id: true,
-        key: true,
-        type: true,
-        mimeType: true,
-        size: true,
-        createdAt: true,
+        postId: null,
       },
     });
 
@@ -58,9 +57,17 @@ async function cleanupUnusedMedia() {
       }
 
       const batchSize = 50;
-      for (let i = 0; i < validMedia.length; i += batchSize) {
-        const batch = validMedia.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
+
+      async function processBatches(batchStartIndex: number): Promise<void> {
+        if (batchStartIndex >= validMedia.length) {
+          return;
+        }
+
+        const batch = validMedia.slice(
+          batchStartIndex,
+          batchStartIndex + batchSize
+        );
+        const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
         const totalBatches = Math.ceil(validMedia.length / batchSize);
 
         log(
@@ -68,20 +75,20 @@ async function cleanupUnusedMedia() {
         );
 
         try {
-          const zephobResults = await Promise.allSettled(
+          const asmobResults = await Promise.allSettled(
             batch.map((media) =>
-              zephobClient.send(
+              asmobClient.send(
                 new DeleteObjectCommand({
-                  Bucket: ZEPHOB_BUCKET,
+                  Bucket: ASMOB_BUCKET,
                   Key: media.key,
                 })
               )
             )
           );
 
-          zephobResults.forEach((result, index) => {
+          asmobResults.forEach((result, index) => {
             if (result.status === "fulfilled") {
-              results.deletedFromZephob++;
+              results.deletedFromZephob += 1;
               if (batch[index]) {
                 log(`✅ Deleted from storage: ${batch[index].key}`);
               }
@@ -103,7 +110,7 @@ async function cleanupUnusedMedia() {
           results.deletedFromDb += dbResult.count;
           log(`✅ Deleted ${dbResult.count} records from database`);
 
-          if (i + batchSize < validMedia.length) {
+          if (batchStartIndex + batchSize < validMedia.length) {
             await new Promise((resolve) => setTimeout(resolve, 300));
           }
         } catch (error) {
@@ -113,14 +120,18 @@ async function cleanupUnusedMedia() {
           log(`❌ ${errorMessage}`);
           results.errors.push(errorMessage);
         }
+
+        await processBatches(batchStartIndex + batchSize);
       }
+
+      await processBatches(0);
     } else {
       log("✨ No valid media files to delete");
     }
 
     const summary = {
-      success: true,
       duration: Date.now() - startTime,
+      success: true,
       ...results,
       logs,
       timestamp: new Date().toISOString(),
@@ -143,8 +154,8 @@ async function cleanupUnusedMedia() {
     );
 
     return {
-      success: false,
       duration: Date.now() - startTime,
+      success: false,
       ...results,
       error: errorMessage,
       logs,
@@ -172,11 +183,11 @@ export async function POST(request: Request) {
           timestamp: new Date().toISOString(),
         },
         {
-          status: 500,
           headers: {
-            "Content-Type": "application/json",
             "Cache-Control": "no-store",
+            "Content-Type": "application/json",
           },
+          status: 500,
         }
       );
     }
@@ -192,11 +203,11 @@ export async function POST(request: Request) {
           timestamp: new Date().toISOString(),
         },
         {
-          status: 401,
           headers: {
-            "Content-Type": "application/json",
             "Cache-Control": "no-store",
+            "Content-Type": "application/json",
           },
+          status: 401,
         }
       );
     }
@@ -204,11 +215,11 @@ export async function POST(request: Request) {
     const results = await cleanupUnusedMedia();
 
     return NextResponse.json(results, {
-      status: results.success ? 200 : 500,
       headers: {
-        "Content-Type": "application/json",
         "Cache-Control": "no-store",
+        "Content-Type": "application/json",
       },
+      status: results.success ? 200 : 500,
     });
   } catch (error) {
     console.error("❌ Media cleanup route error:", {
@@ -218,16 +229,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        success: false,
         timestamp: new Date().toISOString(),
       },
       {
-        status: 500,
         headers: {
-          "Content-Type": "application/json",
           "Cache-Control": "no-store",
+          "Content-Type": "application/json",
         },
+        status: 500,
       }
     );
   }

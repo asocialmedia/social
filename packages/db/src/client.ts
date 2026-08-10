@@ -12,9 +12,7 @@ export function getUserDataSelect(loggedInUserId: string) {
     bio: true,
     createdAt: true,
     googleId: true,
-    githubId: true,
-    discordId: true,
-    twitterId: true,
+    redditId: true,
     passwordHash: true,
     emailVerified: true,
     followers: {

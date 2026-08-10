@@ -37,7 +37,7 @@ export function Toaster({
     }
     try {
       const anyNode = node as unknown as Record<string, unknown>;
-      if (anyNode && typeof anyNode === "object") {
+      if (typeof anyNode === "object") {
         if (typeof (anyNode as { message?: unknown }).message === "string") {
           return (anyNode as { message: string }).message;
         }
@@ -98,10 +98,10 @@ export function Toaster({
               {...props}
               className="w-auto min-w-[280px] max-w-md"
             >
-              {title && <ToastTitle>{renderNode(title)}</ToastTitle>}
-              {description && (
+              {title ? <ToastTitle>{renderNode(title)}</ToastTitle> : null}
+              {description ? (
                 <ToastDescription>{renderNode(description)}</ToastDescription>
-              )}
+              ) : null}
               {action}
               <ToastClose />
             </Toast>

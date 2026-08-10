@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { ArrowUp } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";

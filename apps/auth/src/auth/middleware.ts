@@ -1,10 +1,10 @@
-import type { AuthContext } from "@zephyr/auth/core";
+import type { AuthContext } from "@asm/auth/core";
 import {
   extractTokenFromHeader,
   hybridSessionStore,
   validateJWTToken,
-} from "@zephyr/auth/core";
-import { prisma } from "@zephyr/db";
+} from "@asm/auth/core";
+import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { auth } from "./config";
 

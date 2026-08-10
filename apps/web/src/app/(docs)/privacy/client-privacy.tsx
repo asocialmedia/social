@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeft, LockKeyhole } from "lucide-react";
 import Link from "next/link";
 import React, { useEffect } from "react";
@@ -63,8 +63,8 @@ export default function PrivacyPolicyPage() {
 
           <section className="mt-8">
             <p className="text-lg text-muted-foreground">
-              At Zephyr, we take your privacy seriously. This Privacy Policy
-              explains how we collect, use, disclose, and safeguard your
+              At Asocialmedia, we take your privacy seriously. This Privacy
+              Policy explains how we collect, use, disclose, and safeguard your
               information when you use our platform. Our commitment to privacy
               forms the foundation of our relationship with users, and we strive
               to be transparent about our data practices.
@@ -212,9 +212,9 @@ export default function PrivacyPolicyPage() {
                 reached at{" "}
                 <Link
                   className="text-primary hover:underline"
-                  href="mailto:zephyyrrnyx@gmail.com"
+                  href="mailto:hello@asocialmedia.cc"
                 >
-                  zephyyrrnyx@gmail.com
+                  hello@asocialmedia.cc
                 </Link>
                 .
               </p>
@@ -353,14 +353,14 @@ export default function PrivacyPolicyPage() {
               </p>
 
               <div className="rounded-lg bg-muted p-4">
-                <p>Zephyr FOSS</p>
+                <p>Asocialmedia FOSS</p>
                 <p>
                   Email:{" "}
                   <Link
                     className="text-primary hover:underline"
-                    href="mailto:zephyyrrnyx@gmail.com"
+                    href="mailto:hello@asocialmedia.cc"
                   >
-                    zephyyrrnyx@gmail.com
+                    hello@asocialmedia.cc
                   </Link>
                 </p>
               </div>
@@ -371,12 +371,12 @@ export default function PrivacyPolicyPage() {
 
           <section className="mt-8 rounded-lg bg-muted p-4">
             <p className="text-muted-foreground text-sm">
-              By using Zephyr, you acknowledge that you have read and understood
-              this Privacy Policy in its entirety. Your continued use of our
-              platform indicates your agreement with our data collection,
+              By using Asocialmedia, you acknowledge that you have read and
+              understood this Privacy Policy in its entirety. Your continued use
+              of our platform indicates your agreement with our data collection,
               processing, and protection practices as described in this policy.
               We remain committed to protecting your privacy and maintaining the
-              trust you place in us by choosing Zephyr as your platform
+              trust you place in us by choosing Asocialmedia as your platform
               provider.
             </p>
           </section>

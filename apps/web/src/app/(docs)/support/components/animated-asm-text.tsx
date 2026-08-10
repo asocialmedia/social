@@ -1,11 +1,13 @@
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
-interface AnimatedZephyrTextProps {
+interface AnimatedAsocialmediaTextProps {
   className?: string;
 }
 
-export const AnimatedZephyrText = ({ className }: AnimatedZephyrTextProps) => {
+export const AnimatedAsocialmediaText = ({
+  className,
+}: AnimatedAsocialmediaTextProps) => {
   const letters = "ZEPHYR.".split("");
 
   return (

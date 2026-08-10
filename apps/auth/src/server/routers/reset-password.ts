@@ -1,6 +1,6 @@
-import { hashPasswordWithScrypt } from "@zephyr/auth/core";
-import { debugLog } from "@zephyr/config/debug";
-import { prisma } from "@zephyr/db";
+import { hashPasswordWithScrypt } from "@asm/auth/core";
+import { debugLog } from "@asm/config/debug";
+import { prisma } from "@asm/db";
 import { z } from "zod";
 import { procedure, router } from "../trpc";
 import { auditResetPassword, checkResetPasswordRateLimit } from "./security";

@@ -1,12 +1,12 @@
 "use client";
 
-import type { Tag, TagWithCount } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { Tag, TagWithCount } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Hash, Loader2, Plus, Search, X } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
-import { useState } from "react";
+import { type MouseEvent, useCallback, useState } from "react";
 import { useTags } from "@/hooks/use-tags";
 import { cn } from "@/lib/utils";
 import { useUpdateTagsMutation } from "./mutations/tag-mention-mutation";
@@ -61,18 +61,41 @@ export function TagEditor({
   const [selectedTags, setSelectedTags] = useState<string[]>(initialTags);
   const updateTags = useUpdateTagsMutation(postId);
 
-  const handleSelect = (tagName: string) => {
-    if (selectedTags.length >= 5) {
-      toast({
-        title: "Maximum tags reached",
-        description: "You can only add up to 5 tags per post",
-        variant: "destructive",
-      });
-      return;
-    }
+  const handleSelect = useCallback(
+    (tagName: string) => {
+      if (selectedTags.length >= 5) {
+        toast({
+          title: "Maximum tags reached",
+          description: "You can only add up to 5 tags per post",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    if (!selectedTags.includes(tagName)) {
-      const newTags = [...selectedTags, tagName.toLowerCase()];
+      if (!selectedTags.includes(tagName)) {
+        const newTags = [...selectedTags, tagName.toLowerCase()];
+        setSelectedTags(newTags);
+
+        const formattedTags: TagWithCount[] = newTags.map((name) => ({
+          id: name,
+          name: name.toLowerCase(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          _count: {
+            posts: 1,
+          },
+        }));
+
+        onTagsUpdateAction(formattedTags);
+      }
+      setSearch("");
+    },
+    [selectedTags, onTagsUpdateAction, toast]
+  );
+
+  const handleRemove = useCallback(
+    (tagName: string) => {
+      const newTags = selectedTags.filter((t) => t !== tagName);
       setSelectedTags(newTags);
 
       const formattedTags: TagWithCount[] = newTags.map((name) => ({
@@ -86,28 +109,11 @@ export function TagEditor({
       }));
 
       onTagsUpdateAction(formattedTags);
-    }
-    setSearch("");
-  };
+    },
+    [selectedTags, onTagsUpdateAction]
+  );
 
-  const handleRemove = (tagName: string) => {
-    const newTags = selectedTags.filter((t) => t !== tagName);
-    setSelectedTags(newTags);
-
-    const formattedTags: TagWithCount[] = newTags.map((name) => ({
-      id: name,
-      name: name.toLowerCase(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      _count: {
-        posts: 1,
-      },
-    }));
-
-    onTagsUpdateAction(formattedTags);
-  };
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     try {
       const optimisticTags: TagWithCount[] = selectedTags.map((name) => ({
         id: name,
@@ -128,14 +134,35 @@ export function TagEditor({
         variant: "destructive",
       });
     }
-  };
+  }, [selectedTags, onTagsUpdateAction, onCloseAction, updateTags, toast]);
 
-  const handleSearch = async (value: string) => {
-    setSearch(value);
-    if (value.trim()) {
-      await searchTags(value);
-    }
-  };
+  const handleSearch = useCallback(
+    async (value: string) => {
+      setSearch(value);
+      if (value.trim()) {
+        await searchTags(value);
+      }
+    },
+    [searchTags]
+  );
+
+  const handleRemoveClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      const { tagName } = e.currentTarget.dataset;
+      if (tagName !== undefined) {
+        handleRemove(tagName);
+      }
+    },
+    [handleRemove]
+  );
+
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    setIsFocused(false);
+  }, []);
 
   return (
     <div>
@@ -160,7 +187,8 @@ export function TagEditor({
                 </span>
                 <button
                   className="text-primary/50 transition-colors hover:text-primary"
-                  onClick={() => handleRemove(tagName)}
+                  data-tag-name={tagName}
+                  onClick={handleRemoveClick}
                   type="button"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -181,8 +209,8 @@ export function TagEditor({
               <Search className="mr-2 h-4 w-4 text-muted-foreground" />
               <Command.Input
                 className="h-11 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
-                onBlur={() => setIsFocused(false)}
-                onFocus={() => setIsFocused(true)}
+                onBlur={handleBlur}
+                onFocus={handleFocus}
                 onValueChange={handleSearch}
                 placeholder="Search tags or create new..."
                 value={search}

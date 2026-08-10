@@ -1,19 +1,19 @@
 "use client";
 
-import { ViewVerticalIcon } from "@radix-ui/react-icons";
-import { Slot } from "@radix-ui/react-slot";
-import { useIsMobile } from "@zephyr/ui/hooks/use-mobile";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Separator } from "@zephyr/ui/shadui/separator";
-import { Sheet, SheetContent } from "@zephyr/ui/shadui/sheet";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+import { useIsMobile } from "@asm/ui/hooks/use-mobile";
+import { Button } from "@asm/ui/shadui/button";
+import { Input } from "@asm/ui/shadui/input";
+import { Separator } from "@asm/ui/shadui/separator";
+import { Sheet, SheetContent } from "@asm/ui/shadui/sheet";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
+import { ViewVerticalIcon } from "@radix-ui/react-icons";
+import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import React from "react";
 import { cn } from "../lib/utils";
@@ -266,14 +266,19 @@ const SidebarTrigger = ({
 }) => {
   const { toggleSidebar } = useSidebar();
 
+  const handleClick = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      onClick?.(event);
+      toggleSidebar();
+    },
+    [onClick, toggleSidebar]
+  );
+
   return (
     <Button
       className={cn("h-7 w-7", className)}
       data-sidebar="trigger"
-      onClick={(event) => {
-        onClick?.(event);
-        toggleSidebar();
-      }}
+      onClick={handleClick}
       ref={ref}
       size="icon"
       variant="ghost"
@@ -694,12 +699,12 @@ const SidebarMenuSkeleton = ({
       ref={ref}
       {...props}
     >
-      {showIcon && (
+      {showIcon ? (
         <Skeleton
           className="size-4 rounded-md"
           data-sidebar="menu-skeleton-icon"
         />
-      )}
+      ) : null}
       <Skeleton
         className="h-4 max-w-[--skeleton-width] flex-1"
         data-sidebar="menu-skeleton-text"

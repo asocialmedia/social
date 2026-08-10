@@ -1,8 +1,8 @@
 /** biome-ignore-all lint/suspicious/noUnknownAtRules: tailwind specific */
-@import "@zephyr/ui/styles/globals.css";
-@import "@zephyr/ui/styles/animations.css";
-@import "@zephyr/ui/styles/base.css";
-@import "@zephyr/ui/styles/fonts.css";
+@import "@asm/ui/styles/globals.css";
+@import "@asm/ui/styles/animations.css";
+@import "@asm/ui/styles/base.css";
+@import "@asm/ui/styles/fonts.css";
 
 .form-input-transition {
   @apply transition-all duration-200 ease-in-out;

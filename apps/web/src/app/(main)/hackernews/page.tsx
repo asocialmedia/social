@@ -1,4 +1,4 @@
-import { HNFeed } from "@zephyr/ui/components/hackernews/hn-feed";
+import { HNFeed } from "@asm/ui/components/hackernews/hn-feed";
 import { Suspense } from "react";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 

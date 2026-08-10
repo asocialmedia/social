@@ -11,7 +11,7 @@ const handler = async (request: Request) => {
       headers: {
         "Access-Control-Allow-Origin":
           process.env.NODE_ENV === "production"
-            ? process.env.NEXT_PUBLIC_URL || "https://zephyyrr.in"
+            ? process.env.NEXT_PUBLIC_URL || "https://asocialmedia.cc"
             : "https://social.localhost",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -45,7 +45,7 @@ const handler = async (request: Request) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin":
       process.env.NODE_ENV === "production"
-        ? process.env.NEXT_PUBLIC_URL || "https://zephyyrr.in"
+        ? process.env.NEXT_PUBLIC_URL || "https://asocialmedia.cc"
         : "https://social.localhost",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",

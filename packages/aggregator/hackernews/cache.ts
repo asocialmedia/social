@@ -1,4 +1,4 @@
-import { redis } from "@zephyr/db";
+import { redis } from "@asm/db";
 import type { HNStory } from "./types";
 
 const HN_CACHE_PREFIX = "hn:";

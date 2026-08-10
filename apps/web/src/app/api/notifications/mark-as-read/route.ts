@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST() {

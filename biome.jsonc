@@ -1,11 +1,28 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": ["ultracite/core", "ultracite/react", "ultracite/next"],
+  "extends": [
+    "ultracite/biome/core",
+    "ultracite/biome/react",
+    "ultracite/biome/next"
+  ],
+  "assist": {
+    "actions": {
+      "source": {
+        "useSortedKeys": "off"
+      }
+    }
+  },
   "linter": {
     "rules": {
       "suspicious": {
         "noConsole": "off",
-        "noUnknownAtRules": "off"
+        "noUnknownAtRules": "off",
+        "noUnknownAttribute": {
+          "level": "error",
+          "options": {
+            "ignore": ["cmdk-input-wrapper"]
+          }
+        }
       }
     }
   },

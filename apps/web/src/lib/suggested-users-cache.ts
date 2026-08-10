@@ -1,4 +1,4 @@
-import { redis } from "@zephyr/db";
+import { redis } from "@asm/db";
 
 const SUGGESTED_USERS_CACHE_KEY = (userId: string) =>
   `suggested-users:${userId}`;

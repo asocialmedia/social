@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
 FROM oven/bun:slim AS builder
-LABEL org.opencontainers.image.title="Zephyr Docs" \
-      org.opencontainers.image.description="Documentation site for Zephyr" \
-      org.opencontainers.image.vendor="Zephyr"
+LABEL org.opencontainers.image.title="Asocialmedia Docs" \
+      org.opencontainers.image.description="Documentation site for Asocialmedia" \
+      org.opencontainers.image.vendor="Asocialmedia"
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY packages/ ./packages/

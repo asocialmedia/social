@@ -15,6 +15,7 @@ import {
 import { motion, type Variants } from "motion/react";
 import { useRouter } from "next/navigation";
 import type * as React from "react";
+import { useCallback } from "react";
 import { toast } from "../../hooks/use-toast";
 import { cn } from "../../lib/utils";
 import { Badge } from "../../shadui/badge";
@@ -58,25 +59,28 @@ export function HNStory({ story }: HnStoryProps) {
   const hnShareStore = useHnShareStore();
   const router = useRouter();
 
-  const handleShareToZephyr = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    hnShareStore.startSharing({
-      id: story.id,
-      title: story.title,
-      url: story.url,
-      by: story.by,
-      time: story.time,
-      score: story.score,
-      descendants: story.descendants,
-    });
-    toast({
-      title: "Story ready to share",
-      description: "Add your thoughts and share with your followers",
-    });
-    router.push("/");
-  };
+  const handleShareToAsocialmedia = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      hnShareStore.startSharing({
+        id: story.id,
+        title: story.title,
+        url: story.url,
+        by: story.by,
+        time: story.time,
+        score: story.score,
+        descendants: story.descendants,
+      });
+      toast({
+        title: "Story ready to share",
+        description: "Add your thoughts and share with your followers",
+      });
+      router.push("/");
+    },
+    [hnShareStore, router, story]
+  );
 
-  const handleShare = async () => {
+  const handleShare = useCallback(async () => {
     try {
       if (navigator.share) {
         await navigator.share({
@@ -95,26 +99,35 @@ export function HNStory({ story }: HnStoryProps) {
     } catch {
       // Silently fail if clipboard is not available
     }
-  };
+  }, [story]);
 
-  const handleVisitAnchor = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.stopPropagation(); // Prevent event bubbling
-    // Anchor will handle opening the link naturally with href and target
-  };
+  const handleVisitAnchor = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>) => {
+      e.stopPropagation(); // Prevent event bubbling
+      // Anchor will handle opening the link naturally with href and target
+    },
+    []
+  );
 
-  const handleVisitButton = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation(); // Prevent event bubbling
-    window.open(story.url, "_blank", "noopener,noreferrer");
-  };
+  const handleVisitButton = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation(); // Prevent event bubbling
+      window.open(story.url, "_blank", "noopener,noreferrer");
+    },
+    [story.url]
+  );
 
-  const handleCommentClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation(); // Prevent event bubbling
-    window.open(
-      `https://news.ycombinator.com/item?id=${story.id}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
+  const handleCommentClick = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation(); // Prevent event bubbling
+      window.open(
+        `https://news.ycombinator.com/item?id=${story.id}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    },
+    [story.id]
+  );
 
   const queryClient = useQueryClient();
 
@@ -142,6 +155,10 @@ export function HNStory({ story }: HnStoryProps) {
       queryClient.invalidateQueries({ queryKey: ["hn-bookmarks"] });
     },
   });
+
+  const handleToggleBookmark = useCallback(() => {
+    toggleBookmark();
+  }, [toggleBookmark]);
 
   return (
     <motion.div
@@ -172,7 +189,7 @@ export function HNStory({ story }: HnStoryProps) {
               >
                 {story.title}
               </motion.a>
-              {domain && (
+              {domain ? (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -196,7 +213,7 @@ export function HNStory({ story }: HnStoryProps) {
                     <TooltipContent>Visit website</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-              )}
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm sm:gap-4">
@@ -261,11 +278,11 @@ export function HNStory({ story }: HnStoryProps) {
 
           <motion.button
             className="group flex cursor-pointer items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-orange-500"
-            onClick={handleShareToZephyr}
+            onClick={handleShareToAsocialmedia}
             whileHover={{ scale: 1.05 }}
           >
             <Share2 className="h-4 w-4 rotate-90" />
-            <span>Share to Zephyr</span>
+            <span>Share to Asocialmedia</span>
           </motion.button>
 
           <motion.button
@@ -275,14 +292,14 @@ export function HNStory({ story }: HnStoryProps) {
                 ? "text-orange-500"
                 : "text-muted-foreground hover:text-orange-500"
             )}
-            onClick={() => toggleBookmark()}
+            onClick={handleToggleBookmark}
             whileHover={{ scale: 1.05 }}
           >
             <Bookmark className="h-4 w-4" />
             <span>{bookmarkData?.isBookmarked ? "Saved" : "Save"}</span>
           </motion.button>
 
-          {story.url && (
+          {story.url ? (
             <motion.button
               className="group ml-auto flex cursor-pointer items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-orange-500"
               onClick={handleVisitButton}
@@ -291,7 +308,7 @@ export function HNStory({ story }: HnStoryProps) {
               <ExternalLink className="h-4 w-4" />
               <span>Visit</span>
             </motion.button>
-          )}
+          ) : null}
         </div>
       </div>
     </motion.div>

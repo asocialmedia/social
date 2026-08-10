@@ -1,17 +1,17 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
+import { useQuery } from "@tanstack/react-query";
 import { formatDate, parseISO } from "date-fns";
 import {
   BadgeCheckIcon,
@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -44,6 +44,22 @@ const UserDetails: React.FC<UserDetailsProps> = ({
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
   const { toast } = useToast();
+
+  const handleShowFollowers = useCallback(() => {
+    setShowFollowers(true);
+  }, []);
+
+  const handleShowFollowing = useCallback(() => {
+    setShowFollowing(true);
+  }, []);
+
+  const handleCloseFollowers = useCallback(() => {
+    setShowFollowers(false);
+  }, []);
+
+  const handleCloseFollowing = useCallback(() => {
+    setShowFollowing(false);
+  }, []);
 
   const {
     data: userData,
@@ -215,7 +231,7 @@ const UserDetails: React.FC<UserDetailsProps> = ({
                   >
                     <motion.button
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all duration-200 hover:bg-accent/50"
-                      onClick={() => setShowFollowers(true)}
+                      onClick={handleShowFollowers}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
@@ -237,7 +253,7 @@ const UserDetails: React.FC<UserDetailsProps> = ({
                   >
                     <motion.button
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all duration-200 hover:bg-accent/50"
-                      onClick={() => setShowFollowing(true)}
+                      onClick={handleShowFollowing}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
@@ -277,7 +293,7 @@ const UserDetails: React.FC<UserDetailsProps> = ({
               </div>
             </motion.div>
           </div>
-          {userData.bio && (
+          {userData.bio ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
               initial={{ opacity: 0, y: 20 }}
@@ -290,19 +306,19 @@ const UserDetails: React.FC<UserDetailsProps> = ({
                 </div>
               </Linkify>
             </motion.div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
       <FollowersList
         isOpen={showFollowers}
         loggedInUserId={loggedInUserId}
-        onCloseAction={() => setShowFollowers(false)}
+        onCloseAction={handleCloseFollowers}
         userId={userData?.id ?? ""}
       />
       <FollowingList
         isOpen={showFollowing}
         loggedInUserId={loggedInUserId}
-        onCloseAction={() => setShowFollowing(false)}
+        onCloseAction={handleCloseFollowing}
         userId={userData?.id ?? ""}
       />
     </motion.div>

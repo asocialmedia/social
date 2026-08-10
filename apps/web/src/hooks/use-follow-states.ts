@@ -1,5 +1,5 @@
+import type { FollowerInfo } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
-import type { FollowerInfo } from "@zephyr/db";
 
 export function useFollowStates(userIds: string[]) {
   return useQuery({

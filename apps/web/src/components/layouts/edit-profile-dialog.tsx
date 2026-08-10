@@ -1,18 +1,16 @@
-import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
-import { zodResolver } from "@hookform/resolvers/zod";
 import {
   type UpdateUserProfileValues,
   updateUserProfileSchema,
-} from "@zephyr/auth/validation";
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+} from "@asm/auth/validation";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import {
   Form,
   FormControl,
@@ -20,14 +18,21 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Label } from "@zephyr/ui/shadui/label";
-import { Textarea } from "@zephyr/ui/shadui/textarea";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
+import { Label } from "@asm/ui/shadui/label";
+import { Textarea } from "@asm/ui/shadui/textarea";
+import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera } from "lucide-react";
 import Image, { type StaticImageData } from "next/image";
+import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type UseFormReturn, useForm } from "react-hook-form";
+import {
+  type ControllerRenderProps,
+  type UseFormReturn,
+  useForm,
+} from "react-hook-form";
 import Resizer from "react-image-file-resizer";
 import {
   useUpdateAvatarMutation,
@@ -55,11 +60,11 @@ export default function EditProfileDialog({
 }: EditProfileDialogProps) {
   const { toast } = useToast();
   const form = useForm<UpdateUserProfileValues>({
-    resolver: zodResolver(updateUserProfileSchema),
     defaultValues: {
-      displayName: user.displayName,
       bio: user.bio || "",
+      displayName: user.displayName,
     },
+    resolver: zodResolver(updateUserProfileSchema),
   });
 
   const [croppedAvatar, setCroppedAvatar] = useState<Blob | null>(null);
@@ -73,8 +78,8 @@ export default function EditProfileDialog({
       setCroppedAvatar(null);
       setGifToCenter(null);
       form.reset({
-        displayName: user.displayName,
         bio: user.bio || "",
+        displayName: user.displayName,
       });
     }
   }, [open, user, form.reset]);
@@ -83,13 +88,13 @@ export default function EditProfileDialog({
     const hasProfileChanges =
       values.displayName !== user.displayName || values.bio !== user.bio;
     const hasAvatarChanges = croppedAvatar || gifToCenter;
-    return { hasProfileChanges, hasAvatarChanges };
+    return { hasAvatarChanges, hasProfileChanges };
   };
 
   const updateProfile = async (values: UpdateUserProfileValues) => {
     await profileMutation.mutateAsync({
-      values,
       userId: user.id,
+      values,
     });
   };
 
@@ -103,8 +108,8 @@ export default function EditProfileDialog({
     if (file) {
       await mutation.mutateAsync({
         file,
-        userId: user.id,
         oldAvatarKey: user.avatarKey || undefined,
+        userId: user.id,
       });
     }
   };
@@ -115,8 +120,8 @@ export default function EditProfileDialog({
 
       if (!(hasProfileChanges || hasAvatarChanges)) {
         toast({
-          title: "No changes",
           description: "No changes were made to your profile",
+          title: "No changes",
         });
         return;
       }
@@ -131,19 +136,65 @@ export default function EditProfileDialog({
 
       onOpenChange(false);
       toast({
-        title: "Success",
         description: "Profile updated successfully",
+        title: "Success",
       });
     } catch (error) {
       console.error("Failed to update profile:", error);
       toast({
-        title: "Error",
         description:
           error instanceof Error ? error.message : "An error occurred",
+        title: "Error",
         variant: "destructive",
       });
     }
   };
+
+  const renderDisplayNameField = useCallback(
+    ({
+      field,
+    }: {
+      field: ControllerRenderProps<UpdateUserProfileValues, "displayName">;
+    }) => (
+      <FormItem>
+        <FormLabel>Display name</FormLabel>
+        <FormControl>
+          <Input placeholder="Your display name" {...field} />
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    []
+  );
+
+  const renderBioField = useCallback(
+    ({
+      field,
+    }: {
+      field: ControllerRenderProps<UpdateUserProfileValues, "bio">;
+    }) => (
+      <FormItem>
+        <FormLabel>Bio</FormLabel>
+        <FormControl>
+          <div className="space-y-1">
+            <Textarea
+              className="resize-none"
+              placeholder="Tell us a little bit about yourself"
+              {...field}
+            />
+            <div className="flex justify-end">
+              <AnimatedWordCounter
+                current={field.value.trim().split(regex).filter(Boolean).length}
+                max={400}
+              />
+            </div>
+          </div>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    []
+  );
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -174,43 +225,12 @@ export default function EditProfileDialog({
             <FormField
               control={form.control}
               name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Display name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Your display name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={renderDisplayNameField}
             />
             <FormField
               control={form.control}
               name="bio"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Bio</FormLabel>
-                  <FormControl>
-                    <div className="space-y-1">
-                      <Textarea
-                        className="resize-none"
-                        placeholder="Tell us a little bit about yourself"
-                        {...field}
-                      />
-                      <div className="flex justify-end">
-                        <AnimatedWordCounter
-                          current={
-                            field.value.trim().split(regex).filter(Boolean)
-                              .length
-                          }
-                          max={400}
-                        />
-                      </div>
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={renderBioField}
             />
             <DialogFooter>
               <LoadingButton loading={isUpdating} type="submit">
@@ -268,8 +288,8 @@ function AvatarInput({
       const maxSize = 10 * 1024 * 1024;
       if (file.size > maxSize) {
         toast({
-          title: "File too large",
           description: "Image must be less than 10MB",
+          title: "File too large",
           variant: "destructive",
         });
         return;
@@ -297,9 +317,9 @@ function AvatarInput({
       } catch (error) {
         console.error("Error resizing image:", error);
         toast({
-          title: "Error processing image",
           description:
             "Failed to resize the image. Please try again with a different image.",
+          title: "Error processing image",
           variant: "destructive",
         });
         resetInput();
@@ -308,12 +328,49 @@ function AvatarInput({
     [toast, onGifSelected, resetInput]
   );
 
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onImageSelected(e.target.files?.[0]);
+    },
+    [onImageSelected]
+  );
+
+  const handleAvatarClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleAvatarError = useCallback(
+    (e: SyntheticEvent<HTMLImageElement>) => {
+      (e.target as HTMLImageElement).src = avatarPlaceholder.src;
+    },
+    []
+  );
+
+  const handleGifClose = useCallback(() => {
+    setGifToCenter(undefined);
+    resetInput();
+  }, [resetInput]);
+
+  const handleCropClose = useCallback(() => {
+    setImageToCrop(undefined);
+    resetInput();
+  }, [resetInput]);
+
+  const handleCropped = useCallback(
+    (blob: Blob | null) => {
+      if (blob) {
+        onImageCropped(blob);
+      }
+    },
+    [onImageCropped]
+  );
+
   return (
     <>
       <input
         accept="image/jpeg,image/png,image/webp,image/gif"
         className="sr-only hidden"
-        onChange={(e) => onImageSelected(e.target.files?.[0])}
+        onChange={handleFileChange}
         ref={fileInputRef}
         type="file"
       />
@@ -321,7 +378,7 @@ function AvatarInput({
         <button
           className="group relative block"
           disabled={isUploading}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={handleAvatarClick}
           type="button"
         >
           <Image
@@ -331,13 +388,11 @@ function AvatarInput({
               isUploading && "opacity-50"
             )}
             height={150}
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = avatarPlaceholder.src;
-            }}
+            onError={handleAvatarError}
             src={avatarSrc}
             unoptimized={
               typeof avatarSrc === "string" &&
-              (avatarSrc.endsWith(".gif") || avatarSrc.includes("zephob"))
+              (avatarSrc.endsWith(".gif") || avatarSrc.includes("asmob"))
             }
             width={150}
           />
@@ -354,37 +409,27 @@ function AvatarInput({
         </p>
       </div>
 
-      {gifToCenter && (
+      {gifToCenter ? (
         <GifCenteringDialog
           currentValues={{
-            displayName: form.getValues("displayName"),
             bio: form.getValues("bio"),
-            userId: user.id,
+            displayName: form.getValues("displayName"),
             oldAvatarKey: user.avatarKey || undefined,
+            userId: user.id,
           }}
           gifFile={gifToCenter}
-          onClose={() => {
-            setGifToCenter(undefined);
-            resetInput();
-          }}
+          onClose={handleGifClose}
         />
-      )}
+      ) : null}
 
-      {imageToCrop && (
+      {imageToCrop ? (
         <CropImageDialog
           cropAspectRatio={1}
-          onClose={() => {
-            setImageToCrop(undefined);
-            resetInput();
-          }}
-          onCropped={(blob) => {
-            if (blob) {
-              onImageCropped(blob);
-            }
-          }}
+          onClose={handleCropClose}
+          onCropped={handleCropped}
           src={URL.createObjectURL(imageToCrop)}
         />
-      )}
+      ) : null}
     </>
   );
 }

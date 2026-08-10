@@ -1,13 +1,13 @@
 "use client";
 
-import type { TrendingTopic } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import type { TrendingTopic } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { LucideTrendingUp, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import TrendingTopicsSkeleton from "@/components/layouts/skeletons/trending-topic-skeleton";
 import { formatNumber } from "@/lib/utils";
 import {
@@ -29,7 +29,7 @@ const TrendingTopics: React.FC = () => {
         ? await invalidateTrendingTopicsCache()
         : await getTrendingTopics();
 
-      if (newTopics && newTopics.length > 0) {
+      if (newTopics.length > 0) {
         startTransition(() => {
           setTopics(newTopics);
           setLastUpdated(new Date());
@@ -57,6 +57,16 @@ const TrendingTopics: React.FC = () => {
   const handleRefresh = () => {
     fetchTopics(true);
   };
+
+  const handleHoverEnd = useCallback(() => setHoveredTopic(null), []);
+  const handleHoverStart = useCallback((e: PointerEvent) => {
+    const hashtag = (e.currentTarget as HTMLElement | null)?.getAttribute(
+      "data-hashtag"
+    );
+    if (hashtag) {
+      setHoveredTopic(hashtag);
+    }
+  }, []);
 
   if (isPending) {
     return <TrendingTopicsSkeleton />;
@@ -128,11 +138,12 @@ const TrendingTopics: React.FC = () => {
               <motion.li
                 animate={{ opacity: 1, y: 0 }}
                 className="group relative"
+                data-hashtag={hashtag}
                 exit={{ opacity: 0, x: -10 }}
                 initial={{ opacity: 0, y: 10 }}
                 key={hashtag}
-                onHoverEnd={() => setHoveredTopic(null)}
-                onHoverStart={() => setHoveredTopic(hashtag)}
+                onHoverEnd={handleHoverEnd}
+                onHoverStart={handleHoverStart}
                 transition={{ delay: index * 0.05 }}
               >
                 <Link
@@ -210,7 +221,7 @@ const TrendingTopics: React.FC = () => {
 
       {/* Loading Overlay */}
       <AnimatePresence>
-        {isPending && (
+        {isPending ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 z-20 flex items-center justify-center bg-background/50 backdrop-blur-sm"
@@ -219,7 +230,7 @@ const TrendingTopics: React.FC = () => {
           >
             <RefreshCw className="h-5 w-5 animate-spin text-rose-500" />
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </Card>
   );

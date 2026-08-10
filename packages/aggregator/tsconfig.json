@@ -1,5 +1,5 @@
 {
-  "extends": "@zephyr/config/react.tsconfig.json",
+  "extends": "@asm/config/react.tsconfig.json",
   "compilerOptions": {
     "plugins": [
       {

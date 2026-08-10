@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { HybridSession, JWTValidationResult } from "@zephyr/auth/core";
+import type { HybridSession, JWTValidationResult } from "@asm/auth/core";
 
 type MiddlewareModule = typeof import("./middleware");
 
@@ -76,7 +76,7 @@ describe("middleware", () => {
     console.log = mock(() => undefined) as typeof console.log;
     console.warn = mock(() => undefined) as typeof console.warn;
 
-    mock.module("@zephyr/db", () => ({
+    mock.module("@asm/db", () => ({
       prisma: {
         user: {
           findUnique: mockFindUnique,
@@ -84,7 +84,7 @@ describe("middleware", () => {
       },
     }));
 
-    mock.module("@zephyr/auth/core", () => ({
+    mock.module("@asm/auth/core", () => ({
       extractTokenFromHeader: (h: string | null) =>
         h ? h.replace("Bearer ", "") : null,
       hybridSessionStore: {

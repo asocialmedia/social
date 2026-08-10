@@ -13,6 +13,8 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { motion, type Variants } from "motion/react";
+import type * as React from "react";
+import { useCallback } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../../shadui/button";
 import { Card } from "../../shadui/card";
@@ -74,6 +76,21 @@ export function HNSidebar({
   isFetching,
   onRefreshAction,
 }: HnSidebarProps) {
+  const handleSortBySelect = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      const value = e.currentTarget.dataset.value as SortOption;
+      setSortByAction(value);
+    },
+    [setSortByAction]
+  );
+
+  const handleTabSelect = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      setActiveTabAction(e.currentTarget.dataset.value ?? "");
+    },
+    [setActiveTabAction]
+  );
+
   return (
     <motion.div
       animate="visible"
@@ -137,8 +154,9 @@ export function HNSidebar({
                           ? "bg-orange-500/10 text-orange-500"
                           : ""
                       )}
+                      data-value={value}
                       key={key}
-                      onClick={() => setSortByAction(value)}
+                      onClick={handleSortBySelect}
                       size="sm"
                       variant="ghost"
                     >
@@ -168,8 +186,9 @@ export function HNSidebar({
                           ? "bg-orange-500/10 text-orange-500"
                           : ""
                       )}
+                      data-value={tab.id}
                       key={tab.id}
-                      onClick={() => setActiveTabAction(tab.id)}
+                      onClick={handleTabSelect}
                       size="sm"
                       variant="ghost"
                     >

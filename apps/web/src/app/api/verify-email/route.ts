@@ -1,5 +1,5 @@
+import { debugLog } from "@asm/config/debug";
 import { keys } from "@root/keys";
-import { debugLog } from "@zephyr/config/debug";
 import type { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -41,12 +41,12 @@ async function tryPendingSignupVerification(
       | { success?: boolean };
 
     // @ts-expect-error loose parsing for cross-shape tolerance
-    const wrapped = data?.result?.data;
+    const wrapped = data.result?.data;
     const isSuccess =
       (wrapped &&
         (wrapped.success === true || wrapped?.json?.success === true)) ||
       // @ts-expect-error loose parsing
-      data?.success === true;
+      data.success === true;
 
     if (!isSuccess) {
       return false;

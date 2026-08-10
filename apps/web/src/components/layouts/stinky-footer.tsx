@@ -5,7 +5,7 @@ const StickyFooter: React.FC = () => (
   <div className="hidden space-y-1 text-muted-foreground text-sm md:block">
     <div className="flex items-center justify-center space-x-2">
       <span className="font-sofiaProSoftBold">&copy; 2024</span>
-      <span className="font-sofiaProSoftBold">Zephyr</span>
+      <span className="font-sofiaProSoftBold">Asocialmedia</span>
       <Link className="hover:text-foreground hover:underline" href="/toc">
         Terms
       </Link>
@@ -30,7 +30,7 @@ const StickyFooter: React.FC = () => (
       </a>
       <a
         className="hover:text-foreground hover:underline"
-        href="https://github.com/zephverse/zephyr"
+        href="https://github.com/asocialmedia/social"
         rel="noopener noreferrer"
         target="_blank"
       >

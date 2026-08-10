@@ -13,14 +13,16 @@ interface NextraThemeProps {
 export default async function NextraTheme({ children }: NextraThemeProps) {
   const navbar = (
     <Navbar
-      logo={<Image alt="Zephyr Logo" height={44} src="/zeph.png" width={44} />}
+      logo={
+        <Image alt="Asocialmedia Logo" height={44} src="/zeph.png" width={44} />
+      }
     />
   );
 
   return (
-    <div className="zephyr-theme">
+    <div className="asm-theme">
       <Layout
-        docsRepositoryBase="https://github.com/zephverse/zephyr/tree/main/apps/docs"
+        docsRepositoryBase="https://github.com/asocialmedia/social/tree/main/apps/docs"
         navbar={navbar}
         pageMap={await getPageMap()}
         sidebar={{ autoCollapse: true }}

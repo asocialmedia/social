@@ -1,8 +1,8 @@
 "use client";
 
-import { GooeyText } from "@zephyr/ui/components/ui/gooey-text-morphing";
-import { SpiralAnimation } from "@zephyr/ui/components/ui/spiral-animation";
-import { Button } from "@zephyr/ui/shadui/button";
+import { GooeyText } from "@asm/ui/components/ui/gooey-text-morphing";
+import { SpiralAnimation } from "@asm/ui/components/ui/spiral-animation";
+import { Button } from "@asm/ui/shadui/button";
 import { Home } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -56,7 +56,7 @@ export default function Loading() {
 
         <div className="fixed inset-x-0 bottom-0 pb-8">
           <AnimatePresence>
-            {showHomeLink && (
+            {showHomeLink ? (
               <motion.div
                 animate={{ opacity: 1, y: 0 }}
                 className="flex justify-center"
@@ -73,7 +73,7 @@ export default function Loading() {
                   </Button>
                 </Link>
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
         </div>
 

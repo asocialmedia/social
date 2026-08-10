@@ -14,9 +14,13 @@ function handleRateLimitError(
   rateLimitInfo?: { remaining: number; resetTime: number };
 } {
   const rateLimitInfo = (
-    data as {
-      result?: { data?: { json?: { remaining?: number; resetTime?: number } } };
-    }
+    data as
+      | {
+          result?: {
+            data?: { json?: { remaining?: number; resetTime?: number } };
+          };
+        }
+      | undefined
   )?.result?.data?.json;
   return {
     success: false,
@@ -211,7 +215,9 @@ export async function verifyOTP(
 
       if (String(err) === RATE_LIMIT_ERROR) {
         const rateLimitInfo = (
-          data as { json?: { remaining?: number; resetTime?: number } }
+          data as
+            | { json?: { remaining?: number; resetTime?: number } }
+            | undefined
         )?.json;
         return {
           success: false,

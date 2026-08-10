@@ -1,4 +1,4 @@
-import type { NotificationData, NotificationType } from "@zephyr/db";
+import type { NotificationData, NotificationType } from "@asm/db";
 import { AtSign, Heart, MessageCircle, User2 } from "lucide-react";
 import Link from "next/link";
 import type { JSX } from "react";
@@ -56,11 +56,11 @@ export default function Notification({ notification }: NotificationProps) {
             <span className="font-bold">{notification.issuer.displayName}</span>{" "}
             <span>{message}</span>
           </div>
-          {notification.post && (
+          {notification.post ? (
             <div className="line-clamp-3 max-w-[90%] overflow-x-hidden truncate whitespace-pre-line text-wrap text-muted-foreground">
               {notification.post.content}
             </div>
-          )}
+          ) : null}
         </div>
       </article>
     </Link>

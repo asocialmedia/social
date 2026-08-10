@@ -21,7 +21,7 @@ export const validateFile = (file: File) => {
     throw new Error(`File type ${file.type} not supported`);
   }
 
-  const category = fileConfig.category;
+  const { category } = fileConfig;
   const maxSize = maxFileSizes[category];
 
   if (file.size > maxSize) {

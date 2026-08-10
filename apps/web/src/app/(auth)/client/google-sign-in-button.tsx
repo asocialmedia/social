@@ -1,4 +1,4 @@
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth";
 
@@ -31,14 +31,14 @@ export default function GoogleSignInButton({
 
   return (
     <Button
-      className="w-full border-0 bg-white py-5 text-gray-900 backdrop-blur-xs transition-all duration-300 hover:bg-gray-50"
+      className="btn-social h-auto w-full rounded-xl py-2.5 text-sm transition-all duration-300 hover:bg-transparent hover:text-inherit"
       disabled={disabled}
       onClick={handleGoogleSignIn}
-      variant="outline"
+      variant="ghost"
     >
-      <div className="flex items-center justify-center gap-3 py-6">
+      <div className="flex items-center justify-center gap-2">
         {loading ? (
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <GoogleIcon />
         )}
@@ -52,10 +52,10 @@ function GoogleIcon() {
   return (
     // biome-ignore lint/a11y/noSvgWithoutTitle: Google logo is purely decorative
     <svg
-      className="h-5 w-5"
-      height="1.2em"
+      className="h-4 w-4"
+      height="1em"
       viewBox="0 0 256 262"
-      width="1.2em"
+      width="1em"
       xmlns="http://www.w3.org/2000/svg"
     >
       <path

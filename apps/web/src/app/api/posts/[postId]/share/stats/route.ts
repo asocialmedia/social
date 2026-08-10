@@ -1,4 +1,4 @@
-import { shareStatsCache } from "@zephyr/db";
+import { shareStatsCache } from "@asm/db";
 import { NextResponse } from "next/server";
 
 export async function GET(

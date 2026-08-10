@@ -1,8 +1,8 @@
 "use client";
 
+import { Separator } from "@asm/ui/shadui/separator";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useQuery } from "@tanstack/react-query";
-import { Separator } from "@zephyr/ui/shadui/separator";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
 import { AtSignIcon, MessageSquareIcon } from "lucide-react";
 import { motion } from "motion/react";
 import React, { useMemo } from "react";
@@ -37,7 +37,8 @@ const MentionedPosts: React.FC<MentionedPostsProps> = ({ userId }) => {
     }
 
     return rawPosts.map((post) => {
-      let createdAt = post.createdAt;
+      const { createdAt: originalCreatedAt } = post;
+      let createdAt = originalCreatedAt;
       if (createdAt) {
         try {
           const testDate = new Date(createdAt);

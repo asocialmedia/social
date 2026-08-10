@@ -1,4 +1,4 @@
-import { getPostDataInclude, type PostData, prisma } from "@zephyr/db";
+import { getPostDataInclude, type PostData, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 interface VoteInfo {

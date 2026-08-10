@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 import type React from "react";
 import ContributeCard from "@/components/misc/contribution-card";
 import UserDetails from "@/components/profile/sidebars/right/user-details";

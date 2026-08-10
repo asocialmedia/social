@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
@@ -9,11 +9,8 @@ import {
   username,
 } from "better-auth/plugins";
 import type {
-  DiscordProfile,
-  GithubProfile,
   GoogleProfile,
   RedditProfile,
-  TwitterProfile,
 } from "better-auth/social-providers";
 import { env } from "../../env";
 import { hashPasswordWithScrypt, verifyPasswordWithScrypt } from "./password";
@@ -74,30 +71,13 @@ export interface AuthConfig {
   }) => Promise<void>;
 }
 
-type SocialProviderName =
-  | "google"
-  | "github"
-  | "discord"
-  | "twitter"
-  | "reddit";
+type SocialProviderName = "google" | "reddit";
 
 interface UsernameMapping {
   username: string;
 }
 
 interface SocialProvidersConfig {
-  discord?: {
-    clientId: string;
-    clientSecret: string;
-    redirectURI: string;
-    mapProfileToUser: (profile: DiscordProfile) => UsernameMapping;
-  };
-  github?: {
-    clientId: string;
-    clientSecret: string;
-    redirectURI: string;
-    mapProfileToUser: (profile: GithubProfile) => UsernameMapping;
-  };
   google?: {
     clientId: string;
     clientSecret: string;
@@ -109,12 +89,6 @@ interface SocialProvidersConfig {
     clientSecret: string;
     redirectURI: string;
     mapProfileToUser: (profile: RedditProfile) => UsernameMapping;
-  };
-  twitter?: {
-    clientId: string;
-    clientSecret: string;
-    redirectURI: string;
-    mapProfileToUser: (profile: TwitterProfile) => UsernameMapping;
   };
 }
 
@@ -131,50 +105,11 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.GOOGLE_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/google`,
       mapProfileToUser(profile: GoogleProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("google");
-  }
-
-  if (env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET) {
-    socialProviders.github = {
-      clientId: env.GITHUB_CLIENT_ID,
-      clientSecret: env.GITHUB_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/github`,
-      mapProfileToUser(profile: GithubProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
-      },
-    };
-    trustedProviders.push("github");
-  }
-
-  if (env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET) {
-    socialProviders.discord = {
-      clientId: env.DISCORD_CLIENT_ID,
-      clientSecret: env.DISCORD_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/discord`,
-      mapProfileToUser(profile: DiscordProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
-      },
-    };
-    trustedProviders.push("discord");
-  }
-
-  if (env.TWITTER_CLIENT_ID && env.TWITTER_CLIENT_SECRET) {
-    socialProviders.twitter = {
-      clientId: env.TWITTER_CLIENT_ID,
-      clientSecret: env.TWITTER_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/twitter`,
-      mapProfileToUser(profile: TwitterProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
-      },
-    };
-    trustedProviders.push("twitter");
   }
 
   if (env.REDDIT_CLIENT_ID && env.REDDIT_CLIENT_SECRET) {
@@ -183,8 +118,8 @@ function buildSocialProviderConfig(authBaseUrl: string): {
       clientSecret: env.REDDIT_CLIENT_SECRET,
       redirectURI: `${authBaseUrl}/api/auth/callback/reddit`,
       mapProfileToUser(profile: RedditProfile): UsernameMapping {
-        const username = deriveUsernameFromProfile(profile);
-        return { username };
+        const derivedUsername = deriveUsernameFromProfile(profile);
+        return { username: derivedUsername };
       },
     };
     trustedProviders.push("reddit");
@@ -236,7 +171,6 @@ export function createAuthConfig(config: AuthConfig = {}) {
     plugins: [
       username(),
       jwt(),
-      nextCookies(),
       adminPlugin(),
       ...(sendVerificationOTP
         ? [
@@ -249,6 +183,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
             }),
           ]
         : []),
+      nextCookies(),
     ],
 
     emailAndPassword: {
@@ -257,7 +192,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       password: {
         // @ts-expect-error types are wrong
         hash: async (...args: unknown[]) => {
-          const maybeInput = args[0];
+          const [maybeInput] = args;
           let plainPassword: string | undefined;
           if (typeof maybeInput === "string") {
             plainPassword = maybeInput;
@@ -370,7 +305,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
         ? {
             crossSubDomainCookies: {
               enabled: true,
-              domain: ".zephyyrr.in",
+              domain: ".asocialmedia.cc",
             },
           }
         : {}),
@@ -391,7 +326,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       "https://auth.localhost",
       "http://localhost:3000",
       "http://localhost:3001",
-      "https://zephyyrr.in",
+      "https://asocialmedia.cc",
     ],
 
     telemetry: {

@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
 export async function GET(req: NextRequest) {

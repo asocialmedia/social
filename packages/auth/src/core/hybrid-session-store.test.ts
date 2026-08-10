@@ -7,7 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import type { Session } from "@zephyr/db";
+import type { Session } from "@asm/db";
 import { HybridSessionStore } from "./hybrid-session-store";
 
 interface HybridSessionData {
@@ -82,7 +82,7 @@ const mockRedisKeys = mock(async (): Promise<string[]> => []);
 const mockRedisSmembers = mock(async (): Promise<string[]> => []);
 const mockRedisDel = mock(async (): Promise<number> => 1);
 
-mock.module("@zephyr/db", () => ({
+mock.module("@asm/db", () => ({
   prisma: {
     session: {
       create: mockSessionCreate,

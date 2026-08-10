@@ -1,12 +1,12 @@
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import {
   ChevronDown,
   ChevronLeft,
@@ -16,7 +16,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useUpdateAvatarMutation } from "@/app/(main)/users/[username]/avatar-mutations";
 import LoadingButton from "@/components/auth/loading-button";
 
@@ -49,29 +49,39 @@ export default function GifCenteringDialog({
   const MinZoom = 0.5;
   const MaxZoom = 2;
 
-  const handleMove = (direction: "up" | "down" | "left" | "right") => {
-    setPosition((prev) => {
-      switch (direction) {
-        case "up":
-          return { ...prev, y: prev.y + MoveAmount };
-        case "down":
-          return { ...prev, y: prev.y - MoveAmount };
-        case "left":
-          return { ...prev, x: prev.x + MoveAmount };
-        case "right":
-          return { ...prev, x: prev.x - MoveAmount };
-        default:
-          return prev;
-      }
-    });
-  };
+  const handleMove = useCallback(
+    (direction: "up" | "down" | "left" | "right") => {
+      setPosition((prev) => {
+        switch (direction) {
+          case "up":
+            return { ...prev, y: prev.y + MoveAmount };
+          case "down":
+            return { ...prev, y: prev.y - MoveAmount };
+          case "left":
+            return { ...prev, x: prev.x + MoveAmount };
+          case "right":
+            return { ...prev, x: prev.x - MoveAmount };
+          default:
+            return prev;
+        }
+      });
+    },
+    []
+  );
 
-  const handleZoom = (increase: boolean) => {
+  const handleZoom = useCallback((increase: boolean) => {
     setZoom((prev) => {
       const newZoom = increase ? prev + ZoomStep : prev - ZoomStep;
       return Math.min(Math.max(newZoom, MinZoom), MaxZoom);
     });
-  };
+  }, []);
+
+  const handleMoveUp = useCallback(() => handleMove("up"), [handleMove]);
+  const handleMoveLeft = useCallback(() => handleMove("left"), [handleMove]);
+  const handleMoveRight = useCallback(() => handleMove("right"), [handleMove]);
+  const handleMoveDown = useCallback(() => handleMove("down"), [handleMove]);
+  const handleZoomIn = useCallback(() => handleZoom(true), [handleZoom]);
+  const handleZoomOut = useCallback(() => handleZoom(false), [handleZoom]);
 
   const handleComplete = async () => {
     try {
@@ -147,7 +157,7 @@ export default function GifCenteringDialog({
               <div />
               <Button
                 disabled={mutation.isPending}
-                onClick={() => handleMove("up")}
+                onClick={handleMoveUp}
                 size="icon"
                 variant="outline"
               >
@@ -157,7 +167,7 @@ export default function GifCenteringDialog({
 
               <Button
                 disabled={mutation.isPending}
-                onClick={() => handleMove("left")}
+                onClick={handleMoveLeft}
                 size="icon"
                 variant="outline"
               >
@@ -168,7 +178,7 @@ export default function GifCenteringDialog({
               </div>
               <Button
                 disabled={mutation.isPending}
-                onClick={() => handleMove("right")}
+                onClick={handleMoveRight}
                 size="icon"
                 variant="outline"
               >
@@ -178,7 +188,7 @@ export default function GifCenteringDialog({
               <div />
               <Button
                 disabled={mutation.isPending}
-                onClick={() => handleMove("down")}
+                onClick={handleMoveDown}
                 size="icon"
                 variant="outline"
               >
@@ -190,7 +200,7 @@ export default function GifCenteringDialog({
             <div className="flex items-center justify-center gap-2">
               <Button
                 disabled={zoom <= MinZoom || mutation.isPending}
-                onClick={() => handleZoom(false)}
+                onClick={handleZoomOut}
                 size="icon"
                 variant="outline"
               >
@@ -201,7 +211,7 @@ export default function GifCenteringDialog({
               </span>
               <Button
                 disabled={zoom >= MaxZoom || mutation.isPending}
-                onClick={() => handleZoom(true)}
+                onClick={handleZoomIn}
                 size="icon"
                 variant="outline"
               >

@@ -1,9 +1,9 @@
 "use client";
 
+import type { Tag } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Tag } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
 import { Hash, RefreshCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -47,6 +47,16 @@ const TagsBar = () => {
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });
     });
   }, [queryClient]);
+
+  const handleHoverEnd = useCallback(() => setHoveredTag(null), []);
+  const handleHoverStart = useCallback((e: PointerEvent) => {
+    const tagId = (e.currentTarget as HTMLElement | null)?.getAttribute(
+      "data-tag-id"
+    );
+    if (tagId) {
+      setHoveredTag(tagId);
+    }
+  }, []);
 
   if (!(localTags.length || isLoading)) {
     return null;
@@ -92,11 +102,12 @@ const TagsBar = () => {
               <motion.li
                 animate={{ opacity: 1, y: 0 }}
                 className="group relative"
+                data-tag-id={tag.id}
                 exit={{ opacity: 0, x: -10 }}
                 initial={{ opacity: 0, y: 10 }}
                 key={tag.id}
-                onHoverEnd={() => setHoveredTag(null)}
-                onHoverStart={() => setHoveredTag(tag.id)}
+                onHoverEnd={handleHoverEnd}
+                onHoverStart={handleHoverStart}
                 transition={{ delay: index * 0.05 }}
               >
                 <Link
@@ -155,7 +166,7 @@ const TagsBar = () => {
       </CardContent>
 
       <AnimatePresence>
-        {(isPending || isLoading) && (
+        {isPending || isLoading ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 z-20 flex items-center justify-center bg-background/50 backdrop-blur-sm"
@@ -164,7 +175,7 @@ const TagsBar = () => {
           >
             <RefreshCw className="h-5 w-5 animate-spin text-primary" />
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </Card>
   );

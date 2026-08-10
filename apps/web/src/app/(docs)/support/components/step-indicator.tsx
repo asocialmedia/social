@@ -8,12 +8,9 @@ interface StepIndicatorProps {
 export function StepIndicator({ currentStep, totalSteps }: StepIndicatorProps) {
   return (
     <div className="mb-6 flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <span className="font-medium text-primary">
-          Step {currentStep}/{totalSteps}
-        </span>
-        <div className="h-2 w-2 rounded-full bg-primary/50" />
-      </div>
+      <span className="font-medium text-primary">
+        Step {currentStep}/{totalSteps}
+      </span>
       <motion.div
         animate={{ opacity: 1 }}
         className="text-muted-foreground text-sm"

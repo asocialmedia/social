@@ -1,4 +1,4 @@
-import { Card, CardContent, CardTitle } from "@zephyr/ui/shadui/card";
+import { Card, CardContent, CardTitle } from "@asm/ui/shadui/card";
 import { Users } from "lucide-react";
 import type React from "react";
 

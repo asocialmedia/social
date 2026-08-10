@@ -1,8 +1,4 @@
-import {
-  type NotificationsPage,
-  notificationsInclude,
-  prisma,
-} from "@zephyr/db";
+import { type NotificationsPage, notificationsInclude, prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { getSessionFromApi } from "@/lib/session";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import type { LoginValues } from "@zephyr/auth/validation";
+import type { LoginValues } from "@asm/auth/validation";
 import { authClient } from "@/lib/auth";
 
 const EMAIL_REGEX = /@/;

@@ -1,4 +1,4 @@
-import { SofiaProSoft } from "@zephyr/ui";
+import { SofiaProSoft } from "@asm/ui";
 import type { Metadata } from "next";
 import { Head } from "nextra/components";
 import "nextra-theme-docs/style.css";
@@ -6,8 +6,8 @@ import "./styles.css";
 import NextraTheme from "./_components/nextra-theme";
 
 export const metadata: Metadata = {
-  title: "Zephyr Docs",
-  description: "Documentation for Zephyr for developers to get started.",
+  title: "Asocialmedia Docs",
+  description: "Documentation for Asocialmedia for developers to get started.",
   icons: {
     icon: { url: "/favicon.svg", type: "image/svg+xml" },
   },

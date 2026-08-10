@@ -1,13 +1,8 @@
 "use server";
 
-import type { CreatePostInput } from "@zephyr/auth/validation";
-import { createPostSchema } from "@zephyr/auth/validation";
-import {
-  getPostDataInclude,
-  postViewsCache,
-  prisma,
-  tagCache,
-} from "@zephyr/db";
+import type { CreatePostInput } from "@asm/auth/validation";
+import { createPostSchema } from "@asm/auth/validation";
+import { getPostDataInclude, postViewsCache, prisma, tagCache } from "@asm/db";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -75,7 +70,7 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
   for (const item of mediaItems) {
     const type = item.type as AttachmentType;
     if (type in typeCount) {
-      typeCount[type]++;
+      typeCount[type] += 1;
     }
   }
 

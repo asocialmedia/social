@@ -11,27 +11,27 @@ function baseConfig() {
 describe("redis connection option parsing", () => {
   test("parses redis url with password and db", () => {
     const options = createRedisConnectionOptions(
-      "redis://:zephyrredis@localhost:6379/0",
+      "redis://:asmredis@localhost:6379/0",
       baseConfig()
     );
 
     expect(options.host).toBe("localhost");
     expect(options.port).toBe(6379);
-    expect(options.password).toBe("zephyrredis");
+    expect(options.password).toBe("asmredis");
     expect(options.db).toBe(0);
     expect(options.tls).toBeUndefined();
   });
 
   test("parses redis url with username and password", () => {
     const options = createRedisConnectionOptions(
-      "redis://default:zephyrredis@127.0.0.1:6380/2",
+      "redis://default:asmredis@127.0.0.1:6380/2",
       baseConfig()
     );
 
     expect(options.host).toBe("127.0.0.1");
     expect(options.port).toBe(6380);
     expect(options.username).toBe("default");
-    expect(options.password).toBe("zephyrredis");
+    expect(options.password).toBe("asmredis");
     expect(options.db).toBe(2);
   });
 

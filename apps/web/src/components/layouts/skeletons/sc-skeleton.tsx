@@ -1,9 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@zephyr/ui/shadui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@asm/ui/shadui/card";
 
 const SuggestedConnectionsSkeleton = () => (
   <Card className="bg-card shadow-md">

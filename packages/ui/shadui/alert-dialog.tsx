@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@asm/ui/shadui/button";
 import {
   Action,
   Cancel,
@@ -11,7 +12,6 @@ import {
   Title,
   Trigger,
 } from "@radix-ui/react-alert-dialog";
-import { buttonVariants } from "@zephyr/ui/shadui/button";
 import type * as React from "react";
 import { cn } from "../lib/utils";
 

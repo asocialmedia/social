@@ -1,6 +1,6 @@
+import { getSessionFromRequest } from "@asm/auth/core";
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
-import { getSessionFromRequest } from "@zephyr/auth/core";
 import superjson from "superjson";
 
 export async function createContext(opts: FetchCreateContextFnOptions) {
@@ -17,9 +17,9 @@ export type Context = Awaited<ReturnType<typeof createContext>>;
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
 });
-export const router = t.router;
-export const procedure = t.procedure;
-export { t };
+const { router, procedure } = t;
+
+export { procedure, router, t };
 
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!(ctx.session && ctx.user)) {

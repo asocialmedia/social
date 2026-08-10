@@ -1,4 +1,4 @@
-import { prisma } from "@zephyr/db";
+import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 
 async function getInactiveUserStats(
@@ -21,17 +21,23 @@ async function getInactiveUserStats(
   return { totalUsers, inactiveCount };
 }
 
-async function deleteInactiveUsersInBatches(
+function deleteInactiveUsersInBatches(
   thirtyDaysAgo: Date,
   inactiveCount: number,
   log: (message: string) => void,
   results: { errors: string[] }
 ): Promise<number> {
   const batchSize = 100;
-  let totalDeleted = 0;
   const totalBatches = Math.ceil(inactiveCount / batchSize);
 
-  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+  async function processBatch(
+    batchIndex: number,
+    accumulatedDeleted: number
+  ): Promise<number> {
+    if (batchIndex >= totalBatches) {
+      return accumulatedDeleted;
+    }
+
     const offset = batchIndex * batchSize;
     const currentBatchSize = Math.min(batchSize, inactiveCount - offset);
 
@@ -46,7 +52,7 @@ async function deleteInactiveUsersInBatches(
       });
 
       if (batch.length === 0) {
-        break;
+        return accumulatedDeleted;
       }
 
       const userIds = batch.map((user) => user.id);
@@ -56,21 +62,24 @@ async function deleteInactiveUsersInBatches(
         where: { id: { in: userIds } },
       });
 
-      totalDeleted += deleteResult.count;
+      const newTotalDeleted = accumulatedDeleted + deleteResult.count;
 
       log(
         `🗑️  Batch ${batchIndex + 1}/${totalBatches}: Deleted ${deleteResult.count} users (${usernames.slice(0, 3).join(", ")}${usernames.length > 3 ? "..." : ""})`
       );
+
+      return processBatch(batchIndex + 1, newTotalDeleted);
     } catch (error) {
       const errorMessage = `Error deleting batch ${batchIndex + 1}: ${
         error instanceof Error ? error.message : "Unknown error"
       }`;
       log(`❌ ${errorMessage}`);
       results.errors.push(errorMessage);
+      return processBatch(batchIndex + 1, accumulatedDeleted);
     }
   }
 
-  return totalDeleted;
+  return processBatch(0, 0);
 }
 
 async function cleanupInactiveUsers() {

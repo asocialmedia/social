@@ -1,9 +1,9 @@
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
-export type { UserData } from "@zephyr/db";
+export type { UserData } from "@asm/db";
 
-import { getUserDataSelect, Prisma, prisma, redis } from "@zephyr/db";
+import { getUserDataSelect, Prisma, prisma, redis } from "@asm/db";
 
 const RECENTLY_SHOWN_CACHE_KEY = (userId: string) =>
   `recently-shown-users:${userId}`;

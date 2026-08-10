@@ -87,7 +87,7 @@ describe("runBumpVersionWithContext", () => {
       await rm(sandboxDir, { force: true, recursive: true });
     }
 
-    sandboxDir = await mkdtemp(join(tmpdir(), "zephyr-bump-script-"));
+    sandboxDir = await mkdtemp(join(tmpdir(), "asm-bump-script-"));
     await mkdir(join(sandboxDir, "apps", "web"), { recursive: true });
     await mkdir(join(sandboxDir, "apps", "docs"), { recursive: true });
     await mkdir(join(sandboxDir, "packages", "db"), { recursive: true });
@@ -236,9 +236,9 @@ describe("runBumpVersions", () => {
     stderr = "",
     exitCode = 0
   ): SpawnResult => ({
-    stdout: new Blob([stdout]),
-    stderr: new Blob([stderr]),
     exited: Promise.resolve(exitCode),
+    stderr: new Blob([stderr]),
+    stdout: new Blob([stdout]),
   });
 
   const setSpawnMock = (spawnFn: SpawnFn): void => {
@@ -247,7 +247,7 @@ describe("runBumpVersions", () => {
 
   beforeEach(async () => {
     originalSpawn = Bun.spawn;
-    sandboxDir = await mkdtemp(join(tmpdir(), "zephyr-run-bump-versions-"));
+    sandboxDir = await mkdtemp(join(tmpdir(), "asm-run-bump-versions-"));
     await writePackageJson(join(sandboxDir, "package.json"), {
       name: "root",
       version: "1.0.1",

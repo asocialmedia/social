@@ -1,11 +1,11 @@
 "use client";
-import { Slider } from "@zephyr/ui/shadui/slider";
+import { Slider } from "@asm/ui/shadui/slider";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@zephyr/ui/shadui/tooltip";
+} from "@asm/ui/shadui/tooltip";
 import {
   FastForward,
   Maximize,
@@ -18,6 +18,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -114,7 +115,7 @@ export const CustomVideoPlayer = ({
   }, []);
 
   const handleVolumeChange = useCallback((value: number[]) => {
-    const newVolume = value[0];
+    const [newVolume] = value;
     if (videoRef.current) {
       if (videoRef.current && newVolume !== undefined) {
         videoRef.current.volume = newVolume;
@@ -228,7 +229,7 @@ export const CustomVideoPlayer = ({
 
   const handleProgressChange = (value: number[]) => {
     if (videoRef.current) {
-      const newTime = value[0];
+      const [newTime] = value;
       if (newTime !== undefined) {
         videoRef.current.currentTime = newTime;
       }
@@ -238,13 +239,13 @@ export const CustomVideoPlayer = ({
     }
   };
 
-  const handlePlaybackSpeedChange = (speed: string) => {
+  const handlePlaybackSpeedChange = useCallback((speed: string) => {
     const newSpeed = Number.parseFloat(speed);
     if (videoRef.current) {
       videoRef.current.playbackRate = newSpeed;
       setPlaybackSpeed(newSpeed);
     }
-  };
+  }, []);
 
   const handleMouseMove = () => {
     setShowControls(true);
@@ -258,6 +259,45 @@ export const CustomVideoPlayer = ({
     }, 2000);
   };
 
+  const handleMouseLeave = useCallback(() => {
+    if (isPlaying) {
+      setShowControls(false);
+    }
+  }, [isPlaying]);
+
+  const handleSkipBack = useCallback(() => skip(-10), [skip]);
+  const handleSkipForward = useCallback(() => skip(10), [skip]);
+
+  const handleToggleSpeedMenu = useCallback(() => {
+    setShowSpeedMenu((current) => !current);
+  }, []);
+
+  const handleSpeedSelect = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      const { speed } = event.currentTarget.dataset;
+      if (speed) {
+        handlePlaybackSpeedChange(speed);
+      }
+    },
+    [handlePlaybackSpeedChange]
+  );
+
+  const handleControlsMouseEnter = useCallback(() => {
+    setShowControls(true);
+  }, []);
+
+  const handleVolumeSliderMouseEnter = useCallback(() => {
+    setShowVolumeSlider(true);
+  }, []);
+
+  const handleVolumeSliderMouseLeave = useCallback(() => {
+    setShowVolumeSlider(false);
+  }, []);
+
+  const handleCloseHotkeys = useCallback(() => {
+    setShowHotkeys(false);
+  }, []);
+
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Video player container needs mouse interactions
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video player container needs mouse interactions
@@ -267,7 +307,7 @@ export const CustomVideoPlayer = ({
         isFullscreen && "h-screen",
         className
       )}
-      onMouseLeave={() => isPlaying && setShowControls(false)}
+      onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
       ref={containerRef}
     >
@@ -294,7 +334,7 @@ export const CustomVideoPlayer = ({
 
       <div className="absolute top-4 left-4 z-40 opacity-30 transition-opacity duration-300 hover:opacity-60">
         <span className="font-medium text-sm text-white drop-shadow-lg">
-          Zephyr
+          Asocialmedia
         </span>
       </div>
 
@@ -302,19 +342,19 @@ export const CustomVideoPlayer = ({
         <button
           aria-label="Double click to rewind 10 seconds"
           className="h-full w-1/2 cursor-default"
-          onDoubleClick={() => skip(-10)}
+          onDoubleClick={handleSkipBack}
           type="button"
         />
         <button
           aria-label="Double click to forward 10 seconds"
           className="h-full w-1/2 cursor-default"
-          onDoubleClick={() => skip(10)}
+          onDoubleClick={handleSkipForward}
           type="button"
         />
       </div>
 
       <AnimatePresence>
-        {isBuffering && (
+        {isBuffering ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
@@ -325,11 +365,11 @@ export const CustomVideoPlayer = ({
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white" />
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       <AnimatePresence>
-        {showControls && (
+        {showControls ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 z-40 flex flex-col justify-between bg-gradient-to-t from-black/60 to-black/0"
@@ -349,7 +389,7 @@ export const CustomVideoPlayer = ({
                     <TooltipTrigger asChild>
                       <motion.button
                         className="rounded-full bg-black/30 p-2 backdrop-blur-md transition-all duration-200 hover:bg-black/50"
-                        onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                        onClick={handleToggleSpeedMenu}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -366,7 +406,7 @@ export const CustomVideoPlayer = ({
                 </TooltipProvider>
 
                 <AnimatePresence>
-                  {showSpeedMenu && (
+                  {showSpeedMenu ? (
                     <motion.div
                       animate={{
                         opacity: 1,
@@ -401,23 +441,22 @@ export const CustomVideoPlayer = ({
                                     ? "bg-white/20 text-white"
                                     : "text-white/70 hover:text-white"
                                 )}
+                                data-speed={speed.toString()}
                                 key={speed}
-                                onClick={() =>
-                                  handlePlaybackSpeedChange(speed.toString())
-                                }
+                                onClick={handleSpeedSelect}
                                 whileHover={{
                                   backgroundColor: "rgba(255,255,255,0.1)",
                                 }}
                               >
                                 <div className="flex items-center justify-between">
                                   <span>{speed}x</span>
-                                  {playbackSpeed === speed && (
+                                  {playbackSpeed === speed ? (
                                     <motion.div
                                       animate={{ scale: 1 }}
                                       className="h-1.5 w-1.5 rounded-full bg-white"
                                       initial={{ scale: 0 }}
                                     />
-                                  )}
+                                  ) : null}
                                 </div>
                               </motion.button>
                             ))}
@@ -425,7 +464,7 @@ export const CustomVideoPlayer = ({
                         </div>
                       </div>
                     </motion.div>
-                  )}
+                  ) : null}
                 </AnimatePresence>
               </div>
 
@@ -463,7 +502,7 @@ export const CustomVideoPlayer = ({
               <div
                 aria-label="Video progress controls"
                 className="group relative"
-                onMouseEnter={() => setShowControls(true)}
+                onMouseEnter={handleControlsMouseEnter}
                 role="region"
               >
                 <Slider
@@ -487,7 +526,7 @@ export const CustomVideoPlayer = ({
                       <TooltipTrigger asChild>
                         <motion.button
                           className="rounded-full bg-black/50 p-2 backdrop-blur-xs transition-colors hover:bg-black/70"
-                          onClick={() => skip(-10)}
+                          onClick={handleSkipBack}
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                         >
@@ -527,7 +566,7 @@ export const CustomVideoPlayer = ({
                       <TooltipTrigger asChild>
                         <motion.button
                           className="rounded-full bg-black/50 p-2 backdrop-blur-xs transition-colors hover:bg-black/70"
-                          onClick={() => skip(10)}
+                          onClick={handleSkipForward}
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                         >
@@ -549,7 +588,7 @@ export const CustomVideoPlayer = ({
                           <motion.button
                             className="rounded-full bg-black/30 p-2 backdrop-blur-md transition-all duration-200 hover:bg-black/50"
                             onClick={toggleMute}
-                            onMouseEnter={() => setShowVolumeSlider(true)}
+                            onMouseEnter={handleVolumeSliderMouseEnter}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                           >
@@ -570,7 +609,7 @@ export const CustomVideoPlayer = ({
                     </TooltipProvider>
 
                     <AnimatePresence>
-                      {showVolumeSlider && (
+                      {showVolumeSlider ? (
                         <motion.div
                           animate={{
                             width: "140px",
@@ -600,7 +639,7 @@ export const CustomVideoPlayer = ({
                             },
                           }}
                           initial={{ width: 0, opacity: 0 }}
-                          onMouseLeave={() => setShowVolumeSlider(false)}
+                          onMouseLeave={handleVolumeSliderMouseLeave}
                         >
                           <motion.div
                             animate={{ scale: 1 }}
@@ -638,24 +677,24 @@ export const CustomVideoPlayer = ({
                             </span>
                           </motion.div>
                         </motion.div>
-                      )}
+                      ) : null}
                     </AnimatePresence>
                   </div>
                 </div>
               </div>
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       <AnimatePresence>
-        {showHotkeys && (
+        {showHotkeys ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
             exit={{ opacity: 0 }}
             initial={{ opacity: 0 }}
-            onClick={() => setShowHotkeys(false)}
+            onClick={handleCloseHotkeys}
           >
             <div className="grid max-w-md gap-8 rounded-lg bg-black/90 p-6 text-white backdrop-blur-xs sm:grid-cols-2">
               <div>
@@ -678,7 +717,7 @@ export const CustomVideoPlayer = ({
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

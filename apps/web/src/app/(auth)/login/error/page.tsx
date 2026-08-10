@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import { AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -15,7 +15,7 @@ const ERROR_MESSAGES = {
   unauthorized: "You must be logged in to access this page.",
 };
 
-const AnimatedZephyrText = () => {
+const AnimatedAsocialmediaText = () => {
   const letters = "ZEPHYR.".split("");
 
   return (
@@ -158,7 +158,7 @@ export default function LoginErrorPage() {
             initial={{ opacity: 0 }}
             transition={{ delay: 0.5 }}
           >
-            <AnimatedZephyrText />
+            <AnimatedAsocialmediaText />
           </motion.div>
         </div>
       </motion.div>

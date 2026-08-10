@@ -1,6 +1,6 @@
 "use client";
 
-import { debugLog } from "@zephyr/config/debug";
+import { debugLog } from "@asm/config/debug";
 import { useCallback, useEffect, useRef } from "react";
 import { useIncrementViewMutation } from "@/posts/view/mutations";
 

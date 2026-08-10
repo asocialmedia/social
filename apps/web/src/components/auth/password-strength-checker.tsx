@@ -1,6 +1,6 @@
 "use client";
 
-import type { SignUpValues } from "@zephyr/auth/validation";
+import type { SignUpValues } from "@asm/auth/validation";
 import { Check, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UseFormSetValue } from "react-hook-form";

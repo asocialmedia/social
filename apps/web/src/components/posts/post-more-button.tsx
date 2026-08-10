@@ -1,13 +1,13 @@
-import type { PostData, TagWithCount, UserData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Dialog, DialogContent, DialogTitle } from "@zephyr/ui/shadui/dialog";
+import type { PostData, TagWithCount, UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
+} from "@asm/ui/shadui/dropdown-menu";
 import { AtSign, MoreHorizontal, Tags, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { MentionTags } from "@/components/tags/mention-tags";
@@ -68,6 +68,22 @@ export default function PostMoreButton({
     [post, onUpdate]
   );
 
+  const handleShowMentionsDialog = useCallback(() => {
+    setShowMentionsDialog(true);
+  }, []);
+
+  const handleShowTagsDialog = useCallback(() => {
+    setShowTagsDialog(true);
+  }, []);
+
+  const handleShowDeleteDialog = useCallback(() => {
+    setShowDeleteDialog(true);
+  }, []);
+
+  const handleCloseDeleteDialog = useCallback(() => {
+    setShowDeleteDialog(false);
+  }, []);
+
   return (
     <>
       <DropdownMenu>
@@ -77,20 +93,20 @@ export default function PostMoreButton({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setShowMentionsDialog(true)}>
+          <DropdownMenuItem onClick={handleShowMentionsDialog}>
             <span className="flex items-center gap-3 text-foreground">
               <AtSign className="size-4" />
               Edit Mentions
             </span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setShowTagsDialog(true)}>
+          <DropdownMenuItem onClick={handleShowTagsDialog}>
             <span className="flex items-center gap-3 text-foreground">
               <Tags className="size-4" />
               Edit Tags
             </span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setShowDeleteDialog(true)}>
+          <DropdownMenuItem onClick={handleShowDeleteDialog}>
             <span className="flex items-center gap-3 text-destructive">
               <Trash2 className="size-4" />
               Delete
@@ -125,7 +141,7 @@ export default function PostMoreButton({
       </Dialog>
 
       <DeletePostDialog
-        onClose={() => setShowDeleteDialog(false)}
+        onClose={handleCloseDeleteDialog}
         open={showDeleteDialog}
         post={post}
       />

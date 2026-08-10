@@ -16,13 +16,13 @@ export class HackerNewsAPI {
 
   constructor() {
     this.client = ky.create({
-      prefixUrl: HN_API_BASE,
-      timeout: DEFAULT_TIMEOUT,
+      prefix: HN_API_BASE,
       retry: {
         limit: 3,
         methods: ["GET"],
         statusCodes: [408, 429, 500, 502, 503, 504],
       },
+      timeout: DEFAULT_TIMEOUT,
     });
   }
 
@@ -34,7 +34,7 @@ export class HackerNewsAPI {
   ): Promise<any> {
     const canProceed = await checkRateLimit(identifier);
     if (!canProceed) {
-      throw new HackerNewsError("Rate limit exceeded", 429);
+      throw new HackerNewsError("Rate limit exceeded", { statusCode: 429 });
     }
     return fn();
   }
@@ -56,11 +56,11 @@ export class HackerNewsAPI {
       if (error instanceof HackerNewsError) {
         throw error;
       }
-      throw new HackerNewsError(
-        "Failed to fetch top stories",
+      throw new HackerNewsError("Failed to fetch top stories", {
         // biome-ignore lint/suspicious/noExplicitAny: ignore
-        (error as any)?.response?.status
-      );
+        statusCode: (error as any)?.response?.status,
+        cause: error,
+      });
     }
   }
 
@@ -76,7 +76,7 @@ export class HackerNewsAPI {
       );
 
       if (!story) {
-        throw new HackerNewsError(`Story ${id} not found`, 404);
+        throw new HackerNewsError(`Story ${id} not found`, { statusCode: 404 });
       }
 
       await hackerNewsCache.setStory(story);
@@ -85,11 +85,11 @@ export class HackerNewsAPI {
       if (error instanceof HackerNewsError) {
         throw error;
       }
-      throw new HackerNewsError(
-        `Failed to fetch story ${id}`,
+      throw new HackerNewsError(`Failed to fetch story ${id}`, {
         // biome-ignore lint/suspicious/noExplicitAny: ignore
-        (error as any)?.response?.status
-      );
+        statusCode: (error as any)?.response?.status,
+        cause: error,
+      });
     }
   }
 
@@ -105,7 +105,7 @@ export class HackerNewsAPI {
       if (identifier) {
         const canProceed = await checkRateLimit(identifier);
         if (!canProceed) {
-          throw new HackerNewsError("Rate limit exceeded", 429);
+          throw new HackerNewsError("Rate limit exceeded", { statusCode: 429 });
         }
       }
 
@@ -148,19 +148,19 @@ export class HackerNewsAPI {
       });
 
       return {
-        stories,
         hasMore: end < allStories.length,
+        stories,
         total: allStories.length,
       };
     } catch (error) {
       if (error instanceof HackerNewsError) {
         throw error;
       }
-      throw new HackerNewsError(
-        "Failed to fetch stories",
+      throw new HackerNewsError("Failed to fetch stories", {
         // biome-ignore lint/suspicious/noExplicitAny: ignore
-        (error as any)?.response?.status
-      );
+        statusCode: (error as any)?.response?.status,
+        cause: error,
+      });
     }
   }
 
@@ -171,11 +171,11 @@ export class HackerNewsAPI {
       const firstPageIds = stories.slice(0, 30);
       await Promise.all(firstPageIds.map((id) => this.fetchStory(id)));
     } catch (error) {
-      throw new HackerNewsError(
-        "Failed to refresh cache",
+      throw new HackerNewsError("Failed to refresh cache", {
         // biome-ignore lint/suspicious/noExplicitAny: ignore
-        (error as any)?.response?.status
-      );
+        statusCode: (error as any)?.response?.status,
+        cause: error,
+      });
     }
   }
 }

@@ -2,7 +2,8 @@
 
 import { Search, X } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
-import { useRef, useState } from "react";
+import type * as React from "react";
+import { useCallback, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 import { Input } from "../../shadui/input";
 
@@ -36,10 +37,25 @@ export function HNSearchInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     onChangeAction("");
     inputRef.current?.focus();
-  };
+  }, [onChangeAction]);
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChangeAction(e.target.value);
+    },
+    [onChangeAction]
+  );
+
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    setIsFocused(false);
+  }, []);
 
   return (
     <motion.div
@@ -71,9 +87,9 @@ export function HNSearchInput({
             "focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20",
             "transition-all duration-200"
           )}
-          onBlur={() => setIsFocused(false)}
-          onChange={(e) => onChangeAction(e.target.value)}
-          onFocus={() => setIsFocused(true)}
+          onBlur={handleBlur}
+          onChange={handleChange}
+          onFocus={handleFocus}
           placeholder={placeholder}
           ref={inputRef}
           type="text"
@@ -81,7 +97,7 @@ export function HNSearchInput({
         />
 
         <AnimatePresence>
-          {value && (
+          {value ? (
             <motion.button
               animate={{ opacity: 1, scale: 1 }}
               className="absolute right-3 text-muted-foreground transition-colors hover:text-foreground"
@@ -92,7 +108,7 @@ export function HNSearchInput({
             >
               <X className="h-4 w-4" />
             </motion.button>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
 

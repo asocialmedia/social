@@ -1,5 +1,5 @@
 {
-  "extends": "@zephyr/config/nextjs.config.json",
+  "extends": "@asm/config/nextjs.config.json",
   "compilerOptions": {
     "strictNullChecks": true,
     "target": "ES2023",

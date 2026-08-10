@@ -1,10 +1,10 @@
+import { prisma } from "@asm/db";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { prisma } from "@zephyr/db";
 import { NextResponse } from "next/server";
 import {
+  ASMOB_BUCKET,
+  asmobClient,
   validateBucket,
-  ZEPHOB_BUCKET,
-  zephobClient,
 } from "@/lib/object-storage";
 import {
   getContentDisposition,
@@ -21,13 +21,13 @@ export async function GET(
   }
 
   const media = await prisma.media.findUnique({
-    where: { id: mediaId },
     select: {
       id: true,
       key: true,
       mimeType: true,
       type: true,
     },
+    where: { id: mediaId },
   });
 
   if (!media) {
@@ -52,11 +52,11 @@ export async function GET(
     }
 
     const command = new GetObjectCommand({
-      Bucket: ZEPHOB_BUCKET,
+      Bucket: ASMOB_BUCKET,
       Key: mediaWithData.key,
     });
 
-    const response = await zephobClient.send(command);
+    const response = await asmobClient.send(command);
 
     if (!response.Body) {
       return new NextResponse("Media content not found", { status: 404 });

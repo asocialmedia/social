@@ -1,7 +1,7 @@
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
-import { Separator } from "@zephyr/ui/shadui/separator";
-import { Skeleton } from "@zephyr/ui/shadui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@zephyr/ui/shadui/tabs";
+import { Card, CardContent } from "@asm/ui/shadui/card";
+import { Separator } from "@asm/ui/shadui/separator";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 
 const PostCardSkeleton = () => (
   <div className="p-4">

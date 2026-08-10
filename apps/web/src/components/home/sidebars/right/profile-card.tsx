@@ -1,11 +1,11 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import type { UserData } from "@asm/db";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Flame, Users } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
 import { formatNumber } from "@/lib/utils";
@@ -16,6 +16,8 @@ interface ProfileCardProps {
 
 const ProfileCard: React.FC<ProfileCardProps> = ({ userData }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const handleMouseEnter = useCallback(() => setIsHovered(true), []);
+  const handleMouseLeave = useCallback(() => setIsHovered(false), []);
 
   if (!userData) {
     return null;
@@ -24,8 +26,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ userData }) => {
   return (
     <Card
       className="overflow-hidden transition-all duration-300"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       suppressHydrationWarning
     >
       <div className="relative">
@@ -111,11 +113,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ userData }) => {
                 </div>
               </div>
               <Linkify>
-                {userData.bio && (
+                {userData.bio ? (
                   <p className="mt-4 whitespace-pre-wrap break-words text-muted-foreground text-sm">
                     {userData.bio}
                   </p>
-                )}
+                ) : null}
               </Linkify>
             </div>
           </div>

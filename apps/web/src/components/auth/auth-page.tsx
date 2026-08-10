@@ -1,0 +1,80 @@
+"use client";
+
+import loginImage from "@assets/auth/login-image.jpg";
+import signupImage from "@assets/auth/signup-image.jpg";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState } from "react";
+import AuthCard from "@/components/auth/auth-card";
+
+type AuthMode = "login" | "signup";
+
+export default function AuthPage({ initialMode }: { initialMode: AuthMode }) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
+
+  // Keep local mode in sync if the route changes via browser back/forward
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  const isLogin = mode === "login";
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        animate="visible"
+        className="relative flex min-h-screen overflow-hidden bg-background"
+        initial="hidden"
+        transition={{ duration: 0.6, ease: "easeOut" }}
+        variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}
+      >
+        <div
+          className={`absolute inset-0 z-0 ${
+            isLogin
+              ? "bg-gradient-to-br from-primary/5 via-background to-background/95"
+              : "bg-gradient-to-bl from-primary/5 via-background to-background/95"
+          }`}
+        />
+
+        <div
+          className={`absolute hidden h-full items-center md:flex ${
+            isLogin ? "left-20" : "right-20"
+          }`}
+        >
+          <AnimatePresence initial={false} mode="wait">
+            <motion.h1
+              animate={{ x: 0, opacity: 1 }}
+              className={`absolute top-1/2 -translate-y-1/2 select-none whitespace-nowrap font-bold text-3d text-6xl tracking-wider xl:text-8xl 2xl:text-9xl ${
+                isLogin ? "vertical-left left-0" : "vertical-right right-0"
+              }`}
+              exit={{ opacity: 0, x: isLogin ? 40 : -40 }}
+              initial={{ x: isLogin ? -80 : 80, opacity: 0 }}
+              key={mode}
+              transition={{
+                duration: 0.5,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+            >
+              {isLogin ? "LOGIN" : "SIGN UP"}
+            </motion.h1>
+          </AnimatePresence>
+        </div>
+
+        <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
+          <AuthCard mode={mode} onSwitch={setMode} />
+        </div>
+
+        <motion.div
+          animate={{ opacity: 0.05 }}
+          className={`absolute top-0 h-full w-full bg-center bg-cover opacity-5 blur-md lg:w-1/2 ${
+            isLogin ? "right-0" : "left-0"
+          }`}
+          initial={{ opacity: 0 }}
+          style={{
+            backgroundImage: `url(${isLogin ? loginImage.src : signupImage.src})`,
+          }}
+          transition={{ duration: 1 }}
+        />
+      </motion.div>
+    </AnimatePresence>
+  );
+}

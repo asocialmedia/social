@@ -1,7 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@zephyr/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +8,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +20,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
+} from "@asm/ui/shadui/dropdown-menu";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   LogOutIcon,
@@ -35,7 +35,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -126,6 +126,34 @@ export default function UserButton({
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [menuOpen, setMenuOpen] = useState(false);
 
+  const handleOpenMobileMenu = useCallback(() => setIsMobileMenuOpen(true), []);
+  const handleMobileMenuKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setIsMobileMenuOpen(true);
+      }
+    },
+    []
+  );
+  const handleCloseMobileMenu = useCallback(
+    () => setIsMobileMenuOpen(false),
+    []
+  );
+  const handleCloseLogoutDialog = useCallback(
+    () => setShowLogoutDialog(false),
+    []
+  );
+  const handleThemeSelect = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const value = e.currentTarget.getAttribute("data-theme-value");
+      if (value) {
+        setTheme(value);
+      }
+    },
+    [setTheme]
+  );
+
   if (!isMounted) {
     return null;
   }
@@ -170,13 +198,8 @@ export default function UserButton({
         <button
           aria-label="Open user menu"
           className="rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          onClick={() => setIsMobileMenuOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setIsMobileMenuOpen(true);
-            }
-          }}
+          onClick={handleOpenMobileMenu}
+          onKeyDown={handleMobileMenuKeyDown}
           type="button"
         >
           <UserTrigger avatarUrl={avatarData?.url} />
@@ -184,7 +207,7 @@ export default function UserButton({
 
         <MobileUserMenu
           isOpen={isMobileMenuOpen}
-          onCloseAction={() => setIsMobileMenuOpen(false)}
+          onCloseAction={handleCloseMobileMenu}
           onLogoutAction={handleOpenDialog}
           setThemeAction={setTheme}
           theme={theme}
@@ -208,7 +231,7 @@ export default function UserButton({
             <DialogFooter className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:gap-2">
               <Button
                 className="w-full sm:w-auto"
-                onClick={() => setShowLogoutDialog(false)}
+                onClick={handleCloseLogoutDialog}
                 variant="ghost"
               >
                 Cancel
@@ -244,7 +267,9 @@ export default function UserButton({
                 priority
                 size={32}
               />
-              {typeof children === "function" ? children(menuOpen) : children}
+              {typeof children === "function"
+                ? (children(menuOpen) ?? null)
+                : (children ?? null)}
             </div>
           ) : (
             <div className="z-40">
@@ -297,7 +322,7 @@ export default function UserButton({
             >
               <DropdownMenuLabel className="relative font-normal">
                 <div className="flex flex-col space-y-1 p-2">
-                  {user.name && (
+                  {user.name ? (
                     <motion.div
                       variants={{
                         closed: { opacity: 0, x: -20 },
@@ -316,7 +341,7 @@ export default function UserButton({
                         {user.name}
                       </p>
                     </motion.div>
-                  )}
+                  ) : null}
                   <motion.div
                     variants={{
                       closed: { opacity: 0, x: -20 },
@@ -370,7 +395,8 @@ export default function UserButton({
                       >
                         <DropdownMenuItem
                           className="cursor-pointer pr-2 focus:bg-primary/10"
-                          onClick={() => setTheme(value)}
+                          data-theme-value={value}
+                          onClick={handleThemeSelect}
                         >
                           <Icon className="mr-2 size-4" />
                           <span>{label}</span>
@@ -441,7 +467,7 @@ export default function UserButton({
           <DialogFooter className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:gap-2">
             <Button
               className="w-full sm:w-auto"
-              onClick={() => setShowLogoutDialog(false)}
+              onClick={handleCloseLogoutDialog}
               variant="ghost"
             >
               Cancel

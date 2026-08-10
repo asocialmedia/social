@@ -1,11 +1,11 @@
 /** biome-ignore-all lint/a11y/noSvgWithoutTitle: not needed */
 "use client";
 
-import { useDebounce } from "@zephyr/ui/hooks/use-debounce";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { cn } from "@zephyr/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@zephyr/ui/shadui/avatar";
-import { Button } from "@zephyr/ui/shadui/button";
+import { useDebounce } from "@asm/ui/hooks/use-debounce";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { cn } from "@asm/ui/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@asm/ui/shadui/avatar";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Ban,
   Check,
@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { trpc } from "../trpc/client";
 import type { ModalAction, User, UserFilters } from "../types/types";
 
@@ -53,7 +53,7 @@ function highlightText(text: string, searchQuery: string): React.ReactNode {
   let highlightCounter = 0;
   return parts.map((part) => {
     if (regex.test(part)) {
-      highlightCounter++;
+      highlightCounter += 1;
       return (
         <mark
           className="rounded bg-yellow-200 px-1 dark:bg-yellow-600"
@@ -107,9 +107,164 @@ export default function UserTable({
     onSearchChangeAction(debouncedSearchQuery);
   }, [debouncedSearchQuery, onSearchChangeAction]);
 
-  const toggleRow = (userId: string) => {
-    setExpandedRow(expandedRow === userId ? null : userId);
-  };
+  const handleToggleRow = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      const { userId } = e.currentTarget.dataset;
+      if (userId) {
+        setExpandedRow((current) => (current === userId ? null : userId));
+      }
+    },
+    []
+  );
+
+  const handleUserAction = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      const { userId, action } = e.currentTarget.dataset;
+      const modalAction = action as ModalAction | undefined;
+      const user = users.find((candidate) => candidate.id === userId);
+      if (user && modalAction) {
+        onAction(user, modalAction);
+      }
+    },
+    [onAction, users]
+  );
+
+  const handleRoleToggle = useCallback(
+    async (e: React.MouseEvent<HTMLButtonElement>) => {
+      const { userId } = e.currentTarget.dataset;
+      const user = users.find((candidate) => candidate.id === userId);
+      if (!user) {
+        return;
+      }
+      try {
+        setRoleToggleLoading(user.id);
+        const newRole = user.role === "admin" ? "user" : "admin";
+        await setRole.mutateAsync({
+          userId: user.id,
+          role: newRole,
+        });
+        await utils.admin.getUsers.invalidate();
+        toast({
+          title: "Success",
+          description: `Successfully updated ${user.username}'s role to ${newRole}`,
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: `Failed to update user role: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
+      } finally {
+        setRoleToggleLoading(null);
+      }
+    },
+    [setRole, toast, users, utils]
+  );
+
+  const handleRevokeSessions = useCallback(
+    async (e: React.MouseEvent<HTMLButtonElement>) => {
+      const { userId } = e.currentTarget.dataset;
+      const user = users.find((candidate) => candidate.id === userId);
+      if (!user) {
+        return;
+      }
+      try {
+        setRevokeLoading(user.id);
+        await revokeAll.mutateAsync({
+          userId: user.id,
+        });
+        await utils.admin.getUsers.invalidate();
+        toast({
+          title: "Success",
+          description: `Successfully revoked all sessions for ${user.username}`,
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: `Failed to revoke sessions for ${user.username}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
+      } finally {
+        setRevokeLoading(null);
+      }
+    },
+    [revokeAll, toast, users, utils]
+  );
+
+  const handleBanToggle = useCallback(
+    async (e: React.MouseEvent<HTMLButtonElement>) => {
+      const { userId } = e.currentTarget.dataset;
+      const user = users.find((candidate) => candidate.id === userId);
+      if (!user) {
+        return;
+      }
+      try {
+        setBanLoading(user.id);
+        const isBanned = user.banned ?? false;
+        if (isBanned) {
+          await unbanUser.mutateAsync({
+            userId: user.id,
+          });
+          await utils.admin.getUsers.invalidate();
+          toast({
+            title: "Success",
+            description: `Successfully unbanned user ${user.username}`,
+          });
+        } else {
+          await banUser.mutateAsync({
+            userId: user.id,
+            banReason: "Admin action",
+          });
+          await utils.admin.getUsers.invalidate();
+          toast({
+            title: "Success",
+            description: `Successfully banned user ${user.username}`,
+          });
+        }
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: `Failed to ${user.banned ? "unban" : "ban"} user ${user.username}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
+      } finally {
+        setBanLoading(null);
+      }
+    },
+    [banUser, toast, unbanUser, users, utils]
+  );
+
+  const handleSearchInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setLocalSearchQuery(e.target.value);
+    },
+    []
+  );
+
+  const handleOpenSearch = useCallback(() => {
+    setSearchExpanded(true);
+  }, []);
+
+  const handleViewLogs = useCallback(() => {
+    console.log("[v0] Navigate to logs page");
+  }, []);
+
+  const handleCloseSearch = useCallback(() => {
+    if (searchQuery) {
+      onSearchChangeAction("");
+    }
+    setSearchExpanded(false);
+  }, [onSearchChangeAction, searchQuery]);
+
+  const handleEntriesPerPageChange = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      const value = Number(e.currentTarget.dataset.value);
+      if (Number.isFinite(value)) {
+        setEntriesPerPage(value);
+      }
+    },
+    []
+  );
 
   return (
     <div className="relative h-full">
@@ -218,7 +373,8 @@ export default function UserTable({
                         aria-expanded={expandedRow === user.id}
                         aria-label={`Toggle details for ${user.displayName}`}
                         className="h-7 w-7 text-muted-foreground transition-all duration-150 hover:bg-accent hover:text-foreground"
-                        onClick={() => toggleRow(user.id)}
+                        data-user-id={user.id}
+                        onClick={handleToggleRow}
                         size="icon"
                         variant="ghost"
                       >
@@ -329,7 +485,9 @@ export default function UserTable({
                               <div className="flex gap-2 pt-2">
                                 <Button
                                   className="border-border hover:bg-accent"
-                                  onClick={() => onAction(user, "view")}
+                                  data-action="view"
+                                  data-user-id={user.id}
+                                  onClick={handleUserAction}
                                   size="sm"
                                   variant="outline"
                                 >
@@ -337,7 +495,9 @@ export default function UserTable({
                                 </Button>
                                 <Button
                                   className="border-border hover:bg-accent"
-                                  onClick={() => onAction(user, "edit")}
+                                  data-action="edit"
+                                  data-user-id={user.id}
+                                  onClick={handleUserAction}
                                   size="sm"
                                   variant="outline"
                                 >
@@ -345,7 +505,9 @@ export default function UserTable({
                                 </Button>
                                 <Button
                                   className="border-border hover:bg-destructive/10 hover:text-destructive"
-                                  onClick={() => onAction(user, "update")}
+                                  data-action="update"
+                                  data-user-id={user.id}
+                                  onClick={handleUserAction}
                                   size="sm"
                                   variant="outline"
                                 >
@@ -353,33 +515,9 @@ export default function UserTable({
                                 </Button>
                                 <Button
                                   className="border-border hover:bg-accent"
+                                  data-user-id={user.id}
                                   disabled={roleToggleLoading === user.id}
-                                  onClick={async () => {
-                                    try {
-                                      setRoleToggleLoading(user.id);
-                                      const newRole =
-                                        user.role === "admin"
-                                          ? "user"
-                                          : "admin";
-                                      await setRole.mutateAsync({
-                                        userId: user.id,
-                                        role: newRole,
-                                      });
-                                      await utils.admin.getUsers.invalidate();
-                                      toast({
-                                        title: "Success",
-                                        description: `Successfully updated ${user.username}'s role to ${newRole}`,
-                                      });
-                                    } catch (error) {
-                                      toast({
-                                        variant: "destructive",
-                                        title: "Error",
-                                        description: `Failed to update user role: ${error instanceof Error ? error.message : "Unknown error"}`,
-                                      });
-                                    } finally {
-                                      setRoleToggleLoading(null);
-                                    }
-                                  }}
+                                  onClick={handleRoleToggle}
                                   size="sm"
                                   variant="outline"
                                 >
@@ -406,28 +544,9 @@ export default function UserTable({
                                 </Button>
                                 <Button
                                   className="border-border hover:bg-accent"
+                                  data-user-id={user.id}
                                   disabled={revokeLoading === user.id}
-                                  onClick={async () => {
-                                    try {
-                                      setRevokeLoading(user.id);
-                                      await revokeAll.mutateAsync({
-                                        userId: user.id,
-                                      });
-                                      await utils.admin.getUsers.invalidate();
-                                      toast({
-                                        title: "Success",
-                                        description: `Successfully revoked all sessions for ${user.username}`,
-                                      });
-                                    } catch (error) {
-                                      toast({
-                                        variant: "destructive",
-                                        title: "Error",
-                                        description: `Failed to revoke sessions for ${user.username}: ${error instanceof Error ? error.message : "Unknown error"}`,
-                                      });
-                                    } finally {
-                                      setRevokeLoading(null);
-                                    }
-                                  }}
+                                  onClick={handleRevokeSessions}
                                   size="sm"
                                   variant="outline"
                                 >
@@ -435,41 +554,9 @@ export default function UserTable({
                                 </Button>
                                 <Button
                                   className="border-border hover:bg-destructive/10 hover:text-destructive"
+                                  data-user-id={user.id}
                                   disabled={banLoading === user.id}
-                                  onClick={async () => {
-                                    try {
-                                      setBanLoading(user.id);
-                                      const isBanned = user.banned ?? false;
-                                      if (isBanned) {
-                                        await unbanUser.mutateAsync({
-                                          userId: user.id,
-                                        });
-                                        await utils.admin.getUsers.invalidate();
-                                        toast({
-                                          title: "Success",
-                                          description: `Successfully unbanned user ${user.username}`,
-                                        });
-                                      } else {
-                                        await banUser.mutateAsync({
-                                          userId: user.id,
-                                          banReason: "Admin action",
-                                        });
-                                        await utils.admin.getUsers.invalidate();
-                                        toast({
-                                          title: "Success",
-                                          description: `Successfully banned user ${user.username}`,
-                                        });
-                                      }
-                                    } catch (error) {
-                                      toast({
-                                        variant: "destructive",
-                                        title: "Error",
-                                        description: `Failed to ${user.banned ? "unban" : "ban"} user ${user.username}: ${error instanceof Error ? error.message : "Unknown error"}`,
-                                      });
-                                    } finally {
-                                      setBanLoading(null);
-                                    }
-                                  }}
+                                  onClick={handleBanToggle}
                                   size="sm"
                                   variant="outline"
                                 >
@@ -500,23 +587,23 @@ export default function UserTable({
       >
         <div className="flex items-center gap-2">
           <AnimatePresence>
-            {searchExpanded && (
+            {searchExpanded ? (
               <motion.input
                 animate={{ width: 280, opacity: 1 }}
                 autoFocus
                 className="h-10 rounded-full border border-border bg-card px-4 text-foreground text-sm shadow-lg placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 exit={{ width: 0, opacity: 0 }}
                 initial={{ width: 0, opacity: 0 }}
-                onChange={(e) => setLocalSearchQuery(e.target.value)}
+                onChange={handleSearchInputChange}
                 placeholder="Search users..."
                 transition={{ duration: 0.2 }}
                 type="text"
                 value={localSearchQuery}
               />
-            )}
+            ) : null}
           </AnimatePresence>
           <AnimatePresence>
-            {!searchExpanded && (
+            {searchExpanded ? null : (
               <>
                 <motion.button
                   animate={{ scale: 1, opacity: 1 }}
@@ -524,7 +611,7 @@ export default function UserTable({
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white shadow-lg transition-all duration-150 hover:bg-primary/90"
                   exit={{ scale: 0, opacity: 0 }}
                   initial={{ scale: 0, opacity: 0 }}
-                  onClick={() => setSearchExpanded(true)}
+                  onClick={handleOpenSearch}
                   transition={{ duration: 0.15 }}
                 >
                   <Search className="h-5 w-5" />
@@ -535,7 +622,7 @@ export default function UserTable({
                   className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-all duration-150 hover:bg-accent"
                   exit={{ scale: 0, opacity: 0 }}
                   initial={{ scale: 0, opacity: 0 }}
-                  onClick={() => console.log("[v0] Navigate to logs page")}
+                  onClick={handleViewLogs}
                   transition={{ duration: 0.15, delay: 0.05 }}
                 >
                   <FileText className="h-5 w-5" />
@@ -543,21 +630,16 @@ export default function UserTable({
               </>
             )}
           </AnimatePresence>
-          {searchExpanded && (
+          {searchExpanded ? (
             <button
               aria-label="Close search"
               className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive text-white shadow-lg transition-all duration-150 hover:bg-destructive/90"
-              onClick={() => {
-                if (searchQuery) {
-                  onSearchChangeAction("");
-                }
-                setSearchExpanded(false);
-              }}
+              onClick={handleCloseSearch}
               type="button"
             >
               <X className="h-5 w-5" />
             </button>
-          )}
+          ) : null}
         </div>
       </motion.div>
 
@@ -577,8 +659,9 @@ export default function UserTable({
                   ? "bg-primary text-white shadow-sm"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
               )}
+              data-value={value}
               key={value}
-              onClick={() => setEntriesPerPage(value)}
+              onClick={handleEntriesPerPageChange}
               type="button"
             >
               {value}

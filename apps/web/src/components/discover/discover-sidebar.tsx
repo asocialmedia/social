@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Compass, Flame, Sparkles, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";

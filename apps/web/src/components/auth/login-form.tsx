@@ -1,9 +1,7 @@
 "use client";
 
-import supportImage from "@assets/previews/help.png";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { type LoginValues, loginSchema } from "@zephyr/auth/validation";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import { type LoginValues, loginSchema } from "@asm/auth/validation";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -11,13 +9,15 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
+import supportImage from "@assets/previews/help.png";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, Mail, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { useCallback, useEffect, useState, useTransition } from "react";
+import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { login } from "@/app/(auth)/login/actions";
 import { resendVerificationEmail } from "@/app/(auth)/signup/actions";
 import ForgotPasswordLink from "@/components/auth/forgot-password-link";
@@ -37,7 +37,6 @@ export default function LoginForm() {
     username?: boolean;
     password?: boolean;
   }>({});
-  const [hoveredField, setHoveredField] = useState<string | null>(null);
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -125,6 +124,65 @@ export default function LoginForm() {
     router.push("/");
   }
 
+  const renderUsernameField = useCallback(
+    ({ field }: { field: ControllerRenderProps<LoginValues, "username"> }) => (
+      <FormItem>
+        <FormLabel>Username or Email</FormLabel>
+        <FormControl>
+          <div className="relative">
+            <Input
+              placeholder="cooluser or email@cool.user"
+              {...field}
+              autoComplete="username"
+              className={`transition-all duration-500 ease-in-out ${
+                errorFields.username
+                  ? "border-destructive/50 bg-destructive/10"
+                  : ""
+              }`}
+              name="username"
+            />
+            {errorFields.username ? (
+              <motion.div
+                animate={{ opacity: 1 }}
+                className="absolute top-1/2 right-3 -translate-y-1/2"
+                initial={{ opacity: 0 }}
+              >
+                <XCircle className="h-4 w-4 text-destructive" />
+              </motion.div>
+            ) : null}
+          </div>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    [errorFields]
+  );
+
+  const renderPasswordField = useCallback(
+    ({ field }: { field: ControllerRenderProps<LoginValues, "password"> }) => (
+      <FormItem>
+        <FormLabel>Password</FormLabel>
+        <FormControl>
+          <div className="relative">
+            <PasswordInput
+              placeholder="supersecret"
+              {...field}
+              autoComplete="current-password"
+              className={`transition-all duration-500 ease-in-out ${
+                errorFields.password
+                  ? "border-destructive/50 bg-destructive/10"
+                  : ""
+              }`}
+              name="password"
+            />
+          </div>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    ),
+    [errorFields]
+  );
+
   const handleResendVerification = async () => {
     if (!unverifiedEmail) {
       return;
@@ -177,7 +235,7 @@ export default function LoginForm() {
           onSubmit={form.handleSubmit(onSubmit)}
         >
           <AnimatePresence mode="wait">
-            {error && (
+            {error ? (
               <motion.div
                 animate={{ opacity: 1, y: 0 }}
                 className="rounded-lg bg-destructive/15 p-3 text-center text-destructive text-sm"
@@ -189,10 +247,10 @@ export default function LoginForm() {
                   {error}
                 </p>
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
 
-          {unverifiedEmail && (
+          {unverifiedEmail ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
               className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-sm"
@@ -234,79 +292,18 @@ export default function LoginForm() {
                 </button>
               </div>
             </motion.div>
-          )}
+          ) : null}
 
           <FormField
             control={form.control}
             name="username"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Username or Email</FormLabel>
-                <FormControl>
-                  <div className="relative">
-                    <Input
-                      placeholder="cooluser or email@cool.user"
-                      {...field}
-                      autoComplete="username"
-                      className={`transition-all duration-500 ease-in-out ${
-                        errorFields.username
-                          ? "border-destructive/50 bg-destructive/10"
-                          : ""
-                      } ${
-                        hoveredField === "username"
-                          ? "border-primary shadow-lg shadow-primary/20"
-                          : ""
-                      }`}
-                      name="username"
-                      onMouseEnter={() => setHoveredField("username")}
-                      onMouseLeave={() => setHoveredField(null)}
-                    />
-                    {errorFields.username && (
-                      <motion.div
-                        animate={{ opacity: 1 }}
-                        className="absolute top-1/2 right-3 -translate-y-1/2"
-                        initial={{ opacity: 0 }}
-                      >
-                        <XCircle className="h-4 w-4 text-destructive" />
-                      </motion.div>
-                    )}
-                  </div>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={renderUsernameField}
           />
 
           <FormField
             control={form.control}
             name="password"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Password</FormLabel>
-                <FormControl>
-                  <div className="relative">
-                    <PasswordInput
-                      placeholder="supersecret"
-                      {...field}
-                      autoComplete="current-password"
-                      className={`transition-all duration-500 ease-in-out ${
-                        errorFields.password
-                          ? "border-destructive/50 bg-destructive/10"
-                          : ""
-                      } ${
-                        hoveredField === "password"
-                          ? "border-primary shadow-lg shadow-primary/20"
-                          : ""
-                      }`}
-                      name="password"
-                      onMouseEnter={() => setHoveredField("password")}
-                      onMouseLeave={() => setHoveredField(null)}
-                    />
-                  </div>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={renderPasswordField}
           />
 
           <div className="flex items-center justify-end space-x-0">
@@ -319,7 +316,12 @@ export default function LoginForm() {
             />
           </div>
 
-          <LoadingButton className="w-full" loading={isPending} type="submit">
+          <LoadingButton
+            className="w-full"
+            loading={isPending}
+            type="submit"
+            variant="premium"
+          >
             Log in
           </LoadingButton>
         </form>

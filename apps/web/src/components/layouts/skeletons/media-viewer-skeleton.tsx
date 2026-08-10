@@ -1,4 +1,4 @@
-import { Dialog, DialogContent } from "@zephyr/ui/shadui/dialog";
+import { Dialog, DialogContent } from "@asm/ui/shadui/dialog";
 import { cn } from "@/lib/utils";
 
 interface MediaViewerSkeletonProps {

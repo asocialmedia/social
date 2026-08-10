@@ -1,13 +1,13 @@
 "use client";
 
+import type { PostsPage } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { PostsPage } from "@zephyr/db";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
-import FeedView from "./feed-view";
+import { FeedView } from "./feed-view";
 
 export default function ForYouFeed() {
   const {
@@ -41,6 +41,12 @@ export default function ForYouFeed() {
     [data?.pages]
   );
 
+  const handleBottomReached = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetching]);
+
   if (status === "pending") {
     return <FeedViewSkeleton />;
   }
@@ -72,11 +78,9 @@ export default function ForYouFeed() {
   }
 
   return (
-    <InfiniteScrollContainer
-      onBottomReached={() => hasNextPage && !isFetching && fetchNextPage()}
-    >
+    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       {posts.length > 0 && <FeedView posts={posts} />}
-      {isFetchingNextPage && <LoadMoreSkeleton />}
+      {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
     </InfiniteScrollContainer>
   );
 }

@@ -1,6 +1,6 @@
-#### _<div align="left"><sub>// Contribution in Zephyr</sub></div>_
+#### _<div align="left"><sub>// Contribution in Asocialmedia</sub></div>_
 
-Thank you for your interest in contributing to Zephyr! This guide will help you start contributing to our community-driven platform.
+Thank you for your interest in contributing to Asocialmedia! This guide will help you start contributing to our community-driven platform.
 
 ## TABLE OF CONTENTS
 1. [Making Contributions](#-making-contributions)
@@ -69,7 +69,7 @@ example: `feat[MODULE]: Add new module`
 
 #### _<div align="left"><sub>// Troubleshooting</sub></div>_
 
-**Having trouble?** [Open an issue](https://github.com/zephverse/zephyr/issues)
+**Having trouble?** [Open an issue](https://github.com/asocialmedia/social/issues)
 
 #### _<div align="left"><sub>// Community Guidelines</sub></div>_
 ##### _<div align="left"><sub>// Code of Conduct</sub></div>_
@@ -90,4 +90,4 @@ example: `feat[MODULE]: Add new module`
 - Describe changes
 - Update docs
 
-Thank you for contributing to Zephyr!
+Thank you for contributing to Asocialmedia!

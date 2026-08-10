@@ -43,28 +43,32 @@ export async function runUnitTests(
     return 1;
   }
 
-  for (const filePath of unitTests) {
-    const exitCode = await runProcess({
-      cmd: [
-        "bun",
-        "test",
-        "--env-file=.env.test",
-        ...extraArgs,
-        `./${filePath}`,
-      ],
-      cwd: rootDir,
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-      },
-    });
+  const exitCode = await unitTests.reduce<Promise<number>>(
+    async (previousExitCode, filePath) => {
+      const previous = await previousExitCode;
+      if (previous !== 0) {
+        return previous;
+      }
 
-    if (exitCode !== 0) {
-      return exitCode;
-    }
-  }
+      return await runProcess({
+        cmd: [
+          "bun",
+          "test",
+          "--env-file=.env.test",
+          ...extraArgs,
+          `./${filePath}`,
+        ],
+        cwd: rootDir,
+        env: {
+          ...process.env,
+          NODE_ENV: "test",
+        },
+      });
+    },
+    Promise.resolve(0)
+  );
 
-  return 0;
+  return exitCode;
 }
 
 const isDirectExecution = Bun.argv.some(

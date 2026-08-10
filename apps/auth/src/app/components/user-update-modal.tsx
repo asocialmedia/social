@@ -1,21 +1,21 @@
 "use client";
 
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card } from "@zephyr/ui/shadui/card";
-import { Checkbox } from "@zephyr/ui/shadui/checkbox";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Label } from "@zephyr/ui/shadui/label";
+import { Button } from "@asm/ui/shadui/button";
+import { Card } from "@asm/ui/shadui/card";
+import { Checkbox } from "@asm/ui/shadui/checkbox";
+import { Input } from "@asm/ui/shadui/input";
+import { Label } from "@asm/ui/shadui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@zephyr/ui/shadui/select";
-import { Textarea } from "@zephyr/ui/shadui/textarea";
+} from "@asm/ui/shadui/select";
+import { Textarea } from "@asm/ui/shadui/textarea";
 import { AlertTriangle, UserCog, X } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { trpc } from "../trpc/client";
 import type { User } from "../types/types";
 
@@ -47,6 +47,35 @@ export default function UserUpdateModal({
       setIsSubmitting(false);
     },
   });
+
+  const handleCardClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+  }, []);
+
+  const handleDisplayNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setDisplayName(e.target.value);
+    },
+    []
+  );
+
+  const handleBioChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setBio(e.target.value);
+    },
+    []
+  );
+
+  const handleRoleChange = useCallback((value: "user" | "admin") => {
+    setRole(value);
+  }, []);
+
+  const handleEmailVerifiedChange = useCallback(
+    (checked: boolean | "indeterminate") => {
+      setEmailVerified(Boolean(checked));
+    },
+    []
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +112,7 @@ export default function UserUpdateModal({
         className="w-full max-w-md"
         exit={{ scale: 0.95, opacity: 0 }}
         initial={{ scale: 0.95, opacity: 0 }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={handleCardClick}
         transition={{ duration: 0.2 }}
       >
         <Card className="p-6">
@@ -114,7 +143,7 @@ export default function UserUpdateModal({
               <Label htmlFor="displayName">Display Name</Label>
               <Input
                 id="displayName"
-                onChange={(e) => setDisplayName(e.target.value)}
+                onChange={handleDisplayNameChange}
                 placeholder="Enter display name"
                 value={displayName}
               />
@@ -124,7 +153,7 @@ export default function UserUpdateModal({
               <Label htmlFor="bio">Bio</Label>
               <Textarea
                 id="bio"
-                onChange={(e) => setBio(e.target.value)}
+                onChange={handleBioChange}
                 placeholder="Enter bio (optional)"
                 rows={3}
                 value={bio}
@@ -133,10 +162,7 @@ export default function UserUpdateModal({
 
             <div className="space-y-2">
               <Label htmlFor="role">Role</Label>
-              <Select
-                onValueChange={(value: "user" | "admin") => setRole(value)}
-                value={role}
-              >
+              <Select onValueChange={handleRoleChange} value={role}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
@@ -151,21 +177,19 @@ export default function UserUpdateModal({
               <Checkbox
                 checked={emailVerified}
                 id="emailVerified"
-                onCheckedChange={(checked) =>
-                  setEmailVerified(checked as boolean)
-                }
+                onCheckedChange={handleEmailVerifiedChange}
               />
               <Label className="text-sm" htmlFor="emailVerified">
                 Email Verified
               </Label>
             </div>
 
-            {error && (
+            {error ? (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-sm">
                 <AlertTriangle className="h-4 w-4" />
                 {error}
               </div>
-            )}
+            ) : null}
 
             <div className="flex justify-end gap-3 pt-4">
               <Button

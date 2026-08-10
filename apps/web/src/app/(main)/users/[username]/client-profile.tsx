@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
+import type { UserData } from "@asm/db";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ScrollUpButton from "@/components/layouts/scroll-up-button";
@@ -48,7 +48,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   return (
     <div className="flex min-h-screen flex-col">
       <div className="flex flex-1">
-        {showLeftSidebar && <LeftSidebar />}
+        {showLeftSidebar ? <LeftSidebar /> : null}
         <main
           className={`flex-1 overflow-y-auto ${
             showLeftSidebar || showRightSidebar ? "" : "w-full"
@@ -63,7 +63,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
             />
           </div>
         </main>
-        {showRightSidebar && (
+        {showRightSidebar ? (
           <div className="relative hidden w-96 bg-[hsl(var(--background-alt))] md:block">
             <div ref={rightSidebarRef}>
               <RightSidebar
@@ -80,7 +80,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
               <StickyFooter />
             </div>
           </div>
-        )}
+        ) : null}
       </div>
       <ScrollUpButton isVisible={showScrollUpButton} />
     </div>

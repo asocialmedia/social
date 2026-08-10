@@ -3,8 +3,8 @@
 import {
   type UpdateUserProfileValues,
   updateUserProfileSchema,
-} from "@zephyr/auth/validation";
-import { getUserDataSelect, prisma } from "@zephyr/db";
+} from "@asm/auth/validation";
+import { getUserDataSelect, prisma } from "@asm/db";
 import { authClient } from "@/lib/auth";
 
 export async function updateUserProfile(values: UpdateUserProfileValues) {

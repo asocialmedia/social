@@ -1,7 +1,7 @@
 "use client";
 
+import { Button } from "@asm/ui/shadui/button";
 import HOME from "@assets/previews/home.png";
-import { Button } from "@zephyr/ui/shadui/button";
 import { AlertOctagon, Copy, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
@@ -41,7 +41,7 @@ export default function Error({
   };
 
   const handleCreateIssue = () => {
-    const githubIssueUrl = `https://github.com/zephverse/zephyr/issues/new?title=${encodeURIComponent(
+    const githubIssueUrl = `https://github.com/asocialmedia/social/issues/new?title=${encodeURIComponent(
       errorDetails.title
     )}&body=${encodeURIComponent(errorDetails.body)}`;
     window.open(githubIssueUrl, "_blank");
@@ -158,7 +158,7 @@ export default function Error({
                 <RotateCcw className="h-4 w-4" />
                 Try Again
               </span>
-              <div className="absolute inset-0 h-full w-full bg-gradient-to-r from-destructive/50 to-destructive opacity-50 blur-lg transition-all group-hover:opacity-75" />
+              <div className="absolute inset-0 h-full w-full bg-linear-to-r from-destructive/50 to-destructive opacity-50 blur-lg transition-all group-hover:opacity-75" />
             </Button>
 
             <Button
@@ -198,7 +198,7 @@ export default function Error({
               <span>Need help? You can:</span>
               <Link
                 className="text-primary hover:underline"
-                href="https://github.com/zephverse/zephyr/issues"
+                href="https://github.com/asocialmedia/social/issues"
                 target="_blank"
               >
                 Open a GitHub issue
@@ -206,7 +206,7 @@ export default function Error({
               <span>or</span>
               <Link
                 className="text-primary hover:underline"
-                href="mailto:zephyyrrnyx@gmail.com"
+                href="mailto:hello@asocialmedia.cc"
               >
                 contact support
               </Link>

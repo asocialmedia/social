@@ -78,7 +78,7 @@ class AnimationController {
   }
 
   private createStars() {
-    for (let i = 0; i < this.numberOfStars; i++) {
+    for (let i = 0; i < this.numberOfStars; i += 1) {
       this.stars.push(new Star(this.cameraZ, this.cameraTravelDistance));
     }
   }
@@ -201,7 +201,7 @@ class AnimationController {
   }
 
   render() {
-    const ctx = this.ctx;
+    const { ctx } = this;
     if (!ctx) {
       return;
     }

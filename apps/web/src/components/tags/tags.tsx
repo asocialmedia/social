@@ -1,14 +1,14 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import type { TagWithCount } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { TagWithCount } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
+import { useQueryClient } from "@tanstack/react-query";
 import { Hash, Plus } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion, type Variants } from "motion/react";
@@ -149,6 +149,26 @@ export function Tags({
     return "w-auto min-w-[150px]";
   };
 
+  const handleHoverEnd = useCallback(() => {
+    setHoveredTag(null);
+  }, []);
+
+  const handleHoverStart = useCallback((e: PointerEvent) => {
+    const target = e.currentTarget as HTMLElement | null;
+    const tagId = target?.dataset.tagId;
+    if (tagId !== undefined) {
+      setHoveredTag(tagId);
+    }
+  }, []);
+
+  const handleEditClick = useCallback(() => {
+    setIsEditing(true);
+  }, []);
+
+  const handleCloseEdit = useCallback(() => {
+    setIsEditing(false);
+  }, []);
+
   return (
     <>
       <div className="space-y-2">
@@ -166,10 +186,11 @@ export function Tags({
             {localTags.map((tag) => (
               <motion.div
                 className="group relative cursor-pointer"
+                data-tag-id={tag.id}
                 key={tag.id}
                 layout
-                onHoverEnd={() => setHoveredTag(null)}
-                onHoverStart={() => setHoveredTag(tag.id)}
+                onHoverEnd={handleHoverEnd}
+                onHoverStart={handleHoverStart}
                 variants={tagVariants}
                 whileHover="hover"
               >
@@ -213,7 +234,7 @@ export function Tags({
               </motion.div>
             ))}
 
-            {isOwner && (
+            {isOwner ? (
               <motion.div
                 className="relative"
                 layout
@@ -226,7 +247,7 @@ export function Tags({
                     "h-7 border-primary/15 bg-primary/5 hover:border-primary/30 hover:bg-primary/10",
                     "font-normal"
                   )}
-                  onClick={() => setIsEditing(true)}
+                  onClick={handleEditClick}
                   size="sm"
                   variant="outline"
                 >
@@ -242,7 +263,7 @@ export function Tags({
                   }}
                 />
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
         </motion.div>
       </div>
@@ -261,7 +282,7 @@ export function Tags({
           </DialogDescription>
           <TagEditor
             initialTags={localTags.map((t) => t.name)}
-            onCloseAction={() => setIsEditing(false)}
+            onCloseAction={handleCloseEdit}
             onTagsUpdateAction={handleTagsUpdate}
             postId={postId}
           />

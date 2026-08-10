@@ -1,13 +1,13 @@
-name: zephdev
+name: asmdev
 
 services:
   postgres-dev:
-    container_name: zephdb
+    container_name: asmdb
     image: postgres:18.3
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: zephyr
+      POSTGRES_DB: asocialmedia
     ports:
       - "5433:5432"
     volumes:
@@ -20,7 +20,7 @@ services:
     networks:
       - dev_network
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d zephyr" ]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d asocialmedia" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,7 +29,7 @@ services:
 
   postgres-init:
     profiles: [ "init" ]
-    container_name: zephdev-db-init
+    container_name: asmdev-db-init
     image: postgres:18.3
     environment:
       PGPASSWORD: postgres
@@ -41,23 +41,23 @@ services:
     command: >
       sh -c '
         echo "Initializing PostgreSQL extensions..." &&
-        psql -h postgres-dev -U postgres -d zephyr -c "
+        psql -h postgres-dev -U postgres -d asocialmedia -c "
           CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
           CREATE EXTENSION IF NOT EXISTS \"pgcrypto\";
           CREATE EXTENSION IF NOT EXISTS \"pg_stat_statements\";
-          ALTER DATABASE zephyr SET timezone TO '\''UTC'\'';
+          ALTER DATABASE asocialmedia SET timezone TO '\''UTC'\'';
         " &&
         echo "PostgreSQL initialization complete!"
       '
 
   prisma-migrate:
     profiles: [ "init" ]
-    container_name: zephdev-schema-init
+    container_name: asmdev-schema-init
     build:
       context: ..
       dockerfile: docker/prisma.dockerfile
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/zephyr?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
     networks:
       - dev_network
     depends_on:
@@ -70,12 +70,12 @@ services:
 
   prisma-studio:
     profiles: [ "studio", "init" ]
-    container_name: zephdev-prisma-studio
+    container_name: asmdev-prisma-studio
     build:
       context: ..
       dockerfile: docker/prisma.dockerfile
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/zephyr?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
     ports:
       - "5555:5555"
     networks:
@@ -90,12 +90,12 @@ services:
     restart: unless-stopped
 
   redis-dev:
-    container_name: zephdev-redis
+    container_name: asmdev-redis
     image: redis:8.6.2
     ports:
       - "${REDIS_PORT:-6379}:6379"
     command: >
-      redis-server --requirepass zephyrredis --maxmemory 256mb
+      redis-server --requirepass asmredis --maxmemory 256mb
       --maxmemory-policy allkeys-lru --appendonly yes --appendfsync everysec
       --loglevel notice --save 900 1
     volumes:
@@ -103,7 +103,7 @@ services:
     networks:
       - dev_network
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "zephyrredis", "ping" ]
+      test: [ "CMD", "redis-cli", "-a", "asmredis", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -111,14 +111,14 @@ services:
 
   redis-insight:
     profiles: [ "studio" ]
-    container_name: zephdev-redis-insight
+    container_name: asmdev-redis-insight
     image: redislabs/redisinsight:latest
     ports:
       - "5540:5540"
     environment:
       - RI_REDIS_HOST=redis-dev
       - RI_REDIS_PORT=6379
-      - RI_REDIS_PASSWORD=zephyrredis
+      - RI_REDIS_PASSWORD=asmredis
       - RI_REDIS_ALIAS=Zephyr Redis Dev
     volumes:
       - redisinsight:/data
@@ -129,20 +129,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  zephob-dev:
-    container_name: zephdev-zephob
+  asmob-dev:
+    container_name: asmdev-asmob
     image: rustfs/rustfs:latest
     ports:
       - "9090:9000"
       - "9001:9001"
     environment:
-      RUSTFS_ACCESS_KEY: ${ZEPHOB_ROOT_USER:-zephob-admin}
-      RUSTFS_SECRET_KEY: ${ZEPHOB_ROOT_PASSWORD:-zephob-admin}
-      RUSTFS_CONSOLE_ENABLE: true
+      RUSTFS_ACCESS_KEY: ${ASMOB_ROOT_USER:-asmob-admin}
+      RUSTFS_SECRET_KEY: ${ASMOB_ROOT_PASSWORD:-asmob-admin}
+      RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
-      RUSTFS_REGION: ${ZEPHOB_REGION:-ap-south-1}
+      RUSTFS_REGION: ${ASMOB_REGION:-ap-south-1}
     volumes:
-      - zephob_data_dev:/data
+      - asmob_data_dev:/data
     networks:
       - dev_network
     command: rustfs --address 0.0.0.0:9000 /data
@@ -154,18 +154,18 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  zephob-init:
+  asmob-init:
     profiles: [ "init" ]
-    container_name: zephdev-zephob-init
+    container_name: asmdev-asmob-init
     image: amazon/aws-cli:2.17.53
     depends_on:
-      zephob-dev:
+      asmob-dev:
         condition: service_healthy
     environment:
-      AWS_ACCESS_KEY_ID: ${ZEPHOB_ROOT_USER:-zephob-admin}
-      AWS_SECRET_ACCESS_KEY: ${ZEPHOB_ROOT_PASSWORD:-zephob-admin}
-      AWS_DEFAULT_REGION: ${ZEPHOB_REGION:-ap-south-1}
-      ZEPHOB_ENDPOINT: http://zephob-dev:9000
+      AWS_ACCESS_KEY_ID: ${ASMOB_ROOT_USER:-asmob-admin}
+      AWS_SECRET_ACCESS_KEY: ${ASMOB_ROOT_PASSWORD:-asmob-admin}
+      AWS_DEFAULT_REGION: ${ASMOB_REGION:-ap-south-1}
+      ASMOB_ENDPOINT: http://asmob-dev:9000
     networks:
       - dev_network
     entrypoint:
@@ -173,54 +173,33 @@ services:
       - -ec
       - |
         echo 'Creating object storage buckets...'
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api create-bucket --bucket uploads || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api create-bucket --bucket avatars || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api create-bucket --bucket temp || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api create-bucket --bucket backups || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api create-bucket --bucket uploads || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api create-bucket --bucket avatars || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api create-bucket --bucket temp || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api create-bucket --bucket backups || true
 
         echo 'Setting bucket policies...'
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-policy --bucket uploads --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::uploads/*"}]}' || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-policy --bucket avatars --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::avatars/*"}]}' || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-policy --bucket temp --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::temp/*"}]}' || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-policy --bucket backups --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::backups/*"}]}' || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket uploads --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::uploads/*"}]}' || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket avatars --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::avatars/*"}]}' || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket temp --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::temp/*"}]}' || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket backups --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::backups/*"}]}' || true
 
         echo 'Enabling versioning...'
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-versioning --bucket uploads --versioning-configuration Status=Enabled || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-versioning --bucket avatars --versioning-configuration Status=Enabled || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-versioning --bucket temp --versioning-configuration Status=Enabled || true
-        aws --endpoint-url "$$ZEPHOB_ENDPOINT" s3api put-bucket-versioning --bucket backups --versioning-configuration Status=Enabled || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket uploads --versioning-configuration Status=Enabled || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket avatars --versioning-configuration Status=Enabled || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket temp --versioning-configuration Status=Enabled || true
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket backups --versioning-configuration Status=Enabled || true
 
         echo 'Object storage initialization complete!'
 
-  rabbitmq-dev:
-    container_name: zephdev-rabbitmq
-    image: rabbitmq:4.2.5
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin123
-    volumes:
-      - rabbitmq_data_dev:/var/lib/rabbitmq
-    networks:
-      - dev_network
-    healthcheck:
-      test: [ "CMD", "rabbitmq-diagnostics", "ping" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-
   meilisearch-dev:
-    container_name: zephdev-meilisearch
+    container_name: asmdev-meilisearch
     image: getmeili/meilisearch:latest
     ports:
       - "7700:7700"
     environment:
       MEILI_MASTER_KEY: masterKey123
-      MEILI_NO_ANALYTICS: true
+      MEILI_NO_ANALYTICS: "true"
     volumes:
       - meilisearch_data_dev:/meili_data
     networks:
@@ -235,14 +214,14 @@ services:
 
   meilisearch-init:
     profiles: [ "init" ]
-    container_name: zephdev-meilisearch-init
+    container_name: asmdev-meilisearch-init
     build:
       context: ..
       dockerfile: docker/prisma.dockerfile
     environment:
       MEILISEARCH_URL: http://meilisearch-dev:7700
       MEILISEARCH_MASTER_KEY: masterKey123
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/zephyr?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
     networks:
       - dev_network
     depends_on:
@@ -257,49 +236,19 @@ services:
         "/usr/local/bin/meilisearch-init.sh",
       ]
 
-  timescaledb-dev:
-    container_name: zephdev-timescaledb
-    image: timescale/timescaledb:latest-pg18
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: zephyr-logs
-    ports:
-      - "5434:5432"
-    volumes:
-      - timescaledb_data_dev:/var/lib/postgresql/data
-    command: >
-      postgres -c listen_addresses='*' -c max_connections=50 -c
-      shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c
-      effective_cache_size=256MB -c wal_level=replica -c max_wal_senders=4 -c
-      log_statement=none -c timezone=UTC
-    networks:
-      - dev_network
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d zephyr-logs" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-
 networks:
   dev_network:
     driver: bridge
-    name: zephdev-network
+    name: asmdev-network
 
 volumes:
   postgres_data_dev:
-    name: zephdev-postgres18-data
+    name: asmdev-postgres18-data
   redis_data_dev:
-    name: zephdev-redis-data
-  zephob_data_dev:
-    name: zephdev-zephob-data
+    name: asmdev-redis-data
+  asmob_data_dev:
+    name: asmdev-asmob-data
   redisinsight:
-    name: zephdev-redisinsight-data
-  rabbitmq_data_dev:
-    name: zephdev-rabbitmq-data
+    name: asmdev-redisinsight-data
   meilisearch_data_dev:
-    name: zephdev-meilisearch-data
-  timescaledb_data_dev:
-    name: zephdev-timescaledb-data
+    name: asmdev-meilisearch-data

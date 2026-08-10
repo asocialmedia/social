@@ -1,21 +1,16 @@
 "use client";
 
-import { DirectionAwareHover } from "@zephyr/ui/components/ui/direction-aware-hover";
-import { Badge } from "@zephyr/ui/shadui/badge";
-import { Button } from "@zephyr/ui/shadui/button";
-import { Card, CardContent } from "@zephyr/ui/shadui/card";
+import { DirectionAwareHover } from "@asm/ui/components/ui/direction-aware-hover";
+import { Badge } from "@asm/ui/shadui/badge";
+import { Button } from "@asm/ui/shadui/button";
+import { Card, CardContent } from "@asm/ui/shadui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@zephyr/ui/shadui/dropdown-menu";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@zephyr/ui/shadui/tabs";
+} from "@asm/ui/shadui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { BookOpen, Edit, Plus, Settings, Upload } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";

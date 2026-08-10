@@ -1,12 +1,12 @@
 "use client";
 
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
+import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Loader2, Search, X } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
-import { useState } from "react";
+import { type MouseEvent, useCallback, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 import UserAvatar from "../layouts/user-avatar";
@@ -63,60 +63,99 @@ export function MentionTagEditor({
   const updateMentions = useUpdateMentionsMutation(postId);
   const { user: currentUser } = useSession();
 
-  const searchUsers = async (query: string) => {
-    if (!query.trim()) {
-      setSuggestions([]);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const res = await fetch(
-        `/api/users/search?q=${encodeURIComponent(query)}`
-      );
-      if (!res.ok) {
-        throw new Error("Failed to search users");
+  const searchUsers = useCallback(
+    async (query: string) => {
+      if (!query.trim()) {
+        setSuggestions([]);
+        return;
       }
-      const data = await res.json();
 
-      setSuggestions(data.users);
-    } catch (error) {
-      console.error("Error searching users:", error);
-      toast({
-        title: "Error searching users",
-        description: "Please try again later",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      setIsLoading(true);
+      try {
+        const res = await fetch(
+          `/api/users/search?q=${encodeURIComponent(query)}`
+        );
+        if (!res.ok) {
+          throw new Error("Failed to search users");
+        }
+        const data = await res.json();
 
-  const handleSelect = (user: UserData) => {
-    if (selectedMentions.length >= 5) {
-      toast({
-        title: "Maximum mentions reached",
-        description: "You can only mention up to 5 users per post",
-        variant: "destructive",
-      });
-      return;
-    }
+        setSuggestions(data.users);
+      } catch (error) {
+        console.error("Error searching users:", error);
+        toast({
+          title: "Error searching users",
+          description: "Please try again later",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [toast]
+  );
 
-    if (!selectedMentions.some((m) => m.id === user.id)) {
-      const newMentions = [...selectedMentions, user];
+  const handleSelect = useCallback(
+    (user: UserData) => {
+      if (selectedMentions.length >= 5) {
+        toast({
+          title: "Maximum mentions reached",
+          description: "You can only mention up to 5 users per post",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!selectedMentions.some((m) => m.id === user.id)) {
+        const newMentions = [...selectedMentions, user];
+        setSelectedMentions(newMentions);
+        onMentionsUpdateAction(newMentions);
+      }
+      setSearch("");
+    },
+    [selectedMentions, onMentionsUpdateAction, toast]
+  );
+
+  const handleRemove = useCallback(
+    (userId: string) => {
+      const newMentions = selectedMentions.filter((m) => m.id !== userId);
       setSelectedMentions(newMentions);
       onMentionsUpdateAction(newMentions);
-    }
-    setSearch("");
-  };
+    },
+    [selectedMentions, onMentionsUpdateAction]
+  );
 
-  const handleRemove = (userId: string) => {
-    const newMentions = selectedMentions.filter((m) => m.id !== userId);
-    setSelectedMentions(newMentions);
-    onMentionsUpdateAction(newMentions);
-  };
+  const isCurrentUser = (userId: string) => currentUser?.id === userId;
 
-  const handleSave = async () => {
+  const handleValueChange = useCallback(
+    (value: string) => {
+      setSearch(value);
+      searchUsers(value);
+    },
+    [searchUsers]
+  );
+
+  const handleRemoveClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      const { userId } = e.currentTarget.dataset;
+      if (userId !== undefined) {
+        handleRemove(userId);
+      }
+    },
+    [handleRemove]
+  );
+
+  const handleSelectValue = useCallback(
+    (value: string) => {
+      const user = suggestions.find((u) => u.username === value);
+      if (user) {
+        handleSelect(user);
+      }
+    },
+    [suggestions, handleSelect]
+  );
+
+  const handleSave = useCallback(async () => {
     try {
       onMentionsUpdateAction(selectedMentions);
       onCloseAction();
@@ -129,9 +168,13 @@ export function MentionTagEditor({
         variant: "destructive",
       });
     }
-  };
-
-  const isCurrentUser = (userId: string) => currentUser?.id === userId;
+  }, [
+    onMentionsUpdateAction,
+    onCloseAction,
+    updateMentions,
+    selectedMentions,
+    toast,
+  ]);
 
   return (
     <div>
@@ -159,7 +202,8 @@ export function MentionTagEditor({
                 </span>
                 <button
                   className="text-blue-500/50 transition-colors hover:text-blue-500"
-                  onClick={() => handleRemove(user.id)}
+                  data-user-id={user.id}
+                  onClick={handleRemoveClick}
                   type="button"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -175,21 +219,18 @@ export function MentionTagEditor({
               <Search className="mr-2 h-4 w-4 text-muted-foreground" />
               <Command.Input
                 className="h-11 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
-                onValueChange={(value) => {
-                  setSearch(value);
-                  searchUsers(value);
-                }}
+                onValueChange={handleValueChange}
                 placeholder="Search users to mention..."
                 value={search}
               />
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             </div>
             <Command.List className="max-h-[180px] overflow-y-auto p-2">
               {suggestions.map((user) => (
                 <Command.Item
                   className="group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm hover:bg-accent"
                   key={user.id}
-                  onSelect={() => handleSelect(user)}
+                  onSelect={handleSelectValue}
                   value={user.username}
                 >
                   <UserAvatar size={24} user={user} />

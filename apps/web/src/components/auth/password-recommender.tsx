@@ -1,9 +1,9 @@
 "use client";
 
-import type { SignUpValues } from "@zephyr/auth/validation";
+import type { SignUpValues } from "@asm/auth/validation";
 import { ArrowRight, Lightbulb, Wand2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { UseFormSetValue } from "react-hook-form";
 import {
   lowercaseRegex,
@@ -155,7 +155,7 @@ export function PasswordRecommender({
 
         case "No repeated characters (3+ times)":
           recommendation = recommendation.replace(/(.)\1{2,}/g, (match) => {
-            const char = match[0];
+            const [char] = match;
             // @ts-expect-error - TS doesn't recognize the key exists
             const alternatives: Record<string, string[]> = {
               a: ["@", "4"],
@@ -206,7 +206,7 @@ export function PasswordRecommender({
   const recommendedPassword = generateRecommendation(password);
   const shouldShowRecommendation = password && recommendedPassword !== password;
 
-  const handleUseRecommendation = () => {
+  const handleUseRecommendation = useCallback(() => {
     setIsGenerating(true);
     if (setValue) {
       setValue("password", recommendedPassword, {
@@ -217,11 +217,11 @@ export function PasswordRecommender({
       setPassword(recommendedPassword);
     }
     setTimeout(() => setIsGenerating(false), 500);
-  };
+  }, [recommendedPassword, setPassword, setValue]);
 
   return (
     <AnimatePresence mode="wait">
-      {shouldShowRecommendation && (
+      {shouldShowRecommendation ? (
         <motion.div
           animate={{ opacity: 1, y: 0 }}
           className="mt-2 rounded-lg border border-yellow-200 bg-yellow-50/50 p-3 backdrop-blur-xs dark:border-yellow-900/50 dark:bg-yellow-900/20"
@@ -276,7 +276,7 @@ export function PasswordRecommender({
             </div>
           </div>
         </motion.div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

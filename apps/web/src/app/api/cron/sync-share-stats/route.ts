@@ -1,4 +1,4 @@
-import { prisma, redis, shareStatsCache } from "@zephyr/db";
+import { prisma, redis, shareStatsCache } from "@asm/db";
 import { NextResponse } from "next/server";
 
 const SHARE_STATS_PREFIX = "share:stats:";
@@ -31,7 +31,6 @@ const SUPPORTED_PLATFORMS: Platform[] = [
   "qr",
 ];
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Share stats sync requires multiple platform-specific operations and error handling
 async function syncShareStats() {
   const logs: string[] = [];
   const startTime = Date.now();
@@ -68,55 +67,61 @@ async function syncShareStats() {
     const batchSize = 25;
     let processed = 0;
 
-    // Process each post
-    for (const post of posts) {
-      try {
-        // Process each platform for the post
-        for (const platform of SUPPORTED_PLATFORMS) {
-          const stats = await shareStatsCache.getStats(post.id, platform);
+    async function processPost(postIndex: number): Promise<void> {
+      if (postIndex >= posts.length) {
+        return;
+      }
 
-          if (stats.shares > 0 || stats.clicks > 0) {
-            // Only upsert if there are actual stats
-            await prisma.shareStats.upsert({
-              where: {
-                postId_platform: {
+      const post = posts[postIndex];
+
+      try {
+        await Promise.all(
+          SUPPORTED_PLATFORMS.map(async (platform) => {
+            const stats = await shareStatsCache.getStats(post.id, platform);
+
+            if (stats.shares > 0 || stats.clicks > 0) {
+              // Only upsert if there are actual stats
+              await prisma.shareStats.upsert({
+                where: {
+                  postId_platform: {
+                    postId: post.id,
+                    platform,
+                  },
+                },
+                update: {
+                  shares: stats.shares,
+                  clicks: stats.clicks,
+                  updatedAt: new Date(),
+                },
+                create: {
                   postId: post.id,
                   platform,
+                  shares: stats.shares,
+                  clicks: stats.clicks,
                 },
-              },
-              update: {
-                shares: stats.shares,
-                clicks: stats.clicks,
-                updatedAt: new Date(),
-              },
-              create: {
-                postId: post.id,
-                platform,
-                shares: stats.shares,
-                clicks: stats.clicks,
-              },
-            });
+              });
 
-            results.syncedCount++;
-            log(`✅ Synced stats for post ${post.id} on ${platform}`);
+              results.syncedCount += 1;
+              log(`✅ Synced stats for post ${post.id} on ${platform}`);
 
-            // Cleanup Redis keys after successful sync
-            const shareKey = `${SHARE_STATS_PREFIX}${post.id}:${platform}`;
-            const clickKey = `${SHARE_CLICKS_PREFIX}${post.id}:${platform}`;
-            await Promise.all([redis.del(shareKey), redis.del(clickKey)]);
-            results.deletedKeys += 2;
-          }
-        }
+              // Cleanup Redis keys after successful sync
+              const shareKey = `${SHARE_STATS_PREFIX}${post.id}:${platform}`;
+              const clickKey = `${SHARE_CLICKS_PREFIX}${post.id}:${platform}`;
+              await Promise.all([redis.del(shareKey), redis.del(clickKey)]);
+              results.deletedKeys += 2;
+            }
+          })
+        );
       } catch (error) {
         const errorMessage = `Failed to sync stats for post ${post.id}: ${
           error instanceof Error ? error.message : "Unknown error"
         }`;
         log(`❌ ${errorMessage}`);
         results.errors.push(errorMessage);
-        results.errorCount++;
+        results.errorCount += 1;
       }
 
-      processed++;
+      processed += 1;
       results.totalProcessed = processed;
 
       if (processed % batchSize === 0) {
@@ -124,7 +129,11 @@ async function syncShareStats() {
         // Rate limiting to prevent overloading
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+
+      await processPost(postIndex + 1);
     }
+
+    await processPost(0);
 
     // Cleanup old keys that might be orphaned
     const [oldShareKeys, oldClickKeys] = await Promise.all([

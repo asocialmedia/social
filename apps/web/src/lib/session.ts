@@ -1,4 +1,4 @@
-import type { Session, User } from "@zephyr/auth/core";
+import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
 
 export type SessionResponse = { session: Session; user: User } | null;

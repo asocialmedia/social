@@ -1,19 +1,19 @@
 {
-  "name": "@zephyr/aggregator",
-  "description": "Aggregator service for Zephyr",
-  "version": "1.0.1",
+  "name": "@asm/aggregator",
+  "version": "1.0.4",
   "private": true,
+  "description": "Aggregator service for Asocialmedia",
   "scripts": {
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@zephyr/db": "workspace:*",
-    "ky": "^1.14.3",
-    "next": "^16.2.4",
-    "react": "^19.2.5"
+    "@asm/db": "workspace:*",
+    "ky": "^2.0.2",
+    "next": "^16.3.0",
+    "react": "^19.2.8"
   },
   "devDependencies": {
-    "@zephyr/config": "workspace:*",
-    "typescript": "^6.0.3"
+    "@asm/config": "workspace:*",
+    "typescript": "^7.0.2"
   }
 }

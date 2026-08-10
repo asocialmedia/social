@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@zephyr/db";
+import { getUserDataSelect, prisma } from "@asm/db";
 import { redirect } from "next/navigation";
 import { getSessionFromApi } from "@/lib/session";
 import ClientSettings from "./client-settings";

@@ -1,8 +1,7 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import type { UserData } from "@zephyr/db";
-import { useToast } from "@zephyr/ui/hooks/use-toast";
+import type { UserData } from "@asm/db";
+import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -10,11 +9,12 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@zephyr/ui/shadui/form";
-import { Input } from "@zephyr/ui/shadui/input";
-import { Separator } from "@zephyr/ui/shadui/separator";
+} from "@asm/ui/shadui/form";
+import { Input } from "@asm/ui/shadui/input";
+import { Separator } from "@asm/ui/shadui/separator";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { LoadingButton } from "@/components/auth/loading-button";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
@@ -38,6 +38,38 @@ const emailSchema = z.object({
 
 type UsernameFormValues = z.infer<typeof usernameSchema>;
 type EmailFormValues = z.infer<typeof emailSchema>;
+
+function UsernameFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<UsernameFormValues, "username">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>Username</FormLabel>
+      <FormControl>
+        <Input {...field} />
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function EmailFieldRenderer({
+  field,
+}: {
+  field: ControllerRenderProps<EmailFormValues, "email">;
+}) {
+  return (
+    <FormItem>
+      <FormLabel>Email</FormLabel>
+      <FormControl>
+        <Input {...field} type="email" />
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
 
 interface AccountSettingsProps {
   user: UserData;
@@ -128,15 +160,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
             <FormField
               control={usernameForm.control}
               name="username"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Username</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={UsernameFieldRenderer}
             />
 
             <LoadingButton loading={usernameMutation.isPending} type="submit">
@@ -158,15 +182,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
             <FormField
               control={emailForm.control}
               name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input {...field} type="email" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={EmailFieldRenderer}
             />
 
             <LoadingButton

@@ -1,4 +1,4 @@
-import { getPostDataInclude, prisma, type UserData } from "@zephyr/db";
+import { getPostDataInclude, prisma, type UserData } from "@asm/db";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -74,11 +74,11 @@ export default async function Page(props: PageProps) {
             isCollapsed={false}
             stickyTop="5rem"
           />
-          {userData && (
+          {userData ? (
             <div className="mt-auto mb-4">
               <ProfileCard userData={userData} />
             </div>
-          )}
+          ) : null}
         </div>
       </aside>
 

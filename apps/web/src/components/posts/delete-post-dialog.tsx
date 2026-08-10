@@ -1,5 +1,5 @@
-import type { PostData } from "@zephyr/db";
-import { Button } from "@zephyr/ui/shadui/button";
+import type { PostData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +7,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@zephyr/ui/shadui/dialog";
+} from "@asm/ui/shadui/dialog";
+import { useCallback } from "react";
 import LoadingButton from "@/components/auth/loading-button";
 import { useDeletePostMutation } from "@/posts/mutations";
 
@@ -30,6 +31,10 @@ export default function DeletePostDialog({
     }
   }
 
+  const handleDelete = useCallback(() => {
+    mutation.mutate(post.id, { onSuccess: onClose });
+  }, [mutation, onClose, post.id]);
+
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent>
@@ -43,7 +48,7 @@ export default function DeletePostDialog({
         <DialogFooter>
           <LoadingButton
             loading={mutation.isPending}
-            onClick={() => mutation.mutate(post.id, { onSuccess: onClose })}
+            onClick={handleDelete}
             variant="destructive"
           >
             Delete

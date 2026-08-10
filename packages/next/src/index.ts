@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 export const config: NextConfig = {
-  transpilePackages: ["@zephyr/auth", "@zephyr/db", "@zephyr/config"],
+  transpilePackages: ["@asm/auth", "@asm/db", "@asm/config"],
   reactStrictMode: true,
   reactCompiler: true,
   allowedDevOrigins: ["*.localhost", "localhost", "127.0.0.1"],

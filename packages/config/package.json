@@ -1,7 +1,7 @@
 {
-  "name": "@zephyr/config",
-  "description": "Zephyr configuration package contains shared configs for typescript",
-  "version": "1.0.1",
-  "license": "AGPL-3.0",
-  "private": true
+  "name": "@asm/config",
+  "version": "1.0.2",
+  "private": true,
+  "description": "Asocialmedia configuration package contains shared configs for typescript",
+  "license": "AGPL-3.0"
 }
