@@ -70,7 +70,7 @@ export function StepThree({
 
       <div className="space-y-4">
         <Textarea
-          className="min-h-[200px] w-full bg-background/50 backdrop-blur-sm"
+          className="min-h-[200px] w-full"
           onChange={handleMessageChange}
           placeholder="Describe your issue or suggestion in detail..."
           required
@@ -88,7 +88,7 @@ export function StepThree({
           />
 
           <Button
-            className="w-full bg-background/50 backdrop-blur-sm"
+            className="w-full"
             disabled
             onClick={handleAttachClick}
             type="button"
@@ -107,10 +107,10 @@ export function StepThree({
 
         <div className="flex space-x-2">
           <Button
-            className="bg-background/50 backdrop-blur-sm"
+            className="btn-social h-9 rounded-xl px-4 text-sm"
             onClick={onBack}
             type="button"
-            variant="outline"
+            variant="ghost"
           >
             Back
           </Button>
@@ -118,6 +118,7 @@ export function StepThree({
             className="flex-1"
             disabled={loading || !formData.message}
             type="submit"
+            variant="premium"
           >
             {loading ? (
               <>

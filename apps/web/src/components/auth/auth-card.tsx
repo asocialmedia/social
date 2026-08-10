@@ -46,7 +46,7 @@ export default function AuthCard({
   }, [mode, onSwitch]);
 
   return (
-    <div className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[560px] lg:flex-row">
+    <div className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[520px] lg:flex-row">
       {/* Image half — flips sides with the mode */}
       <div
         className={`relative hidden overflow-hidden lg:flex lg:w-1/2 ${
@@ -81,7 +81,7 @@ export default function AuthCard({
           isImageLeft ? "order-2" : "order-1"
         }`}
       >
-        <div className="relative mx-auto h-[520px] w-full max-w-sm">
+        <div className="relative mx-auto h-[480px] w-full max-w-sm">
           <AnimatePresence initial={false}>
             <motion.div
               animate={{ opacity: 1 }}

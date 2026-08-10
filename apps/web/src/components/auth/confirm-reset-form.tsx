@@ -275,7 +275,7 @@ export default function ConfirmResetForm() {
         <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
           <motion.div
             animate={{ y: 0, opacity: 1 }}
-            className="relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[560px] lg:flex-row"
+            className="relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[520px] lg:flex-row"
             initial={{ y: 20, opacity: 0 }}
             transition={{ delay: 0.2 }}
           >

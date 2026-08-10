@@ -52,7 +52,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
 
       <div className="space-y-4">
         <Select onValueChange={handleCategoryChange} value={formData.category}>
-          <SelectTrigger className="w-full bg-background/50 backdrop-blur-sm">
+          <SelectTrigger className="w-full">
             <SelectValue placeholder="Select category" />
           </SelectTrigger>
           <SelectContent>
@@ -65,7 +65,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
         </Select>
 
         <Select onValueChange={handlePriorityChange} value={formData.priority}>
-          <SelectTrigger className="w-full bg-background/50 backdrop-blur-sm">
+          <SelectTrigger className="w-full">
             <SelectValue placeholder="Select priority" />
           </SelectTrigger>
           <SelectContent>
@@ -78,7 +78,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
         </Select>
 
         <Input
-          className="w-full bg-background/50 backdrop-blur-sm"
+          className="w-full"
           onChange={handleSubjectChange}
           placeholder="Subject"
           required
@@ -87,10 +87,10 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
 
         <div className="flex space-x-2">
           <Button
-            className="bg-background/50 backdrop-blur-sm"
+            className="btn-social h-9 rounded-xl px-4 text-sm"
             onClick={onBack}
             type="button"
-            variant="outline"
+            variant="ghost"
           >
             Back
           </Button>
@@ -99,6 +99,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
             disabled={!(formData.category && formData.subject)}
             onClick={onNext}
             type="button"
+            variant="premium"
           >
             Continue
           </Button>

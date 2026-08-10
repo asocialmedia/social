@@ -155,7 +155,7 @@ export default function ResetPasswordForm() {
 
         <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
           <motion.div
-            className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[560px] lg:flex-row"
+            className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[520px] lg:flex-row"
             variants={itemVariants}
           >
             <div className="relative z-10 flex w-full flex-col justify-center px-6 py-10 sm:px-8 lg:w-1/2">
