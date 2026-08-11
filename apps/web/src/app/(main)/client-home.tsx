@@ -7,6 +7,7 @@ import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import FollowingFeed from "@/components/home/feedview/following";
 import ForYouFeed from "@/components/home/for-you-feed";
+import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import PostEditor from "@/components/posts/editor/post-editor";
 
 interface ClientHomeProps {
@@ -37,35 +38,39 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-[65%] min-w-[22rem] max-w-3xl flex-col border-border/40 border-x bg-[hsl(var(--background-alt))]">
-      <Tabs onValueChange={handleTabChange} value={tab}>
-        <div className="sticky top-0 z-20 border-border/40 border-b bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-0 bg-transparent p-0">
-            <TabsTrigger
-              className="rounded-none border-transparent border-b-2 py-4 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              value="for-you"
-            >
-              Global
-            </TabsTrigger>
-            <TabsTrigger
-              className="rounded-none border-transparent border-b-2 py-4 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              value="following"
-            >
-              Following
-            </TabsTrigger>
-          </TabsList>
-        </div>
+    <div className="relative flex min-h-screen justify-center">
+      <LeftSidebar userData={userData} />
 
-        <PostEditor />
+      <div className="flex w-[80%] min-w-[22rem] max-w-5xl flex-col border-border/60 border-x bg-[hsl(var(--background-alt))]">
+        <Tabs onValueChange={handleTabChange} value={tab}>
+          <div className="sticky top-0 z-20 border-border/60 border-b bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-0 bg-transparent p-0">
+              <TabsTrigger
+                className="rounded-none border-transparent border-b-2 py-4 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                value="for-you"
+              >
+                Global
+              </TabsTrigger>
+              <TabsTrigger
+                className="rounded-none border-transparent border-b-2 py-4 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                value="following"
+              >
+                Following
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-        <TabsContent className="mt-0" value="for-you">
-          <ForYouFeed />
-        </TabsContent>
+          <PostEditor />
 
-        <TabsContent className="mt-0" value="following">
-          <FollowingFeed />
-        </TabsContent>
-      </Tabs>
+          <TabsContent className="mt-0" value="for-you">
+            <ForYouFeed />
+          </TabsContent>
+
+          <TabsContent className="mt-0" value="following">
+            <FollowingFeed />
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 };

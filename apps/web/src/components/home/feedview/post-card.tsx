@@ -240,7 +240,7 @@ const PostCard: React.FC<PostCardProps> = ({
       <ViewTracker postId={post.id} />
       {isJoined ? (
         <div
-          className={`group/post rounded-none border-border border-t border-b bg-background ${post.hnStoryShare ? "relative border-l-2 border-l-orange-500 pb-1" : ""}`}
+          className={`group/post rounded-none bg-[#1a1a1a] transition-colors duration-150 hover:bg-[#222222] ${post.hnStoryShare ? "relative border-l-2 border-l-orange-500 pb-1" : ""}`}
         >
           {post.hnStoryShare ? (
             <div className="absolute top-0 left-0 h-full w-1 rounded-full bg-gradient-to-b from-orange-400 to-yellow-500" />
@@ -251,7 +251,7 @@ const PostCard: React.FC<PostCardProps> = ({
         </div>
       ) : (
         <Card
-          className={`group/post rounded-none border-border border-t border-b bg-background shadow-none ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
+          className={`group/post rounded-none bg-[#1a1a1a] shadow-none transition-colors duration-150 hover:bg-[#222222] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
           <CardContent className="p-4">
             <PostContent />

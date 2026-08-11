@@ -220,7 +220,7 @@ export default function PostEditor() {
   return (
     <motion.div
       animate="visible"
-      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300"
+      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[#1a1a1a] p-5 shadow-none transition-shadow duration-300"
       initial="hidden"
       variants={containerVariants}
     >
@@ -270,7 +270,7 @@ export default function PostEditor() {
             >
               <EditorContent
                 className={cn(
-                  "max-h-[20rem] w-full overflow-y-auto rounded-2xl bg-[hsl(var(--background-alt))] px-5 py-3 text-foreground",
+                  "max-h-[20rem] w-full overflow-y-auto rounded-2xl bg-[#141414] px-5 py-3 text-foreground",
                   "transition-all duration-300 ease-in-out",
                   "focus-within:ring-2 focus-within:ring-primary",
                   isDragActive && "outline-dashed outline-primary"
