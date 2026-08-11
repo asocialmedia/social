@@ -337,4 +337,28 @@ describe("email service", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("Send exception");
   });
+
+  test("all emails are sent from Zeph <noreply@asocialmedia.cc>", async () => {
+    Object.defineProperty(envModule.env, "RESEND_API_KEY", {
+      value: "test_key",
+      writable: true,
+    });
+    Object.defineProperty(envModule.env, "NODE_ENV", {
+      value: "test",
+      writable: true,
+    });
+
+    await serviceModule.sendVerificationEmail("user@example.com", "tok");
+    await serviceModule.sendVerificationOTP("user@example.com", "123456");
+    await serviceModule.sendPasswordResetEmail("user@example.com", "tok");
+
+    const sendCalls = mockResendSend.mock.calls as unknown as Array<
+      Array<{ from?: string }>
+    >;
+    expect(sendCalls.length).toBeGreaterThanOrEqual(3);
+
+    for (const call of sendCalls) {
+      expect(call[0].from).toBe("Zeph <noreply@asocialmedia.cc>");
+    }
+  });
 });

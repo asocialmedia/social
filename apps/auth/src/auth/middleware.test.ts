@@ -4,11 +4,15 @@ import type { HybridSession, JWTValidationResult } from "@asm/auth/core";
 type MiddlewareModule = typeof import("./middleware");
 
 interface SessionLookupUser {
+  banExpires: Date | null;
+  banned: boolean;
+  banReason: string | null;
   createdAt: Date;
   displayName: string;
   email: string;
   emailVerified: boolean;
   name: string;
+  role: string;
   updatedAt: Date;
   username: string;
 }
@@ -67,6 +71,10 @@ describe("middleware", () => {
     emailVerified: true,
     name: "Test",
     displayName: "Test User",
+    role: "user",
+    banned: false,
+    banReason: null,
+    banExpires: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -80,6 +88,7 @@ describe("middleware", () => {
       prisma: {
         user: {
           findUnique: mockFindUnique,
+          update: mock(async () => ({})),
         },
       },
     }));
@@ -175,6 +184,64 @@ describe("middleware", () => {
       expect(mockGetSession).not.toHaveBeenCalled();
       expect(result.session?.id).toBe("s1");
       expect(result.user?.username).toBe("test");
+    });
+
+    test("rejects cached session for a banned user", async () => {
+      const now = new Date();
+      mockFindByToken.mockResolvedValueOnce({
+        id: "s1",
+        userId: "u1",
+        token: "valid",
+        expiresAt: now,
+        ipAddress: "127.0.0.1",
+        userAgent: "ua",
+        createdAt: now,
+        updatedAt: now,
+      });
+      mockFindUnique.mockResolvedValueOnce({
+        ...validUserData,
+        banned: true,
+        banReason: "Spam",
+        banExpires: new Date("2030-01-01T00:00:00.000Z"),
+      });
+
+      const req = new Request("http://localhost", {
+        headers: { authorization: "Bearer valid" },
+      });
+      const result = await middlewareModule.getSessionFromRequest(req);
+
+      expect(mockFindByToken).toHaveBeenCalledWith("valid");
+      expect(result.session).toBeNull();
+      expect(result.user).toBeNull();
+    });
+
+    test("clears an expired ban and allows the cached session", async () => {
+      const now = new Date();
+      mockFindByToken.mockResolvedValueOnce({
+        id: "s1",
+        userId: "u1",
+        token: "valid",
+        expiresAt: now,
+        ipAddress: "127.0.0.1",
+        userAgent: "ua",
+        createdAt: now,
+        updatedAt: now,
+      });
+      mockFindUnique.mockResolvedValueOnce({
+        ...validUserData,
+        banned: true,
+        banReason: "Old",
+        banExpires: new Date("2020-01-01T00:00:00.000Z"),
+      });
+
+      const req = new Request("http://localhost", {
+        headers: { authorization: "Bearer valid" },
+      });
+      const result = await middlewareModule.getSessionFromRequest(req);
+
+      expect(mockFindByToken).toHaveBeenCalledWith("valid");
+      expect(result.session?.id).toBe("s1");
+      expect(result.user?.banned).toBe(true);
     });
 
     test("returns null if cached session but user not found", async () => {

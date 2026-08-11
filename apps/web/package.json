@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.0.26",
+  "version": "1.0.32",
   "private": true,
   "description": "Asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -39,6 +39,7 @@
     "cropperjs": "^1.6.2",
     "cross-env": "^10.1.0",
     "date-fns": "^4.4.0",
+    "gooey-toast": "^0.2.2",
     "jotai": "^2.20.2",
     "jsonwebtoken": "^9.0.3",
     "ky": "^2.0.2",

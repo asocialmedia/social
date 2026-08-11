@@ -68,3 +68,44 @@ export async function verifyPasswordWithScrypt(
   }
   return timingSafeEqual(derivedKey, expected);
 }
+
+/**
+ * Normalize a stored password hash that may be either a raw scrypt string
+ * or a JSON-wrapped `{"hash": "..."}` value (the legacy representation).
+ * Returns the raw scrypt hash to verify against, or undefined when the
+ * stored value is not a recognizable string.
+ */
+export function normalizePasswordHash(stored: unknown): string | undefined {
+  if (typeof stored !== "string") {
+    return;
+  }
+  try {
+    const parsed = JSON.parse(stored);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "hash" in (parsed as Record<string, unknown>) &&
+      typeof (parsed as Record<string, unknown>).hash === "string"
+    ) {
+      return (parsed as Record<string, string>).hash;
+    }
+  } catch {
+    // Not JSON; fall through to the raw string.
+  }
+  return stored;
+}
+
+/**
+ * Verify a plain password against a stored hash that may be a raw scrypt
+ * string or a JSON-wrapped `{"hash": "..."}` value.
+ */
+export async function verifyPasswordHash(
+  password: string,
+  stored: unknown
+): Promise<boolean> {
+  const normalized = normalizePasswordHash(stored);
+  if (typeof normalized !== "string") {
+    return false;
+  }
+  return await verifyPasswordWithScrypt(password, normalized);
+}

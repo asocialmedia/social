@@ -1,4 +1,23 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { config as loadEnv } from "dotenv";
 import type { NextConfig } from "next";
+
+export function loadRootEnv(): void {
+  let dir = process.cwd();
+  for (;;) {
+    const candidate = join(dir, ".env");
+    if (existsSync(candidate)) {
+      loadEnv({ path: candidate, quiet: true, override: true });
+      return;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      return;
+    }
+    dir = parent;
+  }
+}
 
 export const config: NextConfig = {
   transpilePackages: ["@asm/auth", "@asm/db", "@asm/config"],

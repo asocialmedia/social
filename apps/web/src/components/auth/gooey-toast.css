@@ -1,0 +1,110 @@
+/* Custom gooey-toast theming: dark 3D fill, icon in title, top-right close button */
+
+:root {
+  --gooey-width: 320px;
+  --gooey-height: 48px;
+  --gooey-duration: 240ms;
+  --gooey-shadow: drop-shadow(0 0 0 1px rgba(255, 255, 255, 0.06))
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35))
+    drop-shadow(0 14px 26px rgba(0, 0, 0, 0.45));
+}
+
+[data-gooey-toast] {
+  border-radius: 12px;
+}
+
+[data-gooey-svg] {
+  filter: var(--gooey-shadow);
+}
+
+[data-gooey-header] {
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+}
+
+/* State icon shown in the title row, styled like the orange 3D button */
+[data-gooey-badge] {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  color: #fff;
+  background: linear-gradient(to bottom, #ff9500, #e65500);
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+    inset 0 1px 2px rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(170, 60, 0, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+[data-gooey-badge] svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+[data-gooey-title] {
+  color: #f5f5f5;
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+[data-gooey-title]::first-letter {
+  text-transform: none;
+}
+
+[data-gooey-content] {
+  border-radius: 12px;
+}
+
+[data-gooey-description] {
+  font-weight: 500;
+  color: rgba(229, 229, 229, 0.85);
+}
+
+/* 3D press-in lip on the gooey surface */
+[data-gooey-toast][data-ready="true"] [data-gooey-svg] {
+  filter: var(--gooey-shadow)
+    drop-shadow(inset 0 1px 0 rgba(255, 255, 255, 0.12))
+    drop-shadow(inset 0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+/* Close button, pinned to the top-right of the toast */
+.asm-gooey-close {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.6rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.35);
+  border: 0;
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    inset 0 1px 2px rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.asm-gooey-close:hover {
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* Make room so the title doesn't run under the close button */
+[data-gooey-toast][data-asm-close] [data-gooey-header] {
+  padding-right: 2rem;
+}

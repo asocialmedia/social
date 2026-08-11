@@ -98,6 +98,7 @@ const PreviewCursor = ({
             alt="Preview"
             className="object-cover opacity-90"
             fill
+            loading="eager"
             sizes="160px"
             src={previewImage}
           />

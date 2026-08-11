@@ -1,7 +1,12 @@
 /** biome-ignore-all lint/performance/noBarrelFile: auth config */
 
 export * from "./client";
-export { type AuthConfig, createAuthConfig, type EmailService } from "./config";
+export {
+  type AuthConfig,
+  createAuthConfig,
+  type EmailService,
+  type SocialProvidersConfig,
+} from "./config";
 export * from "./hybrid-session-store";
 export * from "./jwt";
 export * from "./middleware";

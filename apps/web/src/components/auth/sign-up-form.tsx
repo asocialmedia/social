@@ -1,7 +1,6 @@
 "use client";
 
 import { type SignUpValues, signUpSchema } from "@asm/auth/validation";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { useVerification } from "@asm/ui/providers/verification";
 import { Button } from "@asm/ui/shadui/button";
 import { Checkbox } from "@asm/ui/shadui/checkbox";
@@ -48,6 +47,7 @@ import { signUp } from "@/app/(auth)/signup/actions";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
 import { useSignupUrlState } from "@/hooks/use-signup-url-state";
+import { useToast } from "@/lib/gooey-toast";
 import { PasswordStrengthChecker } from "./password-strength-checker";
 
 const DIGITS_ONLY_REGEX = /^\d*$/;
@@ -303,15 +303,11 @@ export default function SignUpForm() {
             onChange={handlePasswordChange(field)}
           />
         </FormControl>
-        <PasswordStrengthChecker
-          password={password}
-          setPassword={setPassword}
-          setValue={form.setValue}
-        />
+        <PasswordStrengthChecker password={password} />
         <FormMessage />
       </FormItem>
     ),
-    [form, handlePasswordChange, password]
+    [handlePasswordChange, password]
   );
 
   const onSubmit = (values: SignUpValues) => {
@@ -833,9 +829,9 @@ export default function SignUpForm() {
                   onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)}
                 >
                   {error ? (
-                    <div className="rounded-lg bg-destructive/15 p-3 text-center text-destructive text-sm">
+                    <div className="premium-error p-3 text-center text-sm">
                       <p className="flex items-center justify-center gap-2">
-                        <AlertCircle className="h-5 w-5 shrink-0" />
+                        <AlertCircle className="h-5 w-5 shrink-0 text-[#ff7b63]" />
                         {error}
                       </p>
                     </div>

@@ -57,6 +57,8 @@ describe("GET /api/auth/get-session", () => {
         emailVerified: true,
         name: "test user",
         username: "testuser",
+        role: "user",
+        banned: false,
         createdAt: now,
         updatedAt: now,
       },

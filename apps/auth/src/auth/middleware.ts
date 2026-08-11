@@ -8,6 +8,64 @@ import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { auth } from "./config";
 
+interface UserBanState {
+  banExpires: Date | null;
+  banned: boolean;
+  banReason: string | null;
+}
+
+function selectUserData() {
+  return {
+    username: true,
+    email: true,
+    emailVerified: true,
+    name: true,
+    displayName: true,
+    role: true,
+    banned: true,
+    banReason: true,
+    banExpires: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+}
+
+/**
+ * Mirror the Better Auth databaseHooks.session.create.before ban check for
+ * the hybrid/JWT session paths, which bypass that hook. Returns the user's
+ * real ban state; clears expired bans and returns null when the account is
+ * actively banned so a banned user cannot keep an authenticated session.
+ */
+async function enforceBan(
+  userId: string,
+  userData: UserBanState & {
+    username: string;
+    email: string | null;
+    emailVerified: boolean;
+    name: string | null;
+    displayName: string | null;
+    role: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }
+): Promise<AuthContext | null> {
+  if (userData.banned) {
+    const now = new Date();
+    const isExpired = userData.banExpires && userData.banExpires <= now;
+
+    if (isExpired) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { banned: false, banReason: null, banExpires: null },
+      });
+    } else {
+      return { session: null, user: null };
+    }
+  }
+
+  return null;
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ahh
 export async function getSessionFromRequest(
   req: Request | NextRequest
@@ -22,18 +80,15 @@ export async function getSessionFromRequest(
         console.log("Using cached session from hybrid store");
         const userData = await prisma.user.findUnique({
           where: { id: cachedSession.userId },
-          select: {
-            username: true,
-            email: true,
-            emailVerified: true,
-            name: true,
-            displayName: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+          select: selectUserData(),
         });
 
         if (userData) {
+          const banned = await enforceBan(cachedSession.userId, userData);
+          if (banned) {
+            return banned;
+          }
+
           return {
             session: {
               id: cachedSession.id,
@@ -51,6 +106,10 @@ export async function getSessionFromRequest(
               emailVerified: userData.emailVerified,
               name: userData.name || userData.displayName,
               username: userData.username,
+              role: userData.role,
+              banned: userData.banned,
+              banReason: userData.banReason,
+              banExpires: userData.banExpires,
               createdAt: userData.createdAt,
               updatedAt: userData.updatedAt,
             },
@@ -67,18 +126,15 @@ export async function getSessionFromRequest(
 
         const userData = await prisma.user.findUnique({
           where: { id: userId },
-          select: {
-            username: true,
-            email: true,
-            emailVerified: true,
-            name: true,
-            displayName: true,
-            createdAt: true,
-            updatedAt: true,
-          },
+          select: selectUserData(),
         });
 
         if (userData) {
+          const banned = await enforceBan(userId, userData);
+          if (banned) {
+            return banned;
+          }
+
           const hybridSession = await hybridSessionStore.create({
             userId,
             token,
@@ -110,6 +166,10 @@ export async function getSessionFromRequest(
               emailVerified: userData.emailVerified,
               name: userData.name || userData.displayName,
               username: userData.username,
+              role: userData.role,
+              banned: userData.banned,
+              banReason: userData.banReason,
+              banExpires: userData.banExpires,
               createdAt: userData.createdAt,
               updatedAt: userData.updatedAt,
             },

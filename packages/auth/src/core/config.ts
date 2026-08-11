@@ -13,7 +13,22 @@ import type {
   RedditProfile,
 } from "better-auth/social-providers";
 import { env } from "../../env";
-import { hashPasswordWithScrypt, verifyPasswordWithScrypt } from "./password";
+
+export function extractTokenFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.searchParams.get("token") ||
+      parsed.pathname.split("/").filter(Boolean).pop() ||
+      ""
+    );
+  } catch {
+    const withoutQuery = url.split("?")[0] || "";
+    return withoutQuery.split("/").pop() || "";
+  }
+}
+
+import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 function deriveUsernameFromProfile(
   profile:
@@ -77,7 +92,7 @@ interface UsernameMapping {
   username: string;
 }
 
-interface SocialProvidersConfig {
+export interface SocialProvidersConfig {
   google?: {
     clientId: string;
     clientSecret: string;
@@ -190,86 +205,19 @@ export function createAuthConfig(config: AuthConfig = {}) {
       enabled: true,
       requireEmailVerification: true,
       password: {
-        // @ts-expect-error types are wrong
-        hash: async (...args: unknown[]) => {
-          const [maybeInput] = args;
-          let plainPassword: string | undefined;
-          if (typeof maybeInput === "string") {
-            plainPassword = maybeInput;
-          } else if (
-            maybeInput !== null &&
-            typeof maybeInput === "object" &&
-            "password" in (maybeInput as Record<string, unknown>)
-          ) {
-            const candidate = (maybeInput as Record<string, unknown>).password;
-            if (typeof candidate === "string") {
-              plainPassword = candidate;
-            }
-          }
-          if (typeof plainPassword !== "string") {
-            throw new Error("Invalid password input for hashing");
-          }
-          const hash = await hashPasswordWithScrypt(plainPassword);
-          return { hash };
-        },
-        verify: async (...args: unknown[]) => {
-          let plainPassword: unknown;
-          let providedHash: unknown;
-          if (args.length === 2) {
-            [plainPassword, providedHash] = args;
-          } else if (
-            args.length === 1 &&
-            args[0] !== null &&
-            typeof args[0] === "object"
-          ) {
-            const obj = args[0] as Record<string, unknown>;
-            plainPassword = obj.password;
-            providedHash = obj.hash;
-          }
-
-          if (typeof plainPassword !== "string") {
-            return false;
-          }
-
-          let stored: string | undefined;
-          if (typeof providedHash === "string") {
-            try {
-              const parsed = JSON.parse(providedHash);
-              if (
-                parsed &&
-                typeof parsed === "object" &&
-                "hash" in (parsed as Record<string, unknown>) &&
-                typeof (parsed as Record<string, unknown>).hash === "string"
-              ) {
-                stored = (parsed as Record<string, string>).hash;
-              } else {
-                stored = providedHash;
-              }
-            } catch {
-              stored = providedHash;
-            }
-          } else if (
-            providedHash !== null &&
-            typeof providedHash === "object" &&
-            "hash" in (providedHash as Record<string, unknown>) &&
-            typeof (providedHash as Record<string, unknown>).hash === "string"
-          ) {
-            stored = (providedHash as Record<string, string>).hash;
-          }
-
-          if (typeof stored !== "string") {
-            return false;
-          }
-
-          return await verifyPasswordWithScrypt(plainPassword, stored);
-        },
+        hash: async (password: string) => hashPasswordWithScrypt(password),
+        verify: async ({
+          hash,
+          password,
+        }: {
+          hash: string;
+          password: string;
+        }) => verifyPasswordHash(password, hash),
       },
       sendResetPassword: emailService?.sendPasswordResetEmail
         ? async ({ user, url }) => {
-            await emailService.sendPasswordResetEmail?.(
-              user.email,
-              url.split("/").pop() || ""
-            );
+            const token = extractTokenFromUrl(url);
+            await emailService.sendPasswordResetEmail?.(user.email, token);
           }
         : ({ user, url }) => {
             if (environment === "development") {
@@ -370,16 +318,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       emailService?.sendVerificationEmail && {
         emailVerification: {
           sendVerificationEmail: async ({ user, url }) => {
-            let token = "";
-            try {
-              const parsed = new URL(url);
-              token =
-                parsed.searchParams.get("token") ||
-                parsed.pathname.split("/").filter(Boolean).pop() ||
-                "";
-            } catch {
-              token = url.split("/").pop() || "";
-            }
+            const token = extractTokenFromUrl(url);
             await emailService.sendVerificationEmail?.(user.email, token);
           },
           sendOnSignUp: true,

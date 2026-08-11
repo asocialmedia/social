@@ -6,10 +6,18 @@ import { procedure, router } from "../trpc";
 import { auditResetPassword, checkResetPasswordRateLimit } from "./security";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 
 const requestResetSchema = z
   .object({
-    identifier: z.string().trim().nonempty("Identifier is required"),
+    identifier: z
+      .string()
+      .trim()
+      .nonempty("Identifier is required")
+      .refine(
+        (value) => EMAIL_REGEX.test(value) || USERNAME_REGEX.test(value),
+        "Please enter a valid email address or username"
+      ),
     ip: z.string().optional(),
     userAgent: z.string().optional(),
   })
