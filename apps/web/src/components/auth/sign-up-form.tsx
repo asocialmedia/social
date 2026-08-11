@@ -1212,10 +1212,10 @@ export default function SignUpForm() {
                       </AnimatePresence>
 
                       <Button
-                        className="w-full cursor-pointer"
+                        className="btn-3d-gray w-full cursor-pointer"
                         onClick={handleVerifyViaEmailLink}
                         type="button"
-                        variant="premium"
+                        variant="ghost"
                       >
                         Verify via Email Link Instead
                       </Button>
