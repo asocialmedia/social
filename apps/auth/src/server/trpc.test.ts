@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { User as AuthUser, Session } from "@asm/auth/core";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
-import type { User as AuthUser, Session } from "better-auth";
 
 interface SessionFromRequestResult {
   session: Session | null;
@@ -54,6 +54,9 @@ describe("server trpc", () => {
       email: "u1@example.com",
       emailVerified: true,
       name: "User One",
+      username: "u1",
+      role: "user",
+      banned: false,
       image: null,
       createdAt: new Date("2030-01-01T00:00:00.000Z"),
       updatedAt: new Date("2030-01-01T00:00:00.000Z"),

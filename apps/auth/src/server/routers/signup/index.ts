@@ -309,7 +309,7 @@ async function repairMissingCredentialsInDevelopment(user: ExistingSignupUser) {
   }
 
   const accountId = user.email.toLowerCase();
-  const password = JSON.stringify({ hash: user.passwordHash });
+  const password = user.passwordHash;
   const existingAccounts = await prisma.account.findMany({
     where: {
       userId: user.id,
@@ -449,14 +449,14 @@ async function createAccountImmediatelyInDevelopment(
     });
 
     const emailLower = payload.email.toLowerCase();
-    const passwordObj = JSON.stringify({ hash: payload.passwordHash });
+    const { passwordHash } = payload;
 
     await prisma.account.create({
       data: {
         userId: user.id,
         providerId: "email",
         accountId: emailLower,
-        password: passwordObj,
+        password: passwordHash,
       },
     });
 
@@ -466,7 +466,7 @@ async function createAccountImmediatelyInDevelopment(
           userId: user.id,
           providerId: "credential",
           accountId: emailLower,
-          password: passwordObj,
+          password: passwordHash,
         },
       })
       .catch(() => {
@@ -935,14 +935,14 @@ export const signupRouter = router({
 
       try {
         const emailLower = data.email.toLowerCase();
-        const passwordObj = JSON.stringify({ hash: data.passwordHash });
+        const password = data.passwordHash;
 
         await prisma.account.create({
           data: {
             userId: user.id,
             providerId: "email",
             accountId: emailLower,
-            password: passwordObj,
+            password,
           },
         });
 
@@ -952,7 +952,7 @@ export const signupRouter = router({
               userId: user.id,
               providerId: "credential",
               accountId: emailLower,
-              password: passwordObj,
+              password,
             },
           })
           .catch(() => {

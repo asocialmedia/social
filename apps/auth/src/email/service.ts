@@ -41,6 +41,7 @@ function initializeResend(): void {
 }
 
 const SENDER = "asocialmedia.cc";
+const FROM_EMAIL = `Zeph <noreply@${SENDER}>`;
 const TRAILING_SLASH_REGEX = /\/$/;
 
 function getBaseUrl(): string {
@@ -138,7 +139,7 @@ export async function sendVerificationEmail(
 
   try {
     const { error } = await resend.emails.send({
-      from: `🪁 Asocialmedia <no-reply@${SENDER}>`,
+      from: FROM_EMAIL,
       to: email,
       subject: emailConfig.templates.verification.subject,
       html: await getVerificationEmailHtml(verificationUrl),
@@ -225,7 +226,7 @@ export async function sendVerificationOTP(
 
   try {
     const { error } = await resend.emails.send({
-      from: `🪁 Asocialmedia <no-reply@${SENDER}>`,
+      from: FROM_EMAIL,
       to: email,
       subject: "Your Verification Code - Asocialmedia",
       html: await getOTPVerificationEmailHtml(otp),
@@ -276,7 +277,7 @@ export async function sendPasswordResetEmail(
     }
 
     const { error } = await resend.emails.send({
-      from: `🔒 Asocialmedia <no-reply@${SENDER}>`,
+      from: FROM_EMAIL,
       to: email,
       subject: emailConfig.templates.passwordReset.subject,
       html: await getPasswordResetEmailHtml(resetUrl),
