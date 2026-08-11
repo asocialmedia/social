@@ -86,7 +86,7 @@
       height="203.145"
       id="filter1_i_79_99"
       width="213"
-      x="16.9995"
+      x="17"
       y="7"
     >
       <feFlood flood-opacity="0" result="BackgroundImageFix" />
@@ -233,7 +233,7 @@
     <filter
       color-interpolation-filters="sRGB"
       filterUnits="userSpaceOnUse"
-      height="23.5469"
+      height="23.547"
       id="filter5_d_79_99"
       width="54.502"
       x="96.999"
@@ -281,11 +281,11 @@
       id="paint1_linear_79_99"
       x1="123.35"
       x2="123.35"
-      y1="-0.00146485"
+      y1="-.001"
       y2="224.458"
     >
       <stop stop-color="#EB6810" />
-      <stop offset="0.483162" stop-color="#D4661E" />
+      <stop offset=".483" stop-color="#D4661E" />
       <stop offset="1" stop-color="#B15012" />
     </linearGradient>
     <linearGradient
@@ -293,11 +293,11 @@
       id="paint2_linear_79_99"
       x1="90"
       x2="90"
-      y1="82.9998"
+      y1="83"
       y2="119.911"
     >
       <stop stop-color="#EB6810" />
-      <stop offset="0.483162" stop-color="#D4661E" />
+      <stop offset=".483" stop-color="#D4661E" />
       <stop offset="1" stop-color="#B15012" />
     </linearGradient>
     <linearGradient
@@ -305,11 +305,11 @@
       id="paint3_linear_79_99"
       x1="157"
       x2="157"
-      y1="82.9998"
+      y1="83"
       y2="119.911"
     >
       <stop stop-color="#EB6810" />
-      <stop offset="0.483162" stop-color="#D4661E" />
+      <stop offset=".483" stop-color="#D4661E" />
       <stop offset="1" stop-color="#B15012" />
     </linearGradient>
     <linearGradient
