@@ -181,11 +181,6 @@ jobs:
                 dockerfile: './apps/auth/Dockerfile',
                 image: 'asm-auth',
               },
-              {
-                app: 'docs',
-                dockerfile: './apps/docs/Dockerfile',
-                image: 'asm-docs',
-              },
             ]
 
             const triggerAllPrefixes = ['packages/', 'docker/']
@@ -296,10 +291,8 @@ jobs:
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
           DOKPLOY_WEB_APP_ID: ${{ secrets.DOKPLOY_WEB_APP_ID }}
           DOKPLOY_AUTH_APP_ID: ${{ secrets.DOKPLOY_AUTH_APP_ID }}
-          DOKPLOY_DOCS_APP_ID: ${{ secrets.DOKPLOY_DOCS_APP_ID }}
           WEB_HEALTH_URL: ${{ secrets.WEB_HEALTH_URL }}
           AUTH_HEALTH_URL: ${{ secrets.AUTH_HEALTH_URL }}
-          DOCS_HEALTH_URL: ${{ secrets.DOCS_HEALTH_URL }}
         run: |
           app_id=""
           health_url=""
@@ -317,13 +310,6 @@ jobs:
             auth)
               app_id="${DOKPLOY_AUTH_APP_ID}"
               health_url="${AUTH_HEALTH_URL}"
-              ;;
-            docs)
-              app_id="${DOKPLOY_DOCS_APP_ID}"
-              health_url="${DOCS_HEALTH_URL}"
-              health_initial_delay="60"
-              health_retries="30"
-              health_retry_interval="10"
               ;;
           esac
 
@@ -398,7 +384,6 @@ jobs:
         image:
           - asm-web
           - asm-auth
-          - asm-docs
     steps:
       - name: Delete old package versions (keep last 10)
         uses: actions/delete-package-versions@v5
