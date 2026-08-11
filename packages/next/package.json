@@ -1,6 +1,6 @@
 {
   "name": "@asm/next",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "Asocialmedia Next.js package contains shared configs for Next.js",
   "exports": {
@@ -15,6 +15,7 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "next": "^16.3.0"
   },
   "devDependencies": {

@@ -1,4 +1,13 @@
+import { join } from "node:path";
+import { config as loadEnv } from "dotenv";
 import type { NextConfig } from "next";
+
+export function loadRootEnv(): void {
+  loadEnv({
+    path: join(process.cwd(), ".env"),
+    quiet: true,
+  });
+}
 
 export const config: NextConfig = {
   transpilePackages: ["@asm/auth", "@asm/db", "@asm/config"],

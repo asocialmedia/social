@@ -1,6 +1,6 @@
 {
   "name": "asocialmedia/social",
-  "version": "1.0.61",
+  "version": "1.0.62",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "turbo check-types && turbo build",
-    "check": "ultracite check",
+    "check": "ultracite fix --unsafe",
     "check-types": "tsc --project scripts/tsconfig.json && turbo check-types",
     "db:gen": "bun run --filter=@asm/db generate",
     "db:push": "bun run --filter=@asm/db push",

@@ -68,7 +68,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.0.28",
+      "version": "1.0.29",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -203,6 +203,7 @@
       "name": "@asm/next",
       "version": "1.0.3",
       "dependencies": {
+        "dotenv": "^17.4.2",
         "next": "^16.3.0",
       },
       "devDependencies": {
@@ -211,7 +212,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

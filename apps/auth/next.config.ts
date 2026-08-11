@@ -1,4 +1,7 @@
+import { loadRootEnv } from "@asm/next";
 import type { NextConfig } from "next";
+
+loadRootEnv();
 
 const config: NextConfig = {
   allowedDevOrigins: ["*.localhost", "localhost", "127.0.0.1"],
