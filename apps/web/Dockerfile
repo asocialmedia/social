@@ -4,6 +4,10 @@ FROM node:24-slim AS build
 LABEL org.opencontainers.image.title="Asocialmedia Web App" \
       org.opencontainers.image.description="Main web application for Asocialmedia" \
       org.opencontainers.image.vendor="Asocialmedia"
+ARG NEXT_PUBLIC_URL=https://asocialmedia.cc
+ARG NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc
+ENV NEXT_PUBLIC_URL=${NEXT_PUBLIC_URL}
+ENV NEXT_PUBLIC_AUTH_URL=${NEXT_PUBLIC_AUTH_URL}
 RUN apt-get update && apt-get install -y openssl curl unzip && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
