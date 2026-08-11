@@ -220,7 +220,7 @@ export default function PostEditor() {
   return (
     <motion.div
       animate="visible"
-      className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 transition-shadow duration-300 hover:shadow-lg"
+      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300"
       initial="hidden"
       variants={containerVariants}
     >
