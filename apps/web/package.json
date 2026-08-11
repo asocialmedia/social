@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "private": true,
   "description": "Asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -36,7 +36,7 @@
     "better-auth": "^1.6.26",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "cropperjs": "2.1.1",
+    "cropperjs": "^1.6.2",
     "cross-env": "^10.1.0",
     "date-fns": "^4.4.0",
     "jotai": "^2.20.2",
