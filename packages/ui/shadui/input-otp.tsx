@@ -53,11 +53,12 @@ const InputOTPSlot = ({
   return (
     <div
       className={cn(
-        "relative flex h-10 w-10 items-center justify-center rounded-lg border-2 border-border bg-background font-bold text-xl shadow-sm transition-all duration-200 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 hover:border-primary/60 sm:h-14 sm:w-12 sm:rounded-xl sm:text-2xl",
-        isActive && "z-10 border-primary ring-2 ring-primary/20",
+        "premium-otp-slot relative flex h-10 w-10 items-center justify-center rounded-lg font-bold text-xl transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/20 sm:h-14 sm:w-12 sm:rounded-xl sm:text-2xl",
+        isActive && "z-10",
         char && "border-primary/60",
         className
       )}
+      data-active={isActive}
       ref={ref}
       {...props}
     >

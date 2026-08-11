@@ -971,11 +971,11 @@ export default function SignUpForm() {
 
                     <div className="w-full space-y-3 pt-2">
                       <Button
-                        className="w-full cursor-pointer bg-accent text-accent-foreground"
+                        className="w-full cursor-pointer"
                         disabled={isResending || !canResend()}
                         onClick={handleResendVerificationLink}
                         type="button"
-                        variant="secondary"
+                        variant="premium"
                       >
                         {(() => {
                           if (isResending) {
@@ -1203,7 +1203,7 @@ export default function SignUpForm() {
                               disabled={isResending || !canResend()}
                               onClick={handleResendOtpCode}
                               type="button"
-                              variant="default"
+                              variant="premium"
                             >
                               {isResending ? "Sending..." : "Resend Code"}
                             </Button>
@@ -1212,10 +1212,10 @@ export default function SignUpForm() {
                       </AnimatePresence>
 
                       <Button
-                        className="w-full cursor-pointer bg-accent text-accent-foreground"
+                        className="w-full cursor-pointer"
                         onClick={handleVerifyViaEmailLink}
                         type="button"
-                        variant="secondary"
+                        variant="premium"
                       >
                         Verify via Email Link Instead
                       </Button>

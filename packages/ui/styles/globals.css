@@ -248,6 +248,28 @@
     color: rgba(232, 232, 232, 0.45);
   }
 
+  /* ── Premium OTP Slot (3D, matches premium-input) ─────────────── */
+  .premium-otp-slot {
+    -webkit-font-smoothing: antialiased;
+    color: #e8e8e8;
+    background-color: #232323;
+    border-radius: 12px;
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.25),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 1px 1px rgba(255, 255, 255, 0.04);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-otp-slot:focus-within,
+  .premium-otp-slot[data-active="true"] {
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.02),
+      0 0 0 1px #e65500,
+      0 0 0 4px rgba(255, 149, 0, 0.25),
+      0 1px 1px rgba(255, 255, 255, 0.8);
+  }
+
   .premium-input:focus {
     outline: none;
     box-shadow:
