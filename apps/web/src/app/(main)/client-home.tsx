@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import FollowingFeed from "@/components/home/feedview/following";
 import ForYouFeed from "@/components/home/for-you-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
+import RightSideBar from "@/components/home/sidebars/right-side-bar";
 import PostEditor from "@/components/posts/editor/post-editor";
 
 interface ClientHomeProps {
@@ -40,6 +41,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   return (
     <div className="relative flex min-h-screen justify-center">
       <LeftSidebar userData={userData} />
+      <RightSideBar userData={userData} />
 
       <div className="flex w-[72%] min-w-[22rem] max-w-5xl flex-col border-border/60 border-x bg-[hsl(var(--background-alt))]">
         <Tabs onValueChange={handleTabChange} value={tab}>
