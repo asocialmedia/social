@@ -55,7 +55,6 @@ function PasswordFieldRenderer({
           <PasswordInput {...field} className="focus-visible:ring-blue-400" />
         </div>
       </FormControl>
-      {/* @ts-expect-error */}
       <PasswordStrengthChecker password={field.value} />
       <FormMessage />
     </FormItem>

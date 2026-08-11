@@ -1,9 +1,6 @@
 "use client";
 
-import type { SignUpValues } from "@asm/auth/validation";
-import { Check, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { UseFormSetValue } from "react-hook-form";
 import { PasswordRecommender } from "./password-recommender";
 
 interface Requirement {
@@ -52,14 +49,10 @@ const requirements: Requirement[] = [
 
 interface PasswordStrengthCheckerProps {
   password: string;
-  setPassword: (value: string) => void;
-  setValue: UseFormSetValue<SignUpValues>;
 }
 
 export function PasswordStrengthChecker({
   password,
-  setValue,
-  setPassword,
 }: PasswordStrengthCheckerProps) {
   const getStrengthPercent = () => {
     if (!password) {
@@ -99,33 +92,14 @@ export function PasswordStrengthChecker({
     return "Strong";
   };
 
-  const strengthVariants = {
-    container: {
-      initial: { opacity: 0, height: 0 },
-      animate: { opacity: 1, height: "auto" },
-      exit: { opacity: 0, height: 0, transition: { duration: 0.2 } },
-    },
-    indicator: {
-      initial: { width: 0, opacity: 0 },
-      animate: { width: `${strengthPercent}%`, opacity: 1 },
-      exit: { width: 0, opacity: 0 },
-    },
-    requirement: {
-      initial: { opacity: 0, x: -10 },
-      animate: { opacity: 1, x: 0 },
-      exit: { opacity: 0, x: 10 },
-    },
-  };
-
   return (
     <AnimatePresence mode="wait">
       {password.length > 0 && (
         <motion.div
-          animate="animate"
-          className="mt-2 space-y-3"
-          exit="exit"
-          initial="initial"
-          variants={strengthVariants.container}
+          animate={{ opacity: 1, height: "auto" }}
+          className="mt-2 space-y-2.5"
+          exit={{ opacity: 0, height: 0, transition: { duration: 0.2 } }}
+          initial={{ opacity: 0, height: 0 }}
         >
           <div className="space-y-2">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -149,62 +123,10 @@ export function PasswordStrengthChecker({
             </div>
           </div>
 
-          <motion.div
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-2 rounded-lg border p-3"
-            initial={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.2, delay: 0.1 }}
-          >
-            <PasswordRecommender
-              password={password}
-              requirements={requirements}
-              setPassword={setPassword}
-              setValue={setValue}
-            />
-
-            <p className="text-muted-foreground text-xs">
-              Password Requirements:
-            </p>
-
-            <div className="space-y-2">
-              {requirements.map((req, _index) => (
-                <div className="flex items-center gap-2" key={req.text}>
-                  <AnimatePresence mode="wait">
-                    {req.validator(password) ? (
-                      <motion.div
-                        animate={{ scale: 1 }}
-                        className="text-green-500"
-                        exit={{ scale: 0 }}
-                        initial={{ scale: 0 }}
-                        key="check"
-                      >
-                        <Check className="size-4" />
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        animate={{ scale: 1 }}
-                        className="text-muted-foreground"
-                        exit={{ scale: 0 }}
-                        initial={{ scale: 0 }}
-                        key="x"
-                      >
-                        <X className="size-4" />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <span
-                    className={`text-xs ${
-                      req.validator(password)
-                        ? "text-green-500"
-                        : "text-muted-foreground"
-                    }`}
-                  >
-                    {req.text}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
+          <PasswordRecommender
+            password={password}
+            requirements={requirements}
+          />
         </motion.div>
       )}
     </AnimatePresence>

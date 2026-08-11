@@ -1,8 +1,7 @@
 import { usernameClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
-const WEB_AUTH_BASE =
-  process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.asocialmedia.cc";
+const WEB_AUTH_BASE = process.env.NEXT_PUBLIC_URL || "https://social.localhost";
 
 export const authClient: ReturnType<typeof createAuthClient> = createAuthClient(
   {

@@ -303,15 +303,11 @@ export default function SignUpForm() {
             onChange={handlePasswordChange(field)}
           />
         </FormControl>
-        <PasswordStrengthChecker
-          password={password}
-          setPassword={setPassword}
-          setValue={form.setValue}
-        />
+        <PasswordStrengthChecker password={password} />
         <FormMessage />
       </FormItem>
     ),
-    [form, handlePasswordChange, password]
+    [handlePasswordChange, password]
   );
 
   const onSubmit = (values: SignUpValues) => {
