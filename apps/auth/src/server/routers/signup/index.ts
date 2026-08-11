@@ -4,6 +4,8 @@ import { debugLog } from "@asm/config/debug";
 import { prisma, redis } from "@asm/db";
 import { env } from "@root/env";
 import { z } from "zod";
+import { auth } from "@/auth/config";
+import { sendVerificationOTP } from "@/email/service";
 import { procedure, router } from "../../trpc";
 import { emailRouter } from "../email";
 
@@ -88,6 +90,40 @@ async function verifyEmailOtp(
 
   debugLog.api("verifyEmailOtp:valid", { emailLower, otp });
   return true;
+}
+
+/**
+ * Generate and send a signup verification OTP. The signup flow stores a
+ * pending signup in Redis before the DB user exists, but Better Auth's
+ * /email-otp/send-verification-otp silently skips sending when the user
+ * is not found in the database. Instead, create the OTP with the
+ * server-only createVerificationOTP (which stores it in the verification
+ * table in Better Auth's format) and send it via Resend directly.
+ */
+async function sendSignupVerificationOTP(email: string): Promise<boolean> {
+  try {
+    const otp = await auth.api.createVerificationOTP({
+      body: {
+        email,
+        type: "email-verification",
+      },
+    });
+
+    const result = await sendVerificationOTP(email, otp);
+    debugLog.api("sendSignupVerificationOTP:result", {
+      email,
+      success: result.success,
+      error: result.error,
+    });
+
+    return result.success;
+  } catch (otpError) {
+    debugLog.api("sendSignupVerificationOTP:error", {
+      email,
+      error: otpError instanceof Error ? otpError.message : String(otpError),
+    });
+    return false;
+  }
 }
 
 function getClientIpFromHeaders(headers: Headers | undefined): string {
@@ -587,24 +623,13 @@ export const signupRouter = router({
         }
 
         try {
-          const baseUrl = env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.localhost";
-          const response = await fetch(
-            `${baseUrl}/api/auth/email-otp/send-verification-otp`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                email: input.email,
-                type: "email-verification",
-              }),
-            }
-          );
+          const otpSent = await sendSignupVerificationOTP(input.email);
 
-          if (!response.ok) {
-            throw new Error(`OTP send failed: ${response.status}`);
+          if (!otpSent) {
+            debugLog.api("pendingSignupStart:otp-send-failed", {
+              email: input.email,
+            });
           }
-
-          debugLog.api("pendingSignupStart:otp-sent");
         } catch (otpError) {
           debugLog.api("pendingSignupStart:otp-error", {
             error:
@@ -653,21 +678,10 @@ export const signupRouter = router({
         return { success: false, error: "not-found" } as const;
       }
       try {
-        const baseUrl = env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.localhost";
-        const response = await fetch(
-          `${baseUrl}/api/auth/email-otp/send-verification-otp`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: input.email,
-              type: "email-verification",
-            }),
-          }
-        );
+        const otpSent = await sendSignupVerificationOTP(input.email);
 
-        if (!response.ok) {
-          throw new Error(`OTP send failed: ${response.status}`);
+        if (!otpSent) {
+          throw new Error("OTP send failed");
         }
 
         debugLog.api("pendingSignupResend:otp-sent");
