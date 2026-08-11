@@ -41,7 +41,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
     <div className="relative flex min-h-screen justify-center">
       <LeftSidebar userData={userData} />
 
-      <div className="flex w-[80%] min-w-[22rem] max-w-5xl flex-col border-border/60 border-x bg-[hsl(var(--background-alt))]">
+      <div className="flex w-[72%] min-w-[22rem] max-w-5xl flex-col border-border/60 border-x bg-[hsl(var(--background-alt))]">
         <Tabs onValueChange={handleTabChange} value={tab}>
           <div className="sticky top-0 z-20 border-border/60 border-b bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-0 bg-transparent p-0">
