@@ -337,8 +337,11 @@ jobs:
           DOKPLOY_APP_ID: ${{ steps.deploy-targets.outputs.app_id }}
         run: |
           API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
 
-          curl -X 'POST' \
+          curl -L -X 'POST' \
             "${API_URL}/api/application.deploy" \
             -H 'accept: application/json' \
             -H 'Content-Type: application/json' \
@@ -359,7 +362,7 @@ jobs:
 
           echo "Checking health endpoint..."
           for i in $(seq 1 "${HEALTH_RETRIES}"); do
-            if curl -sf "${HEALTH_URL}" > /dev/null; then
+            if curl -sfL "${HEALTH_URL}" > /dev/null; then
               echo "Health check passed!"
               exit 0
             fi
@@ -438,11 +441,14 @@ jobs:
           set -eu
 
           API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
           SCHEDULE_ID=""
 
           cleanup_schedule() {
             if [ -n "$SCHEDULE_ID" ]; then
-              curl -sS -X 'POST' \
+              curl -sS -L -X 'POST' \
                 "${API_URL}/api/schedule.delete" \
                 -H 'accept: application/json' \
                 -H 'Content-Type: application/json' \
@@ -505,7 +511,7 @@ jobs:
             }')
 
           CREATE_RESPONSE_FILE=$(mktemp)
-          CREATE_STATUS=$(curl -sS -o "$CREATE_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
+          CREATE_STATUS=$(curl -sS -L -o "$CREATE_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
             "${API_URL}/api/schedule.create" \
             -H 'accept: application/json' \
             -H 'Content-Type: application/json' \
@@ -530,7 +536,7 @@ jobs:
           fi
 
           RUN_RESPONSE_FILE=$(mktemp)
-          RUN_STATUS=$(curl -sS -o "$RUN_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
+          RUN_STATUS=$(curl -sS -L -o "$RUN_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
             "${API_URL}/api/schedule.runManually" \
             -H 'accept: application/json' \
             -H 'Content-Type: application/json' \
