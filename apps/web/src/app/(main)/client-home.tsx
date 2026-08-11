@@ -41,7 +41,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   }
 
   return (
-    <div className="relative flex min-h-screen overflow-x-hidden">
+    <div className="relative flex min-h-screen overflow-x-clip">
       <LeftSidebar userData={userData} />
 
       <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">

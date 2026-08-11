@@ -46,8 +46,10 @@ const RightSideBar: React.FC<RightSideBarProps> = ({ userData: _userData }) => {
   const suggestedUsers = suggested || [];
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-80 shrink-0 flex-col gap-6 overflow-y-auto px-6 py-6 xl:flex">
-      <SearchField />
+    <aside className="sticky top-0 hidden h-screen w-80 shrink-0 flex-col gap-6 overflow-y-auto px-6 pt-0 pb-6 xl:flex">
+      <div className="pt-3">
+        <SearchField />
+      </div>
 
       <section>
         <div className="mb-3 flex items-center gap-1.5">

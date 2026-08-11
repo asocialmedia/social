@@ -5,6 +5,10 @@
 @plugin "@tailwindcss/typography";
 @plugin "tailwindcss-animate";
 
+@source "../shadui";
+@source "../components";
+@source "../hooks";
+
 @theme {
   --font-sofiaProSoft:
     var(--font-sofia-pro-soft), "SofiaProReg", ui-sans-serif, system-ui,

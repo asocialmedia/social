@@ -16,7 +16,6 @@ import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 import { CodePreview } from "./code-preview";
 import { CustomVideoPlayer } from "./custom-video-player";
-import { FileTypeWatermark } from "./file-type-watermark";
 import { SVGViewer } from "./svg-viewer";
 
 const FALLBACK_IMAGE = fallbackImage;
@@ -188,7 +187,6 @@ const MediaViewer = ({
             onLoad={handleMediaLoaded}
             url={getMediaUrl(item.id)}
           />
-          {!isLoading && <FileTypeWatermark showCategory={false} type="SVG" />}
         </div>
       );
     }
@@ -208,12 +206,6 @@ const MediaViewer = ({
           src={getMediaUrl(item.id)}
           width={1200}
         />
-        {!isLoading && (
-          <FileTypeWatermark
-            showCategory={false}
-            type={item.mimeType?.split("/")[1] || "image"}
-          />
-        )}
       </div>
     );
   };

@@ -19,7 +19,7 @@ import ViewTracker from "@/components/posts/view-counter";
 import { MentionTags } from "@/components/tags/mention-tags";
 import { Tags } from "@/components/tags/tags";
 import Linkify from "@/helpers/global/linkify";
-import { formatRelativeDate } from "@/lib/utils";
+import { cn, formatRelativeDate } from "@/lib/utils";
 import { HNStoryCard } from "./hn-story-card";
 import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
@@ -48,6 +48,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const { user } = useSession();
   const [post, setPost] = useState(initialPost);
   const [showComments, setShowComments] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     setPost(initialPost);
@@ -87,6 +88,10 @@ const PostCard: React.FC<PostCardProps> = ({
     setShowComments((prev) => !prev);
   }, []);
 
+  const handleToggleExpand = useCallback(() => {
+    setIsExpanded((prev) => !prev);
+  }, []);
+
   // biome-ignore lint/correctness/noNestedComponentDefinitions: PostContent uses extensive parent component state and props, making it reasonable to keep nested
   const PostContent = () => (
     <div className="flex gap-3">
@@ -97,8 +102,8 @@ const PostCard: React.FC<PostCardProps> = ({
       </UserTooltip>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+        <div className="relative flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 pr-16 text-sm">
             <UserTooltip user={post.user}>
               <Link
                 className="truncate font-semibold text-foreground hover:underline"
@@ -125,16 +130,15 @@ const PostCard: React.FC<PostCardProps> = ({
             </Link>
           </div>
 
-          <div className="flex shrink-0 items-start gap-1">
+          <div className="absolute top-0 right-0 flex items-center gap-1.5">
             {post.user.id === user.id && (
               <PostMoreButton
                 className="opacity-0 transition-opacity group-hover/post:opacity-100"
-                onUpdate={handlePostUpdate}
                 post={post}
               />
             )}
             <BookmarkButton
-              className="h-5 w-5 p-0"
+              className="h-6 w-6 p-0"
               initialState={{
                 isBookmarkedByUser: post.bookmarks.some(
                   (bookmark) => bookmark.userId === user.id
@@ -146,10 +150,21 @@ const PostCard: React.FC<PostCardProps> = ({
         </div>
 
         <Linkify>
-          <p className="max-w-full whitespace-pre-wrap break-words text-[15px] text-foreground leading-relaxed">
-            {post.content}
-          </p>
+          <div className={cn(!isExpanded && "line-clamp-6")}>
+            <p className="max-w-full whitespace-pre-wrap break-words text-[15px] text-foreground leading-relaxed">
+              {post.content}
+            </p>
+          </div>
         </Linkify>
+        {post.content.split("\n").length > 6 && (
+          <button
+            className="mt-1 cursor-pointer font-medium text-primary text-sm hover:underline"
+            onClick={handleToggleExpand}
+            type="button"
+          >
+            {isExpanded ? "Show less" : "Show more"}
+          </button>
+        )}
 
         {post.hnStoryShare ? (
           <div className="mt-3 overflow-hidden border border-orange-500/30 bg-gradient-to-br from-orange-50/70 to-white dark:border-orange-500/20 dark:from-orange-950/10 dark:to-background/50">

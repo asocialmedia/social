@@ -3,13 +3,13 @@ import { Button } from "@asm/ui/shadui/button";
 import { FileAudioIcon, FileCode, FileIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
-import { useCallback, useState } from "react";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
-import { FileTypeWatermark } from "./file-type-watermark";
 import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
@@ -52,13 +52,13 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
   const getCommonClasses = (isSmall: boolean) =>
     cn(
       "mx-auto w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105",
-      isSmall ? "h-20" : "h-48"
+      isSmall ? "h-20" : "h-56"
     );
 
   const renderImagePreview = (m: Media, isSmall: boolean) => {
     if (m.mimeType === "image/svg+xml") {
       return (
-        <div className={cn("group relative w-full", isSmall ? "h-20" : "h-48")}>
+        <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
           <object
             className={getCommonClasses(isSmall)}
             data={getMediaUrl(m.id)}
@@ -66,23 +66,19 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
           >
             Your browser does not support SVG
           </object>
-          <FileTypeWatermark type="SVG" />
           <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
         </div>
       );
     }
 
     return (
-      <div className={cn("group relative w-full", isSmall ? "h-20" : "h-48")}>
+      <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
         <Image
           alt="Attachment"
           className={getCommonClasses(isSmall)}
           fill
           src={getMediaUrl(m.id)}
           style={{ objectFit: "cover" }}
-        />
-        <FileTypeWatermark
-          type={m.key.split(".").pop()?.toUpperCase() || "FILE"}
         />
         <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
       </div>
@@ -93,7 +89,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     <div
       className={cn(
         "group relative w-full overflow-hidden",
-        isSmall ? "h-20" : "h-48"
+        isSmall ? "h-20" : "h-56"
       )}
     >
       {/* biome-ignore lint/a11y/useMediaCaption: suppress */}
@@ -130,7 +126,6 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
             />
           </motion.div>
         </div>
-        <FileTypeWatermark type={m.key.split(".").pop() || "FILE"} />
       </motion.div>
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
@@ -141,7 +136,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     isSmall: boolean,
     icon: React.ReactNode
   ) => (
-    <div className={cn("group relative w-full", isSmall ? "h-20" : "h-48")}>
+    <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
       <div className="h-full w-full rounded-lg bg-primary/5 p-4 transition-transform duration-300 group-hover:scale-105">
         <div className="flex h-full flex-col items-center justify-center gap-2">
           <div
@@ -156,14 +151,11 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
           )}
         </div>
       </div>
-      <FileTypeWatermark
-        type={m.key.split(".").pop()?.toUpperCase() || "FILE"}
-      />
     </div>
   );
 
   const renderCodePreview = (m: Media, isSmall: boolean) => (
-    <div className={cn("group relative w-full", isSmall ? "h-20" : "h-48")}>
+    <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
       <div className="h-full w-full rounded-lg bg-primary/5 p-4 transition-transform duration-300 group-hover:scale-105">
         <div className="flex h-full flex-col items-center justify-center gap-2">
           <FileCode
@@ -181,9 +173,6 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
           )}
         </div>
       </div>
-      <FileTypeWatermark
-        type={m.key.split(".").pop()?.toUpperCase() || "FILE"}
-      />
     </div>
   );
 
@@ -202,6 +191,68 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       default:
         return null;
     }
+  };
+
+  // biome-ignore lint/correctness/noNestedComponentDefinitions: SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
+  const SingleImagePreview = ({ media }: { media: Media }) => {
+    const storedW = typeof media.width === "number" ? media.width : null;
+    const storedH = typeof media.height === "number" ? media.height : null;
+    const hasStoredDims = storedW !== null && storedH !== null;
+    const [natural, setNatural] = useState<{ w: number; h: number } | null>(
+      hasStoredDims ? { w: storedW, h: storedH } : null
+    );
+
+    useEffect(() => {
+      if (hasStoredDims) {
+        return;
+      }
+      if (natural) {
+        return;
+      }
+      const img = new window.Image();
+      img.onload = () => {
+        if (img.naturalWidth > 0) {
+          setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+        }
+      };
+      img.src = getMediaUrl(media.id);
+    }, [media.id, natural, hasStoredDims]);
+
+    const dims = natural;
+
+    return (
+      <div className="w-full">
+        {dims ? (
+          <div
+            className="relative inline-block overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
+            style={{ maxWidth: "100%" }}
+          >
+            <Image
+              alt="Attachment"
+              className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
+              height={dims.h}
+              src={getMediaUrl(media.id)}
+              style={{ objectFit: "cover" }}
+              width={dims.w}
+            />
+          </div>
+        ) : (
+          <div
+            className="relative w-full overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
+            style={{ aspectRatio: "16 / 9" }}
+          >
+            <Image
+              alt="Attachment"
+              className="object-cover"
+              fill
+              src={getMediaUrl(media.id)}
+              style={{ objectFit: "cover" }}
+            />
+            <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+          </div>
+        )}
+      </div>
+    );
   };
 
   // biome-ignore lint/correctness/noNestedComponentDefinitions: GridPreview uses parent component props and state, making it reasonable to keep nested
@@ -225,7 +276,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         animate={{ opacity: 1, y: 0 }}
         className={cn(
           "relative cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
-          isSmall ? "h-20" : "h-48"
+          isSmall ? "h-20" : "h-56"
         )}
         exit={{ opacity: 0, y: -20 }}
         initial={{ opacity: 0, y: 20 }}
@@ -340,9 +391,13 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         )}
       >
         <AnimatePresence mode="wait">
-          {visibleAttachments.map((m, index) => (
-            <GridPreview index={index} key={m.id} media={m} />
-          ))}
+          {visibleAttachments.map((m, index) =>
+            visibleAttachments.length === 1 && m.type === "IMAGE" ? (
+              <SingleImagePreview key={m.id} media={m} />
+            ) : (
+              <GridPreview index={index} key={m.id} media={m} />
+            )
+          )}
         </AnimatePresence>
       </div>
 

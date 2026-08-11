@@ -164,7 +164,7 @@ export default function SearchField({
         <Input
           aria-label="Search"
           autoComplete="off"
-          className="h-10 pl-9 outline-none ring-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 md:h-11"
+          className="h-11 py-3 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
           onBlur={handleBlur}
           onChange={handleChange}
           onFocus={handleFocus}
