@@ -67,7 +67,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   );
 
   return (
-    <aside className="fixed top-0 left-0 hidden h-screen w-56 flex-col border-border/60 border-r px-3 py-5 lg:flex">
+    <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-border/60 border-r px-3 py-5 lg:flex">
       <Link className="mb-8 block px-2" href="/">
         <Image
           alt="Asocialmedia"

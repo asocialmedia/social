@@ -324,11 +324,11 @@ export default function PostEditor() {
           </div>
 
           <motion.div
-            className="mt-3 flex items-center justify-between gap-3"
+            className="mt-3 flex items-center justify-between gap-2"
             variants={itemVariants}
           >
             <motion.div
-              className="flex items-center gap-3"
+              className="flex items-center gap-1"
               variants={itemVariants}
             >
               <AnimatePresence>
@@ -359,7 +359,7 @@ export default function PostEditor() {
 
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <LoadingButton
-                className="min-w-24"
+                className="min-w-20"
                 disabled={!input.trim() || isUploading}
                 loading={mutation.isPending}
                 onClick={onSubmit}

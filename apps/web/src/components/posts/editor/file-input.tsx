@@ -177,7 +177,7 @@ export function FileInput({ onFilesSelected, disabled }: FileInputProps) {
   return (
     <>
       {isMobile ? (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
           <FileButton
             accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.mp4,.mov,.avi"
             buttonType="image"
@@ -234,7 +234,7 @@ export function FileInput({ onFilesSelected, disabled }: FileInputProps) {
           />
         </div>
       ) : (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
           <FileButton
             accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.mp4,.mov,.avi"
             buttonType="image"
