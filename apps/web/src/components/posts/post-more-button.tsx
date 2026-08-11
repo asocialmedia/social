@@ -12,6 +12,7 @@ import { AtSign, MoreHorizontal, Tags, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { MentionTags } from "@/components/tags/mention-tags";
 import { Tags as TagsComponent } from "@/components/tags/tags";
+import { cn } from "@/lib/utils";
 import DeletePostDialog from "./delete-post-dialog";
 
 interface PostMoreButtonProps {
@@ -88,8 +89,12 @@ export default function PostMoreButton({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button className={className} size="icon" variant="ghost">
-            <MoreHorizontal className="size-5 text-muted-foreground" />
+          <Button
+            className={cn(className, "h-5 w-5 p-0")}
+            size="icon"
+            variant="ghost"
+          >
+            <MoreHorizontal className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

@@ -1,5 +1,5 @@
 import { type ClassValue, clsx } from "clsx";
-import { formatDate, formatDistanceToNowStrict } from "date-fns";
+import { formatDate } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -15,8 +15,16 @@ export function formatRelativeDate(from: Date | string) {
     }
 
     const currentDate = new Date();
-    if (currentDate.getTime() - dateObj.getTime() < 24 * 60 * 60 * 1000) {
-      return formatDistanceToNowStrict(dateObj, { addSuffix: true });
+    const diffMs = currentDate.getTime() - dateObj.getTime();
+    if (diffMs < 24 * 60 * 60 * 1000) {
+      const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
+      if (diffMinutes < 1) {
+        return "just now";
+      }
+      if (diffMinutes < 60) {
+        return `${diffMinutes}m`;
+      }
+      return `${Math.floor(diffMinutes / 60)}h`;
     }
     if (currentDate.getFullYear() === dateObj.getFullYear()) {
       return formatDate(dateObj, "MMM d");

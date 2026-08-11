@@ -3,8 +3,7 @@
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
-import { Separator } from "@asm/ui/shadui/separator";
-import { ArrowUpRight, Eye, Flame, MessageSquare, Share2 } from "lucide-react";
+import { ArrowUpRight, Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
@@ -13,7 +12,6 @@ import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserTooltip from "@/components/layouts/user-tooltip";
-import AuraCount from "@/components/posts/aura-count";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import PostMoreButton from "@/components/posts/post-more-button";
@@ -21,7 +19,7 @@ import ViewTracker from "@/components/posts/view-counter";
 import { MentionTags } from "@/components/tags/mention-tags";
 import { Tags } from "@/components/tags/tags";
 import Linkify from "@/helpers/global/linkify";
-import { formatNumber, formatRelativeDate } from "@/lib/utils";
+import { formatRelativeDate } from "@/lib/utils";
 import { HNStoryCard } from "./hn-story-card";
 import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
@@ -91,142 +89,145 @@ const PostCard: React.FC<PostCardProps> = ({
 
   // biome-ignore lint/correctness/noNestedComponentDefinitions: PostContent uses extensive parent component state and props, making it reasonable to keep nested
   const PostContent = () => (
-    <>
-      {post.mentions && post.mentions.length > 0 && (
-        <div className="mt-2 mb-3">
-          <MentionTags
-            isOwner={post.user.id === user.id}
-            // biome-ignore lint/suspicious/noExplicitAny: Post.mentions comes from the database and is typed as 'any' there
-            mentions={post.mentions.map((m) => m.user as any)}
-            onMentionsChange={handleMentionsChange}
-            postId={post.id}
-          />
-        </div>
-      )}
+    <div className="flex gap-3">
+      <UserTooltip user={post.user}>
+        <Link className="shrink-0" href={`/users/${post.user.username}`}>
+          <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
+        </Link>
+      </UserTooltip>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center space-x-2">
-          <UserTooltip user={post.user}>
-            <Link href={`/users/${post.user.username}`}>
-              <UserAvatar avatarUrl={post.user.avatarUrl} />
-            </Link>
-          </UserTooltip>
-          <div className="min-w-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
             <UserTooltip user={post.user}>
-              <Link href={`/users/${post.user.username}`}>
-                <h3 className="truncate font-semibold text-foreground">
-                  {post.user.displayName}
-                </h3>
-                <div className="flex items-center text-muted-foreground text-sm">
-                  <Flame className="mr-1 h-4 w-4 text-orange-500" />
-                  {formatNumber(post.user.aura)} aura
-                </div>
+              <Link
+                className="truncate font-semibold text-foreground hover:underline"
+                href={`/users/${post.user.username}`}
+              >
+                {post.user.displayName}
               </Link>
             </UserTooltip>
-            <Link href={`/posts/${post.id}`} suppressHydrationWarning>
-              <p className="truncate text-muted-foreground text-sm hover:underline">
-                {formatRelativeDate(post.createdAt)}
-              </p>
+            <UserTooltip user={post.user}>
+              <Link
+                className="truncate text-muted-foreground hover:underline"
+                href={`/users/${post.user.username}`}
+              >
+                @{post.user.username}
+              </Link>
+            </UserTooltip>
+            <span className="shrink-0 text-muted-foreground">·</span>
+            <Link
+              className="shrink-0 text-muted-foreground hover:underline"
+              href={`/posts/${post.id}`}
+              suppressHydrationWarning
+            >
+              {formatRelativeDate(post.createdAt)}
             </Link>
           </div>
-        </div>
 
-        <div className="flex shrink-0 items-center space-x-2">
-          {post.user.id === user.id && (
-            <PostMoreButton
-              className="opacity-0 transition-opacity group-hover/post:opacity-100"
-              onUpdate={handlePostUpdate}
-              post={post}
+          <div className="flex shrink-0 items-start gap-1">
+            {post.user.id === user.id && (
+              <PostMoreButton
+                className="opacity-0 transition-opacity group-hover/post:opacity-100"
+                onUpdate={handlePostUpdate}
+                post={post}
+              />
+            )}
+            <BookmarkButton
+              className="h-5 w-5 p-0"
+              initialState={{
+                isBookmarkedByUser: post.bookmarks.some(
+                  (bookmark) => bookmark.userId === user.id
+                ),
+              }}
+              postId={post.id}
             />
-          )}
-          <Button
-            className="flex items-center space-x-2 text-muted-foreground"
-            size="sm"
-            variant="ghost"
-          >
-            <Eye className="h-4 w-4" />
-            <span className="text-sm tabular-nums">{post.viewCount}</span>
-          </Button>
-          <BookmarkButton
-            initialState={{
-              isBookmarkedByUser: post.bookmarks.some(
-                (bookmark) => bookmark.userId === user.id
-              ),
-            }}
-            postId={post.id}
-          />
-        </div>
-      </div>
-
-      <AuraCount initialAura={post.aura} postId={post.id} />
-
-      {post.tags && post.tags.length > 0 && (
-        <div className="mt-2 mb-2">
-          <Tags
-            isOwner={post.user.id === user.id}
-            onTagsChange={handleTagsChange}
-            postId={post.id}
-            tags={post.tags as TagWithCount[]}
-          />
-        </div>
-      )}
-
-      <Linkify>
-        <p className="mt-4 mb-4 max-w-full whitespace-pre-wrap break-words text-foreground">
-          {post.content}
-        </p>
-      </Linkify>
-
-      {post.hnStoryShare ? (
-        <div className="mb-4">
-          <div className="mb-2 flex items-center text-muted-foreground text-xs sm:text-sm">
-            <Share2 className="mr-1.5 h-3.5 w-3.5 text-orange-500 sm:h-4 sm:w-4" />
-            <span className="font-medium">Reshared from Hacker News</span>
           </div>
-          <div className="overflow-hidden rounded-lg border border-orange-500/30 bg-gradient-to-br from-orange-50/70 to-white dark:border-orange-500/20 dark:from-orange-950/10 dark:to-background/50">
+        </div>
+
+        <Linkify>
+          <p className="max-w-full whitespace-pre-wrap break-words text-[15px] text-foreground leading-relaxed">
+            {post.content}
+          </p>
+        </Linkify>
+
+        {post.hnStoryShare ? (
+          <div className="mt-3 overflow-hidden border border-orange-500/30 bg-gradient-to-br from-orange-50/70 to-white dark:border-orange-500/20 dark:from-orange-950/10 dark:to-background/50">
             <HNStoryCard hnStory={post.hnStoryShare} />
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {!!post.attachments.length && (
-        <div className="max-w-full overflow-hidden">
-          <MediaPreviews attachments={post.attachments} />
-        </div>
-      )}
+        {!!post.attachments.length && (
+          <div className="mt-2.5 max-w-full overflow-hidden">
+            <MediaPreviews attachments={post.attachments} />
+          </div>
+        )}
 
-      {!!post.attachments.length && <Separator className="mt-4" />}
+        {post.tags && post.tags.length > 0 && (
+          <div className="mt-2.5">
+            <Tags
+              isOwner={post.user.id === user.id}
+              onTagsChange={handleTagsChange}
+              postId={post.id}
+              tags={post.tags as TagWithCount[]}
+            />
+          </div>
+        )}
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <AuraVoteButton
-          authorName={post.user.displayName}
-          initialState={{
-            aura: post.aura,
-            userVote: post.vote[0]?.value || 0,
-          }}
-          postId={post.id}
-        />
-        <div className="flex items-center space-x-2">
-          <CommentButton onClick={handleToggleComments} post={post} />
-          <ShareButton
-            description={post.content}
-            postId={post.id}
-            thumbnail={post.attachments[0]?.url}
-            title={post.content}
-          />
-          <Link href={`/posts/${post.id}`} suppressHydrationWarning>
+        {post.mentions && post.mentions.length > 0 && (
+          <div className="mt-2">
+            <MentionTags
+              isOwner={post.user.id === user.id}
+              // biome-ignore lint/suspicious/noExplicitAny: Post.mentions comes from the database and is typed as 'any' there
+              mentions={post.mentions.map((m) => m.user as any)}
+              onMentionsChange={handleMentionsChange}
+              postId={post.id}
+            />
+          </div>
+        )}
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <AuraVoteButton
+              authorName={post.user.displayName}
+              initialState={{
+                aura: post.aura,
+                userVote: post.vote[0]?.value || 0,
+              }}
+              postId={post.id}
+            />
+            <CommentButton onClick={handleToggleComments} post={post} />
+          </div>
+
+          <div className="flex items-center gap-1">
             <Button
-              className="hover: text-muted-foreground"
+              className="flex cursor-default items-center gap-1.5 text-muted-foreground hover:bg-transparent"
               size="sm"
               variant="ghost"
             >
-              <ArrowUpRight className="h-5 w-5" />
+              <Eye className="size-5" />
+              <span className="text-sm tabular-nums">{post.viewCount}</span>
             </Button>
-          </Link>
+            <ShareButton
+              description={post.content}
+              postId={post.id}
+              thumbnail={post.attachments[0]?.url}
+              title={post.content}
+            />
+            <Link href={`/posts/${post.id}`} suppressHydrationWarning>
+              <Button
+                className="text-muted-foreground"
+                size="sm"
+                variant="ghost"
+              >
+                <ArrowUpRight className="h-5 w-5" />
+              </Button>
+            </Link>
+          </div>
         </div>
+        {showComments ? <Comments post={post} /> : null}
       </div>
-      {showComments ? <Comments post={post} /> : null}
-    </>
+    </div>
   );
 
   return (
@@ -270,14 +271,14 @@ interface CommentButtonProps {
 function CommentButton({ post, onClick }: CommentButtonProps) {
   return (
     <Button
-      className="flex items-center space-x-2 text-muted-foreground hover:text-foreground"
+      className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
       onClick={onClick}
       size="sm"
       variant="ghost"
     >
       <MessageSquare className="size-5" />
       <span className="font-medium text-sm tabular-nums">
-        {post._count.comments} <span className="hidden sm:inline">Eddies</span>
+        {post._count.comments}
       </span>
     </Button>
   );

@@ -13,11 +13,13 @@ import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
 interface BookmarkButtonProps {
+  className?: string;
   initialState: BookmarkInfo;
   postId: string;
 }
 
 export default function BookmarkButton({
+  className,
   postId,
   initialState,
 }: BookmarkButtonProps) {
@@ -64,8 +66,12 @@ export default function BookmarkButton({
 
   return (
     <Button
-      className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+      className={cn(
+        "flex items-center gap-1 text-muted-foreground hover:text-foreground",
+        className
+      )}
       onClick={handleBookmark}
+      size="sm"
       variant="ghost"
     >
       <Bookmark

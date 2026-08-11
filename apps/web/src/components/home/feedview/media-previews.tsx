@@ -324,7 +324,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     <motion.div className="w-full" layout>
       <div
         className={cn(
-          "grid gap-4 p-4",
+          "grid gap-4",
           (() => {
             if (visibleAttachments.length === 1) {
               return "grid-cols-1";

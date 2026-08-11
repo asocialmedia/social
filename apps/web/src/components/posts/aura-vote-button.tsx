@@ -7,10 +7,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ArrowBigDown, ArrowBigUp } from "lucide-react";
+import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 import kyInstance from "@/lib/ky";
-import { cn } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
   authorName: string;
@@ -175,6 +175,13 @@ export default function AuraVoteButton({
           </span>
         </div>
       </Button>
+      <span
+        className="flex items-center gap-1 font-semibold text-muted-foreground text-sm tabular-nums"
+        title="Aura"
+      >
+        <Flame className="h-5 w-5 text-orange-500" />
+        {formatNumber(data.aura)}
+      </span>
     </div>
   );
 }
