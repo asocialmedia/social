@@ -1,7 +1,6 @@
 "use client";
 
 import { EMAIL_REGEX, USERNAME_REGEX } from "@asm/auth/validation";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -21,6 +20,7 @@ import { useState, useTransition } from "react";
 import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
+import { useToast } from "@/lib/gooey-toast";
 import { LoadingButton } from "./loading-button";
 
 const schema = z.object({

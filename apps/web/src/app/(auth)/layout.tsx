@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import type React from "react";
+import { GooeyToaster } from "@/components/auth/gooey-toaster";
 import { getSessionFromApi } from "@/lib/session";
 
 export default async function Layout({
@@ -17,6 +18,7 @@ export default async function Layout({
   return (
     <div className="font-sofiaProSoftMed">
       <NuqsAdapter>{children}</NuqsAdapter>
+      <GooeyToaster />
     </div>
   );
 }

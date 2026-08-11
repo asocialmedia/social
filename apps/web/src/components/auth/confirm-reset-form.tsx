@@ -1,6 +1,5 @@
 "use client";
 
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Form,
@@ -20,6 +19,7 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { resetPassword } from "@/app/(auth)/reset-password/server-actions";
+import { useToast } from "@/lib/gooey-toast";
 import { LoadingButton } from "./loading-button";
 import { PasswordInput } from "./password-input";
 import { PasswordStrengthChecker } from "./password-strength-checker";
@@ -257,7 +257,7 @@ export default function ConfirmResetForm() {
         className="relative flex min-h-screen overflow-hidden bg-background"
         initial={{ opacity: 0 }}
       >
-        <div className="absolute inset-0 z-0 bg-gradient-to-bl from-primary/5 via-background to-background/95" />
+        <div className="absolute inset-0 z-0 bg-linear-to-bl from-primary/5 via-background to-background/95" />
         <motion.div
           animate={{ opacity: 1, x: 0 }}
           className="absolute left-20 hidden h-full items-center md:flex"
@@ -274,7 +274,7 @@ export default function ConfirmResetForm() {
         <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
           <motion.div
             animate={{ y: 0, opacity: 1 }}
-            className="relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-[520px] lg:flex-row"
+            className="relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-130 lg:flex-row"
             initial={{ y: 20, opacity: 0 }}
             transition={{ delay: 0.2 }}
           >
@@ -286,7 +286,7 @@ export default function ConfirmResetForm() {
             >
               <motion.div
                 animate={{ opacity: 1 }}
-                className="absolute inset-0 bg-gradient-to-b from-transparent to-primary/20"
+                className="absolute inset-0 bg-linear-to-b from-transparent to-primary/20"
                 initial={{ opacity: 0 }}
                 transition={{ duration: 1 }}
               />

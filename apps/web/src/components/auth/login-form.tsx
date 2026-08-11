@@ -1,7 +1,6 @@
 "use client";
 
 import { type LoginValues, loginSchema } from "@asm/auth/validation";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -23,6 +22,7 @@ import { resendVerificationEmail } from "@/app/(auth)/signup/actions";
 import ForgotPasswordLink from "@/components/auth/forgot-password-link";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
+import { useToast } from "@/lib/gooey-toast";
 import { HelpLink } from "../animations/image-link-preview";
 
 export default function LoginForm() {
@@ -99,12 +99,7 @@ export default function LoginForm() {
     toast({
       variant: "destructive",
       title: "Login Failed",
-      description: (
-        <div className="flex items-center gap-2">
-          <XCircle className="h-4 w-4" />
-          {error}
-        </div>
-      ),
+      description: error,
       duration: 5000,
     });
   }
@@ -238,12 +233,12 @@ export default function LoginForm() {
             {error ? (
               <motion.div
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-lg bg-destructive/15 p-3 text-center text-destructive text-sm"
+                className="premium-error p-3 text-center text-sm"
                 exit={{ opacity: 0, y: -20 }}
                 initial={{ opacity: 0, y: -20 }}
               >
                 <p className="flex items-center justify-center gap-2">
-                  <AlertCircle className="h-4 w-4" />
+                  <AlertCircle className="h-4 w-4 text-[#ff7b63]" />
                   {error}
                 </p>
               </motion.div>

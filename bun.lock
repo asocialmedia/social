@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.0.20",
+      "version": "1.0.29",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/config": "workspace:*",
@@ -68,7 +68,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.0.20",
+      "version": "1.0.28",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -98,6 +98,7 @@
         "cropperjs": "^1.6.2",
         "cross-env": "^10.1.0",
         "date-fns": "^4.4.0",
+        "gooey-toast": "^0.2.2",
         "jotai": "^2.20.2",
         "jsonwebtoken": "^9.0.3",
         "ky": "^2.0.2",
@@ -148,7 +149,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.0.20",
+      "version": "1.0.27",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@prisma/client": "7.9.1",
@@ -1406,6 +1407,8 @@
     "glob-parent": ["glob-parent@5.1.2", "", { "dependencies": { "is-glob": "^4.0.1" } }, "sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow=="],
 
     "globby": ["globby@11.1.0", "", { "dependencies": { "array-union": "^2.1.0", "dir-glob": "^3.0.1", "fast-glob": "^3.2.9", "ignore": "^5.2.0", "merge2": "^1.4.1", "slash": "^3.0.0" } }, "sha512-jhIXaOzy1sb8IyocaruWSn1TjmnBVs8Ayhcy83rmxNJ8q2uWKCAj3CnJY+KpGSXCueAPc0i05kVvVKtP1t9S3g=="],
+
+    "gooey-toast": ["gooey-toast@0.2.2", "", {}, "sha512-CaXxXXLHWxZnLeOMABihs3tkG6aCehdwP6ez1MKfjqrQT2MF4I9uMAFSKXWLMPWaJe6TrNLFuG8nuIfWb4WeEg=="],
 
     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
 
