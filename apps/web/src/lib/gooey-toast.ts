@@ -3,7 +3,7 @@
 import { toast as gooeyToast, type ToastOptions } from "gooey-toast";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 
 type ToastVariant = "default" | "destructive";
 
@@ -16,8 +16,10 @@ interface ToastMessage {
 
 export const GOOEY_FILL = "#232323";
 
-/** Order of toast ids as they are shown; GooeyToaster pairs these with
- *  the DOM nodes it observes so it can wire up close buttons. */
+const noop = (): void => undefined;
+
+// Order of toast ids as they are shown; GooeyToaster pairs these with
+// the DOM nodes it observes so it can wire up close buttons.
 const pendingIds: string[] = [];
 
 export function takePendingToastId(): string | undefined {
@@ -38,18 +40,24 @@ function buildGooeyOptions(
   };
 }
 
-function reactNodeToDom(node: ReactNode): Node {
+function reactNodeToDom(node: ReactNode): { node: Node; unmount: () => void } {
   const container = document.createElement("span");
   if (isValidElement(node)) {
+    const root: Root = createRoot(container);
     flushSync(() => {
-      createRoot(container).render(node as ReactElement);
+      root.render(node as ReactElement);
     });
-  } else if (node === null || node === undefined) {
+    return {
+      node: container,
+      unmount: () => root.unmount(),
+    };
+  }
+  if (node === null || node === undefined) {
     container.textContent = "";
   } else {
     container.textContent = String(node);
   }
-  return container;
+  return { node: container, unmount: noop };
 }
 
 export function toast({
@@ -58,13 +66,19 @@ export function toast({
   variant,
   duration = 5000,
 }: ToastMessage) {
-  const resolvedDescription = resolveDescription(description);
-  const options = buildGooeyOptions(title, resolvedDescription, duration);
+  const resolved = resolveDescription(description);
+  const options = buildGooeyOptions(title, resolved?.description, duration);
 
   const id =
     variant === "destructive"
       ? gooeyToast.error(options)
       : gooeyToast.success(options);
+
+  // gooeyToast.success/error synchronously clones the description node,
+  // so the temporary React root can be unmounted now to clean up effects,
+  // timers and subscriptions.
+  resolved?.unmount();
+
   pendingIds.push(id);
 
   return { id };
@@ -72,14 +86,17 @@ export function toast({
 
 function resolveDescription(
   description: ReactNode | undefined
-): string | number | Node | undefined {
+):
+  | { description: string | number | Node | undefined; unmount: () => void }
+  | undefined {
   if (description === undefined || description === null) {
     return;
   }
   if (typeof description === "string" || typeof description === "number") {
-    return description;
+    return { description, unmount: noop };
   }
-  return reactNodeToDom(description);
+  const rendered = reactNodeToDom(description);
+  return { description: rendered.node, unmount: rendered.unmount };
 }
 
 export function dismissToast(id: string) {

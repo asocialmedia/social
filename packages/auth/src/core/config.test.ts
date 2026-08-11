@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { extractTokenFromUrl } from "./config";
+import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 describe("extractTokenFromUrl", () => {
   test("extracts token from better-auth reset url with callbackURL", () => {
@@ -26,5 +27,29 @@ describe("extractTokenFromUrl", () => {
   test("prefers query token over path token", () => {
     const url = "https://social.localhost/verify-email?token=querytok";
     expect(extractTokenFromUrl(url)).toBe("querytok");
+  });
+});
+
+describe("password verification (emailAndPassword.password.verify)", () => {
+  test("verifies a raw scrypt hash", async () => {
+    const password = "SuperSecret123!";
+    const hash = await hashPasswordWithScrypt(password);
+
+    expect(await verifyPasswordHash(password, hash)).toBe(true);
+    expect(await verifyPasswordHash("wrong", hash)).toBe(false);
+  });
+
+  test('verifies a JSON-wrapped {"hash": ...} value', async () => {
+    const password = "SuperSecret123!";
+    const hash = await hashPasswordWithScrypt(password);
+    const wrapped = JSON.stringify({ hash });
+
+    expect(await verifyPasswordHash(password, wrapped)).toBe(true);
+    expect(await verifyPasswordHash("wrong", wrapped)).toBe(false);
+  });
+
+  test("rejects an unrecognized stored value", async () => {
+    expect(await verifyPasswordHash("password", 42)).toBe(false);
+    expect(await verifyPasswordHash("password", undefined)).toBe(false);
   });
 });

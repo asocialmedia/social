@@ -28,7 +28,7 @@ export function extractTokenFromUrl(url: string): string {
   }
 }
 
-import { hashPasswordWithScrypt, verifyPasswordWithScrypt } from "./password";
+import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 function deriveUsernameFromProfile(
   profile:
@@ -212,32 +212,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
         }: {
           hash: string;
           password: string;
-        }) => {
-          let stored: string | undefined;
-          if (typeof hash === "string") {
-            try {
-              const parsed = JSON.parse(hash);
-              if (
-                parsed &&
-                typeof parsed === "object" &&
-                "hash" in (parsed as Record<string, unknown>) &&
-                typeof (parsed as Record<string, unknown>).hash === "string"
-              ) {
-                stored = (parsed as Record<string, string>).hash;
-              } else {
-                stored = hash;
-              }
-            } catch {
-              stored = hash;
-            }
-          }
-
-          if (typeof stored !== "string") {
-            return false;
-          }
-
-          return await verifyPasswordWithScrypt(password, stored);
-        },
+        }) => verifyPasswordHash(password, hash),
       },
       sendResetPassword: emailService?.sendPasswordResetEmail
         ? async ({ user, url }) => {

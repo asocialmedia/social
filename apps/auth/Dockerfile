@@ -4,8 +4,10 @@ FROM node:24-slim AS build
 LABEL org.opencontainers.image.title="Asocialmedia Auth Service" \
       org.opencontainers.image.description="Authentication service for Asocialmedia" \
       org.opencontainers.image.vendor="Asocialmedia"
-ARG NEXT_PUBLIC_URL=https://asocialmedia.cc
-ARG NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc
+ARG NEXT_PUBLIC_URL
+ARG NEXT_PUBLIC_AUTH_URL
+RUN test -n "$NEXT_PUBLIC_URL" || (echo "NEXT_PUBLIC_URL build-arg is required" && exit 1)
+RUN test -n "$NEXT_PUBLIC_AUTH_URL" || (echo "NEXT_PUBLIC_AUTH_URL build-arg is required" && exit 1)
 ENV NEXT_PUBLIC_URL=${NEXT_PUBLIC_URL}
 ENV NEXT_PUBLIC_AUTH_URL=${NEXT_PUBLIC_AUTH_URL}
 RUN apt-get update && apt-get install -y openssl curl unzip && rm -rf /var/lib/apt/lists/*

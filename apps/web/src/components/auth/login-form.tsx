@@ -99,7 +99,7 @@ export default function LoginForm() {
     toast({
       variant: "destructive",
       title: "Login Failed",
-      description: error,
+      description: loginErrorMessage,
       duration: 5000,
     });
   }
