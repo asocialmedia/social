@@ -455,11 +455,9 @@ jobs:
 
           PRISMA_COMMAND="$(printf '%s\n' \
             'set -eu' \
-            'cd /app' \
+            'cd /app/packages/db' \
             '' \
-            'SCHEMA_PATH="/app/packages/db/prisma/schema.prisma"' \
-            'MIGRATIONS_PATH="/app/packages/db/prisma/migrations"' \
-            'TEMP_CONFIG="/tmp/asm-prisma.config.ts"' \
+            'PRISMA="/app/node_modules/prisma/build/index.js"' \
             'DB_URL="${DATABASE_URL:-${POSTGRES_PRISMA_URL:-${POSTGRES_URL_NON_POOLING:-}}}"' \
             '' \
             'if [ -z "$DB_URL" ]; then' \
@@ -468,22 +466,11 @@ jobs:
             'fi' \
             '' \
             'export DATABASE_URL="$DB_URL"' \
-            '' \
-            'cat > "$TEMP_CONFIG" <<EOF' \
-            'import { defineConfig } from "prisma/config";' \
-            'export default defineConfig({' \
-            '  schema: "/app/packages/db/prisma/schema.prisma",' \
-            '  migrations: { path: "/app/packages/db/prisma/migrations" },' \
-            '  datasource: { url: process.env.DATABASE_URL ?? "" },' \
-            '});' \
-            'EOF' \
-            '' \
-            'echo "Applying committed Prisma migrations..."' \
-            'bunx prisma migrate deploy --config "$TEMP_CONFIG"' \
+            'export NODE_ENV="${NODE_ENV:-production}"' \
             '' \
             'echo "Checking schema drift between DB and Prisma schema..."' \
             'set +e' \
-            'bunx prisma migrate diff --from-config-datasource --to-schema "$SCHEMA_PATH" --config "$TEMP_CONFIG" --exit-code >/dev/null' \
+            'node "$PRISMA" migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code >/dev/null' \
             'diff_status=$?' \
             'set -e' \
             '' \
@@ -498,7 +485,7 @@ jobs:
             'fi' \
             '' \
             'echo "Schema drift detected. Attempting non-destructive sync with db push..."' \
-            'bunx prisma db push --config "$TEMP_CONFIG"' \
+            'node "$PRISMA" db push' \
             '' \
             'echo "Prisma safe sync completed."' \
           )"
@@ -517,15 +504,24 @@ jobs:
               command: $command
             }')
 
-          CREATE_RESPONSE=$(curl -sS -X 'POST' \
+          CREATE_RESPONSE_FILE=$(mktemp)
+          CREATE_STATUS=$(curl -sS -o "$CREATE_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
             "${API_URL}/api/schedule.create" \
             -H 'accept: application/json' \
             -H 'Content-Type: application/json' \
             -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-            --fail-with-body \
             -d "$CREATE_PAYLOAD")
 
-          SCHEDULE_ID=$(printf '%s' "$CREATE_RESPONSE" | jq -r '.scheduleId // .id // .data.scheduleId // empty')
+          CREATE_RESPONSE=$(cat "$CREATE_RESPONSE_FILE")
+          rm -f "$CREATE_RESPONSE_FILE"
+
+          if [ "$CREATE_STATUS" -ge 400 ]; then
+            echo "Dokploy schedule create request failed with HTTP ${CREATE_STATUS}"
+            printf '%s\n' "$CREATE_RESPONSE"
+            exit 1
+          fi
+
+          SCHEDULE_ID=$(printf '%s' "$CREATE_RESPONSE" | jq -r '.scheduleId // .id // .data.scheduleId // empty' 2>/dev/null || true)
 
           if [ -z "$SCHEDULE_ID" ]; then
             echo "Failed to create Dokploy schedule for Prisma sync."
@@ -558,4 +554,4 @@ jobs:
             exit 1
           fi
 
-          printf '%s\n' "$RUN_RESPONSE"
+          echo "Prisma sync triggered (schedule ${SCHEDULE_ID}). Verify via Dokploy application logs."
