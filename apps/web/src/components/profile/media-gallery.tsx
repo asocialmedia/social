@@ -15,6 +15,7 @@ import Link from "next/link";
 import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
+import { useMediaQuery } from "usehooks-ts";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
@@ -183,7 +184,15 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
   );
 };
 
-const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
+interface MediaGalleryContentProps {
+  enabled?: boolean;
+  userId: string;
+}
+
+const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
+  enabled = true,
+  userId,
+}) => {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -205,6 +214,7 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
         .json<MediaPage>(),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled,
     staleTime: 1000 * 60,
   });
 
@@ -297,9 +307,8 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
   }
 
   return (
-    <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-y-auto xl:flex">
+    <>
       <div className="p-3">{body}</div>
-
       {selectedMedia ? (
         <MediaViewer
           initialIndex={selectedIndex}
@@ -312,8 +321,18 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
           onClose={handleCloseViewer}
         />
       ) : null}
+    </>
+  );
+};
+
+const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
+  const isXl = useMediaQuery("(min-width: 1280px)");
+  return (
+    <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-y-auto xl:flex">
+      <MediaGalleryContent enabled={isXl} userId={userId} />
     </aside>
   );
 };
 
+export { MediaGalleryContent };
 export default MediaGallery;

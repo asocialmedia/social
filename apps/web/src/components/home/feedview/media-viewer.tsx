@@ -213,8 +213,8 @@ const MediaViewer = ({
       {isLoading ? <MediaViewerSkeleton type="VIDEO" /> : null}
       <CustomVideoPlayer
         className={cn(
-          "max-h-[85vh] w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
-          "shadow-lg transition-transform duration-200",
+          "max-h-[92vh] w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
+          "shadow-lg",
           isLoading && "hidden"
         )}
         onError={handleMediaLoaded}

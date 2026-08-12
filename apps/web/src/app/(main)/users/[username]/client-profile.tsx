@@ -2,13 +2,16 @@
 
 import type { UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useMediaQuery } from "usehooks-ts";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import MediaGallery from "@/components/profile/media-gallery";
+import MediaGallery, {
+  MediaGalleryContent,
+} from "@/components/profile/media-gallery";
 import ProfileHeader from "@/components/profile/profile-header";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
@@ -18,7 +21,7 @@ interface ProfilePageProps {
   userData: UserData;
 }
 
-type ProfileTab = "posts" | "replies";
+type ProfileTab = "posts" | "replies" | "media";
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
@@ -26,10 +29,18 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>("posts");
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const isXl = useMediaQuery("(min-width: 1280px)");
 
   const handleTabChange = useCallback((value: string) => {
     setActiveTab(value as ProfileTab);
   }, []);
+
+  // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
+  useEffect(() => {
+    if (isXl && activeTab === "media") {
+      setActiveTab("posts");
+    }
+  }, [activeTab, isXl]);
 
   const isOwnProfile = userData.id === loggedInUserData.id;
 
@@ -70,6 +81,12 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       >
                         Replies
                       </TabsTrigger>
+                      <TabsTrigger
+                        className={`${TAB_TRIGGER_CLASS} xl:hidden`}
+                        value="media"
+                      >
+                        Media
+                      </TabsTrigger>
                     </TabsList>
                   </div>
 
@@ -79,6 +96,10 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
 
                   <TabsContent className="mt-0 pb-12" value="replies">
                     <UserRepliesFeed userId={userData.id} />
+                  </TabsContent>
+
+                  <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
+                    <MediaGalleryContent userId={userData.id} />
                   </TabsContent>
                 </div>
                 <FeedScrollbar containerRef={feedScrollRef} />
