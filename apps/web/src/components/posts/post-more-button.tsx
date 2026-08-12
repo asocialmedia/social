@@ -29,7 +29,8 @@ export default function PostMoreButton({
     setIsOpen(open);
   }, []);
 
-  const handleShowDeleteDialog = useCallback(() => {
+  const handleShowDeleteDialog = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     setShowDeleteDialog(true);
   }, []);
 
@@ -37,7 +38,8 @@ export default function PostMoreButton({
     setShowDeleteDialog(false);
   }, []);
 
-  const handleShowEditDialog = useCallback(() => {
+  const handleShowEditDialog = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     setShowEditDialog(true);
   }, []);
 
