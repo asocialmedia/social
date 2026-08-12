@@ -28,6 +28,7 @@ import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { HNStoryCard } from "./hn-story-card";
 import { MediaPreviews } from "./media-previews";
@@ -277,6 +278,11 @@ const PostCard: React.FC<PostCardProps> = ({
           "a, button, input, textarea, video, [role='button'], [data-card-interactive]"
         )
       ) {
+        return;
+      }
+      // If any popup (dialog/menu) is open, a click on the overlay to dismiss it
+      // should close the popup rather than navigate to the post.
+      if (isPopupOpen()) {
         return;
       }
       router.push(`/posts/${post.id}`);

@@ -9,6 +9,7 @@ import { Hash, MoreHorizontal, Trash2 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useState } from "react";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
+import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 import DeletePostDialog from "./delete-post-dialog";
 
@@ -27,24 +28,29 @@ export default function PostMoreButton({
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
+    setPopupOpen(open);
   }, []);
 
   const handleShowDeleteDialog = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setShowDeleteDialog(true);
+    setPopupOpen(true);
   }, []);
 
   const handleCloseDeleteDialog = useCallback(() => {
     setShowDeleteDialog(false);
+    setPopupOpen(false);
   }, []);
 
   const handleShowEditDialog = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setShowEditDialog(true);
+    setPopupOpen(true);
   }, []);
 
   const handleCloseEditDialog = useCallback(() => {
     setShowEditDialog(false);
+    setPopupOpen(false);
   }, []);
 
   const handleTriggerClick = useCallback(

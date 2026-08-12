@@ -27,6 +27,7 @@ import {
   FaWhatsapp,
 } from "react-icons/fa";
 import { toast } from "sonner";
+import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_THUMBNAIL = "/fallback.png";
@@ -329,6 +330,12 @@ const ShareButton = ({
   const handleOpen = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     setIsOpen(true);
+    setPopupOpen(true);
+  }, []);
+
+  const handleOpenChange = useCallback((open: boolean) => {
+    setIsOpen(open);
+    setPopupOpen(open);
   }, []);
 
   const handleContentClick = useCallback((e: React.MouseEvent) => {
@@ -375,7 +382,7 @@ const ShareButton = ({
   };
 
   return (
-    <Dialog onOpenChange={setIsOpen} open={isOpen}>
+    <Dialog onOpenChange={handleOpenChange} open={isOpen}>
       <button
         aria-label="Share"
         className="pill-3d-hover group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm active:translate-y-px"
