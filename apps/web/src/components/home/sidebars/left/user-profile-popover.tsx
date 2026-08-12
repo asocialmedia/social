@@ -17,14 +17,18 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useState } from "react";
+import type { IconType } from "react-icons";
+import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
 import { useLogout } from "@/hooks/use-logout";
 import { formatNumber } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UserProfilePopoverProps {
   userData: UserData;
@@ -52,6 +56,45 @@ const PopoverStat: React.FC<PopoverStatProps> = ({
   </div>
 );
 
+interface PopoverSocialLink {
+  href: string;
+  icon: IconType;
+  label: string;
+}
+
+function getSocialLinks(user: UserData): PopoverSocialLink[] {
+  const links: PopoverSocialLink[] = [];
+  if (user.githubUsername) {
+    links.push({
+      href: `https://github.com/${user.githubUsername}`,
+      icon: FaGithub,
+      label: `GitHub: ${user.githubUsername}`,
+    });
+  }
+  if (user.linkedinUsername) {
+    links.push({
+      href: `https://www.linkedin.com/in/${user.linkedinUsername}`,
+      icon: FaLinkedin,
+      label: `LinkedIn: ${user.linkedinUsername}`,
+    });
+  }
+  if (user.twitterUsername) {
+    links.push({
+      href: `https://x.com/${user.twitterUsername}`,
+      icon: FaXTwitter,
+      label: `Twitter / X: ${user.twitterUsername}`,
+    });
+  }
+  if (user.redditUsername) {
+    links.push({
+      href: `https://www.reddit.com/user/${user.redditUsername}`,
+      icon: FaReddit,
+      label: `Reddit: ${user.redditUsername}`,
+    });
+  }
+  return links;
+}
+
 const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
   userData,
 }) => {
@@ -73,6 +116,34 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
   const handleClose = useCallback(() => setOpen(false), []);
 
   const profileHref = `/users/${userData.username}`;
+  const socialLinks = getSocialLinks(userData);
+  const hasBanner = Boolean(userData.bannerUrl);
+
+  let bannerContent: React.ReactNode;
+  if (hasBanner && userData.bannerUrl) {
+    bannerContent = (
+      <Image
+        alt=""
+        className="object-cover"
+        fill
+        sizes="336px"
+        src={getSecureImageUrl(userData.bannerUrl)}
+        unoptimized
+      />
+    );
+  } else if (userData.avatarUrl) {
+    bannerContent = (
+      <div
+        aria-hidden
+        className="absolute inset-0 scale-110 bg-center bg-cover opacity-30 blur-md"
+        style={{ backgroundImage: `url(${userData.avatarUrl})` }}
+      />
+    );
+  } else {
+    bannerContent = (
+      <div className="absolute inset-0 bg-gradient-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+    );
+  }
 
   return (
     <>
@@ -104,14 +175,12 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
         >
           {/* Banner */}
           <div className="relative h-24 overflow-hidden">
-            {userData.avatarUrl ? (
-              <div
-                aria-hidden
-                className="absolute inset-0 scale-110 bg-center bg-cover opacity-30 blur-md"
-                style={{ backgroundImage: `url(${userData.avatarUrl})` }}
-              />
-            ) : null}
-            <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--primary)/0.45)] via-[hsl(var(--primary)/0.15)] to-[hsl(var(--background-alt))]" />
+            {bannerContent}
+            {hasBanner ? (
+              <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--primary)/0.45)] via-[hsl(var(--primary)/0.15)] to-[hsl(var(--background-alt))]" />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] to-transparent" />
+            )}
             <div className="absolute inset-x-0 bottom-0 h-px bg-border/40" />
           </div>
 
@@ -144,6 +213,23 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                   {userData.bio}
                 </p>
               </Linkify>
+            ) : null}
+
+            {socialLinks.length > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {socialLinks.map((link) => (
+                  <a
+                    aria-label={link.label}
+                    className="pill-3d-hover flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:text-foreground"
+                    href={link.href}
+                    key={link.label}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    <link.icon className="h-4 w-4" />
+                  </a>
+                ))}
+              </div>
             ) : null}
           </div>
 

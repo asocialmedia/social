@@ -1,6 +1,6 @@
 import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
-import { deleteAvatar } from "@/lib/object-storage";
+import { deleteAvatar, deleteBanner } from "@/lib/object-storage";
 
 async function clearUploads() {
   const logs: string[] = [];
@@ -16,6 +16,8 @@ async function clearUploads() {
     mediaDeleted: 0,
     avatarsProcessed: 0,
     avatarsDeleted: 0,
+    bannersProcessed: 0,
+    bannersDeleted: 0,
     errors: [] as string[],
   };
 
@@ -201,6 +203,81 @@ async function clearUploads() {
       await processAvatarBatches(0);
     }
 
+    // 3. Handle orphaned banners
+    log("\n🔍 Finding orphaned user banners...");
+    const orphanedBanners = await prisma.user.findMany({
+      where: {
+        bannerKey: { not: null },
+        AND: { bannerUrl: null },
+      },
+      select: {
+        id: true,
+        username: true,
+        bannerKey: true,
+      },
+    });
+
+    results.bannersProcessed = orphanedBanners.length;
+    log(`📊 Found ${orphanedBanners.length} orphaned banners`);
+
+    if (orphanedBanners.length > 0) {
+      const batchSize = 25;
+
+      async function processBannerBatches(
+        batchStartIndex: number
+      ): Promise<void> {
+        if (batchStartIndex >= orphanedBanners.length) {
+          return;
+        }
+
+        const batch = orphanedBanners.slice(
+          batchStartIndex,
+          batchStartIndex + batchSize
+        );
+        const batchNumber = Math.floor(batchStartIndex / batchSize) + 1;
+        const totalBatches = Math.ceil(orphanedBanners.length / batchSize);
+
+        log(
+          `\n🔄 Processing banners batch ${batchNumber}/${totalBatches} (${batch.length} banners)`
+        );
+
+        await Promise.allSettled(
+          batch.map(async (user) => {
+            if (user.bannerKey) {
+              try {
+                await deleteBanner(user.bannerKey);
+                await prisma.user.update({
+                  where: { id: user.id },
+                  data: { bannerKey: null },
+                });
+                results.bannersDeleted += 1;
+                log(
+                  `✅ Deleted orphaned banner for user ${user.username}: ${user.bannerKey}`
+                );
+                return true;
+              } catch (error) {
+                const errorMessage = `Error deleting banner for user ${user.username}: ${
+                  error instanceof Error ? error.message : String(error)
+                }`;
+                log(`❌ ${errorMessage}`);
+                results.errors.push(errorMessage);
+                return false;
+              }
+            }
+            return false;
+          })
+        );
+
+        if (batchStartIndex + batchSize < orphanedBanners.length) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+
+        await processBannerBatches(batchStartIndex + batchSize);
+      }
+
+      await processBannerBatches(0);
+    }
+
     const summary = {
       success: true,
       duration: Date.now() - startTime,
@@ -217,6 +294,9 @@ async function clearUploads() {
     Avatars:
       - Processed: ${results.avatarsProcessed}
       - Deleted: ${results.avatarsDeleted}
+    Banners:
+      - Processed: ${results.bannersProcessed}
+      - Deleted: ${results.bannersDeleted}
     Errors: ${results.errors.length}`);
 
     return summary;

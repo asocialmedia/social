@@ -17,7 +17,14 @@ export async function updateUserProfile(values: UpdateUserProfileValues) {
 
   const updatedUser = await prisma.user.update({
     where: { id: session.user.id },
-    data: validatedValues,
+    data: {
+      displayName: validatedValues.displayName,
+      bio: validatedValues.bio,
+      githubUsername: validatedValues.githubUsername || null,
+      linkedinUsername: validatedValues.linkedinUsername || null,
+      twitterUsername: validatedValues.twitterUsername || null,
+      redditUsername: validatedValues.redditUsername || null,
+    },
     select: getUserDataSelect(session.user.id),
   });
 

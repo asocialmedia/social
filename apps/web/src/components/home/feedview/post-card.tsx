@@ -46,6 +46,7 @@ type ExtendedPostData = PostData & {
 };
 
 interface PostCardProps {
+  detail?: boolean;
   isJoined?: boolean;
   post: ExtendedPostData;
 }
@@ -253,12 +254,13 @@ function CommentButton({ post, onClick }: CommentButtonProps) {
 const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
   isJoined = false,
+  detail = false,
 }) => {
   const { user } = useSession();
   const router = useRouter();
   const [post, setPost] = useState(initialPost);
-  const [showComments, setShowComments] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [showComments, setShowComments] = useState(detail);
+  const [isExpanded, setIsExpanded] = useState(detail);
 
   useEffect(() => {
     setPost(initialPost);
@@ -276,6 +278,9 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (detail) {
+        return;
+      }
       const target = e.target as HTMLElement;
       if (
         target.closest(
@@ -291,28 +296,31 @@ const PostCard: React.FC<PostCardProps> = ({
       }
       router.push(`/posts/${post.id}`);
     },
-    [post.id, router]
+    [detail, post.id, router]
   );
 
   const handleCardKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (detail) {
+        return;
+      }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         router.push(`/posts/${post.id}`);
       }
     },
-    [post.id, router]
+    [detail, post.id, router]
   );
 
   return (
     <motion.div
       animate={{ opacity: 1 }}
-      className={`${post.hnStoryShare ? "hn-story-share" : ""} cursor-pointer`}
+      className={`${post.hnStoryShare ? "hn-story-share" : ""} ${detail ? "cursor-default" : "cursor-pointer"}`}
       id={`post-${post.id}`}
       initial={{ opacity: 0 }}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
-      tabIndex={0}
+      tabIndex={detail ? -1 : 0}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >
       <ViewTracker postId={post.id} />

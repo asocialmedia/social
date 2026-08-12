@@ -152,6 +152,35 @@ describe("schemas", () => {
         }).success
       ).toBe(false);
     });
+
+    test("accepts optional social usernames", () => {
+      const result = updateUserProfileSchema.safeParse({
+        displayName: "Name",
+        bio: "",
+        githubUsername: "octocat",
+        linkedinUsername: "john-doe",
+        twitterUsername: "user_123",
+        redditUsername: "user.123",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    test("accepts missing social usernames", () => {
+      const result = updateUserProfileSchema.safeParse({
+        displayName: "Name",
+        bio: "",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    test("rejects social usernames with invalid characters", () => {
+      const result = updateUserProfileSchema.safeParse({
+        displayName: "Name",
+        bio: "",
+        githubUsername: "bad user!",
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe("createCommentSchema", () => {

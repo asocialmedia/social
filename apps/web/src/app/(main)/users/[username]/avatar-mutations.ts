@@ -14,8 +14,21 @@ interface UpdateAvatarPayload {
   userId: string;
 }
 
+interface UpdateBannerPayload {
+  file: File;
+  oldBannerKey?: string;
+  userId: string;
+}
+
 interface UpdateAvatarResponse {
   avatar: {
+    key: string;
+    url: string;
+  };
+}
+
+interface UpdateBannerResponse {
+  banner: {
     key: string;
     url: string;
   };
@@ -27,6 +40,10 @@ interface UpdateProfileResponse {
     avatarUrl: string | null;
     bio: string | null;
     displayName: string;
+    githubUsername: string | null;
+    linkedinUsername: string | null;
+    twitterUsername: string | null;
+    redditUsername: string | null;
   };
 }
 
@@ -105,6 +122,113 @@ export function useUpdateAvatarMutation() {
   });
 }
 
+export function useUpdateBannerMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ file, userId, oldBannerKey }: UpdateBannerPayload) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("userId", userId);
+      if (oldBannerKey) {
+        formData.append("oldBannerKey", oldBannerKey);
+      }
+
+      const response = await fetch("/api/users/banner", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to update banner");
+      }
+
+      const data = (await response.json()) as UpdateBannerResponse;
+      return data;
+    },
+    onMutate: async ({ file, userId }) => {
+      await queryClient.cancelQueries({ queryKey: ["user", userId] });
+
+      const previousUser = queryClient.getQueryData<UserData>(["user", userId]);
+      const optimisticUrl = URL.createObjectURL(file);
+
+      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+        old ? { ...old, bannerUrl: optimisticUrl } : old
+      );
+
+      return { optimisticUrl, previousUser };
+    },
+    onSuccess: (data, { userId }) => {
+      const secureUrl = getSecureImageUrl(data.banner.url);
+
+      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+        old ? { ...old, bannerKey: data.banner.key, bannerUrl: secureUrl } : old
+      );
+
+      queryClient.invalidateQueries({ queryKey: ["post-feed"] });
+    },
+    onError: (error, _, context) => {
+      console.error("Banner update error:", error);
+      if (context?.previousUser) {
+        queryClient.setQueryData(
+          ["user", context.previousUser.id],
+          context.previousUser
+        );
+      }
+    },
+    onSettled: (_, __, ___, context) => {
+      if (context?.optimisticUrl) {
+        URL.revokeObjectURL(context.optimisticUrl);
+      }
+    },
+  });
+}
+
+export function useDeleteBannerMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      bannerKey,
+      userId,
+    }: {
+      bannerKey: string;
+      userId: string;
+    }) => {
+      const response = await fetch("/api/users/banner", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ bannerKey, userId }),
+      });
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to remove banner");
+      }
+    },
+    onMutate: async ({ userId }) => {
+      await queryClient.cancelQueries({ queryKey: ["user", userId] });
+      const previousUser = queryClient.getQueryData<UserData>(["user", userId]);
+
+      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+        old ? { ...old, bannerKey: null, bannerUrl: null } : old
+      );
+
+      return { previousUser };
+    },
+    onError: (error, _, context) => {
+      console.error("Banner delete error:", error);
+      if (context?.previousUser) {
+        queryClient.setQueryData(
+          ["user", context.previousUser.id],
+          context.previousUser
+        );
+      }
+    },
+  });
+}
+
 export function useUpdateProfileMutation() {
   const queryClient = useQueryClient();
 
@@ -141,6 +265,10 @@ export function useUpdateProfileMutation() {
           ...previousUser,
           displayName: values.displayName,
           bio: values.bio,
+          githubUsername: values.githubUsername ?? null,
+          linkedinUsername: values.linkedinUsername ?? null,
+          twitterUsername: values.twitterUsername ?? null,
+          redditUsername: values.redditUsername ?? null,
         };
         queryClient.setQueryData(["user", userId], optimisticUser);
       }
@@ -156,6 +284,10 @@ export function useUpdateProfileMutation() {
               bio: updatedUser.bio ?? "",
               avatarUrl: updatedUser.avatarUrl ?? old.avatarUrl,
               avatarKey: updatedUser.avatarKey ?? old.avatarKey,
+              githubUsername: updatedUser.githubUsername,
+              linkedinUsername: updatedUser.linkedinUsername,
+              twitterUsername: updatedUser.twitterUsername,
+              redditUsername: updatedUser.redditUsername,
             }
           : old
       );
