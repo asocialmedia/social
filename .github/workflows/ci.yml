@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -221,7 +221,7 @@ jobs:
       matrix: ${{ fromJSON(needs.determine-build-matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Print merged PR context
         run: |
@@ -401,45 +401,176 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   prisma-sync:
-    name: Prisma safe sync
+    name: Prisma schema sync
     needs:
-      - build-and-push
+      - quality
       - detect-pr-merge
       - determine-build-matrix
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
+      packages: write
     steps:
-      - name: Resolve whether Prisma sync should run
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve whether Prisma schema sync should run
         id: resolve-prisma
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
+
+            if (!prNumber) {
+              core.setOutput('should-run', 'false')
+              core.info('No merged PR number found; skipping Prisma sync resolution.')
+              return
+            }
+
+            const files = await github.paginate(
+              github.rest.pulls.listFiles,
+              {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100,
+              },
+            )
+            const changedFiles = files.map((file) => file.filename)
+
+            const prismaPaths = [
+              'packages/db/prisma/schema.prisma',
+              'packages/db/prisma.config.ts',
+              'packages/db/keys.ts',
+              'docker/prisma-package.json',
+              'docker/prisma-sync.dockerfile',
+              'docker/prisma-sync.sh',
+            ]
+            const prismaPrefixes = ['packages/db/']
+            const triggerFiles = new Set(['bun.lock', 'package.json', 'turbo.json', 'tsconfig.json'])
+
+            const relevant = changedFiles.filter((file) =>
+              prismaPaths.includes(file) ||
+              prismaPrefixes.some((prefix) => file.startsWith(prefix)) ||
+              triggerFiles.has(file),
+            )
+
+            core.setOutput('should-run', relevant.length > 0 ? 'true' : 'false')
+            core.setOutput('needed-files', relevant.join(', '))
+            core.info(`Prisma sync ${relevant.length > 0 ? 'needed' : 'skipped'}. Changed files: ${changedFiles.join(', ')}`)
+
+      - name: Print Prisma sync context
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        run: |
+          echo "Building Prisma sync image for merged PR #${{ needs.detect-pr-merge.outputs.merge-pr-number }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ steps.resolve-prisma.outputs.needed-files }}"
+
+      - name: Read version metadata
+        id: version
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        shell: bash
+        run: |
+          ROOT_VERSION=$(jq -r '.version' "package.json")
+          {
+            echo "root_version=${ROOT_VERSION}"
+            echo "tag_name=prisma-sync-v${ROOT_VERSION}"
+            echo "sha_short=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Setup Blacksmith Builder
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: useblacksmith/setup-docker-builder@v2
+
+      - name: Log in to GitHub Container Registry
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/asm-prisma-sync
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tag_name }}
+            type=sha,prefix=prisma-sync-sha-
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=Asocialmedia Prisma Schema Sync
+            org.opencontainers.image.version=${{ steps.version.outputs.root_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            io.asm.app=prisma-sync
+            io.asm.root-version=${{ steps.version.outputs.root_version }}
+            io.asm.pr-number=${{ needs.detect-pr-merge.outputs.merge-pr-number }}
+
+      - name: Build and push Prisma sync image (multi-arch)
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: docker/prisma-sync.dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger Prisma sync container via Dokploy
+        id: trigger-deploy
+        if: steps.resolve-prisma.outputs.should-run == 'true'
         env:
-          MATRIX_JSON: ${{ needs.determine-build-matrix.outputs.matrix }}
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
-          DOKPLOY_AUTH_APP_ID: ${{ secrets.DOKPLOY_AUTH_APP_ID }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
         run: |
           set -eu
 
-          has_web_or_auth="false"
-          if printf '%s' "$MATRIX_JSON" | jq -e '.include | any(.app == "web" or .app == "auth")' >/dev/null; then
-            has_web_or_auth="true"
+          if [ -z "$DOKPLOY_API_URL" ] || [ -z "$DOKPLOY_API_TOKEN" ] || [ -z "$DOKPLOY_PRISMA_APP_ID" ]; then
+            echo "Missing Dokploy configuration. Set DOKPLOY_API_URL, DOKPLOY_API_TOKEN and DOKPLOY_PRISMA_APP_ID secrets."
+            exit 1
           fi
 
-          run_enabled="false"
-          if [ "$has_web_or_auth" = "true" ] && [ -n "$DOKPLOY_API_URL" ] && [ -n "$DOKPLOY_API_TOKEN" ] && [ -n "$DOKPLOY_AUTH_APP_ID" ]; then
-            run_enabled="true"
-          fi
+          API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
 
-          echo "run_enabled=${run_enabled}" >> "$GITHUB_OUTPUT"
+          BASELINE=$(curl -sS -L \
+            "${API_URL}/api/deployments.all?applicationId=${DOKPLOY_PRISMA_APP_ID}" \
+            -H 'accept: application/json' \
+            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+            | jq -r 'if type == "array" and length > 0 then .[0].deploymentId else "" end' 2>/dev/null || true)
+          echo "baseline_deployment_id=${BASELINE}" >> "$GITHUB_OUTPUT"
+          echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
 
-      - name: Run Prisma migrate/safe sync via Dokploy
-        if: steps.resolve-prisma.outputs.run_enabled == 'true'
+          curl -L -X 'POST' \
+            "${API_URL}/api/application.deploy" \
+            -H 'accept: application/json' \
+            -H 'Content-Type: application/json' \
+            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+            -d "{\"applicationId\":\"${DOKPLOY_PRISMA_APP_ID}\"}" \
+            --fail --silent --show-error
+
+          echo "Prisma sync container triggered for application ${DOKPLOY_PRISMA_APP_ID}."
+
+      - name: Wait for Prisma sync deployment
+        if: success() && steps.resolve-prisma.outputs.should-run == 'true'
         env:
           DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
           DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
-          DOKPLOY_AUTH_APP_ID: ${{ secrets.DOKPLOY_AUTH_APP_ID }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.trigger-deploy.outputs.baseline_deployment_id }}
         run: |
           set -eu
 
@@ -447,120 +578,69 @@ jobs:
           case "$API_URL" in
             http://*) API_URL="https://${API_URL#http://}" ;;
           esac
-          SCHEDULE_ID=""
+          APP_ID="${DOKPLOY_PRISMA_APP_ID}"
+          BASELINE="${BASELINE_DEPLOYMENT_ID:-}"
 
-          cleanup_schedule() {
-            if [ -n "$SCHEDULE_ID" ]; then
-              curl -sS -L -X 'POST' \
-                "${API_URL}/api/schedule.delete" \
-                -H 'accept: application/json' \
-                -H 'Content-Type: application/json' \
-                -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-                -d "{\"scheduleId\":\"${SCHEDULE_ID}\"}" >/dev/null || true
-            fi
+          fetch_deployments() {
+            curl -sS -L \
+              "${API_URL}/api/deployments.all?applicationId=${APP_ID}" \
+              -H 'accept: application/json' \
+              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+              || true
           }
 
-          trap cleanup_schedule EXIT
+          fetch_logs() {
+            curl -sS -L \
+              "${API_URL}/api/deployments.readLogs?deploymentId=${1}&tail=300" \
+              -H 'accept: application/json' \
+              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+              || true
+          }
 
-          PRISMA_COMMAND="$(printf '%s\n' \
-            'set -eu' \
-            'cd /app/packages/db' \
-            '' \
-            'PRISMA="/app/node_modules/prisma/build/index.js"' \
-            'DB_URL="${DATABASE_URL:-${POSTGRES_PRISMA_URL:-${POSTGRES_URL_NON_POOLING:-}}}"' \
-            '' \
-            'if [ -z "$DB_URL" ]; then' \
-            '  echo "No database URL found in DATABASE_URL/POSTGRES_PRISMA_URL/POSTGRES_URL_NON_POOLING"' \
-            '  exit 1' \
-            'fi' \
-            '' \
-            'export DATABASE_URL="$DB_URL"' \
-            'export NODE_ENV="${NODE_ENV:-production}"' \
-            '' \
-            'echo "Checking schema drift between DB and Prisma schema..."' \
-            'set +e' \
-            'node "$PRISMA" migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code >/dev/null' \
-            'diff_status=$?' \
-            'set -e' \
-            '' \
-            'if [ "$diff_status" -eq 0 ]; then' \
-            '  echo "No schema drift detected. Skipping schema sync."' \
-            '  exit 0' \
-            'fi' \
-            '' \
-            'if [ "$diff_status" -ne 2 ]; then' \
-            '  echo "Prisma drift check failed with exit code ${diff_status}."' \
-            '  exit "$diff_status"' \
-            'fi' \
-            '' \
-            'echo "Schema drift detected. Attempting non-destructive sync with db push..."' \
-            'node "$PRISMA" db push' \
-            '' \
-            'echo "Prisma safe sync completed."' \
-          )"
+          RETRIES=36
+          for i in $(seq 1 "${RETRIES}"); do
+            RESPONSE=$(fetch_deployments)
+            if ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+              echo "deployments.all did not return an array. Check the Dokploy API endpoint / token."
+              printf '%s\n' "$RESPONSE" | head -c 500
+              echo ""
+              exit 1
+            fi
+            DEPLOYMENT=$(printf '%s' "$RESPONSE" | jq -r 'if length > 0 then .[0] else empty end' 2>/dev/null || true)
+            DEPLOYMENT_ID=$(printf '%s' "$DEPLOYMENT" | jq -r '.deploymentId // empty' 2>/dev/null || true)
+            STATUS=$(printf '%s' "$DEPLOYMENT" | jq -r '.status // empty' 2>/dev/null || true)
 
-          CREATE_PAYLOAD=$(jq -n \
-            --arg name "asm-prisma-sync-${GITHUB_RUN_ID}" \
-            --arg command "$PRISMA_COMMAND" \
-            --arg appId "$DOKPLOY_AUTH_APP_ID" \
-            '{
-              name: $name,
-              cronExpression: "0 0 1 1 *",
-              scheduleType: "application",
-              shellType: "sh",
-              applicationId: $appId,
-              enabled: false,
-              command: $command
-            }')
+            if [ -z "$DEPLOYMENT_ID" ]; then
+              echo "Attempt ${i}/${RETRIES}: no deployment record yet, waiting..."
+              sleep 10
+              continue
+            fi
 
-          CREATE_RESPONSE_FILE=$(mktemp)
-          CREATE_STATUS=$(curl -sS -L -o "$CREATE_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
-            "${API_URL}/api/schedule.create" \
-            -H 'accept: application/json' \
-            -H 'Content-Type: application/json' \
-            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-            -d "$CREATE_PAYLOAD")
+            if [ "$DEPLOYMENT_ID" = "$BASELINE" ]; then
+              echo "Attempt ${i}/${RETRIES}: still on previous deployment (${DEPLOYMENT_ID}, ${STATUS}), waiting for new one..."
+              sleep 10
+              continue
+            fi
 
-          CREATE_RESPONSE=$(cat "$CREATE_RESPONSE_FILE")
-          rm -f "$CREATE_RESPONSE_FILE"
+            echo "Attempt ${i}/${RETRIES}: deployment ${DEPLOYMENT_ID} status: ${STATUS}"
 
-          if [ "$CREATE_STATUS" -ge 400 ]; then
-            echo "Dokploy schedule create request failed with HTTP ${CREATE_STATUS}"
-            printf '%s\n' "$CREATE_RESPONSE"
-            exit 1
-          fi
+            case "$STATUS" in
+              done)
+                echo "Prisma sync deployment ${DEPLOYMENT_ID} completed successfully."
+                printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
+                exit 0
+                ;;
+              error|failed|cancelled)
+                echo "Prisma sync deployment ${DEPLOYMENT_ID} ended with status: ${STATUS}"
+                printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
+                exit 1
+                ;;
+              *)
+                sleep 10
+                continue
+                ;;
+            esac
+          done
 
-          SCHEDULE_ID=$(printf '%s' "$CREATE_RESPONSE" | jq -r '.scheduleId // .id // .data.scheduleId // empty' 2>/dev/null || true)
-
-          if [ -z "$SCHEDULE_ID" ]; then
-            echo "Failed to create Dokploy schedule for Prisma sync."
-            printf '%s\n' "$CREATE_RESPONSE"
-            exit 1
-          fi
-
-          RUN_RESPONSE_FILE=$(mktemp)
-          RUN_STATUS=$(curl -sS -L -o "$RUN_RESPONSE_FILE" -w "%{http_code}" -X 'POST' \
-            "${API_URL}/api/schedule.runManually" \
-            -H 'accept: application/json' \
-            -H 'Content-Type: application/json' \
-            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-            -d "{\"scheduleId\":\"${SCHEDULE_ID}\"}")
-
-          RUN_RESPONSE=$(cat "$RUN_RESPONSE_FILE")
-          rm -f "$RUN_RESPONSE_FILE"
-
-          if [ "$RUN_STATUS" -ge 400 ]; then
-            echo "Dokploy schedule run request failed with HTTP ${RUN_STATUS}"
-            printf '%s\n' "$RUN_RESPONSE"
-            exit 1
-          fi
-
-          RUN_ERROR_CODE=$(printf '%s' "$RUN_RESPONSE" | jq -r 'if type == "object" then (.code // .data.code // empty) else empty end' 2>/dev/null || true)
-
-          if [ -n "$RUN_ERROR_CODE" ]; then
-            echo "Dokploy schedule run failed with code: ${RUN_ERROR_CODE}"
-            printf '%s\n' "$RUN_RESPONSE"
-            exit 1
-          fi
-
-          echo "Prisma sync triggered (schedule ${SCHEDULE_ID}). Verify via Dokploy application logs."
+          echo "Timed out waiting for Prisma sync deployment to finish."
+          exit 1
