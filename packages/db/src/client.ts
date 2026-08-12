@@ -69,6 +69,7 @@ export function getPostDataInclude(loggedInUserId: string) {
         value: true,
       },
     },
+    hnStoryShare: true,
     _count: {
       select: {
         vote: true,
@@ -172,6 +173,7 @@ export type PostData = Prisma.PostGetPayload<{
         value: true;
       };
     };
+    hnStoryShare: true;
     _count: {
       select: {
         vote: true;

@@ -146,12 +146,10 @@ export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
       {geometry.visible ? (
         <div
           className={cn(
-            "pointer-events-auto absolute top-0 right-0.5 w-1.5 cursor-grab rounded-full border border-[rgba(170,60,0,0.95)]",
-            "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
-            "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_1.5px_rgba(255,255,255,0.5),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.12)]",
+            "feed-scrollbar-thumb pointer-events-auto absolute top-0 right-0.5 w-1.5 cursor-grab rounded-full",
             "transition-[transform,opacity] duration-300 ease-out",
             showing ? "opacity-100" : "opacity-0",
-            "hover:from-[#ff9f0a] hover:to-[#ea5b00] active:cursor-grabbing"
+            "active:cursor-grabbing"
           )}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

@@ -9,15 +9,19 @@ import {
   Compass,
   Home,
   MessagesSquare,
+  Moon,
   PenSquare,
   Settings,
+  Sun,
   User,
   Users,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useTheme } from "next-themes";
 import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { cn, isRouteActive } from "@/lib/utils";
@@ -49,6 +53,16 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleToggleTheme = useCallback(() => {
+    setTheme(resolvedTheme === "dark" ? "light" : "dark");
+  }, [resolvedTheme, setTheme]);
 
   const queryString = searchParams.toString();
   const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
@@ -56,10 +70,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const renderItem = ({ href, label, icon: Icon }: NavItem) => (
     <Link
       className={cn(
-        "group flex items-center gap-3 rounded-full border-0 px-3 py-2.5 text-base outline-none transition-all duration-200 ease-out",
+        "group flex items-center gap-3 rounded-full border-0 px-3 py-2.5 text-base transition-all duration-200 ease-out",
         isRouteActive(currentHref, href)
-          ? "bg-gradient-to-b from-[#ff9500] to-[#e65500] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
-          : "hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+          ? "pill-nav-active"
+          : "pill-3d-hover text-foreground hover:text-foreground"
       )}
       href={href}
       key={href}
@@ -106,27 +120,50 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       </nav>
 
       <div className="mt-auto flex flex-col gap-3">
-        <Button asChild className="h-11 w-full rounded-full" variant="premium">
+        <Button
+          asChild
+          className="h-12 w-full rounded-full px-6 py-3"
+          variant="premium"
+        >
           <Link href="/compose">
-            <PenSquare className="mr-2 h-5 w-5" />
-            Create Post
+            <PenSquare className="mr-1 h-5.5! w-5.5!" />
+            <span>Create Post</span>
           </Link>
         </Button>
 
-        <Link
-          className="group flex items-center gap-2.5 rounded-lg border-0 px-2 py-2 outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
-          href={`/users/${userData.username}`}
-        >
-          <UserAvatar avatarUrl={userData.avatarUrl} className="h-8 w-8" />
-          <span className="min-w-0">
-            <span className="block truncate font-medium text-sm">
-              {userData.displayName || userData.username}
+        <div className="flex items-center gap-2">
+          <Link
+            className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2"
+            href={`/users/${userData.username}`}
+          >
+            <UserAvatar avatarUrl={userData.avatarUrl} className="h-10 w-10" />
+            <span className="min-w-0">
+              <span className="block truncate font-medium text-sm">
+                {userData.displayName || userData.username}
+              </span>
+              <span className="block truncate text-muted-foreground text-xs">
+                @{userData.username}
+              </span>
             </span>
-            <span className="block truncate text-muted-foreground text-xs">
-              @{userData.username}
-            </span>
-          </span>
-        </Link>
+          </Link>
+
+          <button
+            aria-label={
+              mounted && resolvedTheme === "dark"
+                ? "Switch to light mode"
+                : "Switch to dark mode"
+            }
+            className="pill-3d-hover group flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 text-muted-foreground"
+            onClick={handleToggleTheme}
+            type="button"
+          >
+            {mounted && resolvedTheme === "dark" ? (
+              <Sun className="h-5 w-5" />
+            ) : (
+              <Moon className="h-5 w-5" />
+            )}
+          </button>
+        </div>
       </div>
     </aside>
   );

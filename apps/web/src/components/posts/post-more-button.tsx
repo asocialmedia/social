@@ -41,7 +41,7 @@ export default function PostMoreButton({
           <button
             aria-label="Post options"
             className={cn(
-              "group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px",
+              "pill-3d-hover group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground active:translate-y-px",
               className,
               isOpen ? "opacity-100" : undefined
             )}
@@ -50,8 +50,14 @@ export default function PostMoreButton({
             <MoreHorizontal className="size-5" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={handleShowDeleteDialog}>
+        <DropdownMenuContent
+          align="end"
+          className="apple-panel p-1.5 shadow-none"
+        >
+          <DropdownMenuItem
+            className="pill-3d-hover rounded-md px-2 py-2"
+            onClick={handleShowDeleteDialog}
+          >
             <span className="flex items-center gap-3 text-destructive">
               <Trash2 className="size-4" />
               Delete

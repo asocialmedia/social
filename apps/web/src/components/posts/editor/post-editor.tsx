@@ -3,9 +3,15 @@
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Loader2 } from "lucide-react";
+import { Hash, Loader2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { type ClipboardEvent, useCallback, useEffect, useState } from "react";
+import {
+  type ClipboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useDropzone } from "react-dropzone";
 import { useSession } from "@/app/(main)/session-provider";
 import LoadingButton from "@/components/auth/loading-button";
@@ -18,7 +24,6 @@ import "./styles.css";
 import type { UserData } from "@asm/db";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
 import kyInstance from "@/lib/ky";
 import { HNStoryPreview } from "./hn-story-preview";
 import { InlineSuggestions } from "./inline-suggestions";
@@ -89,6 +94,7 @@ export default function PostEditor() {
   const [_isEditorFocused, setIsEditorFocused] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
+  const onSubmitRef = useRef<(() => void) | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -110,6 +116,14 @@ export default function PostEditor() {
       handleDOMEvents: {
         focus: () => {
           setIsEditorFocused(true);
+          return false;
+        },
+        keydown: (_view, event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            onSubmitRef.current?.();
+            return true;
+          }
           return false;
         },
       },
@@ -206,6 +220,8 @@ export default function PostEditor() {
     hnShareStore,
   ]);
 
+  onSubmitRef.current = onSubmit;
+
   const handleRemoveHnStory = useCallback(() => {
     hnShareStore.clearState();
   }, [hnShareStore]);
@@ -239,23 +255,26 @@ export default function PostEditor() {
         </div>
         <div className="w-full">
           {(selectedTags.length > 0 || selectedMentions.length > 0) && (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
               {selectedTags.map((tag) => (
                 <RemoveChip
                   key={tag}
-                  label={`#${tag}`}
+                  label={tag}
                   onRemove={removeTag}
                   removeLabel={`Remove tag ${tag}`}
                   value={tag}
+                  variant="tag"
                 />
               ))}
               {selectedMentions.map((mention) => (
                 <RemoveChip
                   key={mention.id}
-                  label={`@${mention.username}`}
+                  label={mention.username}
                   onRemove={removeMention}
                   removeLabel={`Remove mention ${mention.username}`}
+                  user={mention}
                   value={mention.id}
+                  variant="mention"
                 />
               ))}
             </div>
@@ -438,19 +457,45 @@ interface RemoveChipProps {
   label: string;
   onRemove: (value: string) => void;
   removeLabel: string;
+  user?: UserData;
   value: string;
+  variant: "tag" | "mention";
 }
 
-function RemoveChip({ label, onRemove, removeLabel, value }: RemoveChipProps) {
+function RemoveChip({
+  label,
+  onRemove,
+  removeLabel,
+  user,
+  value,
+  variant,
+}: RemoveChipProps) {
   const handleRemove = useCallback(() => {
     onRemove(value);
   }, [onRemove, value]);
+
+  const leadingIcon = () => {
+    if (variant === "mention" && user) {
+      return <UserAvatar avatarUrl={user.avatarUrl} className="h-4 w-4" />;
+    }
+    if (variant === "tag") {
+      return <Hash className="meta-chip-accent h-3.5 w-3.5" />;
+    }
+    return null;
+  };
+
   return (
-    <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary text-sm">
-      {label}
+    <span
+      className={cn(
+        "meta-chip",
+        variant === "tag" ? "meta-chip-tag" : "meta-chip-mention"
+      )}
+    >
+      {leadingIcon()}
+      <span className="truncate">{label}</span>
       <button
         aria-label={removeLabel}
-        className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:text-destructive"
+        className="meta-chip-accent ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive"
         onClick={handleRemove}
         type="button"
       >

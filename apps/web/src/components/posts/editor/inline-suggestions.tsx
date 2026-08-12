@@ -145,7 +145,7 @@ export function InlineSuggestions({
 
   const selectTag = useCallback(
     (tag: string) => {
-      replaceTrigger(`#${tag} `);
+      replaceTrigger("");
       onSelectTag(tag);
       close();
     },
@@ -154,7 +154,7 @@ export function InlineSuggestions({
 
   const selectMention = useCallback(
     (user: UserData) => {
-      replaceTrigger(`@${user.username} `);
+      replaceTrigger("");
       onSelectMention(user);
       close();
     },

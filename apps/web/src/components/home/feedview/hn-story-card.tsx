@@ -3,7 +3,7 @@
 import { Badge } from "@asm/ui/shadui/badge";
 import { formatDistanceToNow } from "date-fns";
 import {
-  ExternalLink,
+  ArrowUpRight,
   Link as LinkIcon,
   MessageCircle,
   ThumbsUp,
@@ -30,89 +30,93 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
   const hnItemUrl = `https://news.ycombinator.com/item?id=${hnStory.storyId}`;
 
   return (
-    <div className="p-3 sm:p-4">
-      <div className="mb-2 flex items-center">
-        <div className="mr-2 flex h-4 w-4 items-center justify-center rounded-md bg-orange-500 font-bold text-white text-xs sm:h-5 sm:w-5">
-          Y
+    <div className="flex flex-col gap-1.5 p-3 sm:p-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-[#ff9500] to-[#e65500] font-bold text-[10px] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]">
+            Y
+          </div>
+          <span className="font-semibold text-[10px] text-orange-600 uppercase tracking-wide dark:text-orange-400">
+            Hacker News
+          </span>
         </div>
-        <span className="font-medium text-xs sm:text-sm">Hacker News</span>
+        <span className="text-[11px] text-muted-foreground/70 tabular-nums">
+          {timeAgo}
+        </span>
       </div>
 
-      <div className="mt-2">
+      <div className="flex items-start justify-between gap-3">
         <a
-          className="block font-medium text-sm transition-colors hover:text-orange-500 sm:text-base"
+          className="line-clamp-2 min-w-0 flex-1 font-semibold text-foreground text-sm leading-snug transition-colors hover:text-orange-600"
           href={hnStory.url || hnItemUrl}
           rel="noopener noreferrer"
           target="_blank"
         >
           {hnStory.title}
         </a>
-
         {domain ? (
-          <div className="mt-2 flex flex-wrap items-center">
-            <Badge
-              className="max-w-[200px] truncate bg-background/80 px-2 text-xs hover:bg-orange-500/10 hover:text-orange-500 sm:max-w-full"
-              variant="secondary"
-            >
-              <LinkIcon className="mr-1 h-3 w-3 shrink-0" />
-              <span className="truncate">{domain}</span>
-            </Badge>
-          </div>
+          <Badge
+            className="hn-chip mt-0.5 w-fit max-w-[40%] shrink-0 px-2 py-0.5 font-normal dark:text-orange-400"
+            variant="secondary"
+          >
+            <LinkIcon className="mr-1 h-3 w-3 shrink-0" />
+            <span className="truncate">{domain}</span>
+          </Badge>
         ) : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs sm:gap-2">
-        <div className="flex items-center gap-1 rounded-full bg-background/50 px-1.5 py-0.5 sm:px-2 sm:py-1">
-          <User className="h-3 w-3 text-orange-500" />
-          <span className="max-w-[60px] cursor-default truncate sm:max-w-[80px]">
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+        <div className="hn-chip">
+          <User className="h-3 w-3" />
+          <span className="max-w-[70px] cursor-default truncate sm:max-w-[90px]">
             {hnStory.by}
           </span>
         </div>
 
-        <div className="flex items-center gap-1 rounded-full bg-background/50 px-1.5 py-0.5 sm:px-2 sm:py-1">
-          <ThumbsUp className="h-3 w-3 text-orange-500" />
-          <span className="cursor-default">{hnStory.score} pts</span>
+        <div className="hn-chip">
+          <ThumbsUp className="h-3 w-3" />
+          <span className="cursor-default tabular-nums">
+            {hnStory.score} pts
+          </span>
         </div>
 
-        <div className="flex items-center gap-1 rounded-full bg-background/50 px-1.5 py-0.5 sm:px-2 sm:py-1">
-          <MessageCircle className="h-3 w-3 text-orange-500" />
+        <div className="hn-chip">
+          <MessageCircle className="h-3 w-3" />
           <a
-            className="hover:text-orange-500"
+            className="hover:text-inherit"
             href={hnItemUrl}
             rel="noopener noreferrer"
             target="_blank"
           >
-            {hnStory.descendants}{" "}
-            <span className="xs:inline hidden">
+            <span className="tabular-nums">{hnStory.descendants}</span>
+            <span className="hidden sm:inline">
+              {" "}
               {hnStory.descendants === 1 ? "comment" : "comments"}
             </span>
           </a>
         </div>
-
-        <div className="mt-1.5 w-full text-muted-foreground/70 text-xs sm:mt-0 sm:ml-auto sm:w-auto">
-          {timeAgo}
-        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap justify-between gap-2 sm:flex-nowrap sm:items-center">
-        <Link
-          className="mb-1 flex items-center font-medium text-orange-500 text-xs hover:text-orange-600 sm:mb-0"
-          href="/hackernews"
-        >
+      <div className="mt-0.5 flex items-center justify-between gap-2 border-orange-500/15 border-t pt-1.5">
+        <Link className="hn-link dark:text-orange-400" href="/hackernews">
           <span>Browse HN</span>
-          <motion.span className="ml-1 inline-block" whileHover={{ x: 3 }}>
+          <motion.span
+            animate={{ x: 0 }}
+            className="inline-block"
+            whileHover={{ x: 3 }}
+          >
             →
           </motion.span>
         </Link>
 
         <a
-          className="flex items-center gap-1 text-muted-foreground text-xs hover:text-orange-500"
+          className="hn-link dark:text-orange-400"
           href={hnStory.url || hnItemUrl}
           rel="noopener noreferrer"
           target="_blank"
         >
-          <ExternalLink className="h-3 w-3" />
-          <span>Original</span>
+          <ArrowUpRight className="h-3.5 w-3.5" />
+          <span>View original</span>
         </a>
       </div>
     </div>

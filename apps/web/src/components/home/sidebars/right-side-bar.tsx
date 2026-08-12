@@ -20,11 +20,9 @@ const FOOTER_LINKS = [
   { href: "/support", label: "Support" },
 ];
 
-const ROW_HOVER_CLASS =
-  "outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+const ROW_HOVER_CLASS = "sidebar-row-hover";
 
-const APPLE_CARD_CLASS =
-  "rounded-2xl border border-white/10 bg-[hsl(var(--background-alt))] p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_1px_2px_rgba(255,255,255,0.06),inset_0_-2px_4px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.06)]";
+const APPLE_CARD_CLASS = "sidebar-subcard rounded-2xl p-2";
 
 const HackerNewsLogo: React.FC<{ className?: string }> = ({ className }) => (
   <span
@@ -76,7 +74,7 @@ const RightSideBar: React.FC = () => {
   const suggestedUsers = suggested || [];
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+    <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
         <SubCard
           icon={<HackerNewsLogo className="h-4 w-4 text-[10px]" />}
@@ -104,7 +102,7 @@ const RightSideBar: React.FC = () => {
                   </a>
                   <a
                     aria-label={`Visit ${story.title}`}
-                    className="mt-0.5 flex shrink-0 items-center gap-0.5 text-muted-foreground text-xs transition-colors group-hover:text-white/80"
+                    className="mt-0.5 flex shrink-0 items-center gap-0.5 text-muted-foreground text-xs transition-colors group-hover:text-inherit"
                     href={storyHref}
                     rel="noopener noreferrer"
                     target={story.url ? "_blank" : undefined}
@@ -113,8 +111,8 @@ const RightSideBar: React.FC = () => {
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 </div>
-                <span className="flex items-center gap-1 pl-0 text-muted-foreground text-xs transition-colors group-hover:text-white/80">
-                  <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-white/80" />
+                <span className="flex items-center gap-1 pl-0 text-muted-foreground text-xs transition-colors group-hover:text-inherit">
+                  <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
                   {formatNumber(story.score)} points
                 </span>
               </div>
@@ -150,12 +148,12 @@ const RightSideBar: React.FC = () => {
                 <span className="block truncate font-medium text-sm">
                   {user.displayName || user.username}
                 </span>
-                <span className="block truncate text-muted-foreground text-xs transition-colors group-hover:text-white/80">
+                <span className="block truncate text-muted-foreground text-xs transition-colors group-hover:text-inherit">
                   @{user.username}
                 </span>
               </Link>
               <FollowButton
-                className="h-8 shrink-0 bg-gradient-to-b! from-[#ff9500] to-[#e65500] px-3 text-white text-xs shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]! hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+                className="follow-btn-3d h-8 shrink-0 px-3 text-xs"
                 initialState={{
                   followers: user._count.followers,
                   isFollowedByUser: false,
@@ -171,21 +169,21 @@ const RightSideBar: React.FC = () => {
             </p>
           ) : null}
         </SubCard>
-      </div>
 
-      <footer className="mt-auto flex flex-wrap gap-x-3 gap-y-1 px-3 pt-6 text-muted-foreground text-xs">
-        <span>© {new Date().getFullYear()} Asocialmedia</span>
-        {FOOTER_LINKS.map(({ href, label }) => (
-          <Link
-            className="transition-colors hover:text-foreground"
-            href={href}
-            key={label}
-            target={href.startsWith("http") ? "_blank" : undefined}
-          >
-            {label}
-          </Link>
-        ))}
-      </footer>
+        <footer className="flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-muted-foreground text-xs">
+          <span>© {new Date().getFullYear()} Asocialmedia</span>
+          {FOOTER_LINKS.map(({ href, label }) => (
+            <Link
+              className="transition-colors hover:text-foreground"
+              href={href}
+              key={label}
+              target={href.startsWith("http") ? "_blank" : undefined}
+            >
+              {label}
+            </Link>
+          ))}
+        </footer>
+      </div>
     </aside>
   );
 };

@@ -10,11 +10,9 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import { cn, formatNumber } from "@/lib/utils";
 import { getTrendingFeed, type TrendingItem } from "./trending-actions";
 
-const APPLE_CARD_CLASS =
-  "rounded-2xl border border-white/10 bg-[hsl(var(--background-alt))] p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_1px_2px_rgba(255,255,255,0.06),inset_0_-2px_4px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.06)]";
+const APPLE_CARD_CLASS = "sidebar-subcard rounded-2xl p-2";
 
-const ROW_HOVER_CLASS =
-  "outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+const ROW_HOVER_CLASS = "sidebar-row-hover";
 
 const TrendingTopicsSkeleton = () => (
   <div className={APPLE_CARD_CLASS}>
@@ -61,11 +59,11 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ index, item }) => {
           <span className="block truncate font-medium text-sm">
             {item.hashtag}
           </span>
-          <span className="block text-muted-foreground text-xs transition-colors group-hover:text-white/80">
+          <span className="block text-muted-foreground text-xs transition-colors group-hover:text-inherit">
             {formatNumber(item.count)} {item.count === 1 ? "post" : "posts"}
           </span>
         </span>
-        <Hash className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-white/80" />
+        <Hash className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-inherit" />
       </Link>
     );
   }
@@ -85,7 +83,7 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ index, item }) => {
         <span className="block truncate font-medium text-sm">
           @{item.username}
         </span>
-        <span className="block text-muted-foreground text-xs transition-colors group-hover:text-white/80">
+        <span className="block text-muted-foreground text-xs transition-colors group-hover:text-inherit">
           {formatNumber(item.count)} {item.count === 1 ? "mention" : "mentions"}
         </span>
       </span>
@@ -118,7 +116,7 @@ const TrendingTopics: React.FC = () => {
         <h2 className="font-semibold text-sm">Trending</h2>
         <Button
           aria-label="Refresh trending"
-          className="ml-auto h-6 w-6 rounded-full text-muted-foreground"
+          className="pill-3d-hover ml-auto h-6 w-6 rounded-full text-muted-foreground"
           disabled={isFetching}
           onClick={handleRefresh}
           size="icon"
