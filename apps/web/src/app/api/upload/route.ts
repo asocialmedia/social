@@ -1,4 +1,5 @@
 import { type MediaType, prisma } from "@asm/db";
+import { imageSize } from "image-size";
 import { NextResponse } from "next/server";
 import { uploadToAsmob } from "@/lib/object-storage";
 import { getSessionFromApi } from "@/lib/session";
@@ -27,6 +28,19 @@ export async function POST(request: Request) {
 
   const upload = await uploadToAsmob(file, user.id);
 
+  let width: number | null = null;
+  let height: number | null = null;
+  if (file.type.startsWith("image/") && file.type !== "image/svg+xml") {
+    try {
+      const headerBuffer = await file.slice(0, 64 * 1024).arrayBuffer();
+      const dimensions = imageSize(new Uint8Array(headerBuffer));
+      width = dimensions.width ?? null;
+      height = dimensions.height ?? null;
+    } catch (error) {
+      console.error("Failed to read image dimensions:", error);
+    }
+  }
+
   const media = await prisma.media.create({
     data: {
       key: upload.key,
@@ -35,6 +49,8 @@ export async function POST(request: Request) {
       size: upload.size,
       type: upload.type as MediaType,
       url: upload.url,
+      width,
+      height,
     },
   });
 
@@ -43,5 +59,7 @@ export async function POST(request: Request) {
     mediaId: media.id,
     type: media.type,
     url: upload.url,
+    width,
+    height,
   });
 }

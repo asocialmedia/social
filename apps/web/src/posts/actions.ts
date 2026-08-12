@@ -7,12 +7,12 @@ import {
   prisma,
   redis,
 } from "@asm/db";
-import { authClient } from "@/lib/auth";
+import { getSessionFromApi } from "@/lib/session";
 
 export async function deletePost(id: string) {
-  const session = await authClient.getSession();
+  const session = await getSessionFromApi();
 
-  if (!session?.data?.user) {
+  if (!session?.user) {
     throw new Error("Unauthorized");
   }
 
@@ -24,13 +24,13 @@ export async function deletePost(id: string) {
     throw new Error("Post not found");
   }
 
-  if (post.userId !== session.data.user.id) {
+  if (post.userId !== session.user.id) {
     throw new Error("Unauthorized");
   }
 
   const deletedPost = await prisma.post.delete({
     where: { id },
-    include: getPostDataInclude(session.data.user.id),
+    include: getPostDataInclude(session.user.id),
   });
 
   try {

@@ -2,185 +2,106 @@
 
 import type { UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { Globe2Icon, UsersIcon } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { Plus } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useMediaQuery } from "usehooks-ts";
+import { useCallback } from "react";
 import FollowingFeed from "@/components/home/feedview/following";
 import ForYouFeed from "@/components/home/for-you-feed";
-import LeftSideBar from "@/components/home/sidebars/left-side-bar";
+import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
-import ScrollUpButton from "@/components/layouts/scroll-up-button";
-import StickyFooter from "@/components/layouts/stinky-footer";
+import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import PostEditor from "@/components/posts/editor/post-editor";
 
 interface ClientHomeProps {
   userData: UserData;
 }
 
+type FeedTab = "for-you" | "global" | "following";
+
+const TAB_TRIGGER_CLASS =
+  "relative inline-flex h-full items-center justify-center rounded-none border-0 px-3 py-3 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out after:absolute after:bottom-0 after:left-1/2 after:h-1 after:w-6 after:-translate-x-1/2 after:bg-gradient-to-b after:from-[#ff9500] after:to-[#e65500] after:opacity-0 after:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_1.5px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.12)] after:transition-opacity after:content-[''] hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] data-[state=active]:px-8 data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:opacity-100 data-[state=active]:hover:bg-none data-[state=active]:hover:from-none data-[state=active]:hover:to-none data-[state=active]:hover:shadow-none data-[state=active]:hover:text-foreground";
+
 const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
-  const [showLeftSidebar] = useState(true);
-  const [showRightSidebar] = useState(true);
-  const [isFooterSticky, setIsFooterSticky] = useState(false);
-  const [showScrollUpButton, setShowScrollUpButton] = useState(false);
-  const mainRef = useRef<HTMLDivElement>(null);
-  const rightSidebarRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const isMobile = useMediaQuery("(max-width: 768px)");
-  const [isMounted, setIsMounted] = useState(false);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const tabParam = searchParams.get("tab");
+  let tab: FeedTab = "for-you";
+  if (tabParam === "following") {
+    tab = "following";
+  } else if (tabParam === "global") {
+    tab = "global";
+  }
 
-  const shouldRenderMobile = isMounted && isMobile;
-  const selectedTab = (searchParams.get("tab") || "for-you") as
-    | "for-you"
-    | "following";
-
-  const handleScroll = useCallback(() => {
-    const scrollThreshold = 200;
-    setShowScrollUpButton(window.scrollY > scrollThreshold);
-
-    if (mainRef.current && rightSidebarRef.current) {
-      const { top: sidebarTop, height: sidebarHeight } =
-        rightSidebarRef.current.getBoundingClientRect();
-      setIsFooterSticky(sidebarTop + sidebarHeight <= 0);
-    }
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener("scroll", handleScroll);
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, [handleScroll]);
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      if (value === "following" || value === "global") {
+        nextParams.set("tab", value);
+      } else {
+        nextParams.delete("tab");
+      }
+      const query = nextParams.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, router, searchParams]
+  );
 
   if (!userData) {
     return null;
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="flex flex-1">
-        {showLeftSidebar ? <LeftSideBar /> : null}
-        <main
-          className={`flex-1 overflow-y-auto ${
-            showLeftSidebar || showRightSidebar ? "" : "w-full"
-          }`}
-          ref={mainRef}
-        >
-          {shouldRenderMobile ? (
-            <Tabs className="w-full bg-background" defaultValue="for-you">
-              <div className="mt-4 mb-2 flex w-full justify-center px-4 sm:px-6">
-                <TabsList className="relative flex gap-2 rounded-full border bg-muted/30 p-0 shadow-inner shadow-white/5 ring-1 ring-white/10 backdrop-blur-xl dark:shadow-black/10 dark:ring-black/20">
-                  <div
-                    className="absolute inset-0 -z-10 rounded-full bg-gradient-to-r from-primary/20 via-secondary/20 to-accent/20 opacity-30 blur-md"
-                    style={{
-                      background:
-                        "radial-gradient(circle at top left, rgba(var(--primary-rgb), 0.15), transparent 70%), radial-gradient(circle at bottom right, rgba(var(--accent-rgb), 0.15), transparent 70%)",
-                    }}
-                  />
-                  <TabsTrigger
-                    className="group relative flex items-center gap-2 rounded-full px-5 py-2.5 font-medium text-sm transition-all duration-300 ease-out hover:bg-background/50 data-[state=active]:scale-105 data-[state=active]:text-primary"
-                    value="for-you"
-                  >
-                    <span className="absolute inset-0 rounded-full bg-background/0 shadow-none transition-all duration-300 group-data-[state=active]:bg-background group-data-[state=active]:shadow-md group-data-[state=active]:shadow-primary/10" />
-                    <span className="relative z-10 flex items-center gap-2">
-                      <span className="relative">
-                        <Globe2Icon className="h-4 w-4 transition-all duration-300 group-data-[state=active]:text-primary" />
-                        <span className="absolute inset-0 rounded-full bg-primary/20 opacity-0 blur-xs transition-opacity group-hover:opacity-30 group-data-[state=active]:opacity-50" />
-                      </span>
-                      <span className="transition-all duration-300 group-data-[state=active]:font-semibold">
-                        Globals
-                      </span>
-                    </span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="group relative flex items-center gap-2 rounded-full px-5 py-2.5 font-medium text-sm transition-all duration-300 ease-out hover:bg-background/50 data-[state=active]:scale-105 data-[state=active]:text-primary"
-                    value="following"
-                  >
-                    <span className="absolute inset-0 rounded-full bg-background/0 shadow-none transition-all duration-300 group-data-[state=active]:bg-background group-data-[state=active]:shadow-md group-data-[state=active]:shadow-primary/10" />
-                    <span className="relative z-10 flex items-center gap-2">
-                      <span className="relative">
-                        <UsersIcon className="h-4 w-4 transition-all duration-300 group-data-[state=active]:text-primary" />
-                        <span className="absolute inset-0 rounded-full bg-primary/20 opacity-0 blur-xs transition-opacity group-hover:opacity-30 group-data-[state=active]:opacity-50" />
-                      </span>
-                      <span className="transition-all duration-300 group-data-[state=active]:font-semibold">
-                        Following
-                      </span>
-                    </span>
-                  </TabsTrigger>
-                </TabsList>
-              </div>
+    <div className="relative flex min-h-screen overflow-x-clip">
+      <LeftSidebar userData={userData} />
 
-              <div className="mt-6 pr-4 pl-4">
-                <PostEditor />
-              </div>
-
-              <TabsContent
-                className="transition-all duration-300 ease-in-out"
-                value="for-you"
+      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+        <Tabs onValueChange={handleTabChange} value={tab}>
+          <div className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/90 pt-5 backdrop-blur-md">
+            <MobileTopBar />
+            <div className="relative flex items-center border-border/60 border-b">
+              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0">
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="for-you">
+                  Trending
+                </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="global">
+                  Global
+                </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="following">
+                  Following
+                </TabsTrigger>
+              </TabsList>
+              <button
+                aria-label="Create new list"
+                className="absolute top-0 right-0 flex h-full w-12 shrink-0 cursor-default items-center justify-center border-border/60 border-l text-muted-foreground"
+                type="button"
               >
-                <div
-                  className="fade-in slide-in-from-bottom-2 animate-in duration-500"
-                  key="for-you-tab"
-                >
-                  <ForYouFeed />
-                </div>
-              </TabsContent>
-              <TabsContent
-                className="transition-all duration-300 ease-in-out"
-                value="following"
-              >
-                <div
-                  className="fade-in slide-in-from-bottom-2 animate-in duration-500"
-                  key="following-tab"
-                >
-                  <FollowingFeed />
-                </div>
-              </TabsContent>
-            </Tabs>
-          ) : (
-            <>
-              <div className="mt-6 pr-4 pl-4">
-                <PostEditor />
-              </div>
-              {selectedTab === "for-you" ? (
-                <div
-                  className="fade-in slide-in-from-bottom-2 animate-in duration-500"
-                  key="for-you-tab"
-                >
-                  <ForYouFeed />
-                </div>
-              ) : (
-                <div
-                  className="fade-in slide-in-from-bottom-2 animate-in duration-500"
-                  key="following-tab"
-                >
-                  <FollowingFeed />
-                </div>
-              )}
-            </>
-          )}
-        </main>
-        {showRightSidebar ? (
-          <div className="relative hidden w-80 bg-[hsl(var(--background-alt))] md:block">
-            <div ref={rightSidebarRef}>
-              <RightSideBar userData={userData} />
-            </div>
-            <div
-              className={`transition-all duration-300 ${
-                isFooterSticky ? "fixed top-0 right-0 mt-20 w-80" : ""
-              }`}
-            >
-              <StickyFooter />
+                <Plus className="h-5 w-5" />
+              </button>
             </div>
           </div>
-        ) : null}
+
+          <PostEditor />
+
+          <TabsContent className="mt-0 pb-12" value="for-you">
+            <ForYouFeed />
+          </TabsContent>
+
+          <TabsContent className="mt-0 pb-12" value="global">
+            <ForYouFeed />
+          </TabsContent>
+
+          <TabsContent className="mt-0 pb-12" value="following">
+            <FollowingFeed />
+          </TabsContent>
+        </Tabs>
       </div>
-      <ScrollUpButton isVisible={showScrollUpButton} />
+
+      <RightSideBar />
+      <MobileBottomNav />
     </div>
   );
 };

@@ -206,6 +206,8 @@ model Media {
   key       String    @default("")
   mimeType  String    @default("application/octet-stream")
   size      Int       @default(0)
+  width     Int?
+  height    Int?
   createdAt DateTime  @default(now())
 
   @@map("post_media")

@@ -75,7 +75,53 @@ export async function GET(_req: Request) {
       },
     });
 
-    const selectedUsers = suggestedUsers
+    let candidates = suggestedUsers;
+    if (candidates.length === 0) {
+      // Pool exhausted (e.g. few users total): fall back to any user the
+      // viewer isn't already following, so the widget never renders empty.
+      candidates = await prisma.user.findMany({
+        take: 15,
+        orderBy: { aura: Prisma.SortOrder.desc },
+        where: {
+          AND: [
+            { id: { not: user.id } },
+            {
+              followers: {
+                none: {
+                  followerId: user.id,
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          ...getUserDataSelect(user.id),
+          aura: true,
+          followers: {
+            where: {
+              follower: {
+                followers: {
+                  some: {
+                    followerId: user.id,
+                  },
+                },
+              },
+            },
+            select: {
+              follower: {
+                select: {
+                  username: true,
+                  displayName: true,
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    const selectedUsers = candidates
       .sort(() => Math.random() - 0.5)
       .slice(0, 6);
 

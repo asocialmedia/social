@@ -1,10 +1,24 @@
-import ComingSoon from "./coming-soon";
+import { Button } from "@asm/ui/shadui/button";
+import Link from "next/link";
+import { StatusScreen } from "@/components/layouts/status-screen";
 
 export const metadata = {
-  title: "Soon!!",
-  description: "Our feature is under development.",
+  title: "Coming Soon",
+  description: "This feature is under development.",
 };
 
-export default function MessagesPage() {
-  return <ComingSoon />;
+export default function ComingSoonPage() {
+  return (
+    <StatusScreen
+      action={
+        <Button asChild variant="premium">
+          <Link href="/">Back Home</Link>
+        </Button>
+      }
+      description="This feature is still under development. Check back later."
+      logo={false}
+      minHeight="min-h-[60vh]"
+      title="Coming Soon"
+    />
+  );
 }

@@ -1,16 +1,15 @@
 import type { VoteInfo } from "@asm/db";
 import { useToast } from "@asm/ui/hooks/use-toast";
-import { Button } from "@asm/ui/shadui/button";
 import {
   type QueryKey,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ArrowBigDown, ArrowBigUp } from "lucide-react";
+import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 import kyInstance from "@/lib/ky";
-import { cn } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
   authorName: string;
@@ -131,50 +130,70 @@ export default function AuraVoteButton({
   const handleVoteUp = useCallback(() => mutate(1), [mutate]);
   const handleVoteDown = useCallback(() => mutate(-1), [mutate]);
 
+  const baseButtonClasses =
+    "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-sm text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
+
+  const upGradientClasses = cn(
+    "bg-gradient-to-b from-[#ff9500] to-[#e65500] text-white",
+    "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+  );
+
+  const downGradientClasses = cn(
+    "bg-gradient-to-b from-[#7c5cff] to-[#5a3ae0] text-white",
+    "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+  );
+
   return (
-    <div className="flex items-center gap-2">
-      <Button
+    <div className="flex items-center gap-1">
+      <button
+        aria-label="Amplify"
         className={cn(
-          "group rounded-md p-1 text-muted-foreground hover:border hover:border-orange-500 hover:bg-orange-100 hover:bg-orange/10 hover:shadow-md",
-          data.userVote === 1 && "bg-orange-100/10"
+          baseButtonClasses,
+          data.userVote === 1
+            ? upGradientClasses
+            : "hover:bg-gradient-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
         )}
         onClick={handleVoteUp}
         type="button"
-        variant="ghost"
       >
-        <div className="flex items-center overflow-hidden hover:text-orange-500">
-          <ArrowBigUp
-            className={cn(
-              "size-6",
-              data.userVote === 1 && "fill-orange-500 text-orange-500"
-            )}
-          />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-300 group-hover:ml-2 group-hover:max-w-xs">
-            Amplify
-          </span>
-        </div>
-      </Button>
-      <Button
+        <ArrowBigUp
+          className={cn(
+            "size-5 transition-all duration-200",
+            data.userVote === 1 ? "fill-white" : ""
+          )}
+        />
+        <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
+          Amplify
+        </span>
+      </button>
+      <button
+        aria-label="Mute"
         className={cn(
-          "group rounded-md p-1 text-muted-foreground hover:border hover:border-violet-500 hover:bg-violet-100 hover:bg-violet/10 hover:shadow-md",
-          data.userVote === -1 && "bg-violet-100/10"
+          baseButtonClasses,
+          data.userVote === -1
+            ? downGradientClasses
+            : "hover:bg-gradient-to-b hover:from-[#7c5cff] hover:to-[#5a3ae0] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
         )}
         onClick={handleVoteDown}
         type="button"
-        variant="ghost"
       >
-        <div className="flex items-center overflow-hidden hover:text-violet-500">
-          <ArrowBigDown
-            className={cn(
-              "size-6",
-              data.userVote === -1 && "fill-violet-500 text-violet-500"
-            )}
-          />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap text-violet-500 transition-all duration-300 group-hover:ml-2 group-hover:max-w-xs">
-            Mute
-          </span>
-        </div>
-      </Button>
+        <ArrowBigDown
+          className={cn(
+            "size-5 transition-all duration-200",
+            data.userVote === -1 ? "fill-white" : ""
+          )}
+        />
+        <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
+          Mute
+        </span>
+      </button>
+      <span
+        className="flex h-8 items-center gap-1 rounded-full px-2 font-semibold text-muted-foreground text-sm tabular-nums"
+        title="Aura"
+      >
+        <Flame aria-hidden="true" className="h-5 w-5 text-orange-500" />
+        {formatNumber(data.aura)}
+      </span>
     </div>
   );
 }

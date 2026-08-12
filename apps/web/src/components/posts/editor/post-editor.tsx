@@ -3,8 +3,7 @@
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Loader2, Wind } from "lucide-react";
-import { easeInOut } from "motion";
+import { Loader2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type ClipboardEvent, useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
@@ -16,13 +15,13 @@ import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import { AttachmentPreview } from "./attachment-preview";
 import { FileInput } from "./file-input";
 import "./styles.css";
-import type { TagWithCount, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { useQuery } from "@tanstack/react-query";
-import { MentionTags } from "@/components/tags/mention-tags";
-import { Tags } from "@/components/tags/tags";
+import { X } from "lucide-react";
 import kyInstance from "@/lib/ky";
 import { HNStoryPreview } from "./hn-story-preview";
+import { InlineSuggestions } from "./inline-suggestions";
 import useMediaUpload, { type Attachment } from "./use-media-upload";
 
 const containerVariants = {
@@ -40,18 +39,6 @@ const containerVariants = {
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0 },
-};
-
-const textVariants = {
-  animate: {
-    opacity: [0.5, 0.8, 0.5],
-    x: [0, 2, 0, -2, 0],
-    transition: {
-      duration: 3,
-      ease: easeInOut,
-      repeat: Number.POSITIVE_INFINITY,
-    },
-  },
 };
 
 export default function PostEditor() {
@@ -92,9 +79,16 @@ export default function PostEditor() {
       "video/*": [],
     },
     maxSize: 128 * 1024 * 1024,
+    noClick: true,
+    noKeyboard: true,
   });
 
   const rootProps = getRootProps();
+
+  const [inputText, setInputText] = useState("");
+  const [_isEditorFocused, setIsEditorFocused] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
 
   const editor = useEditor({
     extensions: [
@@ -106,6 +100,9 @@ export default function PostEditor() {
         placeholder: "What's crack-a-lackin'?",
       }),
     ],
+    onUpdate: ({ editor: currentEditor }) => {
+      setInputText(currentEditor.getText({ blockSeparator: "\n" }) || "");
+    },
     editorProps: {
       attributes: {
         class: "focus:outline-none",
@@ -120,21 +117,26 @@ export default function PostEditor() {
     immediatelyRender: false,
   });
 
-  const input = editor?.getText({ blockSeparator: "\n" }) || "";
-  const [isEditorFocused, setIsEditorFocused] = useState(false);
-  const [selectedTags, setSelectedTags] = useState<TagWithCount[]>([]);
-  const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
+  const input = inputText || editor?.getText({ blockSeparator: "\n" }) || "";
 
-  const handleMentionsChange = useCallback((newMentions: UserData[]) => {
-    setSelectedMentions(newMentions);
+  const removeTag = useCallback((tagName: string) => {
+    setSelectedTags((prev) => prev.filter((t) => t !== tagName));
   }, []);
 
-  const handleTagsChange = useCallback((newTags: TagWithCount[]) => {
-    const tagsWithCount = newTags.map((tag) => ({
-      ...tag,
-      _count: tag._count || { posts: 0 },
-    }));
-    setSelectedTags(tagsWithCount);
+  const removeMention = useCallback((userId: string) => {
+    setSelectedMentions((prev) => prev.filter((m) => m.id !== userId));
+  }, []);
+
+  const addMention = useCallback((mentionUser: UserData) => {
+    setSelectedMentions((prev) =>
+      prev.some((m) => m.id === mentionUser.id) ? prev : [...prev, mentionUser]
+    );
+  }, []);
+
+  const addTag = useCallback((tagName: string) => {
+    setSelectedTags((prev) =>
+      prev.some((t) => t === tagName) ? prev : [...prev, tagName]
+    );
   }, []);
 
   useEffect(() => {
@@ -157,7 +159,7 @@ export default function PostEditor() {
       mediaIds: attachments
         .map((a) => a.mediaId)
         .filter((id): id is string => Boolean(id)),
-      tags: selectedTags.map((tag) => tag.name.toLowerCase()),
+      tags: selectedTags.map((tag) => tag.toLowerCase()),
       mentions: selectedMentions.map((mentionedUser) => mentionedUser.id),
       ...(isHnSharing && sharedHnStory
         ? {
@@ -181,6 +183,7 @@ export default function PostEditor() {
     mutation.mutate(payload, {
       onSuccess: () => {
         editor?.commands.clearContent();
+        setInputText("");
         resetMediaUploads();
         setSelectedTags([]);
         setSelectedMentions([]);
@@ -220,7 +223,7 @@ export default function PostEditor() {
   return (
     <motion.div
       animate="visible"
-      className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 transition-shadow duration-300 hover:shadow-lg"
+      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300"
       initial="hidden"
       variants={containerVariants}
     >
@@ -235,30 +238,28 @@ export default function PostEditor() {
           </motion.div>
         </div>
         <div className="w-full">
-          <AnimatePresence>
-            {isEditorFocused ? (
-              <motion.div
-                animate={{ opacity: 1, height: "auto" }}
-                className="mb-3 space-y-3"
-                exit={{ opacity: 0, height: 0 }}
-                initial={{ opacity: 0, height: 0 }}
-              >
-                <Tags
-                  className="px-1"
-                  isOwner={true}
-                  onTagsChange={handleTagsChange}
-                  postId={undefined}
-                  tags={selectedTags}
+          {(selectedTags.length > 0 || selectedMentions.length > 0) && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {selectedTags.map((tag) => (
+                <RemoveChip
+                  key={tag}
+                  label={`#${tag}`}
+                  onRemove={removeTag}
+                  removeLabel={`Remove tag ${tag}`}
+                  value={tag}
                 />
-                <MentionTags
-                  className="px-1"
-                  isOwner={true}
-                  mentions={selectedMentions}
-                  onMentionsChange={handleMentionsChange}
+              ))}
+              {selectedMentions.map((mention) => (
+                <RemoveChip
+                  key={mention.id}
+                  label={`@${mention.username}`}
+                  onRemove={removeMention}
+                  removeLabel={`Remove mention ${mention.username}`}
+                  value={mention.id}
                 />
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+              ))}
+            </div>
+          )}
 
           <div {...rootProps}>
             <motion.div
@@ -270,13 +271,20 @@ export default function PostEditor() {
             >
               <EditorContent
                 className={cn(
-                  "max-h-[20rem] w-full overflow-y-auto rounded-2xl bg-[hsl(var(--background-alt))] px-5 py-3 text-foreground",
+                  "premium-input max-h-[20rem] w-full overflow-y-auto px-5 py-3 text-foreground",
                   "transition-all duration-300 ease-in-out",
                   "focus-within:ring-2 focus-within:ring-primary",
                   isDragActive && "outline-dashed outline-primary"
                 )}
                 editor={editor}
                 onPaste={onPaste}
+              />
+              <InlineSuggestions
+                editor={editor}
+                onSelectMention={addMention}
+                onSelectTag={addTag}
+                selectedMentionIds={selectedMentions.map((m) => m.id)}
+                selectedTagNames={selectedTags}
               />
               {isDragActive ? (
                 <motion.div
@@ -306,6 +314,53 @@ export default function PostEditor() {
               />
             </motion.div>
           </div>
+
+          <motion.div
+            className="mt-3 flex items-center justify-between gap-2"
+            variants={itemVariants}
+          >
+            <motion.div
+              className="flex items-center gap-1"
+              variants={itemVariants}
+            >
+              <AnimatePresence>
+                {isUploading ? (
+                  <motion.div
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex items-center gap-2"
+                    exit={{ opacity: 0, x: -20 }}
+                    initial={{ opacity: 0, x: -20 }}
+                  >
+                    <span className="font-medium text-sm tabular-nums">
+                      {(uploadProgress ?? 0).toFixed(1)}%
+                    </span>
+                    <Loader2 className="size-5 animate-spin text-primary" />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <FileInput
+                  disabled={isUploading || attachments.length >= 5}
+                  onFilesSelected={startUpload}
+                />
+              </motion.div>
+            </motion.div>
+
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <LoadingButton
+                className="min-w-20"
+                disabled={!(input.trim() || isHnSharing) || isUploading}
+                loading={mutation.isPending}
+                onClick={onSubmit}
+                variant="premium"
+              >
+                Post
+              </LoadingButton>
+            </motion.div>
+          </motion.div>
         </div>
       </motion.div>
 
@@ -325,61 +380,6 @@ export default function PostEditor() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <motion.div
-        className="flex items-center justify-between gap-3"
-        variants={itemVariants}
-      >
-        <motion.div
-          className="flex items-center justify-between gap-3"
-          variants={itemVariants}
-        >
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Wind className="h-4 w-4 hover:text-primary" />
-            <motion.div
-              animate="animate"
-              className="pointer-events-none font-medium text-xs hover:text-primary"
-              variants={textVariants}
-            >
-              Asocialmedia
-            </motion.div>
-          </div>
-        </motion.div>
-
-        <div className="flex items-center gap-3">
-          <AnimatePresence>
-            {isUploading ? (
-              <motion.div
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2"
-                exit={{ opacity: 0, x: -20 }}
-                initial={{ opacity: 0, x: -20 }}
-              >
-                <span className="font-medium text-sm tabular-nums">
-                  {(uploadProgress ?? 0).toFixed(1)}%
-                </span>
-                <Loader2 className="size-5 animate-spin text-primary" />
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <FileInput
-              disabled={isUploading || attachments.length >= 5}
-              onFilesSelected={startUpload}
-            />
-          </motion.div>
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <LoadingButton
-              className="min-w-20 bg-primary text-primary-foreground hover:bg-primary/90"
-              disabled={!input.trim() || isUploading}
-              loading={mutation.isPending}
-              onClick={onSubmit}
-            >
-              Post
-            </LoadingButton>
-          </motion.div>
-        </div>
-      </motion.div>
     </motion.div>
   );
 }
@@ -431,5 +431,31 @@ function AttachmentPreviews({
         </motion.div>
       ))}
     </motion.div>
+  );
+}
+
+interface RemoveChipProps {
+  label: string;
+  onRemove: (value: string) => void;
+  removeLabel: string;
+  value: string;
+}
+
+function RemoveChip({ label, onRemove, removeLabel, value }: RemoveChipProps) {
+  const handleRemove = useCallback(() => {
+    onRemove(value);
+  }, [onRemove, value]);
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary text-sm">
+      {label}
+      <button
+        aria-label={removeLabel}
+        className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:text-destructive"
+        onClick={handleRemove}
+        type="button"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </span>
   );
 }

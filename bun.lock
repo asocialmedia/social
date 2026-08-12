@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "asocialmedia/social",
+      "dependencies": {
+        "image-size": "^2.0.2",
+      },
       "devDependencies": {
         "@biomejs/biome": "^2.5.7",
         "@changesets/cli": "^2.31.1",
@@ -26,7 +29,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.0.29",
+      "version": "1.0.34",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/config": "workspace:*",
@@ -68,7 +71,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.0.29",
+      "version": "1.0.40",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -149,7 +152,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.0.27",
+      "version": "1.0.32",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@prisma/client": "7.9.1",
@@ -201,7 +204,7 @@
     },
     "packages/next": {
       "name": "@asm/next",
-      "version": "1.0.3",
+      "version": "1.0.5",
       "dependencies": {
         "dotenv": "^17.4.2",
         "next": "^16.3.0",
@@ -212,7 +215,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.8",
+      "version": "1.0.12",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",
@@ -1438,6 +1441,8 @@
     "iconv-lite": ["iconv-lite@0.7.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ=="],
 
     "ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
+
+    "image-size": ["image-size@2.0.2", "", { "bin": { "image-size": "bin/image-size.js" } }, "sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w=="],
 
     "immer": ["immer@11.1.16", "", {}, "sha512-Xs7H9rBc+kti1J6RueUvbEBkmOz7jqj11XYgf+YMXAYzu8EeE7hwZ9poLXdVfVnGmJu7QAf41T7H2KuF6QoK6Q=="],
 

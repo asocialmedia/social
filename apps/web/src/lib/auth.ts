@@ -3,15 +3,13 @@ import { createAuthClient } from "better-auth/react";
 
 const WEB_AUTH_BASE = process.env.NEXT_PUBLIC_URL || "https://social.localhost";
 
-export const authClient: ReturnType<typeof createAuthClient> = createAuthClient(
-  {
-    baseURL: WEB_AUTH_BASE,
-    fetchOptions: {
-      credentials: "include",
-    },
-    plugins: [usernameClient()],
-  }
-);
+export const authClient = createAuthClient({
+  baseURL: WEB_AUTH_BASE,
+  fetchOptions: {
+    credentials: "include",
+  },
+  plugins: [usernameClient()],
+});
 
 export type { Session, User } from "@asm/auth/core";
 

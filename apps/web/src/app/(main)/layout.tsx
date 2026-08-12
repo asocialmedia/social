@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import type React from "react";
 import { getSessionFromApi } from "@/lib/session";
-import Navbar from "./navbar";
 import SessionProvider from "./session-provider";
 
 export default async function Layout({
@@ -17,7 +16,6 @@ export default async function Layout({
 
   return (
     <SessionProvider value={session}>
-      <Navbar />
       <div className="flex flex-1 flex-col font-sofiaProSoft">{children}</div>
     </SessionProvider>
   );

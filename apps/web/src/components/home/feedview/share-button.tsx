@@ -329,14 +329,13 @@ const ShareButton = ({
   return (
     <Dialog onOpenChange={setIsOpen} open={isOpen}>
       <DialogTrigger asChild>
-        <Button
-          className="group relative text-muted-foreground hover:text-foreground"
-          size="sm"
-          variant="ghost"
+        <button
+          className="group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px"
+          type="button"
         >
-          <Share2 className="h-5 w-5 transition-transform group-hover:scale-110" />
+          <Share2 className="h-5 w-5" />
           <span className="sr-only">Share</span>
-        </Button>
+        </button>
       </DialogTrigger>
       <DialogContent className="bg-background/95 backdrop-blur-xl sm:max-w-md">
         <DialogHeader>

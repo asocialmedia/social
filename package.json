@@ -1,6 +1,6 @@
 {
   "name": "asocialmedia/social",
-  "version": "1.0.67",
+  "version": "1.0.78",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -32,6 +32,9 @@
   },
   "overrides": {
     "@radix-ui/react-dialog": "^1.1.23"
+  },
+  "dependencies": {
+    "image-size": "^2.0.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",

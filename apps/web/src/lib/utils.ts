@@ -1,5 +1,5 @@
 import { type ClassValue, clsx } from "clsx";
-import { formatDate, formatDistanceToNowStrict } from "date-fns";
+import { formatDate } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -15,8 +15,16 @@ export function formatRelativeDate(from: Date | string) {
     }
 
     const currentDate = new Date();
-    if (currentDate.getTime() - dateObj.getTime() < 24 * 60 * 60 * 1000) {
-      return formatDistanceToNowStrict(dateObj, { addSuffix: true });
+    const diffMs = currentDate.getTime() - dateObj.getTime();
+    if (diffMs < 24 * 60 * 60 * 1000) {
+      const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
+      if (diffMinutes < 1) {
+        return "just now";
+      }
+      if (diffMinutes < 60) {
+        return `${diffMinutes}m`;
+      }
+      return `${Math.floor(diffMinutes / 60)}h`;
     }
     if (currentDate.getFullYear() === dateObj.getFullYear()) {
       return formatDate(dateObj, "MMM d");
@@ -29,13 +37,15 @@ export function formatRelativeDate(from: Date | string) {
 }
 
 export function formatNumber(num: number): string {
-  if (num >= 1_000_000) {
-    return `${(num / 1_000_000).toFixed(1)}M`;
+  const sign = num < 0 ? "-" : "";
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000) {
+    return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
   }
-  if (num >= 1000) {
-    return `${(num / 1000).toFixed(1)}K`;
+  if (abs >= 1000) {
+    return `${sign}${(abs / 1000).toFixed(1)}K`;
   }
-  return num.toString();
+  return `${sign}${abs}`;
 }
 
 export function slugify(input: string): string {
@@ -43,4 +53,26 @@ export function slugify(input: string): string {
     .toLowerCase()
     .replace(/ /g, "-")
     .replace(/[^a-z0-9-]/g, "");
+}
+
+export function isRouteActive(currentHref: string, itemHref: string): boolean {
+  if (itemHref === "/") {
+    return currentHref === "/" || currentHref.startsWith("/?");
+  }
+  const [currentPath, currentQueryStr = ""] = currentHref.split("?");
+  const [itemPath, itemQueryStr = ""] = itemHref.split("?");
+  const pathMatches =
+    currentPath === itemPath ||
+    currentPath.startsWith(itemPath === "/" ? "/" : `${itemPath}/`);
+  if (!pathMatches) {
+    return false;
+  }
+  const currentQuery = new URLSearchParams(currentQueryStr);
+  const itemQuery = new URLSearchParams(itemQueryStr);
+  for (const [key, value] of itemQuery) {
+    if (currentQuery.get(key) !== value) {
+      return false;
+    }
+  }
+  return true;
 }
