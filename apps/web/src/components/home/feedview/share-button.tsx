@@ -14,6 +14,7 @@ import { Check, Copy, Download, Mail, Share2 } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
+import type * as React from "react";
 import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -330,6 +331,10 @@ const ShareButton = ({
     setIsOpen(true);
   }, []);
 
+  const handleContentClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+  }, []);
+
   const renderStatsBody = () => {
     if (isLoading) {
       return (
@@ -379,7 +384,10 @@ const ShareButton = ({
       >
         <Share2 className="h-5 w-5" />
       </button>
-      <DialogContent className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl">
+      <DialogContent
+        className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        onClick={handleContentClick}
+      >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
           <DialogTitle className="flex items-center gap-2 font-semibold text-base">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
