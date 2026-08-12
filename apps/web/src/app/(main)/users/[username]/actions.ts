@@ -5,20 +5,20 @@ import {
   updateUserProfileSchema,
 } from "@asm/auth/validation";
 import { getUserDataSelect, prisma } from "@asm/db";
-import { authClient } from "@/lib/auth";
+import { getSessionFromApi } from "@/lib/session";
 
 export async function updateUserProfile(values: UpdateUserProfileValues) {
   const validatedValues = updateUserProfileSchema.parse(values);
-  const session = await authClient.getSession();
+  const session = await getSessionFromApi();
 
-  if (!session?.data?.user) {
+  if (!session?.user) {
     throw new Error("Unauthorized");
   }
 
   const updatedUser = await prisma.user.update({
-    where: { id: session.data.user.id },
+    where: { id: session.user.id },
     data: validatedValues,
-    select: getUserDataSelect(session.data.user.id),
+    select: getUserDataSelect(session.user.id),
   });
 
   return updatedUser;

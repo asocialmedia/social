@@ -12,7 +12,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import Linkify from "@/helpers/global/linkify";
 import { getUserData } from "@/hooks/use-user-data";
-import { authClient } from "@/lib/auth";
+import { getSessionFromApi } from "@/lib/session";
 
 interface PageProps {
   params: Promise<{ postId: string }>;
@@ -36,11 +36,11 @@ const getPost = cache(async (postId: string, loggedInUser: string) => {
 export async function generateMetadata(props: PageProps) {
   const params = await props.params;
   const { postId } = params;
-  const session = await authClient.getSession();
-  if (!session?.data?.user) {
+  const session = await getSessionFromApi();
+  if (!session?.user) {
     return {};
   }
-  const post = await getPost(postId, session.data.user.id);
+  const post = await getPost(postId, session.user.id);
 
   return {
     title: `${post.user.displayName}: ${post.content.slice(0, 50)}...`,
@@ -50,12 +50,10 @@ export async function generateMetadata(props: PageProps) {
 export default async function Page(props: PageProps) {
   const params = await props.params;
   const { postId } = params;
-  const session = await authClient.getSession();
-  const userData = session?.data?.user
-    ? await getUserData(session.data.user.id)
-    : null;
+  const session = await getSessionFromApi();
+  const userData = session?.user ? await getUserData(session.user.id) : null;
 
-  if (!session?.data?.user) {
+  if (!session?.user) {
     return (
       <p className="text-destructive">
         You&apos;re not logged in. Please log in to view this page.
@@ -63,7 +61,7 @@ export default async function Page(props: PageProps) {
     );
   }
 
-  const post = await getPost(postId, session.data.user.id);
+  const post = await getPost(postId, session.user.id);
 
   return (
     <main className="flex w-full min-w-0 gap-5">
@@ -103,9 +101,9 @@ interface UserInfoSidebarProps {
 }
 
 async function UserInfoSidebar({ user }: UserInfoSidebarProps) {
-  const session = await authClient.getSession();
+  const session = await getSessionFromApi();
 
-  if (!session?.data?.user) {
+  if (!session?.user) {
     return null;
   }
 
@@ -133,12 +131,11 @@ async function UserInfoSidebar({ user }: UserInfoSidebarProps) {
           {user.bio}
         </div>
       </Linkify>
-      {user.id !== session.data.user.id && (
+      {user.id !== session.user.id && (
         <FollowButton
           initialState={{
             followers: user._count.followers,
             isFollowedByUser: user.followers.some(
-              // @ts-expect-error
               ({ followerId }) => followerId === session.user.id
             ),
           }}

@@ -71,7 +71,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
           <div className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
             <div className="relative flex items-center border-border/60 border-b py-1.5">
-              <TabsList className="flex h-full items-center justify-start gap-0 bg-transparent p-0">
+              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="for-you">
                   Trending
                 </TabsTrigger>
@@ -82,8 +82,8 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
                   Following
                 </TabsTrigger>
               </TabsList>
-              <div className="ml-auto flex min-w-0 items-center gap-2 pr-1.5">
-                <div className="hidden w-full max-w-[24rem] md:block xl:max-w-md">
+              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
+                <div className="w-full max-w-[24rem] xl:max-w-md">
                   <SearchField />
                 </div>
                 <button
