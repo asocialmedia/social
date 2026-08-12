@@ -10,7 +10,7 @@ const MobileTopBar: React.FC = () => {
   const { user } = useSession();
 
   return (
-    <div className="flex items-center justify-between border-border/60 border-b bg-[hsl(var(--background-alt))]/90 px-4 py-2.5 backdrop-blur-md lg:hidden">
+    <div className="flex items-center justify-between border-border/60 border-b px-4 py-2.5 lg:hidden">
       <Link href={`/users/${user.username}`}>
         <UserAvatar avatarUrl={user.image} className="h-8 w-8" />
       </Link>

@@ -1,6 +1,5 @@
 import type { BookmarkInfo } from "@asm/db";
 import { useToast } from "@asm/ui/hooks/use-toast";
-import { Button } from "@asm/ui/shadui/button";
 import {
   type QueryKey,
   useMutation,
@@ -65,22 +64,25 @@ export default function BookmarkButton({
   const handleBookmark = useCallback(() => mutate(), [mutate]);
 
   return (
-    <Button
+    <button
       aria-label={data.isBookmarkedByUser ? "Remove bookmark" : "Bookmark post"}
       className={cn(
-        "flex items-center gap-1 text-muted-foreground hover:text-foreground",
+        "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out active:translate-y-px",
+        !data.isBookmarkedByUser &&
+          "hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+        data.isBookmarkedByUser &&
+          "bg-gradient-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
         className
       )}
       onClick={handleBookmark}
-      size="sm"
-      variant="ghost"
+      type="button"
     >
       <Bookmark
         className={cn(
-          "size-5",
-          data.isBookmarkedByUser && "fill-primary text-primary"
+          "size-5 transition-colors",
+          data.isBookmarkedByUser && "fill-white text-white"
         )}
       />
-    </Button>
+    </button>
   );
 }

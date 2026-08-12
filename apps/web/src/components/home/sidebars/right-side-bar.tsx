@@ -42,8 +42,8 @@ const RightSideBar: React.FC = () => {
   const suggestedUsers = suggested || [];
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-80 shrink-0 flex-col gap-6 overflow-y-auto px-6 pt-0 pb-6 xl:flex">
-      <div className="pt-3">
+    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col gap-6 overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+      <div>
         <SearchField />
       </div>
 
@@ -52,10 +52,10 @@ const RightSideBar: React.FC = () => {
           <h2 className="font-semibold">Popular on HackerNews</h2>
           <HackerNewsIcon className="h-3.5 w-3.5" />
         </div>
-        <div className="divide-y divide-border/50 rounded-xl border border-border/60 bg-[hsl(var(--background-alt))]">
+        <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-[hsl(var(--background-alt))]">
           {stories.slice(0, 5).map((story, _index) => (
             <a
-              className="flex flex-col gap-0.5 px-4 py-3 transition-colors hover:bg-muted/40"
+              className="group flex flex-col gap-0.5 px-4 py-3 outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
               href={
                 story.url || `https://news.ycombinator.com/item?id=${story.id}`
               }
@@ -66,7 +66,7 @@ const RightSideBar: React.FC = () => {
               <span className="line-clamp-2 font-medium text-sm">
                 {story.title}
               </span>
-              <span className="text-muted-foreground text-xs">
+              <span className="text-muted-foreground text-xs transition-colors group-hover:text-white/80">
                 {story.score} points
               </span>
             </a>
@@ -81,10 +81,10 @@ const RightSideBar: React.FC = () => {
 
       <section>
         <h2 className="mb-3 font-semibold">Who to follow</h2>
-        <div className="divide-y divide-border/50 rounded-xl border border-border/60 bg-[hsl(var(--background-alt))]">
+        <div className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border/60 bg-[hsl(var(--background-alt))]">
           {suggestedUsers.slice(0, 4).map((user) => (
             <Link
-              className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
+              className="group flex items-center gap-3 px-4 py-3 outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
               href={`/users/${user.username}`}
               key={user.id}
             >
@@ -93,11 +93,11 @@ const RightSideBar: React.FC = () => {
                 <span className="block truncate font-medium text-sm">
                   {user.displayName || user.username}
                 </span>
-                <span className="block truncate text-muted-foreground text-xs">
+                <span className="block truncate text-muted-foreground text-xs transition-colors group-hover:text-white/80">
                   @{user.username}
                 </span>
               </div>
-              <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+              <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-white" />
             </Link>
           ))}
           {suggestedUsers.length === 0 ? (

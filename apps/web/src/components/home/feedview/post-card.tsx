@@ -1,7 +1,6 @@
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
-import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { ArrowUpRight, Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
@@ -79,8 +78,14 @@ const PostContent: React.FC<PostContentProps> = ({
     setIsOverflowing(el.scrollHeight > el.clientHeight);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: isExpanded must retrigger the overflow re-measure after collapse
   useLayoutEffect(() => {
     updateOverflow();
+  }, [isExpanded, updateOverflow]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(updateOverflow);
+    return () => cancelAnimationFrame(frame);
   }, [updateOverflow]);
 
   useEffect(() => {
@@ -156,7 +161,7 @@ const PostContent: React.FC<PostContentProps> = ({
             </p>
           </div>
         </Linkify>
-        {isOverflowing ? (
+        {isExpanded || isOverflowing ? (
           <button
             className="mt-1 cursor-pointer font-medium text-primary text-sm hover:underline"
             onClick={onToggleExpand}
@@ -215,7 +220,7 @@ const PostContent: React.FC<PostContentProps> = ({
 
           <div className="flex items-center gap-1">
             <span
-              className="flex cursor-default items-center gap-1.5 py-2 pr-1 text-muted-foreground"
+              className="flex h-8 cursor-default items-center gap-1.5 rounded-full px-2 text-muted-foreground"
               title="Views"
             >
               <Eye className="size-5" />
@@ -227,16 +232,14 @@ const PostContent: React.FC<PostContentProps> = ({
               thumbnail={post.attachments[0]?.url}
               title={post.content}
             />
-            <Button
-              asChild
-              className="text-muted-foreground"
-              size="sm"
-              variant="ghost"
+            <Link
+              aria-label={`View post ${post.id}`}
+              className="group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-muted-foreground outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px"
+              href={`/posts/${post.id}`}
+              suppressHydrationWarning
             >
-              <Link href={`/posts/${post.id}`} suppressHydrationWarning>
-                <ArrowUpRight className="h-5 w-5" />
-              </Link>
-            </Button>
+              <ArrowUpRight className="h-5 w-5" />
+            </Link>
           </div>
         </div>
         {showComments ? <Comments post={post} /> : null}
@@ -252,17 +255,16 @@ interface CommentButtonProps {
 
 function CommentButton({ post, onClick }: CommentButtonProps) {
   return (
-    <Button
-      className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+    <button
+      className="group inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px"
       onClick={onClick}
-      size="sm"
-      variant="ghost"
+      type="button"
     >
       <MessageSquare className="size-5" />
       <span className="font-medium text-sm tabular-nums">
         {post._count.comments}
       </span>
-    </Button>
+    </button>
   );
 }
 

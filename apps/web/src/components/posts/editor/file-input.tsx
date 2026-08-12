@@ -1,4 +1,3 @@
-import { Button } from "@asm/ui/shadui/button";
 import { FileAudioIcon, FileCode, FileIcon, ImageIcon } from "lucide-react";
 import {
   type ChangeEvent,
@@ -108,12 +107,12 @@ const FileButton = ({
 
   return (
     <>
-      <Button
+      <button
         aria-label={label}
         className={cn(
-          "relative rounded-lg transition-all duration-200",
-          isHovered ? "bg-muted/70" : "hover:bg-muted/40",
-          disabled && "cursor-not-allowed opacity-50"
+          "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px",
+          disabled &&
+            "cursor-not-allowed opacity-50 hover:bg-none hover:from-none hover:to-none hover:shadow-none"
         )}
         disabled={disabled}
         onBlur={handleBlur}
@@ -121,20 +120,20 @@ const FileButton = ({
         onFocus={handleFocus}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        variant="ghost"
+        type="button"
       >
-        <span className="relative z-10 flex items-center gap-1.5">
-          <Icon className="text-muted-foreground" size={20} />
+        <span className="flex items-center gap-1.5">
+          <Icon className="size-5" size={20} />
           <span
             className={cn(
-              "max-w-0 overflow-hidden whitespace-nowrap font-medium text-muted-foreground text-xs transition-all duration-200 ease-in-out",
+              "max-w-0 overflow-hidden whitespace-nowrap font-medium text-xs transition-all duration-200 ease-in-out",
               isHovered && "max-w-32"
             )}
           >
             {label}
           </span>
         </span>
-      </Button>
+      </button>
       <input
         accept={accept}
         capture={capture}

@@ -56,9 +56,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const renderItem = ({ href, label, icon: Icon }: NavItem) => (
     <Link
       className={cn(
-        "flex items-center gap-3 rounded-full px-3 py-2.5 text-base transition-all duration-200 hover:bg-muted/60",
-        isRouteActive(currentHref, href) &&
-          "bg-primary/10 font-semibold text-primary"
+        "group flex items-center gap-3 rounded-full border-0 px-3 py-2.5 text-base outline-none transition-all duration-200 ease-out",
+        isRouteActive(currentHref, href)
+          ? "bg-gradient-to-b from-[#ff9500] to-[#e65500] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+          : "hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
       )}
       href={href}
       key={href}
@@ -81,7 +82,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   };
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-border/60 border-r px-3 py-5 lg:flex">
+    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-border/60 border-r px-5 pt-2.5 pb-5 lg:flex">
       <Link className="mb-8 block px-2" href="/">
         <Image
           alt="Asocialmedia"
@@ -113,7 +114,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         </Button>
 
         <Link
-          className="flex items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60"
+          className="group flex items-center gap-2.5 rounded-lg border-0 px-2 py-2 outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
           href={`/users/${userData.username}`}
         >
           <UserAvatar avatarUrl={userData.avatarUrl} className="h-8 w-8" />

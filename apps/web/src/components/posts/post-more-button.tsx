@@ -1,5 +1,4 @@
 import type { PostData } from "@asm/db";
-import { Button } from "@asm/ui/shadui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +20,11 @@ export default function PostMoreButton({
   className,
 }: PostMoreButtonProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const handleOpenChange = useCallback((open: boolean) => {
+    setIsOpen(open);
+  }, []);
 
   const handleShowDeleteDialog = useCallback(() => {
     setShowDeleteDialog(true);
@@ -32,15 +36,19 @@ export default function PostMoreButton({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
-          <Button
-            className={cn("h-7 w-7 p-0", className)}
-            size="icon"
-            variant="ghost"
+          <button
+            aria-label="Post options"
+            className={cn(
+              "group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px",
+              className,
+              isOpen ? "opacity-100" : undefined
+            )}
+            type="button"
           >
-            <MoreHorizontal className="size-5 text-muted-foreground" />
-          </Button>
+            <MoreHorizontal className="size-5" />
+          </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={handleShowDeleteDialog}>
