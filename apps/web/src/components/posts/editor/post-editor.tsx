@@ -239,13 +239,8 @@ export default function PostEditor() {
   );
 
   return (
-    <motion.div
-      animate="visible"
-      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300"
-      initial="hidden"
-      variants={containerVariants}
-    >
-      <motion.div className="flex gap-5" variants={itemVariants}>
+    <div className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300">
+      <div className="flex gap-5">
         <div className="hidden sm:inline">
           <motion.div
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -283,12 +278,11 @@ export default function PostEditor() {
           )}
 
           <div {...rootProps}>
-            <motion.div
+            <div
               className={cn(
                 "relative rounded-2xl transition-all duration-300",
                 isDragActive && "ring-2 ring-primary ring-offset-2"
               )}
-              variants={itemVariants}
             >
               <EditorContent
                 className={cn(
@@ -333,17 +327,11 @@ export default function PostEditor() {
                 className="pointer-events-none absolute inset-0 opacity-0"
                 style={{ width: 0, height: 0 }}
               />
-            </motion.div>
+            </div>
           </div>
 
-          <motion.div
-            className="mt-3 flex items-center justify-between gap-2"
-            variants={itemVariants}
-          >
-            <motion.div
-              className="flex items-center gap-1"
-              variants={itemVariants}
-            >
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
               <AnimatePresence>
                 {isUploading ? (
                   <motion.div
@@ -368,7 +356,7 @@ export default function PostEditor() {
                   onFilesSelected={startUpload}
                 />
               </motion.div>
-            </motion.div>
+            </div>
 
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <LoadingButton
@@ -381,9 +369,9 @@ export default function PostEditor() {
                 Post
               </LoadingButton>
             </motion.div>
-          </motion.div>
+          </div>
         </div>
-      </motion.div>
+      </div>
 
       <AnimatePresence mode="wait">
         {!!attachments.length && (
@@ -401,7 +389,7 @@ export default function PostEditor() {
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
 
