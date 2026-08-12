@@ -1,8 +1,14 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@asm/ui/shadui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { Plus } from "lucide-react";
+import { ListPlus, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useRef } from "react";
@@ -86,13 +92,35 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
                 <div className="w-full max-w-[24rem] xl:max-w-md">
                   <SearchField />
                 </div>
-                <button
-                  aria-label="Create new list"
-                  className="btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full outline-none transition-all duration-200 ease-out active:translate-y-px"
-                  type="button"
-                >
-                  <Plus className="h-5 w-5" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label="Create"
+                      className="btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all active:translate-y-px"
+                      type="button"
+                    >
+                      <Plus className="size-5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="apple-panel min-w-[13rem] p-1.5 shadow-none"
+                  >
+                    <DropdownMenuItem
+                      aria-disabled="true"
+                      className="cursor-not-allowed rounded-md px-2 py-2 opacity-60"
+                      disabled
+                    >
+                      <span className="flex items-center gap-3">
+                        <ListPlus className="size-4" />
+                        Create feed
+                      </span>
+                      <span className="ml-auto rounded-full border border-border/60 bg-muted/50 px-1.5 py-0.5 font-semibold text-[10px] text-muted-foreground tracking-wide">
+                        Soon
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>

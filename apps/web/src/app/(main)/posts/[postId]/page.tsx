@@ -86,7 +86,7 @@ export default async function Page(props: PageProps) {
 
       <div className="sticky top-[5.25rem] hidden h-fit w-80 flex-none lg:block">
         <Suspense fallback={<Loader2 className="mx-auto animate-spin" />}>
-          <UserInfoSidebar user={post.user} />
+          <UserInfoSidebar loggedInUserId={session.user.id} user={post.user} />
         </Suspense>
         <div className="mt-4">
           <StickyFooter />
@@ -97,16 +97,11 @@ export default async function Page(props: PageProps) {
 }
 
 interface UserInfoSidebarProps {
+  loggedInUserId: string;
   user: UserData;
 }
 
-async function UserInfoSidebar({ user }: UserInfoSidebarProps) {
-  const session = await getSessionFromApi();
-
-  if (!session?.user) {
-    return null;
-  }
-
+async function UserInfoSidebar({ loggedInUserId, user }: UserInfoSidebarProps) {
   return (
     <div className="space-y-5 rounded-2xl border border-border bg-card p-5 shadow-xs">
       <div className="font-bold text-xl">About this user</div>
@@ -131,12 +126,12 @@ async function UserInfoSidebar({ user }: UserInfoSidebarProps) {
           {user.bio}
         </div>
       </Linkify>
-      {user.id !== session.user.id && (
+      {user.id !== loggedInUserId && (
         <FollowButton
           initialState={{
             followers: user._count.followers,
             isFollowedByUser: user.followers.some(
-              ({ followerId }) => followerId === session.user.id
+              ({ followerId }) => followerId === loggedInUserId
             ),
           }}
           userId={user.id}

@@ -9,8 +9,10 @@ import type React from "react";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { useFollowStates } from "@/hooks/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
+import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./right/sidebar-styles";
 
 const FOOTER_LINKS = [
   { href: "/toc", label: "Terms" },
@@ -19,10 +21,6 @@ const FOOTER_LINKS = [
   { href: "https://github.com/asocialmedia/social", label: "Github" },
   { href: "/support", label: "Support" },
 ];
-
-const ROW_HOVER_CLASS = "sidebar-row-hover";
-
-const APPLE_CARD_CLASS = "sidebar-subcard rounded-2xl p-2";
 
 const HackerNewsLogo: React.FC<{ className?: string }> = ({ className }) => (
   <span
@@ -54,7 +52,7 @@ const RightSideBar: React.FC = () => {
   const { data: hnStories } = useQuery({
     queryKey: ["hn-top-stories"],
     queryFn: async () => {
-      const res = await fetch("/api/hackernews?limit=6&sort=score");
+      const res = await fetch("/api/hackernews?limit=5&sort=score");
       if (!res.ok) {
         throw new Error(`Failed to fetch Hacker News stories: ${res.status}`);
       }
@@ -72,6 +70,9 @@ const RightSideBar: React.FC = () => {
 
   const stories = hnStories?.stories || [];
   const suggestedUsers = suggested || [];
+  const { data: followStates } = useFollowStates(
+    suggestedUsers.map((user) => user.id)
+  );
 
   return (
     <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
@@ -155,8 +156,10 @@ const RightSideBar: React.FC = () => {
               <FollowButton
                 className="follow-btn-3d h-8 shrink-0 px-3 text-xs"
                 initialState={{
-                  followers: user._count.followers,
-                  isFollowedByUser: false,
+                  followers:
+                    followStates?.[user.id]?.followers ?? user._count.followers,
+                  isFollowedByUser:
+                    followStates?.[user.id]?.isFollowedByUser ?? false,
                 }}
                 onFollowed={refetch}
                 userId={user.id}

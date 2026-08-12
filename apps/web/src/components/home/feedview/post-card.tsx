@@ -1,10 +1,15 @@
 "use client";
 
+// biome-ignore-all lint/a11y/noNoninteractiveElementInteractions: The post card is a clickable region; nested interactive elements are excluded via the click guard.
+// biome-ignore-all lint/a11y/noStaticElementInteractions: The post card region navigates to the post page on click.
+// biome-ignore-all lint/a11y/useKeyWithClickEvents: Keyboard navigation is handled via the inner links and buttons; Enter/Space also trigger navigation.
+
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { Card, CardContent } from "@asm/ui/shadui/card";
-import { ArrowUpRight, Eye, MessageSquare } from "lucide-react";
+import { Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import {
   useCallback,
@@ -212,14 +217,6 @@ const PostContent: React.FC<PostContentProps> = ({
               thumbnail={post.attachments[0]?.url}
               title={post.content}
             />
-            <Link
-              aria-label={`View post ${post.id}`}
-              className="pill-3d-hover group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-muted-foreground active:translate-y-px"
-              href={`/posts/${post.id}`}
-              suppressHydrationWarning
-            >
-              <ArrowUpRight className="h-5 w-5" />
-            </Link>
           </div>
         </div>
         {showComments ? <Comments post={post} /> : null}
@@ -253,6 +250,7 @@ const PostCard: React.FC<PostCardProps> = ({
   isJoined = false,
 }) => {
   const { user } = useSession();
+  const router = useRouter();
   const [post, setPost] = useState(initialPost);
   const [showComments, setShowComments] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -271,22 +269,43 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const currentUserId = user?.id ?? "";
 
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("a, button, input, textarea, video")) {
+        return;
+      }
+      router.push(`/posts/${post.id}`);
+    },
+    [post.id, router]
+  );
+
+  const handleCardKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        router.push(`/posts/${post.id}`);
+      }
+    },
+    [post.id, router]
+  );
+
   return (
     <motion.div
       animate={{ opacity: 1, y: 0 }}
-      className={post.hnStoryShare ? "hn-story-share" : ""}
+      className={`${post.hnStoryShare ? "hn-story-share" : ""} cursor-pointer`}
       id={`post-${post.id}`}
       initial={{ opacity: 0, y: 50 }}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      tabIndex={0}
       transition={{ duration: 0.5 }}
     >
       <ViewTracker postId={post.id} />
       {isJoined ? (
         <div
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "relative border-l-2 border-l-orange-500 pb-1" : ""}`}
+          className={`group/post rounded-none bg-[hsl(var(--background-alt))] transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
-          {post.hnStoryShare ? (
-            <div className="absolute top-0 left-0 h-full w-1 rounded-full bg-linear-to-b from-orange-400 to-yellow-500" />
-          ) : null}
           <div className={`p-4 ${post.hnStoryShare ? "pl-5" : ""}`}>
             <PostContent
               currentUserId={currentUserId}

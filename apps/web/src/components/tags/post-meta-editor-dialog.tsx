@@ -66,10 +66,10 @@ export function PostMetaEditorDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="apple-panel w-full max-w-[480px] gap-4 overflow-hidden p-0 sm:rounded-2xl">
+      <DialogContent className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl">
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
           <DialogTitle className="flex items-center gap-2 font-semibold text-base">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
               <Hash className="h-3.5 w-3.5" />
             </div>
             Edit Tags &amp; Mentions
@@ -85,7 +85,7 @@ export function PostMetaEditorDialog({
               aria-pressed={activeTab === "tags"}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 font-medium text-sm transition-all duration-200 ${
                 activeTab === "tags"
-                  ? "bg-gradient-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                  ? "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                   : "pill-3d-hover text-muted-foreground hover:text-foreground"
               }`}
               onClick={handleSelectTags}
@@ -98,7 +98,7 @@ export function PostMetaEditorDialog({
               aria-pressed={activeTab === "mentions"}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 font-medium text-sm transition-all duration-200 ${
                 activeTab === "mentions"
-                  ? "bg-gradient-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                  ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                   : "pill-3d-hover text-muted-foreground hover:text-foreground"
               }`}
               onClick={handleSelectMentions}

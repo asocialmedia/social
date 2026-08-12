@@ -64,6 +64,15 @@ export function supportsTransparency(url?: string | null): boolean {
   return TRANSPARENT_IMAGE_EXTENSION.test(url);
 }
 
+const GIF_EXTENSION = /\.gif(\?.*)?(#.*)?$/i;
+
+export function isGifUrl(url?: string | null): boolean {
+  if (!url) {
+    return false;
+  }
+  return GIF_EXTENSION.test(url);
+}
+
 export function isRouteActive(currentHref: string, itemHref: string): boolean {
   if (itemHref === "/") {
     return currentHref === "/" || currentHref.startsWith("/?");

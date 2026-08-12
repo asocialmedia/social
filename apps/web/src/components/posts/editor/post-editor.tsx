@@ -220,7 +220,9 @@ export default function PostEditor() {
     hnShareStore,
   ]);
 
-  onSubmitRef.current = onSubmit;
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  }, [onSubmit]);
 
   const handleRemoveHnStory = useCallback(() => {
     hnShareStore.clearState();
@@ -269,7 +271,7 @@ export default function PostEditor() {
               {selectedMentions.map((mention) => (
                 <RemoveChip
                   key={mention.id}
-                  label={mention.username}
+                  label={`@${mention.username}`}
                   onRemove={removeMention}
                   removeLabel={`Remove mention ${mention.username}`}
                   user={mention}
@@ -290,7 +292,7 @@ export default function PostEditor() {
             >
               <EditorContent
                 className={cn(
-                  "premium-input max-h-[20rem] w-full overflow-y-auto px-5 py-3 text-foreground",
+                  "premium-input max-h-80 w-full overflow-y-auto px-5 py-3 text-foreground",
                   "transition-all duration-300 ease-in-out",
                   "focus-within:ring-2 focus-within:ring-primary",
                   isDragActive && "outline-dashed outline-primary"
@@ -453,14 +455,15 @@ function AttachmentPreviews({
   );
 }
 
-interface RemoveChipProps {
+interface RemoveChipBaseProps {
   label: string;
   onRemove: (value: string) => void;
   removeLabel: string;
-  user?: UserData;
   value: string;
-  variant: "tag" | "mention";
 }
+
+type RemoveChipProps = RemoveChipBaseProps &
+  ({ user: UserData; variant: "mention" } | { user?: never; variant: "tag" });
 
 function RemoveChip({
   label,
@@ -475,13 +478,10 @@ function RemoveChip({
   }, [onRemove, value]);
 
   const leadingIcon = () => {
-    if (variant === "mention" && user) {
+    if (variant === "mention") {
       return <UserAvatar avatarUrl={user.avatarUrl} className="h-4 w-4" />;
     }
-    if (variant === "tag") {
-      return <Hash className="meta-chip-accent h-3.5 w-3.5" />;
-    }
-    return null;
+    return <Hash className="meta-chip-accent h-3.5 w-3.5" />;
   };
 
   return (

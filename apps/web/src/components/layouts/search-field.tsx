@@ -104,9 +104,6 @@ export default function SearchField({
     handleSearch(input);
   };
 
-  const handleBlur = useCallback(() => {
-    // no-op on blur; suggestions stay open for click-through
-  }, []);
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
     setOpen(true);
@@ -139,7 +136,6 @@ export default function SearchField({
           aria-label="Search on Asocialmedia"
           autoComplete="off"
           className="h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
-          onBlur={handleBlur}
           onChange={handleChange}
           onFocus={handleFocus}
           placeholder="Search on Asocialmedia"
@@ -151,7 +147,7 @@ export default function SearchField({
 
       {open && (input || (history && history.length > 0)) && (
         <div
-          className="absolute left-1/2 z-[205] mt-2 w-[min(90vw,28rem)] -translate-x-1/2 md:left-0 md:z-50 md:w-full md:translate-x-0"
+          className="absolute left-1/2 z-205 mt-2 w-[min(90vw,28rem)] -translate-x-1/2 md:left-0 md:z-50 md:w-full md:translate-x-0"
           ref={commandRef}
         >
           <SearchCommandList

@@ -40,7 +40,7 @@ import {
 } from "@/app/(main)/users/[username]/avatar-mutations";
 import LoadingButton from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
-import { cn } from "@/lib/utils";
+import { cn, isGifUrl } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 import CropImageDialog from "./crop-image-dialog";
 import GifCenteringDialog from "./gif-centering-dialog";
@@ -392,7 +392,7 @@ function AvatarInput({
             src={avatarSrc}
             unoptimized={
               typeof avatarSrc === "string" &&
-              (avatarSrc.endsWith(".gif") || avatarSrc.includes("asmob"))
+              (isGifUrl(avatarSrc) || avatarSrc.includes("asmob"))
             }
             width={150}
           />

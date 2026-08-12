@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
 import { Hash, MoreHorizontal, Trash2 } from "lucide-react";
+import type * as React from "react";
 import { useCallback, useState } from "react";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,13 @@ export default function PostMoreButton({
     setShowEditDialog(false);
   }, []);
 
+  const handleTriggerClick = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+    },
+    []
+  );
+
   return (
     <>
       <DropdownMenu onOpenChange={handleOpenChange}>
@@ -55,6 +63,7 @@ export default function PostMoreButton({
               className,
               isOpen ? "opacity-100" : undefined
             )}
+            onClick={handleTriggerClick}
             type="button"
           >
             <MoreHorizontal className="size-5" />

@@ -1,7 +1,7 @@
 import type { UserData } from "@asm/db";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import Image from "next/image";
-import { cn, supportsTransparency } from "@/lib/utils";
+import { cn, isGifUrl, supportsTransparency } from "@/lib/utils";
 
 interface UserAvatarProps {
   avatarUrl?: string | null;
@@ -35,7 +35,7 @@ export default function UserAvatar({
       height={size ?? 48}
       priority={priority}
       src={resolvedSrc}
-      unoptimized={avatarUrl?.endsWith(".gif")}
+      unoptimized={isGifUrl(avatarUrl)}
       width={size ?? 48} // Don't optimize GIFs to keep animation
     />
   );

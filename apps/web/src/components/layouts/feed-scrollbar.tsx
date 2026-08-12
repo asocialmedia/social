@@ -18,12 +18,34 @@ interface ThumbGeometry {
   visible: boolean;
 }
 
+interface TrackGeometry {
+  maxTranslate: number;
+  scrollable: number;
+  thumbHeight: number;
+  trackHeight: number;
+}
+
+function getTrackGeometry(el: HTMLElement): TrackGeometry {
+  const trackHeight = el.clientHeight;
+  const thumbHeight = Math.min(
+    Math.max(
+      (el.clientHeight / el.scrollHeight) * trackHeight,
+      MIN_THUMB_HEIGHT
+    ),
+    MAX_THUMB_HEIGHT
+  );
+  const scrollable = el.scrollHeight - el.clientHeight;
+  const maxTranslate = trackHeight - thumbHeight;
+  return { maxTranslate, scrollable, thumbHeight, trackHeight };
+}
+
 export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const dragStartScrollRef = useRef(0);
   const dragStartYRef = useRef(0);
   const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
   const [geometry, setGeometry] = useState<ThumbGeometry>({
     height: 0,
     translate: 0,
@@ -48,25 +70,35 @@ export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
     if (!el) {
       return;
     }
-    const { clientHeight, scrollHeight, scrollTop } = el;
-    if (scrollHeight <= clientHeight) {
+    const { scrollHeight, scrollTop } = el;
+    if (scrollHeight <= el.clientHeight) {
       setGeometry((current) =>
         current.visible ? { ...current, visible: false } : current
       );
       return;
     }
-    const trackHeight = el.clientHeight;
-    const thumbHeight = Math.min(
-      Math.max((clientHeight / scrollHeight) * trackHeight, MIN_THUMB_HEIGHT),
-      MAX_THUMB_HEIGHT
-    );
-    const scrollable = scrollHeight - clientHeight;
-    const maxTranslate = trackHeight - thumbHeight;
+    const { maxTranslate, scrollable, thumbHeight } = getTrackGeometry(el);
     const translate =
       scrollable > 0 ? (scrollTop / scrollable) * maxTranslate : 0;
-    setGeometry({ height: thumbHeight, translate, visible: true });
+    setGeometry((current) =>
+      current.height === thumbHeight &&
+      current.translate === translate &&
+      current.visible
+        ? current
+        : { height: thumbHeight, translate, visible: true }
+    );
     show();
   }, [containerRef, show]);
+
+  const scheduleMeasure = useCallback(() => {
+    if (rafRef.current !== null) {
+      return;
+    }
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      measure();
+    });
+  }, [measure]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -74,19 +106,23 @@ export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
       return;
     }
     measure();
-    el.addEventListener("scroll", measure, { passive: true });
+    el.addEventListener("scroll", scheduleMeasure, { passive: true });
     el.addEventListener("pointerenter", show);
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(el);
     return () => {
-      el.removeEventListener("scroll", measure);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      el.removeEventListener("scroll", scheduleMeasure);
       el.removeEventListener("pointerenter", show);
       observer.disconnect();
       if (hideTimeoutRef.current) {
         clearTimeout(hideTimeoutRef.current);
       }
     };
-  }, [containerRef, measure, show]);
+  }, [containerRef, measure, scheduleMeasure, show]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -112,16 +148,7 @@ export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
       if (!(draggingRef.current && el)) {
         return;
       }
-      const trackHeight = el.clientHeight;
-      const thumbHeight = Math.min(
-        Math.max(
-          (el.clientHeight / el.scrollHeight) * trackHeight,
-          MIN_THUMB_HEIGHT
-        ),
-        MAX_THUMB_HEIGHT
-      );
-      const scrollable = el.scrollHeight - el.clientHeight;
-      const maxTranslate = trackHeight - thumbHeight;
+      const { maxTranslate, scrollable } = getTrackGeometry(el);
       const deltaY = e.clientY - dragStartYRef.current;
       const deltaScroll =
         scrollable > 0 && maxTranslate > 0
@@ -151,6 +178,8 @@ export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
             showing ? "opacity-100" : "opacity-0",
             "active:cursor-grabbing"
           )}
+          onLostPointerCapture={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
