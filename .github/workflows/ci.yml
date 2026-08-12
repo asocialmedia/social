@@ -547,7 +547,7 @@ jobs:
           esac
 
           BASELINE=$(curl -sS -L \
-            "${API_URL}/api/deployments.all?applicationId=${DOKPLOY_PRISMA_APP_ID}" \
+            "${API_URL}/api/deployment.all?applicationId=${DOKPLOY_PRISMA_APP_ID}" \
             -H 'accept: application/json' \
             -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
             | jq -r 'if type == "array" and length > 0 then .[0].deploymentId else "" end' 2>/dev/null || true)
@@ -583,7 +583,7 @@ jobs:
 
           fetch_deployments() {
             curl -sS -L \
-              "${API_URL}/api/deployments.all?applicationId=${APP_ID}" \
+              "${API_URL}/api/deployment.all?applicationId=${APP_ID}" \
               -H 'accept: application/json' \
               -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
               || true
@@ -591,7 +591,7 @@ jobs:
 
           fetch_logs() {
             curl -sS -L \
-              "${API_URL}/api/deployments.readLogs?deploymentId=${1}&tail=300" \
+              "${API_URL}/api/deployment.readLogs?deploymentId=${1}&tail=300" \
               -H 'accept: application/json' \
               -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
               || true
@@ -601,7 +601,7 @@ jobs:
           for i in $(seq 1 "${RETRIES}"); do
             RESPONSE=$(fetch_deployments)
             if ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
-              echo "deployments.all did not return an array. Check the Dokploy API endpoint / token."
+              echo "deployment.all did not return an array. Check the Dokploy API endpoint / token."
               printf '%s\n' "$RESPONSE" | head -c 500
               echo ""
               exit 1
