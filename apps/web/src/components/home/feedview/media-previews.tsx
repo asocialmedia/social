@@ -4,7 +4,7 @@ import { FileAudioIcon, FileCode, FileIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
@@ -14,9 +14,141 @@ import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
   attachments: Media[];
+  interactive?: boolean;
 }
 
-export function MediaPreviews({ attachments }: MediaPreviewsProps) {
+// Top-level component (not nested) so its own hover/play state doesn't cause
+// the parent grid to re-render and remount the <video> element mid-playback.
+const VIDEO_HOVER_DELAY = 350;
+
+function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHoveredRef = useRef(false);
+  const previewStartedRef = useRef(false);
+  const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
+
+  const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+
+  const getExpandedHeight = useCallback((): number | null => {
+    const container = containerRef.current;
+    const video = container?.querySelector("video");
+    if (container && video && video.videoWidth > 0 && video.videoHeight > 0) {
+      const naturalHeight =
+        (container.clientWidth * video.videoHeight) / video.videoWidth;
+      return Math.min(naturalHeight, window.innerHeight * 0.75);
+    }
+    return null;
+  }, []);
+
+  const startPreview = useCallback(() => {
+    previewStartedRef.current = true;
+    const video = containerRef.current?.querySelector("video");
+    if (video) {
+      video.play().catch(() => undefined);
+    }
+    const height = getExpandedHeight();
+    if (height !== null) {
+      setExpandedHeight(height);
+    }
+  }, [getExpandedHeight]);
+
+  const handleMouseEnter = useCallback(() => {
+    isHoveredRef.current = true;
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    hoverTimeoutRef.current = setTimeout(() => {
+      startPreview();
+    }, VIDEO_HOVER_DELAY);
+  }, [startPreview]);
+
+  const handleMouseLeave = useCallback(() => {
+    isHoveredRef.current = false;
+    previewStartedRef.current = false;
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    const video = containerRef.current?.querySelector("video");
+    if (video) {
+      video.pause();
+      if (video.duration > 2) {
+        video.currentTime = 2;
+      }
+    }
+    setExpandedHeight(null);
+  }, []);
+
+  // Seek past the first frame so the preview shows a meaningful thumbnail,
+  // and expand if the preview already started before this video's metadata loaded
+  const handleLoadedMetadata = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      const video = event.currentTarget;
+      if (video.duration > 2) {
+        video.currentTime = 2;
+      }
+      if (previewStartedRef.current) {
+        const height = getExpandedHeight();
+        if (height !== null) {
+          setExpandedHeight(height);
+        }
+      }
+    },
+    [getExpandedHeight]
+  );
+
+  // Clear any pending hover timer on unmount
+  useEffect(
+    () => () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    },
+    []
+  );
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: Video preview needs mouse interactions for hover autoplay
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video preview needs mouse interactions for hover autoplay
+    <div
+      className={cn(
+        "group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+        isSmall ? "h-20" : "h-56"
+      )}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      ref={containerRef}
+      style={expandedHeight === null ? undefined : { height: expandedHeight }}
+    >
+      {/* absolute fill crops the video to the preview box while collapsed, but matches the expanded height when hovering */}
+      <video
+        className="absolute inset-0 h-full w-full rounded-lg object-cover"
+        muted
+        onLoadedMetadata={handleLoadedMetadata}
+        playsInline
+        preload="metadata"
+        src={getMediaUrl(media.id)}
+      />
+      <div
+        className={cn(
+          "absolute top-2 right-2 transition-opacity duration-300",
+          expandedHeight === null ? "opacity-100" : "opacity-0"
+        )}
+      >
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+          <MdPlayArrow className="ml-0.5 h-3.5 w-3.5 text-white" />
+        </div>
+      </div>
+      <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
+    </div>
+  );
+}
+
+export function MediaPreviews({
+  attachments,
+  interactive = true,
+}: MediaPreviewsProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -35,17 +167,9 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     setSelectedIndex(null);
   }, []);
 
-  const videoOverlayVariants = {
-    initial: { opacity: 0, scale: 0.8 },
-    animate: { opacity: 1, scale: 1 },
-    hover: { scale: 1.05 },
-    exit: { opacity: 0, scale: 0.8 },
-  };
-
   const initialCount = isMobile ? 2 : 3;
-  const visibleAttachments = showAll
-    ? attachments
-    : attachments.slice(0, initialCount);
+  const visibleAttachments =
+    !interactive || showAll ? attachments : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
   const remainingCount = attachments.length - initialCount;
 
@@ -84,52 +208,6 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       </div>
     );
   };
-
-  const renderVideoPreview = (m: Media, isSmall: boolean) => (
-    <div
-      className={cn(
-        "group relative w-full overflow-hidden",
-        isSmall ? "h-20" : "h-56"
-      )}
-    >
-      {/* biome-ignore lint/a11y/useMediaCaption: suppress */}
-      <video
-        className={getCommonClasses(isSmall)}
-        preload="metadata"
-        src={getMediaUrl(m.id)}
-      />
-      <motion.div
-        animate="animate"
-        className="absolute inset-0 flex items-center justify-center"
-        exit="exit"
-        initial="initial"
-        variants={videoOverlayVariants}
-        whileHover="hover"
-      >
-        <div className="relative">
-          <div className="absolute -inset-4">
-            <div className="absolute inset-0 rounded-full bg-white/10 group-hover:animate-ping" />
-            <div className="absolute inset-0 rounded-full bg-black/20 blur-xs group-hover:animate-pulse" />
-          </div>
-          <motion.div
-            className="relative z-10 flex h-12 w-12 items-center justify-center rounded-full bg-black/50 backdrop-blur-xs transition-colors duration-300 group-hover:bg-white/20"
-            transition={{ type: "spring", stiffness: 260, damping: 20 }}
-            whileHover={{ scale: 1.1, rotate: 360 }}
-          >
-            <MdPlayArrow
-              className={cn(
-                "transition-all duration-300",
-                isSmall ? "h-6 w-6" : "h-8 w-8",
-                "text-white group-hover:text-white",
-                "group-hover:scale-110"
-              )}
-            />
-          </motion.div>
-        </div>
-      </motion.div>
-      <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
-    </div>
-  );
 
   const renderFilePreview = (
     m: Media,
@@ -181,7 +259,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       case "IMAGE":
         return renderImagePreview(m, isSmall);
       case "VIDEO":
-        return renderVideoPreview(m, isSmall);
+        return <VideoPreview isSmall={isSmall} media={m} />;
       case "AUDIO":
         return renderFilePreview(m, isSmall, <FileAudioIcon />);
       case "CODE":
@@ -234,7 +312,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
 
     const dims = natural;
 
-    return (
+    return interactive ? (
       <button
         aria-label="View attachment"
         className="block w-full cursor-pointer text-left"
@@ -265,6 +343,31 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
           </div>
         )}
       </button>
+    ) : (
+      <div>
+        {dims ? (
+          <div className="relative inline-block max-w-full overflow-hidden rounded-lg shadow-xs">
+            <Image
+              alt="Attachment"
+              className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
+              height={dims.h}
+              src={getMediaUrl(media.id)}
+              style={{ objectFit: "cover" }}
+              width={dims.w}
+            />
+          </div>
+        ) : (
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg shadow-xs">
+            <Image
+              alt="Attachment"
+              className="object-cover"
+              fill
+              src={getMediaUrl(media.id)}
+              style={{ objectFit: "cover" }}
+            />
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -279,26 +382,47 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     size?: "small" | "large";
   }) => {
     const isSmall = size === "small";
+    // Videos size themselves (collapsed preview + hover expansion), so let the wrapper grow with them
+    let wrapperHeightClass = "h-56";
+    if (isSmall) {
+      wrapperHeightClass = "h-20";
+    }
+    if (media.type === "VIDEO") {
+      wrapperHeightClass = "h-auto";
+    }
 
     const handleSelect = useCallback(() => {
       setSelectedIndex(index);
     }, [index]);
 
-    return (
+    return interactive ? (
       <motion.div
         animate={{ opacity: 1, y: 0 }}
+        aria-label="View attachment"
         className={cn(
           "relative cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
-          isSmall ? "h-20" : "h-56"
+          wrapperHeightClass
         )}
+        data-card-interactive
         exit={{ opacity: 0, y: -20 }}
         initial={{ opacity: 0, y: 20 }}
         layout
         onClick={handleSelect}
+        role="button"
+        tabIndex={0}
         transition={{ duration: 0.2, delay: index * 0.05 }}
       >
         {renderPreview(media, index, isSmall)}
       </motion.div>
+    ) : (
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-lg shadow-xs",
+          wrapperHeightClass
+        )}
+      >
+        {renderPreview(media, index, isSmall)}
+      </div>
     );
   };
 
@@ -420,10 +544,12 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         </AnimatePresence>
       </div>
 
-      {!showAll && attachments.length > initialCount && <ShowMoreSection />}
+      {interactive && !showAll && attachments.length > initialCount && (
+        <ShowMoreSection />
+      )}
 
       <AnimatePresence>
-        {showAll ? (
+        {interactive && showAll ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="flex justify-center pb-4"
@@ -441,7 +567,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         ) : null}
       </AnimatePresence>
 
-      {selectedIndex !== null && (
+      {interactive && selectedIndex !== null && (
         <MediaViewer
           initialIndex={selectedIndex}
           isOpen={selectedIndex !== null}

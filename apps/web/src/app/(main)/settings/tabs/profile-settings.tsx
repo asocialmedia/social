@@ -5,7 +5,6 @@ import {
   updateUserProfileSchema,
 } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -21,6 +20,7 @@ import { UserCircle } from "lucide-react";
 import { motion } from "motion/react";
 import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { LoadingButton } from "@/components/auth/loading-button";
+import { useToast } from "@/lib/gooey-toast";
 import { useUpdateProfileMutation } from "../../users/[username]/avatar-mutations";
 
 function DisplayNameFieldRenderer({
@@ -87,8 +87,8 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
       {
         onSuccess: () => {
           toast({
-            title: "Profile updated",
-            description: "Your profile has been updated successfully",
+            title: "Profile Updated",
+            description: "Your profile is looking fresh!",
           });
         },
       }

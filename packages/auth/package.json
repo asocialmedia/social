@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth",
-  "version": "1.0.32",
+  "version": "1.0.39",
   "private": true,
   "description": "Asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
@@ -26,12 +26,11 @@
   "dependencies": {
     "@asm/db": "workspace:*",
     "@prisma/client": "7.9.1",
-    "@t3-oss/env-nextjs": "^0.13.11",
+    "@t3-oss/env-core": "^0.13.11",
     "better-auth": "^1.6.26",
     "disposable-email-domains": "^1.0.62",
     "email-validator": "^2.0.4",
     "jose": "^6.2.8",
-    "next": "^16.3.0",
     "pg": "^8.23.0",
     "react": "^19.2.8",
     "zod": "^4.4.3"

@@ -1,6 +1,7 @@
 "use server";
 
 import { env } from "@root/env";
+import { authInternalHeaders } from "@/lib/auth-internal";
 
 const RATE_LIMIT_ERROR = "rate-limited";
 
@@ -60,7 +61,7 @@ export async function signUp(credentials: {
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/trpc/pendingSignupStart`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: authInternalHeaders({ "content-type": "application/json" }),
       credentials: "include",
       body: JSON.stringify({
         id: 1,
@@ -152,7 +153,7 @@ export async function resendVerificationEmail(email: string): Promise<{
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/trpc/pendingSignupResend`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: authInternalHeaders({ "content-type": "application/json" }),
       credentials: "include",
       body: JSON.stringify({ id: 1, json: { email } }),
     });
@@ -204,7 +205,7 @@ export async function verifyOTP(
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/auth/email-otp/verify-email`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: authInternalHeaders({ "content-type": "application/json" }),
       credentials: "include",
       body: JSON.stringify({ email, otp }),
     });
@@ -264,7 +265,7 @@ export async function sendVerificationLink(email: string): Promise<{
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/trpc/pendingSignupSendLink`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: authInternalHeaders({ "content-type": "application/json" }),
       credentials: "include",
       body: JSON.stringify({ id: 1, json: { email } }),
     });

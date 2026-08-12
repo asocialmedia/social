@@ -1,13 +1,13 @@
 import type { BookmarkInfo } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type QueryKey,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Bookmark } from "lucide-react";
+import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
@@ -40,7 +40,11 @@ export default function BookmarkButton({
         : kyInstance.post(`/api/posts/${postId}/bookmark`),
     onMutate: async () => {
       toast({
-        description: `Post ${data.isBookmarkedByUser ? "un" : ""}bookmarked`,
+        title: data.isBookmarkedByUser ? "Bookmark Removed" : "Bookmarked",
+        description: data.isBookmarkedByUser
+          ? "Removed from your bookmarks"
+          : "Post saved, find it anytime in your bookmarks",
+        icon: data.isBookmarkedByUser ? <BookmarkX /> : <BookmarkCheck />,
       });
 
       await queryClient.cancelQueries({ queryKey });
@@ -56,7 +60,7 @@ export default function BookmarkButton({
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Something went wrong. Please try again.",
+        description: "That didn't go through, give it another try?",
       });
     },
   });
@@ -68,8 +72,7 @@ export default function BookmarkButton({
       aria-label={data.isBookmarkedByUser ? "Remove bookmark" : "Bookmark post"}
       className={cn(
         "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out active:translate-y-px",
-        !data.isBookmarkedByUser &&
-          "hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+        !data.isBookmarkedByUser && "pill-3d-hover",
         data.isBookmarkedByUser &&
           "bg-gradient-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
         className

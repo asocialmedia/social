@@ -1,6 +1,7 @@
 import { getUserDataSelect, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
+import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 import ClientProfile from "./client-profile";
 
@@ -35,13 +36,16 @@ export default async function Page(props: PageProps) {
     redirect(`/login?next=/users/${encodeURIComponent(username)}`);
   }
 
-  const userData = await getUser(username, session.user.id);
+  const [userData, loggedInUserData] = await Promise.all([
+    getUser(username, session.user.id),
+    getUserData(session.user.id),
+  ]);
+
+  if (!loggedInUserData) {
+    redirect(`/login?next=/users/${encodeURIComponent(username)}`);
+  }
 
   return (
-    <ClientProfile
-      loggedInUserId={session.user.id}
-      userData={userData}
-      username={username}
-    />
+    <ClientProfile loggedInUserData={loggedInUserData} userData={userData} />
   );
 }

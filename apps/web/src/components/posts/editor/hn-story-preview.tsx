@@ -27,16 +27,16 @@ export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
       className="relative mb-4"
       initial={{ opacity: 0, y: 20 }}
     >
-      <Card className="overflow-hidden border-orange-500/20 bg-muted/30 p-3">
+      <Card className="hn-story-solid overflow-hidden p-3 shadow-none">
         <div className="flex items-start justify-between">
           <div className="flex items-center">
-            <div className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 font-bold text-white text-xs">
+            <div className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 font-bold text-white text-xs shadow-[inset_0_1px_1px_rgba(255,255,255,0.3),0_1px_2px_rgba(0,0,0,0.2)]">
               Y
             </div>
             <span className="text-muted-foreground text-xs">Hacker News</span>
           </div>
           <button
-            className="rounded-full p-1 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+            className="pill-3d-hover flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground"
             onClick={onRemoveAction}
             type="button"
           >

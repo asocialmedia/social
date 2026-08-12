@@ -31,6 +31,7 @@ export const keys = createEnv({
     REDIS_URL: process.env.REDIS_URL,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
   },
   server: {
     ASMOB_BUCKET_NAME: z.string().min(1).default("uploads"),
@@ -50,6 +51,7 @@ export const keys = createEnv({
     REDIS_URL: z.url(),
     SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
     TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
+    BETTER_AUTH_SECRET: z.string().optional(),
   },
 
   skipValidation: process.env.NODE_ENV === "production",

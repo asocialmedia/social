@@ -14,8 +14,7 @@
     "**/*.ts",
     "**/*.tsx",
     "./assets/**/*",
-    ".next/types/**/*.ts",
-    "../../packages/ui/components/ui/gooey-text-morphing.tsx",
-    "../../packages/ui/components/ui/spiral-animation.tsx"
-  ]
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx"]
 }

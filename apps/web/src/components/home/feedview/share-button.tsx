@@ -4,17 +4,25 @@ import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
+  DialogDescription,
   DialogTitle,
-  DialogTrigger,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
-import { Check, Copy, Download, Mail, Share2 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import {
+  Check,
+  Copy,
+  Download,
+  Link2,
+  Mail,
+  QrCode,
+  Share2,
+} from "lucide-react";
+import { motion } from "motion/react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
+import type * as React from "react";
 import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -26,7 +34,8 @@ import {
   FaTwitter,
   FaWhatsapp,
 } from "react-icons/fa";
-import { toast } from "sonner";
+import { toast } from "@/lib/gooey-toast";
+import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_THUMBNAIL = "/fallback.png";
@@ -83,7 +92,11 @@ const ShareButton = ({
       }
     } catch (error) {
       console.error("Failed to fetch share stats:", error);
-      toast.error("Failed to load share statistics");
+      toast({
+        variant: "destructive",
+        title: "Stats Unavailable",
+        description: "Couldn't load your share stats, try again?",
+      });
       setShareStats([]);
     } finally {
       setIsLoading(false);
@@ -125,7 +138,11 @@ const ShareButton = ({
       );
     } catch (error) {
       console.error("Failed to track share:", error);
-      toast.error("Failed to track share");
+      toast({
+        variant: "destructive",
+        title: "Share Not Counted",
+        description: "That share didn't get counted, no big deal!",
+      });
     }
   };
 
@@ -151,7 +168,11 @@ const ShareButton = ({
       );
     } catch (error) {
       console.error("Failed to track click:", error);
-      toast.error("Failed to track click");
+      toast({
+        variant: "destructive",
+        title: "Click Not Counted",
+        description: "That click didn't get counted, no big deal!",
+      });
     }
   };
 
@@ -205,7 +226,11 @@ const ShareButton = ({
         await trackShare("instagram");
         await navigator.clipboard.writeText(postUrl);
         window.open("https://instagram.com", "_blank");
-        toast.success("Link copied! Share it on Instagram");
+        toast({
+          title: "Link Copied",
+          description: "Paste it anywhere you like",
+          icon: <Link2 />,
+        });
         await trackClick("instagram");
       },
     },
@@ -284,10 +309,18 @@ const ShareButton = ({
     try {
       await navigator.clipboard.writeText(postUrl);
       setCopied(true);
-      toast.success("Link copied to clipboard!");
+      toast({
+        title: "Link Copied",
+        description: "Link copied, paste it anywhere",
+        icon: <Link2 />,
+      });
       await trackShare("copy");
     } catch {
-      toast.error("Failed to copy link");
+      toast({
+        variant: "destructive",
+        title: "Copy Failed",
+        description: "Couldn't copy the link, try again?",
+      });
     }
   };
 
@@ -319,54 +352,136 @@ const ShareButton = ({
         };
         img.src = `data:image/svg+xml;base64,${btoa(svgData)}`;
         await trackShare("qr");
-        toast.success("QR Code downloaded!");
+        toast({
+          title: "QR Code Downloaded",
+          description: "QR code saved to your device",
+          icon: <QrCode />,
+        });
       }
     } catch {
-      toast.error("Failed to download QR code");
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: "Couldn't download the QR code, try again?",
+      });
     }
   };
 
+  const handleOpen = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setIsOpen(true);
+    setPopupOpen(true);
+  }, []);
+
+  const handleOpenChange = useCallback((open: boolean) => {
+    setIsOpen(open);
+    setPopupOpen(open);
+  }, []);
+
+  const handleContentClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+  }, []);
+
+  const renderStatsBody = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-4">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      );
+    }
+    if (shareStats.length > 0) {
+      return (
+        <div className="flex flex-col gap-1.5">
+          {shareStats
+            .filter((stat) => stat.shares > 0 || stat.clicks > 0)
+            .map((stat) => (
+              <div
+                className="flex items-center justify-between rounded-lg border border-border/50 bg-[hsl(var(--background-alt))] px-3 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
+                key={stat.platform}
+              >
+                <span className="font-medium capitalize">{stat.platform}</span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-600 tabular-nums dark:text-orange-400">
+                    {stat.shares} shares
+                  </span>
+                  <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-600 tabular-nums dark:text-blue-400">
+                    {stat.clicks} clicks
+                  </span>
+                </div>
+              </div>
+            ))}
+        </div>
+      );
+    }
+    return (
+      <div className="py-2 text-center text-muted-foreground text-sm">
+        No shares yet
+      </div>
+    );
+  };
+
   return (
-    <Dialog onOpenChange={setIsOpen} open={isOpen}>
-      <DialogTrigger asChild>
-        <button
-          className="group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px"
-          type="button"
-        >
-          <Share2 className="h-5 w-5" />
-          <span className="sr-only">Share</span>
-        </button>
-      </DialogTrigger>
-      <DialogContent className="bg-background/95 backdrop-blur-xl sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Share2 className="h-5 w-5" />
+    <Dialog onOpenChange={handleOpenChange} open={isOpen}>
+      <button
+        aria-label="Share"
+        className="pill-3d-hover group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm active:translate-y-px"
+        onClick={handleOpen}
+        type="button"
+      >
+        <Share2 className="h-5 w-5" />
+      </button>
+      <DialogContent
+        className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        onClick={handleContentClick}
+      >
+        <div className="border-border/60 border-b px-5 pt-5 pb-3">
+          <DialogTitle className="flex items-center gap-2 font-semibold text-base">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <Share2 className="h-3.5 w-3.5" />
+            </div>
             Share Post
           </DialogTitle>
-        </DialogHeader>
+          <DialogDescription className="mt-1 text-muted-foreground text-xs">
+            Share this post with your network
+          </DialogDescription>
+        </div>
 
-        <Tabs
-          className="w-full"
-          defaultValue="social"
-          onValueChange={setActiveTab}
-        >
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="social">Social</TabsTrigger>
-            <TabsTrigger value="link">Link</TabsTrigger>
-            <TabsTrigger value="qr">QR Code</TabsTrigger>
-          </TabsList>
+        <div className="px-5 pb-5">
+          <Tabs
+            className="w-full"
+            onValueChange={setActiveTab}
+            value={activeTab}
+          >
+            <TabsList className="mb-4 grid h-auto w-full grid-cols-3 items-stretch gap-1 rounded-xl border border-border/60 bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
+              <TabsTrigger
+                className="rounded-lg py-1.5 font-medium text-sm transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                value="social"
+              >
+                Social
+              </TabsTrigger>
+              <TabsTrigger
+                className="rounded-lg py-1.5 font-medium text-sm transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                value="link"
+              >
+                Link
+              </TabsTrigger>
+              <TabsTrigger
+                className="rounded-lg py-1.5 font-medium text-sm transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                value="qr"
+              >
+                QR Code
+              </TabsTrigger>
+            </TabsList>
 
-          <AnimatePresence mode="wait">
-            <motion.div
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              initial={{ opacity: 0, y: 10 }}
-              key={activeTab}
-              transition={{ duration: 0.15 }}
-            >
-              <TabsContent className="mt-4" value="social">
+            <TabsContent className="mt-0" value="social">
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
                 {thumbnail ? (
-                  <div className="relative mb-4 h-32 overflow-hidden rounded-lg">
+                  <div className="relative mb-4 h-32 overflow-hidden rounded-xl border border-border/60 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
                     <Image
                       alt="Post thumbnail"
                       className="object-cover"
@@ -374,57 +489,61 @@ const ShareButton = ({
                       onError={handleThumbnailError}
                       src={thumbnail || FALLBACK_THUMBNAIL}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+                    <div className="absolute inset-0 bg-linear-to-t from-background/60 to-transparent" />
                   </div>
                 ) : null}
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   {socialShareOptions.map((option) => {
                     const stats = shareStats.find(
                       (stat) => stat.platform === option.name.toLowerCase()
                     );
                     return (
-                      <motion.button
-                        className="group relative flex flex-col items-center justify-center rounded-lg border border-border p-4 transition-all hover:bg-accent hover:shadow-lg"
+                      <button
+                        className="pill-3d-hover group flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-[hsl(var(--background))] p-3.5 text-sm transition-all duration-200 active:translate-y-px"
                         key={option.name}
                         onClick={option.onClick}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        type="button"
                       >
                         <option.icon
-                          className="mb-2 h-6 w-6 transition-transform group-hover:scale-110"
+                          className="h-6 w-6"
                           style={{ color: option.color }}
                         />
-                        <span className="font-medium text-sm">
-                          {option.name}
-                        </span>
-                        {stats && (
-                          <div className="mt-1 text-muted-foreground text-xs">
-                            {stats.shares > 0 && (
-                              <span>{stats.shares} shares</span>
-                            )}
-                            {stats.clicks > 0 && (
-                              <span> • {stats.clicks} clicks</span>
-                            )}
+                        <span className="font-medium">{option.name}</span>
+                        {stats && (stats.shares > 0 || stats.clicks > 0) ? (
+                          <div className="text-[11px] text-muted-foreground">
+                            {stats.shares > 0 ? `${stats.shares} shares` : null}
+                            {stats.shares > 0 && stats.clicks > 0
+                              ? " · "
+                              : null}
+                            {stats.clicks > 0 ? `${stats.clicks} clicks` : null}
                           </div>
-                        )}
-                      </motion.button>
+                        ) : null}
+                      </button>
                     );
                   })}
                 </div>
-              </TabsContent>
+              </motion.div>
+            </TabsContent>
 
-              <TabsContent className="mt-4 space-y-4" value="link">
-                <div className="flex space-x-2">
+            <TabsContent className="mt-0" value="link">
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-4"
+                initial={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                <div className="flex gap-2">
                   <Input
-                    className="font-mono text-sm"
+                    className="h-10 flex-1 rounded-xl font-mono text-sm"
                     readOnly
                     value={postUrl}
                   />
                   <Button
                     className={cn(
-                      "transition-all",
-                      copied && "bg-green-500 text-white hover:bg-green-600"
+                      "h-10 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px",
+                      copied &&
+                        "from-green-500 to-green-600 text-white hover:from-green-500 hover:to-green-600"
                     )}
                     onClick={copyToClipboard}
                     variant="secondary"
@@ -434,65 +553,25 @@ const ShareButton = ({
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}
+                    {copied ? "Copied" : "Copy"}
                   </Button>
                 </div>
 
-                <div className="rounded-lg border border-border p-4">
+                <div className="rounded-xl border border-border/60 bg-[hsl(var(--background))] p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
                   <h4 className="mb-3 font-medium text-sm">Share Statistics</h4>
-                  {(() => {
-                    if (isLoading) {
-                      return (
-                        <div className="flex items-center justify-center py-4">
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent"
-                            transition={{
-                              duration: 1,
-                              repeat: Number.POSITIVE_INFINITY,
-                              ease: "linear",
-                            }}
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (shareStats.length > 0) {
-                      return (
-                        <div className="grid gap-2">
-                          {shareStats
-                            .filter(
-                              (stat) => stat.shares > 0 || stat.clicks > 0
-                            )
-                            .map((stat) => (
-                              <div
-                                className="flex items-center justify-between text-sm"
-                                key={stat.platform}
-                              >
-                                <span className="capitalize">
-                                  {stat.platform}
-                                </span>
-                                <div className="flex gap-4 text-muted-foreground">
-                                  <span>{stat.shares} shares</span>
-                                  <span>{stat.clicks} clicks</span>
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="py-2 text-center text-muted-foreground text-sm">
-                        No shares yet
-                      </div>
-                    );
-                  })()}
+                  {renderStatsBody()}
                 </div>
-              </TabsContent>
+              </motion.div>
+            </TabsContent>
 
-              <TabsContent className="mt-4" value="qr">
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="qr-code rounded-lg bg-white p-4 shadow-lg transition-transform hover:scale-105">
+            <TabsContent className="mt-0" value="qr">
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                <div className="flex flex-col items-center gap-4">
+                  <div className="qr-code rounded-xl bg-white p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_2px_6px_rgba(0,0,0,0.08)]">
                     <QRCodeSVG
                       className="rounded-lg"
                       level="H"
@@ -502,7 +581,7 @@ const ShareButton = ({
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      className="flex items-center gap-2"
+                      className="pill-3d-hover rounded-xl text-muted-foreground"
                       onClick={downloadQrCode}
                       variant="outline"
                     >
@@ -510,7 +589,7 @@ const ShareButton = ({
                       Download QR Code
                     </Button>
                     <Button
-                      className="flex items-center gap-2"
+                      className="pill-3d-hover rounded-xl text-muted-foreground"
                       onClick={copyToClipboard}
                       variant="outline"
                     >
@@ -532,20 +611,9 @@ const ShareButton = ({
                     </div>
                   )}
                 </div>
-              </TabsContent>
-            </motion.div>
-          </AnimatePresence>
-        </Tabs>
-
-        <div className="mt-4 flex flex-col gap-2 text-center">
-          <div className="text-muted-foreground text-xs">
-            Share this content responsibly
-          </div>
-          {isLoading ? (
-            <div className="text-muted-foreground text-xs">
-              Loading share statistics...
-            </div>
-          ) : null}
+              </motion.div>
+            </TabsContent>
+          </Tabs>
         </div>
       </DialogContent>
     </Dialog>

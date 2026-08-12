@@ -1,13 +1,13 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Loader2, Search, X } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { type MouseEvent, useCallback, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
+import { useToast } from "@/lib/gooey-toast";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 import UserAvatar from "../layouts/user-avatar";
 
@@ -84,8 +84,8 @@ export function MentionTagEditor({
       } catch (error) {
         console.error("Error searching users:", error);
         toast({
-          title: "Error searching users",
-          description: "Please try again later",
+          title: "No Luck Finding People",
+          description: "Try searching again in a moment",
           variant: "destructive",
         });
       } finally {
@@ -99,8 +99,8 @@ export function MentionTagEditor({
     (user: UserData) => {
       if (selectedMentions.length >= 5) {
         toast({
-          title: "Maximum mentions reached",
-          description: "You can only mention up to 5 users per post",
+          title: "Up to 5 Mentions",
+          description: "You can mention up to 5 people per post",
           variant: "destructive",
         });
         return;
@@ -163,8 +163,7 @@ export function MentionTagEditor({
       await updateMentions.mutateAsync(selectedMentions.map((m) => m.id));
     } catch {
       toast({
-        title: "Error",
-        description: "Failed to update mentions. Please try again.",
+        description: "Couldn't save your mentions, try again?",
         variant: "destructive",
       });
     }
@@ -184,51 +183,54 @@ export function MentionTagEditor({
         initial="initial"
         variants={containerVariants}
       >
-        <div className="flex min-h-[40px] flex-wrap gap-2">
-          <AnimatePresence mode="popLayout">
-            {selectedMentions.map((user) => (
-              <motion.div
-                className="group flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 backdrop-blur-[2px] transition-colors hover:border-blue-500/30 hover:bg-blue-500/15"
-                key={user.id}
-                layout
-                variants={tagVariants}
-              >
-                <UserAvatar size={20} user={user} />
-                <span className="font-medium text-blue-500 text-sm">
-                  @{user.username}
-                  {isCurrentUser(user.id) && (
-                    <span className="ml-1 text-blue-400 text-xs">(you)</span>
-                  )}
-                </span>
-                <button
-                  className="text-blue-500/50 transition-colors hover:text-blue-500"
-                  data-user-id={user.id}
-                  onClick={handleRemoveClick}
-                  type="button"
+        {selectedMentions.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            <AnimatePresence mode="popLayout">
+              {selectedMentions.map((user) => (
+                <motion.div
+                  className="meta-chip meta-chip-mention"
+                  key={user.id}
+                  layout
+                  variants={tagVariants}
                 >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
+                  <UserAvatar size={16} user={user} />
+                  <span className="font-medium text-xs">
+                    @{user.username}
+                    {isCurrentUser(user.id) && (
+                      <span className="ml-1 text-[10px] opacity-70">(you)</span>
+                    )}
+                  </span>
+                  <button
+                    aria-label={`Remove mention ${user.username}`}
+                    className="meta-chip-accent flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive"
+                    data-user-id={user.id}
+                    onClick={handleRemoveClick}
+                    type="button"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        ) : null}
 
-        <div className="relative rounded-lg transition-all duration-200">
-          <Command className="overflow-hidden rounded-lg bg-muted/50">
-            <div className="flex items-center border-border/50 border-b px-3">
-              <Search className="mr-2 h-4 w-4 text-muted-foreground" />
+        <div className="relative rounded-xl transition-all duration-200">
+          <Command className="premium-command overflow-hidden">
+            <div className="flex items-center px-3">
+              <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
               <Command.Input
-                className="h-11 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
+                className="h-9 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
                 onValueChange={handleValueChange}
                 placeholder="Search users to mention..."
                 value={search}
               />
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             </div>
-            <Command.List className="max-h-[180px] overflow-y-auto p-2">
+            <Command.List className="max-h-[180px] overflow-y-auto p-1.5">
               {suggestions.map((user) => (
                 <Command.Item
-                  className="group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm hover:bg-accent"
+                  className="pill-3d-hover group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm"
                   key={user.id}
                   onSelect={handleSelectValue}
                   value={user.username}
@@ -256,14 +258,14 @@ export function MentionTagEditor({
 
         <div className="flex justify-end gap-2 pt-2">
           <Button
-            className="hover:bg-destructive/10 hover:text-destructive"
+            className="pill-3d-hover text-muted-foreground"
             onClick={onCloseAction}
             variant="ghost"
           >
             Cancel
           </Button>
           <Button
-            className="min-w-[80px] bg-primary text-primary-foreground hover:bg-primary/90"
+            className="btn-3d min-w-20 rounded-full px-5 py-2 text-sm"
             onClick={handleSave}
           >
             Save Changes

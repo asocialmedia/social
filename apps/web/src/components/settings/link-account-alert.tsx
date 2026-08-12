@@ -1,8 +1,8 @@
 "use client";
 
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+import { useToast } from "@/lib/gooey-toast";
 
 export default function LinkAccountAlert() {
   const searchParams = useSearchParams();
@@ -29,20 +29,21 @@ export default function LinkAccountAlert() {
 
       toast({
         variant: "destructive",
-        title: "Error",
+        title: "Link Failed",
         description: errorMessages[error] || "An error occurred",
       });
     }
 
     if (success) {
       const successMessages: Record<string, string> = {
-        google_linked: "Google account linked successfully",
-        google_unlinked: "Google account unlinked successfully",
+        google_linked: "Your Google account is now connected",
+        google_unlinked: "Your Google account is no longer connected",
       };
 
       toast({
-        title: "Success",
-        description: successMessages[success] || "Operation successful",
+        title:
+          success === "google_unlinked" ? "Account Unlinked" : "Account Linked",
+        description: successMessages[success] || "All set!",
       });
     }
   }, [searchParams, toast]);

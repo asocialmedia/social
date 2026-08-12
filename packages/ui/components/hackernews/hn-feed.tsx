@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useToast } from "../../hooks/use-toast";
+import { useToast } from "../../lib/gooey-toast";
 import { Button } from "../../shadui/button";
 import { Card } from "../../shadui/card";
 import { Tabs, TabsContent } from "../../shadui/tabs";
@@ -79,12 +79,13 @@ export function HNFeed() {
       await queryClient.invalidateQueries({ queryKey: ["hackernews"] });
       toast({
         title: "Refreshed",
-        description: "Stories have been updated",
+        description: "Fresh stories, ready when you are!",
       });
     } catch (error) {
+      console.error("Refresh stories error:", error);
       toast({
-        title: "Error",
-        description: (error as Error).message || "Failed to refresh stories",
+        title: "Couldn't Refresh",
+        description: "Couldn't refresh stories, try again?",
         variant: "destructive",
       });
     }
@@ -93,8 +94,8 @@ export function HNFeed() {
   useEffect(() => {
     if (isError) {
       toast({
-        title: "Error",
-        description: "Failed to fetch stories. Please try again later.",
+        title: "Couldn't Load Stories",
+        description: "Ran into a snag pulling up stories, try again?",
         variant: "destructive",
       });
     }
@@ -145,8 +146,8 @@ export function HNFeed() {
       await fetchNextPage();
     } catch {
       toast({
-        title: "Error",
-        description: "Failed to load more stories",
+        title: "Couldn't Load More",
+        description: "Ran into a snag loading more, try again?",
         variant: "destructive",
       });
     } finally {

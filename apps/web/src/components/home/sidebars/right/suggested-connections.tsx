@@ -1,6 +1,5 @@
 "use client";
 
-import { toast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Card,
@@ -21,6 +20,7 @@ import FollowButton, {
 import SuggestedConnectionsSkeleton from "@/components/layouts/skeletons/sc-skeleton";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserTooltip from "@/components/layouts/user-tooltip";
+import { toast } from "@/lib/gooey-toast";
 import { getSuggestedConnections } from "./user-actions";
 
 interface SerializableUserData {
@@ -84,13 +84,13 @@ const SuggestedConnections: React.FC = () => {
       await refetch();
       toast({
         title: "Refreshed",
-        description: "Suggestions have been updated.",
+        description: "Fresh suggestions, ready when you are!",
         duration: 3000,
+        icon: <RefreshCw />,
       });
     } catch {
       toast({
-        title: "Error",
-        description: "Failed to refresh suggestions. Please try again.",
+        description: "Couldn't refresh suggestions, try again?",
         variant: "destructive",
         duration: 3000,
       });

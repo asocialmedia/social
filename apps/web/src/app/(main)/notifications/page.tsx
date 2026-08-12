@@ -5,7 +5,7 @@ import SuggestedConnections from "@/components/home/sidebars/right/suggested-con
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import StickyFooter from "@/components/layouts/stinky-footer";
 import { getUserData } from "@/hooks/use-user-data";
-import { authClient } from "@/lib/auth";
+import { getSessionFromApi } from "@/lib/session";
 import Notifications from "./notifications";
 
 export const metadata: Metadata = {
@@ -15,10 +15,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  const session = await authClient.getSession();
-  const userData = session?.data?.user
-    ? await getUserData(session.data.user.id)
-    : null;
+  const session = await getSessionFromApi();
+  const userData = session?.user ? await getUserData(session.user.id) : null;
 
   return (
     <main className="flex w-full min-w-0 gap-5">

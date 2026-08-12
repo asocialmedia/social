@@ -3,12 +3,12 @@ import { env } from "../../env";
 export const emailConfig = {
   company: {
     name: "Asocialmedia",
-    website: env.NEXT_PUBLIC_URL,
+    website: env.APP_URL,
     supportEmail: env.SUPPORT_EMAIL,
   },
 
   assets: {
-    backgroundImage: `${env.NEXT_PUBLIC_URL}/assets/auth/signup-image.jpg`,
+    backgroundImage: `${env.APP_URL}/assets/auth/signup-image.jpg`,
     colors: {
       primary: "#f97316",
       primaryHover: "#fb923c",
@@ -57,15 +57,15 @@ export const emailConfig = {
 
   legal: {
     privacy: {
-      url: `${env.NEXT_PUBLIC_URL}/privacy`,
+      url: `${env.APP_URL}/privacy`,
       text: "Privacy Policy",
     },
     terms: {
-      url: `${env.NEXT_PUBLIC_URL}/toc`,
+      url: `${env.APP_URL}/toc`,
       text: "Terms of Service",
     },
     unsubscribe: {
-      url: `${env.NEXT_PUBLIC_URL}/soon`,
+      url: `${env.APP_URL}/soon`,
       text: "Unsubscribe",
     },
   },

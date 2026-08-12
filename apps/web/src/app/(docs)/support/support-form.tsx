@@ -1,11 +1,11 @@
 "use client";
 
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import { StepIndicator } from "./components/step-indicator";
 import { StepOne } from "./components/steps/step-one";
 import { StepThree } from "./components/steps/step-three";
@@ -79,8 +79,8 @@ export default function SupportForm() {
       }
 
       toast({
-        title: "Message sent successfully",
-        description: "We'll get back to you as soon as possible.",
+        title: "Message Sent",
+        description: "We'll get back to you as soon as we can!",
       });
 
       setFormData({
@@ -96,10 +96,10 @@ export default function SupportForm() {
       setAttachments([]);
       setStep(1);
     } catch (error: unknown) {
+      console.error("Support submit error:", error);
       toast({
-        title: "Error",
-        description:
-          error instanceof Error ? error.message : "Failed to send message",
+        title: "Couldn't Send",
+        description: "Couldn't send your message, try again?",
         variant: "destructive",
       });
     } finally {
@@ -111,8 +111,8 @@ export default function SupportForm() {
     const maxFiles = 3;
     if (attachments.length + files.length > maxFiles) {
       toast({
-        title: "Too many files",
-        description: `Maximum ${maxFiles} files allowed`,
+        title: "Too Many Files",
+        description: `You can attach up to ${maxFiles} files`,
       });
       return false;
     }
@@ -131,16 +131,16 @@ export default function SupportForm() {
 
     if (!(file.type && allowedTypes.includes(file.type))) {
       toast({
-        title: "Invalid file type",
-        description: "Please upload images, PDFs, or text files only",
+        title: "Wrong File Type",
+        description: "Images, PDFs, or text files only, please",
       });
       return false;
     }
 
     if (file.size > maxSize) {
       toast({
-        title: "File too large",
-        description: "Files must be less than 5MB",
+        title: "File Too Big",
+        description: "Keep files under 5MB",
       });
       return false;
     }
@@ -196,15 +196,14 @@ export default function SupportForm() {
           ]);
 
           toast({
-            title: "Success",
-            description: "File uploaded successfully",
+            title: "File Uploaded",
+            description: "Your file is attached",
           });
         } catch (error: unknown) {
           console.error("Upload error:", error);
           toast({
-            title: "Upload failed",
-            description:
-              error instanceof Error ? error.message : "Failed to upload file",
+            title: "Upload Failed",
+            description: "Couldn't upload that file, try again?",
             variant: "destructive",
           });
         }

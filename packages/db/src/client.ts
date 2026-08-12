@@ -9,7 +9,13 @@ export function getUserDataSelect(loggedInUserId: string) {
     displayName: true,
     avatarUrl: true,
     avatarKey: true,
+    bannerUrl: true,
+    bannerKey: true,
     bio: true,
+    githubUsername: true,
+    linkedinUsername: true,
+    twitterUsername: true,
+    redditUsername: true,
     createdAt: true,
     googleId: true,
     redditId: true,
@@ -69,6 +75,7 @@ export function getPostDataInclude(loggedInUserId: string) {
         value: true,
       },
     },
+    hnStoryShare: true,
     _count: {
       select: {
         vote: true,
@@ -172,6 +179,7 @@ export type PostData = Prisma.PostGetPayload<{
         value: true;
       };
     };
+    hnStoryShare: true;
     _count: {
       select: {
         vote: true;

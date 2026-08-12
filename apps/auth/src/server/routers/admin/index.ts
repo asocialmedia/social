@@ -2,8 +2,8 @@ import { debugLog } from "@asm/config/debug";
 import { prisma, userCache, userSearchIndex } from "@asm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { User } from "../../../app/types/types";
 import { adminProcedure, router, t } from "../../trpc";
+import type { User } from "../../types";
 
 const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
   if (!ctx.user?.id) {
@@ -817,7 +817,11 @@ export const adminRouter = router({
                 "POST_CREATION",
                 "POST_VOTE",
                 "COMMENT_CREATION",
+                "COMMENT_RECEIVED",
                 "FOLLOW_GAINED",
+                "FOLLOW_GIVEN",
+                "POST_BOOKMARKED",
+                "POST_BOOKMARK_RECEIVED",
               ],
             },
             createdAt: { gte: startDate },

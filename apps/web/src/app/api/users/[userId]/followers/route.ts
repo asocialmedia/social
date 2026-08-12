@@ -4,6 +4,7 @@ import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
 const FOLLOW_AURA_REWARD = 5;
+const FOLLOW_GIVEN_AURA_REWARD = 1;
 
 export async function POST(
   _req: Request,
@@ -24,41 +25,62 @@ export async function POST(
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const follow = await tx.follow.upsert({
+      // Only reward aura when the follow is actually created, so repeated
+      // follow calls (double-clicks, retries) cannot farm aura.
+      const existingFollow = await tx.follow.findUnique({
         where: {
           followerId_followingId: {
             followerId: loggedInUser.id,
             followingId: userId,
           },
         },
-        create: {
-          followerId: loggedInUser.id,
-          followingId: userId,
-        },
-        update: {},
       });
 
-      const notification = await tx.notification.create({
-        data: {
-          issuerId: loggedInUser.id,
-          recipientId: userId,
-          type: "FOLLOW",
-        },
-      });
+      if (!existingFollow) {
+        await tx.follow.create({
+          data: {
+            followerId: loggedInUser.id,
+            followingId: userId,
+          },
+        });
 
-      await tx.user.update({
-        where: { id: userId },
-        data: { aura: { increment: FOLLOW_AURA_REWARD } },
-      });
+        await tx.notification.create({
+          data: {
+            issuerId: loggedInUser.id,
+            recipientId: userId,
+            type: "FOLLOW",
+          },
+        });
 
-      await tx.auraLog.create({
-        data: {
-          userId,
-          issuerId: loggedInUser.id,
-          amount: FOLLOW_AURA_REWARD,
-          type: "FOLLOW_GAINED",
-        },
-      });
+        await tx.user.update({
+          where: { id: userId },
+          data: { aura: { increment: FOLLOW_AURA_REWARD } },
+        });
+
+        await tx.auraLog.create({
+          data: {
+            userId,
+            issuerId: loggedInUser.id,
+            amount: FOLLOW_AURA_REWARD,
+            type: "FOLLOW_GAINED",
+          },
+        });
+
+        // The follower also earns aura for building their network.
+        await tx.user.update({
+          where: { id: loggedInUser.id },
+          data: { aura: { increment: FOLLOW_GIVEN_AURA_REWARD } },
+        });
+
+        await tx.auraLog.create({
+          data: {
+            userId: loggedInUser.id,
+            issuerId: loggedInUser.id,
+            amount: FOLLOW_GIVEN_AURA_REWARD,
+            type: "FOLLOW_GIVEN",
+          },
+        });
+      }
 
       const userData = await tx.user.findUnique({
         where: { id: userId },
@@ -70,7 +92,7 @@ export async function POST(
         },
       });
 
-      return { follow, notification, userData };
+      return { userData };
     });
 
     debugLog.api("Follow transaction completed:", result);
@@ -170,34 +192,69 @@ export async function DELETE(
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      await tx.follow.deleteMany({
+      const existingFollow = await tx.follow.findUnique({
         where: {
-          followerId: loggedInUser.id,
-          followingId: userId,
+          followerId_followingId: {
+            followerId: loggedInUser.id,
+            followingId: userId,
+          },
         },
       });
 
-      await tx.notification.deleteMany({
-        where: {
-          issuerId: loggedInUser.id,
-          recipientId: userId,
-          type: "FOLLOW",
-        },
-      });
+      if (existingFollow) {
+        await tx.follow.delete({
+          where: {
+            followerId_followingId: {
+              followerId: loggedInUser.id,
+              followingId: userId,
+            },
+          },
+        });
 
-      await tx.user.update({
-        where: { id: userId },
-        data: { aura: { decrement: FOLLOW_AURA_REWARD } },
-      });
+        await tx.notification.deleteMany({
+          where: {
+            issuerId: loggedInUser.id,
+            recipientId: userId,
+            type: "FOLLOW",
+          },
+        });
 
-      await tx.auraLog.create({
-        data: {
-          userId,
-          issuerId: loggedInUser.id,
-          amount: -FOLLOW_AURA_REWARD,
-          type: "FOLLOW_GAINED",
-        },
-      });
+        await tx.user.update({
+          where: { id: userId },
+          data: { aura: { decrement: FOLLOW_AURA_REWARD } },
+        });
+
+        await tx.auraLog.create({
+          data: {
+            userId,
+            issuerId: loggedInUser.id,
+            amount: -FOLLOW_AURA_REWARD,
+            type: "FOLLOW_GAINED",
+          },
+        });
+
+        // Reverse the follower aura only if it was ever granted (follows
+        // created before FOLLOW_GIVEN shipped never earned it).
+        const givenLog = await tx.auraLog.findFirst({
+          where: { userId: loggedInUser.id, type: "FOLLOW_GIVEN" },
+        });
+
+        if (givenLog) {
+          await tx.user.update({
+            where: { id: loggedInUser.id },
+            data: { aura: { decrement: FOLLOW_GIVEN_AURA_REWARD } },
+          });
+
+          await tx.auraLog.create({
+            data: {
+              userId: loggedInUser.id,
+              issuerId: loggedInUser.id,
+              amount: -FOLLOW_GIVEN_AURA_REWARD,
+              type: "FOLLOW_GIVEN",
+            },
+          });
+        }
+      }
 
       const userData = await tx.user.findUnique({
         where: { id: userId },

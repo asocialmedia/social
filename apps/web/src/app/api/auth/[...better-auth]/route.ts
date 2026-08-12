@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
+const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;
 const FORWARDED_HEADER_BLOCKLIST = new Set([
   "accept-encoding",
   "connection",
@@ -36,6 +37,11 @@ function buildUpstreamHeaders(request: NextRequest) {
 
   if (!headers.get("referer")) {
     headers.set("referer", `${forwardedOrigin}/`);
+  }
+
+  // Authenticate this server-to-server proxied call to the auth service.
+  if (INTERNAL_SECRET) {
+    headers.set("x-internal-secret", INTERNAL_SECRET);
   }
 
   return headers;

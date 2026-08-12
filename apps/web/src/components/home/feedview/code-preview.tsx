@@ -1,6 +1,5 @@
 "use client";
 
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import {
   AlignLeftIcon,
@@ -16,6 +15,7 @@ import {
   oneDark,
   oneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
 interface CodePreviewProps {
@@ -95,13 +95,14 @@ export function CodePreview({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       toast({
-        title: "Copied to clipboard",
-        description: "Code has been copied to your clipboard",
+        title: "Code Copied",
+        description: "Code copied, paste it anywhere",
+        icon: <Copy />,
       });
     } catch {
       toast({
-        title: "Failed to copy",
-        description: "Please try again",
+        title: "Copy Failed",
+        description: "Couldn't copy, try again?",
         variant: "destructive",
       });
     }

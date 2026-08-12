@@ -1,4 +1,4 @@
-import { getPostDataInclude, type PostsPage, prisma } from "@asm/db";
+import { getPostDataInclude, MediaType, type PostsPage, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -13,11 +13,25 @@ export async function GET(
 
   const url = new URL(req.url);
   const cursor = url.searchParams.get("cursor") || undefined;
+  const filter = url.searchParams.get("filter");
   const pageSize = 20;
   const { userId } = await ctx.params;
 
   const posts = await prisma.post.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(filter === "media"
+        ? {
+            attachments: {
+              some: {
+                type: {
+                  in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
+                },
+              },
+            },
+          }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     include: getPostDataInclude(user.id),
     take: pageSize + 1,

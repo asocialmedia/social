@@ -32,6 +32,10 @@ export async function POST(request: Request) {
       data: {
         displayName: values.displayName,
         bio: values.bio,
+        githubUsername: values.githubUsername || null,
+        linkedinUsername: values.linkedinUsername || null,
+        twitterUsername: values.twitterUsername || null,
+        redditUsername: values.redditUsername || null,
         ...(avatarResult && {
           avatarUrl: avatarResult.url,
           avatarKey: avatarResult.key,

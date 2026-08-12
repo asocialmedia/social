@@ -284,8 +284,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NEXT_PUBLIC_URL=https://asocialmedia.cc
-            NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc
+            ${{ matrix.app == 'web' && 'NEXT_PUBLIC_URL=https://asocialmedia.cc' || '' }}
+            ${{ matrix.app == 'web' && 'NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc' || '' }}
 
       - name: Resolve deploy targets
         id: deploy-targets

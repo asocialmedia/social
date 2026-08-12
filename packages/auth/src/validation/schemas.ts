@@ -57,6 +57,16 @@ export const createPostSchema = z.object({
   mentions: z.array(z.string()).default([]),
 });
 
+const socialUsername = z
+  .string()
+  .trim()
+  .max(50, "That username is too long, keep it under 50 characters")
+  .regex(
+    /^[a-zA-Z0-9_.-]*$/,
+    "Only letters, numbers, dots, dashes, and underscores allowed"
+  )
+  .optional();
+
 export const updateUserProfileSchema = z.object({
   displayName: requiredString,
   bio: z
@@ -67,6 +77,10 @@ export const updateUserProfileSchema = z.object({
         text.trim().split(whitespaceRegex).filter(Boolean).length <= 400,
       "Bio must not exceed 400 words"
     ),
+  githubUsername: socialUsername,
+  linkedinUsername: socialUsername,
+  twitterUsername: socialUsername,
+  redditUsername: socialUsername,
 });
 
 export const createCommentSchema = z.object({

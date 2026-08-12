@@ -1,11 +1,13 @@
 import type { CommentsPage } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type InfiniteData,
   type QueryKey,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { MessageCirclePlus, MessageCircleX } from "lucide-react";
+import { createElement } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import { deleteComment, submitComment } from "./actions";
 
 export function useSubmitCommentMutation(postId: string) {
@@ -46,14 +48,16 @@ export function useSubmitCommentMutation(postId: string) {
       });
 
       toast({
-        description: "Eddy created",
+        title: "Eddy Created",
+        description: "Your eddy is live, nice one!",
+        icon: createElement(MessageCirclePlus),
       });
     },
     onError(error) {
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Failed to submit eddy. Please try again.",
+        description: "Couldn't post your eddy, give it another try?",
       });
     },
   });
@@ -91,14 +95,16 @@ export function useDeleteCommentMutation() {
       );
 
       toast({
-        description: "Eddy deleted",
+        title: "Eddy Deleted",
+        description: "Your eddy is gone",
+        icon: createElement(MessageCircleX),
       });
     },
     onError(error) {
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Failed to delete eddy. Please try again.",
+        description: "Couldn't delete your eddy, try again?",
       });
     },
   });
