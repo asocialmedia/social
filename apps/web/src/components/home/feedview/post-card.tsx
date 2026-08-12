@@ -180,7 +180,7 @@ const PostContent: React.FC<PostContentProps> = ({
 
         {!!post.attachments.length && (
           <div className="mt-2.5 max-w-full overflow-hidden">
-            <MediaPreviews attachments={post.attachments} />
+            <MediaPreviews attachments={post.attachments} interactive={false} />
           </div>
         )}
 

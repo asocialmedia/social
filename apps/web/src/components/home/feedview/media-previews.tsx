@@ -14,9 +14,13 @@ import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
   attachments: Media[];
+  interactive?: boolean;
 }
 
-export function MediaPreviews({ attachments }: MediaPreviewsProps) {
+export function MediaPreviews({
+  attachments,
+  interactive = true,
+}: MediaPreviewsProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -43,9 +47,8 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
   };
 
   const initialCount = isMobile ? 2 : 3;
-  const visibleAttachments = showAll
-    ? attachments
-    : attachments.slice(0, initialCount);
+  const visibleAttachments =
+    !interactive || showAll ? attachments : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
   const remainingCount = attachments.length - initialCount;
 
@@ -234,7 +237,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
 
     const dims = natural;
 
-    return (
+    return interactive ? (
       <button
         aria-label="View attachment"
         className="block w-full cursor-pointer text-left"
@@ -265,6 +268,31 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
           </div>
         )}
       </button>
+    ) : (
+      <div>
+        {dims ? (
+          <div className="relative inline-block max-w-full overflow-hidden rounded-lg shadow-xs">
+            <Image
+              alt="Attachment"
+              className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
+              height={dims.h}
+              src={getMediaUrl(media.id)}
+              style={{ objectFit: "cover" }}
+              width={dims.w}
+            />
+          </div>
+        ) : (
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg shadow-xs">
+            <Image
+              alt="Attachment"
+              className="object-cover"
+              fill
+              src={getMediaUrl(media.id)}
+              style={{ objectFit: "cover" }}
+            />
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -284,7 +312,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       setSelectedIndex(index);
     }, [index]);
 
-    return (
+    return interactive ? (
       <motion.div
         animate={{ opacity: 1, y: 0 }}
         aria-label="View attachment"
@@ -303,6 +331,15 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       >
         {renderPreview(media, index, isSmall)}
       </motion.div>
+    ) : (
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-lg shadow-xs",
+          isSmall ? "h-20" : "h-56"
+        )}
+      >
+        {renderPreview(media, index, isSmall)}
+      </div>
     );
   };
 
@@ -424,10 +461,12 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         </AnimatePresence>
       </div>
 
-      {!showAll && attachments.length > initialCount && <ShowMoreSection />}
+      {interactive && !showAll && attachments.length > initialCount && (
+        <ShowMoreSection />
+      )}
 
       <AnimatePresence>
-        {showAll ? (
+        {interactive && showAll ? (
           <motion.div
             animate={{ opacity: 1 }}
             className="flex justify-center pb-4"
@@ -445,7 +484,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         ) : null}
       </AnimatePresence>
 
-      {selectedIndex !== null && (
+      {interactive && selectedIndex !== null && (
         <MediaViewer
           initialIndex={selectedIndex}
           isOpen={selectedIndex !== null}
