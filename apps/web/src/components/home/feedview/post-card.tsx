@@ -1,8 +1,7 @@
-"use client";
-
 // biome-ignore-all lint/a11y/noNoninteractiveElementInteractions: The post card is a clickable region; nested interactive elements are excluded via the click guard.
 // biome-ignore-all lint/a11y/noStaticElementInteractions: The post card region navigates to the post page on click.
 // biome-ignore-all lint/a11y/useKeyWithClickEvents: Keyboard navigation is handled via the inner links and buttons; Enter/Space also trigger navigation.
+"use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { Card, CardContent } from "@asm/ui/shadui/card";
@@ -54,6 +53,7 @@ interface PostCardProps {
 interface PostContentProps {
   currentUserId: string;
   isExpanded: boolean;
+  isJoined: boolean;
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
@@ -63,6 +63,7 @@ interface PostContentProps {
 const PostContent: React.FC<PostContentProps> = ({
   currentUserId,
   isExpanded,
+  isJoined,
   onToggleComments,
   onToggleExpand,
   post,
@@ -180,7 +181,10 @@ const PostContent: React.FC<PostContentProps> = ({
 
         {!!post.attachments.length && (
           <div className="mt-2.5 max-w-full overflow-hidden">
-            <MediaPreviews attachments={post.attachments} interactive={false} />
+            <MediaPreviews
+              attachments={post.attachments}
+              interactive={!isJoined}
+            />
           </div>
         )}
 
@@ -320,6 +324,7 @@ const PostCard: React.FC<PostCardProps> = ({
             <PostContent
               currentUserId={currentUserId}
               isExpanded={isExpanded}
+              isJoined={isJoined}
               onToggleComments={handleToggleComments}
               onToggleExpand={handleToggleExpand}
               post={post}
@@ -335,6 +340,7 @@ const PostCard: React.FC<PostCardProps> = ({
             <PostContent
               currentUserId={currentUserId}
               isExpanded={isExpanded}
+              isJoined={isJoined}
               onToggleComments={handleToggleComments}
               onToggleExpand={handleToggleExpand}
               post={post}
