@@ -486,7 +486,7 @@ jobs:
 
       - name: Setup Blacksmith Builder
         if: steps.resolve-prisma.outputs.should-run == 'true'
-        uses: useblacksmith/setup-docker-builder@v2
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Log in to GitHub Container Registry
         if: steps.resolve-prisma.outputs.should-run == 'true'
