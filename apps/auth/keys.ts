@@ -41,6 +41,17 @@ export const keys = createEnv({
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
+    AUTH_MAX_BODY_BYTES: z.coerce.number().default(100 * 1024),
+    AUTH_MAX_CONCURRENT_REQUESTS: z.coerce.number().default(512),
+    AUTH_REQUEST_TIMEOUT_MS: z.coerce.number().default(15_000),
+    AUTH_AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
+    AUTH_AUTH_RATE_LIMIT_MAX: z.coerce.number().default(600),
+    AUTH_ANON_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
+    AUTH_ANON_RATE_LIMIT_MAX: z.coerce.number().default(120),
+    AUTH_STRICT_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
+    AUTH_STRICT_RATE_LIMIT_MAX: z.coerce.number().default(30),
+    AUTH_BURST_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(5000),
+    AUTH_BURST_RATE_LIMIT_MAX: z.coerce.number().default(30),
   },
 
   runtimeEnv: {
@@ -74,6 +85,19 @@ export const keys = createEnv({
     OPENOBSERVE_METRIC_STREAM: process.env.OPENOBSERVE_METRIC_STREAM,
     OPENOBSERVE_TRACE_STREAM: process.env.OPENOBSERVE_TRACE_STREAM,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    AUTH_MAX_BODY_BYTES: process.env.AUTH_MAX_BODY_BYTES,
+    AUTH_MAX_CONCURRENT_REQUESTS: process.env.AUTH_MAX_CONCURRENT_REQUESTS,
+    AUTH_REQUEST_TIMEOUT_MS: process.env.AUTH_REQUEST_TIMEOUT_MS,
+    AUTH_AUTH_RATE_LIMIT_WINDOW_MS: process.env.AUTH_AUTH_RATE_LIMIT_WINDOW_MS,
+    AUTH_AUTH_RATE_LIMIT_MAX: process.env.AUTH_AUTH_RATE_LIMIT_MAX,
+    AUTH_ANON_RATE_LIMIT_WINDOW_MS: process.env.AUTH_ANON_RATE_LIMIT_WINDOW_MS,
+    AUTH_ANON_RATE_LIMIT_MAX: process.env.AUTH_ANON_RATE_LIMIT_MAX,
+    AUTH_STRICT_RATE_LIMIT_WINDOW_MS:
+      process.env.AUTH_STRICT_RATE_LIMIT_WINDOW_MS,
+    AUTH_STRICT_RATE_LIMIT_MAX: process.env.AUTH_STRICT_RATE_LIMIT_MAX,
+    AUTH_BURST_RATE_LIMIT_WINDOW_MS:
+      process.env.AUTH_BURST_RATE_LIMIT_WINDOW_MS,
+    AUTH_BURST_RATE_LIMIT_MAX: process.env.AUTH_BURST_RATE_LIMIT_MAX,
   },
 
   skipValidation: process.env.NODE_ENV === "production",

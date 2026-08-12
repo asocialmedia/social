@@ -39,7 +39,7 @@ describe("auth service http handler", () => {
         method: "OPTIONS",
       })
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
       "https://social.localhost"
     );

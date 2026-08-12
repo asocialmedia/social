@@ -1,6 +1,7 @@
 import { debugLog } from "@asm/config/debug";
 import { keys } from "@root/keys";
 import type { NextRequest } from "next/server";
+import { authInternalHeaders } from "@/lib/auth-internal";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +18,12 @@ async function tryPendingSignupVerification(
   try {
     const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
       method: "POST",
-      headers: {
+      headers: authInternalHeaders({
         "content-type": "application/json",
         "user-agent": req.headers.get("user-agent") ?? "",
         "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
         "x-real-ip": req.headers.get("x-real-ip") ?? "",
-      },
+      }),
       cache: "no-store",
       body: JSON.stringify({
         id: 1,

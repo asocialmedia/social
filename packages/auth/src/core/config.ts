@@ -261,7 +261,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
           }
         : {}),
       database: {
-        generateId: crypto.randomUUID,
+        generateId: () => crypto.randomUUID(),
       },
       // cookiePrefix can be set if multiple auth stacks coexist
     },

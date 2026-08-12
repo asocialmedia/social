@@ -3,6 +3,8 @@ import type {
   FetchCreateContextFn,
   fetchRequestHandler,
 } from "@trpc/server/adapters/fetch";
+import type { Security } from "./security";
+import { securityHeaders } from "./security";
 
 export interface AuthInstance {
   api: {
@@ -22,7 +24,9 @@ export interface HttpHandlerDeps {
   appRouter: AnyRouter;
   authInstance: AuthInstance;
   createContext: FetchCreateContextFn<AnyRouter>;
+  getClientIp?: (request: Request) => string;
   logger?: HttpLogger;
+  security?: Security;
   trpcFetchHandler: typeof fetchRequestHandler;
 }
 
@@ -55,6 +59,13 @@ function addCorsHeaders(response: Response): Response {
   return response;
 }
 
+function addSecurityHeaders(response: Response): Response {
+  for (const [key, value] of Object.entries(securityHeaders())) {
+    response.headers.set(key, value);
+  }
+  return response;
+}
+
 function isTrpcPath(pathname: string): boolean {
   return TRPC_AUTH_PATHS.some((path) => pathname.endsWith(path));
 }
@@ -69,7 +80,14 @@ const noopLogger: HttpLogger = {
 };
 
 export function createHttpHandler(deps: HttpHandlerDeps) {
-  const { authInstance, appRouter, createContext, trpcFetchHandler } = deps;
+  const {
+    authInstance,
+    appRouter,
+    createContext,
+    trpcFetchHandler,
+    getClientIp = () => "unknown",
+    security,
+  } = deps;
   const log = deps.logger ?? noopLogger;
 
   async function handleTrpc(
@@ -105,28 +123,54 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     });
   }
 
+  async function route(request: Request, pathname: string): Promise<Response> {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
+    if (pathname === "/api/health") {
+      return Response.json(
+        {
+          status: "ok",
+          service: "auth",
+          timestamp: new Date().toISOString(),
+        },
+        { status: 200 }
+      );
+    }
+    if (pathname === "/api/auth/get-session") {
+      return handleGetSession(request);
+    }
+    if (pathname.startsWith("/api/trpc")) {
+      return handleTrpc(request, "/api/trpc");
+    }
+    if (pathname.startsWith("/api/auth")) {
+      if (isTrpcPath(pathname)) {
+        return handleTrpc(request, "/api/auth");
+      }
+      return addCorsHeaders(await authInstance.handler(request));
+    }
+    return new Response("Not Found", { status: 404 });
+  }
+
   return async function handleRequest(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
     const startedAt = Date.now();
 
     let response: Response;
     try {
-      if (request.method === "OPTIONS") {
-        response = new Response(null, { status: 200, headers: corsHeaders() });
-      } else if (pathname === "/api/auth/get-session") {
-        response = await handleGetSession(request);
-      } else if (pathname.startsWith("/api/trpc")) {
-        response = await handleTrpc(request, "/api/trpc");
-      } else if (pathname.startsWith("/api/auth")) {
-        if (isTrpcPath(pathname)) {
-          response = await handleTrpc(request, "/api/auth");
-        } else {
-          response = await authInstance.handler(request);
-          response = addCorsHeaders(response);
+      if (security) {
+        const ip = getClientIp(request);
+        const decision = security.check(request, ip);
+        if (!decision.allowed) {
+          return addSecurityHeaders(
+            addCorsHeaders(
+              decision.response ?? new Response("Forbidden", { status: 403 })
+            )
+          );
         }
-      } else {
-        response = new Response("Not Found", { status: 404 });
       }
+
+      response = await route(request, pathname);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error({ pathname, message }, "request handler threw");
@@ -150,6 +194,6 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       "request completed"
     );
 
-    return response;
+    return addSecurityHeaders(response);
   };
 }
