@@ -14,6 +14,12 @@ import type {
 } from "better-auth/social-providers";
 import { env } from "../../env";
 
+const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
+
+export function pickRandomDefaultAvatar(): string {
+  return DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)];
+}
+
 export function extractTokenFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
@@ -282,6 +288,26 @@ export function createAuthConfig(config: AuthConfig = {}) {
     },
 
     databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            try {
+              const authBase =
+                env.NEXT_PUBLIC_URL ?? "https://social.localhost";
+              const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
+              await prisma.user.update({
+                where: { id: user.id },
+                data: { avatarUrl },
+              });
+            } catch (error) {
+              console.error(
+                "Failed to assign random default avatar:",
+                error instanceof Error ? error.message : error
+              );
+            }
+          },
+        },
+      },
       session: {
         create: {
           before: async (session) => {

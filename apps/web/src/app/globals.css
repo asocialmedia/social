@@ -11,6 +11,17 @@
   @apply bg-background/50 backdrop-blur-sm;
 }
 
+.hide-native-scrollbar {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: none;
+}
+
+.hide-native-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .settings-card {
   @apply relative overflow-hidden rounded-lg border border-border/50;
   @apply bg-background/30 backdrop-blur-md shadow-xs;

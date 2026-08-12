@@ -55,6 +55,15 @@ export function slugify(input: string): string {
     .replace(/[^a-z0-9-]/g, "");
 }
 
+const TRANSPARENT_IMAGE_EXTENSION = /\.(png|webp|gif|svg|avif)(\?|$)/i;
+
+export function supportsTransparency(url?: string | null): boolean {
+  if (!url) {
+    return false;
+  }
+  return TRANSPARENT_IMAGE_EXTENSION.test(url);
+}
+
 export function isRouteActive(currentHref: string, itemHref: string): boolean {
   if (itemHref === "/") {
     return currentHref === "/" || currentHref.startsWith("/?");
