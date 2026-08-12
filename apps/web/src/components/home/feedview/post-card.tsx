@@ -302,14 +302,14 @@ const PostCard: React.FC<PostCardProps> = ({
 
   return (
     <motion.div
-      animate={{ opacity: 1, y: 0 }}
+      animate={{ opacity: 1 }}
       className={`${post.hnStoryShare ? "hn-story-share" : ""} cursor-pointer`}
       id={`post-${post.id}`}
-      initial={{ opacity: 0, y: 50 }}
+      initial={{ opacity: 0 }}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
       tabIndex={0}
-      transition={{ duration: 0.5 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
     >
       <ViewTracker postId={post.id} />
       {isJoined ? (
