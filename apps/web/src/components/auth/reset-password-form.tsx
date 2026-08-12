@@ -110,7 +110,7 @@ export default function ResetPasswordForm() {
 
             toast({
               variant: "destructive",
-              title: "Error",
+              title: "Couldn't Send",
               description,
             });
             return;
@@ -125,8 +125,8 @@ export default function ResetPasswordForm() {
         } catch {
           toast({
             variant: "destructive",
-            title: "Error",
-            description: "Failed to send reset email. Please try again.",
+            title: "Couldn't Send",
+            description: "Couldn't send the reset email, try again?",
           });
         }
       })();

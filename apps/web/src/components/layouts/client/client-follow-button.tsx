@@ -2,7 +2,6 @@
 
 import { debugLog } from "@asm/config/debug";
 import type { FollowerInfo } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai/react";
@@ -130,45 +129,20 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
 };
 
 const useFollowMutations = (userId: string, onFollowed?: () => void) => {
-  const { toast } = useToast();
   const followMutation = useFollowUserMutation();
   const unfollowMutation = useUnfollowUserMutation();
 
+  // Success/error feedback is handled by the shared mutations in
+  // @/hooks/user-mutations, so no toasts are fired here.
   const handleFollow = async () => {
-    try {
-      const result = await followMutation.mutateAsync(userId);
-      toast({
-        title: "Success",
-        description: `You are now following ${result.displayName || result.username}`,
-      });
-      onFollowed?.();
-      return result;
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to follow user. Please try again.",
-        variant: "destructive",
-      });
-      throw error;
-    }
+    const result = await followMutation.mutateAsync(userId);
+    onFollowed?.();
+    return result;
   };
 
   const handleUnfollow = async () => {
-    try {
-      const result = await unfollowMutation.mutateAsync(userId);
-      toast({
-        title: "Success",
-        description: `You have unfollowed ${result.displayName || result.username}`,
-      });
-      return result;
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to unfollow user. Please try again.",
-        variant: "destructive",
-      });
-      throw error;
-    }
+    const result = await unfollowMutation.mutateAsync(userId);
+    return result;
   };
 
   return {

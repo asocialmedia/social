@@ -1,36 +1,46 @@
-import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Separator } from "@asm/ui/shadui/separator";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 
 const PostCardSkeleton = () => (
   <div className="p-4">
-    <div className="mb-4 flex items-center justify-between">
-      <div className="flex items-center space-x-2">
-        <Skeleton className="h-10 w-10 rounded-full" />
-        <div>
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="mt-1 h-3 w-24" />
+    <div className="flex gap-3">
+      <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1">
+        <div className="relative flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 pr-16 text-sm">
+            <Skeleton className="h-4 w-28 shrink-0" />
+            <Skeleton className="h-4 w-20 shrink-0" />
+            <Skeleton className="h-3 w-3 shrink-0 rounded-full" />
+            <Skeleton className="h-3 w-16 shrink-0" />
+          </div>
+          <div className="absolute top-0 right-0 flex items-center gap-1.5">
+            <Skeleton className="h-6 w-6 rounded-full" />
+            <Skeleton className="h-6 w-6 rounded-full" />
+          </div>
         </div>
-      </div>
-      <div className="flex items-center space-x-2">
-        <Skeleton className="h-8 w-8 rounded-md" />
-        <Skeleton className="h-8 w-8 rounded-md" />
-      </div>
-    </div>
-    <Skeleton className="mb-2 h-4 w-20" />
-    <div className="mb-4 space-y-2">
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-3/4" />
-    </div>
 
-    <Skeleton className="mb-4 h-64 w-full rounded-lg" />
+        <div className="mt-2.5 space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
 
-    <div className="mt-2 flex items-center justify-between">
-      <Skeleton className="h-8 w-24" />
-      <div className="flex items-center space-x-2">
-        <Skeleton className="h-8 w-20" />
-        <Skeleton className="h-8 w-8 rounded-md" />
+        <div className="mt-2.5">
+          <Skeleton className="h-56 w-full rounded-lg" />
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Skeleton className="h-8 w-16 rounded-full" />
+            <Skeleton className="h-8 w-16 rounded-full" />
+            <Skeleton className="h-8 w-16 rounded-full" />
+            <Skeleton className="h-8 w-16 rounded-full" />
+          </div>
+          <div className="flex items-center gap-1">
+            <Skeleton className="h-8 w-14 rounded-full" />
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <Skeleton className="h-8 w-8 rounded-full" />
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -38,59 +48,13 @@ const PostCardSkeleton = () => (
 
 export default function FeedViewSkeleton() {
   return (
-    <div className="flex-1 overflow-y-auto bg-background p-4 pb-24">
-      <Card className="mb-8 bg-card shadow-lg">
-        <CardContent className="p-4">
-          <Skeleton className="mb-2 h-8 w-40" />
-          <Skeleton className="mb-4 h-4 w-72" />
-
-          <div className="mb-4 flex justify-center sm:mb-6">
-            <Tabs className="w-full" defaultValue="all">
-              <TabsList className="grid w-full max-w-md grid-cols-4">
-                <TabsTrigger
-                  className="cursor-not-allowed"
-                  disabled
-                  value="all"
-                >
-                  All
-                </TabsTrigger>
-                <TabsTrigger
-                  className="cursor-not-allowed"
-                  disabled
-                  value="scribbles"
-                >
-                  Scribbles
-                </TabsTrigger>
-                <TabsTrigger
-                  className="cursor-not-allowed"
-                  disabled
-                  value="snapshots"
-                >
-                  Snapshots
-                </TabsTrigger>
-                <TabsTrigger
-                  className="cursor-not-allowed"
-                  disabled
-                  value="reels"
-                >
-                  Reels
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-
-          <div className="flex justify-center">
-            <div className="w-full max-w-3xl space-y-2 sm:space-y-4">
-              {[1, 2, 3].map((index) => (
-                <div key={index}>
-                  {index > 1 && <Separator className="my-2 sm:my-4" />}
-                  <PostCardSkeleton />
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="flex flex-col">
+      {[1, 2, 3].map((index) => (
+        <div key={`feed-skeleton-${index}`}>
+          {index > 0 && <Separator className="bg-border/60" />}
+          <PostCardSkeleton />
+        </div>
+      ))}
     </div>
   );
 }

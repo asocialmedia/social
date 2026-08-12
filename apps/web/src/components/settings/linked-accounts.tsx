@@ -1,9 +1,9 @@
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { motion } from "motion/react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 import { LoadingButton } from "@/components/auth/loading-button";
+import { useToast } from "@/lib/gooey-toast";
 
 interface LinkedAccountsProps {
   onLink: (provider: string) => void;
@@ -118,17 +118,17 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
         }
 
         toast({
-          title: "Account unlinked",
-          description: `Your ${provider} account has been unlinked successfully`,
+          title: "Account Unlinked",
+          description: `Your ${provider} account is no longer connected`,
         });
 
         window.location.reload();
       } catch (error) {
+        console.error("Unlink account error:", error);
         toast({
           variant: "destructive",
-          title: "Error",
-          description:
-            error instanceof Error ? error.message : "An error occurred",
+          title: "Couldn't Unlink",
+          description: "Couldn't unlink that account, try again?",
         });
       } finally {
         setLoadingProvider(null);

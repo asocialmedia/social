@@ -123,8 +123,8 @@ export default function ConfirmResetForm() {
       } catch {
         toast({
           variant: "destructive",
-          title: "Error",
-          description: "Failed to validate reset link. Please try again.",
+          title: "Couldn't Check",
+          description: "Couldn't check that link, try again?",
         });
         await router.push("/reset-password");
       } finally {
@@ -162,23 +162,23 @@ export default function ConfirmResetForm() {
         if (result.error) {
           toast({
             variant: "destructive",
-            title: "Error",
+            title: "Couldn't Reset",
             description: result.error,
           });
           return;
         }
 
         toast({
-          title: "Success",
-          description: "Your password has been reset successfully.",
+          title: "Password Reset",
+          description: "You're all set, log in with your new password!",
         });
 
         router.push("/login");
       } catch {
         toast({
           variant: "destructive",
-          title: "Error",
-          description: "Failed to reset password. Please try again.",
+          title: "Couldn't Reset",
+          description: "Couldn't reset your password, try again?",
         });
       }
     });

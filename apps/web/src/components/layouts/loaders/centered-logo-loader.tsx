@@ -8,7 +8,7 @@ export function CenteredLogoLoader({ size = 56 }: { size?: number }) {
       className="flex w-full items-center justify-center py-16"
       role="status"
     >
-      <div className="animate-pulse">
+      <div>
         <Image
           alt=""
           className="opacity-80"

@@ -357,18 +357,16 @@ export default function SignUpForm() {
             if (loginResult?.data) {
               setRateLimit("start", { isLimited: false });
               toast({
-                title: "Welcome to Asocialmedia! 🎉",
-                description:
-                  "Account created and signed in. Email verification is bypassed on localhost development.",
+                title: "Welcome to Asocialmedia!",
+                description: "Account created and signed in, welcome!",
               });
               window.location.href = "/";
               return;
             }
 
             toast({
-              title: "Account Created! 🎉",
-              description:
-                "Email verification is bypassed on localhost development. Please log in to continue.",
+              title: "Account Created!",
+              description: "Your account is ready, please log in to continue.",
             });
             window.location.href = "/login";
             return;
@@ -546,7 +544,7 @@ export default function SignUpForm() {
               setIsVerifying(true);
               clearSignupState();
               toast({
-                title: "Welcome to Asocialmedia! 🎉",
+                title: "Welcome to Asocialmedia!",
                 description:
                   "Your account has been created and you're now logged in.",
               });
@@ -558,7 +556,7 @@ export default function SignUpForm() {
           } catch (signError) {
             console.error("Auto sign-in failed:", signError);
             toast({
-              title: "Account Created! 🎉",
+              title: "Account Created!",
               description:
                 "Your account has been created. Please log in to continue.",
             });
@@ -573,7 +571,7 @@ export default function SignUpForm() {
         setIsVerifying(true);
         clearSignupState();
         toast({
-          title: "Welcome to Asocialmedia! 🎉",
+          title: "Welcome to Asocialmedia!",
           description:
             "Your account has been created successfully. Please log in.",
         });

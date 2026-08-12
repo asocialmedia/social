@@ -24,7 +24,13 @@ model User {
   redditId        String?   @unique
   avatarUrl       String?
   avatarKey       String?
+  bannerUrl       String?
+  bannerKey       String?
   bio             String?
+  githubUsername  String?
+  linkedinUsername String?
+  twitterUsername String?
+  redditUsername  String?
   emailVerified   Boolean   @default(false)
   emailVerifiedAt DateTime?
   image           String?

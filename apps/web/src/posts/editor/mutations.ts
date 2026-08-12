@@ -1,10 +1,10 @@
 import type { PostsPage } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type InfiniteData,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useToast } from "@/lib/gooey-toast";
 import { submitPost, updatePostMentions } from "./actions";
 
 interface PostInput {
@@ -73,12 +73,10 @@ export function useSubmitPostMutation() {
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });
       const isHnShare = !!newPost.hnStoryShare;
       toast({
-        title: isHnShare
-          ? "HN Story shared successfully!"
-          : "Post created successfully!",
+        title: isHnShare ? "Story Shared" : "Post Published",
         description: isHnShare
-          ? "Hacker News story has been shared with your thoughts ✨"
-          : "Your post is now live ✨",
+          ? "Your thoughts on this story are live"
+          : "Your post is live, nice one!",
         duration: 5000,
       });
     },
@@ -86,10 +84,7 @@ export function useSubmitPostMutation() {
       console.error("Post creation error:", error);
       toast({
         variant: "destructive",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Failed to create post. Please try again.",
+        description: "Couldn't create your post, try again?",
       });
     },
   });
@@ -118,8 +113,8 @@ export function useUpdateMentionsMutation(postId?: string) {
         queryClient.setQueryData(["post", postId], updatedPost);
       }
       toast({
-        title: "Mentions updated",
-        description: "The mentioned users have been notified",
+        title: "Mentions Updated",
+        description: "Everyone you mentioned has been notified",
         duration: 3000,
       });
     },
@@ -127,7 +122,7 @@ export function useUpdateMentionsMutation(postId?: string) {
       console.error("Failed to update mentions:", error);
       toast({
         variant: "destructive",
-        description: "Failed to update mentions. Please try again.",
+        description: "Couldn't update mentions, try again?",
       });
     },
   });

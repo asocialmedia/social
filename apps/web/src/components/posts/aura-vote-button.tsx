@@ -1,13 +1,13 @@
 import type { VoteInfo } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type QueryKey,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
+import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 
@@ -62,18 +62,21 @@ export default function AuraVoteButton({
         };
       });
 
-      // biome-ignore lint/suspicious/noExplicitAny: any
-      queryClient.setQueryData(["post", postId], (oldPost: any) => {
-        if (!oldPost) {
+      queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
+        if (!oldPost || typeof oldPost !== "object") {
           return oldPost;
         }
+        const currentPost = oldPost as {
+          aura: number;
+          vote: Array<{ userId: string; value: number }>;
+        };
         const voteChange = calculateVoteChange(
-          oldPost.vote[0]?.value || 0,
+          currentPost.vote[0]?.value || 0,
           newVote
         );
         return {
-          ...oldPost,
-          aura: oldPost.aura + voteChange,
+          ...currentPost,
+          aura: currentPost.aura + voteChange,
           vote:
             newVote === 0 ? [] : [{ userId: "currentUser", value: newVote }],
         };
@@ -87,23 +90,50 @@ export default function AuraVoteButton({
         userVote: serverResponse.userVote,
       });
 
+      // Keep the single-post cache in sync with the confirmed server state.
+      queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
+        if (!oldPost || typeof oldPost !== "object") {
+          return oldPost;
+        }
+        const currentPost = oldPost as {
+          aura: number;
+          vote: Array<{ userId: string; value: number }>;
+        };
+        return {
+          ...currentPost,
+          aura: serverResponse.aura,
+          vote:
+            serverResponse.userVote === 0
+              ? []
+              : [{ userId: "currentUser", value: serverResponse.userVote }],
+        };
+      });
+
       const previousVote = data.userVote;
 
       if (serverResponse.userVote === 1) {
         toast({
-          description: `Amplified ${authorName}'s post`,
+          title: "+1 Aura",
+          description: `Amplified ${authorName}'s post, nice boost!`,
+          icon: <Flame />,
         });
       } else if (serverResponse.userVote === -1) {
         toast({
-          description: `Muted ${authorName}'s post`,
+          title: "Muted",
+          description: `You muted ${authorName}'s post, we'll show you fewer posts like this`,
+          icon: <ArrowBigDown />,
         });
       } else if (serverResponse.userVote === 0 && previousVote === 1) {
         toast({
-          description: `Removed amplification from ${authorName}'s post`,
+          title: "Amplification Removed",
+          description: "You can always amplify it again later",
+          icon: <RotateCcw />,
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
-          description: `Removed muting from ${authorName}'s post`,
+          title: "Mute Removed",
+          description: "It'll show up in your feed normally again",
+          icon: <RotateCcw />,
         });
       }
     },
@@ -112,7 +142,7 @@ export default function AuraVoteButton({
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Something went wrong. Please try again.",
+        description: "That didn't go through, give it another try?",
       });
     },
   });
@@ -134,14 +164,20 @@ export default function AuraVoteButton({
     "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-sm text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
 
   const upGradientClasses = cn(
-    "bg-gradient-to-b from-[#ff9500] to-[#e65500] text-white",
-    "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+    "vote-btn-up",
+    "hover:from-[#ffa629] hover:to-[#f56a14]"
   );
 
   const downGradientClasses = cn(
-    "bg-gradient-to-b from-[#7c5cff] to-[#5a3ae0] text-white",
-    "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+    "vote-btn-down",
+    "hover:from-[#8d6dff] hover:to-[#6b4ae8]"
   );
+
+  const upHoverClasses =
+    "hover:bg-gradient-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4),inset_0_1.5px_2px_rgba(255,255,255,0.6),0_0_0_1px_rgba(170,60,0,0.45),0_1px_1px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.1)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+  const downHoverClasses =
+    "hover:bg-gradient-to-b hover:from-[#7c5cff] hover:to-[#5a3ae0] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4),inset_0_1.5px_2px_rgba(255,255,255,0.6),0_0_0_1px_rgba(70,40,170,0.45),0_1px_1px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.1)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
   return (
     <div className="flex items-center gap-1">
@@ -149,9 +185,7 @@ export default function AuraVoteButton({
         aria-label="Amplify"
         className={cn(
           baseButtonClasses,
-          data.userVote === 1
-            ? upGradientClasses
-            : "hover:bg-gradient-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+          data.userVote === 1 ? upGradientClasses : upHoverClasses
         )}
         onClick={handleVoteUp}
         type="button"
@@ -170,9 +204,7 @@ export default function AuraVoteButton({
         aria-label="Mute"
         className={cn(
           baseButtonClasses,
-          data.userVote === -1
-            ? downGradientClasses
-            : "hover:bg-gradient-to-b hover:from-[#7c5cff] hover:to-[#5a3ae0] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+          data.userVote === -1 ? downGradientClasses : downHoverClasses
         )}
         onClick={handleVoteDown}
         type="button"

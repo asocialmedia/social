@@ -1,7 +1,6 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -19,6 +18,7 @@ import { z } from "zod";
 import { LoadingButton } from "@/components/auth/loading-button";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
+import { useToast } from "@/lib/gooey-toast";
 import { useUpdateEmail, useUpdateUsername } from "../mutations";
 
 const usernameSchema = z.object({
@@ -99,8 +99,8 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   function onUsernameSubmit(values: UsernameFormValues) {
     if (values.username === user.username) {
       toast({
-        title: "No changes made",
-        description: "Please enter a different username",
+        title: "No Changes",
+        description: "That username is already yours, pick a new one",
       });
       return;
     }
@@ -108,8 +108,8 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
     usernameMutation.mutate(values, {
       onSuccess: () => {
         toast({
-          title: "Username updated",
-          description: "Your username has been updated successfully",
+          title: "Username Updated",
+          description: "Your new username is live!",
         });
       },
     });
@@ -118,8 +118,8 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   function onEmailSubmit(values: EmailFormValues) {
     if (values.email === user.email) {
       toast({
-        title: "No changes made",
-        description: "Please enter a different email",
+        title: "No Changes",
+        description: "That's already your email, try a new one",
       });
       return;
     }
@@ -128,8 +128,8 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       onSuccess: () => {
         setVerificationEmailSent(true);
         toast({
-          title: "Verification email sent",
-          description: "Please check your email to verify your new address",
+          title: "Check Your Inbox",
+          description: "We sent a verification link to your new email",
         });
       },
     });

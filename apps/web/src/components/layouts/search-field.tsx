@@ -3,8 +3,7 @@
 import type { SearchSuggestion } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { HashIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -105,14 +104,12 @@ export default function SearchField({
     handleSearch(input);
   };
 
-  const handleBlur = useCallback(() => setIsFocused(false), []);
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
     setOpen(true);
   }, []);
   const handleFocus = useCallback(() => {
     setOpen(true);
-    setIsFocused(true);
   }, []);
   const handleClearHistory = useCallback(() => {
     clearHistoryMutation.mutate();
@@ -131,72 +128,26 @@ export default function SearchField({
     [handleSearch]
   );
 
-  const placeholders = [
-    "Type a thought… maybe it's brilliant, maybe it's coffee.",
-    "Find posts, people, and probably your next obsession.",
-    "Ask me anything… except my browser history.",
-    "Searching is caring. Start caring loudly.",
-    "What’s on your mind? Don’t say ‘nothing’.",
-    "Discover whispers, rants, and everything in between.",
-    "Pro tip: type faster, look smarter.",
-    "Find the needle. Ignore the haystack.",
-  ];
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPlaceholderIndex((prev) => {
-        let next = prev;
-        while (next === prev) {
-          next = Math.floor(Math.random() * placeholders.length);
-        }
-        return next;
-      });
-    }, 10_000);
-    return () => clearInterval(interval);
-  }, [placeholders.length]);
-
   return (
     <div className="relative w-full max-w-md">
       <form className="relative" onSubmit={handleSubmit}>
-        <HashIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          aria-label="Search"
+          aria-label="Search on Asocialmedia"
           autoComplete="off"
-          className="h-11 py-3 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
-          onBlur={handleBlur}
+          className="h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
           onChange={handleChange}
           onFocus={handleFocus}
-          placeholder=""
+          placeholder="Search on Asocialmedia"
           ref={inputRef}
           type="text"
           value={input}
         />
-
-        {!(input || isFocused) && (
-          <div className="pointer-events-none absolute inset-0 flex items-center pl-9">
-            <div className="relative h-4 overflow-hidden">
-              <AnimatePresence initial={false} mode="wait">
-                <motion.span
-                  animate={{ y: 0, opacity: 1 }}
-                  className="block w-full truncate pr-2 text-muted-foreground text-xs"
-                  exit={{ y: -8, opacity: 0 }}
-                  initial={{ y: 8, opacity: 0 }}
-                  key={placeholderIndex}
-                  transition={{ duration: 0.25 }}
-                >
-                  {placeholders[placeholderIndex]}
-                </motion.span>
-              </AnimatePresence>
-            </div>
-          </div>
-        )}
       </form>
 
       {open && (input || (history && history.length > 0)) && (
         <div
-          className="absolute left-1/2 z-[205] mt-2 w-[min(90vw,28rem)] -translate-x-1/2 md:left-0 md:z-50 md:w-full md:translate-x-0"
+          className="absolute left-1/2 z-205 mt-2 w-[min(90vw,28rem)] -translate-x-1/2 md:left-0 md:z-50 md:w-full md:translate-x-0"
           ref={commandRef}
         >
           <SearchCommandList

@@ -1,10 +1,14 @@
+// biome-ignore-all lint/a11y/noNoninteractiveElementInteractions: The post card is a clickable region; nested interactive elements are excluded via the click guard.
+// biome-ignore-all lint/a11y/noStaticElementInteractions: The post card region navigates to the post page on click.
+// biome-ignore-all lint/a11y/useKeyWithClickEvents: Keyboard navigation is handled via the inner links and buttons; Enter/Space also trigger navigation.
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { Card, CardContent } from "@asm/ui/shadui/card";
-import { ArrowUpRight, Eye, MessageSquare } from "lucide-react";
+import { Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import {
   useCallback,
@@ -21,9 +25,9 @@ import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
-import { MentionTags } from "@/components/tags/mention-tags";
-import { Tags } from "@/components/tags/tags";
+import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { HNStoryCard } from "./hn-story-card";
 import { MediaPreviews } from "./media-previews";
@@ -42,6 +46,7 @@ type ExtendedPostData = PostData & {
 };
 
 interface PostCardProps {
+  detail?: boolean;
   isJoined?: boolean;
   post: ExtendedPostData;
 }
@@ -49,8 +54,7 @@ interface PostCardProps {
 interface PostContentProps {
   currentUserId: string;
   isExpanded: boolean;
-  onMentionsChange: (newMentions: UserData[]) => void;
-  onTagsChange: (newTags: TagWithCount[]) => void;
+  isJoined: boolean;
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
@@ -60,8 +64,7 @@ interface PostContentProps {
 const PostContent: React.FC<PostContentProps> = ({
   currentUserId,
   isExpanded,
-  onMentionsChange,
-  onTagsChange,
+  isJoined,
   onToggleComments,
   onToggleExpand,
   post,
@@ -156,7 +159,7 @@ const PostContent: React.FC<PostContentProps> = ({
 
         <Linkify>
           <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
-            <p className="max-w-full whitespace-pre-wrap break-words text-[15px] text-foreground leading-relaxed">
+            <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
               {post.content}
             </p>
           </div>
@@ -172,38 +175,26 @@ const PostContent: React.FC<PostContentProps> = ({
         ) : null}
 
         {post.hnStoryShare ? (
-          <div className="mt-3 overflow-hidden border border-orange-500/30 bg-gradient-to-br from-orange-50/70 to-white dark:border-orange-500/20 dark:from-orange-950/10 dark:to-background/50">
+          <div className="hn-story-solid mt-3 overflow-hidden">
             <HNStoryCard hnStory={post.hnStoryShare} />
           </div>
         ) : null}
 
         {!!post.attachments.length && (
           <div className="mt-2.5 max-w-full overflow-hidden">
-            <MediaPreviews attachments={post.attachments} />
-          </div>
-        )}
-
-        {post.tags && post.tags.length > 0 && (
-          <div className="mt-2.5">
-            <Tags
-              isOwner={post.user.id === currentUserId}
-              onTagsChange={onTagsChange}
-              postId={post.id}
-              tags={post.tags as TagWithCount[]}
+            <MediaPreviews
+              attachments={post.attachments}
+              interactive={!isJoined}
             />
           </div>
         )}
 
-        {post.mentions && post.mentions.length > 0 && (
-          <div className="mt-2">
-            <MentionTags
-              isOwner={post.user.id === currentUserId}
-              mentions={post.mentions.map((m) => m.user as unknown as UserData)}
-              onMentionsChange={onMentionsChange}
-              postId={post.id}
-            />
-          </div>
-        )}
+        {post.tags?.length || post.mentions?.length ? (
+          <PostMeta
+            mentions={post.mentions.map((m) => m.user as unknown as UserData)}
+            tags={post.tags as TagWithCount[]}
+          />
+        ) : null}
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1">
@@ -232,14 +223,6 @@ const PostContent: React.FC<PostContentProps> = ({
               thumbnail={post.attachments[0]?.url}
               title={post.content}
             />
-            <Link
-              aria-label={`View post ${post.id}`}
-              className="group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-muted-foreground outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px"
-              href={`/posts/${post.id}`}
-              suppressHydrationWarning
-            >
-              <ArrowUpRight className="h-5 w-5" />
-            </Link>
           </div>
         </div>
         {showComments ? <Comments post={post} /> : null}
@@ -256,7 +239,7 @@ interface CommentButtonProps {
 function CommentButton({ post, onClick }: CommentButtonProps) {
   return (
     <button
-      className="group inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px"
+      className="pill-3d-hover group inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 font-medium text-muted-foreground text-sm active:translate-y-px"
       onClick={onClick}
       type="button"
     >
@@ -271,45 +254,17 @@ function CommentButton({ post, onClick }: CommentButtonProps) {
 const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
   isJoined = false,
+  detail = false,
 }) => {
   const { user } = useSession();
+  const router = useRouter();
   const [post, setPost] = useState(initialPost);
-  const [showComments, setShowComments] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [showComments, setShowComments] = useState(detail);
+  const [isExpanded, setIsExpanded] = useState(detail);
 
   useEffect(() => {
     setPost(initialPost);
   }, [initialPost]);
-
-  const handlePostUpdate = useCallback((updatedPost: PostData) => {
-    setPost(updatedPost);
-  }, []);
-
-  const handleMentionsChange = useCallback(
-    (newMentions: UserData[]) => {
-      handlePostUpdate({
-        ...post,
-        mentions: newMentions.map((mentionUser) => ({
-          id: `${post.id}-${mentionUser.id}`,
-          postId: post.id,
-          userId: mentionUser.id,
-          user: mentionUser,
-          createdAt: new Date(),
-        })),
-      });
-    },
-    [handlePostUpdate, post]
-  );
-
-  const handleTagsChange = useCallback(
-    (newTags: TagWithCount[]) => {
-      handlePostUpdate({
-        ...post,
-        tags: newTags,
-      });
-    },
-    [handlePostUpdate, post]
-  );
 
   const handleToggleComments = useCallback(() => {
     setShowComments((prev) => !prev);
@@ -321,28 +276,63 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const currentUserId = user?.id ?? "";
 
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (detail) {
+        return;
+      }
+      const target = e.target as HTMLElement;
+      if (
+        target.closest(
+          "a, button, input, textarea, video, [role='button'], [data-card-interactive]"
+        )
+      ) {
+        return;
+      }
+      // If any popup (dialog/menu) is open, a click on the overlay to dismiss it
+      // should close the popup rather than navigate to the post.
+      if (isPopupOpen()) {
+        return;
+      }
+      router.push(`/posts/${post.id}`);
+    },
+    [detail, post.id, router]
+  );
+
+  const handleCardKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (detail) {
+        return;
+      }
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        router.push(`/posts/${post.id}`);
+      }
+    },
+    [detail, post.id, router]
+  );
+
   return (
     <motion.div
-      animate={{ opacity: 1, y: 0 }}
-      className={post.hnStoryShare ? "hn-story-share" : ""}
+      animate={{ opacity: 1 }}
+      className={`${post.hnStoryShare ? "hn-story-share" : ""} ${detail ? "cursor-default" : "cursor-pointer"}`}
       id={`post-${post.id}`}
-      initial={{ opacity: 0, y: 50 }}
-      transition={{ duration: 0.5 }}
+      initial={{ opacity: 0 }}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      tabIndex={detail ? -1 : 0}
+      transition={{ duration: 0.3, ease: "easeOut" }}
     >
       <ViewTracker postId={post.id} />
       {isJoined ? (
         <div
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "relative border-l-2 border-l-orange-500 pb-1" : ""}`}
+          className={`group/post rounded-none bg-[hsl(var(--background-alt))] transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
-          {post.hnStoryShare ? (
-            <div className="absolute top-0 left-0 h-full w-1 rounded-full bg-gradient-to-b from-orange-400 to-yellow-500" />
-          ) : null}
           <div className={`p-4 ${post.hnStoryShare ? "pl-5" : ""}`}>
             <PostContent
               currentUserId={currentUserId}
               isExpanded={isExpanded}
-              onMentionsChange={handleMentionsChange}
-              onTagsChange={handleTagsChange}
+              isJoined={isJoined}
               onToggleComments={handleToggleComments}
               onToggleExpand={handleToggleExpand}
               post={post}
@@ -358,8 +348,7 @@ const PostCard: React.FC<PostCardProps> = ({
             <PostContent
               currentUserId={currentUserId}
               isExpanded={isExpanded}
-              onMentionsChange={handleMentionsChange}
-              onTagsChange={handleTagsChange}
+              isJoined={isJoined}
               onToggleComments={handleToggleComments}
               onToggleExpand={handleToggleExpand}
               post={post}

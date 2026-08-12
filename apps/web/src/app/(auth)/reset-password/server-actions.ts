@@ -6,6 +6,7 @@ import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { authClient } from "@/lib/auth";
+import { authInternalHeaders } from "@/lib/auth-internal";
 
 async function makePasswordResetRequest(
   identifier: string,
@@ -20,10 +21,10 @@ async function makePasswordResetRequest(
       `${process.env.NEXT_PUBLIC_AUTH_URL}/api/trpc/resetPassword.requestReset`,
       {
         method: "POST",
-        headers: {
+        headers: authInternalHeaders({
           "Content-Type": "application/json",
           ...(userAgent && { "user-agent": userAgent }),
-        },
+        }),
         body: JSON.stringify({
           json: { identifier, ip, userAgent },
         }),

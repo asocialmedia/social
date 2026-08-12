@@ -1,7 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@asm/config/nextjs.config.json",
+  "extends": "@asm/config/base.tsconfig.json",
   "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "noEmit": true,
     "paths": {
       "@/*": ["./src/*"],
       "@root/*": ["./*"],
@@ -10,6 +15,6 @@
     "strictNullChecks": true,
     "types": ["bun-types"]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
 }

@@ -2,14 +2,6 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@asm/ui/shadui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -21,7 +13,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Check,
   LogOutIcon,
@@ -39,9 +31,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { useLogout } from "@/hooks/use-logout";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
-import { getRandomJoke } from "./constants/logout-messages";
+import { LogoutDialog } from "./logout-dialog";
 import { MobileUserMenu } from "./mobile/mobile-user-menu";
 
 interface UserButtonProps {
@@ -86,10 +79,13 @@ export default function UserButton({
 }: UserButtonProps) {
   const { user } = useSession();
   const { theme, setTheme } = useTheme();
-  const queryClient = useQueryClient();
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const {
+    closeLogoutDialog,
+    handleLogout,
+    logoutDialogOpen,
+    openLogoutDialog,
+  } = useLogout();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [logoutJoke, setLogoutJoke] = useState(getRandomJoke());
 
   const { data: avatarData } = useQuery({
     queryKey: ["avatar", user.id],
@@ -140,10 +136,6 @@ export default function UserButton({
     () => setIsMobileMenuOpen(false),
     []
   );
-  const handleCloseLogoutDialog = useCallback(
-    () => setShowLogoutDialog(false),
-    []
-  );
   const handleThemeSelect = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const value = e.currentTarget.getAttribute("data-theme-value");
@@ -159,37 +151,8 @@ export default function UserButton({
   }
 
   const handleOpenDialog = () => {
-    setLogoutJoke(getRandomJoke());
-    setShowLogoutDialog(true);
+    openLogoutDialog();
     setIsMobileMenuOpen(false);
-  };
-
-  const handleLogout = async () => {
-    setShowLogoutDialog(false);
-
-    queryClient.removeQueries({ queryKey: ["user"] });
-    queryClient.removeQueries({ queryKey: ["avatar"] });
-    queryClient.removeQueries({ queryKey: ["post-feed"] });
-    queryClient.removeQueries({ queryKey: ["notifications"] });
-    queryClient.removeQueries({ queryKey: ["unread-count"] });
-    queryClient.clear();
-
-    try {
-      localStorage.clear();
-      sessionStorage.clear();
-    } catch (e) {
-      console.log("Failed to clear storage:", e);
-    }
-
-    try {
-      const { authClient } = await import("@/lib/auth");
-      await authClient.signOut({
-        fetchOptions: { credentials: "include" },
-      });
-    } catch {
-      // Ignore; fall back to server redirect regardless
-    }
-    window.location.href = "/login";
   };
 
   if (isMobile) {
@@ -218,34 +181,11 @@ export default function UserButton({
           }}
         />
 
-        <Dialog onOpenChange={setShowLogoutDialog} open={showLogoutDialog}>
-          <DialogContent className="fixed top-[50%] left-[50%] w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-2xl border border-border/50 bg-background/95 p-6 backdrop-blur-md duration-200 sm:w-full sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-center font-semibold text-xl">
-                Leaving so soon?
-              </DialogTitle>
-              <DialogDescription className="px-2 text-center text-base text-muted-foreground">
-                {logoutJoke}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:gap-2">
-              <Button
-                className="w-full sm:w-auto"
-                onClick={handleCloseLogoutDialog}
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button
-                className="w-full sm:w-auto"
-                onClick={handleLogout}
-                variant="destructive"
-              >
-                Logout
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <LogoutDialog
+          onCloseAction={closeLogoutDialog}
+          onLogoutAction={handleLogout}
+          open={logoutDialogOpen}
+        />
       </>
     );
   }
@@ -454,34 +394,11 @@ export default function UserButton({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog onOpenChange={setShowLogoutDialog} open={showLogoutDialog}>
-        <DialogContent className="fixed top-[50%] left-[50%] w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-2xl border border-border/50 bg-background/95 p-6 backdrop-blur-md duration-200 sm:w-full sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-left font-semibold text-xl">
-              Leaving so soon?
-            </DialogTitle>
-            <DialogDescription className="px-0 text-left text-base text-muted-foreground">
-              {logoutJoke}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:gap-2">
-            <Button
-              className="w-full sm:w-auto"
-              onClick={handleCloseLogoutDialog}
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              className="w-full border border-red-600/20 bg-red-500/75 font-medium text-white shadow-xs backdrop-blur-md transition-all duration-200 hover:bg-red-600/90 sm:w-auto"
-              onClick={handleLogout}
-              variant="destructive"
-            >
-              Logout
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <LogoutDialog
+        onCloseAction={closeLogoutDialog}
+        onLogoutAction={handleLogout}
+        open={logoutDialogOpen}
+      />
     </>
   );
 }

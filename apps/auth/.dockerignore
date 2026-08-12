@@ -1,23 +1,18 @@
 # Auth-specific exclusions
-# Exclude all assets except those needed for auth
-assets/
-public/
+# Exclude build artifacts and caches
+node_modules/
+dist/
+.next/
+.turbo/
 
-# Keep only necessary package files
+# Keep necessary package files
 !package.json
 
-# Keep only necessary config files
-!next.config.ts
+# Keep necessary config files
 !tsconfig.json
 
 # Keep source code
 !src/
-!app/
-!components/
-!lib/
-!hooks/
-!helpers/
-!posts/
 
 # Keep packages directory (relative to app directory)
 !../packages/

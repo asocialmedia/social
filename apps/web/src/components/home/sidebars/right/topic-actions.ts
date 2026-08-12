@@ -4,22 +4,23 @@ import { prisma, type TrendingTopic, trendingTopicsCache } from "@asm/db";
 
 async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
   try {
-    const result = await prisma.$queryRaw<{ hashtag: string; count: bigint }[]>`
-      SELECT LOWER(unnest(regexp_matches(content, '#[[:alnum:]_]+', 'g'))) AS hashtag, COUNT(*) AS count
-      FROM posts
-      GROUP BY (hashtag)
-      ORDER BY count DESC, hashtag ASC
-      LIMIT 10
-    `;
+    const tags = await prisma.tag.findMany({
+      orderBy: { posts: { _count: "desc" } },
+      select: {
+        name: true,
+        _count: { select: { posts: true } },
+      },
+      take: 10,
+    });
 
-    console.log("Database query result:", result);
-
-    return result.map((row) => ({
-      hashtag: row.hashtag,
-      count: Number(row.count),
-    }));
+    return tags
+      .filter((tag) => tag._count.posts > 0)
+      .map((tag) => ({
+        hashtag: `#${tag.name}`,
+        count: tag._count.posts,
+      }));
   } catch (error) {
-    console.error("Error executing database query:", error);
+    console.error("Error executing trending topics query:", error);
     return [];
   }
 }
@@ -47,8 +48,18 @@ export async function invalidateTrendingTopicsCache(): Promise<
   }
 }
 
-export async function getTrendingTopics(): Promise<TrendingTopic[]> {
+export async function getTrendingTopics(
+  bypassCache = false
+): Promise<TrendingTopic[]> {
   try {
+    if (bypassCache) {
+      const newTopics = await getTrendingTopicsFromDb();
+      if (newTopics.length > 0) {
+        await trendingTopicsCache.set(newTopics);
+      }
+      return newTopics;
+    }
+
     const cachedTopics = await trendingTopicsCache.get();
 
     if (cachedTopics.length > 0) {

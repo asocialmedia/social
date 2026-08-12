@@ -45,7 +45,7 @@ const FROM_EMAIL = `Zeph <noreply@${SENDER}>`;
 const TRAILING_SLASH_REGEX = /\/$/;
 
 function getBaseUrl(): string {
-  return env.NEXT_PUBLIC_URL.replace(TRAILING_SLASH_REGEX, "");
+  return env.APP_URL.replace(TRAILING_SLASH_REGEX, "");
 }
 
 export interface EmailResult {

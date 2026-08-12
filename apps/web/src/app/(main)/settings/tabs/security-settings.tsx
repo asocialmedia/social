@@ -2,7 +2,6 @@
 
 import { USERNAME_REGEX } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -20,6 +19,7 @@ import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
 import { LoadingButton } from "@/components/auth/loading-button";
+import { useToast } from "@/lib/gooey-toast";
 
 const identifierSchema = z.object({
   identifier: z.union([
@@ -77,7 +77,7 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
       if (result.error) {
         toast({
           variant: "destructive",
-          title: "Error",
+          title: "Couldn't Send",
           description: result.error,
         });
         return;
@@ -86,7 +86,7 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
       setIsEmailSent(true);
       toast({
         title: "Email Sent",
-        description: "Check your email for password reset instructions",
+        description: "Check your inbox for the reset link",
       });
     });
   }

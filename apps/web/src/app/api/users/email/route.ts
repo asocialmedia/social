@@ -1,6 +1,6 @@
 import { prisma } from "@asm/db";
 import { z } from "zod";
-import { authClient } from "@/lib/auth";
+import { getSessionFromApi } from "@/lib/session";
 
 const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -8,12 +8,12 @@ const emailSchema = z.object({
 
 export async function PATCH(request: Request) {
   try {
-    const session = await authClient.getSession();
-    if (!session?.data?.user) {
+    const session = await getSessionFromApi();
+    if (!session?.user) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { user } = session.data;
+    const { user } = session;
 
     const body = await request.json();
     const { email } = emailSchema.parse(body);

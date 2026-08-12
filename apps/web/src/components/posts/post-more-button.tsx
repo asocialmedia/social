@@ -1,12 +1,15 @@
-import type { PostData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Hash, MoreHorizontal, Trash2 } from "lucide-react";
+import type * as React from "react";
 import { useCallback, useState } from "react";
+import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
+import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 import DeletePostDialog from "./delete-post-dialog";
 
@@ -20,19 +23,42 @@ export default function PostMoreButton({
   className,
 }: PostMoreButtonProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
+    setPopupOpen(open);
   }, []);
 
-  const handleShowDeleteDialog = useCallback(() => {
+  const handleShowDeleteDialog = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     setShowDeleteDialog(true);
+    setPopupOpen(true);
   }, []);
 
   const handleCloseDeleteDialog = useCallback(() => {
     setShowDeleteDialog(false);
+    setPopupOpen(false);
   }, []);
+
+  const handleShowEditDialog = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowEditDialog(true);
+    setPopupOpen(true);
+  }, []);
+
+  const handleCloseEditDialog = useCallback(() => {
+    setShowEditDialog(false);
+    setPopupOpen(false);
+  }, []);
+
+  const handleTriggerClick = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+    },
+    []
+  );
 
   return (
     <>
@@ -41,17 +67,33 @@ export default function PostMoreButton({
           <button
             aria-label="Post options"
             className={cn(
-              "group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] active:translate-y-px",
+              "pill-3d-hover group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground active:translate-y-px",
               className,
               isOpen ? "opacity-100" : undefined
             )}
+            onClick={handleTriggerClick}
             type="button"
           >
             <MoreHorizontal className="size-5" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={handleShowDeleteDialog}>
+        <DropdownMenuContent
+          align="end"
+          className="apple-panel p-1.5 shadow-none"
+        >
+          <DropdownMenuItem
+            className="pill-3d-hover rounded-md px-2 py-2"
+            onClick={handleShowEditDialog}
+          >
+            <span className="flex items-center gap-3">
+              <Hash className="size-4" />
+              Edit tags &amp; mentions
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="pill-3d-hover rounded-md px-2 py-2"
+            onClick={handleShowDeleteDialog}
+          >
             <span className="flex items-center gap-3 text-destructive">
               <Trash2 className="size-4" />
               Delete
@@ -64,6 +106,16 @@ export default function PostMoreButton({
         onClose={handleCloseDeleteDialog}
         open={showDeleteDialog}
         post={post}
+      />
+
+      <PostMetaEditorDialog
+        mentions={(post.mentions ?? []).map(
+          (m) => m.user as unknown as UserData
+        )}
+        onClose={handleCloseEditDialog}
+        open={showEditDialog}
+        postId={post.id}
+        tags={post.tags ?? []}
       />
     </>
   );

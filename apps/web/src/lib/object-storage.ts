@@ -6,13 +6,9 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
-import { toast } from "sonner";
 import { env } from "../../env";
 import { validateFile } from "./utils/file-validation";
 import { getContentType, getFileConfigFromMime } from "./utils/mime-utils";
-import { uploadToasts } from "./utils/upload-messages";
-
-const isClient = typeof window !== "undefined";
 
 const asmobLocalEndpoint = env.ASMOB_ENDPOINT;
 
@@ -100,10 +96,6 @@ export const uploadToAsmob = async (file: File, userId: string) => {
     throw new Error("File and userId are required");
   }
 
-  const toastId = isClient
-    ? toast.loading(uploadToasts.started(file.name).description)
-    : undefined;
-
   try {
     console.log("Starting upload:", {
       name: file.name,
@@ -151,14 +143,6 @@ export const uploadToAsmob = async (file: File, userId: string) => {
 
     const url = getPublicUrl(key);
 
-    if (isClient && toastId) {
-      toast.success(
-        uploadToasts.success(file.name, fileConfig?.category || "DOCUMENT")
-          .description,
-        { id: toastId }
-      );
-    }
-
     return {
       extension,
       key,
@@ -171,14 +155,6 @@ export const uploadToAsmob = async (file: File, userId: string) => {
     };
   } catch (error) {
     console.error("Object storage upload error:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to upload file";
-
-    if (isClient && toastId) {
-      toast.error(uploadToasts.error(errorMessage).description, {
-        id: toastId,
-      });
-    }
     throw error;
   }
 };
@@ -200,10 +176,6 @@ export const uploadAvatar = async (file: File, userId: string) => {
   if (!(file && userId)) {
     throw new Error("File and userId are required");
   }
-
-  const toastId = isClient
-    ? toast.loading("Updating profile picture...")
-    : undefined;
 
   try {
     const supportedTypes = [
@@ -261,12 +233,6 @@ export const uploadAvatar = async (file: File, userId: string) => {
 
     const url = getPublicUrl(key);
 
-    if (isClient && toastId) {
-      toast.success(uploadToasts.avatarSuccess().description, {
-        id: toastId,
-      });
-    }
-
     console.log("Avatar upload successful:", {
       key,
       size: file.size,
@@ -283,17 +249,6 @@ export const uploadAvatar = async (file: File, userId: string) => {
     };
   } catch (error) {
     console.error("Avatar upload error:", error);
-
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to update profile picture";
-
-    if (isClient && toastId) {
-      toast.error(uploadToasts.avatarError(errorMessage).description, {
-        id: toastId,
-      });
-    }
 
     console.error("Detailed avatar upload error:", {
       error,
@@ -314,10 +269,6 @@ export const deleteAvatar = async (key: string) => {
     throw new Error("Avatar key is required");
   }
 
-  const toastId = isClient
-    ? toast.loading("Removing profile picture...")
-    : undefined;
-
   try {
     console.log("Starting avatar deletion:", { key });
 
@@ -330,34 +281,142 @@ export const deleteAvatar = async (key: string) => {
       })
     );
 
-    if (isClient && toastId) {
-      toast.success("Profile picture removed successfully", {
-        id: toastId,
-      });
-    }
-
     console.log("Avatar deleted successfully:", { key });
     return true;
   } catch (error) {
     console.error("Failed to delete avatar:", error);
-
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to remove profile picture";
-
-    if (isClient && toastId) {
-      toast.error(uploadToasts.error(errorMessage).description, {
-        id: toastId,
-      });
-    }
 
     console.error("Detailed avatar deletion error:", {
       error,
       key,
     });
 
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to remove avatar";
+
     throw new Error(`Failed to delete avatar: ${errorMessage}`, {
+      cause: error,
+    });
+  }
+};
+
+export const uploadBanner = async (file: File, userId: string) => {
+  if (!(file && userId)) {
+    throw new Error("File and userId are required");
+  }
+
+  try {
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    console.log("Banner upload started:", {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+    });
+
+    if (!supportedTypes.includes(file.type)) {
+      throw new Error("Banner must be in JPG, PNG, or WebP format");
+    }
+
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new Error("Banner file size must be less than 10MB");
+    }
+
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const uniquePrefix = `${Date.now()}-${crypto.randomUUID()}`;
+    const key = `banners/${userId}/${uniquePrefix}-${cleanFileName}`;
+
+    let buffer: Buffer;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+    } catch (error) {
+      console.error("Buffer conversion error:", error);
+      throw new Error("Failed to process banner image", { cause: error });
+    }
+
+    await asmobClient.send(
+      new PutObjectCommand({
+        Body: buffer,
+        Bucket: ASMOB_BUCKET,
+        CacheControl: "public, max-age=31536000",
+        ContentType: file.type,
+        Key: key,
+        Metadata: {
+          category: "BANNER",
+          fileType: file.name.split(".").pop()?.toLowerCase() || "",
+          originalName: file.name,
+          uploadedAt: new Date().toISOString(),
+          userId,
+        },
+      })
+    );
+
+    const url = getPublicUrl(key);
+
+    console.log("Banner upload successful:", {
+      key,
+      size: file.size,
+      url,
+    });
+
+    return {
+      key,
+      mimeType: file.type,
+      originalName: file.name,
+      size: file.size,
+      type: "IMAGE",
+      url,
+    };
+  } catch (error) {
+    console.error("Banner upload error:", error);
+
+    console.error("Detailed banner upload error:", {
+      error,
+      file: {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      },
+      userId,
+    });
+
+    throw error;
+  }
+};
+
+export const deleteBanner = async (key: string) => {
+  if (!key) {
+    throw new Error("Banner key is required");
+  }
+
+  try {
+    console.log("Starting banner deletion:", { key });
+
+    const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+
+    await asmobClient.send(
+      new DeleteObjectCommand({
+        Bucket: ASMOB_BUCKET,
+        Key: key,
+      })
+    );
+
+    console.log("Banner deleted successfully:", { key });
+    return true;
+  } catch (error) {
+    console.error("Failed to delete banner:", error);
+
+    console.error("Detailed banner deletion error:", {
+      error,
+      key,
+    });
+
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to remove banner";
+
+    throw new Error(`Failed to delete banner: ${errorMessage}`, {
       cause: error,
     });
   }

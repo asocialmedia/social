@@ -15,6 +15,7 @@ import {
   getMissingBuckets,
   getMissingServices,
   getUnhealthyServices,
+  hasOpenObserveHealth,
   hasRedisPong,
   hasSchemaTables,
   type OneShotStatus,
@@ -357,6 +358,19 @@ async function assertMeilisearchReady() {
   }
 }
 
+async function assertOpenObserveReady() {
+  const result = await runCmd([
+    "curl",
+    "-sS",
+    "-f",
+    "http://localhost:5080/healthz",
+  ]);
+
+  if (result.exitCode !== 0 || !hasOpenObserveHealth(result.stdout)) {
+    fatal(`OpenObserve check failed: ${result.stderr || result.stdout}`);
+  }
+}
+
 async function hasListenerOnPort(port: number) {
   const result = await runCmd(["ss", "-ltnH", `sport = :${port}`]);
   if (result.exitCode !== 0) {
@@ -516,6 +530,17 @@ async function run() {
     () => assertMeilisearchReady()
   );
   setCheckState("meilisearch", meilisearchStatus);
+  activeCheck = null;
+
+  activeCheck = "openobserve";
+  setCheckState("openobserve", "running");
+  const openobserveStatus = await withCache(
+    cache,
+    "openobserve",
+    `${composeFingerprint}:${runtimeFingerprint}`,
+    () => assertOpenObserveReady()
+  );
+  setCheckState("openobserve", openobserveStatus);
   activeCheck = null;
 
   activeCheck = "portless";
