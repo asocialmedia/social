@@ -81,11 +81,12 @@ export function useUpdateAvatarMutation() {
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
 
       toast({
-        title: "Success",
-        description: "Avatar updated successfully",
+        title: "Profile Picture Updated",
+        description: "Nice! Your new avatar is live!",
       });
     },
     onError: (error, _, context) => {
+      console.error("Avatar update error:", error);
       if (context?.previousUser) {
         queryClient.setQueryData(
           ["user", context.previousUser.id],
@@ -100,8 +101,8 @@ export function useUpdateAvatarMutation() {
       }
 
       toast({
-        title: "Error",
-        description: error.message || "Failed to update avatar",
+        title: "Couldn't Update",
+        description: "Couldn't update your profile picture, try again?",
         variant: "destructive",
       });
     },
@@ -153,8 +154,8 @@ export function useUpdateProfileMutation() {
     },
     onSuccess: (updatedUser, { userId }) => {
       toast({
-        title: "Success",
-        description: "Profile updated successfully",
+        title: "Profile Updated",
+        description: "Your profile is looking fresh!",
       });
 
       queryClient.setQueryData(["user", userId], updatedUser);
@@ -163,6 +164,7 @@ export function useUpdateProfileMutation() {
       queryClient.invalidateQueries({ queryKey: ["comments"] });
     },
     onError: (error, _, context) => {
+      console.error("Profile update error:", error);
       if (context?.previousUser) {
         queryClient.setQueryData(
           ["user", context.previousUser.id],
@@ -170,8 +172,8 @@ export function useUpdateProfileMutation() {
         );
       }
       toast({
-        title: "Error",
-        description: error.message || "Failed to update profile",
+        title: "Couldn't Save",
+        description: "Couldn't save your changes, try again?",
         variant: "destructive",
       });
     },

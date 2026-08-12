@@ -51,7 +51,7 @@ export default function AuthCard({
       layout
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
     >
-      {/* Image half — flips sides with the mode */}
+      {/* Image half, flips sides with the mode */}
       <div
         className={`relative hidden overflow-hidden lg:flex lg:w-1/2 ${
           isImageLeft ? "order-1 rounded-l-2xl" : "order-2 rounded-r-2xl"

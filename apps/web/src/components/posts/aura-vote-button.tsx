@@ -114,25 +114,25 @@ export default function AuraVoteButton({
       if (serverResponse.userVote === 1) {
         toast({
           title: "+1 Aura",
-          description: `Amplified ${authorName}'s post · aura gained`,
+          description: `Amplified ${authorName}'s post, nice boost!`,
           icon: <Flame />,
         });
       } else if (serverResponse.userVote === -1) {
         toast({
           title: "Muted",
-          description: `${authorName}'s post`,
+          description: `You muted ${authorName}'s post, we'll show you fewer posts like this`,
           icon: <ArrowBigDown />,
         });
       } else if (serverResponse.userVote === 0 && previousVote === 1) {
         toast({
           title: "Amplification Removed",
-          description: `${authorName}'s post`,
+          description: "You can always amplify it again later",
           icon: <RotateCcw />,
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
           title: "Mute Removed",
-          description: `${authorName}'s post`,
+          description: "It'll show up in your feed normally again",
           icon: <RotateCcw />,
         });
       }
@@ -142,7 +142,7 @@ export default function AuraVoteButton({
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Something went wrong. Please try again.",
+        description: "That didn't go through, give it another try?",
       });
     },
   });

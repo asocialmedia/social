@@ -42,8 +42,8 @@ export default function BookmarkButton({
       toast({
         title: data.isBookmarkedByUser ? "Bookmark Removed" : "Bookmarked",
         description: data.isBookmarkedByUser
-          ? "Post removed from your bookmarks"
-          : "Post saved for later",
+          ? "Removed from your bookmarks"
+          : "Post saved, find it anytime in your bookmarks",
         icon: data.isBookmarkedByUser ? <BookmarkX /> : <BookmarkCheck />,
       });
 
@@ -60,7 +60,7 @@ export default function BookmarkButton({
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Something went wrong. Please try again.",
+        description: "That didn't go through, give it another try?",
       });
     },
   });

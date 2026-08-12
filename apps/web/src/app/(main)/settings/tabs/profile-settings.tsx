@@ -87,8 +87,8 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
       {
         onSuccess: () => {
           toast({
-            title: "Profile updated",
-            description: "Your profile has been updated successfully",
+            title: "Profile Updated",
+            description: "Your profile is looking fresh!",
           });
         },
       }

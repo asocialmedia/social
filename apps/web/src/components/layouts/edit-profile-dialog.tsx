@@ -120,8 +120,8 @@ export default function EditProfileDialog({
 
       if (!(hasProfileChanges || hasAvatarChanges)) {
         toast({
-          description: "No changes were made to your profile",
-          title: "No changes",
+          description: "Looks like nothing changed, make a tweak and save!",
+          title: "No Changes",
         });
         return;
       }
@@ -136,15 +136,14 @@ export default function EditProfileDialog({
 
       onOpenChange(false);
       toast({
-        description: "Profile updated successfully",
-        title: "Success",
+        description: "Your profile is looking fresh!",
+        title: "Profile Updated",
       });
     } catch (error) {
       console.error("Failed to update profile:", error);
       toast({
-        description:
-          error instanceof Error ? error.message : "An error occurred",
-        title: "Error",
+        description: "Couldn't save your changes, try again?",
+        title: "Couldn't Save",
         variant: "destructive",
       });
     }
@@ -288,8 +287,8 @@ function AvatarInput({
       const maxSize = 10 * 1024 * 1024;
       if (file.size > maxSize) {
         toast({
-          description: "Image must be less than 10MB",
-          title: "File too large",
+          description: "That image is over 10MB, try a smaller one",
+          title: "File Too Big",
           variant: "destructive",
         });
         return;
@@ -317,9 +316,8 @@ function AvatarInput({
       } catch (error) {
         console.error("Error resizing image:", error);
         toast({
-          description:
-            "Failed to resize the image. Please try again with a different image.",
-          title: "Error processing image",
+          description: "That image didn't work, try a different one",
+          title: "Couldn't Process Image",
           variant: "destructive",
         });
         resetInput();

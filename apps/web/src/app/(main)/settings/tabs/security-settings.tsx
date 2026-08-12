@@ -77,7 +77,7 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
       if (result.error) {
         toast({
           variant: "destructive",
-          title: "Error",
+          title: "Couldn't Send",
           description: result.error,
         });
         return;
@@ -86,7 +86,7 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
       setIsEmailSent(true);
       toast({
         title: "Email Sent",
-        description: "Check your email for password reset instructions",
+        description: "Check your inbox for the reset link",
       });
     });
   }

@@ -94,8 +94,8 @@ const ShareButton = ({
       console.error("Failed to fetch share stats:", error);
       toast({
         variant: "destructive",
-        title: "Statistics Unavailable",
-        description: "Failed to load share statistics",
+        title: "Stats Unavailable",
+        description: "Couldn't load your share stats, try again?",
       });
       setShareStats([]);
     } finally {
@@ -140,8 +140,8 @@ const ShareButton = ({
       console.error("Failed to track share:", error);
       toast({
         variant: "destructive",
-        title: "Share Failed",
-        description: "Failed to track share",
+        title: "Share Not Counted",
+        description: "That share didn't get counted, no big deal!",
       });
     }
   };
@@ -170,8 +170,8 @@ const ShareButton = ({
       console.error("Failed to track click:", error);
       toast({
         variant: "destructive",
-        title: "Tracking Failed",
-        description: "Failed to track click",
+        title: "Click Not Counted",
+        description: "That click didn't get counted, no big deal!",
       });
     }
   };
@@ -228,7 +228,7 @@ const ShareButton = ({
         window.open("https://instagram.com", "_blank");
         toast({
           title: "Link Copied",
-          description: "Share it on Instagram",
+          description: "Paste it anywhere you like",
           icon: <Link2 />,
         });
         await trackClick("instagram");
@@ -311,7 +311,7 @@ const ShareButton = ({
       setCopied(true);
       toast({
         title: "Link Copied",
-        description: "Post link copied to clipboard",
+        description: "Link copied, paste it anywhere",
         icon: <Link2 />,
       });
       await trackShare("copy");
@@ -319,7 +319,7 @@ const ShareButton = ({
       toast({
         variant: "destructive",
         title: "Copy Failed",
-        description: "Failed to copy link",
+        description: "Couldn't copy the link, try again?",
       });
     }
   };
@@ -354,7 +354,7 @@ const ShareButton = ({
         await trackShare("qr");
         toast({
           title: "QR Code Downloaded",
-          description: "Saved to your device",
+          description: "QR code saved to your device",
           icon: <QrCode />,
         });
       }
@@ -362,7 +362,7 @@ const ShareButton = ({
       toast({
         variant: "destructive",
         title: "Download Failed",
-        description: "Failed to download QR code",
+        description: "Couldn't download the QR code, try again?",
       });
     }
   };

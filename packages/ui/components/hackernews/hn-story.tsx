@@ -72,8 +72,8 @@ export function HNStory({ story }: HnStoryProps) {
         descendants: story.descendants,
       });
       toast({
-        title: "Story ready to share",
-        description: "Add your thoughts and share with your followers",
+        title: "Story Ready",
+        description: "Add your thoughts and share it with your followers!",
       });
       router.push("/");
     },
@@ -92,8 +92,8 @@ export function HNStory({ story }: HnStoryProps) {
           story.url || `https://news.ycombinator.com/item?id=${story.id}`
         );
         toast({
-          title: "Copied to clipboard",
-          description: "Link has been copied to your clipboard",
+          title: "Link Copied",
+          description: "Link copied, paste it anywhere",
         });
       }
     } catch {

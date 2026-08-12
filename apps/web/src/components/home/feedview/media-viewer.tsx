@@ -82,7 +82,7 @@ const MediaViewer = ({
       if (!currentMedia) {
         toast({
           title: "Download Failed",
-          description: "No media selected.",
+          description: "No file to download yet",
           variant: "destructive",
         });
         return;
@@ -90,10 +90,9 @@ const MediaViewer = ({
       const response = await fetch(`/api/media/download/${currentMedia.id}`);
 
       if (response.status === 429) {
-        const data = await response.json();
         toast({
-          title: "Download Rate Limited",
-          description: data.message,
+          title: "Too Many Downloads",
+          description: "Slow down a bit, then try again",
           variant: "destructive",
         });
         return;
@@ -118,8 +117,7 @@ const MediaViewer = ({
       console.error("Download failed:", error);
       toast({
         title: "Download Failed",
-        description:
-          "There was an error downloading the file. Please try again.",
+        description: "Couldn't download that file, try again?",
         variant: "destructive",
       });
     } finally {

@@ -84,8 +84,8 @@ export function MentionTagEditor({
       } catch (error) {
         console.error("Error searching users:", error);
         toast({
-          title: "Error searching users",
-          description: "Please try again later",
+          title: "No Luck Finding People",
+          description: "Try searching again in a moment",
           variant: "destructive",
         });
       } finally {
@@ -99,8 +99,8 @@ export function MentionTagEditor({
     (user: UserData) => {
       if (selectedMentions.length >= 5) {
         toast({
-          title: "Maximum mentions reached",
-          description: "You can only mention up to 5 users per post",
+          title: "Up to 5 Mentions",
+          description: "You can mention up to 5 people per post",
           variant: "destructive",
         });
         return;
@@ -163,8 +163,7 @@ export function MentionTagEditor({
       await updateMentions.mutateAsync(selectedMentions.map((m) => m.id));
     } catch {
       toast({
-        title: "Error",
-        description: "Failed to update mentions. Please try again.",
+        description: "Couldn't save your mentions, try again?",
         variant: "destructive",
       });
     }

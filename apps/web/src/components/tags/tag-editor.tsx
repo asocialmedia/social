@@ -65,8 +65,8 @@ export function TagEditor({
     (tagName: string) => {
       if (selectedTags.length >= 5) {
         toast({
-          title: "Maximum tags reached",
-          description: "You can only add up to 5 tags per post",
+          title: "Up to 5 Tags",
+          description: "You can add up to 5 tags per post",
           variant: "destructive",
         });
         return;
@@ -129,8 +129,7 @@ export function TagEditor({
       await updateTags.mutateAsync(selectedTags);
     } catch {
       toast({
-        title: "Error",
-        description: "Failed to update tags. Please try again.",
+        description: "Couldn't save your tags, try again?",
         variant: "destructive",
       });
     }

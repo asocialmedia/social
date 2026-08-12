@@ -84,13 +84,13 @@ const SuggestedConnections: React.FC = () => {
       await refetch();
       toast({
         title: "Refreshed",
-        description: "Suggestions have been updated.",
+        description: "Fresh suggestions, ready when you are!",
         duration: 3000,
         icon: <RefreshCw />,
       });
     } catch {
       toast({
-        description: "Failed to refresh suggestions. Please try again.",
+        description: "Couldn't refresh suggestions, try again?",
         variant: "destructive",
         duration: 3000,
       });

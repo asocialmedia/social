@@ -108,8 +108,8 @@ export default function GifCenteringDialog({
     } catch (error) {
       console.error("Error processing GIF:", error);
       toast({
-        title: "Error",
-        description: "Failed to update avatar. Please try again.",
+        title: "Couldn't Update",
+        description: "Couldn't set that avatar, try again?",
         variant: "destructive",
       });
     }

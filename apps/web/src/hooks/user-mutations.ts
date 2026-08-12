@@ -132,7 +132,7 @@ export function useFollowUserMutation() {
       }
 
       toast({
-        description: "Failed to follow user. Please try again.",
+        description: "Couldn't follow that person, give it another try?",
         variant: "destructive",
       });
     },
@@ -143,7 +143,7 @@ export function useFollowUserMutation() {
 
       toast({
         title: "Followed",
-        description: `You are now following ${data.displayName || "this user"}`,
+        description: `You're now following ${data.displayName || "this user"}`,
         icon: createElement(UserPlus),
       });
     },
@@ -244,7 +244,7 @@ export function useUnfollowUserMutation() {
       }
 
       toast({
-        description: "Failed to unfollow user. Please try again.",
+        description: "Couldn't unfollow, give it another try?",
         variant: "destructive",
       });
     },
@@ -263,7 +263,7 @@ export function useUnfollowUserMutation() {
 
         toast({
           title: "Unfollowed",
-          description: `You have unfollowed ${data.displayName || "this user"}`,
+          description: `You've unfollowed ${data.displayName || "this user"}, you can follow them again anytime`,
           icon: createElement(UserMinus),
         });
       }

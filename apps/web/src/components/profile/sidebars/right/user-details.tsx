@@ -87,8 +87,9 @@ const UserDetails: React.FC<UserDetailsProps> = ({
         };
       } catch {
         toast({
-          title: "Error",
-          description: "Failed to load user data. Using cached data.",
+          title: "Couldn't Refresh",
+          description:
+            "Couldn't refresh this profile, showing saved info instead",
           variant: "destructive",
         });
         return initialUserData;

@@ -49,7 +49,7 @@ export function useSubmitCommentMutation(postId: string) {
 
       toast({
         title: "Eddy Created",
-        description: "Your eddy is live",
+        description: "Your eddy is live, nice one!",
         icon: createElement(MessageCirclePlus),
       });
     },
@@ -57,7 +57,7 @@ export function useSubmitCommentMutation(postId: string) {
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Failed to submit eddy. Please try again.",
+        description: "Couldn't post your eddy, give it another try?",
       });
     },
   });
@@ -96,7 +96,7 @@ export function useDeleteCommentMutation() {
 
       toast({
         title: "Eddy Deleted",
-        description: "Your eddy has been removed",
+        description: "Your eddy is gone",
         icon: createElement(MessageCircleX),
       });
     },
@@ -104,7 +104,7 @@ export function useDeleteCommentMutation() {
       console.error(error);
       toast({
         variant: "destructive",
-        description: "Failed to delete eddy. Please try again.",
+        description: "Couldn't delete your eddy, try again?",
       });
     },
   });
