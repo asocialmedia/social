@@ -83,6 +83,9 @@ const mockTx = {
     create: (args: { data: Record<string, unknown> }) => {
       state.auraLogs.push(args.data);
     },
+    // Simulates that the vote was placed after this feature shipped and
+    // therefore earned aura.
+    findFirst: () => ({ id: "log-1" }),
   },
   notification: {
     create: (args: { data: Record<string, unknown> }) => {
@@ -170,17 +173,25 @@ describe("POST /api/posts/[postId]/votes", () => {
     expect(res.status).toBe(404);
   });
 
-  test("amplifying your own post records the vote but awards no aura", async () => {
+  test("amplifying your own post credits aura but sends no notification", async () => {
     mockGetSession.mockResolvedValueOnce({ user: { id: AUTHOR_ID } });
 
     const res = await POST(postRequest(1), context);
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ aura: 0, userVote: 1 });
-    expect(state.postAura).toBe(0);
-    expect(state.userAura).toBe(0);
-    expect(state.auraLogs).toEqual([]);
+    expect(body).toEqual({ aura: 1, userVote: 1 });
+    expect(state.postAura).toBe(1);
+    expect(state.userAura).toBe(1);
+    expect(state.auraLogs).toEqual([
+      {
+        userId: AUTHOR_ID,
+        issuerId: AUTHOR_ID,
+        amount: 1,
+        type: "POST_VOTE",
+        postId: POST_ID,
+      },
+    ]);
     expect(state.notifications).toEqual([]);
   });
 

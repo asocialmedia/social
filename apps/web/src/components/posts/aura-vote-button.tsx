@@ -62,18 +62,21 @@ export default function AuraVoteButton({
         };
       });
 
-      // biome-ignore lint/suspicious/noExplicitAny: any
-      queryClient.setQueryData(["post", postId], (oldPost: any) => {
-        if (!oldPost) {
+      queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
+        if (!oldPost || typeof oldPost !== "object") {
           return oldPost;
         }
+        const currentPost = oldPost as {
+          aura: number;
+          vote: Array<{ userId: string; value: number }>;
+        };
         const voteChange = calculateVoteChange(
-          oldPost.vote[0]?.value || 0,
+          currentPost.vote[0]?.value || 0,
           newVote
         );
         return {
-          ...oldPost,
-          aura: oldPost.aura + voteChange,
+          ...currentPost,
+          aura: currentPost.aura + voteChange,
           vote:
             newVote === 0 ? [] : [{ userId: "currentUser", value: newVote }],
         };
@@ -85,6 +88,25 @@ export default function AuraVoteButton({
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: serverResponse.aura,
         userVote: serverResponse.userVote,
+      });
+
+      // Keep the single-post cache in sync with the confirmed server state.
+      queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
+        if (!oldPost || typeof oldPost !== "object") {
+          return oldPost;
+        }
+        const currentPost = oldPost as {
+          aura: number;
+          vote: Array<{ userId: string; value: number }>;
+        };
+        return {
+          ...currentPost,
+          aura: serverResponse.aura,
+          vote:
+            serverResponse.userVote === 0
+              ? []
+              : [{ userId: "currentUser", value: serverResponse.userVote }],
+        };
       });
 
       const previousVote = data.userVote;

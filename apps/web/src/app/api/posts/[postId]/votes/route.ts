@@ -96,10 +96,10 @@ export async function POST(
       }
 
       // Aura follows the vote score: amplifying (+1) credits aura, muting (-1)
-      // or removing a vote debits it. Self-votes are recorded but never award
-      // aura, to prevent users from farming reputation on their own posts.
+      // or removing a vote debits it. Self-votes award aura too - an amplify
+      // on your own post still represents reputation for that content.
       const isSelfVote = post.userId === user.id;
-      const auraDelta = isSelfVote ? 0 : value - oldValue;
+      const auraDelta = value - oldValue;
       if (auraDelta !== 0) {
         auraChanged = true;
         await Promise.all([
@@ -124,6 +124,7 @@ export async function POST(
         });
       }
 
+      // Only notify others, never yourself.
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
           await tx.notification.create({
@@ -205,30 +206,41 @@ export async function DELETE(
         });
       }
 
-      // Self-votes were never awarded aura, so they should not reverse any.
       const isSelfVote = post.userId === user.id;
-      if (oldValue !== 0 && !isSelfVote) {
-        auraChanged = true;
-        await Promise.all([
-          tx.post.update({
-            where: { id: postId },
-            data: { aura: { decrement: oldValue } },
-          }),
-          tx.user.update({
-            where: { id: post.userId },
-            data: { aura: { decrement: oldValue } },
-          }),
-        ]);
-
-        await tx.auraLog.create({
-          data: {
-            userId: post.userId,
-            issuerId: user.id,
-            amount: -oldValue,
-            type: "POST_VOTE_REMOVED",
+      if (oldValue !== 0) {
+        // Only reverse aura that was actually awarded (votes placed while the
+        // self-vote guard was active never earned any).
+        const wasAwarded = await tx.auraLog.findFirst({
+          where: {
             postId,
+            issuerId: user.id,
+            type: { in: ["POST_VOTE", "POST_VOTE_REMOVED"] },
           },
         });
+
+        if (wasAwarded) {
+          auraChanged = true;
+          await Promise.all([
+            tx.post.update({
+              where: { id: postId },
+              data: { aura: { decrement: oldValue } },
+            }),
+            tx.user.update({
+              where: { id: post.userId },
+              data: { aura: { decrement: oldValue } },
+            }),
+          ]);
+
+          await tx.auraLog.create({
+            data: {
+              userId: post.userId,
+              issuerId: user.id,
+              amount: -oldValue,
+              type: "POST_VOTE_REMOVED",
+              postId,
+            },
+          });
+        }
       }
 
       if (oldValue === 1 && !isSelfVote) {
