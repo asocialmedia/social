@@ -1,9 +1,8 @@
-import type { NextRequest } from "next/server";
 import { auth } from "./config";
 import type { AuthContext } from "./types";
 
 export async function getSessionFromRequest(
-  req: Request | NextRequest
+  req: Request
 ): Promise<AuthContext> {
   try {
     const session = await auth.api.getSession({
@@ -24,9 +23,7 @@ export async function getSessionFromRequest(
   }
 }
 
-export async function requireAuth(
-  req: Request | NextRequest
-): Promise<AuthContext> {
+export async function requireAuth(req: Request): Promise<AuthContext> {
   const authContext = await getSessionFromRequest(req);
 
   if (!(authContext.user && authContext.session)) {
@@ -36,6 +33,6 @@ export async function requireAuth(
   return authContext;
 }
 
-export function optionalAuth(req: Request | NextRequest): Promise<AuthContext> {
+export function optionalAuth(req: Request): Promise<AuthContext> {
   return getSessionFromRequest(req);
 }

@@ -429,7 +429,7 @@ async function _sendVerificationEmailSafe(
   email: string,
   token: string
 ): Promise<void> {
-  const base = env.NEXT_PUBLIC_URL ?? "https://social.localhost";
+  const base = env.APP_URL ?? "https://social.localhost";
   const url = new URL(`${base}/verify-email`);
   url.searchParams.set("token", token);
   try {

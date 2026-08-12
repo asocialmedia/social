@@ -5,7 +5,6 @@ import {
   validateJWTToken,
 } from "@asm/auth/core";
 import { prisma } from "@asm/db";
-import type { NextRequest } from "next/server";
 import { auth } from "./config";
 
 interface UserBanState {
@@ -68,7 +67,7 @@ async function enforceBan(
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ahh
 export async function getSessionFromRequest(
-  req: Request | NextRequest
+  req: Request
 ): Promise<AuthContext> {
   try {
     const authHeader = req.headers.get("authorization");
@@ -204,7 +203,7 @@ export async function getSessionFromRequest(
   }
 }
 
-export async function requireAuth(req: Request | NextRequest): Promise<{
+export async function requireAuth(req: Request): Promise<{
   session: AuthContext["session"];
   user: AuthContext["user"];
 }> {
@@ -215,6 +214,6 @@ export async function requireAuth(req: Request | NextRequest): Promise<{
   return { session, user };
 }
 
-export function optionalAuth(req: Request | NextRequest): Promise<AuthContext> {
+export function optionalAuth(req: Request): Promise<AuthContext> {
   return getSessionFromRequest(req);
 }

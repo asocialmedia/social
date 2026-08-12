@@ -1,7 +1,6 @@
 import { prisma } from "@asm/db";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { nextCookies } from "better-auth/next-js";
 import {
   admin as adminPlugin,
   emailOTP,
@@ -157,8 +156,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
     sendVerificationOTP,
   } = config;
 
-  const authBaseUrl =
-    baseURL || process.env.BETTER_AUTH_URL || env.NEXT_PUBLIC_AUTH_URL;
+  const authBaseUrl = baseURL || process.env.BETTER_AUTH_URL || env.AUTH_URL;
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
@@ -204,7 +202,6 @@ export function createAuthConfig(config: AuthConfig = {}) {
             }),
           ]
         : []),
-      nextCookies(),
     ],
 
     emailAndPassword: {
@@ -274,8 +271,8 @@ export function createAuthConfig(config: AuthConfig = {}) {
     },
 
     trustedOrigins: [
-      env.NEXT_PUBLIC_URL,
-      env.NEXT_PUBLIC_AUTH_URL,
+      env.APP_URL,
+      env.AUTH_URL,
       "https://social.localhost",
       "https://auth.localhost",
       "http://localhost:3000",
@@ -292,8 +289,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
         create: {
           after: async (user) => {
             try {
-              const authBase =
-                env.NEXT_PUBLIC_URL ?? "https://social.localhost";
+              const authBase = env.APP_URL ?? "https://social.localhost";
               const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
               await prisma.user.update({
                 where: { id: user.id },

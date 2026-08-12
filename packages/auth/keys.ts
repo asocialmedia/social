@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/style/useNamingConvention: ENV VARS */
-import { createEnv } from "@t3-oss/env-nextjs";
+import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 export const keys = createEnv({
@@ -14,14 +14,11 @@ export const keys = createEnv({
     TWITTER_CLIENT_SECRET: z.string().optional(),
     REDDIT_CLIENT_ID: z.string().optional(),
     REDDIT_CLIENT_SECRET: z.string().optional(),
+    APP_URL: z.url().default("https://social.localhost"),
+    AUTH_URL: z.url().default("https://auth.localhost"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
-  },
-
-  client: {
-    NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
-    NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
   },
 
   runtimeEnv: {
@@ -35,8 +32,8 @@ export const keys = createEnv({
     DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
     TWITTER_CLIENT_ID: process.env.TWITTER_CLIENT_ID,
     TWITTER_CLIENT_SECRET: process.env.TWITTER_CLIENT_SECRET,
-    NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
-    NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
+    APP_URL: process.env.APP_URL,
+    AUTH_URL: process.env.AUTH_URL,
     NODE_ENV: process.env.NODE_ENV,
   },
 

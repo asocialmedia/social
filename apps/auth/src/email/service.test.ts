@@ -86,7 +86,7 @@ describe("email service", () => {
       value: "test",
       writable: true,
     });
-    process.env.NEXT_PUBLIC_URL = "https://social.localhost";
+    process.env.APP_URL = "https://social.localhost";
     process.env.DATABASE_URL = "postgresql://mock";
     process.env.POSTGRES_PRISMA_URL = "postgresql://mock";
     process.env.POSTGRES_URL_NON_POOLING = "postgresql://mock";
@@ -103,7 +103,7 @@ describe("email service", () => {
       value: "development",
       writable: true,
     });
-    Object.defineProperty(envModule.env, "NEXT_PUBLIC_URL", {
+    Object.defineProperty(envModule.env, "APP_URL", {
       value: "https://social.localhost",
       writable: true,
     });

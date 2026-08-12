@@ -29,21 +29,19 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.0.36",
+      "version": "1.0.37",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
-        "@asm/next": "workspace:*",
         "@prisma/client": "7.9.1",
         "@react-email/components": "^1.0.12",
-        "@t3-oss/env-nextjs": "^0.13.11",
+        "@t3-oss/env-core": "^0.13.11",
         "@trpc/server": "^11.18.0",
-        "babel-plugin-react-compiler": "^1.0.0",
         "better-auth": "^1.6.26",
         "cross-env": "^10.1.0",
+        "dotenv": "^17.4.2",
         "jose": "^6.2.8",
-        "next": "^16.3.0",
         "pg": "^8.23.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -60,7 +58,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.0.62",
+      "version": "1.0.64",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -140,16 +138,15 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.0.34",
+      "version": "1.0.35",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@prisma/client": "7.9.1",
-        "@t3-oss/env-nextjs": "^0.13.11",
+        "@t3-oss/env-core": "^0.13.11",
         "better-auth": "^1.6.26",
         "disposable-email-domains": "^1.0.62",
         "email-validator": "^2.0.4",
         "jose": "^6.2.8",
-        "next": "^16.3.0",
         "pg": "^8.23.0",
         "react": "^19.2.8",
         "zod": "^4.4.3",
@@ -203,7 +200,7 @@
     },
     "packages/ui": {
       "name": "@asm/ui",
-      "version": "1.0.15",
+      "version": "1.0.17",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.20",

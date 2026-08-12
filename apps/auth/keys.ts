@@ -1,5 +1,5 @@
 /** biome-ignore-all lint/style/useNamingConvention: ENV VARS */
-import { createEnv } from "@t3-oss/env-nextjs";
+import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 export const keys = createEnv({
@@ -21,15 +21,11 @@ export const keys = createEnv({
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
-    NEXT_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
     TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
     BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
     SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
-  },
-
-  client: {
-    NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
-    NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
+    AUTH_URL: z.url().default("https://auth.localhost"),
+    APP_URL: z.url().default("https://social.localhost"),
   },
 
   runtimeEnv: {
@@ -47,11 +43,10 @@ export const keys = createEnv({
     MEILISEARCH_URL: process.env.MEILISEARCH_URL,
     MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
     NODE_ENV: process.env.NODE_ENV,
-    NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
-    NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
+    APP_URL: process.env.APP_URL,
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,
-    NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
+    AUTH_URL: process.env.AUTH_URL,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
   },
 

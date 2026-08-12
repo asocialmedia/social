@@ -13,6 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useRef } from "react";
 import FollowingFeed from "@/components/home/feedview/following";
+import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import ForYouFeed from "@/components/home/for-you-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
@@ -27,9 +28,6 @@ interface ClientHomeProps {
 }
 
 type FeedTab = "for-you" | "global" | "following";
-
-const TAB_TRIGGER_CLASS =
-  "relative inline-flex h-full items-center justify-center rounded-none border-0 px-3 py-3 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out after:absolute after:bottom-0 after:left-1/2 after:h-1 after:w-6 after:-translate-x-1/2 after:bg-gradient-to-b after:from-[#ff9500] after:to-[#e65500] after:opacity-0 after:transition-opacity after:content-[''] hover:bg-gradient-to-b hover:from-[#e4e7ec] hover:to-[#c6ccd5] hover:text-[#1c1f26] hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1.5px_2px_rgba(255,255,255,0.9),0_0_0_1px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.05),0_2px_4px_rgba(0,0,0,0.06)] dark:hover:from-[#8f96a3] dark:hover:to-[#5c6370] dark:hover:text-white dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] data-[state=active]:px-8 data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:opacity-100 data-[state=active]:hover:bg-none data-[state=active]:hover:from-none data-[state=active]:hover:to-none data-[state=active]:hover:shadow-none data-[state=active]:hover:text-foreground";
 
 const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   const pathname = usePathname();

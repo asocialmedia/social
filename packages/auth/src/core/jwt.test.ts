@@ -20,7 +20,7 @@ const jwtSessionCacheMock = {
 
 const originalEnv = {
   NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
-  NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
+  APP_URL: process.env.APP_URL,
 };
 
 mock.module("@asm/db", () => ({
@@ -45,10 +45,10 @@ describe("jwt helpers", () => {
   beforeEach(() => {
     console.error = mock(() => undefined) as typeof console.error;
     process.env.NEXTAUTH_SECRET = "test-secret";
-    process.env.NEXT_PUBLIC_URL = "https://social.localhost";
+    process.env.APP_URL = "https://social.localhost";
 
     secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
-    issuer = process.env.NEXT_PUBLIC_URL;
+    issuer = process.env.APP_URL;
   });
 
   afterEach(() => {
@@ -59,10 +59,10 @@ describe("jwt helpers", () => {
       process.env.NEXTAUTH_SECRET = originalEnv.NEXTAUTH_SECRET;
     }
 
-    if (originalEnv.NEXT_PUBLIC_URL === undefined) {
-      delete process.env.NEXT_PUBLIC_URL;
+    if (originalEnv.APP_URL === undefined) {
+      delete process.env.APP_URL;
     } else {
-      process.env.NEXT_PUBLIC_URL = originalEnv.NEXT_PUBLIC_URL;
+      process.env.APP_URL = originalEnv.APP_URL;
     }
 
     jwtSessionCacheMock.createTokenHash.mockClear();

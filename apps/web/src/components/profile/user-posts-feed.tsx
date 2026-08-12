@@ -4,17 +4,20 @@ import type { PostsPage } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
-import Post from "@/components/home/feedview/post-card";
+import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import PostsOnlyLoadingSkeleton from "@/components/layouts/skeletons/post-only-loading-skeleton";
 import kyInstance from "@/lib/ky";
 
-interface UserPostsProps {
-  filter?: "all" | "scribbles" | "snapshots" | "media" | "files";
+interface UserPostsFeedProps {
+  filter?: "all" | "media";
   userId: string;
 }
 
-const UserPosts: React.FC<UserPostsProps> = ({ userId, filter = "all" }) => {
+const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
+  userId,
+  filter = "all",
+}) => {
   const {
     data,
     fetchNextPage,
@@ -28,40 +31,20 @@ const UserPosts: React.FC<UserPostsProps> = ({ userId, filter = "all" }) => {
       kyInstance
         .get(
           `/api/users/${userId}/posts`,
-          pageParam ? { searchParams: { cursor: pageParam } } : {}
+          pageParam
+            ? { searchParams: { cursor: pageParam, filter } }
+            : { searchParams: { filter } }
         )
         .json<PostsPage>(),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
-    staleTime: 1000 * 60, // 1 minute stale time to reduce refetches
+    staleTime: 1000 * 60,
   });
 
-  const filteredPosts = useMemo(() => {
-    const allPosts = data?.pages.flatMap((page) => page.posts) || [];
-
-    switch (filter) {
-      case "scribbles":
-        return allPosts.filter((post) => post.attachments.length === 0);
-      case "snapshots":
-        return allPosts.filter((post) =>
-          post.attachments.some((att) => att.type === "IMAGE")
-        );
-      case "media":
-        return allPosts.filter((post) =>
-          post.attachments.some(
-            (att) => att.type === "VIDEO" || att.type === "AUDIO"
-          )
-        );
-      case "files":
-        return allPosts.filter((post) =>
-          post.attachments.some(
-            (att) => att.type === "DOCUMENT" || att.type === "CODE"
-          )
-        );
-      default:
-        return allPosts;
-    }
-  }, [data?.pages, filter]);
+  const posts = useMemo(
+    () => data?.pages.flatMap((page) => page.posts) || [],
+    [data?.pages]
+  );
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
@@ -81,12 +64,12 @@ const UserPosts: React.FC<UserPostsProps> = ({ userId, filter = "all" }) => {
     );
   }
 
-  if (status === "success" && !filteredPosts.length) {
+  if (status === "success" && !posts.length) {
     return (
       <p className="text-center text-muted-foreground">
-        {filter === "all"
-          ? "This user hasn't posted anything yet."
-          : `No ${filter} available.`}
+        {filter === "media"
+          ? "No media posts yet."
+          : "No posts yet. Share something!"}
       </p>
     );
   }
@@ -97,8 +80,8 @@ const UserPosts: React.FC<UserPostsProps> = ({ userId, filter = "all" }) => {
         className="space-y-5"
         onBottomReached={handleBottomReached}
       >
-        {filteredPosts.map((post) => (
-          <Post key={post.id} post={post} />
+        {posts.map((post) => (
+          <PostCard key={post.id} post={post} />
         ))}
         {isFetchingNextPage ? (
           <div className="flex justify-center py-4">
@@ -110,4 +93,4 @@ const UserPosts: React.FC<UserPostsProps> = ({ userId, filter = "all" }) => {
   );
 };
 
-export default React.memo(UserPosts);
+export default React.memo(UserPostsFeed);
