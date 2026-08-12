@@ -272,7 +272,11 @@ const PostCard: React.FC<PostCardProps> = ({
   const handleCardClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement;
-      if (target.closest("a, button, input, textarea, video")) {
+      if (
+        target.closest(
+          "a, button, input, textarea, video, [role='button'], [data-card-interactive]"
+        )
+      ) {
         return;
       }
       router.push(`/posts/${post.id}`);

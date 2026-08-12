@@ -287,14 +287,18 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     return (
       <motion.div
         animate={{ opacity: 1, y: 0 }}
+        aria-label="View attachment"
         className={cn(
           "relative cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
           isSmall ? "h-20" : "h-56"
         )}
+        data-card-interactive
         exit={{ opacity: 0, y: -20 }}
         initial={{ opacity: 0, y: 20 }}
         layout
         onClick={handleSelect}
+        role="button"
+        tabIndex={0}
         transition={{ duration: 0.2, delay: index * 0.05 }}
       >
         {renderPreview(media, index, isSmall)}
