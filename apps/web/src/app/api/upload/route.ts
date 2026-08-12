@@ -32,8 +32,8 @@ export async function POST(request: Request) {
   let height: number | null = null;
   if (file.type.startsWith("image/") && file.type !== "image/svg+xml") {
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const dimensions = imageSize(Buffer.from(arrayBuffer));
+      const headerBuffer = await file.slice(0, 64 * 1024).arrayBuffer();
+      const dimensions = imageSize(new Uint8Array(headerBuffer));
       width = dimensions.width ?? null;
       height = dimensions.height ?? null;
     } catch (error) {

@@ -10,6 +10,8 @@ interface InlineSuggestionsProps {
   editor: Editor | null;
   onSelectMention: (user: UserData) => void;
   onSelectTag: (tag: string) => void;
+  selectedMentionIds?: string[];
+  selectedTagNames?: string[];
 }
 
 interface SuggestionState {
@@ -39,32 +41,44 @@ export function InlineSuggestions({
   editor,
   onSelectTag,
   onSelectMention,
+  selectedMentionIds = [],
+  selectedTagNames = [],
 }: InlineSuggestionsProps) {
   const [suggestion, setSuggestion] = useState<SuggestionState | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
-  const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const selectedTagNamesRef = useRef(selectedTagNames);
+  const selectedMentionIdsRef = useRef(selectedMentionIds);
+  const activeQueryRef = useRef("");
+
+  selectedTagNamesRef.current = selectedTagNames;
+  selectedMentionIdsRef.current = selectedMentionIds;
 
   const fetchTags = useCallback(
     debounce(async (q: string) => {
+      const requestQuery = q;
+      activeQueryRef.current = requestQuery;
       try {
         const res = await fetch(`/api/tags?q=${encodeURIComponent(q)}`);
         if (!res.ok) {
           return;
         }
         const data = (await res.json()) as { tags: string[] };
+        if (activeQueryRef.current !== requestQuery) {
+          return;
+        }
         const filtered = data.tags
-          .filter((tag) => !selectedTagNames.includes(tag))
+          .filter((tag) => !selectedTagNamesRef.current.includes(tag))
           .slice(0, MAX_SUGGESTIONS);
         setTags(filtered);
       } catch {
         setTags([]);
       } finally {
-        setLoading(false);
+        if (activeQueryRef.current === requestQuery) {
+          setLoading(false);
+        }
       }
     }, 250),
     []
@@ -72,20 +86,27 @@ export function InlineSuggestions({
 
   const fetchUsers = useCallback(
     debounce(async (q: string) => {
+      const requestQuery = q;
+      activeQueryRef.current = requestQuery;
       try {
         const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
         if (!res.ok) {
           return;
         }
         const data = (await res.json()) as { users: UserData[] };
+        if (activeQueryRef.current !== requestQuery) {
+          return;
+        }
         const filtered = data.users
-          .filter((user) => !selectedMentionIds.includes(user.id))
+          .filter((user) => !selectedMentionIdsRef.current.includes(user.id))
           .slice(0, MAX_SUGGESTIONS);
         setUsers(filtered);
       } catch {
         setUsers([]);
       } finally {
-        setLoading(false);
+        if (activeQueryRef.current === requestQuery) {
+          setLoading(false);
+        }
       }
     }, 250),
     []
@@ -95,6 +116,7 @@ export function InlineSuggestions({
     setSuggestion(null);
     setTags([]);
     setUsers([]);
+    activeQueryRef.current = "";
   }, []);
 
   const replaceTrigger = useCallback(
@@ -112,7 +134,11 @@ export function InlineSuggestions({
       const triggerStart = match
         ? from - match[0].length + (match[0].startsWith(" ") ? 1 : 0)
         : from;
-      editor.chain().focus().insertContentAt(triggerStart, insertText).run();
+      editor
+        .chain()
+        .focus()
+        .insertContentAt({ from: triggerStart, to: from }, insertText)
+        .run();
     },
     [editor]
   );
@@ -121,7 +147,6 @@ export function InlineSuggestions({
     (tag: string) => {
       replaceTrigger(`#${tag} `);
       onSelectTag(tag);
-      setSelectedTagNames((prev) => [...prev, tag]);
       close();
     },
     [close, onSelectTag, replaceTrigger]
@@ -131,7 +156,6 @@ export function InlineSuggestions({
     (user: UserData) => {
       replaceTrigger(`@${user.username} `);
       onSelectMention(user);
-      setSelectedMentionIds((prev) => [...prev, user.id]);
       close();
     },
     [close, onSelectMention, replaceTrigger]
@@ -296,18 +320,28 @@ export function InlineSuggestions({
     return null;
   }
 
+  const activeId =
+    suggestion.type === "tag" ? `sug-opt-${items[activeIndex]}` : undefined;
+
   const renderItem = (item: SuggestionItem, index: number) => {
     const isActive = index === activeIndex;
+    const optionId =
+      suggestion.type === "tag"
+        ? `sug-opt-${item as string}`
+        : `sug-opt-${(item as UserData).id}`;
 
     if (suggestion.type === "mention") {
       const user = item as UserData;
       return (
         <button
+          aria-selected={isActive}
           className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
             isActive ? "bg-primary/10" : "hover:bg-muted/60"
           }`}
           data-index={index}
+          id={optionId}
           key={user.id}
+          role="option"
           type="button"
         >
           <UserAvatar avatarUrl={user.avatarUrl} className="h-6 w-6" />
@@ -325,11 +359,14 @@ export function InlineSuggestions({
     const tag = item as string;
     return (
       <button
+        aria-selected={isActive}
         className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
           isActive ? "bg-primary/10" : "hover:bg-muted/60"
         }`}
         data-index={index}
+        id={optionId}
         key={tag}
+        role="option"
         type="button"
       >
         <span className="text-primary">#</span>
@@ -356,6 +393,7 @@ export function InlineSuggestions({
     }
     return (
       <div
+        aria-activedescendant={activeId}
         onClick={handleListClick}
         onFocus={handleListFocus}
         onKeyDown={handleListKeyDown}
@@ -371,7 +409,6 @@ export function InlineSuggestions({
   return (
     <div
       className="absolute z-30 w-64 overflow-hidden rounded-xl border border-border bg-card shadow-[0_0_0_1.5px_rgba(255,255,255,0.25),0_0_0_3.5px_hsl(var(--border)),0_8px_20px_rgba(0,0,0,0.25)]"
-      ref={containerRef}
       style={{
         top: suggestion.top,
         left: suggestion.left,

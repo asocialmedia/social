@@ -15,7 +15,7 @@ import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import { AttachmentPreview } from "./attachment-preview";
 import { FileInput } from "./file-input";
 import "./styles.css";
-import type { TagWithCount, UserData } from "@asm/db";
+import type { UserData } from "@asm/db";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
@@ -85,6 +85,11 @@ export default function PostEditor() {
 
   const rootProps = getRootProps();
 
+  const [inputText, setInputText] = useState("");
+  const [_isEditorFocused, setIsEditorFocused] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -112,14 +117,10 @@ export default function PostEditor() {
     immediatelyRender: false,
   });
 
-  const [inputText, setInputText] = useState("");
   const input = inputText || editor?.getText({ blockSeparator: "\n" }) || "";
-  const [_isEditorFocused, setIsEditorFocused] = useState(false);
-  const [selectedTags, setSelectedTags] = useState<TagWithCount[]>([]);
-  const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
 
   const removeTag = useCallback((tagName: string) => {
-    setSelectedTags((prev) => prev.filter((t) => t.name !== tagName));
+    setSelectedTags((prev) => prev.filter((t) => t !== tagName));
   }, []);
 
   const removeMention = useCallback((userId: string) => {
@@ -134,18 +135,7 @@ export default function PostEditor() {
 
   const addTag = useCallback((tagName: string) => {
     setSelectedTags((prev) =>
-      prev.some((t) => t.name === tagName)
-        ? prev
-        : [
-            ...prev,
-            {
-              id: tagName,
-              name: tagName,
-              _count: { posts: 0 },
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
-          ]
+      prev.some((t) => t === tagName) ? prev : [...prev, tagName]
     );
   }, []);
 
@@ -169,7 +159,7 @@ export default function PostEditor() {
       mediaIds: attachments
         .map((a) => a.mediaId)
         .filter((id): id is string => Boolean(id)),
-      tags: selectedTags.map((tag) => tag.name.toLowerCase()),
+      tags: selectedTags.map((tag) => tag.toLowerCase()),
       mentions: selectedMentions.map((mentionedUser) => mentionedUser.id),
       ...(isHnSharing && sharedHnStory
         ? {
@@ -233,7 +223,7 @@ export default function PostEditor() {
   return (
     <motion.div
       animate="visible"
-      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[#1a1a1a] p-5 shadow-none transition-shadow duration-300"
+      className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300"
       initial="hidden"
       variants={containerVariants}
     >
@@ -252,11 +242,11 @@ export default function PostEditor() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {selectedTags.map((tag) => (
                 <RemoveChip
-                  key={tag.name}
-                  label={`#${tag.name}`}
+                  key={tag}
+                  label={`#${tag}`}
                   onRemove={removeTag}
-                  removeLabel={`Remove tag ${tag.name}`}
-                  value={tag.name}
+                  removeLabel={`Remove tag ${tag}`}
+                  value={tag}
                 />
               ))}
               {selectedMentions.map((mention) => (
@@ -293,6 +283,8 @@ export default function PostEditor() {
                 editor={editor}
                 onSelectMention={addMention}
                 onSelectTag={addTag}
+                selectedMentionIds={selectedMentions.map((m) => m.id)}
+                selectedTagNames={selectedTags}
               />
               {isDragActive ? (
                 <motion.div
@@ -360,7 +352,7 @@ export default function PostEditor() {
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <LoadingButton
                 className="min-w-20"
-                disabled={!input.trim() || isUploading}
+                disabled={!(input.trim() || isHnSharing) || isUploading}
                 loading={mutation.isPending}
                 onClick={onSubmit}
                 variant="premium"
@@ -458,7 +450,7 @@ function RemoveChip({ label, onRemove, removeLabel, value }: RemoveChipProps) {
       {label}
       <button
         aria-label={removeLabel}
-        className="ml-0.5 rounded-full transition-colors hover:text-destructive"
+        className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:text-destructive"
         onClick={handleRemove}
         type="button"
       >

@@ -16,11 +16,11 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { cn } from "@/lib/utils";
+import { cn, isRouteActive } from "@/lib/utils";
 
 interface LeftSidebarProps {
   userData: UserData;
@@ -35,28 +35,30 @@ interface NavItem {
 const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", label: "Home", icon: Home },
   { href: "/discover", label: "Explore", icon: Compass },
-  { href: "/soon", label: "Communities", icon: Users },
+  { href: "/soon?feature=communities", label: "Communities", icon: Users },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
 ];
 
 const SECONDARY_ITEMS: NavItem[] = [
   { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/soon", label: "Messages", icon: MessagesSquare },
+  { href: "/soon?feature=messages", label: "Messages", icon: MessagesSquare },
   { href: "/hackernews", label: "HackerNews", icon: Compass },
 ];
 
 const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useSession();
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const queryString = searchParams.toString();
+  const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
 
   const renderItem = ({ href, label, icon: Icon }: NavItem) => (
     <Link
       className={cn(
         "flex items-center gap-3 rounded-full px-3 py-2.5 text-base transition-all duration-200 hover:bg-muted/60",
-        isActive(href) && "bg-primary/10 font-semibold text-primary"
+        isRouteActive(currentHref, href) &&
+          "bg-primary/10 font-semibold text-primary"
       )}
       href={href}
       key={href}
@@ -65,6 +67,18 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       <span>{label}</span>
     </Link>
   );
+
+  const profileItem: NavItem = {
+    href: user ? `/users/${user.username}` : "",
+    icon: User,
+    label: "Profile",
+  };
+
+  const settingsItem: NavItem = {
+    href: "/settings",
+    icon: Settings,
+    label: "Settings",
+  };
 
   return (
     <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-border/60 border-r px-3 py-5 lg:flex">
@@ -85,30 +99,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
         {SECONDARY_ITEMS.map(renderItem)}
 
-        {user ? (
-          <Link
-            className={cn(
-              "flex items-center gap-3 rounded-full px-3 py-2.5 text-base transition-all duration-200 hover:bg-muted/60",
-              isActive(`/users/${user.username}`) &&
-                "bg-primary/10 font-semibold text-primary"
-            )}
-            href={`/users/${user.username}`}
-          >
-            <User className="h-6 w-6 shrink-0" />
-            <span>Profile</span>
-          </Link>
-        ) : null}
+        {user ? renderItem(profileItem) : null}
 
-        <Link
-          className={cn(
-            "flex items-center gap-3 rounded-full px-3 py-2.5 text-base transition-all duration-200 hover:bg-muted/60",
-            isActive("/settings") && "bg-primary/10 font-semibold text-primary"
-          )}
-          href="/settings"
-        >
-          <Settings className="h-6 w-6 shrink-0" />
-          <span>Settings</span>
-        </Link>
+        {renderItem(settingsItem)}
       </nav>
 
       <div className="mt-auto flex flex-col gap-3">

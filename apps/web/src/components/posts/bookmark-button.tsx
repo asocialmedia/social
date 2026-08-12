@@ -66,6 +66,7 @@ export default function BookmarkButton({
 
   return (
     <Button
+      aria-label={data.isBookmarkedByUser ? "Remove bookmark" : "Bookmark post"}
       className={cn(
         "flex items-center gap-1 text-muted-foreground hover:text-foreground",
         className

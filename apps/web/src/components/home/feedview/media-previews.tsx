@@ -193,8 +193,19 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
     }
   };
 
+  const handleSelectImage = useCallback(
+    (index: number) => () => setSelectedIndex(index),
+    []
+  );
+
   // biome-ignore lint/correctness/noNestedComponentDefinitions: SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
-  const SingleImagePreview = ({ media }: { media: Media }) => {
+  const SingleImagePreview = ({
+    media,
+    onSelect,
+  }: {
+    media: Media;
+    onSelect: () => void;
+  }) => {
     const storedW = typeof media.width === "number" ? media.width : null;
     const storedH = typeof media.height === "number" ? media.height : null;
     const hasStoredDims = storedW !== null && storedH !== null;
@@ -216,17 +227,22 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
         }
       };
       img.src = getMediaUrl(media.id);
+      return () => {
+        img.onload = null;
+      };
     }, [media.id, natural, hasStoredDims]);
 
     const dims = natural;
 
     return (
-      <div className="w-full">
+      <button
+        aria-label="View attachment"
+        className="block w-full cursor-pointer text-left"
+        onClick={onSelect}
+        type="button"
+      >
         {dims ? (
-          <div
-            className="relative inline-block overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
-            style={{ maxWidth: "100%" }}
-          >
+          <div className="relative inline-block max-w-full overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md">
             <Image
               alt="Attachment"
               className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
@@ -237,10 +253,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
             />
           </div>
         ) : (
-          <div
-            className="relative w-full overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
-            style={{ aspectRatio: "16 / 9" }}
-          >
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md">
             <Image
               alt="Attachment"
               className="object-cover"
@@ -251,7 +264,7 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
             <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
           </div>
         )}
-      </div>
+      </button>
     );
   };
 
@@ -392,8 +405,14 @@ export function MediaPreviews({ attachments }: MediaPreviewsProps) {
       >
         <AnimatePresence mode="wait">
           {visibleAttachments.map((m, index) =>
-            visibleAttachments.length === 1 && m.type === "IMAGE" ? (
-              <SingleImagePreview key={m.id} media={m} />
+            visibleAttachments.length === 1 &&
+            m.type === "IMAGE" &&
+            m.mimeType !== "image/svg+xml" ? (
+              <SingleImagePreview
+                key={m.id}
+                media={m}
+                onSelect={handleSelectImage(index)}
+              />
             ) : (
               <GridPreview index={index} key={m.id} media={m} />
             )

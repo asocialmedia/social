@@ -82,7 +82,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ posts: initialPosts }) => {
       {sortedPosts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
           <p className="text-center text-muted-foreground text-sm sm:text-base">
-            No Fleets to show here.
+            No posts to show here. Follow someone or create your first post.
           </p>
         </div>
       )}

@@ -10,10 +10,6 @@ import SearchField from "@/components/layouts/search-field";
 import UserAvatar from "@/components/layouts/user-avatar";
 import kyInstance from "@/lib/ky";
 
-interface RightSideBarProps {
-  userData: UserData;
-}
-
 const FOOTER_LINKS = [
   { href: "/toc", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
@@ -22,13 +18,13 @@ const FOOTER_LINKS = [
   { href: "/support", label: "Support" },
 ];
 
-const RightSideBar: React.FC<RightSideBarProps> = ({ userData: _userData }) => {
+const RightSideBar: React.FC = () => {
   const { data: hnStories } = useQuery({
     queryKey: ["hn-top-stories"],
     queryFn: async () => {
       const res = await fetch("/api/hackernews?limit=6&sort=score");
       if (!res.ok) {
-        return { stories: [] as HNStory[] };
+        throw new Error(`Failed to fetch Hacker News stories: ${res.status}`);
       }
       return res.json() as Promise<{ stories: HNStory[] }>;
     },
@@ -60,7 +56,9 @@ const RightSideBar: React.FC<RightSideBarProps> = ({ userData: _userData }) => {
           {stories.slice(0, 5).map((story, _index) => (
             <a
               className="flex flex-col gap-0.5 px-4 py-3 transition-colors hover:bg-muted/40"
-              href={story.url || undefined}
+              href={
+                story.url || `https://news.ycombinator.com/item?id=${story.id}`
+              }
               key={story.id}
               rel="noopener noreferrer"
               target={story.url ? "_blank" : undefined}

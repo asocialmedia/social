@@ -1,13 +1,16 @@
-"use client";
-
 import Image from "next/image";
 
 export function CenteredLogoLoader({ size = 56 }: { size?: number }) {
   return (
-    <div className="flex w-full items-center justify-center py-16">
+    <div
+      aria-label="Loading page"
+      aria-live="polite"
+      className="flex w-full items-center justify-center py-16"
+      role="status"
+    >
       <div className="animate-pulse">
         <Image
-          alt="Asocialmedia"
+          alt=""
           className="opacity-80"
           height={size}
           priority

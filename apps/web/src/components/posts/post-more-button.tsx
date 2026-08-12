@@ -35,7 +35,7 @@ export default function PostMoreButton({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            className={cn(className, "h-7 w-7 p-0")}
+            className={cn("h-7 w-7 p-0", className)}
             size="icon"
             variant="ghost"
           >

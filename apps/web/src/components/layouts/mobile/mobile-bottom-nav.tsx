@@ -4,7 +4,7 @@ import { Bell, Bookmark, Home, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type React from "react";
-import { cn } from "@/lib/utils";
+import { cn, isRouteActive } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
@@ -17,11 +17,13 @@ const MobileBottomNav: React.FC = () => {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-border/60 border-t bg-[hsl(var(--background-alt))]/95 backdrop-blur-md lg:hidden">
+    <nav
+      aria-label="Primary"
+      className="fixed inset-x-0 bottom-0 z-50 border-border/60 border-t bg-[hsl(var(--background-alt))]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
+    >
       <div className="grid grid-cols-4 px-2 py-1">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-          const isActive =
-            href === "/" ? pathname === "/" : pathname.startsWith(href);
+          const isActive = isRouteActive(pathname, href);
           return (
             <Link
               className={cn(
