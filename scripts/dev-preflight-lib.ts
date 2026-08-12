@@ -35,6 +35,7 @@ export type PreflightCheckKey =
   | "redis"
   | "asmob"
   | "meilisearch"
+  | "openobserve"
   | "portless";
 
 export type PreflightCheckState =
@@ -54,6 +55,7 @@ export const PREFLIGHT_CHECK_ORDER: Array<{
   { key: "redis", label: "rd" },
   { key: "asmob", label: "obj" },
   { key: "meilisearch", label: "mei" },
+  { key: "openobserve", label: "ozo" },
   { key: "portless", label: "ptl" },
 ];
 
@@ -64,8 +66,13 @@ export const DEFAULT_PREFLIGHT_CONFIG: PreflightConfig = {
     "redis-dev",
     "asmob-dev",
     "meilisearch-dev",
+    "openobserve-dev",
   ],
 };
+
+export function hasOpenObserveHealth(output: string) {
+  return output.includes("ok");
+}
 
 export function hash(value: string) {
   return createHash("sha1").update(value).digest("hex");

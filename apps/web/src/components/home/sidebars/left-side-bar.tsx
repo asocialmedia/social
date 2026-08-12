@@ -23,6 +23,7 @@ import { useTheme } from "next-themes";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
+import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn, isRouteActive } from "@/lib/utils";
 import UserProfilePopover from "./left/user-profile-popover";
 
@@ -55,6 +56,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const { user } = useSession();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const { data: liveUserData } = useUserDataQuery(userData);
 
   useEffect(() => {
     setMounted(true);
@@ -133,7 +135,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         </Button>
 
         <div className="flex items-center gap-2">
-          <UserProfilePopover userData={userData} />
+          <UserProfilePopover userData={liveUserData} />
 
           <button
             aria-label={

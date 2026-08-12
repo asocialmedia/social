@@ -10,6 +10,7 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 import { formatRelativeDate } from "@/lib/utils";
+import FeedCaughtUp from "./feed-caught-up";
 
 interface UserRepliesFeedProps {
   userId: string;
@@ -69,38 +70,40 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
   }
 
   return (
-    <InfiniteScrollContainer
-      className="divide-y divide-border/60"
-      onBottomReached={handleBottomReached}
-    >
+    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       {replies.map((reply) => (
-        <div className="px-4 py-4" key={reply.id}>
-          <div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs">
-            <Link2 className="size-3.5" />
-            <span>Replied to</span>
-            <Link
-              className="font-medium text-primary hover:underline"
-              href={`/users/${reply.post.user.username}`}
-            >
-              @{reply.post.user.username}
-            </Link>
-            <span>·</span>
-            <span>{formatRelativeDate(reply.createdAt)}</span>
+        <div className="border-border/60 border-b" key={reply.id}>
+          <div className="px-4 pt-4">
+            <div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+              <Link2 className="size-3.5" />
+              <span>Replied to</span>
+              <Link
+                className="font-medium text-primary hover:underline"
+                href={`/users/${reply.post.user.username}`}
+              >
+                @{reply.post.user.username}
+              </Link>
+              <span>·</span>
+              <span>{formatRelativeDate(reply.createdAt)}</span>
+            </div>
           </div>
 
-          <div className="mb-2 overflow-hidden rounded-lg border border-border/60 bg-background/50">
-            <PostCard post={reply.post} />
-          </div>
+          <PostCard isJoined post={reply.post} />
 
-          <p className="whitespace-pre-line break-words text-[15px]">
-            {reply.content}
-          </p>
+          <div className="border-border/60 border-t bg-[hsl(var(--background-alt))] px-4 pt-3 pb-4">
+            <p className="whitespace-pre-line break-words text-[15px]">
+              {reply.content}
+            </p>
+          </div>
         </div>
       ))}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
           <Loader2 className="animate-spin text-primary" />
         </div>
+      ) : null}
+      {!hasNextPage && replies.length > 0 ? (
+        <FeedCaughtUp note="You've seen every reply from this profile." />
       ) : null}
     </InfiniteScrollContainer>
   );

@@ -1,7 +1,6 @@
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useToast } from "@/lib/gooey-toast";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UpdateProfilePayload {
@@ -15,9 +14,24 @@ interface UpdateAvatarPayload {
   userId: string;
 }
 
+interface UpdateAvatarResponse {
+  avatar: {
+    key: string;
+    url: string;
+  };
+}
+
+interface UpdateProfileResponse {
+  user: {
+    avatarKey: string | null;
+    avatarUrl: string | null;
+    bio: string | null;
+    displayName: string;
+  };
+}
+
 export function useUpdateAvatarMutation() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({ file, userId, oldAvatarKey }: UpdateAvatarPayload) => {
@@ -37,7 +51,7 @@ export function useUpdateAvatarMutation() {
         throw new Error((await response.text()) || "Failed to update avatar");
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as UpdateAvatarResponse;
       return data;
     },
     onMutate: async ({ file, userId }) => {
@@ -48,11 +62,9 @@ export function useUpdateAvatarMutation() {
       const previousAvatar = queryClient.getQueryData(["avatar", userId]);
       const optimisticUrl = URL.createObjectURL(file);
 
-      // biome-ignore lint/suspicious/noExplicitAny: This is a React Query function
-      queryClient.setQueryData(["user", userId], (old: any) => ({
-        ...old,
-        avatarUrl: optimisticUrl,
-      }));
+      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+        old ? { ...old, avatarUrl: optimisticUrl } : old
+      );
 
       queryClient.setQueryData(["avatar", userId], {
         url: optimisticUrl,
@@ -64,26 +76,16 @@ export function useUpdateAvatarMutation() {
     onSuccess: (data, { userId }) => {
       const secureUrl = getSecureImageUrl(data.avatar.url);
 
-      // biome-ignore lint/suspicious/noExplicitAny: This is a React Query function
-      queryClient.setQueryData(["user", userId], (old: any) => ({
-        ...old,
-        avatarUrl: secureUrl,
-        avatarKey: data.avatar.key,
-      }));
+      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+        old ? { ...old, avatarKey: data.avatar.key, avatarUrl: secureUrl } : old
+      );
 
       queryClient.setQueryData(["avatar", userId], {
         url: secureUrl,
         key: data.avatar.key,
       });
 
-      queryClient.invalidateQueries({ queryKey: ["user", userId] });
-      queryClient.invalidateQueries({ queryKey: ["avatar", userId] });
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
-
-      toast({
-        title: "Profile Picture Updated",
-        description: "Nice! Your new avatar is live!",
-      });
     },
     onError: (error, _, context) => {
       console.error("Avatar update error:", error);
@@ -99,19 +101,12 @@ export function useUpdateAvatarMutation() {
           context.previousAvatar
         );
       }
-
-      toast({
-        title: "Couldn't Update",
-        description: "Couldn't update your profile picture, try again?",
-        variant: "destructive",
-      });
     },
   });
 }
 
 export function useUpdateProfileMutation() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({ values, userId }: UpdateProfilePayload) => {
@@ -130,7 +125,7 @@ export function useUpdateProfileMutation() {
           throw new Error(error || "Failed to update profile");
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as UpdateProfileResponse;
         return data.user;
       } catch (error) {
         console.error("Profile update error:", error);
@@ -153,13 +148,18 @@ export function useUpdateProfileMutation() {
       return { previousUser };
     },
     onSuccess: (updatedUser, { userId }) => {
-      toast({
-        title: "Profile Updated",
-        description: "Your profile is looking fresh!",
-      });
+      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+        old
+          ? {
+              ...old,
+              displayName: updatedUser.displayName,
+              bio: updatedUser.bio ?? "",
+              avatarUrl: updatedUser.avatarUrl ?? old.avatarUrl,
+              avatarKey: updatedUser.avatarKey ?? old.avatarKey,
+            }
+          : old
+      );
 
-      queryClient.setQueryData(["user", userId], updatedUser);
-      queryClient.invalidateQueries({ queryKey: ["user", userId] });
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
       queryClient.invalidateQueries({ queryKey: ["comments"] });
     },
@@ -171,11 +171,6 @@ export function useUpdateProfileMutation() {
           context.previousUser
         );
       }
-      toast({
-        title: "Couldn't Save",
-        description: "Couldn't save your changes, try again?",
-        variant: "destructive",
-      });
     },
   });
 }

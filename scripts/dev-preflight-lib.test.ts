@@ -8,6 +8,7 @@ import {
   getMissingBuckets,
   getMissingServices,
   getUnhealthyServices,
+  hasOpenObserveHealth,
   hasRedisPong,
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
@@ -161,6 +162,11 @@ describe("output validators", () => {
     expect(hasRedisPong("ERR invalid password")).toBe(false);
   });
 
+  test("validates openobserve health probe output", () => {
+    expect(hasOpenObserveHealth('{"status":"ok"}')).toBe(true);
+    expect(hasOpenObserveHealth("")).toBe(false);
+  });
+
   test("finds missing buckets", () => {
     const missing = getMissingBuckets(
       ["uploads", "avatars"],
@@ -236,7 +242,7 @@ describe("preflight ui helpers", () => {
     states.set("portless", "cached");
 
     expect(buildPreflightProgressLine(states)).toBe(
-      "preflight svc:ok init:wait pg:... rd:wait obj:wait mei:wait ptl:cache"
+      "preflight svc:ok init:wait pg:... rd:wait obj:wait mei:wait ozo:wait ptl:cache"
     );
   });
 });

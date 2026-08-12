@@ -7,6 +7,7 @@ import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
+import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -19,17 +20,18 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   userData,
   isOwnProfile,
 }) => {
-  const avatarUrl = userData.avatarUrl
-    ? getSecureImageUrl(userData.avatarUrl)
+  const { data: liveUserData } = useUserDataQuery(userData);
+  const avatarUrl = liveUserData.avatarUrl
+    ? getSecureImageUrl(liveUserData.avatarUrl)
     : null;
 
-  const isFollowedByUser = Boolean(userData.followers?.length);
+  const isFollowedByUser = Boolean(liveUserData.followers?.length);
   const followerInfo = {
-    followers: userData._count.followers,
+    followers: liveUserData._count.followers,
     isFollowedByUser,
   };
 
-  const joinedDate = formatDate(new Date(userData.createdAt), "MMMM yyyy");
+  const joinedDate = formatDate(new Date(liveUserData.createdAt), "MMMM yyyy");
 
   return (
     <div className="border-border/60 border-b">
@@ -66,12 +68,12 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           </div>
           <div className="mb-2">
             {isOwnProfile ? (
-              <EditProfileButton user={userData} />
+              <EditProfileButton user={liveUserData} />
             ) : (
               <FollowButton
                 className="follow-btn-3d h-9 px-4 text-sm"
                 initialState={followerInfo}
-                userId={userData.id}
+                userId={liveUserData.id}
               />
             )}
           </div>
@@ -80,16 +82,16 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         {/* Identity */}
         <div className="mt-3">
           <h1 className="flex items-center gap-1.5 font-bold text-xl sm:text-2xl">
-            {userData.displayName || userData.username}
+            {liveUserData.displayName || liveUserData.username}
             <BadgeCheck className="size-5 shrink-0 text-primary" />
           </h1>
-          <p className="text-muted-foreground">@{userData.username}</p>
+          <p className="text-muted-foreground">@{liveUserData.username}</p>
         </div>
 
-        {userData.bio ? (
+        {liveUserData.bio ? (
           <Linkify>
             <p className="mt-3 overflow-hidden whitespace-pre-line break-words text-[15px]">
-              {userData.bio}
+              {liveUserData.bio}
             </p>
           </Linkify>
         ) : null}
@@ -106,7 +108,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         <div className="mt-2.5 flex items-center gap-4 pb-4 text-sm">
           <span>
             <span className="font-semibold">
-              {formatNumber(userData._count.following)}
+              {formatNumber(liveUserData._count.following)}
             </span>{" "}
             <span className="text-muted-foreground">Following</span>
           </span>
@@ -118,7 +120,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           </span>
           <span className="inline-flex items-center gap-1 font-semibold text-orange-500">
             <Flame className="size-4" />
-            {formatNumber(userData.aura)} Aura
+            {formatNumber(liveUserData.aura)} Aura
           </span>
         </div>
       </div>

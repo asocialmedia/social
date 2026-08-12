@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
@@ -8,6 +9,7 @@ import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import PostsOnlyLoadingSkeleton from "@/components/layouts/skeletons/post-only-loading-skeleton";
 import kyInstance from "@/lib/ky";
+import FeedCaughtUp from "./feed-caught-up";
 
 interface UserPostsFeedProps {
   filter?: "all" | "media";
@@ -75,21 +77,28 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
   }
 
   return (
-    <div className="space-y-4">
-      <InfiniteScrollContainer
-        className="space-y-5"
-        onBottomReached={handleBottomReached}
-      >
-        {posts.map((post) => (
-          <PostCard key={post.id} post={post} />
-        ))}
-        {isFetchingNextPage ? (
-          <div className="flex justify-center py-4">
-            <Loader2 className="animate-spin text-primary" />
-          </div>
-        ) : null}
-      </InfiniteScrollContainer>
-    </div>
+    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+      {posts.map((post, index) => (
+        <React.Fragment key={post.id}>
+          {index > 0 && <Separator className="bg-border/60" />}
+          <PostCard isJoined post={post} />
+        </React.Fragment>
+      ))}
+      {isFetchingNextPage ? (
+        <div className="flex justify-center py-4">
+          <Loader2 className="animate-spin text-primary" />
+        </div>
+      ) : null}
+      {!hasNextPage && posts.length > 0 ? (
+        <FeedCaughtUp
+          note={
+            filter === "media"
+              ? "You've seen all the media from this profile."
+              : "You've seen every post from this profile."
+          }
+        />
+      ) : null}
+    </InfiniteScrollContainer>
   );
 };
 

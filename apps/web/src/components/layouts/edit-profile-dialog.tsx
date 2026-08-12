@@ -6,8 +6,7 @@ import type { UserData } from "@asm/db";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
+  DialogDescription,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import {
@@ -23,7 +22,7 @@ import { Label } from "@asm/ui/shadui/label";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera } from "lucide-react";
+import { Camera, UserRound } from "lucide-react";
 import Image, { type StaticImageData } from "next/image";
 import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,6 +43,9 @@ import { cn, isGifUrl } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 import CropImageDialog from "./crop-image-dialog";
 import GifCenteringDialog from "./gif-centering-dialog";
+
+const ORANGE_GRADIENT_CLASS =
+  "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
 interface EditProfileDialogProps {
   onOpenChange: (open: boolean) => void;
@@ -72,6 +74,21 @@ export default function EditProfileDialog({
   const mutation = useUpdateAvatarMutation();
   const profileMutation = useUpdateProfileMutation();
   const isUpdating = mutation.isPending || profileMutation.isPending;
+
+  // Keep a stable object URL for the cropped preview and revoke it on change/unmount.
+  const croppedAvatarUrl = useMemo(
+    () => (croppedAvatar ? URL.createObjectURL(croppedAvatar) : null),
+    [croppedAvatar]
+  );
+
+  useEffect(
+    () => () => {
+      if (croppedAvatarUrl) {
+        URL.revokeObjectURL(croppedAvatarUrl);
+      }
+    },
+    [croppedAvatarUrl]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -158,7 +175,11 @@ export default function EditProfileDialog({
       <FormItem>
         <FormLabel>Display name</FormLabel>
         <FormControl>
-          <Input placeholder="Your display name" {...field} />
+          <Input
+            className="h-10 rounded-xl text-sm"
+            placeholder="Your display name"
+            {...field}
+          />
         </FormControl>
         <FormMessage />
       </FormItem>
@@ -177,8 +198,9 @@ export default function EditProfileDialog({
         <FormControl>
           <div className="space-y-1">
             <Textarea
-              className="resize-none"
+              className="premium-input resize-none rounded-xl text-sm"
               placeholder="Tell us a little bit about yourself"
+              rows={4}
               {...field}
             />
             <div className="flex justify-end">
@@ -195,49 +217,79 @@ export default function EditProfileDialog({
     []
   );
 
+  const handleContentClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+  }, []);
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="max-w-md rounded-xl sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit profile</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-1.5">
-          <Label>Avatar</Label>
-          <AvatarInput
-            form={form}
-            isUploading={mutation.isPending}
-            onGifSelected={setGifToCenter}
-            onImageCropped={setCroppedAvatar}
-            src={
-              croppedAvatar
-                ? URL.createObjectURL(croppedAvatar)
-                : (user.avatarUrl ?? avatarPlaceholder.src)
-            }
-            user={user}
-          />
+      <DialogContent
+        className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        onClick={handleContentClick}
+      >
+        <div className="border-border/60 border-b px-5 pt-5 pb-3">
+          <DialogTitle className="flex items-center gap-2 font-semibold text-base">
+            <div
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-lg",
+                ORANGE_GRADIENT_CLASS
+              )}
+            >
+              <UserRound className="h-3.5 w-3.5" />
+            </div>
+            Edit Profile
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-muted-foreground text-xs">
+            Update your profile details
+          </DialogDescription>
         </div>
-        <Form {...form}>
-          <form
-            className="space-y-3"
-            onSubmit={form.handleSubmit(handleSubmit)}
-          >
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={renderDisplayNameField}
+
+        <div className="px-5 pb-5">
+          <div className="space-y-1.5">
+            <Label>Avatar</Label>
+            <AvatarInput
+              form={form}
+              isUploading={mutation.isPending}
+              onGifSelected={setGifToCenter}
+              onImageCropped={setCroppedAvatar}
+              src={croppedAvatarUrl ?? user.avatarUrl ?? avatarPlaceholder.src}
+              user={user}
             />
-            <FormField
-              control={form.control}
-              name="bio"
-              render={renderBioField}
-            />
-            <DialogFooter>
-              <LoadingButton loading={isUpdating} type="submit">
-                Save
-              </LoadingButton>
-            </DialogFooter>
-          </form>
-        </Form>
+          </div>
+
+          <div className="mt-4">
+            <Form {...form}>
+              <form
+                className="space-y-3"
+                onSubmit={form.handleSubmit(handleSubmit)}
+              >
+                <FormField
+                  control={form.control}
+                  name="displayName"
+                  render={renderDisplayNameField}
+                />
+                <FormField
+                  control={form.control}
+                  name="bio"
+                  render={renderBioField}
+                />
+                <div className="flex justify-end pt-2">
+                  <LoadingButton
+                    className={cn(
+                      "h-10 rounded-xl px-6",
+                      ORANGE_GRADIENT_CLASS,
+                      "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+                    )}
+                    loading={isUpdating}
+                    type="submit"
+                  >
+                    Save Changes
+                  </LoadingButton>
+                </div>
+              </form>
+            </Form>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -266,10 +318,10 @@ function AvatarInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const avatarSrc = useMemo(() => {
-    if (typeof src === "string") {
+    if (typeof src === "string" && !src.startsWith("blob:")) {
       return getSecureImageUrl(src);
     }
-    return avatarPlaceholder.src;
+    return typeof src === "string" ? src : avatarPlaceholder.src;
   }, [src]);
 
   const resetInput = useCallback(() => {
@@ -372,9 +424,9 @@ function AvatarInput({
         ref={fileInputRef}
         type="file"
       />
-      <div className="space-y-2">
+      <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-[hsl(var(--background))] p-3 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
         <button
-          className="group relative block"
+          className="group relative block shrink-0"
           disabled={isUploading}
           onClick={handleAvatarClick}
           type="button"
@@ -382,7 +434,7 @@ function AvatarInput({
           <Image
             alt="Avatar preview"
             className={cn(
-              "size-32 flex-none rounded-full object-cover",
+              "avatar-ring size-24 flex-none rounded-full object-cover",
               isUploading && "opacity-50"
             )}
             height={150}
@@ -390,21 +442,26 @@ function AvatarInput({
             src={avatarSrc}
             unoptimized={
               typeof avatarSrc === "string" &&
-              (isGifUrl(avatarSrc) || avatarSrc.includes("asmob"))
+              (isGifUrl(avatarSrc) ||
+                avatarSrc.includes("asmob") ||
+                avatarSrc.startsWith("blob:"))
             }
             width={150}
           />
-          <span className="absolute inset-0 m-auto flex size-12 items-center justify-center rounded-full bg-black/30 text-white transition-colors duration-200 group-hover:bg-black/25">
+          <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 text-white ring-2 ring-white/50 transition-colors duration-200 group-hover:bg-black/30">
             {isUploading ? (
-              <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
             ) : (
-              <Camera size={24} />
+              <Camera size={20} />
             )}
           </span>
         </button>
-        <p className="text-muted-foreground text-xs">
-          Supports JPG, PNG, and GIF (under 8MB)
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-sm">Change profile photo</p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Supports JPG, PNG, and GIF (under 10MB)
+          </p>
+        </div>
       </div>
 
       {gifToCenter ? (

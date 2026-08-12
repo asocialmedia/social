@@ -44,19 +44,6 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
         >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
-            <div className="relative flex items-center border-border/60 border-b py-1.5">
-              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
-                  Posts
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="replies">
-                  Replies
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="media">
-                  Media
-                </TabsTrigger>
-              </TabsList>
-            </div>
           </div>
 
           <div className="relative min-h-0 flex-1">
@@ -65,6 +52,20 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
               ref={feedScrollRef}
             >
               <ProfileHeader isOwnProfile={isOwnProfile} userData={userData} />
+
+              <div className="sticky top-0 z-10 flex items-center justify-center border-border/60 border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
+                <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
+                  <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
+                    Posts
+                  </TabsTrigger>
+                  <TabsTrigger className={TAB_TRIGGER_CLASS} value="replies">
+                    Replies
+                  </TabsTrigger>
+                  <TabsTrigger className={TAB_TRIGGER_CLASS} value="media">
+                    Media
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
               <TabsContent className="mt-0 pb-12" value="posts">
                 <UserPostsFeed userId={userData.id} />

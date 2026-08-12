@@ -236,6 +236,30 @@ services:
         "/usr/local/bin/meilisearch-init.sh",
       ]
 
+  openobserve-dev:
+    container_name: asmdev-openobserve
+    image: public.ecr.aws/zinclabs/openobserve-enterprise:v0.40.27
+    ports:
+      - "5080:5080"
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:-root@example.com}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:-Complexpass#123}
+      ZO_DATA_DIR: /data
+      ZO_ORGANIZATION: ${OPENOBSERVE_ORG:-default}
+      ZO_MEMORY_CACHE_CACHE_SIZE: 128
+      ZO_TELEMETRY: "false"
+    volumes:
+      - openobserve_data_dev:/data
+    networks:
+      - dev_network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:5080/healthz || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
 networks:
   dev_network:
     driver: bridge
@@ -252,3 +276,5 @@ volumes:
     name: asmdev-redisinsight-data
   meilisearch_data_dev:
     name: asmdev-meilisearch-data
+  openobserve_data_dev:
+    name: asmdev-openobserve-data

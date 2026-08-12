@@ -26,6 +26,21 @@ export const keys = createEnv({
     SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
     AUTH_URL: z.url().default("https://auth.localhost"),
     APP_URL: z.url().default("https://social.localhost"),
+    OTEL_ENABLED: z.enum(["true", "false"]).default("false"),
+    OTEL_SERVICE_NAME: z.string().default("auth"),
+    OTEL_EXPORTER_OTLP_ENDPOINT: z
+      .url()
+      .default("http://localhost:5080/api/default"),
+    OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+    OPENOBSERVE_USER: z.string().optional(),
+    OPENOBSERVE_PASSWORD: z.string().optional(),
+    OPENOBSERVE_ORG: z.string().default("default"),
+    OPENOBSERVE_LOG_STREAM: z.string().default("auth_logs"),
+    OPENOBSERVE_METRIC_STREAM: z.string().default("auth_metrics"),
+    OPENOBSERVE_TRACE_STREAM: z.string().default("auth_traces"),
+    LOG_LEVEL: z
+      .enum(["trace", "debug", "info", "warn", "error", "fatal"])
+      .default("info"),
   },
 
   runtimeEnv: {
@@ -48,6 +63,17 @@ export const keys = createEnv({
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,
     AUTH_URL: process.env.AUTH_URL,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
+    OTEL_ENABLED: process.env.OTEL_ENABLED,
+    OTEL_SERVICE_NAME: process.env.OTEL_SERVICE_NAME,
+    OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
+    OPENOBSERVE_USER: process.env.OPENOBSERVE_USER,
+    OPENOBSERVE_PASSWORD: process.env.OPENOBSERVE_PASSWORD,
+    OPENOBSERVE_ORG: process.env.OPENOBSERVE_ORG,
+    OPENOBSERVE_LOG_STREAM: process.env.OPENOBSERVE_LOG_STREAM,
+    OPENOBSERVE_METRIC_STREAM: process.env.OPENOBSERVE_METRIC_STREAM,
+    OPENOBSERVE_TRACE_STREAM: process.env.OPENOBSERVE_TRACE_STREAM,
+    LOG_LEVEL: process.env.LOG_LEVEL,
   },
 
   skipValidation: process.env.NODE_ENV === "production",

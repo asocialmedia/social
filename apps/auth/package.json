@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "private": true,
   "description": "Asocialmedia Auth Service",
   "scripts": {
@@ -13,6 +13,7 @@
     "@asm/auth": "workspace:*",
     "@asm/config": "workspace:*",
     "@asm/db": "workspace:*",
+    "@asm/logger": "workspace:*",
     "@prisma/client": "7.9.1",
     "@react-email/components": "^1.0.12",
     "@t3-oss/env-core": "^0.13.11",

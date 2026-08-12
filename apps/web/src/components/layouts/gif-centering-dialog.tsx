@@ -105,6 +105,10 @@ export default function GifCenteringDialog({
       });
 
       onClose();
+      toast({
+        title: "Profile Picture Updated",
+        description: "Nice! Your new avatar is live!",
+      });
     } catch (error) {
       console.error("Error processing GIF:", error);
       toast({
