@@ -1,9 +1,9 @@
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { motion } from "motion/react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 import { LoadingButton } from "@/components/auth/loading-button";
+import { useToast } from "@/lib/gooey-toast";
 
 interface LinkedAccountsProps {
   onLink: (provider: string) => void;

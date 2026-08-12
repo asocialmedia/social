@@ -1,13 +1,13 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Loader2, Search, X } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { type MouseEvent, useCallback, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
+import { useToast } from "@/lib/gooey-toast";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 import UserAvatar from "../layouts/user-avatar";
 

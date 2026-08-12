@@ -16,7 +16,7 @@ import { motion, type Variants } from "motion/react";
 import { useRouter } from "next/navigation";
 import type * as React from "react";
 import { useCallback } from "react";
-import { toast } from "../../hooks/use-toast";
+import { toast } from "../../lib/gooey-toast";
 import { cn } from "../../lib/utils";
 import { Badge } from "../../shadui/badge";
 import {

@@ -1,7 +1,6 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Card } from "@asm/ui/shadui/card";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
@@ -11,6 +10,7 @@ import { motion } from "motion/react";
 import type React from "react";
 import { useCallback, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
+import { useToast } from "@/lib/gooey-toast";
 import { ErrorFallback } from "../misc/error-boundary";
 import MentionedPosts from "./mentioned-posts";
 import UserDetails from "./sidebars/right/user-details";

@@ -1,10 +1,10 @@
 import type { PostsPage } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type InfiniteData,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useToast } from "@/lib/gooey-toast";
 import { submitPost, updatePostMentions } from "./actions";
 
 interface PostInput {
@@ -77,8 +77,8 @@ export function useSubmitPostMutation() {
           ? "HN Story shared successfully!"
           : "Post created successfully!",
         description: isHnShare
-          ? "Hacker News story has been shared with your thoughts ✨"
-          : "Your post is now live ✨",
+          ? "Hacker News story has been shared with your thoughts"
+          : "Your post is now live",
         duration: 5000,
       });
     },

@@ -2,7 +2,6 @@
 
 import { USERNAME_REGEX } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -20,6 +19,7 @@ import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
 import { LoadingButton } from "@/components/auth/loading-button";
+import { useToast } from "@/lib/gooey-toast";
 
 const identifierSchema = z.object({
   identifier: z.union([

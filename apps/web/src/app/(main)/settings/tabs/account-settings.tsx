@@ -1,7 +1,6 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Form,
   FormControl,
@@ -19,6 +18,7 @@ import { z } from "zod";
 import { LoadingButton } from "@/components/auth/loading-button";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
+import { useToast } from "@/lib/gooey-toast";
 import { useUpdateEmail, useUpdateUsername } from "../mutations";
 
 const usernameSchema = z.object({

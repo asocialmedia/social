@@ -3,7 +3,6 @@ import {
   updateUserProfileSchema,
 } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +39,7 @@ import {
 } from "@/app/(main)/users/[username]/avatar-mutations";
 import LoadingButton from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
+import { useToast } from "@/lib/gooey-toast";
 import { cn, isGifUrl } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 import CropImageDialog from "./crop-image-dialog";

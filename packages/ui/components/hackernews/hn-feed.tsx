@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useToast } from "../../hooks/use-toast";
+import { useToast } from "../../lib/gooey-toast";
 import { Button } from "../../shadui/button";
 import { Card } from "../../shadui/card";
 import { Tabs, TabsContent } from "../../shadui/tabs";

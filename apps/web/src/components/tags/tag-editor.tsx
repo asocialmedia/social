@@ -1,13 +1,13 @@
 "use client";
 
 import type { Tag, TagWithCount } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Hash, Loader2, Plus, Search, X } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { type MouseEvent, useCallback, useState } from "react";
 import { useTags } from "@/hooks/use-tags";
+import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 import { useUpdateTagsMutation } from "./mutations/tag-mention-mutation";
 

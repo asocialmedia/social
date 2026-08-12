@@ -1,6 +1,5 @@
 import localFont from "next/font/local";
 import type { ThemeProviderProps } from "next-themes";
-import { Toaster } from "../shadui/toaster";
 import ReactQueryProvider from "./query";
 import { ThemeProvider } from "./theme";
 import { VerificationProvider } from "./verification";
@@ -24,7 +23,6 @@ export const DesignSystemProvider = ({
   <ReactQueryProvider>
     <ThemeProvider {...properties}>
       <VerificationProvider>{children}</VerificationProvider>
-      <Toaster containerClassName="mb-4 mr-4" position="bottom-right" />
     </ThemeProvider>
   </ReactQueryProvider>
 );

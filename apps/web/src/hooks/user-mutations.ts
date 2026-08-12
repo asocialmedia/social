@@ -1,7 +1,9 @@
 import { debugLog } from "@asm/config/debug";
 import type { FollowerInfo, UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { UserMinus, UserPlus } from "lucide-react";
+import { createElement } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 
 const QUERY_KEYS = {
@@ -130,7 +132,6 @@ export function useFollowUserMutation() {
       }
 
       toast({
-        title: "Error",
         description: "Failed to follow user. Please try again.",
         variant: "destructive",
       });
@@ -141,8 +142,9 @@ export function useFollowUserMutation() {
       queryClient.setQueryData(QUERY_KEYS.followerInfo(userId), data);
 
       toast({
-        title: "Success",
+        title: "Followed",
         description: `You are now following ${data.displayName || "this user"}`,
+        icon: createElement(UserPlus),
       });
     },
 
@@ -242,7 +244,6 @@ export function useUnfollowUserMutation() {
       }
 
       toast({
-        title: "Error",
         description: "Failed to unfollow user. Please try again.",
         variant: "destructive",
       });
@@ -261,8 +262,9 @@ export function useUnfollowUserMutation() {
         );
 
         toast({
-          title: "Success",
-          description: "You have unfollowed this user",
+          title: "Unfollowed",
+          description: `You have unfollowed ${data.displayName || "this user"}`,
+          icon: createElement(UserMinus),
         });
       }
     },

@@ -2,8 +2,8 @@ import { debugLog } from "@asm/config/debug";
 import { prisma, userCache, userSearchIndex } from "@asm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { User } from "../../../app/types/types";
 import { adminProcedure, router, t } from "../../trpc";
+import type { User } from "../../types";
 
 const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
   if (!ctx.user?.id) {

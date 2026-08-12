@@ -1,5 +1,6 @@
-import { useToast } from "@asm/ui/hooks/use-toast";
-import { useState } from "react";
+import { Upload } from "lucide-react";
+import { createElement, useState } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import { validateFile } from "@/lib/utils/file-validation";
 
 export interface Attachment {
@@ -45,8 +46,9 @@ export default function useMediaUpload() {
   async function handleStartUpload(files: File[]) {
     if (isUploading) {
       toast({
-        variant: "destructive",
+        title: "Upload in Progress",
         description: "Please wait for the current upload to finish.",
+        icon: createElement(Upload),
       });
       return;
     }
@@ -54,6 +56,7 @@ export default function useMediaUpload() {
     if (attachments.length + files.length > 5) {
       toast({
         variant: "destructive",
+        title: "Attachment Limit",
         description: "You can only upload up to 5 attachments per post.",
       });
       return;
@@ -83,6 +86,7 @@ export default function useMediaUpload() {
           } catch (error: unknown) {
             toast({
               variant: "destructive",
+              title: "Upload Failed",
               description:
                 error instanceof Error ? error.message : "Upload failed",
             });

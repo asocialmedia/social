@@ -6,13 +6,9 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
-import { toast } from "sonner";
 import { env } from "../../env";
 import { validateFile } from "./utils/file-validation";
 import { getContentType, getFileConfigFromMime } from "./utils/mime-utils";
-import { uploadToasts } from "./utils/upload-messages";
-
-const isClient = typeof window !== "undefined";
 
 const asmobLocalEndpoint = env.ASMOB_ENDPOINT;
 
@@ -100,10 +96,6 @@ export const uploadToAsmob = async (file: File, userId: string) => {
     throw new Error("File and userId are required");
   }
 
-  const toastId = isClient
-    ? toast.loading(uploadToasts.started(file.name).description)
-    : undefined;
-
   try {
     console.log("Starting upload:", {
       name: file.name,
@@ -151,14 +143,6 @@ export const uploadToAsmob = async (file: File, userId: string) => {
 
     const url = getPublicUrl(key);
 
-    if (isClient && toastId) {
-      toast.success(
-        uploadToasts.success(file.name, fileConfig?.category || "DOCUMENT")
-          .description,
-        { id: toastId }
-      );
-    }
-
     return {
       extension,
       key,
@@ -171,14 +155,6 @@ export const uploadToAsmob = async (file: File, userId: string) => {
     };
   } catch (error) {
     console.error("Object storage upload error:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to upload file";
-
-    if (isClient && toastId) {
-      toast.error(uploadToasts.error(errorMessage).description, {
-        id: toastId,
-      });
-    }
     throw error;
   }
 };
@@ -200,10 +176,6 @@ export const uploadAvatar = async (file: File, userId: string) => {
   if (!(file && userId)) {
     throw new Error("File and userId are required");
   }
-
-  const toastId = isClient
-    ? toast.loading("Updating profile picture...")
-    : undefined;
 
   try {
     const supportedTypes = [
@@ -261,12 +233,6 @@ export const uploadAvatar = async (file: File, userId: string) => {
 
     const url = getPublicUrl(key);
 
-    if (isClient && toastId) {
-      toast.success(uploadToasts.avatarSuccess().description, {
-        id: toastId,
-      });
-    }
-
     console.log("Avatar upload successful:", {
       key,
       size: file.size,
@@ -283,17 +249,6 @@ export const uploadAvatar = async (file: File, userId: string) => {
     };
   } catch (error) {
     console.error("Avatar upload error:", error);
-
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to update profile picture";
-
-    if (isClient && toastId) {
-      toast.error(uploadToasts.avatarError(errorMessage).description, {
-        id: toastId,
-      });
-    }
 
     console.error("Detailed avatar upload error:", {
       error,
@@ -314,10 +269,6 @@ export const deleteAvatar = async (key: string) => {
     throw new Error("Avatar key is required");
   }
 
-  const toastId = isClient
-    ? toast.loading("Removing profile picture...")
-    : undefined;
-
   try {
     console.log("Starting avatar deletion:", { key });
 
@@ -330,32 +281,18 @@ export const deleteAvatar = async (key: string) => {
       })
     );
 
-    if (isClient && toastId) {
-      toast.success("Profile picture removed successfully", {
-        id: toastId,
-      });
-    }
-
     console.log("Avatar deleted successfully:", { key });
     return true;
   } catch (error) {
     console.error("Failed to delete avatar:", error);
 
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : "Failed to remove profile picture";
-
-    if (isClient && toastId) {
-      toast.error(uploadToasts.error(errorMessage).description, {
-        id: toastId,
-      });
-    }
-
     console.error("Detailed avatar deletion error:", {
       error,
       key,
     });
+
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to remove avatar";
 
     throw new Error(`Failed to delete avatar: ${errorMessage}`, {
       cause: error,

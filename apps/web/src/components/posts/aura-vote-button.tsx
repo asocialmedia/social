@@ -1,13 +1,13 @@
 import type { VoteInfo } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type QueryKey,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
+import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 
@@ -113,19 +113,27 @@ export default function AuraVoteButton({
 
       if (serverResponse.userVote === 1) {
         toast({
-          description: `Amplified ${authorName}'s post`,
+          title: "+1 Aura",
+          description: `Amplified ${authorName}'s post · aura gained`,
+          icon: <Flame />,
         });
       } else if (serverResponse.userVote === -1) {
         toast({
-          description: `Muted ${authorName}'s post`,
+          title: "Muted",
+          description: `${authorName}'s post`,
+          icon: <ArrowBigDown />,
         });
       } else if (serverResponse.userVote === 0 && previousVote === 1) {
         toast({
-          description: `Removed amplification from ${authorName}'s post`,
+          title: "Amplification Removed",
+          description: `${authorName}'s post`,
+          icon: <RotateCcw />,
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
-          description: `Removed muting from ${authorName}'s post`,
+          title: "Mute Removed",
+          description: `${authorName}'s post`,
+          icon: <RotateCcw />,
         });
       }
     },

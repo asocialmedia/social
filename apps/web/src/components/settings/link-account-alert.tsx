@@ -1,8 +1,8 @@
 "use client";
 
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+import { useToast } from "@/lib/gooey-toast";
 
 export default function LinkAccountAlert() {
   const searchParams = useSearchParams();

@@ -1,4 +1,3 @@
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -19,6 +18,7 @@ import { motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { useUpdateAvatarMutation } from "@/app/(main)/users/[username]/avatar-mutations";
 import LoadingButton from "@/components/auth/loading-button";
+import { useToast } from "@/lib/gooey-toast";
 
 interface GifCenteringDialogProps {
   currentValues: {

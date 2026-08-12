@@ -1,11 +1,11 @@
 import type { PostsPage } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type InfiniteData,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
+import { useToast } from "@/lib/gooey-toast";
 import { deletePost } from "./actions";
 
 export function useDeletePostMutation() {

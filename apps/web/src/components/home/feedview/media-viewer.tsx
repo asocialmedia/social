@@ -1,7 +1,6 @@
 "use client";
 
 import type { Media } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import fallbackImage from "@assets/fallbacks/fallback.png";
@@ -13,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
+import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 import { CodePreview } from "./code-preview";
 import { CustomVideoPlayer } from "./custom-video-player";

@@ -10,7 +10,15 @@ import {
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
-import { Check, Copy, Download, Mail, Share2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Download,
+  Link2,
+  Mail,
+  QrCode,
+  Share2,
+} from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
@@ -26,7 +34,7 @@ import {
   FaTwitter,
   FaWhatsapp,
 } from "react-icons/fa";
-import { toast } from "sonner";
+import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 
@@ -84,7 +92,11 @@ const ShareButton = ({
       }
     } catch (error) {
       console.error("Failed to fetch share stats:", error);
-      toast.error("Failed to load share statistics");
+      toast({
+        variant: "destructive",
+        title: "Statistics Unavailable",
+        description: "Failed to load share statistics",
+      });
       setShareStats([]);
     } finally {
       setIsLoading(false);
@@ -126,7 +138,11 @@ const ShareButton = ({
       );
     } catch (error) {
       console.error("Failed to track share:", error);
-      toast.error("Failed to track share");
+      toast({
+        variant: "destructive",
+        title: "Share Failed",
+        description: "Failed to track share",
+      });
     }
   };
 
@@ -152,7 +168,11 @@ const ShareButton = ({
       );
     } catch (error) {
       console.error("Failed to track click:", error);
-      toast.error("Failed to track click");
+      toast({
+        variant: "destructive",
+        title: "Tracking Failed",
+        description: "Failed to track click",
+      });
     }
   };
 
@@ -206,7 +226,11 @@ const ShareButton = ({
         await trackShare("instagram");
         await navigator.clipboard.writeText(postUrl);
         window.open("https://instagram.com", "_blank");
-        toast.success("Link copied! Share it on Instagram");
+        toast({
+          title: "Link Copied",
+          description: "Share it on Instagram",
+          icon: <Link2 />,
+        });
         await trackClick("instagram");
       },
     },
@@ -285,10 +309,18 @@ const ShareButton = ({
     try {
       await navigator.clipboard.writeText(postUrl);
       setCopied(true);
-      toast.success("Link copied to clipboard!");
+      toast({
+        title: "Link Copied",
+        description: "Post link copied to clipboard",
+        icon: <Link2 />,
+      });
       await trackShare("copy");
     } catch {
-      toast.error("Failed to copy link");
+      toast({
+        variant: "destructive",
+        title: "Copy Failed",
+        description: "Failed to copy link",
+      });
     }
   };
 
@@ -320,10 +352,18 @@ const ShareButton = ({
         };
         img.src = `data:image/svg+xml;base64,${btoa(svgData)}`;
         await trackShare("qr");
-        toast.success("QR Code downloaded!");
+        toast({
+          title: "QR Code Downloaded",
+          description: "Saved to your device",
+          icon: <QrCode />,
+        });
       }
     } catch {
-      toast.error("Failed to download QR code");
+      toast({
+        variant: "destructive",
+        title: "Download Failed",
+        description: "Failed to download QR code",
+      });
     }
   };
 

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import type React from "react";
+import { GooeyToaster } from "@/components/auth/gooey-toaster";
 import { getSessionFromApi } from "@/lib/session";
 import SessionProvider from "./session-provider";
 
@@ -17,6 +18,7 @@ export default async function Layout({
   return (
     <SessionProvider value={session}>
       <div className="flex flex-1 flex-col font-sofiaProSoft">{children}</div>
+      <GooeyToaster />
     </SessionProvider>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
@@ -27,6 +26,7 @@ import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
+import { useToast } from "@/lib/gooey-toast";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 import FollowersList from "../../followers-list";

@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.0.62",
+  "version": "1.0.63",
   "private": true,
   "description": "Asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -61,7 +61,6 @@
     "react-intersection-observer": "^11.0.0",
     "react-linkify-it": "^2.0.0",
     "react-syntax-highlighter": "^16.1.1",
-    "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
     "usehooks-ts": "^3.1.1",
     "zod": "^4.4.3"

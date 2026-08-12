@@ -1,7 +1,7 @@
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/lib/gooey-toast";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UpdateProfilePayload {

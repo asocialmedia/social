@@ -1,13 +1,13 @@
 import type { BookmarkInfo } from "@asm/db";
-import { useToast } from "@asm/ui/hooks/use-toast";
 import {
   type QueryKey,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Bookmark } from "lucide-react";
+import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
@@ -40,7 +40,11 @@ export default function BookmarkButton({
         : kyInstance.post(`/api/posts/${postId}/bookmark`),
     onMutate: async () => {
       toast({
-        description: `Post ${data.isBookmarkedByUser ? "un" : ""}bookmarked`,
+        title: data.isBookmarkedByUser ? "Bookmark Removed" : "Bookmarked",
+        description: data.isBookmarkedByUser
+          ? "Post removed from your bookmarks"
+          : "Post saved for later",
+        icon: data.isBookmarkedByUser ? <BookmarkX /> : <BookmarkCheck />,
       });
 
       await queryClient.cancelQueries({ queryKey });
