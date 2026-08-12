@@ -10,7 +10,8 @@ fi
 
 export DATABASE_URL
 
-echo "Waiting for database at ${DATABASE_URL} to be reachable..."
+DB_HOST=$(printf '%s' "$DATABASE_URL" | sed -E 's|^[a-z]+://[^@]*@||')
+echo "Waiting for database at ${DB_HOST} to be reachable..."
 for i in $(seq 1 30); do
   if bun -e 'const net = require("node:net"); const u = new URL(process.env.DATABASE_URL); const s = net.connect({ host: u.hostname, port: Number(u.port || 5432) }); s.on("connect", () => { s.destroy(); process.exit(0); }); s.on("error", () => { process.exit(1); }); s.setTimeout(5000, () => { s.destroy(); process.exit(1); });' >/dev/null 2>&1; then
     echo "Database is reachable."
