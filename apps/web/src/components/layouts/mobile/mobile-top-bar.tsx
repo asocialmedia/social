@@ -13,13 +13,14 @@ const MobileTopBar: React.FC = () => {
   return (
     <div className="flex items-center gap-2 border-border/60 border-b px-3 py-2 lg:hidden">
       <Link className="shrink-0" href="/">
-        <Image
-          alt="Asocialmedia"
-          className="h-8 w-8"
-          height={32}
-          src="/asocialmedialogo.svg"
-          width={32}
-        />
+        <div className="relative h-8 w-8">
+          <Image
+            alt="Asocialmedia"
+            fill
+            sizes="32px"
+            src="/asocialmedialogo.svg"
+          />
+        </div>
       </Link>
 
       <div className="min-w-0 flex-1">

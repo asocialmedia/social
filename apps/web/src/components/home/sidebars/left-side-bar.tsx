@@ -23,8 +23,8 @@ import { useTheme } from "next-themes";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
-import UserAvatar from "@/components/layouts/user-avatar";
 import { cn, isRouteActive } from "@/lib/utils";
+import UserProfilePopover from "./left/user-profile-popover";
 
 interface LeftSidebarProps {
   userData: UserData;
@@ -98,13 +98,14 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   return (
     <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-border/60 border-r px-5 pt-2.5 pb-5 lg:flex">
       <Link className="mb-8 block px-2" href="/">
-        <Image
-          alt="Asocialmedia"
-          className="h-10 w-10"
-          height={40}
-          src="/asocialmedialogo.svg"
-          width={40}
-        />
+        <div className="relative h-10 w-10">
+          <Image
+            alt="Asocialmedia"
+            fill
+            sizes="40px"
+            src="/asocialmedialogo.svg"
+          />
+        </div>
       </Link>
 
       <nav className="flex flex-col gap-1">
@@ -132,20 +133,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         </Button>
 
         <div className="flex items-center gap-2">
-          <Link
-            className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2"
-            href={`/users/${userData.username}`}
-          >
-            <UserAvatar avatarUrl={userData.avatarUrl} className="h-10 w-10" />
-            <span className="min-w-0">
-              <span className="block truncate font-medium text-sm">
-                {userData.displayName || userData.username}
-              </span>
-              <span className="block truncate text-muted-foreground text-xs">
-                @{userData.username}
-              </span>
-            </span>
-          </Link>
+          <UserProfilePopover userData={userData} />
 
           <button
             aria-label={

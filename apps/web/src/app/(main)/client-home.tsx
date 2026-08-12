@@ -68,7 +68,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
           onValueChange={handleTabChange}
           value={tab}
         >
-          <div className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
+          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
             <div className="relative flex items-center border-border/60 border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">

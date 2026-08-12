@@ -48,8 +48,18 @@ export async function invalidateTrendingTopicsCache(): Promise<
   }
 }
 
-export async function getTrendingTopics(): Promise<TrendingTopic[]> {
+export async function getTrendingTopics(
+  bypassCache = false
+): Promise<TrendingTopic[]> {
   try {
+    if (bypassCache) {
+      const newTopics = await getTrendingTopicsFromDb();
+      if (newTopics.length > 0) {
+        await trendingTopicsCache.set(newTopics);
+      }
+      return newTopics;
+    }
+
     const cachedTopics = await trendingTopicsCache.get();
 
     if (cachedTopics.length > 0) {

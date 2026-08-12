@@ -68,9 +68,11 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
   }
 }
 
-export async function getTrendingFeed(): Promise<TrendingItem[]> {
+export async function getTrendingFeed(
+  bypassCache = false
+): Promise<TrendingItem[]> {
   const [topics, mentions] = await Promise.all([
-    getTrendingTopics(),
+    getTrendingTopics(bypassCache),
     getTopMentionedUsers(),
   ]);
 

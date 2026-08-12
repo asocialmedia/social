@@ -10,7 +10,7 @@ interface PostMetaProps {
   tags: TagWithCount[];
 }
 
-export function PostMeta({ tags, mentions }: PostMetaProps) {
+export function PostMeta({ mentions, tags }: PostMetaProps) {
   const hasTags = tags.length > 0;
   const hasMentions = mentions.length > 0;
 

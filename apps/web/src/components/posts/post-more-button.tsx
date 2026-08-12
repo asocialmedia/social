@@ -1,12 +1,13 @@
-import type { PostData } from "@asm/db";
+import type { PostData, UserData } from "@asm/db";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Hash, MoreHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
+import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { cn } from "@/lib/utils";
 import DeletePostDialog from "./delete-post-dialog";
 
@@ -20,6 +21,7 @@ export default function PostMoreButton({
   className,
 }: PostMoreButtonProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
   const handleOpenChange = useCallback((open: boolean) => {
@@ -32,6 +34,14 @@ export default function PostMoreButton({
 
   const handleCloseDeleteDialog = useCallback(() => {
     setShowDeleteDialog(false);
+  }, []);
+
+  const handleShowEditDialog = useCallback(() => {
+    setShowEditDialog(true);
+  }, []);
+
+  const handleCloseEditDialog = useCallback(() => {
+    setShowEditDialog(false);
   }, []);
 
   return (
@@ -56,6 +66,15 @@ export default function PostMoreButton({
         >
           <DropdownMenuItem
             className="pill-3d-hover rounded-md px-2 py-2"
+            onClick={handleShowEditDialog}
+          >
+            <span className="flex items-center gap-3">
+              <Hash className="size-4" />
+              Edit tags &amp; mentions
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="pill-3d-hover rounded-md px-2 py-2"
             onClick={handleShowDeleteDialog}
           >
             <span className="flex items-center gap-3 text-destructive">
@@ -70,6 +89,16 @@ export default function PostMoreButton({
         onClose={handleCloseDeleteDialog}
         open={showDeleteDialog}
         post={post}
+      />
+
+      <PostMetaEditorDialog
+        mentions={(post.mentions ?? []).map(
+          (m) => m.user as unknown as UserData
+        )}
+        onClose={handleCloseEditDialog}
+        open={showEditDialog}
+        postId={post.id}
+        tags={post.tags ?? []}
       />
     </>
   );

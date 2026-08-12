@@ -1,9 +1,10 @@
 import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
+import { cache } from "react";
 
 export type SessionResponse = { session: Session; user: User } | null;
 
-export async function getSessionFromApi(): Promise<SessionResponse> {
+export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
   const hdrs = await nextHeaders();
   const cookie = hdrs.get("cookie") || "";
 
@@ -28,43 +29,5 @@ export async function getSessionFromApi(): Promise<SessionResponse> {
     return null;
   }
 
-  if (!sessionData) {
-    return null;
-  }
-
-  try {
-    const tokenUrl = `${authBase}/api/trpc/generateToken`;
-    const tokenRes = await fetch(tokenUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(cookie ? { cookie } : {}),
-      },
-      credentials: "include",
-      cache: "no-store",
-    });
-
-    if (tokenRes.ok) {
-      const tokenResult = await tokenRes.json();
-      if (tokenResult.result?.data?.token) {
-        const validateUrl = `${authBase}/api/trpc/validateToken`;
-        await fetch(validateUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(cookie ? { cookie } : {}),
-          },
-          body: JSON.stringify({
-            token: tokenResult.result.data.token,
-          }),
-          credentials: "include",
-          cache: "no-store",
-        });
-      }
-    }
-  } catch (error) {
-    console.warn("JWT setup failed:", error);
-  }
-
-  return sessionData;
-}
+  return sessionData || null;
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
@@ -93,17 +93,20 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ index, item }) => {
 };
 
 const TrendingTopics: React.FC = () => {
-  const { data, isFetching, isLoading, refetch } = useQuery<TrendingItem[]>({
+  const queryClient = useQueryClient();
+  const { data, isFetching, isLoading } = useQuery<TrendingItem[]>({
     queryKey: ["trending-feed"],
-    queryFn: getTrendingFeed,
+    queryFn: () => getTrendingFeed(false),
     staleTime: 5 * 60 * 1000,
   });
 
   const items = data ?? [];
 
   const handleRefresh = useCallback(() => {
-    refetch();
-  }, [refetch]);
+    getTrendingFeed(true).then((fresh) => {
+      queryClient.setQueryData(["trending-feed"], fresh);
+    });
+  }, [queryClient]);
 
   if (isLoading) {
     return <TrendingTopicsSkeleton />;

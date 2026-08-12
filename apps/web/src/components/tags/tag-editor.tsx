@@ -172,43 +172,44 @@ export function TagEditor({
         initial="initial"
         variants={containerVariants}
       >
-        <div className="flex min-h-10 flex-wrap gap-2">
-          <AnimatePresence mode="popLayout">
-            {selectedTags.map((tagName) => (
-              <motion.div
-                className="group flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 backdrop-blur-[2px] transition-colors hover:border-primary/30 hover:bg-primary/15"
-                key={tagName}
-                layout
-                variants={tagVariants}
-              >
-                <Hash className="h-3.5 w-3.5 text-primary/70" />
-                <span className="font-medium text-primary text-sm">
-                  {tagName}
-                </span>
-                <button
-                  className="text-primary/50 transition-colors hover:text-primary"
-                  data-tag-name={tagName}
-                  onClick={handleRemoveClick}
-                  type="button"
+        {selectedTags.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            <AnimatePresence mode="popLayout">
+              {selectedTags.map((tagName) => (
+                <motion.div
+                  className="meta-chip meta-chip-tag"
+                  key={tagName}
+                  layout
+                  variants={tagVariants}
                 >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
+                  <Hash className="meta-chip-accent h-3.5 w-3.5" />
+                  <span className="font-medium text-xs">{tagName}</span>
+                  <button
+                    aria-label={`Remove tag ${tagName}`}
+                    className="meta-chip-accent flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive"
+                    data-tag-name={tagName}
+                    onClick={handleRemoveClick}
+                    type="button"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        ) : null}
 
         <div
           className={cn(
-            "relative rounded-lg transition-all duration-200",
-            isFocused && "ring-2 ring-primary/20 ring-offset-1"
+            "relative transition-all duration-200",
+            isFocused && "ring-0"
           )}
         >
-          <Command className="overflow-hidden rounded-lg bg-muted/50">
-            <div className="flex items-center border-border/50 border-b px-3">
-              <Search className="mr-2 h-4 w-4 text-muted-foreground" />
+          <Command className="premium-command overflow-hidden">
+            <div className="flex items-center px-3">
+              <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
               <Command.Input
-                className="h-11 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
+                className="h-9 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
                 onBlur={handleBlur}
                 onFocus={handleFocus}
                 onValueChange={handleSearch}
@@ -216,10 +217,10 @@ export function TagEditor({
                 value={search}
               />
             </div>
-            <Command.List className="max-h-45 overflow-y-auto p-2">
+            <Command.List className="max-h-45 overflow-y-auto p-1.5">
               {search && !suggestions?.includes(search) && (
                 <Command.Item
-                  className="group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm hover:bg-accent"
+                  className="pill-3d-hover group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm"
                   onSelect={handleSelect}
                   value={search}
                 >
@@ -232,7 +233,7 @@ export function TagEditor({
               {suggestions && suggestions.length > 0
                 ? suggestions.map((tagName: string) => (
                     <Command.Item
-                      className="group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm hover:bg-accent"
+                      className="pill-3d-hover group flex cursor-pointer items-center gap-2 rounded-md p-2 text-sm"
                       key={tagName}
                       onSelect={handleSelect}
                       value={tagName}
@@ -252,14 +253,14 @@ export function TagEditor({
 
         <div className="flex justify-end gap-2 pt-2">
           <Button
-            className="hover:bg-destructive/10 hover:text-destructive"
+            className="pill-3d-hover text-muted-foreground"
             onClick={onCloseAction}
             variant="ghost"
           >
             Cancel
           </Button>
           <Button
-            className="min-w-20 bg-primary text-primary-foreground hover:bg-primary/90"
+            className="btn-3d min-w-20 rounded-full px-5 py-2 text-sm"
             disabled={updateTags.isPending}
             onClick={handleSave}
           >
