@@ -67,7 +67,7 @@ export default async function Page(props: PageProps) {
         )}
       </div>
 
-      <div className="sticky top-[5.25rem] hidden h-fit w-80 flex-none lg:block">
+      <div className="sticky top-21 hidden h-fit w-80 flex-none lg:block">
         <div className="space-y-5 rounded-2xl border border-border bg-card p-5 shadow-xs">
           <h2 className="font-bold text-xl">Search</h2>
           <p className="text-muted-foreground">
