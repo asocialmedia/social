@@ -241,13 +241,16 @@ export default function PostEditor() {
   return (
     <div className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300">
       <div className="flex gap-5">
-        <div className="hidden sm:inline">
+        <div className="mt-1 shrink-0">
           <motion.div
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <UserAvatar avatarUrl={userData?.avatarUrl || user.image} />
+            <UserAvatar
+              avatarUrl={userData?.avatarUrl || user.image}
+              className="h-10 w-10"
+            />
           </motion.div>
         </div>
         <div className="w-full">

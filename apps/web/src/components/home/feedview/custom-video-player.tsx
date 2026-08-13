@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface CustomVideoPlayerProps {
+  autoPlay?: boolean;
   captions?: { src: string; label: string; srclang: string }[];
   className?: string;
   onError: () => void;
@@ -51,7 +52,7 @@ const GlassIconButton: React.FC<{
   <button
     aria-label={ariaLabel}
     className={cn(
-      "flex items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:brightness-110 active:translate-y-px",
+      "flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:brightness-110 active:translate-y-px",
       GLASS_BTN_SHADOW
     )}
     onClick={onClick}
@@ -64,6 +65,7 @@ const GlassIconButton: React.FC<{
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Video player aggregates many independent control handlers
 export function CustomVideoPlayer({
+  autoPlay = false,
   src,
   onLoadedData,
   onError,
@@ -94,6 +96,28 @@ export function CustomVideoPlayer({
     },
     []
   );
+
+  // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
+  // block unmuted autoplay until the user interacts, so start muted and mirror
+  // that in the UI. Only report playing once play() actually resolves so the
+  // play/pause state stays in sync with the real playback.
+  useEffect(() => {
+    if (!autoPlay) {
+      return;
+    }
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    video.muted = true;
+    setIsMuted(true);
+    video
+      .play()
+      .then(() => setIsPlaying(true))
+      .catch(() => {
+        setIsPlaying(false);
+      });
+  }, [autoPlay]);
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
@@ -146,6 +170,9 @@ export function CustomVideoPlayer({
     if (videoRef.current) {
       if (videoRef.current && newVolume !== undefined) {
         videoRef.current.volume = newVolume;
+        // Unmute as soon as the user raises the volume above zero so the video
+        // element's muted flag stays in sync with the slider.
+        videoRef.current.muted = newVolume === 0;
       }
       if (newVolume !== undefined) {
         setVolume(newVolume);
@@ -340,7 +367,8 @@ export function CustomVideoPlayer({
     >
       <video
         className="h-full w-full select-none outline-hidden focus:outline-hidden focus-visible:outline-none"
-        muted
+        loop
+        muted={isMuted}
         onClick={handlePlayPause}
         onError={onError}
         onLoadedData={onLoadedData}
@@ -360,12 +388,6 @@ export function CustomVideoPlayer({
           />
         ))}
       </video>
-
-      <div className="absolute top-4 left-4 z-40 opacity-30 transition-opacity duration-300 hover:opacity-60">
-        <span className="font-medium text-sm text-white drop-shadow-lg">
-          Asocialmedia
-        </span>
-      </div>
 
       <div className="absolute inset-0 z-30 flex select-none">
         <button
@@ -406,7 +428,7 @@ export function CustomVideoPlayer({
             initial={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           >
-            <div className="flex items-center justify-end gap-2 p-4">
+            <div className="flex items-center justify-end gap-3 p-5">
               <div className="relative">
                 <TooltipProvider>
                   <Tooltip>
@@ -415,7 +437,7 @@ export function CustomVideoPlayer({
                         aria-label="Playback settings"
                         onClick={handleToggleSpeedMenu}
                       >
-                        <Settings className="h-4 w-4 text-white" />
+                        <Settings className="h-5 w-5 text-white" />
                       </GlassIconButton>
                     </TooltipTrigger>
                     <TooltipContent
@@ -481,9 +503,9 @@ export function CustomVideoPlayer({
                       onClick={toggleFullscreen}
                     >
                       {isFullscreen ? (
-                        <MinimizeIcon className="h-4 w-4 text-white" />
+                        <MinimizeIcon className="h-5 w-5 text-white" />
                       ) : (
-                        <Maximize className="h-4 w-4 text-white" />
+                        <Maximize className="h-5 w-5 text-white" />
                       )}
                     </GlassIconButton>
                   </TooltipTrigger>
@@ -494,7 +516,7 @@ export function CustomVideoPlayer({
               </TooltipProvider>
             </div>
 
-            <div className="space-y-2 p-4">
+            <div className="space-y-3 p-5">
               {/** biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video progress controls need mouse interactions */}
               {/** biome-ignore lint/a11y/useSemanticElements: Video progress controls should use semantic elements */}
               <div
@@ -504,21 +526,21 @@ export function CustomVideoPlayer({
                 role="region"
               >
                 <Slider
-                  className="h-1 transition-all group-hover:h-1.5 [&>[role=slider]]:border-orange-400/70 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500] [&>span:first-child]:bg-white/20"
+                  className="h-1.5 transition-all group-hover:h-2 [&>[role=slider]]:border-orange-400/70 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500] [&>span:first-child]:bg-white/20"
                   max={duration}
                   min={0}
                   onValueChange={handleProgressChange}
                   step={0.1}
                   value={[currentTime]}
                 />
-                <div className="mt-1 flex justify-between text-white/80 text-xs">
+                <div className="mt-1.5 flex justify-between text-sm text-white/80">
                   <span>{formatTime(currentTime)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
               </div>
 
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -526,7 +548,7 @@ export function CustomVideoPlayer({
                           aria-label="Rewind 10 seconds"
                           onClick={handleSkipBack}
                         >
-                          <Rewind className="h-5 w-5 text-white" />
+                          <Rewind className="h-6 w-6 text-white" />
                         </GlassIconButton>
                       </TooltipTrigger>
                       <TooltipContent side="top">
@@ -541,16 +563,16 @@ export function CustomVideoPlayer({
                         <button
                           aria-label={isPlaying ? "Pause" : "Play"}
                           className={cn(
-                            "flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px",
+                            "flex h-14 w-14 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px",
                             ORANGE_BTN_SHADOW
                           )}
                           onClick={handlePlayPause}
                           type="button"
                         >
                           {isPlaying ? (
-                            <Pause className="h-6 w-6" />
+                            <Pause className="h-7 w-7" />
                           ) : (
-                            <Play className="ml-0.5 h-6 w-6" />
+                            <Play className="ml-0.5 h-7 w-7" />
                           )}
                         </button>
                       </TooltipTrigger>
@@ -567,7 +589,7 @@ export function CustomVideoPlayer({
                           aria-label="Forward 10 seconds"
                           onClick={handleSkipForward}
                         >
-                          <FastForward className="h-5 w-5 text-white" />
+                          <FastForward className="h-6 w-6 text-white" />
                         </GlassIconButton>
                       </TooltipTrigger>
                       <TooltipContent side="top">
@@ -577,7 +599,7 @@ export function CustomVideoPlayer({
                   </TooltipProvider>
                 </div>
 
-                <div className="relative flex items-center gap-2">
+                <div className="relative flex items-center gap-3">
                   <div className="relative flex items-center">
                     <TooltipProvider>
                       <Tooltip>
@@ -588,9 +610,9 @@ export function CustomVideoPlayer({
                             onMouseEnter={handleVolumeSliderMouseEnter}
                           >
                             {isMuted || volume === 0 ? (
-                              <VolumeX className="h-4 w-4 text-white" />
+                              <VolumeX className="h-6 w-6 text-white" />
                             ) : (
-                              <Volume2 className="h-4 w-4 text-white" />
+                              <Volume2 className="h-6 w-6 text-white" />
                             )}
                           </GlassIconButton>
                         </TooltipTrigger>
@@ -606,16 +628,16 @@ export function CustomVideoPlayer({
                     <AnimatePresence>
                       {showVolumeSlider ? (
                         <motion.div
-                          animate={{ width: "140px", opacity: 1 }}
-                          className="ml-2 overflow-hidden"
+                          animate={{ width: "160px", opacity: 1 }}
+                          className="ml-3 overflow-hidden"
                           exit={{ width: 0, opacity: 0 }}
                           initial={{ width: 0, opacity: 0 }}
                           onMouseLeave={handleVolumeSliderMouseLeave}
                           transition={{ duration: 0.2 }}
                         >
-                          <div className="flex items-center gap-3 rounded-full bg-black/40 px-3 py-2 backdrop-blur-md">
+                          <div className="flex items-center gap-3 rounded-full bg-black/40 px-4 py-2.5 backdrop-blur-md">
                             <Slider
-                              className="relative flex h-4 w-full touch-none select-none items-center [&>[role=slider]]:border-orange-400/70 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500] [&>span:first-child]:bg-white/20"
+                              className="relative flex h-5 w-full touch-none select-none items-center [&>[role=slider]]:border-orange-400/70 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500] [&>span:first-child]:bg-white/20"
                               max={1}
                               min={0}
                               onValueChange={handleVolumeChange}

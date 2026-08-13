@@ -36,6 +36,7 @@ export const config: NextConfig = {
       { protocol: "https", hostname: "pbs.twimg.com" },
       { protocol: "https", hostname: "styles.redditmedia.com" },
     ],
+    qualities: [100, 75],
     unoptimized: process.env.NODE_ENV === "development",
   },
 };

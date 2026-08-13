@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { getCommentDataInclude, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(
@@ -31,16 +31,7 @@ export async function GET(
   const comments = await prisma.comment.findMany({
     where: { postId },
     orderBy: { createdAt: "desc" },
-    include: {
-      user: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-        },
-      },
-    },
+    include: getCommentDataInclude(user.id),
   });
 
   return Response.json({

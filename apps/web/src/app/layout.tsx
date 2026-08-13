@@ -77,7 +77,7 @@ export const metadata: Metadata = {
       },
     ],
   },
-  manifest: "site.webmanifest",
+  manifest: "/site.webmanifest",
   verification: {
     me: ["https://przknv.cc"],
   },

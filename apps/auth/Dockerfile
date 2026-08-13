@@ -11,6 +11,13 @@ COPY apps/auth/ ./apps/auth/
 RUN bun install
 RUN cd packages/db && bunx prisma generate
 WORKDIR /app/apps/auth
+# Both build scripts externalize msgpackr-extract (an optional native addon of
+# bullmq -> msgpackr). Bundling it fails the multi-arch (arm64 via QEMU) build
+# because the prebuilt binary is not installed for the emulated target. At
+# runtime the require is absent from the image, msgpackr's try/catch falls back
+# to its pure-JS codec, and BullMQ's job payloads are small enough that the
+# acceleration loss is negligible. Keeping externalization is an intentional
+# trade-off; remove it only if the native accelerator is ever packaged per-arch.
 RUN bun run build
 RUN bun run build:worker
 

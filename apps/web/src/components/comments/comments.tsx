@@ -43,7 +43,7 @@ export default function Comments({ post }: CommentsProps) {
   }
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className="space-y-3">
       <CommentInput post={post} />
       {hasNextPage ? (
         <Button
