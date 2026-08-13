@@ -12,6 +12,7 @@ import {
   MessagesSquare,
   Moon,
   PenSquare,
+  Search,
   Settings,
   Sun,
   User,
@@ -43,6 +44,7 @@ interface NavItem {
 
 const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", label: "Home", icon: Home },
+  { href: "/search", label: "Search", icon: Search },
   { href: "/discover", label: "Explore", icon: Compass },
   { href: "/soon?feature=communities", label: "Communities", icon: Users },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
