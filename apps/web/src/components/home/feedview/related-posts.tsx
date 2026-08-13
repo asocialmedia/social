@@ -1,8 +1,10 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useCallback } from "react";
+import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
 import kyInstance from "@/lib/ky";
@@ -17,28 +19,40 @@ const SKELETON_KEYS = Array.from(
   (_, index) => `skeleton-${index}`
 );
 
-// Lightweight related-post list for the media viewer sidebar. Deliberately
-// avoids mounting the full feed (FeedView/PostCard and their view tracking,
-// cache subscription, and infinite scrolling) inside the dialog; each row is
-// a plain link to the post.
+// Related-post list for the media viewer sidebar. Kept lightweight (each row
+// is a plain link, no view tracking / full post card) but paginated via the
+// same cursor-based endpoint + infinite scroll the main feed uses, so the
+// whole backlog is reachable, not a hardcoded handful.
 export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
-  const { data, status } = useQuery({
-    queryKey: ["related-posts", excludePostId],
-    queryFn: async () => {
-      const result = await kyInstance
-        .get("/api/posts/for-you", { searchParams: { take: "6" } })
-        .json<{ posts: PostData[] }>();
-      return result;
-    },
-    staleTime: 30 * 1000,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-  });
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } =
+    useInfiniteQuery({
+      queryKey: ["related-posts", excludePostId],
+      queryFn: async ({ pageParam }) => {
+        const result = await kyInstance
+          .get(
+            "/api/posts/for-you",
+            pageParam ? { searchParams: { cursor: pageParam } } : {}
+          )
+          .json<{ posts: PostData[]; nextCursor: string | null }>();
+        return result;
+      },
+      initialPageParam: null as string | null,
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+      staleTime: 30 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+    });
 
-  const posts = (data?.posts || [])
-    .filter((post) => post.id !== excludePostId)
-    .slice(0, 6);
+  const posts = (data?.pages.flatMap((page) => page.posts) || []).filter(
+    (post) => post.id !== excludePostId
+  );
+
+  const handleBottomReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   if (status === "pending") {
     return (
@@ -62,47 +76,49 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
   }
 
   return (
-    <div className="flex flex-col divide-y divide-border/60">
-      {posts.map((post) => (
-        <Link
-          className="group/post flex gap-3 px-4 py-3 transition-colors hover:bg-[hsl(var(--muted))]"
-          href={`/posts/${post.id}`}
-          key={post.id}
-        >
-          <UserAvatar
-            avatarUrl={post.user.avatarUrl}
-            className="h-8 w-8 shrink-0"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1.5 text-sm">
-              <span className="truncate font-semibold text-foreground">
-                {post.user.displayName}
-              </span>
-              <span className="truncate text-muted-foreground">
-                @{post.user.username}
-              </span>
-              <span className="shrink-0 text-muted-foreground">·</span>
-              <span
-                className="shrink-0 text-muted-foreground"
-                suppressHydrationWarning
-              >
-                {formatRelativeDate(post.createdAt)}
-              </span>
+    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+      <div className="flex flex-col divide-y divide-border/60">
+        {posts.map((post) => (
+          <Link
+            className="group/post flex gap-3 px-4 py-3 transition-colors hover:bg-[hsl(var(--muted))]"
+            href={`/posts/${post.id}`}
+            key={post.id}
+          >
+            <UserAvatar
+              avatarUrl={post.user.avatarUrl}
+              className="h-8 w-8 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5 text-sm">
+                <span className="truncate font-semibold text-foreground">
+                  {post.user.displayName}
+                </span>
+                <span className="truncate text-muted-foreground">
+                  @{post.user.username}
+                </span>
+                <span className="shrink-0 text-muted-foreground">·</span>
+                <span
+                  className="shrink-0 text-muted-foreground"
+                  suppressHydrationWarning
+                >
+                  {formatRelativeDate(post.createdAt)}
+                </span>
+              </div>
+              <Linkify>
+                <p className="wrap-break-word mt-0.5 line-clamp-2 whitespace-pre-wrap text-foreground text-sm">
+                  {post.content}
+                </p>
+              </Linkify>
+              {post.attachments.length > 0 ? (
+                <p className="mt-1 text-muted-foreground text-xs">
+                  {post.attachments.length} attachment
+                  {post.attachments.length > 1 ? "s" : ""}
+                </p>
+              ) : null}
             </div>
-            <Linkify>
-              <p className="wrap-break-word mt-0.5 line-clamp-2 whitespace-pre-wrap text-foreground text-sm">
-                {post.content}
-              </p>
-            </Linkify>
-            {post.attachments.length > 0 ? (
-              <p className="mt-1 text-muted-foreground text-xs">
-                {post.attachments.length} attachment
-                {post.attachments.length > 1 ? "s" : ""}
-              </p>
-            ) : null}
-          </div>
-        </Link>
-      ))}
-    </div>
+          </Link>
+        ))}
+      </div>
+    </InfiniteScrollContainer>
   );
 }
