@@ -242,7 +242,7 @@ describe("preflight ui helpers", () => {
     states.set("portless", "cached");
 
     expect(buildPreflightProgressLine(states)).toBe(
-      "preflight svc:ok init:wait pg:... rd:wait obj:wait mei:wait ozo:wait ptl:cache"
+      "preflight svc:ok init:wait pg:... rd:wait obj:wait ozo:wait ptl:cache"
     );
   });
 });
