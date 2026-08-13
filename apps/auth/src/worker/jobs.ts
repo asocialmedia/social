@@ -1,12 +1,10 @@
 import { hackerNewsAPI } from "@asm/aggregator/hackernews";
 import {
-  cancelMediaCleanup,
   deleteObject,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
   redis,
-  scheduleMediaCleanup,
   unreadNotificationCache,
 } from "@asm/db";
 
@@ -19,8 +17,6 @@ export interface PostDeletedJobData {
 export interface InactiveUserJobData {
   userId: string;
 }
-
-const MEDIA_CLEANUP_DELAY = 24 * 60 * 60 * 1000;
 
 export async function processPostDeleted({ postId }: PostDeletedJobData) {
   // Load all attachments of the deleted post, delete their objects, then the
@@ -102,14 +98,3 @@ export async function processExpiredTokens() {
     where: { expiresAt: { lt: new Date() } },
   });
 }
-
-// Schedules the delayed media-cleanup job for an uploaded file and returns a
-// cancel function used when the media gets attached to a post.
-export function scheduleMediaCleanupForUpload(mediaId: string) {
-  scheduleMediaCleanup(mediaId).catch((error: unknown) => {
-    console.error(`Failed to schedule media cleanup for ${mediaId}:`, error);
-  });
-  return () => cancelMediaCleanup(mediaId);
-}
-
-export const MEDIA_CLEANUP_DELAY_MS = MEDIA_CLEANUP_DELAY;

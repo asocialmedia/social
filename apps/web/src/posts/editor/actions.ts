@@ -3,6 +3,7 @@
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createPostSchema } from "@asm/auth/validation";
 import {
+  cancelMediaCleanup,
   enqueueNotificationCreated,
   getPostDataInclude,
   postViewsCache,
@@ -180,6 +181,17 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           hnStoryShare: true,
         },
       });
+
+      // The media is now attached to a post, so the abandoned-upload cleanup
+      // jobs must not delete it.
+      for (const mediaId of validatedInput.mediaIds) {
+        cancelMediaCleanup(mediaId).catch((error: unknown) => {
+          console.error(
+            `Failed to cancel media cleanup for ${mediaId}:`,
+            error
+          );
+        });
+      }
 
       if (input.hnStory) {
         await tx.hNStoryShare.create({

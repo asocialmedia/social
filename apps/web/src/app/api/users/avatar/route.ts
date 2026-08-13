@@ -30,6 +30,31 @@ export async function POST(request: Request) {
         ? result.url.replace("http://", "https://")
         : result.url;
 
+    // Update the DB row first. If it fails, the freshly-uploaded object is
+    // orphaned, so delete it to avoid leaking storage.
+    let updatedUser: import("@asm/db").User | null = null;
+    try {
+      updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          avatarUrl,
+          avatarKey: result.key,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Failed to persist avatar, deleting uploaded object:",
+        error
+      );
+      try {
+        await deleteAvatar(result.key);
+      } catch (cleanupError) {
+        console.error("Failed to delete orphaned avatar object:", cleanupError);
+      }
+      throw error;
+    }
+
+    // Only after the DB write succeeds, remove the old avatar object.
     if (oldAvatarKey) {
       try {
         await deleteAvatar(oldAvatarKey);
@@ -38,14 +63,6 @@ export async function POST(request: Request) {
         console.error("Failed to delete old avatar:", deleteError);
       }
     }
-
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        avatarUrl,
-        avatarKey: result.key,
-      },
-    });
 
     await avatarCache.set(userId, {
       url: avatarUrl,
@@ -81,8 +98,8 @@ export async function DELETE(request: Request) {
     if (!(avatarKey && userId)) {
       return new NextResponse("Missing required fields", { status: 400 });
     }
-    await deleteAvatar(avatarKey);
 
+    // Clear the DB reference first; if that fails, the avatar stays intact.
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
@@ -92,6 +109,13 @@ export async function DELETE(request: Request) {
     });
 
     await avatarCache.del(userId);
+
+    // Best-effort removal of the object from storage.
+    try {
+      await deleteAvatar(avatarKey);
+    } catch (error) {
+      console.error("Failed to delete avatar object:", error);
+    }
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {

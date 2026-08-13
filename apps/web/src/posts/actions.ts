@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  enqueuePostDeleted,
   getPostDataInclude,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
@@ -41,6 +42,12 @@ export async function deletePost(id: string) {
   } catch (error) {
     console.error("Error cleaning up Redis cache for deleted post:", error);
   }
+
+  // The worker deletes the post's media objects + rows (fixes the orphaned
+  // media leak caused by the SetNull FK).
+  enqueuePostDeleted(id).catch((error: unknown) => {
+    console.error("Failed to enqueue post-deleted event:", error);
+  });
 
   return deletedPost;
 }
