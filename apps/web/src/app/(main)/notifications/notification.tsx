@@ -119,11 +119,11 @@ export default function Notification({ notification }: NotificationProps) {
 
       <button
         aria-label="Dismiss notification"
-        className="mt-1 shrink-0 rounded-full p-1 text-muted-foreground opacity-0 outline-none transition-all duration-150 hover:bg-border/60 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary group-hover:opacity-100"
+        className="icon-btn-3d mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-0 outline-none transition-all duration-150 focus-visible:opacity-100 group-hover:opacity-100"
         onClick={handleDismiss}
         type="button"
       >
-        <X className="h-4 w-4" />
+        <X className="h-3.5 w-3.5" />
       </button>
     </div>
   );
