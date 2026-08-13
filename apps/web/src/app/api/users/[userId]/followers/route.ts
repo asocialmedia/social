@@ -1,5 +1,11 @@
 import { debugLog } from "@asm/config/debug";
-import { type FollowerInfo, followerInfoCache, prisma } from "@asm/db";
+import {
+  enqueueNotificationCreated,
+  enqueueNotificationDeleted,
+  type FollowerInfo,
+  followerInfoCache,
+  prisma,
+} from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
@@ -50,6 +56,10 @@ export async function POST(
             recipientId: userId,
             type: "FOLLOW",
           },
+        });
+
+        enqueueNotificationCreated(userId).catch((error: unknown) => {
+          console.error("Failed to enqueue follow notification event:", error);
         });
 
         await tx.user.update({
@@ -217,6 +227,13 @@ export async function DELETE(
             recipientId: userId,
             type: "FOLLOW",
           },
+        });
+
+        enqueueNotificationDeleted(userId).catch((error: unknown) => {
+          console.error(
+            "Failed to enqueue unfollow notification event:",
+            error
+          );
         });
 
         await tx.user.update({

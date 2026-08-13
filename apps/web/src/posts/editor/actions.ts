@@ -2,7 +2,13 @@
 
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createPostSchema } from "@asm/auth/validation";
-import { getPostDataInclude, postViewsCache, prisma, tagCache } from "@asm/db";
+import {
+  enqueueNotificationCreated,
+  getPostDataInclude,
+  postViewsCache,
+  prisma,
+  tagCache,
+} from "@asm/db";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -203,6 +209,15 @@ export async function submitPost(input: ExtendedCreatePostInput) {
             })
           )
         );
+
+        for (const userId of validatedInput.mentions) {
+          enqueueNotificationCreated(userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue mention notification event:",
+              error
+            );
+          });
+        }
       }
 
       await tx.user.update({
@@ -375,6 +390,15 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
             postId,
           })),
         });
+
+        for (const userId of mentions) {
+          enqueueNotificationCreated(userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue mention notification event:",
+              error
+            );
+          });
+        }
       }
 
       return await tx.post.findUnique({

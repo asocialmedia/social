@@ -1,4 +1,4 @@
-import { NotificationType, prisma } from "@asm/db";
+import { enqueueNotificationCreated, NotificationType, prisma } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -75,6 +75,12 @@ export async function POST(
       );
 
       await Promise.all([...mentionPromises, ...notificationPromises]);
+
+      for (const userId of filteredUserIds) {
+        enqueueNotificationCreated(userId).catch((error: unknown) => {
+          console.error("Failed to enqueue mention notification event:", error);
+        });
+      }
     });
 
     const updatedMentions = await prisma.mention.findMany({

@@ -1,4 +1,10 @@
-import { getPostDataInclude, type PostData, prisma } from "@asm/db";
+import {
+  enqueueNotificationCreated,
+  enqueueNotificationDeleted,
+  getPostDataInclude,
+  type PostData,
+  prisma,
+} from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
@@ -135,6 +141,12 @@ export async function POST(
               postId,
             },
           });
+          enqueueNotificationCreated(post.userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue amplify notification event:",
+              error
+            );
+          });
         } else if (value !== 1 && oldValue === 1) {
           await tx.notification.deleteMany({
             where: {
@@ -143,6 +155,12 @@ export async function POST(
               issuerId: user.id,
               postId,
             },
+          });
+          enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue amplify removal notification event:",
+              error
+            );
           });
         }
       }
@@ -251,6 +269,12 @@ export async function DELETE(
             issuerId: user.id,
             postId,
           },
+        });
+        enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
+          console.error(
+            "Failed to enqueue amplify removal notification event:",
+            error
+          );
         });
       }
 

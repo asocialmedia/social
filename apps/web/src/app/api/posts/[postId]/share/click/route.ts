@@ -1,4 +1,4 @@
-import { shareStatsCache } from "@asm/db";
+import { enqueueShareEvent, shareStatsCache } from "@asm/db";
 import { type NextRequest, NextResponse } from "next/server";
 
 export async function POST(
@@ -23,6 +23,9 @@ export async function POST(
     }
 
     const clicks = await shareStatsCache.incrementClick(postId, platform);
+    enqueueShareEvent(postId, platform, "click").catch((error: unknown) => {
+      console.error("Failed to enqueue click event:", error);
+    });
     return NextResponse.json({ clicks });
   } catch (error) {
     console.error("Error tracking click:", error);
