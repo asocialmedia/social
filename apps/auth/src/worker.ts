@@ -29,11 +29,30 @@ if (import.meta.main) {
   const workers: QueueWorkerType[] = [];
   let viewLoopPromise: Promise<void> | undefined;
   let shareLoopPromise: Promise<void> | undefined;
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let running = true;
 
   const start = async () => {
     await ensureStreamGroups();
     await registerMaintenanceSchedulers();
+
+    // Heartbeat written to Redis so the web /api/health endpoint can report
+    // whether the worker process is alive.
+    const HEARTBEAT_KEY = "worker:heartbeat";
+    const HEARTBEAT_TTL = 30;
+    const heartbeat = async () => {
+      if (!running) {
+        return;
+      }
+      try {
+        const { redis } = await import("@asm/db");
+        await redis.set(HEARTBEAT_KEY, String(Date.now()), "EX", HEARTBEAT_TTL);
+      } catch (error) {
+        logger.error({ error }, "worker heartbeat failed");
+      }
+    };
+    await heartbeat();
+    heartbeatTimer = setInterval(heartbeat, 10_000);
 
     // Stream consumers (blocking loops, one per stream).
     const runViewLoop = consumeViewStream.bind(
@@ -143,6 +162,9 @@ if (import.meta.main) {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "shutting down worker");
     running = false;
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+    }
     await Promise.all([
       ...workers.map((worker) => worker.close()),
       viewLoopPromise,

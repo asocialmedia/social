@@ -19,6 +19,7 @@ import {
 } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
+import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
@@ -47,28 +48,31 @@ type ExtendedPostData = PostData & {
 
 interface PostCardProps {
   detail?: boolean;
+  initialMediaIndex?: number;
   isJoined?: boolean;
   post: ExtendedPostData;
 }
 
 interface PostContentProps {
   currentUserId: string;
+  detail: boolean;
+  initialMediaIndex?: number;
   isExpanded: boolean;
   isJoined: boolean;
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
-  showComments: boolean;
 }
 
 const PostContent: React.FC<PostContentProps> = ({
   currentUserId,
+  detail,
   isExpanded,
   isJoined,
   onToggleComments,
   onToggleExpand,
   post,
-  showComments,
+  initialMediaIndex,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -78,7 +82,18 @@ const PostContent: React.FC<PostContentProps> = ({
     if (!el) {
       return;
     }
-    setIsOverflowing(el.scrollHeight > el.clientHeight);
+    // Content collapses to 6 lines (line-clamp-6). Compare the full content
+    // height against 6 rendered lines so short posts never get a toggle, even
+    // when the post is shown fully expanded (detail view).
+    const paragraph = el.querySelector("p");
+    const computedLineHeight = paragraph
+      ? Number.parseFloat(getComputedStyle(paragraph).lineHeight)
+      : 0;
+    const lineHeight =
+      Number.isFinite(computedLineHeight) && computedLineHeight > 0
+        ? computedLineHeight
+        : 24;
+    setIsOverflowing(el.scrollHeight > lineHeight * 6);
   }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: isExpanded must retrigger the overflow re-measure after collapse
@@ -103,40 +118,95 @@ const PostContent: React.FC<PostContentProps> = ({
 
   return (
     <div className="flex gap-3">
-      <UserTooltip user={post.user}>
-        <Link className="shrink-0" href={`/users/${post.user.username}`}>
-          <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
-        </Link>
-      </UserTooltip>
+      {!detail && (
+        <UserTooltip user={post.user}>
+          <Link className="shrink-0" href={`/users/${post.user.username}`}>
+            <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
+          </Link>
+        </UserTooltip>
+      )}
 
       <div className="min-w-0 flex-1">
         <div className="relative flex items-start gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 pr-16 text-sm">
+          {detail ? (
             <UserTooltip user={post.user}>
-              <Link
-                className="truncate font-semibold text-foreground hover:underline"
-                href={`/users/${post.user.username}`}
-              >
-                {post.user.displayName}
+              <Link className="shrink-0" href={`/users/${post.user.username}`}>
+                <UserAvatar
+                  avatarUrl={post.user.avatarUrl}
+                  className="h-12 w-12"
+                />
               </Link>
             </UserTooltip>
-            <UserTooltip user={post.user}>
+          ) : null}
+
+          {detail ? (
+            <div className="min-w-0 flex-1 pr-16">
+              <div className="flex min-w-0 items-center gap-2">
+                <UserTooltip user={post.user}>
+                  <Link
+                    className="truncate font-semibold text-foreground hover:underline"
+                    href={`/users/${post.user.username}`}
+                  >
+                    {post.user.displayName}
+                  </Link>
+                </UserTooltip>
+                <Link
+                  className="shrink-0 text-muted-foreground hover:underline"
+                  href={`/posts/${post.id}`}
+                  suppressHydrationWarning
+                >
+                  {formatRelativeDate(post.createdAt)}
+                </Link>
+              </div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                <UserTooltip user={post.user}>
+                  <Link
+                    className="truncate text-muted-foreground hover:underline"
+                    href={`/users/${post.user.username}`}
+                  >
+                    @{post.user.username}
+                  </Link>
+                </UserTooltip>
+                {post.user.id === currentUserId ? null : (
+                  <FollowButton
+                    className="h-7 px-3 text-xs"
+                    initialState={{
+                      followers: post.user._count?.followers ?? 0,
+                      isFollowedByUser: post.user.followers.length > 0,
+                    }}
+                    userId={post.user.id}
+                  />
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-2 pr-16 text-sm">
+              <UserTooltip user={post.user}>
+                <Link
+                  className="truncate font-semibold text-foreground hover:underline"
+                  href={`/users/${post.user.username}`}
+                >
+                  {post.user.displayName}
+                </Link>
+              </UserTooltip>
+              <UserTooltip user={post.user}>
+                <Link
+                  className="truncate text-muted-foreground hover:underline"
+                  href={`/users/${post.user.username}`}
+                >
+                  @{post.user.username}
+                </Link>
+              </UserTooltip>
+              <span className="shrink-0 text-muted-foreground">·</span>
               <Link
-                className="truncate text-muted-foreground hover:underline"
-                href={`/users/${post.user.username}`}
+                className="shrink-0 text-muted-foreground hover:underline"
+                href={`/posts/${post.id}`}
+                suppressHydrationWarning
               >
-                @{post.user.username}
+                {formatRelativeDate(post.createdAt)}
               </Link>
-            </UserTooltip>
-            <span className="shrink-0 text-muted-foreground">·</span>
-            <Link
-              className="shrink-0 text-muted-foreground hover:underline"
-              href={`/posts/${post.id}`}
-              suppressHydrationWarning
-            >
-              {formatRelativeDate(post.createdAt)}
-            </Link>
-          </div>
+            </div>
+          )}
 
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
             {post.user.id === currentUserId && (
@@ -164,7 +234,7 @@ const PostContent: React.FC<PostContentProps> = ({
             </p>
           </div>
         </Linkify>
-        {isExpanded || isOverflowing ? (
+        {isOverflowing ? (
           <button
             className="mt-1 cursor-pointer font-medium text-primary text-sm hover:underline"
             onClick={onToggleExpand}
@@ -184,7 +254,10 @@ const PostContent: React.FC<PostContentProps> = ({
           <div className="mt-2.5 max-w-full overflow-hidden">
             <MediaPreviews
               attachments={post.attachments}
+              autoPlayVideos={detail}
+              initialMediaIndex={initialMediaIndex}
               interactive={!isJoined}
+              post={post}
             />
           </div>
         )}
@@ -225,7 +298,6 @@ const PostContent: React.FC<PostContentProps> = ({
             />
           </div>
         </div>
-        {showComments ? <Comments post={post} /> : null}
       </div>
     </div>
   );
@@ -255,6 +327,7 @@ const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
   isJoined = false,
   detail = false,
+  initialMediaIndex,
 }) => {
   const { user } = useSession();
   const router = useRouter();
@@ -312,6 +385,25 @@ const PostCard: React.FC<PostCardProps> = ({
     [detail, post.id, router]
   );
 
+  const body = (
+    <PostContent
+      currentUserId={currentUserId}
+      detail={detail}
+      initialMediaIndex={initialMediaIndex}
+      isExpanded={isExpanded}
+      isJoined={isJoined}
+      onToggleComments={handleToggleComments}
+      onToggleExpand={handleToggleExpand}
+      post={post}
+    />
+  );
+
+  const commentsSection = showComments ? (
+    <div className="border-border/60 border-t px-4 pt-2 pb-4">
+      <Comments post={post} />
+    </div>
+  ) : null;
+
   return (
     <motion.div
       animate={{ opacity: 1 }}
@@ -326,35 +418,23 @@ const PostCard: React.FC<PostCardProps> = ({
       <ViewTracker postId={post.id} />
       {isJoined ? (
         <div
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
+          className={`group/post rounded-none bg-[hsl(var(--background-alt))] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
-          <div className={`p-4 ${post.hnStoryShare ? "pl-5" : ""}`}>
-            <PostContent
-              currentUserId={currentUserId}
-              isExpanded={isExpanded}
-              isJoined={isJoined}
-              onToggleComments={handleToggleComments}
-              onToggleExpand={handleToggleExpand}
-              post={post}
-              showComments={showComments}
-            />
+          <div
+            className={`p-4 transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "pl-5" : ""}`}
+          >
+            {body}
           </div>
+          {commentsSection}
         </div>
       ) : (
         <Card
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] shadow-none transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
+          className={`group/post rounded-none bg-[hsl(var(--background-alt))] shadow-none ${detail ? "border-x-0 border-b-0" : ""} ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
-          <CardContent className="p-4">
-            <PostContent
-              currentUserId={currentUserId}
-              isExpanded={isExpanded}
-              isJoined={isJoined}
-              onToggleComments={handleToggleComments}
-              onToggleExpand={handleToggleExpand}
-              post={post}
-              showComments={showComments}
-            />
+          <CardContent className="p-4 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+            {body}
           </CardContent>
+          {commentsSection}
         </Card>
       )}
     </motion.div>

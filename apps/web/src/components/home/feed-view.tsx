@@ -8,6 +8,7 @@ import PostCard from "./feedview/post-card";
 
 interface FeedViewProps {
   cacheKey?: QueryKey;
+  excludePostId?: string;
   posts: PostData[];
   sortBy?: "newest" | "server";
 }
@@ -15,6 +16,7 @@ interface FeedViewProps {
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   cacheKey = ["post-feed", "for-you"],
+  excludePostId,
   sortBy = "newest",
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
@@ -31,9 +33,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
         });
 
         if (feedQueries.length > 0) {
-          const updatedPosts = feedQueries.flatMap(([, data]) =>
-            (data?.pages?.flatMap((page) => page.posts) || []).filter(Boolean)
-          );
+          const updatedPosts = feedQueries
+            .flatMap(([, data]) =>
+              (data?.pages?.flatMap((page) => page.posts) || []).filter(Boolean)
+            )
+            .filter((post) => post.id !== excludePostId);
 
           if (updatedPosts.length) {
             const uniquePosts = Array.from(
@@ -48,10 +52,12 @@ export const FeedView: React.FC<FeedViewProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [cacheKey, queryClient]);
+  }, [cacheKey, excludePostId, queryClient]);
 
   useEffect(() => {
-    const safeInitial = (initialPosts || []).filter(Boolean);
+    const safeInitial = (initialPosts || [])
+      .filter(Boolean)
+      .filter((post) => post.id !== excludePostId);
     const initialFirstId = safeInitial[0]?.id;
     const currentFirstId = posts[0]?.id;
     if (
@@ -64,7 +70,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
       );
       setPosts(uniquePosts);
     }
-  }, [initialPosts, posts]);
+  }, [excludePostId, initialPosts, posts]);
 
   const sortedPosts = useMemo(() => {
     if (sortBy === "server") {

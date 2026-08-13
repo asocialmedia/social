@@ -3,6 +3,7 @@
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Separator } from "@asm/ui/shadui/separator";
+import asmLogo from "@assets/asm.png";
 import {
   Bell,
   Bookmark,
@@ -100,12 +101,13 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   return (
     <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-border/60 border-r px-5 pt-2.5 pb-5 lg:flex">
       <Link className="mb-8 block px-2" href="/">
-        <div className="relative h-10 w-10">
+        <div className="relative h-11 w-[58px]">
           <Image
             alt="Asocialmedia"
+            className="object-contain"
             fill
-            sizes="40px"
-            src="/asocialmedialogo.svg"
+            sizes="58px"
+            src={asmLogo}
           />
         </div>
       </Link>

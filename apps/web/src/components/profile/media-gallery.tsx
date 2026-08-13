@@ -7,10 +7,10 @@ import {
   FileIcon,
   ImageIcon,
   Loader2,
-  ScanSearch,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
@@ -193,11 +193,6 @@ const renderMediaTile = (item: Media) => {
         unoptimized
       />
       <div className="absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10" />
-      <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-        <span className="rounded-full bg-black/50 p-2 backdrop-blur-xs">
-          <ScanSearch className="h-4 w-4 text-white" />
-        </span>
-      </span>
     </div>
   );
 };
@@ -257,6 +252,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
 }) => {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const router = useRouter();
 
   const {
     data,
@@ -280,23 +276,18 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
 
   const handleSelect = useCallback(
     (item: Media, index: number) => {
-      const postMedia = media.filter(
-        (m) => m.postId !== null && m.postId === item.postId
-      );
-      if (postMedia.length > 0) {
-        setSelectedMedia(item);
-        setSelectedIndex(
-          Math.max(
-            postMedia.findIndex((m) => m.id === item.id),
-            0
-          )
-        );
+      if (item.postId) {
+        // Open the shareable post media detail page instead of the inline
+        // viewer. The gallery lists media newest-first while the destination
+        // indexes post.attachments, so pass the media ID and let the route
+        // resolve the true index server-side.
+        router.push(`/posts/${item.postId}/media/0?mediaId=${item.id}`);
         return;
       }
       setSelectedMedia(item);
       setSelectedIndex(index);
     },
-    [media]
+    [router]
   );
 
   const handleCloseViewer = useCallback(() => {

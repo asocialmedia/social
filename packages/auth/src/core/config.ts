@@ -184,6 +184,14 @@ export function createAuthConfig(config: AuthConfig = {}) {
           required: true,
           defaultValue: "user",
         },
+        avatarUrl: {
+          type: "string",
+          required: false,
+        },
+        avatarKey: {
+          type: "string",
+          required: false,
+        },
       },
     },
 

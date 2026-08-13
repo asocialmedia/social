@@ -8,27 +8,42 @@ const DEBUG = process.env.NODE_ENV === "development";
 
 const noop = (..._args: unknown[]): void => undefined;
 
-// Escapes a single control character for safe embedding in a log line.
-function escapeControlChar(char: string): string {
-  if (char === "\n") {
+// Escapes a single control character for safe embedding in a log line. ASCII
+// whitespace gets readable names; everything else (C0/C1 controls, DEL, the
+// Unicode line/paragraph separators) becomes an explicit four-digit \uXXXX
+// escape so the sink can never be coerced into rendering a line break.
+function escapeControlChar(code: number): string {
+  if (code === 0x0a) {
     return "\\n";
   }
-  if (char === "\r") {
+  if (code === 0x0d) {
     return "\\r";
   }
-  if (char === "\t") {
+  if (code === 0x09) {
     return "\\t";
   }
-  return `\\x${char.charCodeAt(0).toString(16).padStart(2, "0")}`;
+  return `\\u${code.toString(16).padStart(4, "0")}`;
 }
 
-// Sanitizes a string so embedded newlines/control characters cannot inject
-// fake log lines (CodeQL "log injection").
+// True for characters that can inject or corrupt a log line: C0 controls
+// (0x00-0x1F), DEL and C1 controls (0x7F-0x9F), plus the Unicode line and
+// paragraph separators U+2028 and U+2029.
+function isControlChar(code: number): boolean {
+  return (
+    code < 0x20 ||
+    (code >= 0x7f && code <= 0x9f) ||
+    code === 0x20_28 ||
+    code === 0x20_29
+  );
+}
+
+// Sanitizes a string so embedded control characters cannot inject fake log
+// lines (CodeQL "log injection").
 function sanitizeString(value: string): string {
   let result = "";
   for (const char of value) {
     const code = char.charCodeAt(0);
-    result += code < 0x20 || code === 0x7f ? escapeControlChar(char) : char;
+    result += isControlChar(code) ? escapeControlChar(code) : char;
   }
   return result;
 }
@@ -42,7 +57,9 @@ function sanitize(value: unknown): unknown {
     return sanitizeString(value);
   }
   if (value instanceof Error) {
-    return sanitizeString(`${value.name}: ${value.message}`);
+    // Keep the full stack when present so server-side failures stay
+    // traceable in dev; fall back to name + message if no stack exists.
+    return sanitizeString(value.stack ?? `${value.name}: ${value.message}`);
   }
   if (value && typeof value === "object") {
     try {

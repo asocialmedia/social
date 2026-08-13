@@ -1,15 +1,44 @@
 import { prisma } from "@asm/db";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
-import {
-  ASMOB_BUCKET,
-  asmobClient,
-  validateBucket,
-} from "@/lib/object-storage";
+import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
 import {
   getContentDisposition,
   shouldDisplayInline,
 } from "@/lib/utils/mime-utils";
+
+export const dynamic = "force-dynamic";
+
+// Object storage rejects invalid or unsatisfiable byte ranges with the
+// InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can
+// retry or resume instead of surfacing a server error. Preserve the
+// storage-reported Content-Range when the SDK attached it.
+function rangeNotSatisfiable(
+  error: unknown,
+  totalSize: number | null
+): NextResponse | null {
+  if (!(error instanceof S3ServiceException)) {
+    return null;
+  }
+  const invalidRange =
+    error.name === "InvalidRange" || error.$metadata.httpStatusCode === 416;
+  if (!invalidRange) {
+    return null;
+  }
+  const headers = new Headers();
+  headers.set("Accept-Ranges", "bytes");
+  const storageContentRange = (
+    error as S3ServiceException & { ContentRange?: string }
+  ).ContentRange;
+  // Only emit a Content-Range when we actually know the total size; a
+  // `bytes */null` header is invalid and worse than omitting it.
+  const contentRange =
+    storageContentRange || (totalSize ? `bytes */${totalSize}` : "");
+  if (contentRange) {
+    headers.set("Content-Range", contentRange);
+  }
+  return new NextResponse("Range Not Satisfiable", { status: 416, headers });
+}
 
 export async function GET(
   request: Request,
@@ -25,6 +54,7 @@ export async function GET(
       id: true,
       key: true,
       mimeType: true,
+      size: true,
       type: true,
     },
     where: { id: mediaId },
@@ -34,26 +64,18 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
 
-  const bucketExists = await validateBucket();
-  if (!bucketExists) {
-    return new NextResponse("Storage configuration error", { status: 500 });
-  }
-
   try {
-    const { searchParams } = new URL(request.url);
-    const download = searchParams.get("download") === "true";
-
-    const mediaWithData = await prisma.media.findUnique({
-      where: { id: mediaId },
-    });
-
-    if (!mediaWithData) {
-      return new NextResponse("Media not found", { status: 404 });
-    }
+    const url = new URL(request.url);
+    const download = url.searchParams.get("download") === "true";
+    // Browsers ask for a byte range when loading <video>/<audio> and when
+    // seeking. Forward the request to storage so only the requested chunk is
+    // transferred instead of the whole file on every interaction.
+    const range = request.headers.get("range") || undefined;
 
     const command = new GetObjectCommand({
       Bucket: ASMOB_BUCKET,
-      Key: mediaWithData.key,
+      Key: media.key,
+      ...(range ? { Range: range } : {}),
     });
 
     const response = await asmobClient.send(command);
@@ -63,7 +85,6 @@ export async function GET(
     }
 
     const headers = new Headers();
-
     headers.set(
       "Content-Type",
       media.mimeType || response.ContentType || "application/octet-stream"
@@ -72,8 +93,22 @@ export async function GET(
     const filename = media.key.split("/").pop() || "file";
     const inline = !download && shouldDisplayInline(media.mimeType);
     headers.set("Content-Disposition", getContentDisposition(filename, inline));
-
     headers.set("Cache-Control", "public, max-age=31536000");
+    headers.set("Accept-Ranges", "bytes");
+
+    // If storage honored the Range, respond 206 with the partial content and
+    // the Content-Range header so the browser can resume/seek correctly.
+    const isPartial = range !== undefined && response.ContentRange;
+    if (isPartial) {
+      headers.set("Content-Range", response.ContentRange as string);
+      if (response.ContentLength) {
+        headers.set("Content-Length", response.ContentLength.toString());
+      }
+      return new NextResponse(response.Body.transformToWebStream(), {
+        status: 206,
+        headers,
+      });
+    }
 
     if (response.ContentLength) {
       headers.set("Content-Length", response.ContentLength.toString());
@@ -81,6 +116,10 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
+    const rangeResponse = rangeNotSatisfiable(error, media.size);
+    if (rangeResponse) {
+      return rangeResponse;
+    }
     console.error("Media proxy error:", error);
     return new NextResponse(
       `Internal Server Error: ${error instanceof Error ? error.message : "Unknown error"}`,

@@ -1,8 +1,9 @@
-import type { Media } from "@asm/db";
+import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { FileAudioIcon, FileCode, FileIcon } from "lucide-react";
+import { FileAudioIcon, FileCode, FileIcon, VolumeX } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
@@ -14,14 +15,25 @@ import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
   attachments: Media[];
+  autoPlayVideos?: boolean;
+  initialMediaIndex?: number;
   interactive?: boolean;
+  post?: PostData;
 }
 
 // Top-level component (not nested) so its own hover/play state doesn't cause
 // the parent grid to re-render and remount the <video> element mid-playback.
 const VIDEO_HOVER_DELAY = 350;
 
-function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
+function VideoPreview({
+  autoPlay = false,
+  isSmall,
+  media,
+}: {
+  autoPlay?: boolean;
+  isSmall: boolean;
+  media: Media;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoveredRef = useRef(false);
@@ -54,6 +66,9 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
   }, [getExpandedHeight]);
 
   const handleMouseEnter = useCallback(() => {
+    if (autoPlay) {
+      return;
+    }
     isHoveredRef.current = true;
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
@@ -61,9 +76,12 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
     hoverTimeoutRef.current = setTimeout(() => {
       startPreview();
     }, VIDEO_HOVER_DELAY);
-  }, [startPreview]);
+  }, [autoPlay, startPreview]);
 
   const handleMouseLeave = useCallback(() => {
+    if (autoPlay) {
+      return;
+    }
     isHoveredRef.current = false;
     previewStartedRef.current = false;
     if (hoverTimeoutRef.current) {
@@ -78,14 +96,16 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
       }
     }
     setExpandedHeight(null);
-  }, []);
+  }, [autoPlay]);
 
-  // Seek past the first frame so the preview shows a meaningful thumbnail,
-  // and expand if the preview already started before this video's metadata loaded
+  // Seek past the first frame so the preview shows a meaningful thumbnail
+  // (hover mode only - in autoplay mode the video starts from the beginning),
+  // and expand if the preview already started before this video's metadata
+  // loaded.
   const handleLoadedMetadata = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
-      if (video.duration > 2) {
+      if (!autoPlay && video.duration > 2) {
         video.currentTime = 2;
       }
       if (previewStartedRef.current) {
@@ -93,9 +113,12 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
         if (height !== null) {
           setExpandedHeight(height);
         }
+        if (autoPlay) {
+          video.play().catch(() => undefined);
+        }
       }
     },
-    [getExpandedHeight]
+    [autoPlay, getExpandedHeight]
   );
 
   // Clear any pending hover timer on unmount
@@ -107,6 +130,14 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
     },
     []
   );
+
+  // Autoplay mode (post detail page): expand to the natural height and start
+  // playing as soon as the video metadata is available.
+  useEffect(() => {
+    if (autoPlay) {
+      startPreview();
+    }
+  }, [autoPlay, startPreview]);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Video preview needs mouse interactions for hover autoplay
@@ -140,6 +171,16 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
           <MdPlayArrow className="ml-0.5 h-3.5 w-3.5 text-white" />
         </div>
       </div>
+      <div
+        className={cn(
+          "absolute bottom-2 left-2 flex h-7 items-center gap-1.5 rounded-full bg-black/50 px-2 text-white backdrop-blur-md transition-opacity duration-300",
+          autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
+        role="status"
+      >
+        <VolumeX className="h-3.5 w-3.5" />
+        <span className="font-medium text-xs">Muted</span>
+      </div>
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
   );
@@ -147,11 +188,21 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
 
 export function MediaPreviews({
   attachments,
+  autoPlayVideos = false,
   interactive = true,
+  post,
+  initialMediaIndex,
 }: MediaPreviewsProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(
+    initialMediaIndex ?? null
+  );
   const [showAll, setShowAll] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
+
+  // When a post is present the viewer lives at a shareable route
+  // (/posts/{postId}/media/{index}); otherwise (e.g. profile gallery) it is
+  // driven by local state only.
+  const router = useRouter();
 
   const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -164,8 +215,38 @@ export function MediaPreviews({
   }, []);
 
   const handleCloseViewer = useCallback(() => {
+    if (post) {
+      // Replace (not push) so closing the viewer returns to the post page
+      // without leaving a stale media URL in the history that pressing Back
+      // would reopen.
+      router.replace(`/posts/${post.id}`);
+      return;
+    }
     setSelectedIndex(null);
-  }, []);
+  }, [post, router]);
+
+  const openAtIndex = useCallback(
+    (index: number) => {
+      if (post) {
+        router.push(`/posts/${post.id}/media/${index}`);
+        return;
+      }
+      setSelectedIndex(index);
+    },
+    [post, router]
+  );
+
+  const handleNavigateIndex = useCallback(
+    (index: number) => {
+      if (post) {
+        // Update the URL in place so the shared link tracks the viewed asset.
+        router.replace(`/posts/${post.id}/media/${index}`);
+        return;
+      }
+      setSelectedIndex(index);
+    },
+    [post, router]
+  );
 
   const initialCount = isMobile ? 2 : 3;
   const visibleAttachments =
@@ -259,7 +340,9 @@ export function MediaPreviews({
       case "IMAGE":
         return renderImagePreview(m, isSmall);
       case "VIDEO":
-        return <VideoPreview isSmall={isSmall} media={m} />;
+        return (
+          <VideoPreview autoPlay={autoPlayVideos} isSmall={isSmall} media={m} />
+        );
       case "AUDIO":
         return renderFilePreview(m, isSmall, <FileAudioIcon />);
       case "CODE":
@@ -272,8 +355,8 @@ export function MediaPreviews({
   };
 
   const handleSelectImage = useCallback(
-    (index: number) => () => setSelectedIndex(index),
-    []
+    (index: number) => () => openAtIndex(index),
+    [openAtIndex]
   );
 
   // biome-ignore lint/correctness/noNestedComponentDefinitions: SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
@@ -391,8 +474,10 @@ export function MediaPreviews({
       wrapperHeightClass = "h-auto";
     }
 
+    // openAtIndex is a stable useCallback from the parent scope, so index is
+    // the only value that can change between renders of this row.
     const handleSelect = useCallback(() => {
-      setSelectedIndex(index);
+      openAtIndex(index);
     }, [index]);
 
     return interactive ? (
@@ -573,6 +658,8 @@ export function MediaPreviews({
           isOpen={selectedIndex !== null}
           media={attachments}
           onClose={handleCloseViewer}
+          onNavigate={handleNavigateIndex}
+          post={post}
         />
       )}
     </motion.div>
