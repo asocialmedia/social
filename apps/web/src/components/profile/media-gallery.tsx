@@ -276,22 +276,18 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
 
   const handleSelect = useCallback(
     (item: Media, index: number) => {
-      const postMedia = media.filter(
-        (m) => m.postId !== null && m.postId === item.postId
-      );
-      if (item.postId && postMedia.length > 0) {
-        // Open the shareable post media detail page instead of the inline viewer.
-        const mediaIndex = Math.max(
-          postMedia.findIndex((m) => m.id === item.id),
-          0
-        );
-        router.push(`/posts/${item.postId}/media/${mediaIndex}`);
+      if (item.postId) {
+        // Open the shareable post media detail page instead of the inline
+        // viewer. The gallery lists media newest-first while the destination
+        // indexes post.attachments, so pass the media ID and let the route
+        // resolve the true index server-side.
+        router.push(`/posts/${item.postId}/media/0?mediaId=${item.id}`);
         return;
       }
       setSelectedMedia(item);
       setSelectedIndex(index);
     },
-    [media, router]
+    [router]
   );
 
   const handleCloseViewer = useCallback(() => {

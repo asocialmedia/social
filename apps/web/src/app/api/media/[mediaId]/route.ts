@@ -1,5 +1,5 @@
 import { prisma } from "@asm/db";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
 import {
@@ -23,6 +23,7 @@ export async function GET(
       id: true,
       key: true,
       mimeType: true,
+      size: true,
       type: true,
     },
     where: { id: mediaId },
@@ -84,6 +85,22 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
+    // Object storage rejects invalid or unsatisfiable byte ranges with 416;
+    // forward that as a proper Range Not Satisfiable so clients can retry or
+    // resume instead of surfacing a server error.
+    const httpStatus =
+      error instanceof S3ServiceException
+        ? error.$metadata.httpStatusCode
+        : undefined;
+    if (httpStatus === 416) {
+      const headers = new Headers();
+      headers.set("Accept-Ranges", "bytes");
+      headers.set("Content-Range", `bytes */${media.size}`);
+      return new NextResponse("Range Not Satisfiable", {
+        status: 416,
+        headers,
+      });
+    }
     console.error("Media proxy error:", error);
     return new NextResponse(
       `Internal Server Error: ${error instanceof Error ? error.message : "Unknown error"}`,

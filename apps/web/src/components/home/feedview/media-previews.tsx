@@ -215,7 +215,10 @@ export function MediaPreviews({
 
   const handleCloseViewer = useCallback(() => {
     if (post) {
-      router.push(`/posts/${post.id}`);
+      // Replace (not push) so closing the viewer returns to the post page
+      // without leaving a stale media URL in the history that pressing Back
+      // would reopen.
+      router.replace(`/posts/${post.id}`);
       return;
     }
     setSelectedIndex(null);

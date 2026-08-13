@@ -7,6 +7,7 @@ import MediaPostClient from "./media-post-client";
 
 interface PageProps {
   params: Promise<{ postId: string; index: string }>;
+  searchParams: Promise<{ mediaId?: string }>;
 }
 
 const getPost = cache(async (postId: string, loggedInUser: string) => {
@@ -29,6 +30,7 @@ const getPost = cache(async (postId: string, loggedInUser: string) => {
 // can be shared by URL.
 export default async function Page(props: PageProps) {
   const params = await props.params;
+  const searchParams = await props.searchParams;
   const { postId, index } = params;
   const parsedIndex = Number.parseInt(index, 10);
 
@@ -59,9 +61,23 @@ export default async function Page(props: PageProps) {
     notFound();
   }
 
+  let resolvedIndex = parsedIndex;
+  if (searchParams.mediaId) {
+    // When navigating from the profile gallery the URL index is computed from
+    // the gallery's newest-first list, which can differ from post.attachments
+    // order. Resolve the true index from the media ID instead.
+    const mediaIndex = post.attachments.findIndex(
+      (m) => m.id === searchParams.mediaId
+    );
+    if (mediaIndex === -1) {
+      notFound();
+    }
+    resolvedIndex = mediaIndex;
+  }
+
   return (
     <MediaPostClient
-      initialIndex={parsedIndex}
+      initialIndex={resolvedIndex}
       post={post}
       userData={userData}
     />

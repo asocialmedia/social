@@ -96,7 +96,7 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     command: >
       redis-server --requirepass asmredis --maxmemory 256mb
-      --maxmemory-policy allkeys-lru --appendonly yes --appendfsync everysec
+      --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
       --loglevel notice --save 900 1
     volumes:
       - redis_data_dev:/data
