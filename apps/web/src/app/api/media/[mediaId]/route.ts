@@ -9,6 +9,31 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Object storage rejects invalid or unsatisfiable byte ranges with the
+// InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can
+// retry or resume instead of surfacing a server error. Preserve the
+// storage-reported Content-Range when the SDK attached it.
+function rangeNotSatisfiable(
+  error: unknown,
+  totalSize: number | null
+): NextResponse | null {
+  if (!(error instanceof S3ServiceException)) {
+    return null;
+  }
+  const invalidRange =
+    error.name === "InvalidRange" || error.$metadata.httpStatusCode === 416;
+  if (!invalidRange) {
+    return null;
+  }
+  const headers = new Headers();
+  headers.set("Accept-Ranges", "bytes");
+  const storageContentRange = (
+    error as S3ServiceException & { ContentRange?: string }
+  ).ContentRange;
+  headers.set("Content-Range", storageContentRange || `bytes */${totalSize}`);
+  return new NextResponse("Range Not Satisfiable", { status: 416, headers });
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ mediaId: string }> }
@@ -85,21 +110,9 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
-    // Object storage rejects invalid or unsatisfiable byte ranges with 416;
-    // forward that as a proper Range Not Satisfiable so clients can retry or
-    // resume instead of surfacing a server error.
-    const httpStatus =
-      error instanceof S3ServiceException
-        ? error.$metadata.httpStatusCode
-        : undefined;
-    if (httpStatus === 416) {
-      const headers = new Headers();
-      headers.set("Accept-Ranges", "bytes");
-      headers.set("Content-Range", `bytes */${media.size}`);
-      return new NextResponse("Range Not Satisfiable", {
-        status: 416,
-        headers,
-      });
+    const rangeResponse = rangeNotSatisfiable(error, media.size);
+    if (rangeResponse) {
+      return rangeResponse;
     }
     console.error("Media proxy error:", error);
     return new NextResponse(

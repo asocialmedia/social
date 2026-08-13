@@ -22,11 +22,22 @@ if (import.meta.main) {
     stderr: "inherit",
   });
 
-  const shutdown = async (signal: string) => {
-    console.log(`[dev] ${signal}: stopping server and worker`);
+  let stopping = false;
+
+  const stopChildren = () => {
     serverProc.kill();
     workerProc.kill();
-    await Promise.all([serverProc.exited, workerProc.exited]);
+    return Promise.all([serverProc.exited, workerProc.exited]);
+  };
+
+  // Signal-triggered shutdown is a clean exit for `turbo dev`.
+  const shutdown = async (signal: string) => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    console.log(`[dev] ${signal}: stopping server and worker`);
+    await stopChildren();
     process.exit(0);
   };
 
@@ -37,5 +48,21 @@ if (import.meta.main) {
     shutdown("SIGTERM").catch(() => process.exit(1));
   });
 
-  await Promise.all([serverProc.exited, workerProc.exited]);
+  // Whichever child exits first stops its sibling, so `turbo dev` never hangs
+  // with an orphaned watcher while the other keeps running. An unexpected
+  // (non-zero) exit fails the dev process so CI notices the crash.
+  const onChildExit = (name: string, proc: ReturnType<typeof Bun.spawn>) => {
+    proc.exited.then((code) => {
+      if (stopping) {
+        return;
+      }
+      stopping = true;
+      console.log(`[dev] ${name} exited with code ${code ?? "signal"}`);
+      stopChildren().then(() => {
+        process.exit(code === 0 ? 0 : 1);
+      });
+    });
+  };
+  onChildExit("server", serverProc);
+  onChildExit("worker", workerProc);
 }

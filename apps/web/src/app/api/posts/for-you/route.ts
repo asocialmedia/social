@@ -16,7 +16,11 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
-  const pageSize = 20;
+  const requestedTake = Number.parseInt(url.searchParams.get("take") || "", 10);
+  const pageSize =
+    Number.isFinite(requestedTake) && requestedTake > 0
+      ? Math.min(requestedTake, 20)
+      : 20;
 
   const where: Prisma.PostWhereInput = {};
   const posts = await prisma.post.findMany({

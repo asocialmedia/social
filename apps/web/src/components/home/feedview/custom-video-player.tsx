@@ -97,7 +97,10 @@ export function CustomVideoPlayer({
     []
   );
 
-  // Autoplay when the viewer opens (e.g. from the post detail page)
+  // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
+  // block unmuted autoplay until the user interacts, so start muted and mirror
+  // that in the UI. Only report playing once play() actually resolves so the
+  // play/pause state stays in sync with the real playback.
   useEffect(() => {
     if (!autoPlay) {
       return;
@@ -106,8 +109,14 @@ export function CustomVideoPlayer({
     if (!video) {
       return;
     }
-    video.play().catch(() => undefined);
-    setIsPlaying(true);
+    video.muted = true;
+    setIsMuted(true);
+    video
+      .play()
+      .then(() => setIsPlaying(true))
+      .catch(() => {
+        setIsPlaying(false);
+      });
   }, [autoPlay]);
 
   const formatTime = (time: number) => {

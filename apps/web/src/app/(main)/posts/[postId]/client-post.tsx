@@ -27,7 +27,13 @@ const ClientPost: React.FC<ClientPostProps> = ({
   const router = useRouter();
 
   const handleGoBack = useCallback(() => {
-    router.push("/");
+    // Go back in history when there's a prior entry, otherwise land on the
+    // home feed (e.g. the post was opened directly via URL).
+    if (window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
   }, [router]);
 
   return (

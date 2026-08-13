@@ -21,7 +21,13 @@ const MobileTopBar: React.FC = () => {
       <div className="flex min-w-0 flex-1 justify-center">
         <Link className="shrink-0" href="/">
           <div className="relative h-8 w-8">
-            <Image alt="Asocialmedia" fill sizes="32px" src={asmLogo} />
+            <Image
+              alt="Asocialmedia"
+              className="object-contain"
+              fill
+              sizes="32px"
+              src={asmLogo}
+            />
           </div>
         </Link>
       </div>

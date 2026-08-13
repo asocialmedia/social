@@ -51,11 +51,11 @@ export default function Comment({ comment }: CommentProps) {
         </div>
 
         <UserTooltip user={comment.user}>
-          <Linkify>
-            <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
-              {comment.content}
-            </p>
-          </Linkify>
+          {/* The <p> is the concrete DOM element TooltipTrigger asChild clones,
+              so the trigger ref/props reach a real node. Linkify stays inside. */}
+          <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
+            <Linkify>{comment.content}</Linkify>
+          </p>
         </UserTooltip>
       </div>
 

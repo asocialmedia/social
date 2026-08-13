@@ -13,7 +13,14 @@ export function CenteredLogoLoader({ size = 56 }: { size?: number }) {
         className="relative h-[56px] w-[56px]"
         style={{ height: size, width: size }}
       >
-        <Image alt="" fill priority sizes={`${size}px`} src={asmLogo} />
+        <Image
+          alt=""
+          className="object-contain"
+          fill
+          priority
+          sizes={`${size}px`}
+          src={asmLogo}
+        />
       </div>
     </div>
   );

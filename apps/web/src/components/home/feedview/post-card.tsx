@@ -385,6 +385,25 @@ const PostCard: React.FC<PostCardProps> = ({
     [detail, post.id, router]
   );
 
+  const body = (
+    <PostContent
+      currentUserId={currentUserId}
+      detail={detail}
+      initialMediaIndex={initialMediaIndex}
+      isExpanded={isExpanded}
+      isJoined={isJoined}
+      onToggleComments={handleToggleComments}
+      onToggleExpand={handleToggleExpand}
+      post={post}
+    />
+  );
+
+  const commentsSection = showComments ? (
+    <div className="border-border/60 border-t px-4 pt-2 pb-4">
+      <Comments post={post} />
+    </div>
+  ) : null;
+
   return (
     <motion.div
       animate={{ opacity: 1 }}
@@ -404,44 +423,18 @@ const PostCard: React.FC<PostCardProps> = ({
           <div
             className={`p-4 transition-colors duration-150 hover:bg-[hsl(var(--muted))] ${post.hnStoryShare ? "pl-5" : ""}`}
           >
-            <PostContent
-              currentUserId={currentUserId}
-              detail={detail}
-              initialMediaIndex={initialMediaIndex}
-              isExpanded={isExpanded}
-              isJoined={isJoined}
-              onToggleComments={handleToggleComments}
-              onToggleExpand={handleToggleExpand}
-              post={post}
-            />
+            {body}
           </div>
-          {showComments ? (
-            <div className="border-border/60 border-t px-4 pt-2 pb-4">
-              <Comments post={post} />
-            </div>
-          ) : null}
+          {commentsSection}
         </div>
       ) : (
         <Card
           className={`group/post rounded-none bg-[hsl(var(--background-alt))] shadow-none ${detail ? "border-x-0 border-b-0" : ""} ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
           <CardContent className="p-4 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
-            <PostContent
-              currentUserId={currentUserId}
-              detail={detail}
-              initialMediaIndex={initialMediaIndex}
-              isExpanded={isExpanded}
-              isJoined={isJoined}
-              onToggleComments={handleToggleComments}
-              onToggleExpand={handleToggleExpand}
-              post={post}
-            />
+            {body}
           </CardContent>
-          {showComments ? (
-            <div className="border-border/60 border-t px-4 pt-2 pb-4">
-              <Comments post={post} />
-            </div>
-          ) : null}
+          {commentsSection}
         </Card>
       )}
     </motion.div>

@@ -101,8 +101,14 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   return (
     <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-border/60 border-r px-5 pt-2.5 pb-5 lg:flex">
       <Link className="mb-8 block px-2" href="/">
-        <div className="relative h-10 w-10">
-          <Image alt="Asocialmedia" fill sizes="40px" src={asmLogo} />
+        <div className="relative h-12 w-12">
+          <Image
+            alt="Asocialmedia"
+            className="object-contain"
+            fill
+            sizes="48px"
+            src={asmLogo}
+          />
         </div>
       </Link>
 

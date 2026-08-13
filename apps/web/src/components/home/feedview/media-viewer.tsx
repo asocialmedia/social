@@ -2,7 +2,7 @@
 
 import { clientLog } from "@asm/config/debug";
 
-import type { Media, PostData, TagWithCount, UserData } from "@asm/db";
+import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import fallbackImage from "@assets/general/nomedia.png";
@@ -14,7 +14,6 @@ import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
-import HomeFeed from "@/components/home/home-feed";
 import FollowButton from "@/components/layouts/follow-button";
 import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -29,6 +28,7 @@ import { useToast } from "@/lib/gooey-toast";
 import { cn, formatNumber } from "@/lib/utils";
 import { CodePreview } from "./code-preview";
 import { CustomVideoPlayer } from "./custom-video-player";
+import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
 import { SVGViewer } from "./svg-viewer";
 
@@ -69,20 +69,16 @@ const MediaViewer = ({
   }, [isOpen, initialIndex]);
 
   const handlePrevious = () => {
-    setCurrentIndex((prev) => {
-      const next = prev > 0 ? prev - 1 : media.length - 1;
-      onNavigate?.(next);
-      return next;
-    });
+    const next = currentIndex > 0 ? currentIndex - 1 : media.length - 1;
+    setCurrentIndex(next);
+    onNavigate?.(next);
     setIsLoading(true);
   };
 
   const handleNext = () => {
-    setCurrentIndex((prev) => {
-      const next = prev < media.length - 1 ? prev + 1 : 0;
-      onNavigate?.(next);
-      return next;
-    });
+    const next = currentIndex < media.length - 1 ? currentIndex + 1 : 0;
+    setCurrentIndex(next);
+    onNavigate?.(next);
     setIsLoading(true);
   };
 
@@ -192,10 +188,9 @@ const MediaViewer = ({
         e.preventDefault();
         handleNext();
       }
-      if (e.key === "Escape") {
-        onClose();
-      }
     };
+    // Escape is handled solely by Radix Dialog (onOpenChange -> onClose) so
+    // closing never fires the navigation twice.
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -547,10 +542,8 @@ const MediaViewer = ({
                 {post.tags?.length || post.mentions?.length ? (
                   <div className="mt-3">
                     <PostMeta
-                      mentions={post.mentions.map(
-                        (m) => m.user as unknown as UserData
-                      )}
-                      tags={post.tags as unknown as TagWithCount[]}
+                      mentions={post.mentions.map((m) => m.user)}
+                      tags={post.tags}
                     />
                   </div>
                 ) : null}
@@ -621,7 +614,7 @@ const MediaViewer = ({
                       See more
                     </Link>
                   </div>
-                  <HomeFeed excludePostId={post.id} variant="global" />
+                  <RelatedPosts excludePostId={post.id} />
                 </div>
               </div>
             </aside>

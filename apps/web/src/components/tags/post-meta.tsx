@@ -1,12 +1,19 @@
 "use client";
 
-import type { TagWithCount, UserData } from "@asm/db";
+import type { TagWithCount } from "@asm/db";
 import { Hash } from "lucide-react";
 import Link from "next/link";
 import UserAvatar from "@/components/layouts/user-avatar";
 
+// Accept the payload shapes produced by getPostDataInclude (post.mentions[*].
+// user and post.tags) directly, so callers don't need unchecked casts.
 interface PostMetaProps {
-  mentions: UserData[];
+  mentions: Array<{
+    avatarUrl: string | null;
+    displayName: string | null;
+    id: string;
+    username: string;
+  }>;
   tags: TagWithCount[];
 }
 

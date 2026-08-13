@@ -3,12 +3,16 @@ import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
-import MediaPostClient from "./media-post-client";
+import ClientPost from "../../client-post";
 
 interface PageProps {
   params: Promise<{ postId: string; index: string }>;
   searchParams: Promise<{ mediaId?: string }>;
 }
+
+// The index segment must be a strictly decimal non-negative integer, so
+// suffixes like "3abc" are rejected instead of silently parsing to 3.
+const INDEX_SEGMENT_PATTERN = /^\d+$/;
 
 const getPost = cache(async (postId: string, loggedInUser: string) => {
   const post = await prisma.post.findUnique({
@@ -32,11 +36,10 @@ export default async function Page(props: PageProps) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const { postId, index } = params;
-  const parsedIndex = Number.parseInt(index, 10);
-
-  if (Number.isNaN(parsedIndex) || parsedIndex < 0) {
+  if (!INDEX_SEGMENT_PATTERN.test(index)) {
     notFound();
   }
+  const parsedIndex = Number.parseInt(index, 10);
 
   const session = await getSessionFromApi();
 
@@ -52,9 +55,11 @@ export default async function Page(props: PageProps) {
   ]);
 
   if (!userData) {
-    redirect(
-      `/login?next=/posts/${encodeURIComponent(postId)}/media/${parsedIndex}`
-    );
+    // The session is valid but the user record is missing (e.g. deleted or
+    // suspended account) - surface a not-found instead of bouncing a logged-in
+    // session back to the login page. Unauthenticated sessions keep the
+    // redirect above.
+    notFound();
   }
 
   if (parsedIndex >= post.attachments.length) {
@@ -76,8 +81,8 @@ export default async function Page(props: PageProps) {
   }
 
   return (
-    <MediaPostClient
-      initialIndex={resolvedIndex}
+    <ClientPost
+      initialMediaIndex={resolvedIndex}
       post={post}
       userData={userData}
     />

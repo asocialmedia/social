@@ -222,9 +222,6 @@ export const SHARE_STREAM = "share:stream";
 export const SHARE_GROUP = "share-flush";
 export const SHARE_CONSUMER_PREFIX = "share-worker";
 
-const POST_VIEWS_DEDUP_PREFIX = "view:dedup:";
-const POST_VIEWS_DEDUP_TTL = 60 * 60 * 24; // 24h
-
 export async function ensureStreamGroups(): Promise<void> {
   await Promise.all([
     ensureGroup(VIEWS_STREAM, VIEWS_GROUP),
@@ -260,20 +257,6 @@ export async function enqueueViewIncrement(postId: string): Promise<void> {
   }
 }
 
-export async function isViewDeduped(
-  postId: string,
-  userId: string
-): Promise<boolean> {
-  try {
-    const key = `${POST_VIEWS_DEDUP_PREFIX}${userId}:${postId}`;
-    const added = await redis.set(key, "1", "EX", POST_VIEWS_DEDUP_TTL, "NX");
-    return added !== "OK";
-  } catch (error) {
-    console.error("Error checking view dedup:", error);
-    return false;
-  }
-}
-
 export async function enqueueShareEvent(
   postId: string,
   platform: string,
@@ -299,14 +282,11 @@ export async function enqueueShareEvent(
 }
 
 export const postViewsCache = {
-  async incrementView(postId: string, userId?: string): Promise<number> {
+  async incrementView(postId: string, _userId?: string): Promise<number> {
     try {
-      // Server-side dedup: each user only counts once per post within the TTL.
-      // A real user is 24h; anonymous (no session) views still count every hit.
-      if (userId && (await isViewDeduped(postId, userId))) {
-        return 0;
-      }
-
+      // Impression-style counting: every screenview increments, no per-user
+      // dedup (X/TikTok style). The client bounces identical refreshes, so
+      // this stays reasonable while the number moves visibly.
       const pipeline = redis.pipeline();
       pipeline.sadd(POST_VIEWS_SET, postId);
       pipeline.incr(`${POST_VIEWS_KEY_PREFIX}${postId}`);

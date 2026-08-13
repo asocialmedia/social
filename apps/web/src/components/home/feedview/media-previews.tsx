@@ -98,12 +98,14 @@ function VideoPreview({
     setExpandedHeight(null);
   }, [autoPlay]);
 
-  // Seek past the first frame so the preview shows a meaningful thumbnail,
-  // and expand if the preview already started before this video's metadata loaded
+  // Seek past the first frame so the preview shows a meaningful thumbnail
+  // (hover mode only - in autoplay mode the video starts from the beginning),
+  // and expand if the preview already started before this video's metadata
+  // loaded.
   const handleLoadedMetadata = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
-      if (video.duration > 2) {
+      if (!autoPlay && video.duration > 2) {
         video.currentTime = 2;
       }
       if (previewStartedRef.current) {
@@ -200,7 +202,6 @@ export function MediaPreviews({
   // When a post is present the viewer lives at a shareable route
   // (/posts/{postId}/media/{index}); otherwise (e.g. profile gallery) it is
   // driven by local state only.
-  const _hasShareableUrl = Boolean(post);
   const router = useRouter();
 
   const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
@@ -473,6 +474,8 @@ export function MediaPreviews({
       wrapperHeightClass = "h-auto";
     }
 
+    // openAtIndex is a stable useCallback from the parent scope, so index is
+    // the only value that can change between renders of this row.
     const handleSelect = useCallback(() => {
       openAtIndex(index);
     }, [index]);

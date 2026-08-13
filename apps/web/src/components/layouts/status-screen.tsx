@@ -48,6 +48,6 @@ const StatusImage = ({ image }: { image: StaticImageData | string }) => (
 
 const Logo = () => (
   <div className="relative h-16 w-16">
-    <Image alt="" fill sizes="64px" src={asmLogo} />
+    <Image alt="" className="object-contain" fill sizes="64px" src={asmLogo} />
   </div>
 );
