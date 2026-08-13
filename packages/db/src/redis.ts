@@ -179,9 +179,102 @@ export const SESSION_CACHE_KEY_PREFIX = "session:cache:";
 export const JWKS_CACHE_TTL = 3600;
 export const SESSION_CACHE_TTL = 300;
 
+// Redis Streams that buffer high-frequency counter increments for the worker.
+// The web app XADDs a small event per increment; the worker drains them in
+// batches (XREADGROUP) and flushes the aggregate deltas to Postgres.
+export const VIEWS_STREAM = "views:stream";
+export const VIEWS_GROUP = "views-flush";
+export const VIEWS_CONSUMER_PREFIX = "views-worker";
+
+export const SHARE_STREAM = "share:stream";
+export const SHARE_GROUP = "share-flush";
+export const SHARE_CONSUMER_PREFIX = "share-worker";
+
+const POST_VIEWS_DEDUP_PREFIX = "view:dedup:";
+const POST_VIEWS_DEDUP_TTL = 60 * 60 * 24; // 24h
+
+export async function ensureStreamGroups(): Promise<void> {
+  await Promise.all([
+    ensureGroup(VIEWS_STREAM, VIEWS_GROUP),
+    ensureGroup(SHARE_STREAM, SHARE_GROUP),
+  ]);
+}
+
+async function ensureGroup(stream: string, group: string): Promise<void> {
+  try {
+    await redis.xgroup("CREATE", stream, group, "0", "MKSTREAM");
+  } catch (error) {
+    // BUSYGROUP means the group already exists, which is fine.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("BUSYGROUP")) {
+      console.error(`Error creating consumer group ${group}:`, error);
+    }
+  }
+}
+
+export async function enqueueViewIncrement(postId: string): Promise<void> {
+  try {
+    await redis.xadd(
+      VIEWS_STREAM,
+      "MAXLEN",
+      "~",
+      10_000,
+      "*",
+      "postId",
+      postId
+    );
+  } catch (error) {
+    console.error("Error enqueuing view increment:", error);
+  }
+}
+
+export async function isViewDeduped(
+  postId: string,
+  userId: string
+): Promise<boolean> {
+  try {
+    const key = `${POST_VIEWS_DEDUP_PREFIX}${userId}:${postId}`;
+    const added = await redis.set(key, "1", "EX", POST_VIEWS_DEDUP_TTL, "NX");
+    return added !== "OK";
+  } catch (error) {
+    console.error("Error checking view dedup:", error);
+    return false;
+  }
+}
+
+export async function enqueueShareEvent(
+  postId: string,
+  platform: string,
+  kind: "share" | "click"
+): Promise<void> {
+  try {
+    await redis.xadd(
+      SHARE_STREAM,
+      "MAXLEN",
+      "~",
+      10_000,
+      "*",
+      "postId",
+      postId,
+      "platform",
+      platform,
+      "kind",
+      kind
+    );
+  } catch (error) {
+    console.error("Error enqueuing share event:", error);
+  }
+}
+
 export const postViewsCache = {
-  async incrementView(postId: string): Promise<number> {
+  async incrementView(postId: string, userId?: string): Promise<number> {
     try {
+      // Server-side dedup: each user only counts once per post within the TTL.
+      // A real user is 24h; anonymous (no session) views still count every hit.
+      if (userId && (await isViewDeduped(postId, userId))) {
+        return 0;
+      }
+
       const pipeline = redis.pipeline();
       pipeline.sadd(POST_VIEWS_SET, postId);
       pipeline.incr(`${POST_VIEWS_KEY_PREFIX}${postId}`);
@@ -189,6 +282,8 @@ export const postViewsCache = {
 
       const newCount = (results?.[1]?.[1] as number) || 0;
       console.log(`Redis: Incremented view for post ${postId} to ${newCount}`);
+
+      await enqueueViewIncrement(postId);
 
       return newCount;
     } catch (error) {
@@ -242,6 +337,24 @@ export const postViewsCache = {
     }
   },
 };
+
+// Adds the live Redis view delta on top of each post's persisted viewCount so
+// the UI shows near-instant counts while the worker batch-flushes deltas to
+// Postgres. Accepts any array of objects that carry `id` and `viewCount`.
+export async function hydrateViewCounts<
+  T extends { id: string; viewCount: number },
+>(items: T[]): Promise<T[]> {
+  if (items.length === 0) {
+    return items;
+  }
+  const deltas = await postViewsCache.getMultipleViews(
+    items.map((item) => item.id)
+  );
+  return items.map((item) => ({
+    ...item,
+    viewCount: item.viewCount + (deltas[item.id] ?? 0),
+  }));
+}
 
 export interface CachedSession {
   session: {
