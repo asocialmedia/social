@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { loadRootEnv } from "./env-load";
+import { loadRootEnv } from "./index";
 
 const TMP_ROOT = "/tmp/opencode/env-load-test";
 

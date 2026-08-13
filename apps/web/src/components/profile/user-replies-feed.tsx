@@ -10,6 +10,7 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 import { formatRelativeDate } from "@/lib/utils";
+import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
 interface UserRepliesFeedProps {
@@ -63,9 +64,10 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
 
   if (status === "success" && !replies.length) {
     return (
-      <p className="text-center text-muted-foreground">
-        No replies yet. Join the conversation!
-      </p>
+      <EmptyFeedState
+        description="When this profile replies to a post, the replies will show up here."
+        title="No replies yet"
+      />
     );
   }
 

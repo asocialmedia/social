@@ -1,4 +1,4 @@
-import type { SecurityConfig } from "./security";
+import type { SecurityConfig } from "./index";
 
 const DEFAULT_MAX_BODY_BYTES = 100 * 1024;
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 512;

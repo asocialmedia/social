@@ -1,6 +1,7 @@
 import { debugLog } from "@asm/config/debug";
 import { Button } from "@asm/ui/shadui/button";
-import { AlertCircle } from "lucide-react";
+import errorImage from "@assets/general/error.png";
+import Image from "next/image";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
@@ -62,12 +63,21 @@ export function ErrorFallback({
   resetErrorBoundary,
 }: ErrorFallbackProps) {
   return (
-    <div className="flex min-h-[400px] flex-col items-center justify-center p-4 text-center">
-      <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
-      <h2 className="mb-2 font-semibold text-lg">Something went wrong</h2>
-      <p className="mb-4 text-muted-foreground text-sm">
-        {error?.message || "An unexpected error occurred"}
-      </p>
+    <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 p-4 text-center">
+      <Image
+        alt=""
+        className="size-32 object-contain"
+        draggable={false}
+        height={1199}
+        src={errorImage}
+        width={1312}
+      />
+      <div className="space-y-1.5">
+        <h2 className="font-semibold text-lg">Something went wrong</h2>
+        <p className="text-muted-foreground text-sm">
+          {error?.message || "An unexpected error occurred"}
+        </p>
+      </div>
       <Button onClick={resetErrorBoundary}>Try again</Button>
     </div>
   );

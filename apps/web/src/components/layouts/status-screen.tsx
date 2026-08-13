@@ -1,9 +1,11 @@
+import type { StaticImageData } from "next/image";
 import Image from "next/image";
 import type { ReactNode } from "react";
 
 interface StatusScreenProps {
   action?: ReactNode;
   description: string;
+  image?: StaticImageData | string;
   logo?: boolean;
   minHeight?: string;
   title: string;
@@ -12,6 +14,7 @@ interface StatusScreenProps {
 export function StatusScreen({
   action,
   description,
+  image,
   logo = true,
   minHeight = "min-h-screen",
   title,
@@ -20,15 +23,8 @@ export function StatusScreen({
     <div
       className={`flex w-full ${minHeight} flex-col items-center justify-center gap-6 bg-background p-4 text-center`}
     >
-      {logo ? (
-        <Image
-          alt=""
-          className="opacity-80"
-          height={64}
-          src="/asocialmedialogo.svg"
-          width={64}
-        />
-      ) : null}
+      {image ? <StatusImage image={image} /> : null}
+      {!image && logo ? <Logo /> : null}
       <div className="space-y-2 text-center">
         <h1 className="font-semibold text-foreground text-xl">{title}</h1>
         <p className="max-w-sm text-muted-foreground text-sm">{description}</p>
@@ -37,3 +33,24 @@ export function StatusScreen({
     </div>
   );
 }
+
+const StatusImage = ({ image }: { image: StaticImageData | string }) => (
+  <Image
+    alt=""
+    className="size-52 object-contain"
+    draggable={false}
+    height={1199}
+    src={image}
+    width={1312}
+  />
+);
+
+const Logo = () => (
+  <Image
+    alt=""
+    className="opacity-80"
+    height={64}
+    src="/asocialmedialogo.svg"
+    width={64}
+  />
+);

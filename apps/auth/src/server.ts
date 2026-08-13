@@ -1,4 +1,4 @@
-import { loadRootEnv } from "./env-load";
+import { loadRootEnv } from "./env";
 
 if (import.meta.main) {
   loadRootEnv();
@@ -11,13 +11,13 @@ if (import.meta.main) {
   const [{ auth }, { appRouter }, { createContext }, { createHttpHandler }] =
     await Promise.all([
       import("./auth/config"),
-      import("./server/routers/app"),
+      import("./server/app"),
       import("./server/trpc"),
       import("./http"),
     ]);
   const [{ createSecurity }, { readSecurityConfig }] = await Promise.all([
     import("./security"),
-    import("./security-config"),
+    import("./security/config"),
   ]);
 
   const logger = createLogger({ serviceName: "auth" });

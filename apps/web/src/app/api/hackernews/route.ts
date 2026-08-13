@@ -41,25 +41,4 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST() {
-  try {
-    await hackerNewsAPI.refreshCache();
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error refreshing HN cache:", error);
-
-    if ((error as { statusCode?: number }).statusCode === 429) {
-      return NextResponse.json(
-        { error: "Rate limit exceeded. Please try again later." },
-        { status: 429 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: "Failed to refresh cache" },
-      { status: (error as { statusCode?: number }).statusCode || 500 }
-    );
-  }
-}
-
 export const runtime = "nodejs";

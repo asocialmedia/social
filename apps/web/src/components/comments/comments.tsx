@@ -1,6 +1,8 @@
 import type { CommentsPage, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import noCommentsImage from "@assets/general/nocomments.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import Image from "next/image";
 import { useCallback } from "react";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
@@ -54,7 +56,17 @@ export default function Comments({ post }: CommentsProps) {
         </Button>
       ) : null}
       {status === "success" && !comments.length && (
-        <p className="text-center text-muted-foreground">No eddy yet.</p>
+        <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+          <Image
+            alt=""
+            className="h-40 w-auto object-contain"
+            draggable={false}
+            height={1024}
+            src={noCommentsImage}
+            width={1536}
+          />
+          <p className="text-muted-foreground text-sm">No eddy yet.</p>
+        </div>
       )}
       {status === "error" && (
         <p className="text-center text-destructive">

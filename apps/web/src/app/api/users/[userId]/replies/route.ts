@@ -1,4 +1,9 @@
-import { getPostDataInclude, type PostData, prisma } from "@asm/db";
+import {
+  getPostDataInclude,
+  hydrateViewCounts,
+  type PostData,
+  prisma,
+} from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export interface UserRepliesPage {
@@ -54,9 +59,19 @@ export async function GET(
     cursor: cursor ? { id: cursor } : undefined,
   });
 
+  const replies = comments.slice(0, pageSize);
+  const hydratedPosts = await hydrateViewCounts(
+    replies.map((reply) => reply.post)
+  );
+
+  const repliesWithHydratedPosts = replies.map((reply, index) => ({
+    ...reply,
+    post: hydratedPosts[index] ?? reply.post,
+  }));
+
   const nextCursor = comments.length > pageSize ? comments[pageSize].id : null;
   const data: UserRepliesPage = {
-    replies: comments.slice(0, pageSize),
+    replies: repliesWithHydratedPosts,
     nextCursor,
   };
   return Response.json(data);

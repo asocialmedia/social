@@ -1,7 +1,6 @@
 "use client";
 
 import type { Media } from "@asm/db";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   FileAudioIcon,
   FileCode,
@@ -13,19 +12,14 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
-import kyInstance from "@/lib/ky";
-
-interface MediaPage {
-  media: Media[];
-  nextCursor: string | null;
-}
 
 interface MediaGalleryProps {
   userId: string;
@@ -39,30 +33,96 @@ const SKELETON_KEYS = Array.from({ length: 8 }, (_, i) => `skeleton-${i}`);
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
+// Matches the hover preview delay used by video thumbnails in the post feed.
+const VIDEO_HOVER_DELAY = 350;
+
+function VideoTile({
+  aspectRatio,
+  item,
+}: {
+  aspectRatio: number;
+  item: Media;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    hoverTimeoutRef.current = setTimeout(() => {
+      videoRef.current?.play().catch(() => undefined);
+    }, VIDEO_HOVER_DELAY);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      if (video.duration > 2) {
+        video.currentTime = 2;
+      }
+    }
+  }, []);
+
+  // Seek past the first frame so the thumbnail shows a meaningful frame,
+  // matching the post feed's video thumbnails.
+  const handleLoadedMetadata = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      const video = event.currentTarget;
+      if (video.duration > 2) {
+        video.currentTime = 2;
+      }
+    },
+    []
+  );
+
+  useEffect(
+    () => () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    },
+    []
+  );
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: Video thumbnail needs mouse interactions for hover autoplay
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video thumbnail needs mouse interactions for hover autoplay
+    <div
+      className="group relative w-full overflow-hidden rounded-xl shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      style={{ aspectRatio }}
+    >
+      <video
+        aria-label="Video thumbnail"
+        className="absolute inset-0 h-full w-full object-cover"
+        muted
+        onLoadedMetadata={handleLoadedMetadata}
+        playsInline
+        preload="metadata"
+        ref={videoRef}
+        src={getMediaUrl(item.id)}
+      />
+      <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
+      <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs transition-transform duration-300 group-hover:scale-110">
+        <MdPlayArrow className="h-6 w-6 text-white" />
+      </span>
+    </div>
+  );
+}
+
 const renderMediaTile = (item: Media) => {
   const aspectRatio =
     item.width && item.height ? item.width / item.height : DEFAULT_ASPECT;
 
   if (item.type === "VIDEO") {
-    return (
-      <div
-        className="group relative w-full overflow-hidden rounded-xl shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-        style={{ aspectRatio }}
-      >
-        <video
-          aria-label="Video thumbnail"
-          className="absolute inset-0 h-full w-full object-cover"
-          muted
-          playsInline
-          preload="metadata"
-          src={getMediaUrl(item.id)}
-        />
-        <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
-        <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs transition-transform duration-300 group-hover:scale-110">
-          <MdPlayArrow className="h-6 w-6 text-white" />
-        </span>
-      </div>
-    );
+    return <VideoTile aspectRatio={aspectRatio} item={item} />;
   }
 
   if (item.type === "AUDIO") {
@@ -203,20 +263,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
     isFetching,
     isFetchingNextPage,
     status,
-  } = useInfiniteQuery({
-    queryKey: ["media-gallery", userId],
-    queryFn: ({ pageParam }) =>
-      kyInstance
-        .get(
-          `/api/users/${userId}/media`,
-          pageParam ? { searchParams: { cursor: pageParam } } : undefined
-        )
-        .json<MediaPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    enabled,
-    staleTime: 1000 * 60,
-  });
+  } = useUserMediaQuery(userId, enabled);
 
   const media = useMemo(
     () => data?.pages.flatMap((page) => page.media) || [],
@@ -327,6 +374,17 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
 
 const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
   const isXl = useMediaQuery("(min-width: 1280px)");
+  const { data, status } = useUserMediaQuery(userId, isXl);
+  const media = useMemo(
+    () => data?.pages.flatMap((page) => page.media) || [],
+    [data?.pages]
+  );
+
+  // Hide the sidebar entirely for profiles with no media so the feed takes the space.
+  if (status === "success" && media.length === 0) {
+    return null;
+  }
+
   return (
     <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-y-auto xl:flex">
       <MediaGalleryContent enabled={isXl} userId={userId} />

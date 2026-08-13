@@ -1,10 +1,10 @@
-import { router } from "../trpc";
-import { adminRouter } from "./admin";
-import { authRouter } from "./auth";
-import { resetPasswordRouter } from "./reset-password";
-import { securityRouter } from "./security";
-import { signupRouter } from "./signup";
-import { userRouter } from "./user";
+import { adminRouter } from "./routers/admin";
+import { authRouter } from "./routers/auth";
+import { resetPasswordRouter } from "./routers/reset-password";
+import { securityRouter } from "./routers/security";
+import { signupRouter } from "./routers/signup";
+import { userRouter } from "./routers/user";
+import { router } from "./trpc";
 
 export const appRouter = router({
   // Authentication procedures

@@ -1,24 +1,29 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, PenLine } from "lucide-react";
+import Link from "next/link";
 import React, { useCallback, useMemo } from "react";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import PostsOnlyLoadingSkeleton from "@/components/layouts/skeletons/post-only-loading-skeleton";
 import kyInstance from "@/lib/ky";
+import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
 interface UserPostsFeedProps {
   filter?: "all" | "media";
+  isOwnProfile?: boolean;
   userId: string;
 }
 
 const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
   userId,
   filter = "all",
+  isOwnProfile = false,
 }) => {
   const {
     data,
@@ -67,12 +72,30 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
   }
 
   if (status === "success" && !posts.length) {
+    if (filter === "media") {
+      return (
+        <EmptyFeedState
+          description="Photos, videos and files from this profile's posts will show up here."
+          title="No media posts yet"
+        />
+      );
+    }
+
     return (
-      <p className="text-center text-muted-foreground">
-        {filter === "media"
-          ? "No media posts yet."
-          : "No posts yet. Share something!"}
-      </p>
+      <EmptyFeedState
+        action={
+          isOwnProfile ? (
+            <Button asChild variant="premium">
+              <Link href="/compose">
+                <PenLine className="mr-1.5 size-4" />
+                Create a post
+              </Link>
+            </Button>
+          ) : undefined
+        }
+        description="Share something to get the conversation started."
+        title="No posts yet"
+      />
     );
   }
 

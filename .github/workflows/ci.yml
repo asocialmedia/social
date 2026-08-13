@@ -352,6 +352,30 @@ jobs:
             -d "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}" \
             --fail --silent --show-error
 
+      - name: Trigger worker deployment via API
+        if: success() && matrix.app == 'auth'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_WORKER_APP_ID: ${{ secrets.DOKPLOY_WORKER_APP_ID }}
+        run: |
+          API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
+
+          if [ -n "${DOKPLOY_WORKER_APP_ID}" ]; then
+            curl -L -X 'POST' \
+              "${API_URL}/api/application.deploy" \
+              -H 'accept: application/json' \
+              -H 'Content-Type: application/json' \
+              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+              -d "{\"applicationId\":\"${DOKPLOY_WORKER_APP_ID}\"}" \
+              --fail --silent --show-error
+          else
+            echo "DOKPLOY_WORKER_APP_ID not configured; skipping worker deploy."
+          fi
+
       - name: Wait for deployment health check
         if: success() && steps.deploy-targets.outputs.health_enabled == 'true'
         env:

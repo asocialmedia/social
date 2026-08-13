@@ -1,4 +1,4 @@
-import { loadRootEnv } from "./env-load";
+import { loadRootEnv } from "./env";
 
 if (import.meta.main) {
   loadRootEnv();
@@ -21,7 +21,7 @@ if (import.meta.main) {
     processNotificationCreated,
     processNotificationDeleted,
     processMediaCleanup,
-    processInactiveUser,
+    processInactiveUsersSweep,
     processHnRefresh,
     processExpiredTokens,
   } = await import("./worker/jobs");
@@ -110,17 +110,6 @@ if (import.meta.main) {
       { connection, concurrency: 4 }
     );
 
-    const inactiveWorker = new QueueWorker(
-      "inactive-user",
-      (job) => {
-        if (job.name === "inactive-user") {
-          return processInactiveUser(job.data);
-        }
-        throw new Error(`Unknown inactive-user job: ${job.name}`);
-      },
-      { connection }
-    );
-
     const maintenanceWorker = new QueueWorker(
       "maintenance",
       (job) => {
@@ -129,6 +118,8 @@ if (import.meta.main) {
             return processHnRefresh();
           case "expired-tokens":
             return processExpiredTokens();
+          case "inactive-users":
+            return processInactiveUsersSweep();
           default:
             throw new Error(`Unknown maintenance job: ${job.name}`);
         }
@@ -136,7 +127,7 @@ if (import.meta.main) {
       { connection }
     );
 
-    workers.push(contentWorker, mediaWorker, inactiveWorker, maintenanceWorker);
+    workers.push(contentWorker, mediaWorker, maintenanceWorker);
 
     for (const worker of workers) {
       worker.on("failed", (job, error) => {

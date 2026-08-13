@@ -1,7 +1,9 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import noFeedImage from "@assets/general/nofeed.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import Image from "next/image";
 import { useCallback, useMemo } from "react";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
@@ -9,7 +11,15 @@ import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton"
 import kyInstance from "@/lib/ky";
 import { FeedView } from "./feed-view";
 
-export default function ForYouFeed() {
+interface HomeFeedProps {
+  variant?: "trending" | "global";
+}
+
+export default function HomeFeed({ variant = "global" }: HomeFeedProps) {
+  const isTrending = variant === "trending";
+  const queryKey = ["post-feed", isTrending ? "trending" : "for-you"];
+  const endpoint = isTrending ? "/api/posts/trending" : "/api/posts/for-you";
+
   const {
     data,
     fetchNextPage,
@@ -18,13 +28,10 @@ export default function ForYouFeed() {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "for-you"],
+    queryKey,
     queryFn: async ({ pageParam }) => {
       const result = await kyInstance
-        .get(
-          "/api/posts/for-you",
-          pageParam ? { searchParams: { cursor: pageParam } } : {}
-        )
+        .get(endpoint, pageParam ? { searchParams: { cursor: pageParam } } : {})
         .json<PostsPage>();
       return result;
     },
@@ -53,12 +60,22 @@ export default function ForYouFeed() {
 
   if (status === "success" && !posts.length && !hasNextPage) {
     return (
-      <div className="p-4 text-center">
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noFeedImage}
+          width={1536}
+        />
         <p className="text-muted-foreground text-sm sm:text-base">
-          No Fleets to show here.
+          {isTrending ? "No trending fleets yet." : "No Fleets to show here."}
         </p>
-        <p className="mt-2 text-muted-foreground/70 text-xs sm:text-sm">
-          Follow more users to see their fleets in your feed.
+        <p className="text-muted-foreground/70 text-xs sm:text-sm">
+          {isTrending
+            ? "Posts with the most aura will surface here."
+            : "Follow more users to see their fleets in your feed."}
         </p>
       </div>
     );
@@ -79,7 +96,13 @@ export default function ForYouFeed() {
 
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
-      {posts.length > 0 && <FeedView posts={posts} />}
+      {posts.length > 0 && (
+        <FeedView
+          cacheKey={queryKey}
+          posts={posts}
+          sortBy={isTrending ? "server" : "newest"}
+        />
+      )}
       {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
     </InfiniteScrollContainer>
   );

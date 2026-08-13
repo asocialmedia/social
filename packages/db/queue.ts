@@ -19,9 +19,6 @@ export interface MediaCleanupJobData {
 export interface PostDeletedJobData {
   postId: string;
 }
-export interface InactiveUserJobData {
-  userId: string;
-}
 
 export type ContentEvent =
   | { type: "post-deleted"; postId: string }
@@ -44,7 +41,6 @@ function getQueue(name: string): Queue {
 
 const MEDIA_QUEUE = "media";
 const CONTENT_EVENTS_QUEUE = "content-events";
-const INACTIVE_USER_QUEUE = "inactive-user";
 const MAINTENANCE_QUEUE = "maintenance";
 
 // The worker increments this when a notification is created, and the web app
@@ -150,33 +146,17 @@ export async function cancelMediaCleanup(mediaId: string): Promise<void> {
   await getQueue(MEDIA_QUEUE).remove(`media-cleanup-${mediaId}`);
 }
 
-export async function scheduleInactiveUserCleanup(
-  userId: string
-): Promise<void> {
-  await getQueue(INACTIVE_USER_QUEUE).add(
-    "inactive-user",
-    { userId },
-    {
-      jobId: `inactive-${userId}`,
-      delay: 30 * 24 * 60 * 60 * 1000,
-      removeOnComplete: 1000,
-      removeOnFail: 5000,
-    }
-  );
-}
-
-export async function cancelInactiveUserCleanup(userId: string): Promise<void> {
-  await getQueue(INACTIVE_USER_QUEUE).remove(`inactive-${userId}`);
-}
-
-// Schedules the repeatable maintenance jobs (HN cache refresh every 15 min and
-// the weekly expired-token sweep). Idempotent: re-running replaces the
-// scheduler definition.
+// Schedules the repeatable maintenance jobs (HN cache refresh every 15 min, the
+// weekly expired-token sweep, and the daily unverified-user sweep). Idempotent:
+// re-running replaces the scheduler definition.
 export async function registerMaintenanceSchedulers(): Promise<void> {
   const queue = getQueue(MAINTENANCE_QUEUE);
   await queue.upsertJobScheduler("hn-refresh", { every: 15 * 60 * 1000 });
   await queue.upsertJobScheduler("expired-tokens", {
     every: 7 * 24 * 60 * 60 * 1000,
+  });
+  await queue.upsertJobScheduler("inactive-users", {
+    every: 24 * 60 * 60 * 1000,
   });
 }
 

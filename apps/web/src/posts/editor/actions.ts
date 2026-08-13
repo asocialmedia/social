@@ -307,7 +307,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 }
 
 export async function incrementPostView(postId: string) {
-  return await postViewsCache.incrementView(postId);
+  const { getSessionFromApi } = await import("@/lib/session");
+  const sessionData = await getSessionFromApi();
+  return await postViewsCache.incrementView(postId, sessionData?.user?.id);
 }
 
 export async function getPostViews(postId: string) {

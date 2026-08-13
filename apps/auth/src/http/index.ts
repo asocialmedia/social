@@ -3,8 +3,8 @@ import type {
   FetchCreateContextFn,
   fetchRequestHandler,
 } from "@trpc/server/adapters/fetch";
-import type { Security } from "./security";
-import { securityHeaders } from "./security";
+import type { Security } from "../security";
+import { securityHeaders } from "../security";
 
 export interface AuthInstance {
   api: {

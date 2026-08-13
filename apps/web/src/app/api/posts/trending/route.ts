@@ -2,7 +2,6 @@ import {
   getPostDataInclude,
   hydrateViewCounts,
   type PostsPage,
-  type Prisma,
   prisma,
 } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
@@ -18,11 +17,9 @@ export async function GET(request: Request) {
   const cursor = url.searchParams.get("cursor") || undefined;
   const pageSize = 20;
 
-  const where: Prisma.PostWhereInput = {};
   const posts = await prisma.post.findMany({
-    where,
     include: getPostDataInclude(userId),
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ aura: "desc" }, { id: "desc" }],
     take: pageSize + 1,
     cursor: cursor ? { id: cursor } : undefined,
   });

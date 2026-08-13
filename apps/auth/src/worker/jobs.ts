@@ -14,9 +14,6 @@ export interface MediaCleanupJobData {
 export interface PostDeletedJobData {
   postId: string;
 }
-export interface InactiveUserJobData {
-  userId: string;
-}
 
 export async function processPostDeleted({ postId }: PostDeletedJobData) {
   // Load all attachments of the deleted post, delete their objects, then the
@@ -76,25 +73,42 @@ export async function processMediaCleanup({ mediaId }: MediaCleanupJobData) {
   }
 }
 
-export async function processInactiveUser({ userId }: InactiveUserJobData) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, emailVerified: true },
-  });
-
-  // Only delete if the account is still unverified 30 days later. Verification
-  // cancels the job, so this is a safety net.
-  if (user && !user.emailVerified) {
-    await prisma.user.delete({ where: { id: userId } });
-  }
-}
-
 export async function processHnRefresh() {
   await hackerNewsAPI.refreshCache();
 }
 
-export async function processExpiredTokens() {
-  await prisma.passwordResetToken.deleteMany({
+export async function processExpiredTokens(): Promise<{ count: number }> {
+  return await prisma.passwordResetToken.deleteMany({
     where: { expiresAt: { lt: new Date() } },
   });
+}
+
+export async function processInactiveUsersSweep(): Promise<number> {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const batchSize = 100;
+  let totalDeleted = 0;
+
+  for (;;) {
+    // biome-ignore lint/performance/noAwaitInLoops: batched paginated sweep must await each batch
+    const batch = await prisma.user.findMany({
+      where: { emailVerified: false, createdAt: { lt: thirtyDaysAgo } },
+      select: { id: true },
+      take: batchSize,
+    });
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    const deleted = await prisma.user.deleteMany({
+      where: { id: { in: batch.map((user) => user.id) } },
+    });
+    totalDeleted += deleted.count;
+
+    if (batch.length < batchSize) {
+      break;
+    }
+  }
+
+  return totalDeleted;
 }

@@ -2,8 +2,8 @@ import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
 import { z } from "zod";
-import { procedure, router } from "../trpc";
-import { auditResetPassword, checkResetPasswordRateLimit } from "./security";
+import { procedure, router } from "../../trpc";
+import { auditResetPassword, checkResetPasswordRateLimit } from "../security";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { createHttpHandler } from "./http";
+import { createHttpHandler } from "./index";
 
 const mockGetSession = mock(async (): Promise<unknown> => null);
 const mockAuthHandler = mock(
@@ -130,7 +130,7 @@ describe("auth service http handler", () => {
     try {
       process.env.NODE_ENV = "production";
       process.env.APP_URL = "https://asocialmedia.cc";
-      const { getAllowedOrigin, corsHeaders } = require("./http");
+      const { getAllowedOrigin, corsHeaders } = require("./index");
       expect(getAllowedOrigin()).toBe("https://asocialmedia.cc");
       expect(corsHeaders()["Access-Control-Allow-Origin"]).toBe(
         "https://asocialmedia.cc"

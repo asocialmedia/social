@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { createSecurity, securityHeaders } from "./security";
-import { readSecurityConfig } from "./security-config";
+import { readSecurityConfig } from "./config";
+import { createSecurity, securityHeaders } from "./index";
 
 const TEST_SECRET = "test-better-auth-secret-1234567890";
 

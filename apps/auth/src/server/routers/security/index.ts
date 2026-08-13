@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { debugLog } from "@asm/config/debug";
 import { redis } from "@asm/db";
-import { procedure, router } from "../trpc";
+import { procedure, router } from "../../trpc";
 
 function hashPII(value: string): string {
   return createHash("sha256").update(value).digest("hex");

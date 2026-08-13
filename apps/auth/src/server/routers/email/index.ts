@@ -3,8 +3,8 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
   validateEmailServiceConfig,
-} from "../../email/service";
-import { procedure, router } from "../trpc";
+} from "../../../email/service";
+import { procedure, router } from "../../trpc";
 
 export const emailRouter = router({
   sendVerification: procedure
