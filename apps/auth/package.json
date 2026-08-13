@@ -1,11 +1,11 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.0.48",
+  "version": "1.0.49",
   "private": true,
   "description": "Asocialmedia Auth Service",
   "scripts": {
-    "build": "bun build --compile --minify --target=bun-linux-x64-musl ./src/server.ts --outfile ./dist/auth-server",
-    "build:worker": "bun build --compile --minify --target=bun-linux-x64-musl ./src/worker.ts --outfile ./dist/asm-worker",
+    "build": "bun build --compile --minify --target=bun-linux-x64-musl --external msgpackr-extract ./src/server.ts --outfile ./dist/auth-server",
+    "build:worker": "bun build --compile --minify --target=bun-linux-x64-musl --external msgpackr-extract ./src/worker.ts --outfile ./dist/asm-worker",
     "check-types": "tsc --noEmit",
     "dev": "cross-env NODE_ENV=development portless auth bun --watch src/server.ts",
     "dev:worker": "bun --watch src/worker.ts",
