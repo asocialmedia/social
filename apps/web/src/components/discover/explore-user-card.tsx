@@ -40,7 +40,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
     headerContent = (
       <Image
         alt=""
-        className="object-cover"
+        className="object-cover transition-transform duration-300 group-hover:scale-105"
         fill
         sizes="280px"
         src={getSecureImageUrl(user.bannerUrl)}
@@ -51,7 +51,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
     headerContent = (
       <div
         aria-hidden
-        className="absolute inset-0 bg-center bg-cover"
+        className="absolute inset-0 bg-center bg-cover transition-transform duration-300 group-hover:scale-105"
         style={{
           backgroundImage: `url(${avatarUrl})`,
           filter: "blur(10px) brightness(0.75)",
@@ -66,14 +66,14 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
   }
 
   return (
-    <div className="sidebar-subcard flex h-full flex-col overflow-hidden rounded-2xl">
+    <div className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link
         className="relative block h-20 w-full shrink-0 overflow-hidden"
         href={`/users/${user.username}`}
       >
         {headerContent}
       </Link>
-      <div className="flex flex-1 flex-col gap-3 p-4">
+      <div className="flex flex-col gap-3 p-4">
         <div className="-mt-8 flex items-end gap-3">
           <Link className="shrink-0" href={`/users/${user.username}`}>
             <UserAvatar
@@ -127,7 +127,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
         </div>
 
         <FollowButton
-          className={cn("follow-btn-3d mt-auto h-8 w-full px-3 text-xs")}
+          className={cn("follow-btn-3d h-8 w-full px-3 text-xs")}
           initialState={{ followers, isFollowedByUser: isFollowed }}
           onFollowed={handleFollowed}
           userId={user.id}

@@ -1,7 +1,7 @@
 "use client";
 
+import type { PostData } from "@asm/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useMemo, useRef } from "react";
@@ -9,16 +9,23 @@ import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class"
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import kyInstance from "@/lib/ky";
+import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
+import ExplorePostCard from "./explore-post-card";
 import ExploreUserCard, { type ExploreUser } from "./explore-user-card";
-import ExploreUsersSkeleton from "./explore-users-skeleton";
 
-type ExploreTab = "suggested" | "trending" | "new";
+type ExploreTab = "for-you" | "trending";
 
 const TAB_META: Record<ExploreTab, string> = {
-  suggested: "For you",
+  "for-you": "For you",
   trending: "Trending",
-  new: "New",
 };
+
+interface FeedData {
+  posts: PostData[];
+  users: ExploreUser[];
+}
+
+const USER_INTERVAL = 6;
 
 const ExploreClient: React.FC = () => {
   const pathname = usePathname();
@@ -28,15 +35,13 @@ const ExploreClient: React.FC = () => {
   const queryClient = useQueryClient();
 
   const tabParam = searchParams.get("tab");
-  let activeTab: ExploreTab = "suggested";
-  if (tabParam === "trending" || tabParam === "new") {
-    activeTab = tabParam;
-  }
+  const activeTab: ExploreTab =
+    tabParam === "trending" ? "trending" : "for-you";
 
   const handleTabChange = useCallback(
     (tab: string) => {
       const nextParams = new URLSearchParams(searchParams.toString());
-      if (tab === "suggested") {
+      if (tab === "for-you") {
         nextParams.delete("tab");
       } else {
         nextParams.set("tab", tab);
@@ -47,23 +52,33 @@ const ExploreClient: React.FC = () => {
     [pathname, router, searchParams]
   );
 
-  const queryKey = useMemo(() => ["explore-users", activeTab], [activeTab]);
+  const queryKey = useMemo(() => ["explore-feed", activeTab], [activeTab]);
 
   const { data, status } = useQuery({
     queryKey,
-    queryFn: () =>
-      kyInstance
-        .get(`/api/users/${activeTab === "new" ? "new" : activeTab}`)
-        .json<ExploreUser[]>(),
+    queryFn: async () => {
+      const [posts, users] = await Promise.all([
+        kyInstance.get(`/api/posts/${activeTab}`).json<{ posts: PostData[] }>(),
+        kyInstance
+          .get(
+            `/api/users/${activeTab === "for-you" ? "suggested" : "trending"}`
+          )
+          .json<ExploreUser[]>(),
+      ]);
+      return { posts: posts.posts, users } satisfies FeedData;
+    },
     staleTime: 60 * 1000,
   });
 
-  const users = data ?? [];
+  const posts = data?.posts ?? [];
+  const users = data?.users ?? [];
 
   const handleFollowed = useCallback(
     (userId: string) => {
-      queryClient.setQueryData<ExploreUser[]>(queryKey, (old) =>
-        old ? old.filter((user) => user.id !== userId) : old
+      queryClient.setQueryData<FeedData>(queryKey, (old) =>
+        old
+          ? { ...old, users: old.users.filter((user) => user.id !== userId) }
+          : old
       );
     },
     [queryClient, queryKey]
@@ -79,35 +94,67 @@ const ExploreClient: React.FC = () => {
     [handleTabChange]
   );
 
-  let body: React.ReactNode;
-  if (status === "pending") {
-    body = <ExploreUsersSkeleton />;
-  } else if (status === "error") {
-    body = (
-      <p className="px-4 py-8 text-center text-destructive">
-        An error occurred while loading users.
-      </p>
-    );
-  } else if (users.length === 0) {
-    body = (
-      <div className="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
-        <Users className="h-6 w-6 text-muted-foreground/60" />
-        <p className="font-medium">Nothing here yet</p>
-        <p className="text-muted-foreground text-sm">
-          Users will show up here.
-        </p>
-      </div>
-    );
-  } else {
-    body = (
-      <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        {users.map((user) => (
+  // Interleave user cards into the post stream (Pinterest-style).
+  const items = useMemo(() => {
+    const result: React.ReactNode[] = [];
+    let postIndex = 0;
+    let userIndex = 0;
+
+    for (let slot = 0; postIndex < posts.length; slot += 1) {
+      if (
+        userIndex < users.length &&
+        slot % USER_INTERVAL === USER_INTERVAL - 1
+      ) {
+        const user = users[userIndex];
+        result.push(
           <ExploreUserCard
-            key={user.id}
+            key={`user-${user.id}`}
             onFollowed={handleFollowed}
             user={user}
           />
-        ))}
+        );
+        userIndex += 1;
+      } else {
+        const post = posts[postIndex];
+        result.push(<ExplorePostCard key={`post-${post.id}`} post={post} />);
+        postIndex += 1;
+      }
+    }
+
+    while (userIndex < users.length) {
+      const user = users[userIndex];
+      result.push(
+        <ExploreUserCard
+          key={`user-${user.id}`}
+          onFollowed={handleFollowed}
+          user={user}
+        />
+      );
+      userIndex += 1;
+    }
+
+    return result;
+  }, [posts, users, handleFollowed]);
+
+  let body: React.ReactNode;
+  if (status === "pending") {
+    body = <ExploreMasonrySkeleton />;
+  } else if (status === "error") {
+    body = (
+      <p className="px-4 py-8 text-center text-destructive">
+        An error occurred while loading content.
+      </p>
+    );
+  } else if (items.length === 0) {
+    body = (
+      <p className="px-4 py-16 text-center text-muted-foreground">
+        Nothing here yet.
+      </p>
+    );
+  } else {
+    body = (
+      <div className="columns-2 gap-4 p-4 sm:columns-3 xl:columns-4">
+        {items}
       </div>
     );
   }
