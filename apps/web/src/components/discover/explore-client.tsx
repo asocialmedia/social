@@ -1,15 +1,20 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import { Input } from "@asm/ui/shadui/input";
+import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Search, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
 import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
 import ExplorePostCard from "./explore-post-card";
@@ -35,6 +40,8 @@ const ExploreClient: React.FC = () => {
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
 
   const tabParam = searchParams.get("tab");
   const activeTab: ExploreTab =
@@ -54,11 +61,27 @@ const ExploreClient: React.FC = () => {
     [pathname, router, searchParams]
   );
 
-  const queryKey = useMemo(() => ["explore-feed", activeTab], [activeTab]);
+  const queryKey = useMemo(
+    () => ["explore-feed", activeTab, debouncedSearch],
+    [activeTab, debouncedSearch]
+  );
 
-  const { data, status } = useQuery({
+  const { data, status, isFetching } = useQuery({
     queryKey,
     queryFn: async () => {
+      if (debouncedSearch.trim()) {
+        const result = await kyInstance
+          .get("/api/explore/search", {
+            searchParams: {
+              q: debouncedSearch.trim(),
+              tab: activeTab,
+              take: "20",
+            },
+          })
+          .json<FeedData>();
+        return result satisfies FeedData;
+      }
+
       const [posts, users] = await Promise.all([
         kyInstance.get(`/api/posts/${activeTab}`).json<{ posts: PostData[] }>(),
         kyInstance
@@ -70,6 +93,7 @@ const ExploreClient: React.FC = () => {
       return { posts: posts.posts, users } satisfies FeedData;
     },
     staleTime: 60 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   const posts = data?.posts ?? [];
@@ -86,15 +110,16 @@ const ExploreClient: React.FC = () => {
     [queryClient, queryKey]
   );
 
-  const handleTabClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      const { tab } = e.currentTarget.dataset;
-      if (tab) {
-        handleTabChange(tab);
-      }
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearch(e.target.value);
     },
-    [handleTabChange]
+    []
   );
+
+  const handleClearSearch = useCallback(() => {
+    setSearch("");
+  }, []);
 
   // Interleave user cards into the post stream (Pinterest-style).
   const items = useMemo(() => {
@@ -158,17 +183,32 @@ const ExploreClient: React.FC = () => {
           src={noFollowImage}
           width={1536}
         />
-        <p className="font-medium">Nothing here yet</p>
+        <p className="font-medium">
+          {debouncedSearch.trim()
+            ? `No results for "${debouncedSearch.trim()}"`
+            : "Nothing here yet"}
+        </p>
         <p className="text-muted-foreground text-sm">
-          Follow people to see their fleets here.
+          {debouncedSearch.trim()
+            ? "Try a different name or topic"
+            : "Follow people to see their fleets here."}
         </p>
       </div>
     );
   } else {
     body = (
-      <div className="columns-2 gap-4 p-4 sm:columns-3 xl:columns-4">
-        {items}
-      </div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          animate={{ opacity: 1, y: 0 }}
+          className="columns-2 gap-4 p-4 sm:columns-3 xl:columns-4"
+          exit={{ opacity: 0, y: -8 }}
+          initial={{ opacity: 0, y: 8 }}
+          key={debouncedSearch.trim() || "feed"}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          {items}
+        </motion.div>
+      </AnimatePresence>
     );
   }
 
@@ -176,20 +216,54 @@ const ExploreClient: React.FC = () => {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
-        <div className="flex items-center border-border/60 border-b">
-          {(Object.keys(TAB_META) as ExploreTab[]).map((tab) => (
-            <button
-              className={`${TAB_TRIGGER_CLASS} flex-1`}
-              data-state={activeTab === tab ? "active" : "inactive"}
-              data-tab={tab}
-              key={tab}
-              onClick={handleTabClick}
-              type="button"
-            >
-              {TAB_META[tab]}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          className="flex items-center gap-2 border-border/60 border-b px-3 py-1.5"
+          onValueChange={handleTabChange}
+          value={activeTab}
+        >
+          <TabsList className="flex h-full min-w-0 flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+            {(Object.keys(TAB_META) as ExploreTab[]).map((tab) => (
+              <TabsTrigger
+                className={`${TAB_TRIGGER_CLASS} flex-1`}
+                key={tab}
+                value={tab}
+              >
+                {TAB_META[tab]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <div className="relative ml-auto hidden min-w-0 items-center gap-2 md:flex">
+            <div className="w-full max-w-[15rem]">
+              <div className="relative">
+                {isFetching && debouncedSearch.trim() ? (
+                  <span className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                ) : (
+                  <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                )}
+                <Input
+                  aria-label="Search explore"
+                  autoComplete="off"
+                  className="h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
+                  onChange={handleSearchChange}
+                  placeholder="Search explore"
+                  type="text"
+                  value={search}
+                />
+                {search ? (
+                  <button
+                    aria-label="Clear search"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={handleClearSearch}
+                    type="button"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </Tabs>
       </div>
 
       <div className="relative min-h-0 flex-1">
