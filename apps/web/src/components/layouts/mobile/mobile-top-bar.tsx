@@ -14,18 +14,21 @@ const MobileTopBar: React.FC = () => {
     <div className="flex items-center gap-2 border-border/60 border-b px-3 py-2 md:hidden">
       <div className="flex w-10 shrink-0 items-center">
         <Link className="shrink-0" href={`/users/${user.username}`}>
-          <UserAvatar avatarUrl={user.image} className="h-10 w-10" />
+          <UserAvatar
+            avatarUrl={user.avatarUrl ?? user.image}
+            className="h-10 w-10"
+          />
         </Link>
       </div>
 
       <div className="flex min-w-0 flex-1 justify-center">
         <Link className="shrink-0" href="/">
-          <div className="relative h-8 w-8">
+          <div className="relative h-9 w-12">
             <Image
               alt="Asocialmedia"
               className="object-contain"
               fill
-              sizes="32px"
+              sizes="48px"
               src={asmLogo}
             />
           </div>
