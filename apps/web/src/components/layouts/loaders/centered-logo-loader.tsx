@@ -8,14 +8,16 @@ export function CenteredLogoLoader({ size = 56 }: { size?: number }) {
       className="flex w-full items-center justify-center py-16"
       role="status"
     >
-      <div>
+      <div
+        className="relative h-[56px] w-[56px]"
+        style={{ height: size, width: size }}
+      >
         <Image
           alt=""
-          className="opacity-80"
-          height={size}
+          fill
           priority
+          sizes={`${size}px`}
           src="/asocialmedialogo.svg"
-          width={size}
         />
       </div>
     </div>

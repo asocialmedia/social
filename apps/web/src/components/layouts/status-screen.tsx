@@ -46,11 +46,7 @@ const StatusImage = ({ image }: { image: StaticImageData | string }) => (
 );
 
 const Logo = () => (
-  <Image
-    alt=""
-    className="opacity-80"
-    height={64}
-    src="/asocialmedialogo.svg"
-    width={64}
-  />
+  <div className="relative h-16 w-16">
+    <Image alt="" fill sizes="64px" src="/asocialmedialogo.svg" />
+  </div>
 );

@@ -1,8 +1,9 @@
-import type { Media } from "@asm/db";
+import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { FileAudioIcon, FileCode, FileIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
@@ -14,7 +15,9 @@ import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
   attachments: Media[];
+  initialMediaIndex?: number;
   interactive?: boolean;
+  post?: PostData;
 }
 
 // Top-level component (not nested) so its own hover/play state doesn't cause
@@ -148,10 +151,20 @@ function VideoPreview({ isSmall, media }: { isSmall: boolean; media: Media }) {
 export function MediaPreviews({
   attachments,
   interactive = true,
+  post,
+  initialMediaIndex,
 }: MediaPreviewsProps) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(
+    initialMediaIndex ?? null
+  );
   const [showAll, setShowAll] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
+
+  // When a post is present the viewer lives at a shareable route
+  // (/posts/{postId}/media/{index}); otherwise (e.g. profile gallery) it is
+  // driven by local state only.
+  const _hasShareableUrl = Boolean(post);
+  const router = useRouter();
 
   const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -164,8 +177,35 @@ export function MediaPreviews({
   }, []);
 
   const handleCloseViewer = useCallback(() => {
+    if (post) {
+      router.push(`/posts/${post.id}`);
+      return;
+    }
     setSelectedIndex(null);
-  }, []);
+  }, [post, router]);
+
+  const openAtIndex = useCallback(
+    (index: number) => {
+      if (post) {
+        router.push(`/posts/${post.id}/media/${index}`);
+        return;
+      }
+      setSelectedIndex(index);
+    },
+    [post, router]
+  );
+
+  const handleNavigateIndex = useCallback(
+    (index: number) => {
+      if (post) {
+        // Update the URL in place so the shared link tracks the viewed asset.
+        router.replace(`/posts/${post.id}/media/${index}`);
+        return;
+      }
+      setSelectedIndex(index);
+    },
+    [post, router]
+  );
 
   const initialCount = isMobile ? 2 : 3;
   const visibleAttachments =
@@ -272,8 +312,8 @@ export function MediaPreviews({
   };
 
   const handleSelectImage = useCallback(
-    (index: number) => () => setSelectedIndex(index),
-    []
+    (index: number) => () => openAtIndex(index),
+    [openAtIndex]
   );
 
   // biome-ignore lint/correctness/noNestedComponentDefinitions: SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
@@ -392,7 +432,7 @@ export function MediaPreviews({
     }
 
     const handleSelect = useCallback(() => {
-      setSelectedIndex(index);
+      openAtIndex(index);
     }, [index]);
 
     return interactive ? (
@@ -573,6 +613,8 @@ export function MediaPreviews({
           isOpen={selectedIndex !== null}
           media={attachments}
           onClose={handleCloseViewer}
+          onNavigate={handleNavigateIndex}
+          post={post}
         />
       )}
     </motion.div>

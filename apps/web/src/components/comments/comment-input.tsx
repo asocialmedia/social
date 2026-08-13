@@ -4,6 +4,8 @@ import { Input } from "@asm/ui/shadui/input";
 import { Loader2, SendHorizonal } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
+import { useSession } from "@/app/(main)/session-provider";
+import UserAvatar from "@/components/layouts/user-avatar";
 import { useSubmitCommentMutation } from "./mutations";
 
 interface CommentInputProps {
@@ -11,6 +13,7 @@ interface CommentInputProps {
 }
 
 export default function CommentInput({ post }: CommentInputProps) {
+  const { user } = useSession();
   const [input, setInput] = useState("");
 
   const mutation = useSubmitCommentMutation(post.id);
@@ -42,6 +45,7 @@ export default function CommentInput({ post }: CommentInputProps) {
 
   return (
     <form className="flex w-full items-center gap-2" onSubmit={onSubmit}>
+      <UserAvatar avatarUrl={user.image} className="h-9 w-9 shrink-0" />
       <Input
         autoFocus
         onChange={handleInputChange}

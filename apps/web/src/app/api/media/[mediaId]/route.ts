@@ -1,15 +1,13 @@
 import { prisma } from "@asm/db";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
-import {
-  ASMOB_BUCKET,
-  asmobClient,
-  validateBucket,
-} from "@/lib/object-storage";
+import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
 import {
   getContentDisposition,
   shouldDisplayInline,
 } from "@/lib/utils/mime-utils";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
@@ -34,26 +32,18 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
 
-  const bucketExists = await validateBucket();
-  if (!bucketExists) {
-    return new NextResponse("Storage configuration error", { status: 500 });
-  }
-
   try {
-    const { searchParams } = new URL(request.url);
-    const download = searchParams.get("download") === "true";
-
-    const mediaWithData = await prisma.media.findUnique({
-      where: { id: mediaId },
-    });
-
-    if (!mediaWithData) {
-      return new NextResponse("Media not found", { status: 404 });
-    }
+    const url = new URL(request.url);
+    const download = url.searchParams.get("download") === "true";
+    // Browsers ask for a byte range when loading <video>/<audio> and when
+    // seeking. Forward the request to storage so only the requested chunk is
+    // transferred instead of the whole file on every interaction.
+    const range = request.headers.get("range") || undefined;
 
     const command = new GetObjectCommand({
       Bucket: ASMOB_BUCKET,
-      Key: mediaWithData.key,
+      Key: media.key,
+      ...(range ? { Range: range } : {}),
     });
 
     const response = await asmobClient.send(command);
@@ -63,7 +53,6 @@ export async function GET(
     }
 
     const headers = new Headers();
-
     headers.set(
       "Content-Type",
       media.mimeType || response.ContentType || "application/octet-stream"
@@ -72,8 +61,22 @@ export async function GET(
     const filename = media.key.split("/").pop() || "file";
     const inline = !download && shouldDisplayInline(media.mimeType);
     headers.set("Content-Disposition", getContentDisposition(filename, inline));
-
     headers.set("Cache-Control", "public, max-age=31536000");
+    headers.set("Accept-Ranges", "bytes");
+
+    // If storage honored the Range, respond 206 with the partial content and
+    // the Content-Range header so the browser can resume/seek correctly.
+    const isPartial = range !== undefined && response.ContentRange;
+    if (isPartial) {
+      headers.set("Content-Range", response.ContentRange as string);
+      if (response.ContentLength) {
+        headers.set("Content-Length", response.ContentLength.toString());
+      }
+      return new NextResponse(response.Body.transformToWebStream(), {
+        status: 206,
+        headers,
+      });
+    }
 
     if (response.ContentLength) {
       headers.set("Content-Length", response.ContentLength.toString());
