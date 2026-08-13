@@ -1,9 +1,10 @@
 "use client";
 
-import { Bell, Bookmark, Home, Search, Settings } from "lucide-react";
+import { Bell, Bookmark, Compass, Home, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type React from "react";
+import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
 import { cn, formatNumber, isRouteActive } from "@/lib/utils";
@@ -11,9 +12,9 @@ import { cn, formatNumber, isRouteActive } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/search", label: "Search", icon: Search },
+  { href: "/discover", label: "Explore", icon: Compass },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
-  { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 const countFor = (
@@ -35,6 +36,8 @@ const MobileBottomNav: React.FC = () => {
   const pathname = usePathname();
   const { data: bookmarkData } = useBookmarkCount();
   const { data: notificationData } = useUnreadNotificationCount();
+  const { openSpotlight } = useSpotlight();
+  const handleOpenSpotlight = () => openSpotlight();
 
   const counts = {
     bookmarkCount: bookmarkData?.totalCount ?? 0,
@@ -50,6 +53,24 @@ const MobileBottomNav: React.FC = () => {
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const isActive = isRouteActive(pathname, href);
           const count = countFor(href, counts);
+
+          if (href === "/search") {
+            return (
+              <button
+                aria-label="Search"
+                className={cn(
+                  "group relative flex flex-col items-center justify-center gap-0 justify-self-center rounded-full border-0 px-4 py-1 text-[10px] text-muted-foreground outline-none transition-all duration-200 ease-out hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                )}
+                key={href}
+                onClick={handleOpenSpotlight}
+                type="button"
+              >
+                <Icon className="h-5 w-5" />
+                <span>{label}</span>
+              </button>
+            );
+          }
+
           return (
             <Link
               className={cn(

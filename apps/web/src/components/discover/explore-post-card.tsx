@@ -68,7 +68,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
         </div>
       </Link>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-3 text-muted-foreground text-xs">
+      <div className="flex flex-nowrap items-center gap-2 overflow-x-hidden px-3 pb-3 text-muted-foreground text-xs">
         <AuraVoteButton
           authorName={post.user.displayName}
           expandable={false}
@@ -78,11 +78,12 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           }}
           postId={post.id}
         />
-        <span className="flex items-center gap-1">
-          <Eye className="h-3.5 w-3.5" />
-          <span className="font-medium text-foreground">
-            {formatNumber(post.viewCount)}
-          </span>
+        <span
+          className="flex h-8 items-center gap-1 rounded-full px-2 font-semibold text-muted-foreground text-sm tabular-nums"
+          title="Views"
+        >
+          <Eye aria-hidden="true" className="h-5 w-5" />
+          {formatNumber(post.viewCount)}
         </span>
       </div>
     </article>

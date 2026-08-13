@@ -4,7 +4,6 @@ import { debugLog } from "@asm/config/debug";
 import type { FollowerInfo } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAtom } from "jotai/react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -13,7 +12,7 @@ import {
   useUnfollowUserMutation,
 } from "@/hooks/user-mutations";
 import { cn } from "@/lib/utils";
-import { followStateAtom } from "./follow-state";
+import { useFollowStateStore } from "./follow-state";
 
 interface ClientFollowButtonProps {
   className?: string;
@@ -82,38 +81,38 @@ const ButtonContent = ({
 );
 
 const useFollowState = (userId: string, initialState: FollowerInfo) => {
-  const [globalFollowState, setGlobalFollowState] = useAtom(followStateAtom);
+  const followMap = useFollowStateStore((state) => state.followMap);
+  const setUserFollowState = useFollowStateStore(
+    (state) => state.setUserFollowState
+  );
   const [localState, setLocalState] = useState<FollowerInfo>(initialState);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const persistedState = globalFollowState[userId];
+    const persistedState = followMap[userId];
     if (persistedState && persistedState.lastUpdated > Date.now() - 300_000) {
       setLocalState({
         followers: persistedState.followers,
         isFollowedByUser: persistedState.isFollowing,
       });
     }
-  }, [userId, globalFollowState]);
+  }, [userId, followMap]);
 
   const updateState = useCallback(
     (newState: FollowerInfo) => {
       setLocalState(newState);
-      setGlobalFollowState((prev) => ({
-        ...prev,
-        [userId]: {
-          isFollowing: newState.isFollowedByUser,
-          followers: newState.followers,
-          lastUpdated: Date.now(),
-        },
-      }));
+      setUserFollowState(userId, {
+        isFollowing: newState.isFollowedByUser,
+        followers: newState.followers,
+        lastUpdated: Date.now(),
+      });
 
       queryClient.invalidateQueries({ queryKey: ["follower-info", userId] });
       queryClient.invalidateQueries({ queryKey: ["suggested-connections"] });
       queryClient.invalidateQueries({ queryKey: ["trending-users"] });
       queryClient.invalidateQueries({ queryKey: ["user", userId] });
     },
-    [userId, setGlobalFollowState, queryClient]
+    [userId, setUserFollowState, queryClient]
   );
 
   return [localState, updateState] as const;

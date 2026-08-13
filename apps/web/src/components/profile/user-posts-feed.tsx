@@ -5,12 +5,12 @@ import { Button } from "@asm/ui/shadui/button";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2, PenLine } from "lucide-react";
-import Link from "next/link";
 import React, { useCallback, useMemo } from "react";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
+import { useComposerStore } from "@/store/composer-store";
 import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
@@ -25,6 +25,11 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
   filter = "all",
   isOwnProfile = false,
 }) => {
+  const openComposer = useComposerStore((state) => state.openComposer);
+
+  const handleOpenComposer = useCallback(() => {
+    openComposer();
+  }, [openComposer]);
   const {
     data,
     fetchNextPage,
@@ -85,11 +90,9 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
       <EmptyFeedState
         action={
           isOwnProfile ? (
-            <Button asChild variant="premium">
-              <Link href="/compose">
-                <PenLine className="mr-1.5 size-4" />
-                Create a post
-              </Link>
+            <Button onClick={handleOpenComposer} variant="premium">
+              <PenLine className="mr-1.5 size-4" />
+              Create a post
             </Button>
           ) : undefined
         }

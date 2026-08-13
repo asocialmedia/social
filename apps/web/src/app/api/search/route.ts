@@ -3,24 +3,10 @@ import {
   hydrateViewCounts,
   type PostsPage,
   prisma,
+  searchSuggestionsCache,
 } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { getSessionFromApi } from "@/lib/session";
-
-const searchSuggestionsCache = {
-  addToHistory(_userId: string, _query: string) {
-    // Search suggestion history persistence is currently disabled
-  },
-  addSuggestion(_query: string) {
-    // Search suggestion persistence is currently disabled
-  },
-  removeHistoryItem(_userId: string, _query: string) {
-    // Search suggestion history removal is currently disabled
-  },
-  clearHistory(_userId: string) {
-    // Search suggestion history clearing is currently disabled
-  },
-};
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
@@ -29,6 +15,22 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const url = new URL(request.url);
+  const type = url.searchParams.get("type");
+
+  if (type === "history") {
+    const history = await searchSuggestionsCache.getHistory(user.id);
+    return Response.json(history);
+  }
+
+  if (type === "suggestions") {
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    if (!q) {
+      return Response.json([]);
+    }
+    const suggestions = await searchSuggestionsCache.getSuggestions(q, 5);
+    return Response.json(suggestions);
+  }
+
   const q = url.searchParams.get("q") || "";
   const cursor = url.searchParams.get("cursor") || undefined;
   const pageSize = 10;

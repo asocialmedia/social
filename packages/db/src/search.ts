@@ -39,6 +39,7 @@ function ensureSearchIndexes(): Promise<void> {
 }
 
 export interface SearchUserResult {
+  aura: number;
   avatarUrl: string | null;
   bio: string | null;
   displayName: string;
@@ -80,6 +81,7 @@ export async function searchUsers(
       ],
     },
     select: {
+      aura: true,
       avatarUrl: true,
       bio: true,
       displayName: true,

@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
+import HashtagFeed from "@/components/posts/hashtag-feed";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
-import SearchResults from "../../search/search-result";
 
 interface PageProps {
   params: Promise<{ tag: string }>;
@@ -56,7 +56,7 @@ export default async function Page(props: PageProps) {
               </span>
             </div>
             <div className="mt-5">
-              <SearchResults query={`#${tag}`} />
+              <HashtagFeed tag={tag} />
             </div>
           </div>
         </div>

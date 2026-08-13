@@ -500,7 +500,7 @@ const MediaViewer = ({
           </div>
 
           {post ? (
-            <aside className="hidden h-full w-[380px] flex-col border-white/10 border-l bg-[hsl(var(--background))] lg:flex">
+            <aside className="hidden h-full w-95 flex-col border-white/10 border-l bg-[hsl(var(--background))] lg:flex">
               <div className="flex items-center gap-3 px-4 py-3">
                 <Link
                   className="shrink-0"
