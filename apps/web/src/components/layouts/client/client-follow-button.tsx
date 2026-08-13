@@ -75,16 +75,7 @@ const ButtonContent = ({
       {isLoading ? (
         <LoadingPulse />
       ) : (
-        <>
-          <span>{isFollowing ? "Following" : "Follow"}</span>
-          {isFollowing ? (
-            <motion.div
-              animate={{ scale: 1 }}
-              className="h-1.5 w-1.5 rounded-full bg-green-500"
-              initial={{ scale: 0 }}
-            />
-          ) : null}
-        </>
+        <span>{isFollowing ? "Following" : "Follow"}</span>
       )}
     </motion.div>
   </AnimatePresence>
@@ -219,14 +210,15 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
           "relative overflow-hidden transition-all duration-300",
           {
             "bg-primary/90 hover:bg-primary": !isFollowing,
-            "bg-secondary/80 hover:bg-secondary/90": isFollowing,
+            "bg-linear-to-b from-orange-500/20 to-orange-600/10 text-orange-600 hover:from-orange-500/25 hover:to-orange-600/15 dark:text-orange-400":
+              isFollowing,
             "cursor-not-allowed": isLoading,
           }
         )}
         disabled={isLoading}
         onClick={handleFollowToggle}
         size="sm"
-        variant={isFollowing ? "secondary" : "default"}
+        variant={isFollowing ? "outline" : "default"}
       >
         <ButtonContent isFollowing={isFollowing} isLoading={isLoading} />
 
