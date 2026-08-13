@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -83,15 +85,15 @@ const ShareButton = ({
       }
 
       const data = await response.json();
-      console.log("Received share stats:", data);
+      clientLog.log("Received share stats:", data);
       if (Array.isArray(data)) {
         setShareStats(data);
       } else {
-        console.error("Invalid data format received:", data);
+        clientLog.error("Invalid data format received:", data);
         setShareStats([]);
       }
     } catch (error) {
-      console.error("Failed to fetch share stats:", error);
+      clientLog.error("Failed to fetch share stats:", error);
       toast({
         variant: "destructive",
         title: "Stats Unavailable",
@@ -137,7 +139,7 @@ const ShareButton = ({
         )
       );
     } catch (error) {
-      console.error("Failed to track share:", error);
+      clientLog.error("Failed to track share:", error);
       toast({
         variant: "destructive",
         title: "Share Not Counted",
@@ -167,7 +169,7 @@ const ShareButton = ({
         )
       );
     } catch (error) {
-      console.error("Failed to track click:", error);
+      clientLog.error("Failed to track click:", error);
       toast({
         variant: "destructive",
         title: "Click Not Counted",

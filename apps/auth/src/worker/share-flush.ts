@@ -6,6 +6,7 @@ import {
   SHARE_GROUP,
   SHARE_STREAM,
 } from "@asm/db";
+import { resolveLogger, type WorkerLogger, withSpan } from "./log";
 
 const BATCH_SIZE = 500;
 const BLOCK_MS = 2000;
@@ -23,48 +24,64 @@ interface ShareDelta {
 // Reads and clears the buffered share/click counters for a post+platform and
 // applies them to the ShareStats table. Exporting for tests.
 export async function flushShareDeltas(
-  keys: Array<{ postId: string; platform: string }>
+  keys: Array<{ postId: string; platform: string }>,
+  logger?: WorkerLogger
 ): Promise<number> {
+  const log = resolveLogger(logger);
   if (keys.length === 0) {
     return 0;
   }
 
-  const pipeline = redis.pipeline();
-  for (const { postId, platform } of keys) {
-    pipeline.getdel(`${SHARE_STATS_PREFIX}${postId}:${platform}`);
-    pipeline.getdel(`${SHARE_CLICKS_PREFIX}${postId}:${platform}`);
-  }
-  const counters = await pipeline.exec();
+  return await withSpan(
+    "share-flush",
+    async () => {
+      const pipeline = redis.pipeline();
+      for (const { postId, platform } of keys) {
+        pipeline.getdel(`${SHARE_STATS_PREFIX}${postId}:${platform}`);
+        pipeline.getdel(`${SHARE_CLICKS_PREFIX}${postId}:${platform}`);
+      }
+      const counters = await pipeline.exec();
 
-  const deltas: ShareDelta[] = [];
-  keys.forEach((key, index) => {
-    const shareValue = counters?.[index * 2]?.[1];
-    const clickValue = counters?.[index * 2 + 1]?.[1];
-    const shares = Number.parseInt(String(shareValue ?? "0"), 10);
-    const clicks = Number.parseInt(String(clickValue ?? "0"), 10);
-    if (shares > 0 || clicks > 0) {
-      deltas.push({ ...key, shares, clicks });
-    }
-  });
+      const deltas: ShareDelta[] = [];
+      keys.forEach((key, index) => {
+        const shareValue = counters?.[index * 2]?.[1];
+        const clickValue = counters?.[index * 2 + 1]?.[1];
+        const shares = Number.parseInt(String(shareValue ?? "0"), 10);
+        const clicks = Number.parseInt(String(clickValue ?? "0"), 10);
+        if (shares > 0 || clicks > 0) {
+          deltas.push({ ...key, shares, clicks });
+        }
+      });
 
-  if (deltas.length === 0) {
-    return 0;
-  }
+      if (deltas.length === 0) {
+        return 0;
+      }
 
-  await prisma.$transaction(
-    deltas.map(({ postId, platform, shares, clicks }) =>
-      prisma.shareStats.upsert({
-        where: { postId_platform: { postId, platform } },
-        create: { postId, platform, shares, clicks },
-        update: {
-          shares: { increment: shares },
-          clicks: { increment: clicks },
+      await prisma.$transaction(
+        deltas.map(({ postId, platform, shares, clicks }) =>
+          prisma.shareStats.upsert({
+            where: { postId_platform: { postId, platform } },
+            create: { postId, platform, shares, clicks },
+            update: {
+              shares: { increment: shares },
+              clicks: { increment: clicks },
+            },
+          })
+        )
+      );
+
+      log.info(
+        {
+          flushedRecords: deltas.length,
+          posts: new Set(deltas.map((delta) => delta.postId)).size,
         },
-      })
-    )
-  );
+        "share stats flushed"
+      );
 
-  return deltas.length;
+      return deltas.length;
+    },
+    { "batch.size": keys.length }
+  );
 }
 
 interface ShareEvent {
@@ -100,8 +117,10 @@ function parseShareEventFields(fields: string[] | null): ShareEvent | null {
 // Blocks on the share stream and flushes whatever arrives. Returns the number
 // of entries consumed.
 export async function consumeShareStream(
-  consumerName: string
+  consumerName: string,
+  logger?: WorkerLogger
 ): Promise<number> {
+  const log = resolveLogger(logger);
   const blockingClient = getBlockingRedisClient();
   const entries = await blockingClient.xreadgroup(
     "GROUP",
@@ -144,12 +163,16 @@ export async function consumeShareStream(
     }
   }
 
-  await flushShareDeltas(uniqueKeys);
+  await flushShareDeltas(uniqueKeys, log);
 
   if (entryIds.length > 0) {
     await redis.xack(SHARE_STREAM, SHARE_GROUP, ...entryIds);
   }
 
+  log.debug(
+    { entries: entryIds.length, uniqueKeys: uniqueKeys.length },
+    "share stream batch"
+  );
   return entryIds.length;
 }
 

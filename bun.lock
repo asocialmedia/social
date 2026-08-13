@@ -29,13 +29,14 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.0.42",
+      "version": "1.0.47",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
         "@asm/logger": "workspace:*",
+        "@opentelemetry/api": "^1.9.1",
         "@prisma/client": "7.9.1",
         "@react-email/components": "^1.0.12",
         "@t3-oss/env-core": "^0.13.11",
@@ -61,7 +62,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.0.70",
+      "version": "1.0.74",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -141,7 +142,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.0.40",
+      "version": "1.0.45",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@prisma/client": "7.9.1",
@@ -168,7 +169,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.0.18",
+      "version": "1.0.22",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@aws-sdk/client-s3": "^3.1109.0",

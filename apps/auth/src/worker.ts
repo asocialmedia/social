@@ -38,11 +38,13 @@ if (import.meta.main) {
     // Stream consumers (blocking loops, one per stream).
     const runViewLoop = consumeViewStream.bind(
       null,
-      `view-worker-${process.pid}`
+      `view-worker-${process.pid}`,
+      logger
     );
     const runShareLoop = consumeShareStream.bind(
       null,
-      `share-worker-${process.pid}`
+      `share-worker-${process.pid}`,
+      logger
     );
 
     const runViewLoopWithRecovery = async () => {
@@ -87,7 +89,7 @@ if (import.meta.main) {
       (job) => {
         switch (job.name) {
           case "post-deleted":
-            return processPostDeleted(job.data);
+            return processPostDeleted(job.data, logger);
           case "notification-created":
             return processNotificationCreated(job.data);
           case "notification-deleted":
@@ -103,7 +105,7 @@ if (import.meta.main) {
       "media",
       (job) => {
         if (job.name === "media-cleanup") {
-          return processMediaCleanup(job.data);
+          return processMediaCleanup(job.data, logger);
         }
         throw new Error(`Unknown media job: ${job.name}`);
       },
@@ -117,9 +119,9 @@ if (import.meta.main) {
           case "hn-refresh":
             return processHnRefresh();
           case "expired-tokens":
-            return processExpiredTokens();
+            return processExpiredTokens(logger);
           case "inactive-users":
-            return processInactiveUsersSweep();
+            return processInactiveUsersSweep(logger);
           default:
             throw new Error(`Unknown maintenance job: ${job.name}`);
         }

@@ -110,9 +110,11 @@ function VideoTile({
         src={getMediaUrl(item.id)}
       />
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
-      <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs transition-transform duration-300 group-hover:scale-110">
-        <MdPlayArrow className="h-6 w-6 text-white" />
-      </span>
+      <div className="absolute top-2 right-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+          <MdPlayArrow className="ml-0.5 h-3.5 w-3.5 text-white" />
+        </div>
+      </div>
     </div>
   );
 }

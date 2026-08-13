@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
@@ -20,7 +22,7 @@ export function useLogout() {
       localStorage.clear();
       sessionStorage.clear();
     } catch (error) {
-      console.log("Failed to clear storage:", error);
+      clientLog.log("Failed to clear storage:", error);
     }
 
     try {

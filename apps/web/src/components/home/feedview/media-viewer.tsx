@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
@@ -62,7 +64,7 @@ const MediaViewer = ({
 
   const handleImageError = useCallback(
     (event: SyntheticEvent<HTMLImageElement>) => {
-      console.error("Image load error:", event);
+      clientLog.error("Image load error:", event);
       event.currentTarget.src = FALLBACK_IMAGE.src;
       setIsLoading(false);
     },
@@ -114,7 +116,7 @@ const MediaViewer = ({
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
     } catch (error) {
-      console.error("Download failed:", error);
+      clientLog.error("Download failed:", error);
       toast({
         title: "Download Failed",
         description: "Couldn't download that file, try again?",

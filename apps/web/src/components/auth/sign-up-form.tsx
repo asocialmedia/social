@@ -1,6 +1,7 @@
 "use client";
 
 import { type SignUpValues, signUpSchema } from "@asm/auth/validation";
+import { clientLog } from "@asm/config/debug";
 import { useVerification } from "@asm/ui/providers/verification";
 import { Button } from "@asm/ui/shadui/button";
 import { Checkbox } from "@asm/ui/shadui/checkbox";
@@ -414,7 +415,7 @@ export default function SignUpForm() {
         }
       } catch (signupError) {
         const errorMessage = toErrorWithMessage(signupError).message;
-        console.error("Signup error:", signupError);
+        clientLog.error("Signup error:", signupError);
         setError(errorMessage);
         toast({
           variant: "destructive",
@@ -504,7 +505,7 @@ export default function SignUpForm() {
             setOtp("");
           }
 
-          console.error("OTP verification error:", serverError);
+          clientLog.error("OTP verification error:", serverError);
           toast({
             variant: "destructive",
             title: errorTitle,
@@ -520,7 +521,7 @@ export default function SignUpForm() {
 
         if (responseEmail && responsePassword) {
           try {
-            console.log("Attempting auto-login after OTP verification");
+            clientLog.log("Attempting auto-login after OTP verification");
             const { authClient } = await import("@/lib/auth");
 
             const loginResult = await authClient.signIn.email({
@@ -529,17 +530,17 @@ export default function SignUpForm() {
               callbackURL: "/",
               fetchOptions: {
                 onSuccess: () => {
-                  console.log("Auto-login successful");
+                  clientLog.log("Auto-login successful");
                 },
                 onError: (ctx) => {
-                  console.error("Auto-login error:", ctx.error);
+                  clientLog.error("Auto-login error:", ctx.error);
                   throw new Error(ctx.error.message || "Auto-login failed");
                 },
               },
             });
 
             if (loginResult?.data) {
-              console.log("Auto-login completed successfully");
+              clientLog.log("Auto-login completed successfully");
               verificationChannel.current?.postMessage("verification-success");
               setIsVerifying(true);
               clearSignupState();
@@ -554,7 +555,7 @@ export default function SignUpForm() {
               return;
             }
           } catch (signError) {
-            console.error("Auto sign-in failed:", signError);
+            clientLog.error("Auto sign-in failed:", signError);
             toast({
               title: "Account Created!",
               description:

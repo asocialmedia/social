@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import { Button } from "@asm/ui/shadui/button";
 import errorImage from "@assets/general/error.png";
 import { useEffect } from "react";
@@ -14,9 +16,9 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Uncaught error:", error);
+    clientLog.error("Uncaught error:", error);
     if (error.digest) {
-      console.error("Error digest:", error.digest);
+      clientLog.error("Error digest:", error.digest);
     }
   }, [error]);
 

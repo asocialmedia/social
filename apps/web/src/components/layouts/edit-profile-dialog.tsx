@@ -2,6 +2,7 @@ import {
   type UpdateUserProfileValues,
   updateUserProfileSchema,
 } from "@asm/auth/validation";
+import { clientLog } from "@asm/config/debug";
 import type { UserData } from "@asm/db";
 import {
   Dialog,
@@ -259,7 +260,7 @@ export default function EditProfileDialog({
         title: "Profile Updated",
       });
     } catch (error) {
-      console.error("Failed to update profile:", error);
+      clientLog.error("Failed to update profile:", error);
       toast({
         description: "Couldn't save your changes, try again?",
         title: "Couldn't Save",
@@ -548,7 +549,7 @@ function BannerInput({
           500
         );
       } catch (error) {
-        console.error("Error resizing image:", error);
+        clientLog.error("Error resizing image:", error);
         toast({
           description: "That image didn't work, try a different one",
           title: "Couldn't Process Image",
@@ -725,7 +726,7 @@ function AvatarInput({
           512
         );
       } catch (error) {
-        console.error("Error resizing image:", error);
+        clientLog.error("Error resizing image:", error);
         toast({
           description: "That image didn't work, try a different one",
           title: "Couldn't Process Image",

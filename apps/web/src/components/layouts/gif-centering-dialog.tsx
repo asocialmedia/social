@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -110,7 +112,7 @@ export default function GifCenteringDialog({
         description: "Nice! Your new avatar is live!",
       });
     } catch (error) {
-      console.error("Error processing GIF:", error);
+      clientLog.error("Error processing GIF:", error);
       toast({
         title: "Couldn't Update",
         description: "Couldn't set that avatar, try again?",

@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import {
   type AllowedAvatarExtension,
   avatarConfig,
@@ -11,7 +13,7 @@ export const validateFile = (file: File) => {
   }
 
   const fileConfig = getFileConfigFromMime(file.type);
-  console.log("File validation:", {
+  clientLog.log("File validation:", {
     type: file.type,
     config: fileConfig,
     size: file.size,

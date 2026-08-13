@@ -1,4 +1,5 @@
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
+import { clientLog } from "@asm/config/debug";
 import type { UserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -105,7 +106,7 @@ export function useUpdateAvatarMutation() {
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
     },
     onError: (error, _, context) => {
-      console.error("Avatar update error:", error);
+      clientLog.error("Avatar update error:", error);
       if (context?.previousUser) {
         queryClient.setQueryData(
           ["user", context.previousUser.id],
@@ -168,7 +169,7 @@ export function useUpdateBannerMutation() {
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
     },
     onError: (error, _, context) => {
-      console.error("Banner update error:", error);
+      clientLog.error("Banner update error:", error);
       if (context?.previousUser) {
         queryClient.setQueryData(
           ["user", context.previousUser.id],
@@ -218,7 +219,7 @@ export function useDeleteBannerMutation() {
       return { previousUser };
     },
     onError: (error, _, context) => {
-      console.error("Banner delete error:", error);
+      clientLog.error("Banner delete error:", error);
       if (context?.previousUser) {
         queryClient.setQueryData(
           ["user", context.previousUser.id],
@@ -252,7 +253,7 @@ export function useUpdateProfileMutation() {
         const data = (await response.json()) as UpdateProfileResponse;
         return data.user;
       } catch (error) {
-        console.error("Profile update error:", error);
+        clientLog.error("Profile update error:", error);
         throw error;
       }
     },
@@ -296,7 +297,7 @@ export function useUpdateProfileMutation() {
       queryClient.invalidateQueries({ queryKey: ["comments"] });
     },
     onError: (error, _, context) => {
-      console.error("Profile update error:", error);
+      clientLog.error("Profile update error:", error);
       if (context?.previousUser) {
         queryClient.setQueryData(
           ["user", context.previousUser.id],

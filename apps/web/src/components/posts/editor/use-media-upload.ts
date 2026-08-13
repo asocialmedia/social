@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import { Upload } from "lucide-react";
 import { createElement, useState } from "react";
 import { useToast } from "@/lib/gooey-toast";
@@ -84,7 +86,7 @@ export default function useMediaUpload() {
             completed += 1;
             setUploadProgress((completed / files.length) * 100);
           } catch (error: unknown) {
-            console.error("Upload failed:", error);
+            clientLog.error("Upload failed:", error);
             toast({
               variant: "destructive",
               title: "Upload Failed",

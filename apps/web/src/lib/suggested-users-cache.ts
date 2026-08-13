@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import { redis } from "@asm/db";
 
 const SUGGESTED_USERS_CACHE_KEY = (userId: string) =>
@@ -10,7 +12,7 @@ export const suggestedUsersCache = {
       const cached = await redis.get(SUGGESTED_USERS_CACHE_KEY(userId));
       return cached ? JSON.parse(cached) : null;
     } catch (error) {
-      console.error("Error getting suggested users from cache:", error);
+      clientLog.error("Error getting suggested users from cache:", error);
       return null;
     }
   },
@@ -24,7 +26,7 @@ export const suggestedUsersCache = {
         CACHE_TTL
       );
     } catch (error) {
-      console.error("Error setting suggested users cache:", error);
+      clientLog.error("Error setting suggested users cache:", error);
     }
   },
 
@@ -32,7 +34,7 @@ export const suggestedUsersCache = {
     try {
       await redis.del(SUGGESTED_USERS_CACHE_KEY(userId));
     } catch (error) {
-      console.error("Error invalidating suggested users cache:", error);
+      clientLog.error("Error invalidating suggested users cache:", error);
     }
   },
 
@@ -43,7 +45,7 @@ export const suggestedUsersCache = {
         await redis.del(...keys);
       }
     } catch (error) {
-      console.error("Error invalidating all suggested users caches:", error);
+      clientLog.error("Error invalidating all suggested users caches:", error);
     }
   },
 
@@ -54,7 +56,7 @@ export const suggestedUsersCache = {
         redis.del(`follower-info:${userId}`),
       ]);
     } catch (error) {
-      console.error("Error invalidating user caches:", error);
+      clientLog.error("Error invalidating user caches:", error);
     }
   },
 };

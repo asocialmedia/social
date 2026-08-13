@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { BookmarkInfo } from "@asm/db";
 import {
   type QueryKey,
@@ -57,7 +59,7 @@ export default function BookmarkButton({
     },
     onError(error, _variables, context) {
       queryClient.setQueryData(queryKey, context?.previousState);
-      console.error(error);
+      clientLog.error(error);
       toast({
         variant: "destructive",
         description: "That didn't go through, give it another try?",

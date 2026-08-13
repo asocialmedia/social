@@ -1,6 +1,7 @@
 "use client";
 
 import { type LoginValues, loginSchema } from "@asm/auth/validation";
+import { clientLog } from "@asm/config/debug";
 import {
   Form,
   FormControl,
@@ -80,7 +81,7 @@ export default function LoginForm() {
         handleLoginSuccess(values.username);
       }
     } catch (loginError) {
-      console.error("Login error:", loginError);
+      clientLog.error("Login error:", loginError);
       toast({
         variant: "destructive",
         title: "Login Failed",
@@ -201,7 +202,7 @@ export default function LoginForm() {
         });
       }
     } catch (resendError) {
-      console.error("Resend verification error:", resendError);
+      clientLog.error("Resend verification error:", resendError);
       toast({
         variant: "destructive",
         title: "Verification Failed!",

@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { PostsPage } from "@asm/db";
 import {
   type InfiniteData,
@@ -49,7 +51,7 @@ export function useDeletePostMutation() {
       }
     },
     onError(error) {
-      console.error(error);
+      clientLog.error(error);
       toast({
         variant: "destructive",
         description: "Couldn't delete that post, try again?",

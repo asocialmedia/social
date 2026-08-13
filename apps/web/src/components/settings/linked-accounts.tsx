@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { UserData } from "@asm/db";
 import { motion } from "motion/react";
 import Image from "next/image";
@@ -124,7 +126,7 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
 
         window.location.reload();
       } catch (error) {
-        console.error("Unlink account error:", error);
+        clientLog.error("Unlink account error:", error);
         toast({
           variant: "destructive",
           title: "Couldn't Unlink",

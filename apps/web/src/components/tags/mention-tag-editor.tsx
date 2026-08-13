@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
@@ -82,7 +84,7 @@ export function MentionTagEditor({
 
         setSuggestions(data.users);
       } catch (error) {
-        console.error("Error searching users:", error);
+        clientLog.error("Error searching users:", error);
         toast({
           title: "No Luck Finding People",
           description: "Try searching again in a moment",
