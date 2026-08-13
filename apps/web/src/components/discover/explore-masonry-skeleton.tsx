@@ -34,6 +34,11 @@ const ExploreMasonrySkeleton: React.FC = () => (
           <Skeleton className="h-6 w-6 rounded-full" />
           <Skeleton className="h-3 w-20 rounded-md" />
         </div>
+        <div className="mt-3 flex items-center gap-2">
+          <Skeleton className="h-8 w-8 rounded-full" />
+          <Skeleton className="h-8 w-8 rounded-full" />
+          <Skeleton className="h-8 w-16 rounded-full" />
+        </div>
       </div>
     ))}
   </div>

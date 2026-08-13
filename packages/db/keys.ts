@@ -9,8 +9,6 @@ export const keys = createEnv({
   runtimeEnv: {
     CHECKPOINT_DISABLE: process.env.CHECKPOINT_DISABLE,
     DATABASE_URL: process.env.DATABASE_URL,
-    MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
-    MEILISEARCH_URL: process.env.MEILISEARCH_URL,
     NODE_ENV: process.env.NODE_ENV,
     REDIS_URL: process.env.REDIS_URL,
   },
@@ -21,8 +19,6 @@ export const keys = createEnv({
       .default(
         "postgresql://postgres:postgres@localhost:5433/asocialmedia?schema=public"
       ),
-    MEILISEARCH_MASTER_KEY: z.string().default("masterKey123"),
-    MEILISEARCH_URL: z.url().default("http://localhost:7700"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),

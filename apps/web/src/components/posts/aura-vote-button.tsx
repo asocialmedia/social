@@ -15,6 +15,7 @@ import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
   authorName: string;
+  expandable?: boolean;
   initialState: VoteInfo;
   postId: string;
 }
@@ -23,6 +24,7 @@ export default function AuraVoteButton({
   postId,
   initialState,
   authorName,
+  expandable = true,
 }: AuraVoteButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -201,9 +203,11 @@ export default function AuraVoteButton({
             data.userVote === 1 ? "fill-white" : ""
           )}
         />
-        <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
-          Amplify
-        </span>
+        {expandable ? (
+          <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
+            Amplify
+          </span>
+        ) : null}
       </button>
       <button
         aria-label="Mute"
@@ -220,9 +224,11 @@ export default function AuraVoteButton({
             data.userVote === -1 ? "fill-white" : ""
           )}
         />
-        <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
-          Mute
-        </span>
+        {expandable ? (
+          <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
+            Mute
+          </span>
+        ) : null}
       </button>
       <span
         className="flex h-8 items-center gap-1 rounded-full px-2 font-semibold text-muted-foreground text-sm tabular-nums"

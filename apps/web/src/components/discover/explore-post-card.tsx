@@ -1,7 +1,7 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Eye, MessageSquare } from "lucide-react";
+import { Eye } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -71,18 +71,13 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-3 text-muted-foreground text-xs">
         <AuraVoteButton
           authorName={post.user.displayName}
+          expandable={false}
           initialState={{
             aura: post.aura,
             userVote: post.vote[0]?.value || 0,
           }}
           postId={post.id}
         />
-        <span className="flex items-center gap-1">
-          <MessageSquare className="h-3.5 w-3.5" />
-          <span className="font-medium text-foreground">
-            {formatNumber(post._count.comments)}
-          </span>
-        </span>
         <span className="flex items-center gap-1">
           <Eye className="h-3.5 w-3.5" />
           <span className="font-medium text-foreground">

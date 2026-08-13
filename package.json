@@ -1,6 +1,6 @@
 {
   "name": "asocialmedia/social",
-  "version": "1.1.52",
+  "version": "1.1.53",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -21,7 +21,6 @@
     "docker:clean": "docker compose -f docker/docker-compose.dev.yml down -v && docker volume rm asmdev-postgres18-data asmdev-redis-data asmdev-asmob-data asmdev-redisinsight-data && rm -f .dev-init",
     "docker:dev": "docker compose -f docker/docker-compose.dev.yml --profile init --profile studio up -d",
     "postinstall": "bun run --filter=@asm/db db:generate",
-    "search:init": "cd packages/db && bunx tsx scripts/init-meilisearch.ts",
     "test": "bun run test:unit && bun run test:integration",
     "test:coverage": "bun run test:coverage:all",
     "test:coverage:all": "bun scripts/run-coverage-suite.ts all",
@@ -48,7 +47,6 @@
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "lefthook": "^2.1.10",
-    "meilisearch": "^0.60.0",
     "portless": "^0.15.5",
     "prisma": "7.9.1",
     "turbo": "^2.10.9",

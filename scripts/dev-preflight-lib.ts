@@ -34,7 +34,6 @@ export type PreflightCheckKey =
   | "postgres"
   | "redis"
   | "asmob"
-  | "meilisearch"
   | "openobserve"
   | "portless";
 
@@ -54,7 +53,6 @@ export const PREFLIGHT_CHECK_ORDER: Array<{
   { key: "postgres", label: "pg" },
   { key: "redis", label: "rd" },
   { key: "asmob", label: "obj" },
-  { key: "meilisearch", label: "mei" },
   { key: "openobserve", label: "ozo" },
   { key: "portless", label: "ptl" },
 ];
@@ -65,7 +63,6 @@ export const DEFAULT_PREFLIGHT_CONFIG: PreflightConfig = {
     "postgres-dev",
     "redis-dev",
     "asmob-dev",
-    "meilisearch-dev",
     "openobserve-dev",
   ],
 };

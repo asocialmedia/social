@@ -192,50 +192,6 @@ services:
 
         echo 'Object storage initialization complete!'
 
-  meilisearch-dev:
-    container_name: asmdev-meilisearch
-    image: getmeili/meilisearch:latest
-    ports:
-      - "7700:7700"
-    environment:
-      MEILI_MASTER_KEY: masterKey123
-      MEILI_NO_ANALYTICS: "true"
-    volumes:
-      - meilisearch_data_dev:/meili_data
-    networks:
-      - dev_network
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:7700/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-
-  meilisearch-init:
-    profiles: [ "init" ]
-    container_name: asmdev-meilisearch-init
-    build:
-      context: ..
-      dockerfile: docker/prisma.dockerfile
-    environment:
-      MEILISEARCH_URL: http://meilisearch-dev:7700
-      MEILISEARCH_MASTER_KEY: masterKey123
-      DATABASE_URL: postgresql://postgres:postgres@postgres-dev:5432/asocialmedia?schema=public
-    networks:
-      - dev_network
-    depends_on:
-      meilisearch-dev:
-        condition: service_healthy
-      postgres-dev:
-        condition: service_healthy
-      prisma-migrate:
-        condition: service_completed_successfully
-    command:
-      [
-        "/usr/local/bin/meilisearch-init.sh",
-      ]
-
   openobserve-dev:
     container_name: asmdev-openobserve
     image: public.ecr.aws/zinclabs/openobserve-enterprise:v0.40.27
@@ -274,7 +230,5 @@ volumes:
     name: asmdev-asmob-data
   redisinsight:
     name: asmdev-redisinsight-data
-  meilisearch_data_dev:
-    name: asmdev-meilisearch-data
   openobserve_data_dev:
     name: asmdev-openobserve-data
