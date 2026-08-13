@@ -30,7 +30,13 @@ function rangeNotSatisfiable(
   const storageContentRange = (
     error as S3ServiceException & { ContentRange?: string }
   ).ContentRange;
-  headers.set("Content-Range", storageContentRange || `bytes */${totalSize}`);
+  // Only emit a Content-Range when we actually know the total size; a
+  // `bytes */null` header is invalid and worse than omitting it.
+  const contentRange =
+    storageContentRange || (totalSize ? `bytes */${totalSize}` : "");
+  if (contentRange) {
+    headers.set("Content-Range", contentRange);
+  }
   return new NextResponse("Range Not Satisfiable", { status: 416, headers });
 }
 

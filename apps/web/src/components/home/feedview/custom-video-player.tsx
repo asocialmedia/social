@@ -170,6 +170,9 @@ export function CustomVideoPlayer({
     if (videoRef.current) {
       if (videoRef.current && newVolume !== undefined) {
         videoRef.current.volume = newVolume;
+        // Unmute as soon as the user raises the volume above zero so the video
+        // element's muted flag stays in sync with the slider.
+        videoRef.current.muted = newVolume === 0;
       }
       if (newVolume !== undefined) {
         setVolume(newVolume);

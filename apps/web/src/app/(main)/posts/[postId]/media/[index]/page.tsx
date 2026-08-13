@@ -44,9 +44,13 @@ export default async function Page(props: PageProps) {
   const session = await getSessionFromApi();
 
   if (!session?.user) {
-    redirect(
-      `/login?next=/posts/${encodeURIComponent(postId)}/media/${parsedIndex}`
-    );
+    // Preserve the mediaId query param (used to resolve the true attachment
+    // index from the profile gallery) across the login round-trip.
+    const mediaIdQuery = searchParams.mediaId
+      ? `?mediaId=${encodeURIComponent(searchParams.mediaId)}`
+      : "";
+    const next = `/posts/${encodeURIComponent(postId)}/media/${parsedIndex}${mediaIdQuery}`;
+    redirect(`/login?next=${encodeURIComponent(next)}`);
   }
 
   const [post, userData] = await Promise.all([

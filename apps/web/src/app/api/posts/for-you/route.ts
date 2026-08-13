@@ -7,6 +7,9 @@ import {
 } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
+// A valid take value is a positive integer only (no partial-prefix parsing).
+const TAKE_PATTERN = /^[1-9]\d*$/;
+
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
   if (!session?.user) {
@@ -16,11 +19,14 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
-  const requestedTake = Number.parseInt(url.searchParams.get("take") || "", 10);
-  const pageSize =
-    Number.isFinite(requestedTake) && requestedTake > 0
-      ? Math.min(requestedTake, 20)
-      : 20;
+  // Validate the whole take value, accept only a positive integer, cap at 20,
+  // default malformed to 20.
+  const takeValue = url.searchParams.get("take");
+  const requestedTake =
+    takeValue && TAKE_PATTERN.test(takeValue)
+      ? Number.parseInt(takeValue, 10)
+      : 0;
+  const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
   const where: Prisma.PostWhereInput = {};
   const posts = await prisma.post.findMany({

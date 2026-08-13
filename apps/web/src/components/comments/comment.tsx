@@ -14,6 +14,8 @@ interface CommentProps {
 export default function Comment({ comment }: CommentProps) {
   const { user } = useSession();
 
+  // The <p> below is the concrete DOM element TooltipTrigger asChild clones,
+  // so the trigger ref/props reach a real node. Linkify stays inside.
   return (
     <div className="group/comment flex gap-3 pt-3 pb-3 first:pt-1.5">
       <UserTooltip user={comment.user}>
@@ -51,8 +53,6 @@ export default function Comment({ comment }: CommentProps) {
         </div>
 
         <UserTooltip user={comment.user}>
-          {/* The <p> is the concrete DOM element TooltipTrigger asChild clones,
-              so the trigger ref/props reach a real node. Linkify stays inside. */}
           <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
             <Linkify>{comment.content}</Linkify>
           </p>

@@ -68,19 +68,23 @@ const MediaViewer = ({
     }
   }, [isOpen, initialIndex]);
 
-  const handlePrevious = () => {
-    const next = currentIndex > 0 ? currentIndex - 1 : media.length - 1;
-    setCurrentIndex(next);
-    onNavigate?.(next);
-    setIsLoading(true);
-  };
+  const handlePrevious = useCallback(() => {
+    setCurrentIndex((prev) => {
+      const next = prev > 0 ? prev - 1 : media.length - 1;
+      onNavigate?.(next);
+      setIsLoading(true);
+      return next;
+    });
+  }, [media.length, onNavigate]);
 
-  const handleNext = () => {
-    const next = currentIndex < media.length - 1 ? currentIndex + 1 : 0;
-    setCurrentIndex(next);
-    onNavigate?.(next);
-    setIsLoading(true);
-  };
+  const handleNext = useCallback(() => {
+    setCurrentIndex((prev) => {
+      const next = prev < media.length - 1 ? prev + 1 : 0;
+      onNavigate?.(next);
+      setIsLoading(true);
+      return next;
+    });
+  }, [media.length, onNavigate]);
 
   const handleMediaLoaded = useCallback(() => {
     setIsLoading(false);
@@ -173,7 +177,6 @@ const MediaViewer = ({
     </Button>
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: it rerenders
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) {
@@ -194,7 +197,7 @@ const MediaViewer = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, handlePrevious, handleNext]);
 
   const renderImageMedia = (item: Media) => {
     if (item.mimeType === "image/svg+xml") {
@@ -381,7 +384,6 @@ const MediaViewer = ({
             title={post.content}
           />
         </div>
-        {/* Views: desktop hidden, mobile visible */}
         <span className="pr-2 text-muted-foreground text-sm lg:hidden">
           {formatNumber(post.viewCount)} views
         </span>
@@ -396,7 +398,7 @@ const MediaViewer = ({
       return null;
     }
     return (
-      <div className="flex shrink-0 flex-col bg-gradient-to-b from-black/80 to-transparent px-3 pt-3 pb-5 lg:hidden">
+      <div className="flex shrink-0 flex-col bg-linear-to-b from-black/80 to-transparent px-3 pt-3 pb-5 lg:hidden">
         <div className="flex items-center justify-between">
           <button
             aria-label="Close viewer"
@@ -451,9 +453,7 @@ const MediaViewer = ({
         </DialogTitle>
 
         <div className="flex h-full w-full overflow-hidden">
-          {/* Left pane: the asset */}
           <div className="relative flex h-full min-w-0 flex-1 flex-col bg-black">
-            {/* Mobile header: close + more on one row, then avatar/name/@username + follow */}
             {renderMobileHeader()}
 
             <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
@@ -496,11 +496,9 @@ const MediaViewer = ({
               )}
             </div>
 
-            {/* Action bar at the bottom of the asset (only when a post is present) */}
             {post ? renderActionBar() : null}
           </div>
 
-          {/* Right pane: post sidebar with caption + eddies (desktop only) */}
           {post ? (
             <aside className="hidden h-full w-[380px] flex-col border-white/10 border-l bg-[hsl(var(--background))] lg:flex">
               <div className="flex items-center gap-3 px-4 py-3">
@@ -532,7 +530,6 @@ const MediaViewer = ({
                 ) : null}
               </div>
 
-              {/* Post content, no separator from the header */}
               <div className="px-4 pt-1 pb-2">
                 <Linkify>
                   <p className="wrap-break-word whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
@@ -549,7 +546,6 @@ const MediaViewer = ({
                 ) : null}
               </div>
 
-              {/* Timestamp + views in one row */}
               <div className="flex items-center gap-2 px-4 pb-2 text-muted-foreground text-sm">
                 <span>
                   {new Date(post.createdAt).toLocaleDateString(undefined, {
@@ -569,7 +565,6 @@ const MediaViewer = ({
                 <span>{formatNumber(post.viewCount)} views</span>
               </div>
 
-              {/* Actions: amplify/mute, share, bookmark */}
               <div className="flex items-center gap-1 border-border/60 border-y px-4 py-2">
                 <AuraVoteButton
                   authorName={post.user.displayName}
@@ -597,7 +592,6 @@ const MediaViewer = ({
                 />
               </div>
 
-              {/* Eddies */}
               <div className="flex-1 overflow-y-auto">
                 <div className="px-4 py-3">
                   <Comments post={post} />

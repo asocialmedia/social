@@ -1,5 +1,3 @@
-// biome-ignore-all lint/a11y/noNoninteractiveElementInteractions: The bar container needs a blur handler to detect focus leaving it
-// biome-ignore-all lint/a11y/noStaticElementInteractions: The bar container needs a blur handler to detect focus leaving it
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
@@ -157,6 +155,8 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       className="fixed inset-x-0 z-50 px-3 pb-3 lg:hidden"
       style={{ bottom: keyboardOffset }}
     >
+      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: focus-boundary container needs a blur handler to detect focus leaving it */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: focus-boundary container needs a blur handler to detect focus leaving it */}
       <div
         className="rounded-2xl border border-border/60 bg-[hsl(var(--background-alt))]/95 p-2 shadow-lg backdrop-blur-md"
         onBlur={handleBarBlur}
