@@ -120,12 +120,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           <div className="relative">
             <UserAvatar
               avatarUrl={avatarUrl}
-              className="rounded-full ring-4 ring-[hsl(var(--background-alt))]"
+              className="ring-4 ring-[hsl(var(--background-alt))]"
               size={112}
             />
-            <span className="absolute right-1 bottom-1 rounded-full bg-gradient-to-b from-[#ff9500] to-[#e65500] p-1 shadow-lg">
-              <Flame className="size-3.5 text-white" />
-            </span>
           </div>
           <div className="mb-2">
             {isOwnProfile ? (

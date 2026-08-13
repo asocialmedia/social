@@ -2,11 +2,14 @@
 
 import type { PostData, UserData } from "@asm/db";
 import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef } from "react";
 import PostCard from "@/components/home/feedview/post-card";
+import HomeFeed from "@/components/home/home-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
+import FloatingPostEditor from "@/components/layouts/mobile/floating-post-editor";
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
 
 interface ClientPostProps {
@@ -34,7 +37,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
       <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="relative min-h-0 flex-1">
           <div
-            className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+            className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden pb-24 lg:pb-0"
             ref={scrollRef}
           >
             <div className="flex shrink-0 items-center gap-2 bg-[hsl(var(--background-alt))] px-3 py-2">
@@ -48,12 +51,25 @@ const ClientPost: React.FC<ClientPostProps> = ({
               </button>
               <h1 className="font-semibold text-lg">Post</h1>
             </div>
-            <div className="mt-3 border-border/60 border-b md:mt-0">
+            <div>
               <PostCard
                 detail
                 initialMediaIndex={initialMediaIndex}
                 post={post}
               />
+            </div>
+            <div>
+              <div className="flex items-center justify-between px-4 py-2">
+                <span className="font-semibold text-sm">View more content</span>
+                <Link
+                  className="shrink-0 font-medium text-primary text-sm hover:underline"
+                  href="/"
+                >
+                  See more
+                </Link>
+              </div>
+              <HomeFeed excludePostId={post.id} variant="global" />
+              <div className="mt-4 border-border/60 border-t" />
             </div>
           </div>
           <FeedScrollbar containerRef={scrollRef} />
@@ -61,6 +77,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
       </div>
 
       <PostAuthorSidebar post={post} />
+      <FloatingPostEditor post={post} />
     </div>
   );
 };

@@ -15,35 +15,53 @@ export default function Comment({ comment }: CommentProps) {
   const { user } = useSession();
 
   return (
-    <div className="group/comment flex gap-3 py-3">
-      <span className="hidden sm:inline">
-        <UserTooltip user={comment.user}>
-          <Link href={`/users/${comment.user.username}`}>
-            <UserAvatar avatarUrl={comment.user.avatarUrl} size={40} />
-          </Link>
-        </UserTooltip>
-      </span>
-      <div>
-        <div className="flex items-center gap-1 text-sm">
+    <div className="group/comment flex gap-3 pt-3 pb-3 first:pt-1.5">
+      <UserTooltip user={comment.user}>
+        <Link className="shrink-0" href={`/users/${comment.user.username}`}>
+          <UserAvatar
+            avatarUrl={comment.user.avatarUrl}
+            className="h-10 w-10"
+          />
+        </Link>
+      </UserTooltip>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
           <UserTooltip user={comment.user}>
             <Link
-              className="font-medium hover:underline"
+              className="truncate font-semibold text-foreground hover:underline"
               href={`/users/${comment.user.username}`}
             >
               {comment.user.displayName}
             </Link>
           </UserTooltip>
-          <span className="text-muted-foreground">
+          <Link
+            className="truncate text-muted-foreground hover:underline"
+            href={`/users/${comment.user.username}`}
+          >
+            @{comment.user.username}
+          </Link>
+          <span className="shrink-0 text-muted-foreground">·</span>
+          <span
+            className="shrink-0 text-muted-foreground"
+            suppressHydrationWarning
+          >
             {formatRelativeDate(comment.createdAt)}
           </span>
         </div>
+
         <UserTooltip user={comment.user}>
-          <Linkify>{comment.content}</Linkify>
+          <Linkify>
+            <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
+              {comment.content}
+            </p>
+          </Linkify>
         </UserTooltip>
       </div>
+
       {comment.user.id === user.id && (
         <CommentMoreButton
-          className="ms-auto opacity-0 transition-opacity group-hover/comment:opacity-100"
+          className="shrink-0 opacity-0 transition-opacity group-hover/comment:opacity-100"
           comment={comment}
         />
       )}

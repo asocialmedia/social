@@ -254,6 +254,7 @@ const PostContent: React.FC<PostContentProps> = ({
           <div className="mt-2.5 max-w-full overflow-hidden">
             <MediaPreviews
               attachments={post.attachments}
+              autoPlayVideos={detail}
               initialMediaIndex={initialMediaIndex}
               interactive={!isJoined}
               post={post}
@@ -415,14 +416,14 @@ const PostCard: React.FC<PostCardProps> = ({
             />
           </div>
           {showComments ? (
-            <div className="border-border/60 border-t p-4">
+            <div className="border-border/60 border-t px-4 pt-2 pb-4">
               <Comments post={post} />
             </div>
           ) : null}
         </div>
       ) : (
         <Card
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] shadow-none ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
+          className={`group/post rounded-none bg-[hsl(var(--background-alt))] shadow-none ${detail ? "border-x-0 border-b-0" : ""} ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
         >
           <CardContent className="p-4 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
             <PostContent
@@ -437,7 +438,7 @@ const PostCard: React.FC<PostCardProps> = ({
             />
           </CardContent>
           {showComments ? (
-            <div className="border-border/60 border-t p-4">
+            <div className="border-border/60 border-t px-4 pt-2 pb-4">
               <Comments post={post} />
             </div>
           ) : null}

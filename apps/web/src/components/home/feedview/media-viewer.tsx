@@ -14,6 +14,7 @@ import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
+import HomeFeed from "@/components/home/home-feed";
 import FollowButton from "@/components/layouts/follow-button";
 import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -244,6 +245,7 @@ const MediaViewer = ({
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
       {isLoading ? <MediaViewerSkeleton type="VIDEO" /> : null}
       <CustomVideoPlayer
+        autoPlay
         className={cn(
           "h-full max-h-full w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
           "shadow-lg",
@@ -603,8 +605,24 @@ const MediaViewer = ({
               </div>
 
               {/* Eddies */}
-              <div className="flex-1 overflow-y-auto px-4 py-3">
-                <Comments post={post} />
+              <div className="flex-1 overflow-y-auto">
+                <div className="px-4 py-3">
+                  <Comments post={post} />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between px-4 py-2">
+                    <span className="font-semibold text-sm">
+                      View more content
+                    </span>
+                    <Link
+                      className="shrink-0 font-medium text-primary text-sm hover:underline"
+                      href="/"
+                    >
+                      See more
+                    </Link>
+                  </div>
+                  <HomeFeed excludePostId={post.id} variant="global" />
+                </div>
               </div>
             </aside>
           ) : null}

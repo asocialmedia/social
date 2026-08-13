@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface CustomVideoPlayerProps {
+  autoPlay?: boolean;
   captions?: { src: string; label: string; srclang: string }[];
   className?: string;
   onError: () => void;
@@ -64,6 +65,7 @@ const GlassIconButton: React.FC<{
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Video player aggregates many independent control handlers
 export function CustomVideoPlayer({
+  autoPlay = false,
   src,
   onLoadedData,
   onError,
@@ -94,6 +96,19 @@ export function CustomVideoPlayer({
     },
     []
   );
+
+  // Autoplay when the viewer opens (e.g. from the post detail page)
+  useEffect(() => {
+    if (!autoPlay) {
+      return;
+    }
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    video.play().catch(() => undefined);
+    setIsPlaying(true);
+  }, [autoPlay]);
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);

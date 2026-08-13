@@ -12,10 +12,14 @@ import kyInstance from "@/lib/ky";
 import { FeedView } from "./feed-view";
 
 interface HomeFeedProps {
+  excludePostId?: string;
   variant?: "trending" | "global";
 }
 
-export default function HomeFeed({ variant = "global" }: HomeFeedProps) {
+export default function HomeFeed({
+  variant = "global",
+  excludePostId,
+}: HomeFeedProps) {
   const isTrending = variant === "trending";
   const queryKey = ["post-feed", isTrending ? "trending" : "for-you"];
   const endpoint = isTrending ? "/api/posts/trending" : "/api/posts/for-you";
@@ -44,8 +48,11 @@ export default function HomeFeed({ variant = "global" }: HomeFeedProps) {
   });
 
   const posts = useMemo(
-    () => (data?.pages.flatMap((page) => page.posts) || []).filter(Boolean),
-    [data?.pages]
+    () =>
+      (data?.pages.flatMap((page) => page.posts) || [])
+        .filter(Boolean)
+        .filter((post) => post.id !== excludePostId),
+    [data?.pages, excludePostId]
   );
 
   const handleBottomReached = useCallback(() => {
@@ -99,6 +106,7 @@ export default function HomeFeed({ variant = "global" }: HomeFeedProps) {
       {posts.length > 0 && (
         <FeedView
           cacheKey={queryKey}
+          excludePostId={excludePostId}
           posts={posts}
           sortBy={isTrending ? "server" : "newest"}
         />

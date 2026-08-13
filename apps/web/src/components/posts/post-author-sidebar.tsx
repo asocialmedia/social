@@ -2,15 +2,7 @@
 
 import type { Media, PostData, PostsPage } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import {
-  FileAudio,
-  FileCode,
-  FileIcon,
-  FileText,
-  Flame,
-  MessageSquare,
-  Newspaper,
-} from "lucide-react";
+import { Flame, MessageSquare, Newspaper } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -42,6 +34,14 @@ const PostRowSkeleton: React.FC = () => (
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
+// Seek past the first frame so the thumbnail shows a meaningful frame
+const seekToThumbnail = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+  const video = event.currentTarget;
+  if (video.duration > 2) {
+    video.currentTime = 2;
+  }
+};
+
 const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
   if (media.type === "IMAGE") {
     return (
@@ -65,6 +65,7 @@ const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
           aria-label="Post video"
           className="absolute inset-0 h-full w-full object-cover"
           muted
+          onLoadedMetadata={seekToThumbnail}
           playsInline
           preload="metadata"
           src={getMediaUrl(media.id)}
@@ -76,27 +77,36 @@ const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
     );
   }
 
-  if (media.type === "AUDIO") {
-    return (
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-        <FileAudio className="h-5 w-5 text-primary" />
-      </div>
-    );
-  }
+  return null;
+};
 
-  if (media.type === "CODE") {
-    return (
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-        <FileCode className="h-5 w-5 text-primary" />
-      </div>
-    );
+// Compact relative timestamp with an explicit "ago" suffix (e.g. "5m ago")
+const getRelativeAgo = (from: Date | string) => {
+  try {
+    const dateObj = typeof from === "string" ? new Date(from) : from;
+    if (Number.isNaN(dateObj.getTime())) {
+      return formatRelativeDate(from);
+    }
+    const diffMs = Date.now() - dateObj.getTime();
+    const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
+    if (diffMinutes < 1) {
+      return "just now";
+    }
+    if (diffMinutes < 60) {
+      return `${diffMinutes}m ago`;
+    }
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    }
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 30) {
+      return `${diffDays}d ago`;
+    }
+    return formatRelativeDate(from);
+  } catch {
+    return formatRelativeDate(from);
   }
-
-  return (
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-      <FileIcon className="h-5 w-5 text-primary" />
-    </div>
-  );
 };
 
 interface AuthorPostRowProps {
@@ -114,20 +124,16 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
       )}
       href={`/posts/${post.id}`}
     >
-      {firstMedia ? (
+      {firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO" ? (
         <MediaThumb media={firstMedia} />
-      ) : (
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-          <FileText className="h-5 w-5 text-muted-foreground" />
-        </div>
-      )}
+      ) : null}
       <span className="min-w-0 flex-1">
         <span className="line-clamp-2 font-medium text-sm leading-snug">
           {post.content || "View post"}
         </span>
         <span className="mt-1 flex items-center gap-2 text-muted-foreground text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
-            {formatRelativeDate(post.createdAt)}
+            {getRelativeAgo(post.createdAt)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
             <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
@@ -299,7 +305,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
 
         {/* More from the author */}
         <div className="sidebar-subcard rounded-2xl p-2">
-          <div className="flex items-center gap-2 border-border/60 border-b px-2 pt-0.5 pb-2">
+          <div className="flex items-center gap-2 px-2 pt-0.5 pb-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
               <Newspaper className="h-4 w-4" />
             </div>
