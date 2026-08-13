@@ -5,7 +5,7 @@ import { clientLog } from "@asm/config/debug";
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
-import fallbackImage from "@assets/fallbacks/fallback.png";
+import fallbackImage from "@assets/general/nomedia.png";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { ChevronLeft, ChevronRight, Download, FileIcon, X } from "lucide-react";
 import Image from "next/image";
