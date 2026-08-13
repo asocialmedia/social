@@ -19,7 +19,7 @@
   <br>
   <br>
 
-  <h3><strong>Z E P H Y R</strong> <sub><em> zeh · pha · yer </em></sub></h3>
+  <h3><strong>ASOCIALMEDIA</strong> <sub><em> a · social · media </em></sub></h3>
   <sub><em>"Your entire internet, finally yours."</em></sub>
 
 </div>
