@@ -10,15 +10,21 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
-import { Separator } from "@asm/ui/shadui/separator";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { AtSign, Mail } from "lucide-react";
 import { useState } from "react";
 import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
-import { LoadingButton } from "@/components/auth/loading-button";
+import LoadingButton from "@/components/auth/loading-button";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
+import {
+  ORANGE_GRADIENT_CLASS,
+  SettingsCard,
+  SettingsSectionHeader,
+} from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 import { useUpdateEmail, useUpdateUsername } from "../mutations";
 
 const usernameSchema = z.object({
@@ -39,6 +45,12 @@ const emailSchema = z.object({
 type UsernameFormValues = z.infer<typeof usernameSchema>;
 type EmailFormValues = z.infer<typeof emailSchema>;
 
+const BUTTON_CLASS = cn(
+  "h-9 rounded-xl px-5",
+  ORANGE_GRADIENT_CLASS,
+  "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+);
+
 function UsernameFieldRenderer({
   field,
 }: {
@@ -48,7 +60,15 @@ function UsernameFieldRenderer({
     <FormItem>
       <FormLabel>Username</FormLabel>
       <FormControl>
-        <Input {...field} />
+        <div className="relative">
+          <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-medium text-muted-foreground">
+            @
+          </span>
+          <Input
+            className="premium-input h-10 rounded-xl pl-7 text-sm"
+            {...field}
+          />
+        </div>
       </FormControl>
       <FormMessage />
     </FormItem>
@@ -64,7 +84,11 @@ function EmailFieldRenderer({
     <FormItem>
       <FormLabel>Email</FormLabel>
       <FormControl>
-        <Input {...field} type="email" />
+        <Input
+          className="premium-input h-10 rounded-xl text-sm"
+          type="email"
+          {...field}
+        />
       </FormControl>
       <FormMessage />
     </FormItem>
@@ -112,6 +136,13 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
           description: "Your new username is live!",
         });
       },
+      onError: () => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't Update",
+          description: "That username didn't work, try another?",
+        });
+      },
     });
   }
 
@@ -132,6 +163,13 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
           description: "We sent a verification link to your new email",
         });
       },
+      onError: () => {
+        toast({
+          variant: "destructive",
+          title: "Couldn't Update",
+          description: "That email didn't work, try another?",
+        });
+      },
     });
   }
 
@@ -140,21 +178,36 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 px-4 py-6 sm:px-6">
+      <SettingsSectionHeader
+        description="Your username, email and linked accounts"
+        icon={AtSign}
+        title="Account"
+      />
+
       <LinkAccountAlert />
 
-      <div>
-        <h2 className="font-medium text-lg">Account Settings</h2>
-        <p className="text-muted-foreground text-sm">
-          Manage your account settings and linked accounts
-        </p>
-      </div>
+      <SettingsCard className="scroll-mt-24" id="settings-username">
+        <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-lg",
+              ORANGE_GRADIENT_CLASS
+            )}
+          >
+            <AtSign className="h-3.5 w-3.5" />
+          </div>
+          <div>
+            <h3 className="font-medium">Username</h3>
+            <p className="text-muted-foreground text-sm">
+              How people find you on Asocialmedia
+            </p>
+          </div>
+        </div>
 
-      <div className="space-y-4">
-        <h3 className="font-medium">Username</h3>
         <Form {...usernameForm}>
           <form
-            className="space-y-4"
+            className="mt-4 space-y-4"
             onSubmit={usernameForm.handleSubmit(onUsernameSubmit)}
           >
             <FormField
@@ -163,20 +216,40 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
               render={UsernameFieldRenderer}
             />
 
-            <LoadingButton loading={usernameMutation.isPending} type="submit">
-              Update Username
-            </LoadingButton>
+            <div className="flex justify-end">
+              <LoadingButton
+                className={BUTTON_CLASS}
+                loading={usernameMutation.isPending}
+                type="submit"
+              >
+                Update Username
+              </LoadingButton>
+            </div>
           </form>
         </Form>
-      </div>
+      </SettingsCard>
 
-      <Separator />
+      <SettingsCard className="scroll-mt-24" id="settings-email">
+        <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-lg",
+              ORANGE_GRADIENT_CLASS
+            )}
+          >
+            <Mail className="h-3.5 w-3.5" />
+          </div>
+          <div>
+            <h3 className="font-medium">Email Address</h3>
+            <p className="text-muted-foreground text-sm">
+              Where we send login and reset links
+            </p>
+          </div>
+        </div>
 
-      <div className="space-y-4">
-        <h3 className="font-medium">Email Address</h3>
         <Form {...emailForm}>
           <form
-            className="space-y-4"
+            className="mt-4 space-y-4"
             onSubmit={emailForm.handleSubmit(onEmailSubmit)}
           >
             <FormField
@@ -185,22 +258,25 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
               render={EmailFieldRenderer}
             />
 
-            <LoadingButton
-              disabled={verificationEmailSent}
-              loading={emailMutation.isPending}
-              type="submit"
-            >
-              {verificationEmailSent
-                ? "Verification Email Sent"
-                : "Update Email"}
-            </LoadingButton>
+            <div className="flex justify-end">
+              <LoadingButton
+                className={BUTTON_CLASS}
+                disabled={verificationEmailSent}
+                loading={emailMutation.isPending}
+                type="submit"
+              >
+                {verificationEmailSent
+                  ? "Verification Email Sent"
+                  : "Update Email"}
+              </LoadingButton>
+            </div>
           </form>
         </Form>
-      </div>
+      </SettingsCard>
 
-      <Separator />
-
-      <LinkedAccounts onLink={handleSocialLink} user={user} />
+      <SettingsCard className="scroll-mt-24" id="settings-linked-accounts">
+        <LinkedAccounts onLink={handleSocialLink} user={user} />
+      </SettingsCard>
     </div>
   );
 }

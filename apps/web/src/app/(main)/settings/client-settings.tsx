@@ -2,9 +2,16 @@
 
 import type { UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { motion } from "motion/react";
-import { FossBanner } from "@/components/misc/foss-banner";
-import { LegalLinksCard } from "@/components/misc/legal-links-card";
+import { useCallback, useRef, useState } from "react";
+import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import LeftSidebar from "@/components/home/sidebars/left-side-bar";
+import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import SettingsSearch, {
+  type SettingsTab,
+} from "@/components/settings/settings-search";
+import SettingsSidebar from "@/components/settings/settings-sidebar";
 import AccountSettings from "./tabs/account-settings";
 import ProfileSettings from "./tabs/profile-settings";
 import SecuritySettings from "./tabs/security-settings";
@@ -14,90 +21,83 @@ interface ClientSettingsProps {
 }
 
 export default function ClientSettings({ user }: ClientSettingsProps) {
+  const feedScrollRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+
+  const handleTabChange = useCallback((value: string) => {
+    setActiveTab(value as SettingsTab);
+  }, []);
+
+  const handleNavigate = useCallback((tab: SettingsTab, sectionId?: string) => {
+    setActiveTab(tab);
+    if (sectionId) {
+      window.setTimeout(() => {
+        document
+          .getElementById(sectionId)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 60);
+    }
+  }, []);
+
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] w-full items-start justify-center">
-      <motion.div
-        animate={{ opacity: 1, y: 0 }}
-        className="container max-w-4xl px-4 py-8 md:px-8 md:py-12 lg:py-16"
-        initial={{ opacity: 0, y: 20 }}
-        transition={{ duration: 0.5 }}
-      >
-        <h1 className="mb-10 bg-gradient-to-r from-primary to-secondary bg-clip-text text-center font-bold text-2xl text-transparent md:text-3xl lg:text-4xl">
-          Settings
-        </h1>
+    <div className="relative flex h-dvh overflow-hidden">
+      <LeftSidebar userData={user} />
 
-        <div className="relative mx-auto rounded-xl border border-border/50 bg-background/30 p-4 shadow-lg backdrop-blur-lg sm:p-6">
-          <Tabs className="w-full" defaultValue="profile">
-            <TabsList className="mb-6 w-full justify-start bg-background/50 backdrop-blur-md">
-              <TabsTrigger
-                className="data-[state=active]:bg-primary/20"
-                value="profile"
-              >
-                Profile
-              </TabsTrigger>
-              <TabsTrigger
-                className="data-[state=active]:bg-primary/20"
-                value="account"
-              >
-                Account
-              </TabsTrigger>
-              <TabsTrigger
-                className="data-[state=active]:bg-primary/20"
-                value="security"
-              >
-                Security
-              </TabsTrigger>
-            </TabsList>
+      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+        <Tabs
+          className="flex min-h-0 flex-1 flex-col"
+          onValueChange={handleTabChange}
+          value={activeTab}
+        >
+          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
+            <MobileTopBar />
+            <div className="relative flex items-center border-border/60 border-b py-1.5">
+              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="profile">
+                  Profile
+                </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="account">
+                  Account
+                </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="security">
+                  Security
+                </TabsTrigger>
+              </TabsList>
+              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
+                <div className="w-full max-w-[24rem] xl:max-w-md">
+                  <SettingsSearch onNavigate={handleNavigate} />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 border-border/60 border-b px-3 py-2 md:hidden">
+              <SettingsSearch onNavigate={handleNavigate} />
+            </div>
+          </div>
 
-            <div className="mt-6 space-y-6">
-              <TabsContent
-                className="focus-visible:outline-none"
-                value="profile"
-              >
-                <motion.div
-                  animate={{ opacity: 1, x: 0 }}
-                  initial={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <ProfileSettings user={user} />
-                </motion.div>
+          <div className="relative min-h-0 flex-1">
+            <div
+              className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+              ref={feedScrollRef}
+            >
+              <TabsContent className="mt-0 pb-12" value="profile">
+                <ProfileSettings user={user} />
               </TabsContent>
 
-              <TabsContent
-                className="focus-visible:outline-none"
-                value="account"
-              >
-                <motion.div
-                  animate={{ opacity: 1, x: 0 }}
-                  initial={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <AccountSettings user={user} />
-                </motion.div>
+              <TabsContent className="mt-0 pb-12" value="account">
+                <AccountSettings user={user} />
               </TabsContent>
 
-              <TabsContent
-                className="focus-visible:outline-none"
-                value="security"
-              >
-                <motion.div
-                  animate={{ opacity: 1, x: 0 }}
-                  initial={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <SecuritySettings user={user} />
-                </motion.div>
+              <TabsContent className="mt-0 pb-12" value="security">
+                <SecuritySettings user={user} />
               </TabsContent>
             </div>
-          </Tabs>
+            <FeedScrollbar containerRef={feedScrollRef} />
+          </div>
+        </Tabs>
+      </div>
 
-          <LegalLinksCard className="mt-8" />
-          <FossBanner className="mt-8" />
-
-          {/* Background gradient effect */}
-          <div className="absolute inset-0 -z-10 rounded-xl bg-gradient-to-br from-primary/5 via-secondary/5 to-background blur-3xl" />
-        </div>
-      </motion.div>
+      <SettingsSidebar user={user} />
+      <MobileBottomNav />
     </div>
   );
 }

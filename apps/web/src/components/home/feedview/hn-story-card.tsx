@@ -33,7 +33,7 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
     <div className="flex flex-col gap-1.5 p-3 sm:p-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-[#ff9500] to-[#e65500] font-bold text-[10px] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-[10px] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]">
             Y
           </div>
           <span className="font-semibold text-[10px] text-orange-600 uppercase tracking-wide dark:text-orange-400">
@@ -68,7 +68,7 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
         <div className="hn-chip">
           <User className="h-3 w-3" />
-          <span className="max-w-[70px] cursor-default truncate sm:max-w-[90px]">
+          <span className="max-w-17.5 cursor-default truncate sm:max-w-22.5">
             {hnStory.by}
           </span>
         </div>
