@@ -285,7 +285,7 @@ export const postViewsCache = {
   async incrementView(postId: string, _userId?: string): Promise<number> {
     try {
       // Impression-style counting: every screenview increments, no per-user
-      // dedup (X/TikTok style). The client bounces identical refreshes, so
+      // The client bounces identical refreshes, so
       // this stays reasonable while the number moves visibly.
       const pipeline = redis.pipeline();
       pipeline.sadd(POST_VIEWS_SET, postId);

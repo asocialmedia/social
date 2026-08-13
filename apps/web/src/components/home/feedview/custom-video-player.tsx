@@ -364,6 +364,7 @@ export function CustomVideoPlayer({
     >
       <video
         className="h-full w-full select-none outline-hidden focus:outline-hidden focus-visible:outline-none"
+        loop
         muted={isMuted}
         onClick={handlePlayPause}
         onError={onError}
@@ -384,12 +385,6 @@ export function CustomVideoPlayer({
           />
         ))}
       </video>
-
-      <div className="absolute top-4 left-4 z-40 opacity-30 transition-opacity duration-300 hover:opacity-60">
-        <span className="font-medium text-sm text-white drop-shadow-lg">
-          Asocialmedia
-        </span>
-      </div>
 
       <div className="absolute inset-0 z-30 flex select-none">
         <button
