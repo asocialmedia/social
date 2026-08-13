@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
-import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
+import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
+import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import PostHistoryCard from "@/components/posts/post-history-card";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 import Notifications from "./notifications";
@@ -24,14 +27,39 @@ export default async function Page() {
       <LeftSidebar userData={userData} />
 
       <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-        <div className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden">
-          <div className="px-4 py-6">
-            <Notifications />
-          </div>
-        </div>
+        <Notifications />
       </div>
 
-      <SecondaryRightSideBar />
+      <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+        <div className="flex flex-col gap-4">
+          <PostHistoryCard />
+          <TrendingTopics />
+          <footer className="flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-muted-foreground text-xs">
+            <span>© {new Date().getFullYear()} Asocialmedia</span>
+            {[
+              { href: "/toc", label: "Terms" },
+              { href: "/privacy", label: "Privacy" },
+              { href: "https://x.com/parazeeknova", label: "Twitter" },
+              {
+                href: "https://github.com/asocialmedia/social",
+                label: "Github",
+              },
+              { href: "/support", label: "Support" },
+            ].map(({ href, label }) => (
+              <Link
+                className="transition-colors hover:text-foreground"
+                href={href}
+                key={label}
+                target={href.startsWith("http") ? "_blank" : undefined}
+              >
+                {label}
+              </Link>
+            ))}
+          </footer>
+        </div>
+      </aside>
+
+      <MobileBottomNav />
     </div>
   );
 }

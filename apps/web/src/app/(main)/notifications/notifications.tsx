@@ -3,19 +3,27 @@
 import { clientLog } from "@asm/config/debug";
 
 import type { NotificationsPage } from "@asm/db";
+import { Separator } from "@asm/ui/shadui/separator";
+import nomessageImage from "@assets/general/nomessage.png";
 import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { Bell } from "lucide-react";
+import Image from "next/image";
+import type React from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
-import PostsOnlyLoadingSkeleton from "@/components/layouts/skeletons/post-only-loading-skeleton";
+import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
 import Notification from "./notification";
 
 export default function Notifications() {
+  const feedScrollRef = useRef<HTMLDivElement>(null);
+
   const {
     data,
     fetchNextPage,
@@ -62,35 +70,67 @@ export default function Notifications() {
     }
   }, [fetchNextPage, hasNextPage, isFetching]);
 
+  let feedBody: React.ReactNode;
   if (status === "pending") {
-    return <PostsOnlyLoadingSkeleton />;
-  }
-
-  if (status === "success" && !notifications.length && !hasNextPage) {
-    return (
-      <p className="text-center text-muted-foreground">
-        You don&apos;t have any rustles yet.
-      </p>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <p className="text-center text-destructive">
+    feedBody = <FeedViewSkeleton />;
+  } else if (status === "error") {
+    feedBody = (
+      <p className="px-4 py-8 text-center text-destructive">
         An error occurred while loading rustles.
       </p>
+    );
+  } else if (notifications.length || hasNextPage) {
+    feedBody = (
+      <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+        <div className="flex flex-col">
+          {notifications.map((notification, index) => (
+            <div key={notification.id}>
+              {index > 0 && <Separator className="bg-border/60" />}
+              <Notification notification={notification} />
+            </div>
+          ))}
+        </div>
+        {isFetchingNextPage ? <FeedViewSkeleton /> : null}
+      </InfiniteScrollContainer>
+    );
+  } else {
+    feedBody = (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={nomessageImage}
+          width={1536}
+        />
+        <p className="font-medium">No rustles yet</p>
+        <p className="text-muted-foreground text-sm">
+          Follows, amplifies, eddies and mentions will show up here.
+        </p>
+      </div>
     );
   }
 
   return (
-    <InfiniteScrollContainer
-      className="space-y-5"
-      onBottomReached={handleBottomReached}
-    >
-      {notifications.map((notification) => (
-        <Notification key={notification.id} notification={notification} />
-      ))}
-      {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
-    </InfiniteScrollContainer>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
+        <MobileTopBar />
+        <div className="flex items-center gap-2 border-border/60 border-b px-4 py-3">
+          <Bell className="h-5 w-5 text-muted-foreground" />
+          <h1 className="font-semibold text-lg">Rustles</h1>
+        </div>
+      </div>
+
+      <div className="relative min-h-0 flex-1">
+        <div
+          className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+          ref={feedScrollRef}
+        >
+          {feedBody}
+        </div>
+        <FeedScrollbar containerRef={feedScrollRef} />
+      </div>
+    </div>
   );
 }
