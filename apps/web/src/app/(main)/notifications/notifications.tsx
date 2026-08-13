@@ -4,25 +4,28 @@ import { clientLog } from "@asm/config/debug";
 
 import type { NotificationsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
-import nomessageImage from "@assets/general/nomessage.png";
+import noBookmarksImage from "@assets/general/nonotibook.png";
 import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import kyInstance from "@/lib/ky";
 import Notification from "./notification";
 
+type NotificationTab = "all" | "mentions";
+
 export default function Notifications() {
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<NotificationTab>("all");
 
   const {
     data,
@@ -32,12 +35,14 @@ export default function Notifications() {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["notifications"],
+    queryKey: ["notifications", activeTab],
     queryFn: ({ pageParam }) =>
       kyInstance
         .get(
           "/api/notifications",
-          pageParam ? { searchParams: { cursor: pageParam } } : {}
+          pageParam
+            ? { searchParams: { cursor: pageParam, type: activeTab } }
+            : { searchParams: { type: activeTab } }
         )
         .json<NotificationsPage>(),
     initialPageParam: null as string | null,
@@ -70,9 +75,12 @@ export default function Notifications() {
     }
   }, [fetchNextPage, hasNextPage, isFetching]);
 
+  const handleShowAll = useCallback(() => setActiveTab("all"), []);
+  const handleShowMentions = useCallback(() => setActiveTab("mentions"), []);
+
   let feedBody: React.ReactNode;
   if (status === "pending") {
-    feedBody = <FeedViewSkeleton />;
+    feedBody = <NotificationsSkeleton />;
   } else if (status === "error") {
     feedBody = (
       <p className="px-4 py-8 text-center text-destructive">
@@ -90,7 +98,7 @@ export default function Notifications() {
             </div>
           ))}
         </div>
-        {isFetchingNextPage ? <FeedViewSkeleton /> : null}
+        {isFetchingNextPage ? <NotificationsSkeleton /> : null}
       </InfiniteScrollContainer>
     );
   } else {
@@ -101,24 +109,45 @@ export default function Notifications() {
           className="h-40 w-auto object-contain"
           draggable={false}
           height={1024}
-          src={nomessageImage}
+          src={noBookmarksImage}
           width={1536}
         />
-        <p className="font-medium">No rustles yet</p>
+        <p className="font-medium">
+          {activeTab === "mentions" ? "No mentions yet" : "No rustles yet"}
+        </p>
         <p className="text-muted-foreground text-sm">
-          Follows, amplifies, eddies and mentions will show up here.
+          {activeTab === "mentions"
+            ? "Mentions of you in posts will show up here."
+            : "Follows, amplifies, eddies and mentions will show up here."}
         </p>
       </div>
     );
   }
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
-        <div className="flex items-center gap-2 border-border/60 border-b px-4 py-3">
-          <Bell className="h-5 w-5 text-muted-foreground" />
-          <h1 className="font-semibold text-lg">Rustles</h1>
+        <div className="flex items-center border-border/60 border-b">
+          <button
+            className={`${TAB_TRIGGER_CLASS} flex-1 ${
+              activeTab === "all" ? "data-[state=active]" : ""
+            }`}
+            data-state={activeTab === "all" ? "active" : "inactive"}
+            onClick={handleShowAll}
+            type="button"
+          >
+            All
+          </button>
+          <button
+            className={`${TAB_TRIGGER_CLASS} flex-1 ${
+              activeTab === "mentions" ? "data-[state=active]" : ""
+            }`}
+            data-state={activeTab === "mentions" ? "active" : "inactive"}
+            onClick={handleShowMentions}
+            type="button"
+          >
+            Mentions
+          </button>
         </div>
       </div>
 

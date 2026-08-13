@@ -5,6 +5,7 @@ import { getSessionFromApi } from "@/lib/session";
 export async function GET(req: NextRequest) {
   try {
     const cursor = req.nextUrl.searchParams.get("cursor") || undefined;
+    const type = req.nextUrl.searchParams.get("type");
     const pageSize = 10;
     const session = await getSessionFromApi();
     if (!session?.user) {
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
     const notifications = await prisma.notification.findMany({
       where: {
         recipientId: userId,
+        ...(type === "mentions" ? { type: "MENTION" } : {}),
       },
       include: notificationsInclude,
       orderBy: { createdAt: "desc" },

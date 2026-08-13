@@ -17,6 +17,7 @@ const MobileTopBar: React.FC = () => {
           <UserAvatar
             avatarUrl={user.avatarUrl ?? user.image}
             className="h-10 w-10"
+            priority
           />
         </Link>
       </div>
@@ -28,6 +29,7 @@ const MobileTopBar: React.FC = () => {
               alt="Asocialmedia"
               className="object-contain"
               fill
+              loading="eager"
               sizes="48px"
               src={asmLogo}
             />

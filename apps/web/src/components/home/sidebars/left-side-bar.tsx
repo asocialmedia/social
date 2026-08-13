@@ -25,6 +25,7 @@ import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn, isRouteActive } from "@/lib/utils";
 import UserProfilePopover from "./left/user-profile-popover";
@@ -61,6 +62,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const [mounted, setMounted] = useState(false);
   const { data: liveUserData } = useUserDataQuery(userData);
   const { data: bookmarkCount } = useBookmarkCount();
+  const { data: unreadNotificationCount } = useUnreadNotificationCount();
 
   useEffect(() => {
     setMounted(true);
@@ -114,6 +116,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
             alt="Asocialmedia"
             className="object-contain"
             fill
+            loading="eager"
             sizes="58px"
             src={asmLogo}
           />
@@ -131,7 +134,16 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
         <Separator className="my-3 bg-border/60" />
 
-        {SECONDARY_ITEMS.map(renderItem)}
+        {SECONDARY_ITEMS.map((item) =>
+          renderItem(
+            item.href === "/notifications"
+              ? {
+                  ...item,
+                  count: unreadNotificationCount?.unreadCount ?? 0,
+                }
+              : item
+          )
+        )}
 
         {user ? renderItem(profileItem) : null}
 
