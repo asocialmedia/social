@@ -1,16 +1,39 @@
-import { prisma } from "@asm/db";
+import {
+  getPostDataInclude,
+  hydrateViewCounts,
+  type PostsPage,
+  prisma,
+} from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSessionFromApi();
-  const user = session?.user;
-  if (!user) {
+  if (!session?.user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = session.user.id;
+
+  const url = new URL(request.url);
+  const cursor = url.searchParams.get("cursor") || undefined;
+  const pageSize = 20;
+
   const posts = await prisma.post.findMany({
-    where: { user: { followers: { some: { followerId: user.id } } } },
+    where: {
+      user: { followers: { some: { followerId: userId } } },
+      // Never surface the current user's own posts in their following feed.
+      NOT: { userId },
+    },
+    include: getPostDataInclude(userId),
     orderBy: { createdAt: "desc" },
-    include: { _count: true },
+    take: pageSize + 1,
+    cursor: cursor ? { id: cursor } : undefined,
   });
-  return Response.json(posts);
+
+  const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
+  const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
+  const data: PostsPage = {
+    posts: hydrated,
+    nextCursor,
+  };
+  return Response.json(data);
 }

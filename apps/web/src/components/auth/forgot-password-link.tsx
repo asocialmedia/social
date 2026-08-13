@@ -1,14 +1,14 @@
 "use client";
 
-import resetPasswordImage from "@assets/previews/passwordreset.png";
-import { HelpLink } from "../animations/image-link-preview";
+import Link from "next/link";
 
 export default function ForgotPasswordLink() {
   return (
-    <HelpLink
+    <Link
+      className="px-2 py-1 text-muted-foreground text-sm transition-colors duration-300 hover:text-primary"
       href="/reset-password"
-      previewImage={resetPasswordImage.src}
-      text="Forgot your password?"
-    />
+    >
+      Forgot your password?
+    </Link>
   );
 }

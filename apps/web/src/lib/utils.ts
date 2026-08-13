@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import { type ClassValue, clsx } from "clsx";
 import { formatDate } from "date-fns";
 import { twMerge } from "tailwind-merge";
@@ -10,7 +12,7 @@ export function formatRelativeDate(from: Date | string) {
   try {
     const dateObj = typeof from === "string" ? new Date(from) : from;
     if (Number.isNaN(dateObj.getTime())) {
-      console.error("Invalid date:", from);
+      clientLog.error("Invalid date:", from);
       return "Invalid date";
     }
 
@@ -31,7 +33,7 @@ export function formatRelativeDate(from: Date | string) {
     }
     return formatDate(dateObj, "MMM d, yyyy");
   } catch (e) {
-    console.error("Error formatting date:", e, "Input was:", from);
+    clientLog.error("Error formatting date:", e, "Input was:", from);
     return "Invalid date";
   }
 }

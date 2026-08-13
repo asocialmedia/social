@@ -92,7 +92,3 @@ export async function backgroundRefreshTopics(): Promise<void> {
     console.error("Error in background refresh:", error);
   }
 }
-
-export async function warmTrendingTopicsCache(): Promise<void> {
-  await trendingTopicsCache.warmCache();
-}

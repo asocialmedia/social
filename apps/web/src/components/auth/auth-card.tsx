@@ -2,8 +2,6 @@
 
 import loginImage from "@assets/auth/login-image.jpg";
 import signupImage from "@assets/auth/signup-image.jpg";
-import loginPreview from "@assets/previews/login.png";
-import signupPreview from "@assets/previews/signup.png";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
@@ -47,7 +45,7 @@ export default function AuthCard({
 
   return (
     <motion.div
-      className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:min-h-[520px] lg:flex-row"
+      className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:min-h-130 lg:flex-row"
       layout
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
     >
@@ -76,7 +74,7 @@ export default function AuthCard({
             />
           </motion.div>
         </AnimatePresence>
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-primary/20" />
+        <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-transparent to-primary/20" />
       </div>
 
       {/* Form half */}
@@ -169,7 +167,6 @@ function LoginContent({
         <AnimatedAuthLink
           href="/signup"
           onSwitch={onSwitch}
-          previewImage={signupPreview.src}
           text="Don't have an account? Sign Up"
         />
       </div>
@@ -190,7 +187,6 @@ function SignupContent({ onSwitch }: { onSwitch: () => void }) {
         <AnimatedAuthLink
           href="/login"
           onSwitch={onSwitch}
-          previewImage={loginPreview.src}
           text="Already have an account? Login"
         />
       </div>

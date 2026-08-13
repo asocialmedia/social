@@ -1,4 +1,10 @@
-import { getPostDataInclude, MediaType, type PostsPage, prisma } from "@asm/db";
+import {
+  getPostDataInclude,
+  hydrateViewCounts,
+  MediaType,
+  type PostsPage,
+  prisma,
+} from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -39,8 +45,9 @@ export async function GET(
   });
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
+  const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
-    posts: posts.slice(0, pageSize),
+    posts: hydrated,
     nextCursor,
   };
   return Response.json(data);

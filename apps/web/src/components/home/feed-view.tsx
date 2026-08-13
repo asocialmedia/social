@@ -2,15 +2,21 @@
 
 import type { PostData } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryKey, useQueryClient } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useState } from "react";
 import PostCard from "./feedview/post-card";
 
 interface FeedViewProps {
+  cacheKey?: QueryKey;
   posts: PostData[];
+  sortBy?: "newest" | "server";
 }
 
-export const FeedView: React.FC<FeedViewProps> = ({ posts: initialPosts }) => {
+export const FeedView: React.FC<FeedViewProps> = ({
+  posts: initialPosts,
+  cacheKey = ["post-feed", "for-you"],
+  sortBy = "newest",
+}) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
   const [posts, setPosts] = useState<PostData[]>(initialPosts);
@@ -21,7 +27,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ posts: initialPosts }) => {
         const feedQueries = queryClient.getQueriesData<{
           pages: { posts: PostData[] }[];
         }>({
-          queryKey: ["post-feed", "for-you"],
+          queryKey: cacheKey,
         });
 
         if (feedQueries.length > 0) {
@@ -42,7 +48,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ posts: initialPosts }) => {
     return () => {
       unsubscribe();
     };
-  }, [queryClient]);
+  }, [cacheKey, queryClient]);
 
   useEffect(() => {
     const safeInitial = (initialPosts || []).filter(Boolean);
@@ -60,16 +66,17 @@ export const FeedView: React.FC<FeedViewProps> = ({ posts: initialPosts }) => {
     }
   }, [initialPosts, posts]);
 
-  const sortedPosts = useMemo(
-    () =>
-      [...posts]
-        .filter(Boolean)
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ),
-    [posts]
-  );
+  const sortedPosts = useMemo(() => {
+    if (sortBy === "server") {
+      return [...posts].filter(Boolean);
+    }
+    return [...posts]
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+  }, [posts, sortBy]);
 
   return (
     <div className="flex flex-col">

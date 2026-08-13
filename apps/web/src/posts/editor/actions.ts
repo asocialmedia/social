@@ -2,7 +2,14 @@
 
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createPostSchema } from "@asm/auth/validation";
-import { getPostDataInclude, postViewsCache, prisma, tagCache } from "@asm/db";
+import {
+  cancelMediaCleanup,
+  enqueueNotificationCreated,
+  getPostDataInclude,
+  postViewsCache,
+  prisma,
+  tagCache,
+} from "@asm/db";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -175,6 +182,17 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         },
       });
 
+      // The media is now attached to a post, so the abandoned-upload cleanup
+      // jobs must not delete it.
+      for (const mediaId of validatedInput.mediaIds) {
+        cancelMediaCleanup(mediaId).catch((error: unknown) => {
+          console.error(
+            `Failed to cancel media cleanup for ${mediaId}:`,
+            error
+          );
+        });
+      }
+
       if (input.hnStory) {
         await tx.hNStoryShare.create({
           data: {
@@ -203,6 +221,15 @@ export async function submitPost(input: ExtendedCreatePostInput) {
             })
           )
         );
+
+        for (const userId of validatedInput.mentions) {
+          enqueueNotificationCreated(userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue mention notification event:",
+              error
+            );
+          });
+        }
       }
 
       await tx.user.update({
@@ -280,7 +307,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 }
 
 export async function incrementPostView(postId: string) {
-  return await postViewsCache.incrementView(postId);
+  const { getSessionFromApi } = await import("@/lib/session");
+  const sessionData = await getSessionFromApi();
+  return await postViewsCache.incrementView(postId, sessionData?.user?.id);
 }
 
 export async function getPostViews(postId: string) {
@@ -375,6 +404,15 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
             postId,
           })),
         });
+
+        for (const userId of mentions) {
+          enqueueNotificationCreated(userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue mention notification event:",
+              error
+            );
+          });
+        }
       }
 
       return await tx.post.findUnique({

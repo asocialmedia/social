@@ -1,5 +1,6 @@
 import {
   getPostDataInclude,
+  hydrateViewCounts,
   type PostsPage,
   type Prisma,
   prisma,
@@ -26,9 +27,11 @@ export async function GET(request: Request) {
     cursor: cursor ? { id: cursor } : undefined,
   });
 
+  const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
+
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const data: PostsPage = {
-    posts: posts.slice(0, pageSize),
+    posts: hydrated,
     nextCursor,
   };
   return Response.json(data);

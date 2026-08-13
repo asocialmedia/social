@@ -14,7 +14,7 @@ import type React from "react";
 import { useCallback, useRef } from "react";
 import FollowingFeed from "@/components/home/feedview/following";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
-import ForYouFeed from "@/components/home/for-you-feed";
+import HomeFeed from "@/components/home/home-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -35,17 +35,17 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   const searchParams = useSearchParams();
 
   const tabParam = searchParams.get("tab");
-  let tab: FeedTab = "for-you";
-  if (tabParam === "following") {
+  let tab: FeedTab = "global";
+  if (tabParam === "for-you") {
+    tab = "for-you";
+  } else if (tabParam === "following") {
     tab = "following";
-  } else if (tabParam === "global") {
-    tab = "global";
   }
 
   const handleTabChange = useCallback(
     (value: string) => {
       const nextParams = new URLSearchParams(searchParams.toString());
-      if (value === "following" || value === "global") {
+      if (value === "for-you" || value === "following") {
         nextParams.set("tab", value);
       } else {
         nextParams.delete("tab");
@@ -130,11 +130,11 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
             >
               <PostEditor />
               <TabsContent className="mt-0 pb-12" value="for-you">
-                <ForYouFeed />
+                <HomeFeed variant="trending" />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="global">
-                <ForYouFeed />
+                <HomeFeed variant="global" />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="following">

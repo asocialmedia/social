@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -114,7 +116,7 @@ export function MentionTags({
         onMentionsChange?.(newMentions);
       } catch (error) {
         setLocalMentions(initialMentions);
-        console.error("Failed to update mentions:", error);
+        clientLog.error("Failed to update mentions:", error);
       }
     },
     [postId, updateMentions, onMentionsChange, initialMentions]

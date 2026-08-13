@@ -1,6 +1,7 @@
 "use client";
 
 import { type LoginValues, loginSchema } from "@asm/auth/validation";
+import { clientLog } from "@asm/config/debug";
 import {
   Form,
   FormControl,
@@ -10,10 +11,10 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
-import supportImage from "@assets/previews/help.png";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, Mail, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { type ControllerRenderProps, useForm } from "react-hook-form";
@@ -23,7 +24,6 @@ import ForgotPasswordLink from "@/components/auth/forgot-password-link";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
 import { useToast } from "@/lib/gooey-toast";
-import { HelpLink } from "../animations/image-link-preview";
 
 export default function LoginForm() {
   const { toast } = useToast();
@@ -80,7 +80,7 @@ export default function LoginForm() {
         handleLoginSuccess(values.username);
       }
     } catch (loginError) {
-      console.error("Login error:", loginError);
+      clientLog.error("Login error:", loginError);
       toast({
         variant: "destructive",
         title: "Login Failed",
@@ -201,7 +201,7 @@ export default function LoginForm() {
         });
       }
     } catch (resendError) {
-      console.error("Resend verification error:", resendError);
+      clientLog.error("Resend verification error:", resendError);
       toast({
         variant: "destructive",
         title: "Verification Failed!",
@@ -304,11 +304,12 @@ export default function LoginForm() {
           <div className="flex items-center justify-end space-x-0">
             <ForgotPasswordLink />
             <span className="text-muted-foreground text-sm">or</span>
-            <HelpLink
+            <Link
+              className="px-2 py-1 text-muted-foreground text-sm transition-colors duration-300 hover:text-primary"
               href="/support"
-              previewImage={supportImage.src}
-              text="Need help?"
-            />
+            >
+              Need help?
+            </Link>
           </div>
 
           <LoadingButton

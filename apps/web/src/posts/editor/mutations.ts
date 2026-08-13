@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { PostsPage } from "@asm/db";
 import {
   type InfiniteData,
@@ -81,7 +83,7 @@ export function useSubmitPostMutation() {
       });
     },
     onError(error) {
-      console.error("Post creation error:", error);
+      clientLog.error("Post creation error:", error);
       toast({
         variant: "destructive",
         description: "Couldn't create your post, try again?",
@@ -119,7 +121,7 @@ export function useUpdateMentionsMutation(postId?: string) {
       });
     },
     onError: (error) => {
-      console.error("Failed to update mentions:", error);
+      clientLog.error("Failed to update mentions:", error);
       toast({
         variant: "destructive",
         description: "Couldn't update mentions, try again?",

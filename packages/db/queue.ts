@@ -1,0 +1,165 @@
+import { Queue } from "bullmq";
+import { keys } from "./keys";
+import { redis } from "./src/redis";
+
+// High-frequency counters (post views, share stats) are buffered in Redis
+// Streams and drained by the worker; those helpers live in src/redis.ts.
+// BullMQ is used for the lower-frequency, individual work items: media
+// lifecycle, inactive-user cleanup, and the maintenance sweep.
+
+const { REDIS_URL } = keys;
+
+function bullConnection() {
+  return { url: REDIS_URL, maxRetriesPerRequest: null };
+}
+
+export interface MediaCleanupJobData {
+  mediaId: string;
+}
+export interface PostDeletedJobData {
+  postId: string;
+}
+
+export type ContentEvent =
+  | { type: "post-deleted"; postId: string }
+  | { type: "notification-created"; recipientId: string }
+  | { type: "notification-deleted"; recipientId: string };
+
+// Queues are created lazily and memoized so importing this module from the
+// web app does not open Redis connections until something is actually
+// enqueued.
+const queueInstances = new Map<string, Queue>();
+
+function getQueue(name: string): Queue {
+  let queue = queueInstances.get(name);
+  if (!queue) {
+    queue = new Queue(name, { connection: bullConnection() });
+    queueInstances.set(name, queue);
+  }
+  return queue;
+}
+
+const MEDIA_QUEUE = "media";
+const CONTENT_EVENTS_QUEUE = "content-events";
+const MAINTENANCE_QUEUE = "maintenance";
+
+// The worker increments this when a notification is created, and the web app
+// resets it when the user marks notifications as read. This removes the
+// 60s polling lag on the bell badge.
+const UNREAD_NOTIFICATION_PREFIX = "unread:notif:";
+
+export const unreadNotificationCache = {
+  async increment(userId: string, amount = 1): Promise<number> {
+    try {
+      return await redis.incrby(
+        `${UNREAD_NOTIFICATION_PREFIX}${userId}`,
+        amount
+      );
+    } catch (error) {
+      console.error("Error incrementing unread count:", error);
+      return 0;
+    }
+  },
+
+  async decrement(userId: string, amount = 1): Promise<number> {
+    try {
+      // Lua clamps the result at zero so deletes can never drive the badge
+      // negative even if the notification was already marked read.
+      const script = `
+        local current = tonumber(redis.call('get', KEYS[1]) or '0')
+        local next = math.max(0, current - tonumber(ARGV[1]))
+        if next > 0 then
+          redis.call('set', KEYS[1], next)
+        else
+          redis.call('del', KEYS[1])
+        end
+        return next
+      `;
+      return (await redis.eval(
+        script,
+        1,
+        `${UNREAD_NOTIFICATION_PREFIX}${userId}`,
+        amount
+      )) as number;
+    } catch (error) {
+      console.error("Error decrementing unread count:", error);
+      return 0;
+    }
+  },
+
+  async get(userId: string): Promise<number | null> {
+    try {
+      const value = await redis.get(`${UNREAD_NOTIFICATION_PREFIX}${userId}`);
+      return value === null ? null : Number.parseInt(value, 10);
+    } catch (error) {
+      console.error("Error getting unread count:", error);
+      return null;
+    }
+  },
+
+  async reset(userId: string): Promise<void> {
+    try {
+      await redis.del(`${UNREAD_NOTIFICATION_PREFIX}${userId}`);
+    } catch (error) {
+      console.error("Error resetting unread count:", error);
+    }
+  },
+};
+
+export async function enqueuePostDeleted(postId: string): Promise<void> {
+  await getQueue(CONTENT_EVENTS_QUEUE).add("post-deleted", { postId });
+}
+
+export async function enqueueNotificationCreated(
+  recipientId: string
+): Promise<void> {
+  await getQueue(CONTENT_EVENTS_QUEUE).add("notification-created", {
+    recipientId,
+  });
+}
+
+export async function enqueueNotificationDeleted(
+  recipientId: string
+): Promise<void> {
+  await getQueue(CONTENT_EVENTS_QUEUE).add("notification-deleted", {
+    recipientId,
+  });
+}
+
+export async function scheduleMediaCleanup(mediaId: string): Promise<void> {
+  // Delayed with an idempotency key so re-submitting a post does not enqueue
+  // a second cleanup for the same media row. If the media got attached to a
+  // post before the delay elapses, the worker skips it.
+  await getQueue(MEDIA_QUEUE).add(
+    "media-cleanup",
+    { mediaId },
+    {
+      jobId: `media-cleanup-${mediaId}`,
+      delay: 24 * 60 * 60 * 1000,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
+export async function cancelMediaCleanup(mediaId: string): Promise<void> {
+  await getQueue(MEDIA_QUEUE).remove(`media-cleanup-${mediaId}`);
+}
+
+// Schedules the repeatable maintenance jobs (HN cache refresh every 15 min, the
+// weekly expired-token sweep, and the daily unverified-user sweep). Idempotent:
+// re-running replaces the scheduler definition.
+export async function registerMaintenanceSchedulers(): Promise<void> {
+  const queue = getQueue(MAINTENANCE_QUEUE);
+  await queue.upsertJobScheduler("hn-refresh", { every: 15 * 60 * 1000 });
+  await queue.upsertJobScheduler("expired-tokens", {
+    every: 7 * 24 * 60 * 60 * 1000,
+  });
+  await queue.upsertJobScheduler("inactive-users", {
+    every: 24 * 60 * 60 * 1000,
+  });
+}
+
+export function createBullConnection() {
+  return bullConnection();
+}

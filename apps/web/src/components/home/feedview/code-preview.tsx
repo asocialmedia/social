@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import { Button } from "@asm/ui/shadui/button";
 import {
   AlignLeftIcon,
@@ -81,7 +83,7 @@ export function CodePreview({
         setContent(text);
       } catch (err) {
         setError("Failed to load code content");
-        console.error(err);
+        clientLog.error(err);
       } finally {
         setLoading(false);
       }

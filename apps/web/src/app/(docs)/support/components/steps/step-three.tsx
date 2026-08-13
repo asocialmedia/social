@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import { Button } from "@asm/ui/shadui/button";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import { Loader2, Upload } from "lucide-react";
@@ -28,7 +30,7 @@ export function StepThree({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const { files } = e.target;
       if (files?.length) {
-        console.log("Files selected:", {
+        clientLog.log("Files selected:", {
           count: files.length,
           details: Array.from(files).map((f) => ({
             name: f.name,

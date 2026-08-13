@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { Tag } from "@asm/db";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -51,7 +53,7 @@ export function useTags(postId?: string) {
         queryClient.setQueryData(["tagSuggestions"], data);
         return data;
       } catch (error) {
-        console.error("Error searching tags:", error);
+        clientLog.error("Error searching tags:", error);
         return { tags: [] };
       }
     },

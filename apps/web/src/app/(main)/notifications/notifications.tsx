@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import type { NotificationsPage } from "@asm/db";
 import {
   useInfiniteQuery,
@@ -44,7 +46,7 @@ export default function Notifications() {
       });
     },
     onError(error) {
-      console.error("Failed to mark notifications as read", error);
+      clientLog.error("Failed to mark notifications as read", error);
     },
   });
 

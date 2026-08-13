@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { prisma, unreadNotificationCache } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST() {
@@ -11,5 +11,6 @@ export async function POST() {
     where: { recipientId: user.id, read: false },
     data: { read: true },
   });
+  await unreadNotificationCache.reset(user.id);
   return Response.json({ success: true });
 }

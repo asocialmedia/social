@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import type { TagWithCount } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -125,7 +127,7 @@ export function Tags({
         }
       } catch (error) {
         setLocalTags(initialTags);
-        console.error("Failed to update tags:", error);
+        clientLog.error("Failed to update tags:", error);
       }
     },
     [postId, updateTags, queryClient, initialTags, onTagsChange]

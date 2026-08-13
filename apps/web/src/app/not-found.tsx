@@ -1,4 +1,5 @@
 import { Button } from "@asm/ui/shadui/button";
+import errorImage from "@assets/general/error.png";
 import Link from "next/link";
 import { StatusScreen } from "@/components/layouts/status-screen";
 
@@ -11,6 +12,7 @@ export default function NotFound() {
         </Button>
       }
       description="The page you're looking for doesn't exist or has been moved."
+      image={errorImage}
       title="Page not found"
     />
   );

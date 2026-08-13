@@ -1,5 +1,7 @@
 "use client";
 
+import { clientLog } from "@asm/config/debug";
+
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -96,7 +98,7 @@ export default function SupportForm() {
       setAttachments([]);
       setStep(1);
     } catch (error: unknown) {
-      console.error("Support submit error:", error);
+      clientLog.error("Support submit error:", error);
       toast({
         title: "Couldn't Send",
         description: "Couldn't send your message, try again?",
@@ -200,7 +202,7 @@ export default function SupportForm() {
             description: "Your file is attached",
           });
         } catch (error: unknown) {
-          console.error("Upload error:", error);
+          clientLog.error("Upload error:", error);
           toast({
             title: "Upload Failed",
             description: "Couldn't upload that file, try again?",

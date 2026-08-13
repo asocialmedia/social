@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { CommentsPage } from "@asm/db";
 import {
   type InfiniteData,
@@ -54,7 +56,7 @@ export function useSubmitCommentMutation(postId: string) {
       });
     },
     onError(error) {
-      console.error(error);
+      clientLog.error(error);
       toast({
         variant: "destructive",
         description: "Couldn't post your eddy, give it another try?",
@@ -101,7 +103,7 @@ export function useDeleteCommentMutation() {
       });
     },
     onError(error) {
-      console.error(error);
+      clientLog.error(error);
       toast({
         variant: "destructive",
         description: "Couldn't delete your eddy, try again?",

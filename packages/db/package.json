@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.0.14",
+  "version": "1.0.22",
   "private": true,
   "description": "Asocialmedia database & cache package",
   "license": "AGPL-3.0",
@@ -23,9 +23,12 @@
   },
   "dependencies": {
     "@asm/config": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1109.0",
     "@prisma/adapter-pg": "7.9.1",
     "@prisma/client": "7.9.1",
+    "@smithy/node-http-handler": "^4.10.0",
     "@t3-oss/env-nextjs": "^0.13.11",
+    "bullmq": "^6.1.0",
     "cross-env": "^10.1.0",
     "date-fns": "^4.4.0",
     "ioredis": "^6.0.0",

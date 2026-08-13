@@ -1,0 +1,149 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+describe("worker job processors", () => {
+  const deletedObjects: string[] = [];
+  const deletedUserIds: string[] = [];
+
+  const mockDeleteObject = mock((key: string) => {
+    deletedObjects.push(key);
+  });
+
+  const mockRedis = {
+    srem: mock(async () => 1),
+    del: mock(async () => 1),
+  };
+
+  interface MediaRow {
+    createdAt: Date;
+    id: string;
+    key: string;
+    postId: string | null;
+  }
+
+  const mockPrisma = {
+    media: {
+      findMany: mock(async () => [
+        { id: "media-1", key: "uploads/a.jpg" },
+        { id: "media-2", key: "" },
+      ]),
+      deleteMany: mock(async () => ({ count: 2 })),
+      findUnique: mock(
+        async (): Promise<MediaRow | null> => ({
+          id: "media-1",
+          key: "uploads/a.jpg",
+          postId: null,
+          createdAt: new Date(),
+        })
+      ),
+      delete: mock(async () => ({})),
+    },
+    user: {
+      findMany: mock(async () => [{ id: "user-1" }]),
+      deleteMany: mock(async () => ({ count: 1 })),
+    },
+    passwordResetToken: {
+      deleteMany: mock(async () => ({ count: 3 })),
+    },
+  };
+
+  mock.module("@asm/db", () => ({
+    prisma: mockPrisma,
+    redis: mockRedis,
+    deleteObject: mockDeleteObject,
+    unreadNotificationCache: {
+      increment: mock(async () => 1),
+      decrement: mock(async () => 0),
+    },
+    POST_VIEWS_KEY_PREFIX: "post:views:",
+    POST_VIEWS_SET: "posts:with:views",
+  }));
+
+  beforeEach(() => {
+    deletedObjects.length = 0;
+    deletedUserIds.length = 0;
+    mockDeleteObject.mockClear();
+    mockRedis.srem.mockClear();
+    mockRedis.del.mockClear();
+    mockPrisma.media.findMany.mockClear();
+    mockPrisma.media.deleteMany.mockClear();
+    mockPrisma.media.findUnique.mockClear();
+    mockPrisma.media.delete.mockClear();
+    mockPrisma.user.findMany.mockClear();
+    mockPrisma.user.deleteMany.mockClear();
+    mockPrisma.passwordResetToken.deleteMany.mockClear();
+  });
+
+  test("processPostDeleted deletes media objects and rows and clears view keys", async () => {
+    const { processPostDeleted } = await import("./jobs");
+
+    await processPostDeleted({ postId: "post-1" });
+
+    expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
+      where: { postId: "post-1" },
+      select: { id: true, key: true },
+    });
+    // Only the media with a non-empty key reaches the object store.
+    expect(deletedObjects).toEqual(["uploads/a.jpg"]);
+    expect(mockPrisma.media.deleteMany).toHaveBeenCalled();
+    expect(mockRedis.srem).toHaveBeenCalled();
+    expect(mockRedis.del).toHaveBeenCalled();
+  });
+
+  test("processMediaCleanup deletes orphaned media but skips attached media", async () => {
+    const { processMediaCleanup } = await import("./jobs");
+
+    await processMediaCleanup({ mediaId: "media-1" });
+
+    expect(mockPrisma.media.findUnique).toHaveBeenCalledWith({
+      where: { id: "media-1" },
+      select: { id: true, key: true, postId: true, createdAt: true },
+    });
+    expect(deletedObjects).toEqual(["uploads/a.jpg"]);
+    expect(mockPrisma.media.delete).toHaveBeenCalledWith({
+      where: { id: "media-1" },
+    });
+
+    // Attached media should be left alone.
+    mockPrisma.media.findUnique.mockResolvedValueOnce({
+      id: "media-2",
+      key: "uploads/b.jpg",
+      postId: "post-2",
+      createdAt: new Date(),
+    });
+    deletedObjects.length = 0;
+    mockPrisma.media.delete.mockClear();
+    await processMediaCleanup({ mediaId: "media-2" });
+    expect(deletedObjects).toEqual([]);
+    expect(mockPrisma.media.delete).not.toHaveBeenCalled();
+  });
+
+  test("processInactiveUsersSweep deletes unverified users older than 30 days", async () => {
+    const { processInactiveUsersSweep } = await import("./jobs");
+
+    const deleted = await processInactiveUsersSweep();
+
+    expect(mockPrisma.user.findMany).toHaveBeenCalled();
+    expect(mockPrisma.user.deleteMany).toHaveBeenCalled();
+    expect(deleted).toBe(1);
+  });
+
+  test("processExpiredTokens deletes expired reset tokens", async () => {
+    const { processExpiredTokens } = await import("./jobs");
+
+    await processExpiredTokens();
+
+    expect(mockPrisma.passwordResetToken.deleteMany).toHaveBeenCalled();
+  });
+
+  test("processNotificationCreated and Deleted adjust the unread counter", async () => {
+    const { processNotificationCreated, processNotificationDeleted } =
+      await import("./jobs");
+    const { unreadNotificationCache } = await import("@asm/db");
+
+    await processNotificationCreated({ recipientId: "user-1" });
+    await processNotificationDeleted({ recipientId: "user-1" });
+
+    expect(unreadNotificationCache.increment).toHaveBeenCalledWith("user-1");
+    expect(unreadNotificationCache.decrement).toHaveBeenCalledWith("user-1");
+  });
+});

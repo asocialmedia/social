@@ -1,7 +1,13 @@
 "use server";
 
 import { createCommentSchema } from "@asm/auth/validation";
-import { getCommentDataInclude, type PostData, prisma } from "@asm/db";
+import {
+  enqueueNotificationCreated,
+  enqueueNotificationDeleted,
+  getCommentDataInclude,
+  type PostData,
+  prisma,
+} from "@asm/db";
 
 // Aura awarded for participating in comment threads. Commenting credits both
 // the commenter and (unless it is their own post) the post author.
@@ -76,6 +82,10 @@ export async function submitComment({
           postId: post.id,
           type: "COMMENT",
         },
+      });
+
+      enqueueNotificationCreated(post.user.id).catch((error: unknown) => {
+        console.error("Failed to enqueue notification created event:", error);
       });
     }
 
@@ -174,6 +184,10 @@ export async function deleteComment(id: string) {
           issuerId: sessionData.user.id,
           postId: comment.postId,
         },
+      });
+
+      enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
+        console.error("Failed to enqueue notification deleted event:", error);
       });
     }
 

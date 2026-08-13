@@ -49,7 +49,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
       <LeftSidebar userData={loggedInUserData} />
 
       <div className="flex min-w-0 flex-1">
-        <div className="mx-auto flex w-full min-w-0 max-w-[88rem]">
+        <div className="mx-auto flex w-full min-w-0 max-w-[88rem] justify-center">
           <div className="flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
             <Tabs
               className="flex min-h-0 flex-1 flex-col"
@@ -91,7 +91,10 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   </div>
 
                   <TabsContent className="mt-0 pb-12" value="posts">
-                    <UserPostsFeed userId={userData.id} />
+                    <UserPostsFeed
+                      isOwnProfile={isOwnProfile}
+                      userId={userData.id}
+                    />
                   </TabsContent>
 
                   <TabsContent className="mt-0 pb-12" value="replies">

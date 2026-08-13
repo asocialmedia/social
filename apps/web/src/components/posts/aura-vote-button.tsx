@@ -1,3 +1,5 @@
+import { clientLog } from "@asm/config/debug";
+
 import type { VoteInfo } from "@asm/db";
 import {
   type QueryKey,
@@ -31,9 +33,12 @@ export default function AuraVoteButton({
     queryFn: () =>
       kyInstance.get(`/api/posts/${postId}/votes`).json<VoteInfo>(),
     initialData: initialState,
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    // The feed payload already includes aura + the user's vote, and the
+    // mutation reconciles server state on success, so refetching on every
+    // mount/window-focus is pure waste (it caused 2x requests per post).
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   const { mutate } = useMutation({
@@ -139,7 +144,7 @@ export default function AuraVoteButton({
     },
     onError(error, _variables, context) {
       queryClient.setQueryData(queryKey, context?.previousState);
-      console.error(error);
+      clientLog.error(error);
       toast({
         variant: "destructive",
         description: "That didn't go through, give it another try?",

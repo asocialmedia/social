@@ -1,4 +1,4 @@
-import { type MediaType, prisma } from "@asm/db";
+import { type MediaType, prisma, scheduleMediaCleanup } from "@asm/db";
 import { imageSize } from "image-size";
 import { NextResponse } from "next/server";
 import { uploadToAsmob } from "@/lib/object-storage";
@@ -52,6 +52,12 @@ export async function POST(request: Request) {
       width,
       height,
     },
+  });
+
+  // Schedule a delayed cleanup in case the upload is never attached to a post
+  // (abandoned draft). If the post is created first, submitPost cancels it.
+  scheduleMediaCleanup(media.id).catch((error: unknown) => {
+    console.error("Failed to schedule media cleanup:", error);
   });
 
   return NextResponse.json({
