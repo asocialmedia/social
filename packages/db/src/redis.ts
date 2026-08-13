@@ -68,6 +68,38 @@ const redis = new Proxy({} as IoRedis, {
 
 export { redis };
 
+// A dedicated ioredis connection for blocking commands (XREADGROUP with BLOCK,
+// XADD waiting, etc.). The shared client sets a commandTimeout, which would
+// kill long-blocking reads; this connection disables it so a BLOCK 2000 read
+// can wait as long as the stream stays idle.
+let blockingClient: IoRedis | null = null;
+
+export function getBlockingRedisClient(): IoRedis {
+  if (blockingClient && blockingClient.status !== "end") {
+    return blockingClient;
+  }
+
+  if (blockingClient?.status === "end") {
+    blockingClient = null;
+  }
+
+  const redisUrl = process.env.REDIS_URL ?? keys.REDIS_URL;
+
+  if (!redisUrl) {
+    throw new Error("REDIS_URL is not configured");
+  }
+
+  blockingClient = new IoRedis(
+    createRedisConnectionOptions(redisUrl, {
+      ...createRedisConfig(),
+      commandTimeout: undefined,
+      maxRetriesPerRequest: null,
+    })
+  );
+
+  return blockingClient;
+}
+
 export interface TrendingTopic {
   count: number;
   hashtag: string;

@@ -1,15 +1,19 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.0.42",
+  "version": "1.0.45",
   "private": true,
   "description": "Asocialmedia Auth Service",
   "scripts": {
     "build": "bun build --compile --minify --target=bun-linux-x64-musl ./src/server.ts --outfile ./dist/auth-server",
+    "build:worker": "bun build --compile --minify --target=bun-linux-x64-musl ./src/worker.ts --outfile ./dist/asm-worker",
     "check-types": "tsc --noEmit",
     "dev": "cross-env NODE_ENV=development portless auth bun --watch src/server.ts",
-    "start": "bun run src/server.ts"
+    "dev:worker": "bun --watch src/worker.ts",
+    "start": "bun run src/server.ts",
+    "start:worker": "bun run src/worker.ts"
   },
   "dependencies": {
+    "@asm/aggregator": "workspace:*",
     "@asm/auth": "workspace:*",
     "@asm/config": "workspace:*",
     "@asm/db": "workspace:*",
@@ -19,6 +23,7 @@
     "@t3-oss/env-core": "^0.13.11",
     "@trpc/server": "^11.18.0",
     "better-auth": "^1.6.26",
+    "bullmq": "^6.1.0",
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "jose": "^6.2.8",

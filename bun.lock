@@ -31,6 +31,7 @@
       "name": "@asm/auth-app",
       "version": "1.0.42",
       "dependencies": {
+        "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
         "@asm/config": "workspace:*",
         "@asm/db": "workspace:*",
@@ -40,6 +41,7 @@
         "@t3-oss/env-core": "^0.13.11",
         "@trpc/server": "^11.18.0",
         "better-auth": "^1.6.26",
+        "bullmq": "^6.1.0",
         "cross-env": "^10.1.0",
         "dotenv": "^17.4.2",
         "jose": "^6.2.8",
@@ -59,7 +61,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.0.69",
+      "version": "1.0.70",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -166,7 +168,7 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.0.14",
+      "version": "1.0.18",
       "dependencies": {
         "@asm/config": "workspace:*",
         "@aws-sdk/client-s3": "^3.1109.0",

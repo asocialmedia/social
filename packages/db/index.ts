@@ -12,4 +12,5 @@ export * from "./src/client";
 export * from "./src/meilisearch";
 export { default as prisma } from "./src/prisma";
 export * from "./src/redis";
+export { getBlockingRedisClient } from "./src/redis";
 export * from "./src/storage";
