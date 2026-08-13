@@ -1,5 +1,6 @@
 "use client";
 
+import asmLogo from "@assets/asm.png";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -20,12 +21,7 @@ const MobileTopBar: React.FC = () => {
       <div className="flex min-w-0 flex-1 justify-center">
         <Link className="shrink-0" href="/">
           <div className="relative h-8 w-8">
-            <Image
-              alt="Asocialmedia"
-              fill
-              sizes="32px"
-              src="/asocialmedialogo.svg"
-            />
+            <Image alt="Asocialmedia" fill sizes="32px" src={asmLogo} />
           </div>
         </Link>
       </div>

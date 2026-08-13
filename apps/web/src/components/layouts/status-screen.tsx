@@ -1,3 +1,4 @@
+import asmLogo from "@assets/asm.png";
 import type { StaticImageData } from "next/image";
 import Image from "next/image";
 import type { ReactNode } from "react";
@@ -47,6 +48,6 @@ const StatusImage = ({ image }: { image: StaticImageData | string }) => (
 
 const Logo = () => (
   <div className="relative h-16 w-16">
-    <Image alt="" fill sizes="64px" src="/asocialmedialogo.svg" />
+    <Image alt="" fill sizes="64px" src={asmLogo} />
   </div>
 );

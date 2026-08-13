@@ -1,3 +1,4 @@
+import asmLogo from "@assets/asm.png";
 import Image from "next/image";
 
 export function CenteredLogoLoader({ size = 56 }: { size?: number }) {
@@ -12,13 +13,7 @@ export function CenteredLogoLoader({ size = 56 }: { size?: number }) {
         className="relative h-[56px] w-[56px]"
         style={{ height: size, width: size }}
       >
-        <Image
-          alt=""
-          fill
-          priority
-          sizes={`${size}px`}
-          src="/asocialmedialogo.svg"
-        />
+        <Image alt="" fill priority sizes={`${size}px`} src={asmLogo} />
       </div>
     </div>
   );
