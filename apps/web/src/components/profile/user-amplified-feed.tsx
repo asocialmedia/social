@@ -1,11 +1,9 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
-import { Button } from "@asm/ui/shadui/button";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2, PenLine } from "lucide-react";
-import Link from "next/link";
+import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
@@ -14,17 +12,11 @@ import kyInstance from "@/lib/ky";
 import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
-interface UserPostsFeedProps {
-  filter?: "all" | "media";
-  isOwnProfile?: boolean;
+interface UserAmplifiedFeedProps {
   userId: string;
 }
 
-const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
-  userId,
-  filter = "all",
-  isOwnProfile = false,
-}) => {
+const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
   const {
     data,
     fetchNextPage,
@@ -33,14 +25,12 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "user-posts", userId, filter],
+    queryKey: ["post-feed", "user-amplified", userId],
     queryFn: ({ pageParam }) =>
       kyInstance
         .get(
-          `/api/users/${userId}/posts`,
-          pageParam
-            ? { searchParams: { cursor: pageParam, filter } }
-            : { searchParams: { filter } }
+          `/api/users/${userId}/amplified`,
+          pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
         .json<PostsPage>(),
     initialPageParam: null as string | null,
@@ -66,35 +56,16 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
   if (status === "error") {
     return (
       <p className="text-center text-destructive">
-        An error occurred while loading posts.
+        An error occurred while loading amplified posts.
       </p>
     );
   }
 
   if (status === "success" && !posts.length) {
-    if (filter === "media") {
-      return (
-        <EmptyFeedState
-          description="Photos, videos and files from this profile's posts will show up here."
-          title="No media posts yet"
-        />
-      );
-    }
-
     return (
       <EmptyFeedState
-        action={
-          isOwnProfile ? (
-            <Button asChild variant="premium">
-              <Link href="/compose">
-                <PenLine className="mr-1.5 size-4" />
-                Create a post
-              </Link>
-            </Button>
-          ) : undefined
-        }
-        description="Share something to get the conversation started."
-        title="No posts yet"
+        description="Posts this profile has amplified will show up here."
+        title="No amplified posts yet"
       />
     );
   }
@@ -113,16 +84,10 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (
-        <FeedCaughtUp
-          note={
-            filter === "media"
-              ? "You've seen all the media from this profile."
-              : "You've seen every post from this profile."
-          }
-        />
+        <FeedCaughtUp note="You've seen every amplified post from this profile." />
       ) : null}
     </InfiniteScrollContainer>
   );
 };
 
-export default React.memo(UserPostsFeed);
+export default React.memo(UserAmplifiedFeed);

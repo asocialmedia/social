@@ -244,14 +244,15 @@ enum MediaType {
 }
 
 model Vote {
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  postId String
-  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
-  value  Int
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  value     Int
   createdAt DateTime @default(now())
 
   @@unique([userId, postId])
+  @@index([userId, value, createdAt])
   @@map("votes")
 }
 

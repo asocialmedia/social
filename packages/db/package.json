@@ -1,6 +1,6 @@
 {
   "name": "@asm/db",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "private": true,
   "description": "Asocialmedia database & cache package",
   "license": "AGPL-3.0",

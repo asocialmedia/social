@@ -13,6 +13,7 @@ import MediaGallery, {
   MediaGalleryContent,
 } from "@/components/profile/media-gallery";
 import ProfileHeader from "@/components/profile/profile-header";
+import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
 
@@ -21,7 +22,7 @@ interface ProfilePageProps {
   userData: UserData;
 }
 
-type ProfileTab = "posts" | "replies" | "media";
+type ProfileTab = "posts" | "replies" | "amplified" | "media";
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
@@ -107,6 +108,12 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                         Replies
                       </TabsTrigger>
                       <TabsTrigger
+                        className={TAB_TRIGGER_CLASS}
+                        value="amplified"
+                      >
+                        Amplified
+                      </TabsTrigger>
+                      <TabsTrigger
                         className={`${TAB_TRIGGER_CLASS} xl:hidden`}
                         value="media"
                       >
@@ -124,6 +131,10 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
 
                   <TabsContent className="mt-0 pb-12" value="replies">
                     <UserRepliesFeed userId={userData.id} />
+                  </TabsContent>
+
+                  <TabsContent className="mt-0 pb-12" value="amplified">
+                    <UserAmplifiedFeed userId={userData.id} />
                   </TabsContent>
 
                   <TabsContent className="mt-0 pb-12 xl:hidden" value="media">

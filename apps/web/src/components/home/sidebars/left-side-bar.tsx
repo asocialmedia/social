@@ -76,7 +76,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const renderItem = ({ count, href, label, icon: Icon }: NavItem) => (
     <Link
       className={cn(
-        "group flex items-center gap-3 rounded-full border-0 px-3 py-2.5 text-base transition-all duration-200 ease-out",
+        "group flex items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-base transition-all duration-200 ease-out",
         isRouteActive(currentHref, href)
           ? "pill-nav-active"
           : "pill-3d-hover text-foreground hover:text-foreground"
