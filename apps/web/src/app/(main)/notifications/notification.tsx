@@ -74,12 +74,9 @@ export default function Notification({ notification }: NotificationProps) {
 
       <div className="min-w-0 flex-1">
         <p className="text-sm leading-snug">
-          <Link
-            className="font-semibold hover:underline"
-            href={`/users/${notification.issuer.username}`}
-          >
+          <span className="font-semibold">
             {notification.issuer.displayName}
-          </Link>{" "}
+          </span>{" "}
           <span className="text-muted-foreground">{config.action}</span>
         </p>
 
