@@ -1,0 +1,89 @@
+"use client";
+
+import { Bookmark, Newspaper, Terminal } from "lucide-react";
+import Link from "next/link";
+import type React from "react";
+import PostHistoryCard from "@/components/posts/post-history-card";
+import { formatNumber } from "@/lib/utils";
+
+const FOOTER_LINKS = [
+  { href: "/toc", label: "Terms" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "https://x.com/parazeeknova", label: "Twitter" },
+  { href: "https://github.com/asocialmedia/social", label: "Github" },
+  { href: "/support", label: "Support" },
+];
+
+interface BookmarksSidebarProps {
+  hnBookmarkCount: number;
+  postBookmarkCount: number;
+}
+
+const StatTile: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+}> = ({ icon, label, value }) => (
+  <div className="flex flex-col items-center rounded-xl bg-background/60 px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
+    {icon}
+    <span className="mt-1 bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text font-bold text-lg text-transparent tabular-nums">
+      {formatNumber(value)}
+    </span>
+    <span className="mt-0.5 text-[11px] text-muted-foreground">{label}</span>
+  </div>
+);
+
+const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
+  hnBookmarkCount,
+  postBookmarkCount,
+}) => {
+  const totalBookmarks = postBookmarkCount + hnBookmarkCount;
+
+  return (
+    <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+      <div className="flex flex-col gap-4">
+        <div className="sidebar-subcard rounded-2xl p-2">
+          <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
+            <Bookmark className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <h2 className="font-semibold text-sm">Your Bookmarks</h2>
+          </div>
+          <div className="grid grid-cols-3 gap-2 px-1 pt-1">
+            <StatTile
+              icon={<Newspaper className="h-4 w-4 text-muted-foreground" />}
+              label="Posts"
+              value={postBookmarkCount}
+            />
+            <StatTile
+              icon={<Terminal className="h-4 w-4 text-muted-foreground" />}
+              label="HackerNews"
+              value={hnBookmarkCount}
+            />
+            <StatTile
+              icon={<Bookmark className="h-4 w-4 text-muted-foreground" />}
+              label="Total"
+              value={totalBookmarks}
+            />
+          </div>
+        </div>
+
+        <PostHistoryCard />
+
+        <footer className="flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-muted-foreground text-xs">
+          <span>© {new Date().getFullYear()} Asocialmedia</span>
+          {FOOTER_LINKS.map(({ href, label }) => (
+            <Link
+              className="transition-colors hover:text-foreground"
+              href={href}
+              key={label}
+              target={href.startsWith("http") ? "_blank" : undefined}
+            >
+              {label}
+            </Link>
+          ))}
+        </footer>
+      </div>
+    </aside>
+  );
+};
+
+export default BookmarksSidebar;

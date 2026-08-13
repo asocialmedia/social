@@ -1,6 +1,6 @@
 "use client";
 
-import type { HNStoryType } from "@asm/ui/components";
+import type { HNStory } from "@asm/aggregator/hackernews";
 import { Badge } from "@asm/ui/shadui/badge";
 import { Card } from "@asm/ui/shadui/card";
 import {
@@ -15,7 +15,7 @@ import { motion } from "motion/react";
 
 interface HnStoryPreviewProps {
   onRemoveAction: () => void;
-  story: HNStoryType;
+  story: HNStory;
 }
 
 export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {

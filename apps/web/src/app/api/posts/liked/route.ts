@@ -13,22 +13,24 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const bookmarks = await prisma.bookmark.findMany({
-    where: { userId: user.id },
-    include: { post: true },
+  const votes = await prisma.vote.findMany({
+    where: { userId: user.id, value: 1 },
     orderBy: { createdAt: "desc" },
+    select: { postId: true },
   });
 
-  const postIds = bookmarks
-    .map((bookmark) => bookmark.postId)
-    .filter((postId): postId is string => Boolean(postId));
+  const postIds = votes.map((vote) => vote.postId);
+
+  if (postIds.length === 0) {
+    return Response.json({ nextCursor: null, posts: [] });
+  }
 
   const posts = await prisma.post.findMany({
     where: { id: { in: postIds } },
     include: getPostDataInclude(user.id),
   });
 
-  // Preserve the bookmark order (most recently bookmarked first).
+  // Preserve the vote order (most recently liked first).
   const postById = new Map(posts.map((post) => [post.id, post]));
   const orderedPosts = postIds
     .map((postId) => postById.get(postId))

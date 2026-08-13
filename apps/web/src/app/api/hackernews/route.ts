@@ -41,4 +41,17 @@ export async function GET(request: Request) {
   }
 }
 
+export async function POST() {
+  try {
+    await hackerNewsAPI.refreshCache();
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error refreshing HN stories:", error);
+    return NextResponse.json(
+      { error: "Failed to refresh stories" },
+      { status: (error as { statusCode?: number }).statusCode || 500 }
+    );
+  }
+}
+
 export const runtime = "nodejs";

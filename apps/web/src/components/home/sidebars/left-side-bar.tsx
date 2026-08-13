@@ -24,6 +24,7 @@ import { useTheme } from "next-themes";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
+import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn, isRouteActive } from "@/lib/utils";
 import UserProfilePopover from "./left/user-profile-popover";
@@ -33,6 +34,7 @@ interface LeftSidebarProps {
 }
 
 interface NavItem {
+  count?: number;
   href: string;
   icon: typeof Home;
   label: string;
@@ -58,6 +60,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { data: liveUserData } = useUserDataQuery(userData);
+  const { data: bookmarkCount } = useBookmarkCount();
 
   useEffect(() => {
     setMounted(true);
@@ -70,7 +73,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const queryString = searchParams.toString();
   const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
 
-  const renderItem = ({ href, label, icon: Icon }: NavItem) => (
+  const renderItem = ({ count, href, label, icon: Icon }: NavItem) => (
     <Link
       className={cn(
         "group flex items-center gap-3 rounded-full border-0 px-3 py-2.5 text-base transition-all duration-200 ease-out",
@@ -82,7 +85,12 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       key={href}
     >
       <Icon className="h-6 w-6 shrink-0" />
-      <span>{label}</span>
+      <span className="min-w-0 flex-1">{label}</span>
+      {count !== undefined && count > 0 ? (
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-muted-foreground text-xs tabular-nums">
+          {count}
+        </span>
+      ) : null}
     </Link>
   );
 
@@ -113,7 +121,13 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       </Link>
 
       <nav className="flex flex-col gap-1">
-        {PRIMARY_ITEMS.map(renderItem)}
+        {PRIMARY_ITEMS.map((item) =>
+          renderItem(
+            item.href === "/bookmarks"
+              ? { ...item, count: bookmarkCount?.totalCount }
+              : item
+          )
+        )}
 
         <Separator className="my-3 bg-border/60" />
 

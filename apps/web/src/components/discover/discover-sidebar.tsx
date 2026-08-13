@@ -1,9 +1,9 @@
 "use client";
 
-import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Compass, Flame, Sparkles, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 const DiscoverySidebar = () => {
   const pathname = usePathname();
@@ -31,34 +31,34 @@ const DiscoverySidebar = () => {
   ];
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <h2 className="mb-4 font-semibold text-muted-foreground text-sm uppercase">
-          Discover
-        </h2>
-        <nav className="space-y-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
+    <div className="sidebar-subcard rounded-2xl p-2">
+      <h2 className="flex items-center gap-2 px-2 pt-0.5 pb-1 font-semibold text-sm">
+        <Compass className="h-4 w-4 shrink-0 text-muted-foreground" />
+        Discover
+      </h2>
+      <nav className="flex flex-col gap-0.5">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href;
 
-            return (
-              <Link
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-                href={item.href}
-                key={item.href}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </CardContent>
-    </Card>
+          return (
+            <Link
+              className={cn(
+                "group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm",
+                isActive
+                  ? "pill-nav-active"
+                  : "sidebar-row-hover text-muted-foreground hover:text-inherit"
+              )}
+              href={item.href}
+              key={item.href}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
   );
 };
 

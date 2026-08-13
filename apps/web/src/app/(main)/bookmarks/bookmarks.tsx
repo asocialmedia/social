@@ -1,31 +1,48 @@
 "use client";
 
 import type { HNStory as HnStoryType } from "@asm/aggregator/hackernews";
-import type { PostsPage } from "@asm/db";
-import { HNStory } from "@asm/ui/components/hackernews";
-import { Card } from "@asm/ui/shadui/card";
+import type { PostsPage, UserData } from "@asm/db";
+import { Separator } from "@asm/ui/shadui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import noBookmarksImage from "@assets/general/nonotibook.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Newspaper, Terminal } from "lucide-react";
-import { motion } from "motion/react";
-import { useCallback } from "react";
-import Post from "@/components/home/feedview/post-card";
+import { Heart, Newspaper, Terminal } from "lucide-react";
+import Image from "next/image";
+import type React from "react";
+import { useCallback, useRef } from "react";
+import BookmarksSidebar from "@/components/bookmarks/bookmarks-sidebar";
+import { HNStoryCard } from "@/components/hackernews/hn-story-card";
+import { FeedView } from "@/components/home/feed-view";
+import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import LeftSidebar from "@/components/home/sidebars/left-side-bar";
+import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import SearchField from "@/components/layouts/search-field";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
-import PostsOnlyLoadingSkeleton from "@/components/layouts/skeletons/post-only-loading-skeleton";
 import kyInstance from "@/lib/ky";
+import LikedPosts from "./liked-posts";
 
 interface HnBookmarksResponse {
   nextCursor: string | null;
   stories: HnStoryType[];
 }
 
-const tabVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0 },
-};
+interface BookmarksProps {
+  hnBookmarkCount: number;
+  postBookmarkCount: number;
+  userData: UserData;
+}
 
-export default function Bookmarks() {
+const Bookmarks: React.FC<BookmarksProps> = ({
+  hnBookmarkCount,
+  postBookmarkCount,
+  userData,
+}) => {
+  const feedScrollRef = useRef<HTMLDivElement>(null);
+
   const {
     data: postsData,
     fetchNextPage: fetchNextPosts,
@@ -75,7 +92,8 @@ export default function Bookmarks() {
   const posts = (postsData?.pages.flatMap((page) => page.posts) || []).filter(
     Boolean
   );
-  const hnStories = hnData?.pages.flatMap((page) => page.stories) || [];
+  const hnStories =
+    (hnData?.pages.flatMap((page) => page.stories) || []).filter(Boolean) || [];
 
   const handleBottomReachedPosts = useCallback(() => {
     if (hasNextPosts && !isFetchingPosts) {
@@ -89,17 +107,11 @@ export default function Bookmarks() {
     }
   }, [fetchNextHn, hasNextHn, isFetchingHn]);
 
-  if (postsStatus === "pending" || hnStatus === "pending") {
-    return <PostsOnlyLoadingSkeleton />;
+  if (!userData) {
+    return null;
   }
 
-  if (postsStatus === "error" && hnStatus === "error") {
-    return (
-      <p className="text-center text-destructive">
-        An error occurred while loading bookmarks.
-      </p>
-    );
-  }
+  const isLoading = postsStatus === "pending" || hnStatus === "pending";
 
   const showEmptyState =
     postsStatus === "success" &&
@@ -109,88 +121,125 @@ export default function Bookmarks() {
     !hasNextPosts &&
     !hasNextHn;
 
-  if (showEmptyState) {
-    return (
-      <Card className="p-6 text-center text-muted-foreground">
-        <p>You don't have any bookmarks yet.</p>
-        <p className="mt-2 text-sm">
+  let feedBody: React.ReactNode;
+  if (isLoading) {
+    feedBody = <FeedViewSkeleton />;
+  } else if (postsStatus === "error" && hnStatus === "error") {
+    feedBody = (
+      <p className="px-4 py-8 text-center text-destructive">
+        An error occurred while loading bookmarks.
+      </p>
+    );
+  } else if (showEmptyState) {
+    feedBody = (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noBookmarksImage}
+          width={1536}
+        />
+        <p className="font-medium">You don&apos;t have any bookmarks yet.</p>
+        <p className="text-muted-foreground text-sm">
           Bookmark posts and HackerNews stories to read them later.
         </p>
-      </Card>
-    );
-  }
-
-  return (
-    <Tabs className="w-full" defaultValue="posts">
-      <div className="relative mb-8 flex justify-center">
-        <motion.div
-          animate="visible"
-          className="relative w-full px-4 sm:w-auto sm:px-0"
-          initial="hidden"
-          transition={{ duration: 0.5 }}
-          variants={tabVariants}
-        >
-          <div className="absolute -inset-3 hidden rounded-lg bg-gradient-to-r from-orange-500/20 via-yellow-500/20 to-orange-500/20 blur-xl sm:block" />
-          <TabsList className="relative grid w-full grid-cols-2 rounded-full bg-background/95 p-1 text-muted-foreground shadow-xl backdrop-blur-xs sm:w-[400px]">
-            <TabsTrigger
-              className="relative rounded-full data-[state=active]:bg-orange-500/10 data-[state=active]:text-orange-500"
-              value="posts"
-            >
-              <Newspaper className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Posts</span>
-              <span className="sm:hidden">Posts</span>
-              {posts.length > 0 && (
-                <span className="ml-2 rounded-full bg-orange-500/10 px-2 py-0.5 text-orange-500 text-xs">
-                  {posts.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              className="relative rounded-full data-[state=active]:bg-orange-500/10 data-[state=active]:text-orange-500"
-              value="hackernews"
-            >
-              <Terminal className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">HackerNews</span>
-              <span className="sm:hidden">HN</span>
-              {hnStories.length > 0 && (
-                <span className="ml-2 rounded-full bg-orange-500/10 px-2 py-0.5 text-orange-500 text-xs">
-                  {hnStories.length}
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-        </motion.div>
       </div>
-
-      <motion.div
-        animate={{ opacity: 1 }}
-        initial={{ opacity: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <TabsContent value="posts">
-          <InfiniteScrollContainer
-            className="space-y-5"
-            onBottomReached={handleBottomReachedPosts}
-          >
-            {posts.map((post) => (
-              <Post key={post.id} post={post} />
-            ))}
+    );
+  } else {
+    feedBody = (
+      <>
+        <TabsContent className="mt-0 pb-12" value="posts">
+          <InfiniteScrollContainer onBottomReached={handleBottomReachedPosts}>
+            {posts.length > 0 ? (
+              <FeedView cacheKey={["post-feed", "bookmarks"]} posts={posts} />
+            ) : null}
             {isFetchingNextPosts ? <LoadMoreSkeleton /> : null}
           </InfiniteScrollContainer>
         </TabsContent>
 
-        <TabsContent value="hackernews">
-          <InfiniteScrollContainer
-            className="space-y-4"
-            onBottomReached={handleBottomReachedHn}
-          >
-            {hnStories.map((story) => (
-              <HNStory key={story.id} story={story} />
-            ))}
+        <TabsContent className="mt-0 pb-12" value="hackernews">
+          <InfiniteScrollContainer onBottomReached={handleBottomReachedHn}>
+            <div className="flex flex-col">
+              {hnStories.map((story, index) => (
+                <div key={story.id}>
+                  {index > 0 && <Separator className="bg-border/60" />}
+                  <HNStoryCard initialBookmarked={true} story={story} />
+                </div>
+              ))}
+            </div>
             {isFetchingNextHn ? <LoadMoreSkeleton /> : null}
           </InfiniteScrollContainer>
         </TabsContent>
-      </motion.div>
-    </Tabs>
+
+        <TabsContent className="mt-0 pb-12" value="likes">
+          <LikedPosts />
+        </TabsContent>
+      </>
+    );
+  }
+
+  return (
+    <div className="relative flex h-dvh overflow-hidden">
+      <LeftSidebar userData={userData} />
+
+      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+        <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="posts">
+          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
+            <MobileTopBar />
+            <div className="relative flex items-center border-border/60 border-b py-1.5">
+              <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
+                  <Newspaper className="mr-2 h-4 w-4" />
+                  Posts
+                  {postBookmarkCount > 0 ? (
+                    <span className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-[10px] text-muted-foreground tabular-nums">
+                      {postBookmarkCount}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="hackernews">
+                  <Terminal className="mr-2 h-4 w-4" />
+                  HackerNews
+                  {hnBookmarkCount > 0 ? (
+                    <span className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-[10px] text-muted-foreground tabular-nums">
+                      {hnBookmarkCount}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="likes">
+                  <Heart className="mr-2 h-4 w-4" />
+                  Likes
+                </TabsTrigger>
+              </TabsList>
+              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
+                <div className="w-full max-w-[24rem] xl:max-w-md">
+                  <SearchField />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative min-h-0 flex-1">
+            <div
+              className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+              ref={feedScrollRef}
+            >
+              {feedBody}
+            </div>
+            <FeedScrollbar containerRef={feedScrollRef} />
+          </div>
+        </Tabs>
+      </div>
+
+      <BookmarksSidebar
+        hnBookmarkCount={hnBookmarkCount}
+        postBookmarkCount={postBookmarkCount}
+      />
+      <MobileBottomNav />
+    </div>
   );
-}
+};
+
+export default Bookmarks;
