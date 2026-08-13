@@ -1,7 +1,7 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Eye, Flame, Heart, MessageSquare } from "lucide-react";
+import { ArrowBigUp, Eye, Flame, MessageSquare } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -23,7 +23,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   const aspectRatio =
     media?.width && media?.height ? media.width / media.height : DEFAULT_ASPECT;
 
-  const isLiked = post.vote.some((vote) => vote.value === 1);
+  const isAmplified = post.vote.some((vote) => vote.value === 1);
 
   return (
     <Link
@@ -72,10 +72,10 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
 
           <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
             <span className="flex items-center gap-1">
-              <Heart
+              <ArrowBigUp
                 className={cn(
                   "h-3.5 w-3.5",
-                  isLiked && "fill-rose-500 text-rose-500"
+                  isAmplified && "fill-orange-500 text-orange-500"
                 )}
               />
               <span className="font-medium text-foreground">

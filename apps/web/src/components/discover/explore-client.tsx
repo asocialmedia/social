@@ -1,7 +1,9 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useMemo, useRef } from "react";
@@ -147,9 +149,20 @@ const ExploreClient: React.FC = () => {
     );
   } else if (items.length === 0) {
     body = (
-      <p className="px-4 py-16 text-center text-muted-foreground">
-        Nothing here yet.
-      </p>
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt=""
+          className="h-40 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noFollowImage}
+          width={1536}
+        />
+        <p className="font-medium">Nothing here yet</p>
+        <p className="text-muted-foreground text-sm">
+          Follow people to see their fleets here.
+        </p>
+      </div>
     );
   } else {
     body = (
