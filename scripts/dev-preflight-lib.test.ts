@@ -40,18 +40,18 @@ describe("service snapshot helpers", () => {
     const snapshots: ServiceSnapshot[] = [
       { Health: "healthy", Service: "postgres-dev", State: "running" },
       { Health: "unhealthy", Service: "redis-dev", State: "running" },
-      { Health: "", Service: "meilisearch-dev", State: "exited" },
+      { Health: "", Service: "openobserve-dev", State: "exited" },
     ];
 
     const unhealthy = getUnhealthyServices(snapshots, [
       "postgres-dev",
       "redis-dev",
-      "meilisearch-dev",
+      "openobserve-dev",
     ]);
 
     expect(unhealthy).toEqual([
       "redis-dev (unhealthy)",
-      "meilisearch-dev (exited)",
+      "openobserve-dev (exited)",
     ]);
   });
 
@@ -101,10 +101,10 @@ describe("service snapshot helpers", () => {
         Labels: { "com.docker.compose.service": "asmob-dev" },
       },
       {
-        Names: ["asmdev-meilisearch"],
+        Names: ["asmdev-openobserve"],
         State: "running",
         Status: "Up 2 hours",
-        Labels: { "com.docker.compose.service": "meilisearch-dev" },
+        Labels: { "com.docker.compose.service": "openobserve-dev" },
       },
     ]);
 
@@ -124,8 +124,8 @@ describe("service snapshot helpers", () => {
       },
       {
         Health: "",
-        Name: "asmdev-meilisearch",
-        Service: "meilisearch-dev",
+        Name: "asmdev-openobserve",
+        Service: "openobserve-dev",
         State: "running",
       },
     ]);
@@ -242,7 +242,7 @@ describe("preflight ui helpers", () => {
     states.set("portless", "cached");
 
     expect(buildPreflightProgressLine(states)).toBe(
-      "preflight svc:ok init:wait pg:... rd:wait obj:wait mei:wait ozo:wait ptl:cache"
+      "preflight svc:ok init:wait pg:... rd:wait obj:wait ozo:wait ptl:cache"
     );
   });
 });

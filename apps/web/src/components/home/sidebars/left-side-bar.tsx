@@ -12,6 +12,7 @@ import {
   MessagesSquare,
   Moon,
   PenSquare,
+  Search,
   Settings,
   Sun,
   User,
@@ -24,8 +25,12 @@ import { useTheme } from "next-themes";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
+import { useSpotlight } from "@/components/search/spotlight-provider";
+import { useBookmarkCount } from "@/hooks/use-bookmark-count";
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn, isRouteActive } from "@/lib/utils";
+import { useComposerStore } from "@/store/composer-store";
 import UserProfilePopover from "./left/user-profile-popover";
 
 interface LeftSidebarProps {
@@ -33,6 +38,7 @@ interface LeftSidebarProps {
 }
 
 interface NavItem {
+  count?: number;
   href: string;
   icon: typeof Home;
   label: string;
@@ -40,6 +46,7 @@ interface NavItem {
 
 const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", label: "Home", icon: Home },
+  { href: "/search", label: "Search", icon: Search },
   { href: "/discover", label: "Explore", icon: Compass },
   { href: "/soon?feature=communities", label: "Communities", icon: Users },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
@@ -58,6 +65,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { data: liveUserData } = useUserDataQuery(userData);
+  const { data: bookmarkCount } = useBookmarkCount();
+  const { data: unreadNotificationCount } = useUnreadNotificationCount();
+  const { openSpotlight } = useSpotlight();
+  const openComposer = useComposerStore((state) => state.openComposer);
 
   useEffect(() => {
     setMounted(true);
@@ -67,13 +78,17 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   }, [resolvedTheme, setTheme]);
 
+  const handleOpenComposer = useCallback(() => {
+    openComposer();
+  }, [openComposer]);
+
   const queryString = searchParams.toString();
   const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
 
-  const renderItem = ({ href, label, icon: Icon }: NavItem) => (
+  const renderItem = ({ count, href, label, icon: Icon }: NavItem) => (
     <Link
       className={cn(
-        "group flex items-center gap-3 rounded-full border-0 px-3 py-2.5 text-base transition-all duration-200 ease-out",
+        "group flex items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-base transition-all duration-200 ease-out",
         isRouteActive(currentHref, href)
           ? "pill-nav-active"
           : "pill-3d-hover text-foreground hover:text-foreground"
@@ -82,8 +97,33 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       key={href}
     >
       <Icon className="h-6 w-6 shrink-0" />
-      <span>{label}</span>
+      <span className="min-w-0 flex-1">{label}</span>
+      {count !== undefined && count > 0 ? (
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-muted-foreground text-xs tabular-nums">
+          {count}
+        </span>
+      ) : null}
     </Link>
+  );
+
+  const renderActionItem = ({
+    label,
+    icon: Icon,
+    onClick,
+  }: {
+    label: string;
+    icon: typeof Home;
+    onClick: () => void;
+  }) => (
+    <button
+      className="group pill-3d-hover flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base text-foreground transition-all duration-200 ease-out hover:text-foreground"
+      key={label}
+      onClick={onClick}
+      type="button"
+    >
+      <Icon className="h-6 w-6 shrink-0" />
+      <span className="min-w-0 flex-1">{label}</span>
+    </button>
   );
 
   const profileItem: NavItem = {
@@ -106,6 +146,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
             alt="Asocialmedia"
             className="object-contain"
             fill
+            loading="eager"
             sizes="58px"
             src={asmLogo}
           />
@@ -113,11 +154,34 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       </Link>
 
       <nav className="flex flex-col gap-1">
-        {PRIMARY_ITEMS.map(renderItem)}
+        {PRIMARY_ITEMS.map((item) => {
+          if (item.href === "/search") {
+            return renderActionItem({
+              label: item.label,
+              icon: item.icon,
+              onClick: () => openSpotlight(),
+            });
+          }
+
+          return renderItem(
+            item.href === "/bookmarks"
+              ? { ...item, count: bookmarkCount?.totalCount }
+              : item
+          );
+        })}
 
         <Separator className="my-3 bg-border/60" />
 
-        {SECONDARY_ITEMS.map(renderItem)}
+        {SECONDARY_ITEMS.map((item) =>
+          renderItem(
+            item.href === "/notifications"
+              ? {
+                  ...item,
+                  count: unreadNotificationCount?.unreadCount ?? 0,
+                }
+              : item
+          )
+        )}
 
         {user ? renderItem(profileItem) : null}
 
@@ -126,17 +190,15 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
       <div className="mt-auto flex flex-col gap-3">
         <Button
-          asChild
           className="h-12 w-full rounded-full px-6 py-3"
+          onClick={handleOpenComposer}
           variant="premium"
         >
-          <Link href="/compose">
-            <PenSquare className="mr-1 h-5.5! w-5.5!" />
-            <span>Create Post</span>
-          </Link>
+          <PenSquare className="mr-1 h-5.5! w-5.5!" />
+          <span>Create Post</span>
         </Button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-stretch gap-2">
           <UserProfilePopover userData={liveUserData} />
 
           <button
@@ -145,7 +207,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
                 ? "Switch to light mode"
                 : "Switch to dark mode"
             }
-            className="pill-3d-hover group flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 text-muted-foreground"
+            className="pill-3d-hover group my-auto flex size-10 shrink-0 items-center justify-center self-center rounded-full border-0 text-muted-foreground"
             onClick={handleToggleTheme}
             type="button"
           >

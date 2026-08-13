@@ -345,19 +345,6 @@ async function assertInitJobsCompleted() {
   }
 }
 
-async function assertMeilisearchReady() {
-  const result = await runCmd([
-    "curl",
-    "-sS",
-    "-f",
-    "http://localhost:7700/health",
-  ]);
-
-  if (result.exitCode !== 0) {
-    fatal(`Meilisearch check failed: ${result.stderr || result.stdout}`);
-  }
-}
-
 async function assertOpenObserveReady() {
   const result = await runCmd([
     "curl",
@@ -519,17 +506,6 @@ async function run() {
     () => assertBucketsReady()
   );
   setCheckState("asmob", asmobStatus);
-  activeCheck = null;
-
-  activeCheck = "meilisearch";
-  setCheckState("meilisearch", "running");
-  const meilisearchStatus = await withCache(
-    cache,
-    "meilisearch",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    () => assertMeilisearchReady()
-  );
-  setCheckState("meilisearch", meilisearchStatus);
   activeCheck = null;
 
   activeCheck = "openobserve";

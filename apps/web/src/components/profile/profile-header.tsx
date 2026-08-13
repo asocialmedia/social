@@ -4,6 +4,7 @@ import type { UserData } from "@asm/db";
 import { formatDate } from "date-fns";
 import { BadgeCheck, CalendarDays, Flame } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
@@ -102,7 +103,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
     );
   } else {
     bannerContent = (
-      <div className="absolute inset-0 bg-gradient-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
+      <div className="absolute inset-0 bg-linear-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-80" />
     );
   }
 
@@ -111,7 +112,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
       {/* Banner */}
       <div className="relative h-32 overflow-hidden sm:h-44">
         {bannerContent}
-        <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background-alt))] to-transparent" />
       </div>
 
       {/* Avatar + actions */}
@@ -148,7 +149,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
         {liveUserData.bio ? (
           <Linkify>
-            <p className="mt-3 overflow-hidden whitespace-pre-line break-words text-[15px]">
+            <p className="wrap-break-word mt-3 overflow-hidden whitespace-pre-line text-[15px]">
               {liveUserData.bio}
             </p>
           </Linkify>
@@ -182,18 +183,28 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
         {/* Stats */}
         <div className="mt-2.5 flex items-center gap-4 pb-4 text-sm">
-          <span>
+          <Link
+            className="group rounded-md px-1 py-0.5 transition-colors hover:bg-accent/50"
+            href={`/users/${liveUserData.username}/following`}
+          >
             <span className="font-semibold">
               {formatNumber(liveUserData._count.following)}
             </span>{" "}
-            <span className="text-muted-foreground">Following</span>
-          </span>
-          <span>
+            <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+              Following
+            </span>
+          </Link>
+          <Link
+            className="group rounded-md px-1 py-0.5 transition-colors hover:bg-accent/50"
+            href={`/users/${liveUserData.username}/followers`}
+          >
             <span className="font-semibold">
               {formatNumber(followerInfo.followers)}
             </span>{" "}
-            <span className="text-muted-foreground">Followers</span>
-          </span>
+            <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+              Followers
+            </span>
+          </Link>
           <span className="inline-flex items-center gap-1 font-semibold text-orange-500">
             <Flame className="size-4" />
             {formatNumber(liveUserData.aura)} Aura

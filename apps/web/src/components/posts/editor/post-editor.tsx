@@ -46,7 +46,11 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
-export default function PostEditor() {
+export default function PostEditor({
+  variant = "feed",
+}: {
+  variant?: "feed" | "modal";
+}) {
   const { user } = useSession();
   const mutation = useSubmitPostMutation();
   const hnShareStore = useHnShareStore();
@@ -239,7 +243,14 @@ export default function PostEditor() {
   );
 
   return (
-    <div className="flex flex-col gap-5 rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))] p-5 shadow-none transition-shadow duration-300">
+    <div
+      className={cn(
+        "flex flex-col gap-5 p-5 shadow-none transition-shadow duration-300",
+        variant === "feed"
+          ? "rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))]"
+          : "rounded-none border-0 bg-transparent"
+      )}
+    >
       <div className="flex gap-5">
         <div className="mt-1 shrink-0">
           <motion.div

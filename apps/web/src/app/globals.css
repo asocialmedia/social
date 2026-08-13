@@ -659,17 +659,6 @@
     0 0 0 3px hsl(var(--primary) / 0.15);
 }
 
-.settings-card {
-  @apply relative overflow-hidden rounded-lg border border-border/50;
-  @apply bg-background/30 backdrop-blur-md shadow-xs;
-  @apply transition-all duration-200 hover:shadow-md hover:bg-background/40;
-}
-
-.settings-header {
-  @apply font-medium text-lg bg-gradient-to-r from-primary to-secondary;
-  @apply bg-clip-text text-transparent;
-}
-
 .stars,
 .stars2,
 .stars3 {

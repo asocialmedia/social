@@ -432,7 +432,7 @@ export function MediaPreviews({
           <div className="relative inline-block max-w-full overflow-hidden rounded-lg shadow-xs">
             <Image
               alt="Attachment"
-              className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
+              className="!relative !h-auto max-h-120 w-auto max-w-full rounded-lg object-cover"
               height={dims.h}
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}

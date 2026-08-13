@@ -215,6 +215,10 @@ export interface NotificationCountInfo {
   unreadCount: number;
 }
 
+export interface BookmarkCountInfo {
+  totalCount: number;
+}
+
 export interface MessageCountInfo {
   error?: string;
   unreadCount: number;

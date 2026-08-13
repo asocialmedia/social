@@ -1,14 +1,14 @@
+import type { HNStory } from "@asm/aggregator/hackernews";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { HNStoryType } from "../components/hackernews";
 
 interface HnShareState {
   cancelSharing: () => void;
   clearState: () => void;
   isSharing: boolean;
-  setStory: (story: HNStoryType | null) => void;
-  startSharing: (story: HNStoryType) => void;
-  story: HNStoryType | null;
+  setStory: (story: HNStory | null) => void;
+  startSharing: (story: HNStory) => void;
+  story: HNStory | null;
 }
 
 export const useHnShareStore = create<HnShareState>()(

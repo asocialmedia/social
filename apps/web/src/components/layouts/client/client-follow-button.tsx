@@ -4,7 +4,6 @@ import { debugLog } from "@asm/config/debug";
 import type { FollowerInfo } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAtom } from "jotai/react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -13,7 +12,7 @@ import {
   useUnfollowUserMutation,
 } from "@/hooks/user-mutations";
 import { cn } from "@/lib/utils";
-import { followStateAtom } from "./follow-state";
+import { useFollowStateStore } from "./follow-state";
 
 interface ClientFollowButtonProps {
   className?: string;
@@ -75,54 +74,45 @@ const ButtonContent = ({
       {isLoading ? (
         <LoadingPulse />
       ) : (
-        <>
-          <span>{isFollowing ? "Following" : "Follow"}</span>
-          {isFollowing ? (
-            <motion.div
-              animate={{ scale: 1 }}
-              className="h-1.5 w-1.5 rounded-full bg-green-500"
-              initial={{ scale: 0 }}
-            />
-          ) : null}
-        </>
+        <span>{isFollowing ? "Following" : "Follow"}</span>
       )}
     </motion.div>
   </AnimatePresence>
 );
 
 const useFollowState = (userId: string, initialState: FollowerInfo) => {
-  const [globalFollowState, setGlobalFollowState] = useAtom(followStateAtom);
+  const followMap = useFollowStateStore((state) => state.followMap);
+  const setUserFollowState = useFollowStateStore(
+    (state) => state.setUserFollowState
+  );
   const [localState, setLocalState] = useState<FollowerInfo>(initialState);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const persistedState = globalFollowState[userId];
+    const persistedState = followMap[userId];
     if (persistedState && persistedState.lastUpdated > Date.now() - 300_000) {
       setLocalState({
         followers: persistedState.followers,
         isFollowedByUser: persistedState.isFollowing,
       });
     }
-  }, [userId, globalFollowState]);
+  }, [userId, followMap]);
 
   const updateState = useCallback(
     (newState: FollowerInfo) => {
       setLocalState(newState);
-      setGlobalFollowState((prev) => ({
-        ...prev,
-        [userId]: {
-          isFollowing: newState.isFollowedByUser,
-          followers: newState.followers,
-          lastUpdated: Date.now(),
-        },
-      }));
+      setUserFollowState(userId, {
+        isFollowing: newState.isFollowedByUser,
+        followers: newState.followers,
+        lastUpdated: Date.now(),
+      });
 
       queryClient.invalidateQueries({ queryKey: ["follower-info", userId] });
       queryClient.invalidateQueries({ queryKey: ["suggested-connections"] });
       queryClient.invalidateQueries({ queryKey: ["trending-users"] });
       queryClient.invalidateQueries({ queryKey: ["user", userId] });
     },
-    [userId, setGlobalFollowState, queryClient]
+    [userId, setUserFollowState, queryClient]
   );
 
   return [localState, updateState] as const;
@@ -219,14 +209,15 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
           "relative overflow-hidden transition-all duration-300",
           {
             "bg-primary/90 hover:bg-primary": !isFollowing,
-            "bg-secondary/80 hover:bg-secondary/90": isFollowing,
+            "bg-linear-to-b from-orange-500/20 to-orange-600/10 text-orange-600 hover:from-orange-500/25 hover:to-orange-600/15 dark:text-orange-400":
+              isFollowing,
             "cursor-not-allowed": isLoading,
           }
         )}
         disabled={isLoading}
         onClick={handleFollowToggle}
         size="sm"
-        variant={isFollowing ? "secondary" : "default"}
+        variant={isFollowing ? "outline" : "default"}
       >
         <ButtonContent isFollowing={isFollowing} isLoading={isLoading} />
 

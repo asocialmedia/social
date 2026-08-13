@@ -1,9 +1,13 @@
+"use client";
+
 import type { NotificationData, NotificationType } from "@asm/db";
-import { AtSign, Heart, MessageCircle, User2 } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { AtSign, Heart, MessageCircle, UserPlus, X } from "lucide-react";
 import Link from "next/link";
-import type { JSX } from "react";
+import type React from "react";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { cn } from "@/lib/utils";
+import kyInstance from "@/lib/ky";
+import { cn, formatRelativeDate } from "@/lib/utils";
 
 interface NotificationProps {
   notification: NotificationData & {
@@ -11,58 +15,116 @@ interface NotificationProps {
   };
 }
 
+interface TypeConfig {
+  action: string;
+  badgeClass: string;
+  href: (notification: NotificationProps["notification"]) => string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
+  FOLLOW: {
+    action: "followed you",
+    badgeClass: "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
+    icon: UserPlus,
+    href: (notification) => `/users/${notification.issuer.username}`,
+  },
+  COMMENT: {
+    action: "eddied on your post",
+    badgeClass: "bg-gradient-to-b from-[#38bdf8] to-[#0284c7]",
+    icon: MessageCircle,
+    href: (notification) => `/posts/${notification.postId}`,
+  },
+  AMPLIFY: {
+    action: "amplified your post",
+    badgeClass: "bg-gradient-to-b from-[#fb7185] to-[#e11d48]",
+    icon: Heart,
+    href: (notification) => `/posts/${notification.postId}`,
+  },
+  MENTION: {
+    action: "mentioned you",
+    badgeClass: "bg-gradient-to-b from-[#a78bfa] to-[#7c3aed]",
+    icon: AtSign,
+    href: (notification) => `/posts/${notification.postId}`,
+  },
+};
+
 export default function Notification({ notification }: NotificationProps) {
-  const notificationTypeMap: Record<
-    NotificationType,
-    { message: string; icon: JSX.Element; href: string }
-  > = {
-    FOLLOW: {
-      message: `${notification.issuer.displayName} followed you`,
-      icon: <User2 className="size-7 text-primary" />,
-      href: `/users/${notification.issuer.username}`,
+  const config = TYPE_CONFIG[notification.type];
+  const Icon = config.icon;
+  const href = config.href(notification);
+  const queryClient = useQueryClient();
+
+  const { mutate: dismiss } = useMutation({
+    mutationFn: () =>
+      kyInstance.delete(`/api/notifications/${notification.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({
+        queryKey: ["unread-notification-count"],
+      });
     },
-    COMMENT: {
-      message: `${notification.issuer.displayName} eddied on your post`,
-      icon: <MessageCircle className="size-7 fill-primary text-primary" />,
-      href: `/posts/${notification.postId}`,
-    },
-    AMPLIFY: {
-      message: `${notification.issuer.displayName} amplified your post`,
-      icon: <Heart className="size-7 fill-red-500 text-red-500" />,
-      href: `/posts/${notification.postId}`,
-    },
-    MENTION: {
-      message: `${notification.issuer.displayName} mentioned you in a post`,
-      icon: <AtSign className="size-7 text-blue-500" />,
-      href: `/posts/${notification.postId}`,
-    },
+  });
+
+  const handleDismiss = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dismiss();
   };
 
-  const type = notification.type as NotificationType;
-  const { message, icon, href } = notificationTypeMap[type];
-
   return (
-    <Link className="block" href={href}>
-      <article
-        className={cn(
-          "flex gap-3 rounded-2xl bg-card p-5 shadow-xs transition-colors hover:bg-card/70",
-          !notification.read && "bg-primary/10"
-        )}
-      >
-        <div className="my-1">{icon}</div>
-        <div className="space-y-3">
-          <UserAvatar avatarUrl={notification.issuer.avatarUrl} size={36} />
-          <div>
-            <span className="font-bold">{notification.issuer.displayName}</span>{" "}
-            <span>{message}</span>
-          </div>
-          {notification.post ? (
-            <div className="line-clamp-3 max-w-[90%] overflow-x-hidden truncate whitespace-pre-line text-wrap text-muted-foreground">
-              {notification.post.content}
-            </div>
-          ) : null}
+    <div
+      className={cn(
+        "group flex items-start gap-3 px-4 py-3 transition-colors duration-150",
+        notification.read
+          ? "hover:bg-[hsl(var(--muted))]"
+          : "bg-[hsl(var(--primary)/0.07)] hover:bg-[hsl(var(--primary)/0.11)]"
+      )}
+    >
+      <Link className="flex min-w-0 flex-1 items-start gap-3" href={href}>
+        <div className="relative shrink-0">
+          <UserAvatar
+            avatarUrl={notification.issuer.avatarUrl}
+            className="h-10 w-10"
+          />
+          <span
+            className={cn(
+              "absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.4),0_1px_2px_rgba(0,0,0,0.15)]",
+              config.badgeClass
+            )}
+          >
+            <Icon className="h-3 w-3" />
+          </span>
         </div>
-      </article>
-    </Link>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-sm leading-snug">
+            <span className="font-semibold">
+              {notification.issuer.displayName}
+            </span>{" "}
+            <span className="text-muted-foreground">{config.action}</span>
+          </p>
+
+          {notification.post ? (
+            <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+              {notification.post.content}
+            </p>
+          ) : null}
+
+          <span className="mt-1 block text-muted-foreground/70 text-xs">
+            {formatRelativeDate(notification.createdAt)}
+          </span>
+        </div>
+      </Link>
+
+      <button
+        aria-label="Dismiss notification"
+        className="icon-btn-3d mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-0 outline-none transition-all duration-150 focus-visible:opacity-100 group-hover:opacity-100"
+        onClick={handleDismiss}
+        type="button"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }

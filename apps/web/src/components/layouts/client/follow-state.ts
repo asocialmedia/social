@@ -1,11 +1,28 @@
-import { atomWithStorage } from "jotai/utils";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
-interface FollowState {
-  [userId: string]: {
-    isFollowing: boolean;
-    followers: number;
-    lastUpdated: number;
-  };
+interface FollowEntry {
+  followers: number;
+  isFollowing: boolean;
+  lastUpdated: number;
 }
 
-export const followStateAtom = atomWithStorage<FollowState>("follow-state", {});
+interface FollowState {
+  followMap: Record<string, FollowEntry>;
+  setUserFollowState: (userId: string, entry: FollowEntry) => void;
+}
+
+export const useFollowStateStore = create<FollowState>()(
+  persist(
+    (set) => ({
+      followMap: {},
+      setUserFollowState: (userId, entry) =>
+        set((state) => ({
+          followMap: { ...state.followMap, [userId]: entry },
+        })),
+    }),
+    {
+      name: "follow-state",
+    }
+  )
+);

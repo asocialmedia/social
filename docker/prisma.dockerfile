@@ -10,8 +10,6 @@ COPY packages/db/scripts ./packages/db/scripts
 COPY packages/db/keys.ts ./packages/db/keys.ts
 COPY docker/prisma-bootstrap.sh /usr/local/bin/prisma-bootstrap.sh
 COPY docker/prisma-studio.sh /usr/local/bin/prisma-studio.sh
-COPY docker/meilisearch-init.sh /usr/local/bin/meilisearch-init.sh
 RUN chmod +x /usr/local/bin/prisma-bootstrap.sh
 RUN chmod +x /usr/local/bin/prisma-studio.sh
-RUN chmod +x /usr/local/bin/meilisearch-init.sh
 CMD ["sleep", "infinity"]

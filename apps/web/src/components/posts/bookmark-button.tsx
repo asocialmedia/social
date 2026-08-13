@@ -50,6 +50,7 @@ export default function BookmarkButton({
       });
 
       await queryClient.cancelQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["bookmark-count"] });
       const previousState = queryClient.getQueryData<BookmarkInfo>(queryKey);
       queryClient.setQueryData<BookmarkInfo>(queryKey, () => ({
         isBookmarkedByUser: !previousState?.isBookmarkedByUser,

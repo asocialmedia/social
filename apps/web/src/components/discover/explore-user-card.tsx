@@ -1,0 +1,141 @@
+"use client";
+
+import type { UserData } from "@asm/db";
+import { Flame, Users } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import type React from "react";
+import FollowButton from "@/components/layouts/follow-button";
+import UserAvatar from "@/components/layouts/user-avatar";
+import { useFollowStates } from "@/hooks/use-follow-states";
+import { cn, formatNumber } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
+
+export interface ExploreUser extends UserData {
+  followState?: {
+    followers: number;
+    isFollowedByUser: boolean;
+  };
+}
+
+interface ExploreUserCardProps {
+  onFollowed?: (userId: string) => void;
+  user: ExploreUser;
+}
+
+const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
+  onFollowed,
+  user,
+}) => {
+  const { data: followStates } = useFollowStates([user.id]);
+  const followState = user.followState ?? followStates?.[user.id];
+  const followers = followState?.followers ?? user._count.followers;
+  const isFollowed = followState?.isFollowedByUser ?? false;
+
+  const handleFollowed = () => onFollowed?.(user.id);
+  const avatarUrl = user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null;
+  const hasBanner = Boolean(user.bannerUrl);
+
+  let headerMedia: React.ReactNode;
+  if (user.bannerUrl) {
+    headerMedia = (
+      <Image
+        alt=""
+        className="object-cover transition-transform duration-300 group-hover:scale-105"
+        fill
+        sizes="280px"
+        src={getSecureImageUrl(user.bannerUrl)}
+        unoptimized
+      />
+    );
+  } else if (avatarUrl) {
+    headerMedia = (
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-center bg-cover transition-transform duration-300 group-hover:scale-105"
+        style={{
+          backgroundImage: `url(${avatarUrl})`,
+          filter: "blur(10px) brightness(0.75)",
+          transform: "scale(1.15)",
+        }}
+      />
+    );
+  } else {
+    headerMedia = (
+      <div className="absolute inset-0 bg-gradient-to-br from-orange-500/40 to-orange-600/20" />
+    );
+  }
+
+  return (
+    <div className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+      <Link
+        className="relative block h-24 w-full overflow-hidden"
+        href={`/users/${user.username}`}
+      >
+        {headerMedia}
+        {hasBanner ? (
+          <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--primary)/0.45)] via-[hsl(var(--primary)/0.15)] to-[hsl(var(--background-alt))]" />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] to-transparent" />
+        )}
+        <div className="absolute inset-x-0 bottom-0 h-px bg-border/40" />
+      </Link>
+
+      <div className="p-3">
+        <div className="relative z-10 -mt-10 flex items-end justify-between">
+          <Link className="shrink-0" href={`/users/${user.username}`}>
+            <UserAvatar
+              avatarUrl={user.avatarUrl}
+              className="rounded-2xl ring-4 ring-[hsl(var(--background-alt))]"
+              size={64}
+            />
+          </Link>
+        </div>
+
+        <div className="mt-2 min-w-0">
+          <Link
+            className="block truncate font-semibold hover:underline"
+            href={`/users/${user.username}`}
+          >
+            {user.displayName}
+          </Link>
+          <p className="truncate text-muted-foreground text-xs">
+            @{user.username}
+          </p>
+        </div>
+
+        {user.bio ? (
+          <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+            {user.bio}
+          </p>
+        ) : null}
+
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
+          <span className="flex items-center gap-1">
+            <Users className="h-3.5 w-3.5" />
+            <span className="font-medium text-foreground">
+              {formatNumber(followers)}
+            </span>{" "}
+            followers
+          </span>
+          <span className="flex items-center gap-1">
+            <Flame className="h-3.5 w-3.5 text-orange-500" />
+            <span className="font-medium text-foreground">
+              {formatNumber(user.aura)}
+            </span>{" "}
+            aura
+          </span>
+        </div>
+
+        <FollowButton
+          className={cn("follow-btn-3d mt-3 h-8 w-full px-3 text-xs")}
+          initialState={{ followers, isFollowedByUser: isFollowed }}
+          onFollowed={handleFollowed}
+          userId={user.id}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default ExploreUserCard;

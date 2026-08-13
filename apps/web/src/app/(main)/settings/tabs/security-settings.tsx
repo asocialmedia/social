@@ -13,13 +13,18 @@ import {
 import { Input } from "@asm/ui/shadui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { KeyRound, Mail } from "lucide-react";
-import { motion } from "motion/react";
 import { useCallback, useState, useTransition } from "react";
 import { type ControllerRenderProps, useForm } from "react-hook-form";
 import { z } from "zod";
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
-import { LoadingButton } from "@/components/auth/loading-button";
+import LoadingButton from "@/components/auth/loading-button";
+import {
+  ORANGE_GRADIENT_CLASS,
+  SettingsCard,
+  SettingsSectionHeader,
+} from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 
 const identifierSchema = z.object({
   identifier: z.union([
@@ -57,11 +62,11 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
         <FormLabel>Username or Email</FormLabel>
         <FormControl>
           <Input
-            {...field}
-            className="bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
+            className="premium-input h-10 rounded-xl text-sm"
             disabled={isEmailSent}
             placeholder="Enter your username or email to reset password"
             type="text"
+            {...field}
           />
         </FormControl>
         <FormMessage />
@@ -92,67 +97,59 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
   }
 
   return (
-    <motion.div
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-      initial={{ opacity: 0, y: 20 }}
-      transition={{ duration: 0.3 }}
-    >
-      <div className="relative overflow-hidden rounded-lg border border-border/50 bg-background/30 p-6 backdrop-blur-md">
-        <div className="flex items-center gap-4">
-          <div className="rounded-full bg-primary/10 p-3">
-            <KeyRound className="h-6 w-6 text-primary" />
+    <div className="space-y-6 px-4 py-6 sm:px-6">
+      <SettingsSectionHeader
+        description="Keep your account safe"
+        icon={KeyRound}
+        title="Security"
+      />
+
+      <SettingsCard className="scroll-mt-24" id="settings-password">
+        <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-lg",
+              ORANGE_GRADIENT_CLASS
+            )}
+          >
+            <Mail className="h-3.5 w-3.5" />
           </div>
           <div>
-            <h2 className="bg-gradient-to-r from-primary to-secondary bg-clip-text font-medium text-lg text-transparent">
-              Security Settings
-            </h2>
+            <h3 className="font-medium">Change Password</h3>
             <p className="text-muted-foreground text-sm">
-              Manage your account security
+              We&apos;ll email you a secure reset link
             </p>
           </div>
         </div>
 
-        <motion.div
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-8 space-y-4"
-          initial={{ opacity: 0, y: 20 }}
-          transition={{ delay: 0.1 }}
-        >
-          <div className="flex items-center gap-3">
-            <Mail className="h-5 w-5 text-muted-foreground" />
-            <h3 className="font-medium">Change Password</h3>
-          </div>
+        <Form {...form}>
+          <form
+            className="mt-4 space-y-4"
+            onSubmit={form.handleSubmit(onSubmit)}
+          >
+            <FormField
+              control={form.control}
+              name="identifier"
+              render={renderIdentifierField}
+            />
 
-          <div className="relative rounded-md border border-border/50 bg-background/20 p-6 backdrop-blur-sm">
-            <Form {...form}>
-              <form
-                className="space-y-4"
-                onSubmit={form.handleSubmit(onSubmit)}
+            <div className="flex justify-end">
+              <LoadingButton
+                className={cn(
+                  "h-9 rounded-xl px-5",
+                  ORANGE_GRADIENT_CLASS,
+                  "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+                )}
+                disabled={isEmailSent}
+                loading={isPending}
+                type="submit"
               >
-                <FormField
-                  control={form.control}
-                  name="identifier"
-                  render={renderIdentifierField}
-                />
-
-                <LoadingButton
-                  className="w-full sm:w-auto"
-                  disabled={isEmailSent}
-                  loading={isPending}
-                  type="submit"
-                >
-                  {isEmailSent ? "Email Sent" : "Send Reset Link"}
-                </LoadingButton>
-              </form>
-            </Form>
-
-            <div className="absolute inset-0 -z-10 bg-gradient-to-br from-primary/5 via-secondary/5 to-background blur-xl" />
-          </div>
-        </motion.div>
-
-        <div className="absolute inset-0 -z-20 bg-gradient-to-br from-primary/5 via-secondary/5 to-background blur-3xl" />
-      </div>
-    </motion.div>
+                {isEmailSent ? "Email Sent" : "Send Reset Link"}
+              </LoadingButton>
+            </div>
+          </form>
+        </Form>
+      </SettingsCard>
+    </div>
   );
 }

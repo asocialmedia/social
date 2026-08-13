@@ -1,16 +1,26 @@
 "use client";
 
-import type { SearchSuggestion } from "@asm/db";
+import type {
+  SearchPostResult,
+  SearchSuggestion,
+  SearchUserResult,
+} from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSpotlight } from "@/components/search/spotlight-provider";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
 import { searchMutations } from "../search/mutations";
 import { SearchCommandList } from "../search/search-command-list";
+
+interface SpotlightResponse {
+  posts: SearchPostResult[];
+  users: SearchUserResult[];
+}
 
 export default function SearchField({
   onAfterSearch,
@@ -18,6 +28,7 @@ export default function SearchField({
   onAfterSearch?: () => void;
 } = {}) {
   const router = useRouter();
+  const { openSpotlight } = useSpotlight();
   const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
@@ -47,6 +58,22 @@ export default function SearchField({
         .get("/api/search", { searchParams: { type: "history" } })
         .json<string[]>(),
     enabled: open,
+  });
+
+  const { data: spotlight } = useQuery({
+    queryKey: ["search-spotlight", debouncedInput],
+    queryFn: (): Promise<SpotlightResponse> => {
+      if (!debouncedInput) {
+        return Promise.resolve({ posts: [], users: [] });
+      }
+      return kyInstance
+        .get("/api/search/spotlight", {
+          searchParams: { q: debouncedInput, limit: "4" },
+        })
+        .json<SpotlightResponse>();
+    },
+    enabled: open && Boolean(debouncedInput),
+    staleTime: 15_000,
   });
 
   const searchMutation = useMutation({
@@ -94,9 +121,9 @@ export default function SearchField({
       setOpen(false);
       onAfterSearch?.();
       searchMutation.mutate(searchQuery.trim());
-      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      openSpotlight(searchQuery.trim());
     },
-    [onAfterSearch, router, searchMutation]
+    [onAfterSearch, openSpotlight, searchMutation]
   );
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -128,6 +155,22 @@ export default function SearchField({
     [handleSearch]
   );
 
+  const handleSelectUser = useCallback(
+    (user: SearchUserResult) => {
+      setOpen(false);
+      router.push(`/users/${user.username}`);
+    },
+    [router]
+  );
+
+  const handleSelectPost = useCallback(
+    (post: SearchPostResult) => {
+      setOpen(false);
+      router.push(`/posts/${post.id}`);
+    },
+    [router]
+  );
+
   return (
     <div className="relative w-full max-w-md">
       <form className="relative" onSubmit={handleSubmit}>
@@ -155,8 +198,12 @@ export default function SearchField({
             input={input}
             onClearHistory={handleClearHistory}
             onRemoveHistoryItem={handleRemoveHistoryItem}
-            onSelectAction={handleSelectAction}
+            onSelectPost={handleSelectPost}
+            onSelectSuggestion={handleSelectAction}
+            onSelectUser={handleSelectUser}
+            posts={spotlight?.posts}
             suggestions={suggestions}
+            users={spotlight?.users}
           />
         </div>
       )}

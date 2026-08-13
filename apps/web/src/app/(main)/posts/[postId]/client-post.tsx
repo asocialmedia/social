@@ -1,16 +1,18 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import FloatingPostEditor from "@/components/layouts/mobile/floating-post-editor";
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
+import kyInstance from "@/lib/ky";
 
 interface ClientPostProps {
   initialMediaIndex?: number;
@@ -25,6 +27,18 @@ const ClientPost: React.FC<ClientPostProps> = ({
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  // Record the visit so the recents card surfaces recently viewed posts, and
+  // refresh it right away so the list updates without a manual reload.
+  useEffect(() => {
+    kyInstance
+      .post("/api/posts/visit", { json: { postId: post.id } })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["post-history"] });
+      })
+      .catch(() => undefined);
+  }, [post.id, queryClient]);
 
   const handleGoBack = useCallback(() => {
     // Go back in history when there's a prior entry, otherwise land on the

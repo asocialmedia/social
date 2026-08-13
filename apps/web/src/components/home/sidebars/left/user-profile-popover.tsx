@@ -155,7 +155,11 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
             type="button"
           >
-            <UserAvatar avatarUrl={userData.avatarUrl} className="h-10 w-10" />
+            <UserAvatar
+              avatarUrl={userData.avatarUrl}
+              className="h-10 w-10"
+              priority
+            />
             <span className="min-w-0">
               <span className="block truncate font-medium text-sm">
                 {userData.displayName || userData.username}

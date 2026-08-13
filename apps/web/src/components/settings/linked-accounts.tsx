@@ -1,11 +1,12 @@
 import { clientLog } from "@asm/config/debug";
 
 import type { UserData } from "@asm/db";
-import { motion } from "motion/react";
+import { Link2 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
-import { LoadingButton } from "@/components/auth/loading-button";
+import LoadingButton from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 
 interface LinkedAccountsProps {
   onLink: (provider: string) => void;
@@ -25,6 +26,9 @@ const getButtonText = (isComingSoon: boolean, isConnected?: boolean) => {
   }
   return isConnected ? "Disconnect" : "Connect";
 };
+
+const CARD_SHADOW_CLASS =
+  "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]";
 
 interface AccountCardProps {
   icon: string;
@@ -54,43 +58,42 @@ const AccountCard = ({
   }, [isConnected, onDisconnect, onConnect, provider]);
 
   return (
-    <motion.div
-      className={`group relative overflow-hidden rounded-lg border border-border/50 p-4 backdrop-blur-xs transition-colors ${
-        isComingSoon ? "opacity-50" : ""
-      }`}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-[hsl(var(--background))] p-4",
+        CARD_SHADOW_CLASS,
+        isComingSoon && "opacity-50"
+      )}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="flex size-8 items-center justify-center rounded-full bg-background/50 p-2">
-            <Image
-              alt={provider}
-              className="size-6"
-              height={24}
-              src={`/socials/${icon}.svg`}
-              width={24}
-            />
-          </div>
-          <div>
-            <p className="font-medium">{provider}</p>
-            <p className="text-muted-foreground text-xs">
-              {getStatusText(isComingSoon, isConnected)}
-            </p>
-          </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-[hsl(var(--background-alt))]">
+          <Image
+            alt={provider}
+            className="size-5"
+            height={20}
+            src={`/socials/${icon}.svg`}
+            width={20}
+          />
         </div>
-        <LoadingButton
-          disabled={isComingSoon}
-          loading={isLoading}
-          onClick={handleClick}
-          size="sm"
-          variant={isConnected ? "destructive" : "default"}
-        >
-          {getButtonText(isComingSoon, isConnected)}
-        </LoadingButton>
+        <div className="min-w-0">
+          <p className="truncate font-medium">{provider}</p>
+          <p className="truncate text-muted-foreground text-xs">
+            {getStatusText(isComingSoon, isConnected)}
+          </p>
+        </div>
       </div>
-      <div className="absolute inset-0 -z-10 animate-gradient bg-gradient-to-r from-primary/5 via-secondary/5 to-primary/5 opacity-0 transition-opacity group-hover:opacity-100" />
-    </motion.div>
+      <LoadingButton
+        className={cn(
+          "h-8 shrink-0 rounded-full px-3 text-xs",
+          isConnected ? "icon-btn-3d" : "follow-btn-3d"
+        )}
+        disabled={isComingSoon}
+        loading={isLoading}
+        onClick={handleClick}
+      >
+        {getButtonText(isComingSoon, isConnected)}
+      </LoadingButton>
+    </div>
   );
 };
 
@@ -140,18 +143,15 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
   );
 
   return (
-    <motion.div
-      animate={{ opacity: 1 }}
-      className="space-y-4"
-      initial={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-    >
-      <div className="flex items-center gap-3">
-        <h3 className="bg-gradient-to-r from-primary to-secondary bg-clip-text font-medium text-transparent">
-          Linked Accounts
-        </h3>
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+          <Link2 className="h-3.5 w-3.5" />
+        </div>
+        <h3 className="font-medium">Linked Accounts</h3>
       </div>
-      <motion.div className="grid gap-4 sm:grid-cols-2">
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <AccountCard
           icon="google"
           isConnected={!!user.googleId}
@@ -168,7 +168,7 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
           onDisconnect={handleUnlink}
           provider="Reddit"
         />
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }

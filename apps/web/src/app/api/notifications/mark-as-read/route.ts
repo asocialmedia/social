@@ -1,7 +1,7 @@
 import { prisma, unreadNotificationCache } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
-export async function POST() {
+async function markAllAsRead() {
   const session = await getSessionFromApi();
   const user = session?.user;
   if (!user) {
@@ -14,3 +14,6 @@ export async function POST() {
   await unreadNotificationCache.reset(user.id);
   return Response.json({ success: true });
 }
+
+export const POST = markAllAsRead;
+export const PATCH = markAllAsRead;

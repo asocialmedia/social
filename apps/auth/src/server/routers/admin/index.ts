@@ -1,5 +1,4 @@
-import { debugLog } from "@asm/config/debug";
-import { prisma, userCache, userSearchIndex } from "@asm/db";
+import { prisma, userCache } from "@asm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, router, t } from "../../trpc";
@@ -65,71 +64,6 @@ export interface UserListResult {
   users: User[];
 }
 
-async function syncUsersWithMeiliSearch(
-  userIds: string[],
-  action: "updateRole" | "updateEmailVerification" | "deleteUsers"
-): Promise<void> {
-  if (action === "deleteUsers") {
-    await Promise.all(
-      userIds.map(async (userId) => {
-        try {
-          await userSearchIndex.deleteUser(userId);
-        } catch (meiliError) {
-          console.warn(
-            `Failed to delete user ${userId} from MeiliSearch:`,
-            meiliError
-          );
-        }
-      })
-    );
-  } else {
-    const updatedUsers = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        displayUsername: true,
-        email: true,
-        emailVerified: true,
-        role: true,
-        aura: true,
-        createdAt: true,
-        updatedAt: true,
-        bio: true,
-        avatarUrl: true,
-      },
-    });
-
-    await Promise.all(
-      updatedUsers.map(async (user) => {
-        try {
-          await userSearchIndex.updateUser({
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName,
-            displayUsername: user.displayUsername,
-            email: user.email,
-            role: user.role,
-            aura: user.aura,
-            emailVerified: user.emailVerified,
-            createdAt: user.createdAt.toISOString(),
-            updatedAt: user.updatedAt.toISOString(),
-            bio: user.bio,
-            avatarUrl: user.avatarUrl,
-          });
-        } catch (meiliError) {
-          console.warn(
-            `Failed to update user ${user.id} in MeiliSearch:`,
-            meiliError
-          );
-        }
-      })
-    );
-  }
-}
-
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ignore
 async function fetchUsersFromDatabase(input: {
   limit: number;
   cursor?: string;
@@ -159,34 +93,23 @@ async function fetchUsersFromDatabase(input: {
 
   let searchResults: string[] | null = null;
   if (filters?.search?.trim()) {
-    const searchStartTime = Date.now();
+    const matchingUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { username: { contains: filters.search, mode: "insensitive" } },
+          { displayName: { contains: filters.search, mode: "insensitive" } },
+          {
+            displayUsername: { contains: filters.search, mode: "insensitive" },
+          },
+          { email: { contains: filters.search, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+      take: 1000,
+    });
+    searchResults = matchingUsers.map((user) => user.id);
 
-    try {
-      const meiliResults = await userSearchIndex.search(filters.search.trim(), {
-        limit: 1000,
-        attributesToRetrieve: ["id"],
-      });
-      searchResults = meiliResults.hits.map((hit) => hit.id);
-    } catch (meiliError) {
-      const errorMessage =
-        meiliError instanceof Error ? meiliError.message : String(meiliError);
-      console.warn(
-        `[Search] MeiliSearch failed in ${Date.now() - searchStartTime}ms, falling back to database search:`,
-        errorMessage
-      );
-
-      where.OR = [
-        { username: { contains: filters.search, mode: "insensitive" } },
-        { displayName: { contains: filters.search, mode: "insensitive" } },
-        { displayUsername: { contains: filters.search, mode: "insensitive" } },
-        { email: { contains: filters.search, mode: "insensitive" } },
-      ];
-    }
-
-    if (searchResults && searchResults.length > 0) {
-      where.id = { in: searchResults };
-    } else if (searchResults && searchResults.length === 0) {
-      console.log("[Search] No results found, returning empty");
+    if (searchResults.length === 0) {
       return {
         users: [],
         totalCount: 0,
@@ -194,8 +117,7 @@ async function fetchUsersFromDatabase(input: {
         nextCursor: undefined,
       };
     }
-  } else {
-    // No search filter provided
+    where.id = { in: searchResults };
   }
 
   const users = await prisma.user.findMany({
@@ -293,7 +215,6 @@ export const adminRouter = router({
           data: { role: input.role },
         });
 
-        await syncUsersWithMeiliSearch([input.userId], "updateRole");
         await userCache.invalidateUserDetail(input.userId);
         await userCache.invalidateUserList();
         await userCache.invalidateUserStats();
@@ -384,15 +305,6 @@ export const adminRouter = router({
     .input(z.object({ userId: z.string() }))
     .mutation(async ({ input }) => {
       await prisma.user.delete({ where: { id: input.userId } });
-      try {
-        await syncUsersWithMeiliSearch([input.userId], "deleteUsers");
-      } catch (error) {
-        debugLog.api("removeUser:meili-sync-failed", {
-          userId: input.userId,
-          operation: "deleteUsers",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
       await userCache.invalidateUserDetail(input.userId);
       await userCache.invalidateUserList();
       await userCache.invalidateUserStats();
@@ -562,25 +474,6 @@ export const adminRouter = router({
           avatarUrl: true,
         },
       });
-
-      try {
-        await userSearchIndex.updateUser({
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName,
-          displayUsername: user.displayUsername,
-          email: user.email,
-          role: user.role,
-          aura: user.aura,
-          emailVerified: user.emailVerified,
-          createdAt: user.createdAt.toISOString(),
-          updatedAt: user.updatedAt.toISOString(),
-          bio: user.bio,
-          avatarUrl: user.avatarUrl,
-        });
-      } catch (meiliError) {
-        console.warn("Failed to update user in MeiliSearch:", meiliError);
-      }
 
       await userCache.invalidateUserDetail(userId);
       await userCache.invalidateUserList();
@@ -958,7 +851,6 @@ export const adminRouter = router({
             });
         }
 
-        await syncUsersWithMeiliSearch(userIds, action);
         await userCache.invalidateSearchCache();
         await userCache.invalidateUserList();
         await userCache.invalidateUserStats();

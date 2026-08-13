@@ -18,7 +18,7 @@ export default function ComingSoonPage() {
       }
       description="This feature is still under development. Check back later."
       image={errorImage}
-      minHeight="min-h-[60vh]"
+      minHeight="min-h-dvh"
       title="Coming Soon"
     />
   );

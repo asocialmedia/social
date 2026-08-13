@@ -14,14 +14,70 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
+import { Separator } from "@asm/ui/shadui/separator";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { UserCircle } from "lucide-react";
-import { motion } from "motion/react";
-import { type ControllerRenderProps, useForm } from "react-hook-form";
-import { LoadingButton } from "@/components/auth/loading-button";
+import { Link2, UserRound } from "lucide-react";
+import { useCallback } from "react";
+import {
+  type Control,
+  type ControllerRenderProps,
+  useForm,
+} from "react-hook-form";
+import type { IconType } from "react-icons";
+import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
+import LoadingButton from "@/components/auth/loading-button";
+import UserAvatar from "@/components/layouts/user-avatar";
+import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
+import {
+  ORANGE_GRADIENT_CLASS,
+  SettingsCard,
+  SettingsSectionHeader,
+} from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 import { useUpdateProfileMutation } from "../../users/[username]/avatar-mutations";
+
+const whitespaceRegex = /\s+/;
+
+interface SocialFieldConfig {
+  icon: IconType;
+  label: string;
+  name:
+    | "githubUsername"
+    | "linkedinUsername"
+    | "twitterUsername"
+    | "redditUsername";
+  placeholder: string;
+}
+
+const SOCIAL_FIELDS: SocialFieldConfig[] = [
+  {
+    icon: FaGithub,
+    label: "GitHub",
+    name: "githubUsername",
+    placeholder: "octocat",
+  },
+  {
+    icon: FaLinkedin,
+    label: "LinkedIn",
+    name: "linkedinUsername",
+    placeholder: "john-doe",
+  },
+  {
+    icon: FaXTwitter,
+    label: "Twitter / X",
+    name: "twitterUsername",
+    placeholder: "yourhandle",
+  },
+  {
+    icon: FaReddit,
+    label: "Reddit",
+    name: "redditUsername",
+    placeholder: "yourusername",
+  },
+];
 
 function DisplayNameFieldRenderer({
   field,
@@ -30,11 +86,12 @@ function DisplayNameFieldRenderer({
 }) {
   return (
     <FormItem>
-      <FormLabel>Display Name</FormLabel>
+      <FormLabel>Display name</FormLabel>
       <FormControl>
         <Input
+          className="premium-input h-10 rounded-xl text-sm"
+          placeholder="Your display name"
           {...field}
-          className="bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
         />
       </FormControl>
       <FormMessage />
@@ -51,14 +108,78 @@ function BioFieldRenderer({
     <FormItem>
       <FormLabel>Bio</FormLabel>
       <FormControl>
-        <Textarea
-          {...field}
-          className="min-h-[120px] resize-none bg-background/50 backdrop-blur-xs transition-all duration-200 hover:bg-background/70 focus:bg-background/70"
-          placeholder="Tell us about yourself"
-        />
+        <div className="space-y-1">
+          <Textarea
+            className="premium-input resize-none rounded-xl text-sm"
+            placeholder="Tell us a little bit about yourself"
+            rows={4}
+            {...field}
+          />
+          <div className="flex justify-end">
+            <AnimatedWordCounter
+              current={
+                field.value.trim().split(whitespaceRegex).filter(Boolean).length
+              }
+              max={400}
+            />
+          </div>
+        </div>
       </FormControl>
       <FormMessage />
     </FormItem>
+  );
+}
+
+function SocialFieldRenderer({
+  field,
+  item,
+}: {
+  field: ControllerRenderProps<
+    UpdateUserProfileValues,
+    SocialFieldConfig["name"]
+  >;
+  item: SocialFieldConfig;
+}) {
+  const Icon = item.icon;
+  return (
+    <FormItem>
+      <FormLabel>{item.label}</FormLabel>
+      <FormControl>
+        <div className="relative">
+          <Icon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="premium-input h-10 rounded-xl pr-3 pl-10 text-sm"
+            placeholder={item.placeholder}
+            {...field}
+          />
+        </div>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function SocialFormField({
+  control,
+  item,
+}: {
+  control: Control<UpdateUserProfileValues>;
+  item: SocialFieldConfig;
+}) {
+  const renderSocialField = useCallback(
+    ({
+      field,
+    }: {
+      field: ControllerRenderProps<
+        UpdateUserProfileValues,
+        SocialFieldConfig["name"]
+      >;
+    }) => <SocialFieldRenderer field={field} item={item} />,
+    [item]
+  );
+
+  return (
+    <FormField control={control} name={item.name} render={renderSocialField} />
   );
 }
 
@@ -73,8 +194,15 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
     defaultValues: {
       displayName: user.displayName,
       bio: user.bio || "",
+      githubUsername: user.githubUsername ?? "",
+      linkedinUsername: user.linkedinUsername ?? "",
+      twitterUsername: user.twitterUsername ?? "",
+      redditUsername: user.redditUsername ?? "",
     },
   });
+
+  const watchedDisplayName = form.watch("displayName");
+  const watchedBio = form.watch("bio");
 
   const mutation = useUpdateProfileMutation();
 
@@ -91,81 +219,97 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
             description: "Your profile is looking fresh!",
           });
         },
+        onError: () => {
+          toast({
+            variant: "destructive",
+            title: "Couldn't Save",
+            description: "Something went wrong, try again?",
+          });
+        },
       }
     );
   }
 
+  const avatarUrl = user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null;
+  const previewName = watchedDisplayName.trim() || user.username;
+
   return (
-    <motion.div
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-      initial={{ opacity: 0, y: 20 }}
-      transition={{ duration: 0.3 }}
-    >
-      <div className="relative overflow-hidden rounded-lg border border-border/50 bg-background/30 p-6 backdrop-blur-md">
+    <div className="space-y-6 px-4 py-6 sm:px-6">
+      <SettingsSectionHeader
+        description="How you appear across Asocialmedia"
+        icon={UserRound}
+        title="Profile"
+      />
+
+      <SettingsCard className="scroll-mt-24" id="settings-profile">
         <div className="flex items-center gap-4">
-          <div className="rounded-full bg-primary/10 p-3">
-            <UserCircle className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h2 className="bg-gradient-to-r from-primary to-secondary bg-clip-text font-medium text-lg text-transparent">
-              Profile Information
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              Update your profile information
-            </p>
+          <UserAvatar avatarUrl={avatarUrl} className="h-16 w-16" size={64} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-bold text-lg">{previewName}</p>
+            <p className="truncate text-muted-foreground">@{user.username}</p>
+            {watchedBio.trim() ? (
+              <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+                {watchedBio}
+              </p>
+            ) : null}
           </div>
         </div>
 
+        <Separator className="my-6 bg-border/60" />
+
         <Form {...form}>
-          <form
-            className="mt-6 space-y-4"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <motion.div
-              animate={{ opacity: 1, x: 0 }}
-              initial={{ opacity: 0, x: -20 }}
-              transition={{ delay: 0.1 }}
-            >
-              <FormField
-                control={form.control}
-                name="displayName"
-                render={DisplayNameFieldRenderer}
-              />
-            </motion.div>
+          <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
+            <FormField
+              control={form.control}
+              name="displayName"
+              render={DisplayNameFieldRenderer}
+            />
 
-            <motion.div
-              animate={{ opacity: 1, x: 0 }}
-              initial={{ opacity: 0, x: -20 }}
-              transition={{ delay: 0.2 }}
-            >
-              <FormField
-                control={form.control}
-                name="bio"
-                render={BioFieldRenderer}
-              />
-            </motion.div>
+            <FormField
+              control={form.control}
+              name="bio"
+              render={BioFieldRenderer}
+            />
 
-            <motion.div
-              animate={{ opacity: 1, y: 0 }}
-              className="pt-2"
-              initial={{ opacity: 0, y: 20 }}
-              transition={{ delay: 0.3 }}
-            >
+            <div className="pt-1">
+              <div className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-lg",
+                    ORANGE_GRADIENT_CLASS
+                  )}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                </div>
+                <p className="font-medium text-sm">Social links</p>
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {SOCIAL_FIELDS.map((item) => (
+                  <SocialFormField
+                    control={form.control}
+                    item={item}
+                    key={item.name}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
               <LoadingButton
-                className="w-full sm:w-auto"
+                className={cn(
+                  "h-10 rounded-xl px-6",
+                  ORANGE_GRADIENT_CLASS,
+                  "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+                )}
                 loading={mutation.isPending}
                 type="submit"
               >
                 Save Changes
               </LoadingButton>
-            </motion.div>
+            </div>
           </form>
         </Form>
-
-        {/* Gradient background effect */}
-        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-primary/5 via-secondary/5 to-background blur-3xl" />
-      </div>
-    </motion.div>
+      </SettingsCard>
+    </div>
   );
 }

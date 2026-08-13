@@ -53,6 +53,7 @@ model User {
   receivedNotifications Notification[]       @relation("Recipient")
   issuedNotifications   Notification[]       @relation("Issuer")
   hnbookmark            HNBookmark[]
+  postVisits            PostVisit[]
   auraReceived          AuraLog[]            @relation("AuraReceived")
   auraIssued            AuraLog[]            @relation("AuraIssued")
   impersonatedSessions  Session[]            @relation("ImpersonatedSessions")
@@ -189,10 +190,25 @@ model Post {
   tags                 Tag[]
   mentions             Mention[]
   hnStoryShare         HNStoryShare?
+  visits               PostVisit[]
 
   createdAt DateTime @default(now())
 
   @@map("posts")
+}
+
+model PostVisit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  visitedAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@index([userId, visitedAt])
+  @@index([postId])
+  @@map("post_visits")
 }
 
 model Tag {
@@ -228,13 +244,15 @@ enum MediaType {
 }
 
 model Vote {
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  postId String
-  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
-  value  Int
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  value     Int
+  createdAt DateTime @default(now())
 
   @@unique([userId, postId])
+  @@index([userId, value, createdAt])
   @@map("votes")
 }
 
