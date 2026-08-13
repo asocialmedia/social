@@ -35,6 +35,17 @@ export interface UserSearchDocument {
   username: string;
 }
 
+export interface PostSearchDocument {
+  aura: number;
+  authorAvatarUrl: string | null;
+  authorDisplayName: string;
+  authorId: string;
+  authorUsername: string;
+  content: string;
+  createdAt: string;
+  id: string;
+}
+
 export const userSearchIndex = {
   async deleteAllUsers(): Promise<void> {
     try {
@@ -200,6 +211,106 @@ export const userSearchIndex = {
       await index.updateDocuments([user]);
     } catch (error) {
       console.error("Error updating user in search index:", error);
+      throw error;
+    }
+  },
+};
+
+export const postSearchIndex = {
+  name: "posts",
+
+  async initialize(): Promise<void> {
+    try {
+      const client = getMeiliSearchClient();
+      const indexes = await client.getIndexes();
+      const indexExists = indexes.results.some(
+        (index) => index.uid === this.name
+      );
+
+      if (!indexExists) {
+        await client.createIndex(this.name, {
+          primaryKey: "id",
+        });
+
+        const index = client.index(this.name);
+
+        await index.updateSearchableAttributes([
+          "content",
+          "authorDisplayName",
+          "authorUsername",
+        ]);
+
+        await index.updateFilterableAttributes(["authorId", "aura"]);
+
+        await index.updateSortableAttributes(["createdAt", "aura"]);
+
+        console.log("MeiliSearch posts index initialized");
+      }
+    } catch (error) {
+      console.error("Error initializing MeiliSearch posts index:", error);
+      throw error;
+    }
+  },
+
+  async deleteAllPosts(): Promise<void> {
+    try {
+      const client = getMeiliSearchClient();
+      await client.index(this.name).deleteAllDocuments();
+    } catch (error) {
+      console.error("Error clearing posts search index:", error);
+      throw error;
+    }
+  },
+
+  async indexPosts(posts: PostSearchDocument[]): Promise<void> {
+    try {
+      const client = getMeiliSearchClient();
+      await client.index(this.name).addDocuments(posts);
+    } catch (error) {
+      console.error("Error indexing posts:", error);
+      throw error;
+    }
+  },
+
+  async search(
+    query: string,
+    options: {
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<{
+    estimatedTotalHits: number;
+    hits: PostSearchDocument[];
+    limit: number;
+    offset: number;
+  }> {
+    try {
+      const client = getMeiliSearchClient();
+      const index = client.index(this.name);
+      const result = await index.search(query, {
+        attributesToRetrieve: [
+          "id",
+          "content",
+          "authorId",
+          "authorUsername",
+          "authorDisplayName",
+          "authorAvatarUrl",
+          "aura",
+          "createdAt",
+        ],
+        limit: options.limit || 10,
+        offset: options.offset || 0,
+        sort: ["createdAt:desc"],
+      });
+
+      return {
+        estimatedTotalHits: result.estimatedTotalHits || 0,
+        hits: result.hits as PostSearchDocument[],
+        limit: result.limit || 10,
+        offset: result.offset || 0,
+      };
+    } catch (error) {
+      console.error("Error searching posts:", error);
       throw error;
     }
   },

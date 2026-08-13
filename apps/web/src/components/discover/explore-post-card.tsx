@@ -1,12 +1,13 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { ArrowBigUp, Eye, Flame, MessageSquare } from "lucide-react";
+import { Eye, MessageSquare } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { cn, formatNumber } from "@/lib/utils";
+import AuraVoteButton from "@/components/posts/aura-vote-button";
+import { formatNumber } from "@/lib/utils";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -23,14 +24,9 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   const aspectRatio =
     media?.width && media?.height ? media.width / media.height : DEFAULT_ASPECT;
 
-  const isAmplified = post.vote.some((vote) => vote.value === 1);
-
   return (
-    <Link
-      className="group mb-4 block break-inside-avoid"
-      href={`/posts/${post.id}`}
-    >
-      <article className="sidebar-subcard overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+    <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+      <Link className="block" href={`/posts/${post.id}`}>
         {media ? (
           <div
             className="relative w-full overflow-hidden"
@@ -69,41 +65,32 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
               {post.user.displayName || post.user.username}
             </span>
           </div>
-
-          <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
-            <span className="flex items-center gap-1">
-              <ArrowBigUp
-                className={cn(
-                  "h-3.5 w-3.5",
-                  isAmplified && "fill-orange-500 text-orange-500"
-                )}
-              />
-              <span className="font-medium text-foreground">
-                {formatNumber(post._count.vote)}
-              </span>
-            </span>
-            <span className="flex items-center gap-1">
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span className="font-medium text-foreground">
-                {formatNumber(post._count.comments)}
-              </span>
-            </span>
-            <span className="flex items-center gap-1">
-              <Eye className="h-3.5 w-3.5" />
-              <span className="font-medium text-foreground">
-                {formatNumber(post.viewCount)}
-              </span>
-            </span>
-            <span className="ml-auto flex items-center gap-1">
-              <Flame className="h-3.5 w-3.5 text-orange-500" />
-              <span className="font-medium text-foreground">
-                {formatNumber(post.aura)}
-              </span>
-            </span>
-          </div>
         </div>
-      </article>
-    </Link>
+      </Link>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-3 text-muted-foreground text-xs">
+        <AuraVoteButton
+          authorName={post.user.displayName}
+          initialState={{
+            aura: post.aura,
+            userVote: post.vote[0]?.value || 0,
+          }}
+          postId={post.id}
+        />
+        <span className="flex items-center gap-1">
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span className="font-medium text-foreground">
+            {formatNumber(post._count.comments)}
+          </span>
+        </span>
+        <span className="flex items-center gap-1">
+          <Eye className="h-3.5 w-3.5" />
+          <span className="font-medium text-foreground">
+            {formatNumber(post.viewCount)}
+          </span>
+        </span>
+      </div>
+    </article>
   );
 };
 
