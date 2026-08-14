@@ -14,7 +14,6 @@ export const keys = createEnv({
   runtimeEnv: {
     ASMOB_BUCKET_NAME: process.env.ASMOB_BUCKET_NAME,
     ASMOB_ENDPOINT: process.env.ASMOB_ENDPOINT,
-    ASMOB_PRODUCTION_ENDPOINT: process.env.ASMOB_PRODUCTION_ENDPOINT,
     ASMOB_ROOT_PASSWORD: process.env.ASMOB_ROOT_PASSWORD,
     ASMOB_ROOT_USER: process.env.ASMOB_ROOT_USER,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
@@ -34,7 +33,6 @@ export const keys = createEnv({
   server: {
     ASMOB_BUCKET_NAME: z.string().min(1).default("uploads"),
     ASMOB_ENDPOINT: z.url(),
-    ASMOB_PRODUCTION_ENDPOINT: z.url().optional(),
     ASMOB_ROOT_PASSWORD: z.string().min(1).default("asmob-admin"),
     ASMOB_ROOT_USER: z.string().min(1).default("asmob-admin"),
     BETTER_AUTH_SECRET: z.string().optional(),
