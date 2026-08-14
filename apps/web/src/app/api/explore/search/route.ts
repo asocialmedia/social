@@ -19,8 +19,13 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const q = url.searchParams.get("q")?.trim() ?? "";
-  const tab =
-    url.searchParams.get("tab") === "trending" ? "trending" : "for-you";
+  const tabParam = url.searchParams.get("tab");
+  let tab: "for-you" | "trending" | "gusts" = "for-you";
+  if (tabParam === "trending") {
+    tab = "trending";
+  } else if (tabParam === "gusts") {
+    tab = "gusts";
+  }
 
   const takeValue = url.searchParams.get("take");
   const requestedTake =
@@ -39,12 +44,18 @@ export async function GET(request: Request) {
     tab === "trending"
       ? [{ aura: "desc" }, { id: "desc" }]
       : { createdAt: "desc" };
+
+  const postWhere: Prisma.PostWhereInput =
+    tab === "gusts"
+      ? { content: { contains: q, mode: "insensitive" }, isGust: true }
+      : { content: { contains: q, mode: "insensitive" } };
+
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({
       include: getPostDataInclude(userId),
       orderBy: postOrderBy,
       take: pageSize,
-      where: { content: { contains: q, mode: "insensitive" } },
+      where: postWhere,
     }),
     prisma.user.findMany({
       orderBy: { aura: "desc" },

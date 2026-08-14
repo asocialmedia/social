@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData } from "@asm/db";
+import type { PostData, PostsPage } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
@@ -20,15 +20,18 @@ import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
 
+import { ExploreGustsGrid } from "./explore-gusts-grid";
+import { ExploreGustsRail } from "./explore-gusts-rail";
 import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
 import ExplorePostCard from "./explore-post-card";
 import ExploreUserCard from "./explore-user-card";
 import type { ExploreUser } from "./explore-user-card";
 
-type ExploreTab = "for-you" | "trending";
+type ExploreTab = "for-you" | "trending" | "gusts";
 
 const TAB_META: Record<ExploreTab, string> = {
   "for-you": "For you",
+  gusts: "Gusts",
   trending: "Trending",
 };
 
@@ -54,6 +57,8 @@ const ExploreClient: React.FC = () => {
   let activeTab: ExploreTab;
   if (tabParam === "trending") {
     activeTab = "trending";
+  } else if (tabParam === "gusts") {
+    activeTab = "gusts";
   } else if (tabParam === "for-you") {
     activeTab = "for-you";
   } else if (isLoggedIn) {
@@ -63,9 +68,9 @@ const ExploreClient: React.FC = () => {
     activeTab = "trending";
   }
 
-  // "For you" needs an account (guests see the login card); Trending stays open.
+  // "For you" needs an account (guests see the login card); Trending and Gusts stay open.
   const showForYou = isLoggedIn;
-  const canQuery = isLoggedIn || activeTab === "trending";
+  const canQuery = isLoggedIn || activeTab !== "for-you";
 
   const handleTabChange = useCallback(
     (tab: string) => {
@@ -77,13 +82,25 @@ const ExploreClient: React.FC = () => {
     [pathname, router, searchParams]
   );
 
+  // Fetch top Gusts for the trending rail
+  const { data: gustsData } = useQuery({
+    queryFn: async () => {
+      const res = await kyInstance
+        .get("/api/gusts", { searchParams: { take: "8" } })
+        .json<PostsPage>();
+      return res.posts;
+    },
+    queryKey: ["explore-top-gusts"],
+    staleTime: 60 * 1000,
+  });
+
   const queryKey = useMemo(
     () => ["explore-feed", activeTab, debouncedSearch],
     [activeTab, debouncedSearch]
   );
 
   const { data, status, isFetching } = useQuery({
-    enabled: canQuery,
+    enabled: canQuery && activeTab !== "gusts",
     placeholderData: (previousData) => previousData,
     queryFn: async () => {
       if (debouncedSearch.trim()) {
@@ -115,6 +132,7 @@ const ExploreClient: React.FC = () => {
 
   const posts = useMemo(() => data?.posts ?? [], [data]);
   const users = useMemo(() => data?.users ?? [], [data]);
+  const gusts = useMemo(() => gustsData ?? [], [gustsData]);
 
   const handleFollowed = useCallback(
     (userId: string) => {
@@ -217,13 +235,24 @@ const ExploreClient: React.FC = () => {
       <AnimatePresence mode="wait">
         <motion.div
           animate={{ opacity: 1, y: 0 }}
-          className="columns-2 gap-4 p-4 sm:columns-3 xl:columns-4"
+          className="p-4"
           exit={{ opacity: 0, y: -8 }}
           initial={{ opacity: 0, y: 8 }}
           key={debouncedSearch.trim() || "feed"}
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
-          {items}
+          {/* Top Gusts rail on explore feed */}
+          {!debouncedSearch.trim() && gusts.length > 0 ? (
+            <ExploreGustsRail
+              gusts={gusts}
+              onViewAll={() => handleTabChange("gusts")}
+            />
+          ) : null}
+
+          {/* Masonry Post Stream */}
+          <div className="columns-2 gap-4 sm:columns-3 xl:columns-4">
+            {items}
+          </div>
         </motion.div>
       </AnimatePresence>
     );
@@ -304,6 +333,9 @@ const ExploreClient: React.FC = () => {
           </TabsContent>
           <TabsContent className="mt-0" value="trending">
             {body}
+          </TabsContent>
+          <TabsContent className="mt-0" value="gusts">
+            <ExploreGustsGrid />
           </TabsContent>
         </div>
         <FeedScrollbar containerRef={feedScrollRef} />
