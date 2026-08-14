@@ -10,6 +10,12 @@
 **/*.ttf
 **/*.eot
 
+# Never bake local env files into the image - env comes from the platform at
+# runtime. A baked .env.development would override runtime config.
+.env
+.env.*
+!.env.example
+
 # Allow specific assets that the app needs
 !assets/**/*.jpg
 !assets/**/*.png
