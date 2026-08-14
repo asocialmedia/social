@@ -4,7 +4,7 @@ import type { PostData, UserData } from "@asm/db";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -33,6 +33,31 @@ const ClientPost: React.FC<ClientPostProps> = ({
   const queryClient = useQueryClient();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  const searchParams = useSearchParams();
+
+  // Deep link from a notification (?comment=<id>): scroll to the eddy once it
+  // is rendered. Comments load asynchronously (and may be paginated), so retry
+  // briefly and give up silently if it never appears.
+  useEffect(() => {
+    const commentId = searchParams.get("comment");
+    if (!commentId) {
+      return;
+    }
+    let attempts = 0;
+    const interval = window.setInterval(() => {
+      attempts += 1;
+      const target = document.querySelector(`#comment-${commentId}`);
+      if (target) {
+        window.clearInterval(interval);
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      if (attempts >= 40) {
+        window.clearInterval(interval);
+      }
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [searchParams]);
 
   // Record the visit so the recents card surfaces recently viewed posts, and
   // refresh it right away so the list updates without a manual reload. Guests

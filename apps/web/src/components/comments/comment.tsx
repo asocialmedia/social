@@ -71,7 +71,10 @@ export default function CommentItem({
   }, [goToLogin, isLoggedIn]);
 
   return (
-    <div className={`relative ${hasRail ? "pl-8" : ""}`}>
+    <div
+      className={`relative scroll-mt-4 ${hasRail ? "pl-8" : ""}`}
+      id={`comment-${comment.id}`}
+    >
       {/* Rail connector for this reply: A unified SVG drawing the continuous rail
           and rounded branch. Centered on the parent avatar column (RAIL_X = 16),
           it smoothly bends with a generous circular arc into this reply's

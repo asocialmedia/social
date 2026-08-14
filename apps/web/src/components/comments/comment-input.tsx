@@ -29,6 +29,7 @@ interface CommentInputProps {
   parentId?: string;
   placeholder?: string;
   post: PostData;
+  reels?: boolean;
   replyingTo?: { username: string } | null;
   submitLabel?: string;
 }
@@ -41,6 +42,7 @@ export default function CommentInput({
   parentId,
   placeholder = "Add your Eddie to the flow...",
   post,
+  reels = false,
   replyingTo,
   submitLabel,
 }: CommentInputProps) {
@@ -145,12 +147,16 @@ export default function CommentInput({
 
   return (
     <form
-      className={cn("my-3 flex w-full items-start gap-2", className)}
+      className={cn(
+        "my-3 flex w-full gap-2",
+        reels ? "items-center" : "items-start",
+        className
+      )}
       onSubmit={onSubmit}
     >
       <UserAvatar
         avatarUrl={userData?.avatarUrl || user?.image}
-        className="h-10 w-10 shrink-0"
+        className={cn("shrink-0", reels ? "size-10" : "h-10 w-10")}
       />
       <div className="min-w-0 flex-1">
         {replyingTo && (
@@ -161,7 +167,14 @@ export default function CommentInput({
             </span>
           </p>
         )}
-        <div className="bg-muted/30 focus-within:border-primary/40 flex min-w-0 items-center gap-2 rounded-xl border border-transparent px-3 py-2 transition-colors focus-within:bg-transparent">
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-2 px-3 py-2 transition-all",
+            reels
+              ? "reels-input rounded-full focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
+              : "bg-muted/30 focus-within:border-primary/40 rounded-xl border border-transparent focus-within:bg-transparent"
+          )}
+        >
           <textarea
             autoFocus={autoFocus}
             className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent text-sm leading-relaxed outline-none"

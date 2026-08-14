@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
+import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -20,7 +20,13 @@ export default async function Page() {
     : null;
 
   return (
-    <Suspense fallback={<CenteredLogoLoader size={64} />}>
+    <Suspense
+      fallback={
+        <div className="bg-background flex h-dvh w-full items-center justify-center">
+          <GustCardSkeleton />
+        </div>
+      }
+    >
       <ClientGusts loggedInUserData={loggedInUserData} />
     </Suspense>
   );

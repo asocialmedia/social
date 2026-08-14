@@ -1,4 +1,8 @@
-import { prisma } from "@asm/db";
+import {
+  enqueueNotificationCreated,
+  enqueueNotificationDeleted,
+  prisma,
+} from "@asm/db";
 import type { CommentVoteInfo } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
@@ -111,6 +115,42 @@ export async function POST(
         });
       }
 
+      // Only notify others, never yourself.
+      if (!isSelfVote) {
+        if (value === 1 && oldValue !== 1) {
+          await tx.notification.create({
+            data: {
+              commentId,
+              issuerId: user.id,
+              postId: comment.postId,
+              recipientId: comment.userId,
+              type: "AMPLIFY",
+            },
+          });
+          enqueueNotificationCreated(comment.userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue eddie amplify notification event:",
+              error
+            );
+          });
+        } else if (value !== 1 && oldValue === 1) {
+          await tx.notification.deleteMany({
+            where: {
+              commentId,
+              issuerId: user.id,
+              recipientId: comment.userId,
+              type: "AMPLIFY",
+            },
+          });
+          enqueueNotificationDeleted(comment.userId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue eddie amplify removal notification event:",
+              error
+            );
+          });
+        }
+      }
+
       const updated = await tx.comment.findUnique({
         select: { aura: true },
         where: { id: commentId },
@@ -173,6 +213,8 @@ export async function DELETE(
         });
       }
 
+      const isSelfVote = comment.userId === user.id;
+
       if (oldValue !== 0) {
         // Only reverse aura that was actually awarded.
         const wasAwarded = await tx.auraLog.findFirst({
@@ -206,6 +248,23 @@ export async function DELETE(
             },
           });
         }
+      }
+
+      if (oldValue === 1 && !isSelfVote) {
+        await tx.notification.deleteMany({
+          where: {
+            commentId,
+            issuerId: user.id,
+            recipientId: comment.userId,
+            type: "AMPLIFY",
+          },
+        });
+        enqueueNotificationDeleted(comment.userId).catch((error: unknown) => {
+          console.error(
+            "Failed to enqueue eddie amplify removal notification event:",
+            error
+          );
+        });
       }
 
       const updated = await tx.comment.findUnique({

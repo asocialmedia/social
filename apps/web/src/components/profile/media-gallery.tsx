@@ -23,6 +23,7 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
+import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 // Full skeleton grid with the login prompt centered on top. Shared between the
@@ -104,6 +105,11 @@ const VideoTile = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isVideoActive, setIsVideoActive] = useState(false);
+
+  const handlePlaying = useCallback(() => {
+    setIsVideoActive(true);
+  }, []);
 
   const handleMouseEnter = useCallback(() => {
     if (hoverTimeoutRef.current) {
@@ -139,6 +145,7 @@ const VideoTile = ({
         // Ignore seek aborts
       }
     }
+    setIsVideoActive(false);
   }, []);
 
   // Seek past the first frame so the thumbnail shows a meaningful frame,
@@ -174,11 +181,23 @@ const VideoTile = ({
         className="absolute inset-0 h-full w-full object-cover"
         muted
         onLoadedMetadata={handleLoadedMetadata}
+        onPlaying={handlePlaying}
         playsInline
-        poster={getMediaProxyUrl(item)}
         preload="metadata"
         ref={videoRef}
         src={getMediaUrl(item.id)}
+      />
+      {/* Thumbnail overlay crossfades out once playback actually starts */}
+      <Image
+        alt="Video thumbnail"
+        className={cn(
+          "absolute inset-0 h-full w-full object-cover transition-opacity duration-500",
+          isVideoActive ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        sizes="176px"
+        src={getMediaProxyUrl(item)}
+        unoptimized
       />
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
       <div className="absolute top-2 right-2">

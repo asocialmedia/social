@@ -59,6 +59,35 @@ export const createPostSchema = z.object({
   tags: z.array(z.string()),
 });
 
+// Gust captions are short by design - one punchy line under the clip,
+// measured in words rather than characters. A character cap also guards
+// against a single unbroken "spam" word (e.g. "aaaaaa...") slipping through
+// the word count as one word.
+export const GUST_CAPTION_MAX_WORDS = 150;
+export const GUST_CAPTION_MAX_CHARS = 900;
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// Gusts must carry exactly one video and a short caption.
+export const createGustSchema = createPostSchema
+  .extend({
+    content: requiredString
+      .max(
+        GUST_CAPTION_MAX_CHARS,
+        `Gust caption must be at most ${GUST_CAPTION_MAX_CHARS} characters`
+      )
+      .refine(
+        (text) => countWords(text) <= GUST_CAPTION_MAX_WORDS,
+        `Gust caption must be at most ${GUST_CAPTION_MAX_WORDS} words`
+      ),
+  })
+  .refine(
+    (input) => input.mediaIds.length === 1,
+    "A gust needs exactly one video attachment"
+  );
+
 const socialUsername = z
   .string()
   .trim()

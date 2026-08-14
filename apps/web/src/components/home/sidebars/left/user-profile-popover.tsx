@@ -32,6 +32,7 @@ import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UserProfilePopoverProps {
+  compact?: boolean;
   userData: UserData;
 }
 
@@ -97,6 +98,7 @@ function getSocialLinks(user: UserData): PopoverSocialLink[] {
 }
 
 const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
+  compact = false,
   userData,
 }) => {
   const {
@@ -152,25 +154,40 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
     <>
       <Popover onOpenChange={handleOpenChange} open={open}>
         <PopoverTrigger asChild>
-          <button
-            aria-haspopup="dialog"
-            className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
-            type="button"
-          >
-            <UserAvatar
-              avatarUrl={userData.avatarUrl}
-              className="h-10 w-10"
-              priority
-            />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">
-                {userData.displayName || userData.username}
+          {compact ? (
+            <button
+              aria-haspopup="dialog"
+              aria-label={`Open profile menu for ${userData.username}`}
+              className="pill-3d-hover group flex size-10 shrink-0 items-center justify-center rounded-full border-0 p-0"
+              type="button"
+            >
+              <UserAvatar
+                avatarUrl={userData.avatarUrl}
+                className="size-9"
+                priority
+              />
+            </button>
+          ) : (
+            <button
+              aria-haspopup="dialog"
+              className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
+              type="button"
+            >
+              <UserAvatar
+                avatarUrl={userData.avatarUrl}
+                className="h-10 w-10"
+                priority
+              />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">
+                  {userData.displayName || userData.username}
+                </span>
+                <span className="text-muted-foreground block truncate text-xs">
+                  @{userData.username}
+                </span>
               </span>
-              <span className="text-muted-foreground block truncate text-xs">
-                @{userData.username}
-              </span>
-            </span>
-          </button>
+            </button>
+          )}
         </PopoverTrigger>
 
         <PopoverContent

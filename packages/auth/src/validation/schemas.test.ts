@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createCommentSchema,
+  createGustSchema,
   createPostSchema,
+  GUST_CAPTION_MAX_CHARS,
+  GUST_CAPTION_MAX_WORDS,
   loginSchema,
   signUpSchema,
   updateUserProfileSchema,
@@ -123,6 +126,100 @@ describe("schemas", () => {
           tags: [],
         }).success
       ).toBe(false);
+    });
+  });
+
+  describe("createGustSchema", () => {
+    test("validates a gust with one video", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "Here's my clip!",
+          isGust: true,
+          mediaIds: ["video1"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(true);
+    });
+
+    test("rejects a gust with more than one attachment", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "Too much media",
+          isGust: true,
+          mediaIds: ["video1", "video2"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(false);
+    });
+
+    test("rejects a gust with no attachments", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "No media",
+          isGust: true,
+          mediaIds: [],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(false);
+    });
+
+    test("rejects an oversized gust caption", () => {
+      const tooManyWords = Array.from(
+        { length: GUST_CAPTION_MAX_WORDS + 1 },
+        () => "word"
+      ).join(" ");
+      expect(
+        createGustSchema.safeParse({
+          content: tooManyWords,
+          isGust: true,
+          mediaIds: ["video1"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(false);
+    });
+
+    test("accepts a gust caption at the exact max words", () => {
+      const exactWords = Array.from(
+        { length: GUST_CAPTION_MAX_WORDS },
+        () => "word"
+      ).join(" ");
+      expect(
+        createGustSchema.safeParse({
+          content: exactWords,
+          isGust: true,
+          mediaIds: ["video1"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(true);
+    });
+
+    test("rejects a single spam word exceeding the char cap", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "a".repeat(GUST_CAPTION_MAX_CHARS + 1),
+          isGust: true,
+          mediaIds: ["video1"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(false);
+    });
+
+    test("accepts a long single word within the char cap", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "a".repeat(GUST_CAPTION_MAX_CHARS),
+          isGust: true,
+          mediaIds: ["video1"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(true);
     });
   });
 

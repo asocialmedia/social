@@ -17,33 +17,61 @@ interface NotificationProps {
 }
 
 interface TypeConfig {
-  action: string;
+  action: (notification: NotificationProps["notification"]) => string;
   badgeClass: string;
   href: (notification: NotificationProps["notification"]) => string;
   icon: React.ComponentType<{ className?: string }>;
 }
 
+// Comment notifications carry the linked comment when available, so replies
+// read differently from top-level eddies and link straight into the thread.
+function getCommentAction(
+  notification: NotificationProps["notification"]
+): string {
+  const { comment } = notification;
+  if (!comment || comment.parentId === null) {
+    return "eddied on your post";
+  }
+  if (comment.parent?.userId === notification.recipientId) {
+    return "replied to your eddie";
+  }
+  return "replied on your post";
+}
+
+function getCommentHref(
+  notification: NotificationProps["notification"]
+): string {
+  const base = `/posts/${notification.postId}`;
+  return notification.comment
+    ? `${base}?comment=${notification.comment.id}`
+    : base;
+}
+
 const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   AMPLIFY: {
-    action: "amplified your post",
+    action: (notification) =>
+      notification.comment ? "amplified your eddie" : "amplified your post",
     badgeClass: "bg-gradient-to-b from-[#fb7185] to-[#e11d48]",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: (notification) =>
+      notification.comment
+        ? getCommentHref(notification)
+        : `/posts/${notification.postId}`,
     icon: Heart,
   },
   COMMENT: {
-    action: "eddied on your post",
+    action: getCommentAction,
     badgeClass: "bg-gradient-to-b from-[#38bdf8] to-[#0284c7]",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getCommentHref,
     icon: MessageCircle,
   },
   FOLLOW: {
-    action: "followed you",
+    action: () => "followed you",
     badgeClass: "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
     href: (notification) => `/users/${notification.issuer.username}`,
     icon: UserPlus,
   },
   MENTION: {
-    action: "mentioned you",
+    action: () => "mentioned you",
     badgeClass: "bg-gradient-to-b from-[#a78bfa] to-[#7c3aed]",
     href: (notification) => `/posts/${notification.postId}`,
     icon: AtSign,
@@ -54,6 +82,7 @@ export default function Notification({ notification }: NotificationProps) {
   const config = TYPE_CONFIG[notification.type];
   const Icon = config.icon;
   const href = config.href(notification);
+  const action = config.action(notification);
   const queryClient = useQueryClient();
 
   const { mutate: dismiss } = useMutation({
@@ -103,7 +132,7 @@ export default function Notification({ notification }: NotificationProps) {
             <span className="font-semibold">
               {notification.issuer.displayName}
             </span>{" "}
-            <span className="text-muted-foreground">{config.action}</span>
+            <span className="text-muted-foreground">{action}</span>
           </p>
 
           {notification.post ? (

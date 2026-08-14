@@ -96,6 +96,7 @@ const VideoPreview = ({
   const isHoveredRef = useRef(false);
   const previewStartedRef = useRef(false);
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
+  const [isVideoActive, setIsVideoActive] = useState(false);
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -161,7 +162,14 @@ const VideoPreview = ({
       }
     }
     setExpandedHeight(null);
+    setIsVideoActive(false);
   }, [autoPlay]);
+
+  // Fade the thumbnail overlay out only once playback actually starts so the
+  // poster-to-video switch is a smooth crossfade instead of an instant swap.
+  const handlePlaying = useCallback(() => {
+    setIsVideoActive(true);
+  }, []);
 
   // Seek past the first frame so the preview shows a meaningful thumbnail
   // (hover mode only - in autoplay mode the video starts from the beginning),
@@ -232,10 +240,22 @@ const VideoPreview = ({
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
         muted
         onLoadedMetadata={handleLoadedMetadata}
+        onPlaying={handlePlaying}
         playsInline
-        poster={getMediaProxyUrl(media)}
         preload={autoPlay ? "metadata" : "none"}
         src={getMediaUrl(media.id)}
+      />
+      {/* Thumbnail overlay crossfades out once playback actually starts */}
+      <Image
+        alt="Video preview"
+        className={cn(
+          "absolute inset-0 h-full w-full rounded-lg object-cover transition-opacity duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+          isVideoActive ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        sizes="(max-width: 768px) 100vw, 640px"
+        src={getMediaProxyUrl(media)}
+        unoptimized
       />
       <div
         className={cn(

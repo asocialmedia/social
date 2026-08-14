@@ -174,17 +174,16 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
   }
 
   return (
-    <div className="border-border/60 mb-6 rounded-3xl border bg-[hsl(var(--background))]/50 p-4 backdrop-blur-xs">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-xs">
-            <Clapperboard className="size-3.5" />
-          </div>
-          <div>
-            <h3 className="text-foreground text-sm font-bold">
+    <section className="sidebar-subcard mb-6 overflow-hidden rounded-2xl">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Clapperboard className="text-primary size-4.5 shrink-0" />
+          <div className="min-w-0">
+            <h3 className="text-foreground truncate text-sm font-bold">
               Trending Gusts
             </h3>
-            <p className="text-muted-foreground text-[11px]">
+            <p className="text-muted-foreground truncate text-[11px]">
               Short-form clips taking off right now
             </p>
           </div>
@@ -192,7 +191,7 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
 
         {onViewAll ? (
           <Button
-            className="text-primary hover:text-primary h-8 gap-1 px-3 text-xs font-semibold"
+            className="text-primary hover:text-primary h-8 shrink-0 gap-1 px-2 text-xs font-semibold"
             onClick={onViewAll}
             type="button"
             variant="ghost"
@@ -203,7 +202,7 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
         ) : (
           <Button
             asChild
-            className="text-primary hover:text-primary h-8 gap-1 px-3 text-xs font-semibold"
+            className="text-primary hover:text-primary h-8 shrink-0 gap-1 px-2 text-xs font-semibold"
             variant="ghost"
           >
             <Link href="/gusts">
@@ -214,12 +213,12 @@ export const ExploreGustsRail: React.FC<ExploreGustsRailProps> = ({
         )}
       </div>
 
-      {/* Horizontal scrollable rail */}
-      <div className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain pb-1">
+      {/* Horizontal scrollable rail with a right-edge fade hint */}
+      <div className="hide-native-scrollbar flex gap-3 overflow-x-auto overscroll-x-contain [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] px-4 pt-0.5 pb-4">
         {gusts.map((gust) => (
           <GustRailCard gust={gust} key={gust.id} />
         ))}
       </div>
-    </div>
+    </section>
   );
 };

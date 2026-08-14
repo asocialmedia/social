@@ -133,6 +133,17 @@ export interface CommentsPage {
 }
 
 export const notificationsInclude = {
+  comment: {
+    select: {
+      id: true,
+      parent: {
+        select: {
+          userId: true,
+        },
+      },
+      parentId: true,
+    },
+  },
   issuer: {
     select: {
       avatarUrl: true,

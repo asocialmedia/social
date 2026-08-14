@@ -75,7 +75,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
 
   return (
     <Link
-      className="group relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      className="group relative aspect-9/16 w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
       href={`/gusts?id=${post.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -222,7 +222,7 @@ export const ExploreGustsGrid: React.FC = () => {
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
           <div
-            className="bg-muted/40 aspect-[9/16] w-full animate-pulse rounded-2xl"
+            className="bg-muted/40 aspect-9/16 w-full animate-pulse rounded-2xl"
             // eslint-disable-next-line react/no-array-index-key -- skeleton placeholders
             key={i}
           />

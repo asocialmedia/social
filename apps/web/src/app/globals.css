@@ -10,17 +10,15 @@
   @apply bg-background/50 backdrop-blur-sm;
 }
 
-@media (min-width: 1024px) {
-  .hide-native-scrollbar {
-    scrollbar-color: transparent transparent;
-    scrollbar-width: none;
-  }
+.hide-native-scrollbar {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: none;
+}
 
-  .hide-native-scrollbar::-webkit-scrollbar {
-    display: none;
-    width: 0;
-    height: 0;
-  }
+.hide-native-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Feed scrollbar thumb styling */
@@ -212,6 +210,30 @@
 }
 
 .dark .hn-link:hover {
+  color: #ffffff;
+  background: linear-gradient(to bottom, #8f96a3, #5c6370);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(45, 50, 60, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.4),
+    0 3px 5px rgba(0, 0, 0, 0.12);
+}
+
+.tooltip-3d {
+  color: #1c1f26;
+  background: linear-gradient(to bottom, #e4e7ec, #c6ccd5);
+  border-radius: 9999px;
+  font-weight: 500;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.9),
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 1px 1px rgba(0, 0, 0, 0.05),
+    0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.dark .tooltip-3d {
   color: #ffffff;
   background: linear-gradient(to bottom, #8f96a3, #5c6370);
   box-shadow:
@@ -561,6 +583,141 @@
     0 0 0 1px rgba(45, 50, 60, 0.95),
     0 1px 1px rgba(255, 255, 255, 0.2),
     0 3px 5px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Reels rail buttons: glassy apple 3D sitting over the video ──── */
+.rail-3d-btn {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(18, 20, 24, 0.45);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 1px 2px rgba(255, 255, 255, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 3px 6px rgba(0, 0, 0, 0.18);
+  transition: all 0.2s ease-out;
+}
+
+.rail-3d-btn:hover {
+  color: #ffffff;
+  background: rgba(40, 44, 54, 0.6);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.rail-3d-btn-orange {
+  color: #ffffff;
+  background: linear-gradient(to bottom, #ff9500, #e65500);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(170, 60, 0, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.35),
+    0 3px 6px rgba(0, 0, 0, 0.25);
+}
+
+.rail-3d-btn-purple {
+  color: #ffffff;
+  background: linear-gradient(to bottom, #7c5cff, #5a3ae0);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(70, 40, 170, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.35),
+    0 3px 6px rgba(0, 0, 0, 0.25);
+}
+
+.rail-3d-btn-gold {
+  color: #ffffff;
+  background: linear-gradient(to bottom, #fbbf24, #d97706);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(150, 90, 0, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.35),
+    0 3px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Reels comments panel: apple dual-border glass 3D ──── */
+.reels-panel {
+  background: hsl(var(--background-alt));
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.03),
+    0 0 0 1px rgba(0, 0, 0, 0.1),
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.dark .reels-panel {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 0.06),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(45, 50, 60, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.35),
+    0 3px 5px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Reels eddie input bar: 3D dual-border field ──── */
+.reels-input {
+  background: hsl(var(--background));
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.03),
+    0 0 0 1px rgba(0, 0, 0, 0.1),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: all 0.2s ease-out;
+}
+
+.dark .reels-input {
+  background: #232323;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 0.06),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(45, 50, 60, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.35),
+    0 3px 5px rgba(0, 0, 0, 0.2);
+}
+
+/* Reels seek bar: the native range thumb is stripped so only the filled
+   track shows. The input stays on top so clicking/dragging still seeks. */
+.seek-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  outline: none;
+}
+
+.seek-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 0;
+  border: none;
+  background: transparent;
+}
+
+.seek-slider::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  border: none;
+  background: transparent;
 }
 
 .meta-chip-tag {

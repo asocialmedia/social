@@ -20,9 +20,10 @@ import type { LiveCommentStore } from "./use-comments-realtime";
 
 interface CommentsProps {
   post: PostData;
+  reels?: boolean;
 }
 
-export default function Comments({ post }: CommentsProps) {
+export default function Comments({ post, reels = false }: CommentsProps) {
   const shared = useCommentsRealtimeValue();
 
   // Without a provider (e.g. the feed dialog), the list owns its own realtime
@@ -67,7 +68,7 @@ export default function Comments({ post }: CommentsProps) {
 
   return (
     <div className="space-y-3">
-      <CommentInput applyCreated={applyCreated} post={post} />
+      <CommentInput applyCreated={applyCreated} post={post} reels={reels} />
       {hasNextPage ? (
         <Button
           className="mx-auto block"

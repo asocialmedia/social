@@ -39,7 +39,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
         "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
         ROW_HOVER_CLASS
       )}
-      href={`/posts/${post.id}`}
+      href={post.isGust ? `/gusts?id=${post.id}` : `/posts/${post.id}`}
     >
       {firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO" ? (
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">

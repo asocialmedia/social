@@ -340,6 +340,7 @@ model Comment {
   attachments Media[]
   votes     CommentVote[]
   auraLogs  AuraLog[]
+  notifications Notification[]
   createdAt DateTime  @default(now())
 
   @@index([postId, createdAt])
@@ -356,11 +357,14 @@ model Notification {
   issuer      User             @relation("Issuer", fields: [issuerId], references: [id], onDelete: Cascade)
   postId      String?
   post        Post?            @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId   String?
+  comment     Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
   type        NotificationType
   read        Boolean          @default(false)
 
   createdAt DateTime @default(now())
 
+  @@index([commentId])
   @@map("notifications")
 }
 

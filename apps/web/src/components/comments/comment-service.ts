@@ -83,6 +83,22 @@ export async function createComment(
     receivedRecipientId = post.userId;
   }
 
+  // Everyone who gets a notification for this comment. The parent comment's
+  // author is notified on a reply, and the post author is also notified when a
+  // thread on their post gets a reply (unless they're the same person or the
+  // commenter).
+  const notificationRecipientIds = new Set<string>();
+  if (parent) {
+    if (parent.userId !== params.userId) {
+      notificationRecipientIds.add(parent.userId);
+    }
+    if (post.userId !== params.userId && post.userId !== parent.userId) {
+      notificationRecipientIds.add(post.userId);
+    }
+  } else if (!isSelfPost) {
+    notificationRecipientIds.add(post.userId);
+  }
+
   const comment = await prisma.$transaction(async (tx) => {
     const created = await tx.comment.create({
       data: {
@@ -131,19 +147,25 @@ export async function createComment(
         },
       });
 
-      await tx.notification.create({
-        data: {
-          issuerId: params.userId,
-          postId: params.postId,
-          recipientId: receivedRecipientId,
-          type: "COMMENT",
-        },
-      });
+      await Promise.all(
+        [...notificationRecipientIds].map(async (recipientId) => {
+          await tx.notification.create({
+            data: {
+              commentId: created.id,
+              issuerId: params.userId,
+              postId: params.postId,
+              recipientId,
+              type: "COMMENT",
+            },
+          });
 
-      enqueueNotificationCreated(receivedRecipientId).catch(
-        (error: unknown) => {
-          console.error("Failed to enqueue notification created event:", error);
-        }
+          enqueueNotificationCreated(recipientId).catch((error: unknown) => {
+            console.error(
+              "Failed to enqueue notification created event:",
+              error
+            );
+          });
+        })
       );
     }
 
@@ -261,24 +283,27 @@ export async function softDeleteComment(
       }
     }
 
-    // The notification refers to the deleted comment, so clean it up whether
-    // or not aura was ever awarded.
-    if (receivedRecipientId) {
-      await tx.notification.deleteMany({
-        where: {
-          issuerId: userId,
-          postId: comment.postId,
-          recipientId: receivedRecipientId,
-          type: "COMMENT",
-        },
-      });
-
-      enqueueNotificationDeleted(receivedRecipientId).catch(
-        (error: unknown) => {
+    // The notifications that reference the deleted comment (eddies on the post,
+    // replies to it, and eddie amplifies) all point at content that no longer
+    // exists, so clean them up for every recipient whether or not aura was
+    // ever awarded.
+    const commentNotifications = await tx.notification.findMany({
+      select: { recipientId: true },
+      where: { commentId, type: { in: ["COMMENT", "AMPLIFY"] } },
+    });
+    await tx.notification.deleteMany({
+      where: { commentId, type: { in: ["COMMENT", "AMPLIFY"] } },
+    });
+    const notificationRecipientIds = [
+      ...new Set(commentNotifications.map((n) => n.recipientId)),
+    ];
+    await Promise.allSettled(
+      notificationRecipientIds.map((recipientId) =>
+        enqueueNotificationDeleted(recipientId).catch((error: unknown) => {
           console.error("Failed to enqueue notification deleted event:", error);
-        }
-      );
-    }
+        })
+      )
+    );
 
     return softDeleted;
   });

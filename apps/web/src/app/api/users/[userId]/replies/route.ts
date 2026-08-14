@@ -1,24 +1,40 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
-import type { PostData } from "@asm/db";
+import {
+  getCommentDataInclude,
+  getPostDataInclude,
+  hydrateViewCounts,
+  prisma,
+} from "@asm/db";
+import type { Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
+
+export function getReplyDataInclude(loggedInUserId: string) {
+  return {
+    ...getCommentDataInclude(loggedInUserId),
+    // The author of the comment being replied to (or null for a top-level
+    // eddy), so the feed can render the "Replying to @user" context line.
+    parent: {
+      select: {
+        user: {
+          select: {
+            username: true,
+          },
+        },
+      },
+    },
+    post: {
+      include: getPostDataInclude(loggedInUserId),
+    },
+  } satisfies Prisma.CommentInclude;
+}
+
+export type UserReplyData = Prisma.CommentGetPayload<{
+  include: ReturnType<typeof getReplyDataInclude>;
+}>;
 
 export interface UserRepliesPage {
   nextCursor: string | null;
   replies: UserReplyData[];
-}
-
-export interface UserReplyData {
-  content: string;
-  createdAt: Date;
-  id: string;
-  post: PostData;
-  user: {
-    id: string;
-    username: string;
-    displayName: string;
-    avatarUrl: string | null;
-  };
 }
 
 export async function GET(
@@ -38,19 +54,7 @@ export async function GET(
 
   const comments = await prisma.comment.findMany({
     cursor: cursor ? { id: cursor } : undefined,
-    include: {
-      post: {
-        include: getPostDataInclude(user.id),
-      },
-      user: {
-        select: {
-          avatarUrl: true,
-          displayName: true,
-          id: true,
-          username: true,
-        },
-      },
-    },
+    include: getReplyDataInclude(user.id),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
     where: { userId },
