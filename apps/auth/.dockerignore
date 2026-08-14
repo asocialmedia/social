@@ -5,6 +5,13 @@ dist/
 .next/
 .turbo/
 
+# Never bake local env files into the image - env comes from the platform at
+# runtime. A baked .env.development would override NODE_ENV/APP_URL/AUTH_URL
+# in production and break OAuth (dev mode disables cross-subdomain cookies).
+.env
+.env.*
+!.env.example
+
 # Keep necessary package files
 !package.json
 
