@@ -28,6 +28,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn, isRouteActive } from "@/lib/utils";
@@ -44,6 +45,7 @@ interface NavItem {
   href: string;
   icon: typeof Home;
   label: string;
+  requiresAuth?: boolean;
 }
 
 const PRIMARY_ITEMS: NavItem[] = [
@@ -51,21 +53,29 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/search", icon: Search, label: "Search" },
   { href: "/discover", icon: Compass, label: "Explore" },
   { href: "/soon?feature=communities", icon: Users, label: "Communities" },
-  { href: "/bookmarks", icon: Bookmark, label: "Bookmarks" },
+  {
+    href: "/bookmarks",
+    icon: Bookmark,
+    label: "Bookmarks",
+    requiresAuth: true,
+  },
 ];
 
 const SECONDARY_ITEMS: NavItem[] = [
-  { href: "/notifications", icon: Bell, label: "Notifications" },
+  {
+    href: "/notifications",
+    icon: Bell,
+    label: "Notifications",
+    requiresAuth: true,
+  },
   { href: "/soon?feature=messages", icon: MessagesSquare, label: "Messages" },
-  { href: "/hackernews", icon: Compass, label: "HackerNews" },
+  {
+    href: "/hackernews",
+    icon: Compass,
+    label: "HackerNews",
+    requiresAuth: true,
+  },
 ];
-
-// Nav items that require an account; hidden for guests.
-const GUEST_GATED_HREFS = new Set([
-  "/bookmarks",
-  "/notifications",
-  "/hackernews",
-]);
 
 // Logged-in users get the live profile popover; guests never reach this
 // component because LeftSidebar only renders it when userData is present.
@@ -99,6 +109,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const searchParams = useSearchParams();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  const { goToLogin } = useRequireAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { data: bookmarkCount } = useBookmarkCount();
@@ -122,45 +133,67 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const queryString = searchParams.toString();
   const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
 
-  const primaryItems = isLoggedIn
-    ? PRIMARY_ITEMS
-    : PRIMARY_ITEMS.filter((item) => !GUEST_GATED_HREFS.has(item.href));
+  const primaryItems = PRIMARY_ITEMS;
+  const secondaryItems = SECONDARY_ITEMS;
 
-  const secondaryItems = isLoggedIn
-    ? SECONDARY_ITEMS
-    : SECONDARY_ITEMS.filter((item) => !GUEST_GATED_HREFS.has(item.href));
+  const renderItem = ({
+    count,
+    href,
+    label,
+    icon: Icon,
+    requiresAuth,
+  }: NavItem) => {
+    const className = cn(
+      "group flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out",
+      isRouteActive(currentHref, href)
+        ? "pill-nav-active"
+        : "pill-3d-hover text-foreground hover:text-foreground"
+    );
 
-  const renderItem = ({ count, href, label, icon: Icon }: NavItem) => (
-    <Link
-      className={cn(
-        "group flex items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-base transition-all duration-200 ease-out",
-        isRouteActive(currentHref, href)
-          ? "pill-nav-active"
-          : "pill-3d-hover text-foreground hover:text-foreground"
-      )}
-      href={href}
-      key={href}
-    >
-      <Icon className="h-6 w-6 shrink-0" />
-      <span className="min-w-0 flex-1">{label}</span>
-      {count !== undefined && count > 0 ? (
-        <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums">
-          {count}
-        </span>
-      ) : null}
-    </Link>
-  );
+    const inner = (
+      <>
+        <Icon className="h-6 w-6 shrink-0" />
+        <span className="min-w-0 flex-1">{label}</span>
+        {count !== undefined && count > 0 ? (
+          <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums">
+            {count}
+          </span>
+        ) : null}
+      </>
+    );
+
+    if (requiresAuth && !isLoggedIn) {
+      return (
+        <button
+          className={className}
+          key={href}
+          onClick={goToLogin}
+          type="button"
+        >
+          {inner}
+        </button>
+      );
+    }
+
+    return (
+      <Link className={className} href={href} key={href}>
+        {inner}
+      </Link>
+    );
+  };
 
   const profileItem: NavItem = {
     href: user ? `/users/${user.username}` : "",
     icon: User,
     label: "Profile",
+    requiresAuth: true,
   };
 
   const settingsItem: NavItem = {
     href: "/settings",
     icon: Settings,
     label: "Settings",
+    requiresAuth: true,
   };
 
   return (
@@ -208,9 +241,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
           )
         )}
 
-        {user ? renderItem(profileItem) : null}
+        {renderItem(profileItem)}
 
-        {isLoggedIn ? renderItem(settingsItem) : null}
+        {renderItem(settingsItem)}
       </nav>
 
       <div className="mt-auto flex flex-col gap-3">
@@ -223,18 +256,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
             <PenSquare className="mr-1 h-5.5! w-5.5!" />
             <span>Create Post</span>
           </Button>
-        ) : (
-          <Button
-            asChild
-            className="h-12 w-full rounded-full px-6 py-3"
-            variant="premium"
-          >
-            <Link href="/login">
-              <PenSquare className="mr-1 h-5.5! w-5.5!" />
-              <span>Log in</span>
-            </Link>
-          </Button>
-        )}
+        ) : null}
 
         <div className="flex items-stretch gap-2">
           {userData ? <SidebarUserArea userData={userData} /> : null}

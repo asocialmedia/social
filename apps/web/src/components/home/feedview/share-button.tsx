@@ -10,6 +10,7 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import authImage from "@assets/general/auth.png";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import {
   Check,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
+import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import type * as React from "react";
 import type { SyntheticEvent } from "react";
@@ -36,6 +38,7 @@ import {
   FaWhatsapp,
 } from "react-icons/fa";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -69,8 +72,14 @@ const ShareButton = ({
 
   const baseUrl = typeof window === "undefined" ? "" : window.location.origin;
   const postUrl = `${baseUrl}/posts/${postId}`;
+  const { user } = useSession();
+  const isLoggedIn = Boolean(user);
 
   const fetchShareStats = useCallback(async () => {
+    if (!isLoggedIn) {
+      // Guests see the login prompt instead of share statistics.
+      return;
+    }
     try {
       setIsLoading(true);
       const response = await fetch(`/api/posts/${postId}/share/stats`, {
@@ -103,7 +112,7 @@ const ShareButton = ({
     } finally {
       setIsLoading(false);
     }
-  }, [postId]);
+  }, [isLoggedIn, postId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -386,6 +395,31 @@ const ShareButton = ({
   }, []);
 
   const renderStatsBody = () => {
+    if (!isLoggedIn) {
+      return (
+        <div className="flex flex-col items-center gap-2.5 py-2 text-center">
+          <Image
+            alt=""
+            aria-hidden
+            className="h-20 w-auto object-contain"
+            draggable={false}
+            height={256}
+            src={authImage}
+            width={256}
+          />
+          <p className="text-muted-foreground max-w-52 text-sm">
+            Log in to see share statistics
+          </p>
+          <Button
+            asChild
+            className="h-8 rounded-full px-4 text-xs"
+            variant="premium"
+          >
+            <Link href="/login">Log in</Link>
+          </Button>
+        </div>
+      );
+    }
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-4">

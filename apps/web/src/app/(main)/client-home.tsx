@@ -146,6 +146,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
                 ) : (
                   <div className="px-4 py-10">
                     <AuthPromptCard
+                      className="mx-auto w-full max-w-md"
                       description="Follow people you love and their fleets will land right here."
                       imageSize={128}
                       title="Log in to see your feed"

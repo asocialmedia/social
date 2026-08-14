@@ -12,6 +12,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
+import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
@@ -43,21 +45,32 @@ const ExploreClient: React.FC = () => {
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const { user: sessionUser } = useSession();
+  const isLoggedIn = Boolean(sessionUser);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
 
   const tabParam = searchParams.get("tab");
-  const activeTab: ExploreTab =
-    tabParam === "trending" ? "trending" : "for-you";
+  let activeTab: ExploreTab;
+  if (tabParam === "trending") {
+    activeTab = "trending";
+  } else if (tabParam === "for-you") {
+    activeTab = "for-you";
+  } else if (isLoggedIn) {
+    activeTab = "for-you";
+  } else {
+    // Guests default to the open Trending tab; For you is behind auth.
+    activeTab = "trending";
+  }
+
+  // "For you" needs an account (guests see the login card); Trending stays open.
+  const showForYou = isLoggedIn;
+  const canQuery = isLoggedIn || activeTab === "trending";
 
   const handleTabChange = useCallback(
     (tab: string) => {
       const nextParams = new URLSearchParams(searchParams.toString());
-      if (tab === "for-you") {
-        nextParams.delete("tab");
-      } else {
-        nextParams.set("tab", tab);
-      }
+      nextParams.set("tab", tab);
       const query = nextParams.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
     },
@@ -70,6 +83,7 @@ const ExploreClient: React.FC = () => {
   );
 
   const { data, status, isFetching } = useQuery({
+    enabled: canQuery,
     placeholderData: (previousData) => previousData,
     queryFn: async () => {
       if (debouncedSearch.trim()) {
@@ -274,7 +288,18 @@ const ExploreClient: React.FC = () => {
           className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-16 lg:pb-0"
           ref={feedScrollRef}
         >
-          {body}
+          {activeTab === "for-you" && !showForYou ? (
+            <div className="px-4 py-10">
+              <AuthPromptCard
+                className="mx-auto w-full max-w-md"
+                description="Sign in to see fleets curated just for you."
+                imageSize={128}
+                title="Log in to see your feed"
+              />
+            </div>
+          ) : (
+            body
+          )}
         </div>
         <FeedScrollbar containerRef={feedScrollRef} />
       </div>

@@ -1,6 +1,8 @@
 "use client";
 
 import type { Media } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import noMediaImage from "@assets/general/nomedia.png";
 import {
   FileAudioIcon,
   FileCode,
@@ -22,7 +24,62 @@ import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 
+// Full skeleton grid with the login prompt centered on top. Shared between the
+// desktop locked sidebar and the mobile media tab so guests see the same look.
+// Two explicit columns with alternating aspect ratios guarantee a Pinterest
+// style masonry arrangement on every screen width.
+export const MediaGalleryLocked: React.FC = () => {
+  const tileIndexes = Array.from({ length: 4 }, (_, index) => index);
+  const leftTiles = tileIndexes.filter((index) => index % 2 === 0);
+  const rightTiles = tileIndexes.filter((index) => index % 2 === 1);
+
+  const renderTile = (index: number) => (
+    <div
+      className="bg-border/60 rounded-xl"
+      key={`locked-skeleton-${index}`}
+      style={{
+        aspectRatio: SKELETON_ASPECTS[index % SKELETON_ASPECTS.length],
+      }}
+    />
+  );
+
+  return (
+    <div className="relative">
+      <div className="flex gap-2 p-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {leftTiles.map(renderTile)}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {rightTiles.map(renderTile)}
+        </div>
+      </div>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[hsl(var(--background-alt))]/75 p-4 text-center backdrop-blur-sm">
+        <Image
+          alt=""
+          className="h-28 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noMediaImage}
+          width={1536}
+        />
+        <p className="text-sm font-medium">Media</p>
+        <p className="text-muted-foreground max-w-44 text-xs">
+          Log in to see this profile's media
+        </p>
+        <Button
+          asChild
+          className="mt-1 h-8 rounded-full px-4 text-xs"
+          variant="premium"
+        >
+          <Link href="/login">Log in</Link>
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 interface MediaGalleryProps {
+  locked?: boolean;
   userId: string;
 }
 
@@ -368,13 +425,26 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
   );
 };
 
-const MediaGallery: React.FC<MediaGalleryProps> = ({ userId }) => {
+const MediaGallery: React.FC<MediaGalleryProps> = ({
+  locked = false,
+  userId,
+}) => {
   const isXl = useMediaQuery("(min-width: 1280px)");
-  const { data, status } = useUserMediaQuery(userId, isXl);
+  const { data, status } = useUserMediaQuery(userId, isXl && !locked);
   const media = useMemo(
     () => data?.pages.flatMap((page) => page.media) || [],
     [data?.pages]
   );
+
+  // Guests see a locked sidebar: a full-height skeleton grid with the login
+  // prompt centered on top of it.
+  if (locked) {
+    return (
+      <aside className="hide-native-scrollbar relative hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-hidden xl:flex">
+        <MediaGalleryLocked />
+      </aside>
+    );
+  }
 
   // Hide the sidebar entirely for profiles with no media so the feed takes the space.
   if (status === "success" && media.length === 0) {

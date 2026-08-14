@@ -13,11 +13,13 @@ import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MediaGallery, {
   MediaGalleryContent,
+  MediaGalleryLocked,
 } from "@/components/profile/media-gallery";
 import ProfileHeader from "@/components/profile/profile-header";
 import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
+import { useRequireAuth } from "@/hooks/use-require-auth";
 
 interface ProfilePageProps {
   loggedInUserData: UserData | null;
@@ -36,18 +38,33 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const router = useRouter();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  const { goToLogin } = useRequireAuth();
 
   const handleGoHome = useCallback(() => {
     router.push("/");
   }, [router]);
 
   const handleOpenSettings = useCallback(() => {
-    router.push("/settings");
-  }, [router]);
+    if (isLoggedIn) {
+      router.push("/settings");
+    } else {
+      goToLogin();
+    }
+  }, [goToLogin, isLoggedIn, router]);
 
-  const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value as ProfileTab);
-  }, []);
+  // Replies and Amplified need an account; guests see those tabs but a click
+  // bounces them to login. Media is also locked for guests, but the tab shows
+  // the same locked gallery as the desktop sidebar instead of redirecting.
+  const handleTabChange = useCallback(
+    (value: string) => {
+      if (!isLoggedIn && value !== "posts" && value !== "media") {
+        goToLogin();
+        return;
+      }
+      setActiveTab(value as ProfileTab);
+    },
+    [goToLogin, isLoggedIn]
+  );
 
   // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
   useEffect(() => {
@@ -92,16 +109,14 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </button>
-                      {isLoggedIn ? (
-                        <button
-                          aria-label="Settings"
-                          className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                          onClick={handleOpenSettings}
-                          type="button"
-                        >
-                          <Settings className="h-5 w-5" />
-                        </button>
-                      ) : null}
+                      <button
+                        aria-label="Settings"
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
+                        onClick={handleOpenSettings}
+                        type="button"
+                      >
+                        <Settings className="h-5 w-5" />
+                      </button>
                     </div>
                   </div>
 
@@ -110,28 +125,24 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
                         Posts
                       </TabsTrigger>
-                      {isLoggedIn ? (
-                        <>
-                          <TabsTrigger
-                            className={TAB_TRIGGER_CLASS}
-                            value="replies"
-                          >
-                            Replies
-                          </TabsTrigger>
-                          <TabsTrigger
-                            className={TAB_TRIGGER_CLASS}
-                            value="amplified"
-                          >
-                            Amplified
-                          </TabsTrigger>
-                          <TabsTrigger
-                            className={`${TAB_TRIGGER_CLASS} xl:hidden`}
-                            value="media"
-                          >
-                            Media
-                          </TabsTrigger>
-                        </>
-                      ) : null}
+                      <TabsTrigger
+                        className={TAB_TRIGGER_CLASS}
+                        value="replies"
+                      >
+                        Replies
+                      </TabsTrigger>
+                      <TabsTrigger
+                        className={TAB_TRIGGER_CLASS}
+                        value="amplified"
+                      >
+                        Amplified
+                      </TabsTrigger>
+                      <TabsTrigger
+                        className={`${TAB_TRIGGER_CLASS} xl:hidden`}
+                        value="media"
+                      >
+                        Media
+                      </TabsTrigger>
                     </TabsList>
                   </div>
 
@@ -151,22 +162,23 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       <TabsContent className="mt-0 pb-12" value="amplified">
                         <UserAmplifiedFeed userId={userData.id} />
                       </TabsContent>
-
-                      <TabsContent
-                        className="mt-0 pb-12 xl:hidden"
-                        value="media"
-                      >
-                        <MediaGalleryContent userId={userData.id} />
-                      </TabsContent>
                     </>
                   ) : null}
+
+                  <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
+                    {isLoggedIn ? (
+                      <MediaGalleryContent userId={userData.id} />
+                    ) : (
+                      <MediaGalleryLocked />
+                    )}
+                  </TabsContent>
                 </div>
                 <FeedScrollbar containerRef={feedScrollRef} />
               </div>
             </Tabs>
           </div>
 
-          {isLoggedIn ? <MediaGallery userId={userData.id} /> : null}
+          <MediaGallery locked={!isLoggedIn} userId={userData.id} />
         </div>
       </div>
     </div>

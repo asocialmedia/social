@@ -119,13 +119,14 @@ export default function CommentInput({
   if (!user) {
     // Guests read eddies but can't post: show a login CTA instead of the composer.
     return (
-      <div className="bg-muted/30 my-3 flex items-center justify-between gap-2 rounded-xl border border-transparent px-3 py-2.5">
+      <div className="sidebar-subcard my-3 flex items-center justify-between gap-2 rounded-xl px-3 py-2.5">
         <p className="text-muted-foreground text-sm">
           Log in to join the conversation
         </p>
         <Button
           asChild
-          className="h-8 shrink-0 rounded-full px-4 text-xs font-semibold"
+          className="btn-3d-gray h-8 shrink-0 rounded-full px-4 text-xs!"
+          variant="ghost"
         >
           <Link href="/login">Log in</Link>
         </Button>

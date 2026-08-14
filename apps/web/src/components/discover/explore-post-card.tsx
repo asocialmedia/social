@@ -1,14 +1,12 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Eye } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
-import { formatNumber } from "@/lib/utils";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -79,13 +77,6 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           }}
           postId={post.id}
         />
-        <span
-          className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums"
-          title="Views"
-        >
-          <Eye aria-hidden="true" className="h-5 w-5" />
-          {formatNumber(post.viewCount)}
-        </span>
       </div>
     </article>
   );

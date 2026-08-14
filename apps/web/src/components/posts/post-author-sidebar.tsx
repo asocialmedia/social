@@ -296,7 +296,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               </Link>
             ) : (
               <FollowButton
-                className="follow-btn-3d h-8 w-full px-3 text-sm"
+                className="h-8 w-full px-3 text-sm"
                 initialState={followerInfo}
                 userId={author.id}
               />

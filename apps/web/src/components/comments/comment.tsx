@@ -21,14 +21,24 @@ import CommentMoreButton from "./comment-more-button";
 import { MAX_COMMENT_DEPTH } from "./comment-tree";
 import type { CommentNode } from "./comment-tree";
 
-// Tree gutter between the thread rail and the avatar, plus the avatar's
-// vertical center used to anchor the SVG elbow connectors.
-const LEVEL_PAD = 20;
+// Indent per nesting level (pl-8). The reply's avatar sits at this offset,
+// giving replies room to the right of the parent's rail column.
+const LEVEL_PAD = 32;
+// The h-9 avatar is 36px tall/wide; its horizontal center is 18px from the
+// start of its row, and its vertical center is 24px (6px pt-1.5 + 18px half).
+const AVATAR_HALF = 18;
 const AVATAR_CENTER = 24;
+// Column of the thread rail: the horizontal center of the parent avatar. The
+// rail (a 2px line) is drawn at this column so it passes through the middle of
+// the avatar it hangs from, and each reply's elbow runs from it to the avatar.
+const RAIL_X = AVATAR_HALF;
 
 interface CommentItemProps {
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
+  // Marks the last sibling so its rail segment terminates at the avatar center
+  // (the connection point) instead of running the full height of the thread.
+  isLast?: boolean;
   node: CommentNode;
   post: PostData;
 }
@@ -36,6 +46,7 @@ interface CommentItemProps {
 export default function CommentItem({
   applyCreated,
   applyDeleted,
+  isLast = false,
   node,
   post,
 }: CommentItemProps) {
@@ -58,41 +69,64 @@ export default function CommentItem({
   }, [goToLogin, isLoggedIn]);
 
   return (
-    <div
-      className={hasRail ? "border-border/60 relative border-l" : "relative"}
-    >
+    <div className={`relative ${hasRail ? "pl-8" : ""}`}>
+      {/* Elbow: a rounded horizontal connector from the thread rail to this
+          reply's avatar. It starts at the rail's center (no vertical tick, so
+          nothing overlaps the rail) and ends a few px into the avatar column,
+          tucking under the avatar (which sits on a higher z-index) so the
+          connection reads as solid instead of ending at the rounded edge. */}
       {hasRail && (
-        // Reddit-style SVG elbow: a horizontal connector from the thread rail
-        // over to the avatar so every reply reads as visually anchored to its
-        // parent. The rail itself is the continuous border-l running the full
-        // height of the subtree.
         <svg
           aria-hidden="true"
-          className="pointer-events-none absolute top-0 h-full"
-          style={{ left: 0, width: LEVEL_PAD }}
+          className="pointer-events-none absolute top-0 left-0"
+          style={{ height: 48, width: LEVEL_PAD + 6 }}
         >
           <path
-            d={`M0 ${AVATAR_CENTER} H${LEVEL_PAD - 3}`}
+            d={`M${RAIL_X} ${AVATAR_CENTER} H${LEVEL_PAD + 3}`}
             fill="none"
+            opacity="0.9"
             stroke="hsl(var(--border))"
             strokeLinecap="round"
-            strokeOpacity="0.65"
-            strokeWidth="1.5"
+            strokeWidth="2"
           />
         </svg>
       )}
 
-      <div
-        className="group/comment min-w-0 pt-1.5 pr-1 pb-1.5"
-        style={hasRail ? { paddingLeft: LEVEL_PAD } : undefined}
-      >
+      {/* Rail segment for THIS reply: runs from the top of this reply down to
+          the next sibling (full height), or terminates at the avatar center if
+          this is the last sibling. The rail is centered on the parent avatar
+          column and the elbow connects it to this avatar. */}
+      {hasRail && (
+        <span
+          aria-hidden="true"
+          className="absolute top-0 w-[2px] rounded-full bg-[hsl(var(--border))]/60"
+          style={{
+            left: RAIL_X - 1,
+            ...(isLast ? { height: AVATAR_CENTER } : { bottom: 0 }),
+          }}
+        />
+      )}
+
+      {/* Stub: connects THIS comment's avatar down to its first reply's rail
+          segment, so the thread line reads as hanging off the parent avatar. */}
+      <div className="group/comment relative min-w-0 pt-1.5 pr-1 pb-1.5">
+        {children.length > 0 && (
+          <span
+            aria-hidden="true"
+            className="absolute top-6 bottom-0 w-[2px] rounded-full bg-[hsl(var(--border))]/60"
+            style={{ left: RAIL_X - 1 }}
+          />
+        )}
         <div className="flex gap-2.5">
           {comment.deleted ? (
-            <CommentAvatarFallback className="h-9 w-9" src={undefined} />
+            <CommentAvatarFallback
+              className="relative z-10 h-9 w-9"
+              src={undefined}
+            />
           ) : (
             <UserTooltip user={comment.user}>
               <Link
-                className="shrink-0"
+                className="relative z-10 shrink-0"
                 href={`/users/${comment.user.username}`}
               >
                 <CommentAvatarFallback
@@ -198,14 +232,12 @@ export default function CommentItem({
       </div>
 
       {children.length > 0 && (
-        <div
-          className="space-y-0.5"
-          style={hasRail ? { paddingLeft: LEVEL_PAD } : undefined}
-        >
-          {children.map((child) => (
+        <div className="space-y-0">
+          {children.map((child, index) => (
             <CommentItem
               applyCreated={applyCreated}
               applyDeleted={applyDeleted}
+              isLast={index === children.length - 1}
               key={child.comment.id}
               node={child}
               post={post}

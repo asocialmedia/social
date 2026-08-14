@@ -57,7 +57,11 @@ export const AuthPromptCard: React.FC<AuthPromptCardProps> = ({
       <Button asChild className="h-9 flex-1 px-4 text-sm" variant="premium">
         <Link href="/login">{primaryLabel}</Link>
       </Button>
-      <Button asChild className="h-9 flex-1 px-4 text-sm" variant="outline">
+      <Button
+        asChild
+        className="btn-3d-gray h-9 flex-1 px-4 text-sm!"
+        variant="ghost"
+      >
         <Link href="/signup">{secondaryLabel}</Link>
       </Button>
     </div>

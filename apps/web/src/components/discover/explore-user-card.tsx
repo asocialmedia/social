@@ -129,7 +129,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
         </div>
 
         <FollowButton
-          className={cn("follow-btn-3d mt-3 h-8 w-full px-3 text-xs")}
+          className={cn("mt-3 h-8 w-full px-3 text-xs")}
           initialState={{ followers, isFollowedByUser: isFollowed }}
           onFollowed={handleFollowed}
           userId={user.id}

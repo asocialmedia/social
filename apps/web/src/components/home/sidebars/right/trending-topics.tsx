@@ -7,6 +7,7 @@ import Link from "next/link";
 import type React from "react";
 import { useCallback } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { cn, formatNumber } from "@/lib/utils";
 
@@ -90,6 +91,8 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
 
 const TrendingTopics: React.FC = () => {
   const queryClient = useQueryClient();
+  const { user } = useSession();
+  const isLoggedIn = Boolean(user);
   const { data, isError, isFetching, isLoading } = useQuery<TrendingItem[]>({
     queryFn: () => getTrendingFeed(false),
     queryKey: ["trending-feed"],
@@ -116,18 +119,20 @@ const TrendingTopics: React.FC = () => {
       <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
         <TrendingUp className="text-muted-foreground h-4 w-4 shrink-0" />
         <h2 className="text-sm font-semibold">Trending</h2>
-        <Button
-          aria-label="Refresh trending"
-          className="pill-3d-hover text-muted-foreground ml-auto h-6 w-6 rounded-full"
-          disabled={isFetching}
-          onClick={handleRefresh}
-          size="icon"
-          variant="ghost"
-        >
-          <RefreshCw
-            className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
-          />
-        </Button>
+        {isLoggedIn ? (
+          <Button
+            aria-label="Refresh trending"
+            className="pill-3d-hover text-muted-foreground ml-auto h-6 w-6 rounded-full"
+            disabled={isFetching}
+            onClick={handleRefresh}
+            size="icon"
+            variant="ghost"
+          >
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
+            />
+          </Button>
+        ) : null}
       </div>
       {isError ? (
         <div className="px-2.5 py-2">

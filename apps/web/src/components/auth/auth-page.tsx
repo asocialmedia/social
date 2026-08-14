@@ -2,7 +2,9 @@
 
 import loginImage from "@assets/auth/login-image.jpg";
 import signupImage from "@assets/auth/signup-image.jpg";
+import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import AuthCard from "@/components/auth/auth-card";
@@ -61,8 +63,15 @@ export default function AuthPage({ initialMode }: { initialMode: AuthMode }) {
           </AnimatePresence>
         </div>
 
-        <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-5 p-4 sm:p-8">
           <AuthCard mode={mode} onSwitch={setMode} />
+          <Link
+            className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 text-sm transition-colors"
+            href="/"
+          >
+            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+            Skip for now — continue browsing as guest
+          </Link>
         </div>
 
         <motion.div

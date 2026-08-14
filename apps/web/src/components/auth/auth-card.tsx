@@ -1,5 +1,6 @@
 "use client";
 
+import asmLogo from "@assets/asm.png";
 import loginImage from "@assets/auth/login-image.jpg";
 import signupImage from "@assets/auth/signup-image.jpg";
 import { AnimatePresence, motion } from "motion/react";
@@ -116,6 +117,27 @@ export default function AuthCard({
   );
 }
 
+const AuthHeading = ({ text }: { text: string }) => (
+  <>
+    <div className="mb-4 flex items-center justify-center gap-2.5">
+      <div className="relative h-8 w-11 shrink-0 md:hidden">
+        <Image
+          alt="Asocialmedia"
+          className="object-contain"
+          fill
+          sizes="44px"
+          src={asmLogo}
+        />
+      </div>
+      <h2 className="text-3xl leading-none font-bold text-[#ff9500] sm:text-4xl">
+        {text}
+      </h2>
+    </div>
+    {/* Mobile-only divider under the heading */}
+    <div aria-hidden className="bg-muted/80 mx-auto mb-5 h-px w-16 md:hidden" />
+  </>
+);
+
 const LoginContent = ({
   activeProvider,
   end,
@@ -132,9 +154,7 @@ const LoginContent = ({
   onSwitch: () => void;
 }) => (
   <>
-    <h2 className="mb-6 text-center text-3xl font-bold text-[#ff9500] sm:text-4xl">
-      Welcome Back
-    </h2>
+    <AuthHeading text="Welcome Back" />
 
     <div className="mb-3 grid grid-cols-1 gap-0 sm:grid-cols-2 md:gap-2">
       <AuthButtonWrapper className="w-full">
@@ -175,9 +195,7 @@ const LoginContent = ({
 
 const SignupContent = ({ onSwitch }: { onSwitch: () => void }) => (
   <>
-    <h2 className="mb-6 text-center text-3xl font-bold text-[#ff9500] sm:text-4xl">
-      Launch Your Journey
-    </h2>
+    <AuthHeading text="Launch Your Journey" />
 
     <SignUpForm />
 

@@ -107,7 +107,7 @@ const RightSideBar: React.FC = () => {
                     </span>
                   </Link>
                   <FollowButton
-                    className="follow-btn-3d h-8 shrink-0 px-3 text-xs"
+                    className="h-8 shrink-0 px-3 text-xs"
                     initialState={{
                       followers:
                         followStates?.[suggestedUser.id]?.followers ??

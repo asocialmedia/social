@@ -2,25 +2,30 @@ import { describe, expect, mock, test } from "bun:test";
 
 const published = mock((_channel: string, _message: string) => 1);
 
-mock.module("@asm/db", () => ({
-  commentChannel: (postId: string) => `comments:${postId}`,
-  publishCommentEvent: async (event: {
-    comment: unknown;
-    kind: "comment.created" | "comment.deleted";
-    postId: string;
-  }) => {
-    try {
-      await published(`comments:${event.postId}`, JSON.stringify(event));
-    } catch {
-      // Publish failures are intentionally swallowed by the real helper.
-    }
-  },
-  redis: {
-    publish: published,
-  },
+class FakeIoRedis {
+  status = "ready";
+  publish: typeof published = published;
+  connect = mock(() => this);
+  on = mock((_event: string, _listener: () => void) => this);
+  quit = mock(() => "OK");
+  subscribe = mock(() => 1);
+  unsubscribe = mock(() => 1);
+  duplicate = mock(() => this);
+}
+
+// Mock the third-party client so the real @asm/db redis module runs against a
+// fake instead of a live connection. This keeps @asm/db untouched, so other
+// test files that mock the barrel are unaffected.
+mock.module("ioredis", () => ({
+  default: FakeIoRedis,
 }));
 
-const { commentChannel, publishCommentEvent } = await import("@asm/db");
+const {
+  commentChannel,
+  parseCommentEvent,
+  publishCommentEvent,
+  serializeCommentEvent,
+} = await import("@asm/db");
 
 describe("comment channel naming", () => {
   test("namespaces the channel per post", () => {
@@ -65,9 +70,7 @@ describe("publishCommentEvent", () => {
 });
 
 describe("event (de)serialization", () => {
-  test("serialize -> parse round-trips", async () => {
-    const { parseCommentEvent, serializeCommentEvent } =
-      await import("./redis");
+  test("serialize -> parse round-trips", () => {
     const raw = serializeCommentEvent({
       comment: { aura: 3, id: "c1" },
       kind: "comment.created",
@@ -81,8 +84,7 @@ describe("event (de)serialization", () => {
     });
   });
 
-  test("rejects malformed payloads", async () => {
-    const { parseCommentEvent } = await import("./redis");
+  test("rejects malformed payloads", () => {
     expect(parseCommentEvent("not json")).toBeNull();
     expect(parseCommentEvent('{"kind":"comment.created"}')).toBeNull();
     expect(
