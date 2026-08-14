@@ -3,6 +3,7 @@ import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import Image from "next/image";
 
 import { cn, isGifUrl, supportsTransparency } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UserAvatarProps {
   avatarUrl?: string | null;
@@ -21,7 +22,9 @@ export default function UserAvatar({
 }: UserAvatarProps) {
   const avatarUrl = user?.avatarUrl ?? directAvatarUrl;
   const resolvedSrc =
-    typeof avatarUrl === "string" ? avatarUrl : avatarPlaceholder.src;
+    typeof avatarUrl === "string"
+      ? getSecureImageUrl(avatarUrl)
+      : avatarPlaceholder.src;
   const transparent = supportsTransparency(resolvedSrc);
 
   return (

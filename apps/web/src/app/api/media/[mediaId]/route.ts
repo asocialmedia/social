@@ -56,6 +56,7 @@ export async function GET(
       key: true,
       mimeType: true,
       size: true,
+      thumbnailKey: true,
       type: true,
     },
     where: { id: mediaId },
@@ -68,14 +69,22 @@ export async function GET(
   try {
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
+    const isThumbnail = url.searchParams.get("thumb") === "1";
+    // Video thumbnails live under their own key; serving them through this
+    // route keeps the bucket private while giving every consumer one URL.
+    const objectKey =
+      isThumbnail && media.thumbnailKey ? media.thumbnailKey : media.key;
     // Browsers ask for a byte range when loading <video>/<audio> and when
     // seeking. Forward the request to storage so only the requested chunk is
-    // transferred instead of the whole file on every interaction.
-    const range = request.headers.get("range") || undefined;
+    // transferred instead of the whole file on every interaction. Thumbnails
+    // are small JPEGs and never need ranges.
+    const range = isThumbnail
+      ? undefined
+      : request.headers.get("range") || undefined;
 
     const command = new GetObjectCommand({
       Bucket: ASMOB_BUCKET,
-      Key: media.key,
+      Key: objectKey,
       ...(range ? { Range: range } : {}),
     });
 
@@ -88,7 +97,9 @@ export async function GET(
     const headers = new Headers();
     headers.set(
       "Content-Type",
-      media.mimeType || response.ContentType || "application/octet-stream"
+      isThumbnail
+        ? "image/jpeg"
+        : media.mimeType || response.ContentType || "application/octet-stream"
     );
 
     const filename = media.key.split("/").pop() || "file";

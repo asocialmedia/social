@@ -23,6 +23,7 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 // Full skeleton grid with the login prompt centered on top. Shared between the
 // desktop locked sidebar and the mobile media tab so guests see the same look.
@@ -109,10 +110,15 @@ const VideoTile = ({
       clearTimeout(hoverTimeoutRef.current);
     }
     hoverTimeoutRef.current = setTimeout(() => {
-      try {
-        void videoRef.current?.play();
-      } catch {
-        // Autoplay may be blocked; ignore
+      const video = videoRef.current;
+      if (video) {
+        void (async () => {
+          try {
+            await video.play();
+          } catch {
+            // Autoplay may be blocked or aborted; ignore safely
+          }
+        })();
       }
     }, VIDEO_HOVER_DELAY);
   }, []);
@@ -124,9 +130,13 @@ const VideoTile = ({
     }
     const video = videoRef.current;
     if (video) {
-      video.pause();
-      if (video.duration > 2) {
-        video.currentTime = 2;
+      try {
+        video.pause();
+        if (video.readyState >= 1 && video.duration > 2) {
+          video.currentTime = 2;
+        }
+      } catch {
+        // Ignore seek aborts
       }
     }
   }, []);
@@ -165,6 +175,7 @@ const VideoTile = ({
         muted
         onLoadedMetadata={handleLoadedMetadata}
         playsInline
+        poster={getMediaProxyUrl(item)}
         preload="metadata"
         ref={videoRef}
         src={getMediaUrl(item.id)}

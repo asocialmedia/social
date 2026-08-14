@@ -66,20 +66,50 @@ export function postTitle(post: PostData, maxLength = 60): string {
  * SEO description for a post: the content excerpt plus the tags as keywords.
  */
 export function postDescription(post: PostData): string {
-  const contentExcerpt = excerpt(post.content, 140);
+  const content = post.content?.trim();
+  const base =
+    content && content.length >= 20
+      ? content
+      : `${content || "Eddie"} on Asocialmedia by ${post.user.displayName || post.user.username} (@${post.user.username})`;
+  const contentExcerpt = excerpt(base, 140);
   const tags = post.tags.map((tag) => `#${tag.name}`).join(" ");
   return [contentExcerpt, tags].filter(Boolean).join(" · ");
 }
 
+// Media objects live in private object storage and are streamed through the
+// app's /api/media proxy, so image URLs in metadata must point at the proxy
+// path rather than the stored bucket URL. Videos are previewable too: the
+// uploader stores a 2s thumbnail frame that is served via ?thumb=1.
+function toMediaProxyUrl(media: {
+  id: string;
+  type: string;
+  thumbnailKey?: string | null;
+}): string {
+  const thumbnail =
+    media.type === "VIDEO" && media.thumbnailKey ? "?thumb=1" : "";
+  return `/api/media/${media.id}${thumbnail}`;
+}
+
+// Images always work for crawlers; videos work when a thumbnail was stored.
+function isPreviewable(media: {
+  type: string;
+  thumbnailKey?: string | null;
+}): boolean {
+  return (
+    media.type.toLowerCase().startsWith("image") ||
+    (media.type === "VIDEO" && Boolean(media.thumbnailKey))
+  );
+}
+
 /**
- * First image attachment of a post, absolute, or null when the post has no
- * images (videos are skipped because social crawlers cannot preview them).
+ * First previewable attachment of a post, absolute, or null when the post has
+ * none (videos without a stored thumbnail are skipped).
  */
 export function getPostImage(post: PostData): string | null {
   const media = post.attachments.find((attachment) =>
-    attachment.type.toLowerCase().startsWith("image")
+    isPreviewable(attachment)
   );
-  return toAbsoluteUrl(media?.url);
+  return media ? absoluteUrl(toMediaProxyUrl(media)) : null;
 }
 
 /**
@@ -87,8 +117,8 @@ export function getPostImage(post: PostData): string | null {
  */
 export function getMediaImage(post: PostData, index: number): string | null {
   const media = post.attachments[index];
-  if (!media || !media.type.toLowerCase().startsWith("image")) {
+  if (!media || !isPreviewable(media)) {
     return null;
   }
-  return toAbsoluteUrl(media.url);
+  return absoluteUrl(toMediaProxyUrl(media));
 }

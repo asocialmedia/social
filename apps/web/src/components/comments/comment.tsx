@@ -11,6 +11,7 @@ import AuraVoteButton from "@/components/posts/aura-vote-button";
 import Linkify from "@/helpers/global/linkify";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { formatRelativeDate } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import {
   CommentAttachments,
@@ -142,12 +143,17 @@ export default function CommentItem({
           ) : (
             <UserTooltip user={comment.user}>
               <Link
+                aria-label={`View @${comment.user.username}'s profile`}
                 className="relative z-10 shrink-0"
                 href={`/users/${comment.user.username}`}
               >
                 <CommentAvatarFallback
                   className="h-9 w-9"
-                  src={comment.user.avatarUrl}
+                  src={
+                    comment.user.avatarUrl
+                      ? getSecureImageUrl(comment.user.avatarUrl)
+                      : undefined
+                  }
                 />
               </Link>
             </UserTooltip>

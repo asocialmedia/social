@@ -17,6 +17,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface PostAuthorSidebarProps {
   post: PostData;
@@ -68,6 +69,7 @@ const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
           muted
           onLoadedMetadata={seekToThumbnail}
           playsInline
+          poster={getMediaProxyUrl(media)}
           preload="metadata"
           src={getMediaUrl(media.id)}
         />
@@ -322,7 +324,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm leading-tight font-semibold">More from</p>
-              <p className="text-primary truncate text-xs leading-tight">
+              <p className="text-foreground/80 truncate text-xs leading-tight font-medium">
                 @{author.username}
               </p>
             </div>

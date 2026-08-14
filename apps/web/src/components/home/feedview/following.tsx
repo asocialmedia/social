@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useCallback } from "react";
 
 import { FeedView } from "@/components/home/feed-view";
+import FeedEnd from "@/components/home/feedview/feed-end";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -75,6 +76,7 @@ export default function FollowingFeed() {
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       <FeedView posts={posts} />
       {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
+      {posts.length > 0 && !hasNextPage ? <FeedEnd /> : null}
     </InfiniteScrollContainer>
   );
 }

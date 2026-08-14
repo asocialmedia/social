@@ -26,10 +26,11 @@ export async function processPostDeleted(
   await withSpan(
     "job.post-deleted",
     async () => {
-      // Load all attachments of the deleted post, delete their objects, then
-      // the rows. Fixes the orphaned-media leak caused by onDelete: SetNull.
+      // Load all attachments of the deleted post, delete their objects (plus
+      // any video thumbnail frames), then the rows. Fixes the orphaned-media
+      // leak caused by onDelete: SetNull.
       const media = await prisma.media.findMany({
-        select: { id: true, key: true },
+        select: { id: true, key: true, thumbnailKey: true },
         where: { postId },
       });
 
@@ -37,6 +38,9 @@ export async function processPostDeleted(
         media.map(async (m) => {
           if (m.key) {
             await deleteObject(m.key);
+          }
+          if (m.thumbnailKey) {
+            await deleteObject(m.thumbnailKey);
           }
         })
       );
@@ -100,6 +104,7 @@ export async function processMediaCleanup(
           id: true,
           key: true,
           postId: true,
+          thumbnailKey: true,
         },
         where: { id: mediaId },
       });
@@ -109,6 +114,9 @@ export async function processMediaCleanup(
       if (media && !media.postId && !media.commentId) {
         if (media.key) {
           await deleteObject(media.key);
+        }
+        if (media.thumbnailKey) {
+          await deleteObject(media.thumbnailKey);
         }
         await prisma.media.delete({ where: { id: mediaId } });
         log.info({ mediaId }, "abandoned media cleaned up");

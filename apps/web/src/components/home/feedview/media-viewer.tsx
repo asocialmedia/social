@@ -26,6 +26,7 @@ import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { cn, formatNumber } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 import { CodePreview } from "./code-preview";
 import { CustomVideoPlayer } from "./custom-video-player";
@@ -255,6 +256,7 @@ const MediaViewer = ({
         )}
         onError={handleMediaLoaded}
         onLoadedData={handleMediaLoaded}
+        poster={getMediaProxyUrl(item)}
         src={getMediaUrl(item.id)}
       />
     </div>
@@ -390,7 +392,11 @@ const MediaViewer = ({
           <ShareButton
             description={post.content}
             postId={post.id}
-            thumbnail={post.attachments[0]?.url}
+            thumbnail={
+              post.attachments[0]
+                ? getMediaProxyUrl(post.attachments[0])
+                : undefined
+            }
             title={post.content}
           />
         </div>
@@ -597,7 +603,11 @@ const MediaViewer = ({
                 <ShareButton
                   description={post.content}
                   postId={post.id}
-                  thumbnail={post.attachments[0]?.url}
+                  thumbnail={
+                    post.attachments[0]
+                      ? getMediaProxyUrl(post.attachments[0])
+                      : undefined
+                  }
                   title={post.content}
                 />
               </div>
@@ -612,10 +622,11 @@ const MediaViewer = ({
                       View more content
                     </span>
                     <Link
+                      aria-label="View all posts on the global feed"
                       className="text-primary shrink-0 text-sm font-medium hover:underline"
                       href="/"
                     >
-                      See more
+                      View all posts
                     </Link>
                   </div>
                   <RelatedPosts excludePostId={post.id} />

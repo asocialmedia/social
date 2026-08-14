@@ -70,6 +70,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
   return (
     <div className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link
+        aria-label={`View ${user.displayName || user.username}'s profile`}
         className="relative block h-24 w-full overflow-hidden"
         href={`/users/${user.username}`}
       >
@@ -84,7 +85,11 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
 
       <div className="p-3">
         <div className="relative z-10 -mt-10 flex items-end justify-between">
-          <Link className="shrink-0" href={`/users/${user.username}`}>
+          <Link
+            aria-label={`View ${user.displayName || user.username}'s profile`}
+            className="shrink-0"
+            href={`/users/${user.username}`}
+          >
             <UserAvatar
               avatarUrl={user.avatarUrl}
               className="rounded-2xl ring-4 ring-[hsl(var(--background-alt))]"

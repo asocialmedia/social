@@ -29,6 +29,7 @@ interface CustomVideoPlayerProps {
   className?: string;
   onError: () => void;
   onLoadedData: () => void;
+  poster?: string;
   src: string;
 }
 
@@ -77,6 +78,7 @@ export const CustomVideoPlayer = ({
   onError,
   className,
   captions = EMPTY_CAPTIONS,
+  poster,
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -153,11 +155,18 @@ export const CustomVideoPlayer = ({
   }, []);
 
   const handlePlayPause = useCallback(() => {
-    if (videoRef.current) {
+    const video = videoRef.current;
+    if (video) {
       if (isPlaying) {
-        videoRef.current.pause();
+        video.pause();
       } else {
-        videoRef.current.play();
+        void (async () => {
+          try {
+            await video.play();
+          } catch {
+            setIsPlaying(false);
+          }
+        })();
       }
       setIsPlaying(!isPlaying);
     }
@@ -369,6 +378,7 @@ export const CustomVideoPlayer = ({
         onError={onError}
         onLoadedData={onLoadedData}
         playsInline
+        poster={poster}
         preload="metadata"
         ref={videoRef}
         src={src}

@@ -173,6 +173,7 @@ export default function CommentInput({
           />
           <input
             accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.mp4,.mov,.webm"
+            aria-label="Add image or video attachment"
             className="sr-only"
             multiple
             onChange={handleFileInputChange}

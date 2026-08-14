@@ -137,7 +137,9 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
       <div
         aria-hidden
         className="absolute inset-0 scale-110 bg-cover bg-center opacity-30 blur-md"
-        style={{ backgroundImage: `url(${userData.avatarUrl})` }}
+        style={{
+          backgroundImage: `url(${getSecureImageUrl(userData.avatarUrl)})`,
+        }}
       />
     );
   } else {
@@ -152,7 +154,6 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
         <PopoverTrigger asChild>
           <button
             aria-haspopup="dialog"
-            aria-label="Open your profile"
             className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
             type="button"
           >

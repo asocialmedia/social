@@ -1,7 +1,7 @@
 .tiptap p.is-editor-empty:first-child::before {
   float: left;
   height: 0;
-  color: var(--background-alt);
+  color: hsl(var(--muted-foreground) / 0.7);
   pointer-events: none;
   content: attr(data-placeholder);
 }

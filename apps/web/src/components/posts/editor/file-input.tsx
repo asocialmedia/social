@@ -115,6 +115,7 @@ const FileButton = ({
       </button>
       <input
         accept={accept}
+        aria-label={label}
         capture={capture}
         className="sr-only"
         multiple

@@ -6,7 +6,7 @@ import { cache } from "react";
 
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
-import { absoluteUrl, excerpt, toAbsoluteUrl } from "@/lib/seo";
+import { absoluteUrl, excerpt } from "@/lib/seo";
 import { getSessionFromApi } from "@/lib/session";
 
 import ClientProfile from "./client-profile";
@@ -40,11 +40,16 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const user = await getUser(username, session?.user?.id ?? "");
 
   const title = `${user.displayName} (@${user.username})`;
-  const description = user.bio?.trim()
-    ? excerpt(user.bio, 160)
-    : `${user.displayName} (@${user.username}) on Asocialmedia — join the conversation, read their eddies, and follow along.`;
+  const bio = user.bio?.trim();
+  const description =
+    bio && bio.length >= 25
+      ? excerpt(bio, 160)
+      : `${user.displayName || user.username} (@${user.username}) on Asocialmedia — ${bio ? `${bio}. ` : ""}Join the conversation, read their eddies, and follow along.`;
   const url = absoluteUrl(`/users/${user.username}`);
-  const avatar = toAbsoluteUrl(user.avatarUrl);
+  // Avatar is streamed through the app proxy (buckets are private).
+  const avatar = user.avatarUrl
+    ? absoluteUrl(`/api/users/avatar/${user.id}/image`)
+    : null;
 
   return {
     alternates: { canonical: `/users/${user.username}` },
@@ -93,7 +98,10 @@ export default async function Page(props: PageProps) {
   }
 
   const profileUrl = absoluteUrl(`/users/${userData.username}`);
-  const avatar = toAbsoluteUrl(userData.avatarUrl);
+  // Avatar is streamed through the app proxy (buckets are private).
+  const avatar = userData.avatarUrl
+    ? absoluteUrl(`/api/users/avatar/${userData.id}/image`)
+    : null;
 
   const profileJsonLd = {
     "@context": "https://schema.org",

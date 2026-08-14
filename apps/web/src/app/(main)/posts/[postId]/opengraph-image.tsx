@@ -40,16 +40,19 @@ const fontOptions = [
 
 interface PostCardData {
   attachments: {
+    id: string;
     type: string;
-    url: string;
     width: number | null;
     height: number | null;
+    thumbnailKey: string | null;
+    thumbnailWidth: number | null;
+    thumbnailHeight: number | null;
   }[];
   aura: number;
   content: string;
   createdAt: Date;
   tags: { name: string }[];
-  user: { avatarUrl: string | null; displayName: string; username: string };
+  user: { displayName: string; id: string; username: string };
   _count: { comments: number; vote: number };
 }
 
@@ -61,24 +64,31 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
-// For the shareable media route the index param selects a specific attachment;
-// otherwise the first image of the post is shown. Videos are skipped because
-// social crawlers cannot render them in a card.
+// Images always render in the card; videos render when the uploader stored a
+// thumbnail frame (served via ?thumb=1). For the shareable media route the
+// index param selects a specific attachment.
+function isCardPreviewable(
+  media: PostCardData["attachments"][number]
+): boolean {
+  return (
+    media.type.toLowerCase().startsWith("image") ||
+    (media.type === "VIDEO" && Boolean(media.thumbnailKey))
+  );
+}
+
 function getCardMedia(
   post: PostCardData,
   index: string | undefined
 ): PostCardData["attachments"][number] | undefined {
   if (index === undefined) {
-    return post.attachments.find((a) =>
-      a.type.toLowerCase().startsWith("image")
-    );
+    return post.attachments.find((a) => isCardPreviewable(a));
   }
   if (
     INDEX_SEGMENT_PATTERN.test(index) &&
     Number(index) < post.attachments.length
   ) {
     const media = post.attachments[Number(index)];
-    if (media.type.toLowerCase().startsWith("image")) {
+    if (isCardPreviewable(media)) {
       return media;
     }
   }
@@ -103,8 +113,8 @@ export default async function Image({
       tags: { select: { name: true } },
       user: {
         select: {
-          avatarUrl: true,
           displayName: true,
+          id: true,
           username: true,
         },
       },
@@ -139,18 +149,32 @@ export default async function Image({
     showMedia ? CONTENT_MAX_WITH_MEDIA : CONTENT_MAX
   );
 
-  const avatarUrl = toAbsoluteUrl(post.user.avatarUrl);
+  // Avatar and media are served through the app proxy (buckets are private).
+  const avatarUrl = post.user.id
+    ? toAbsoluteUrl(`/api/users/avatar/${post.user.id}/image`)
+    : null;
   const tagText = post.tags
     .slice(0, 3)
     .map((t) => `#${t.name}`)
     .join("  ");
   const dateText = formatDate(post.createdAt);
 
+  const showVideoThumb = showMedia?.type === "VIDEO";
+
   const mediaBlock = showMedia
     ? {
-        height: showMedia.height ?? 630,
-        src: toAbsoluteUrl(showMedia.url) ?? "",
-        width: showMedia.width ?? 520,
+        // Video thumbnails use the extracted frame's own dimensions so the
+        // card never distorts the crop.
+        height: showVideoThumb
+          ? (showMedia.thumbnailHeight ?? 630)
+          : (showMedia.height ?? 630),
+        src:
+          toAbsoluteUrl(
+            `/api/media/${showMedia.id}${showVideoThumb ? "?thumb=1" : ""}`
+          ) ?? "",
+        width: showVideoThumb
+          ? (showMedia.thumbnailWidth ?? 520)
+          : (showMedia.width ?? 520),
       }
     : null;
 

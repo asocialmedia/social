@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
@@ -28,6 +29,7 @@ import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
@@ -82,38 +84,16 @@ const PostContent: React.FC<PostContentProps> = ({
     if (!el) {
       return;
     }
-    // Content collapses to 6 lines (line-clamp-6). Compare the full content
-    // height against 6 rendered lines so short posts never get a toggle, even
-    // when the post is shown fully expanded (detail view).
-    const paragraph = el.querySelector("p");
-    const computedLineHeight = paragraph
-      ? Number(getComputedStyle(paragraph).lineHeight)
-      : 0;
-    const lineHeight =
-      Number.isFinite(computedLineHeight) && computedLineHeight > 0
-        ? computedLineHeight
-        : 24;
-    setIsOverflowing(el.scrollHeight > lineHeight * 6);
+    // 6 lines at ~24px line-height = 144px threshold
+    setIsOverflowing(el.scrollHeight > 144);
   }, []);
 
-  useLayoutEffect(() => {
-    updateOverflow();
-  }, [isExpanded, updateOverflow]);
-
   useEffect(() => {
-    const frame = requestAnimationFrame(updateOverflow);
-    return () => cancelAnimationFrame(frame);
-  }, [updateOverflow]);
-
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) {
-      return;
+    // Only check if content is long enough to potentially overflow
+    if (post.content && post.content.length > 150) {
+      updateOverflow();
     }
-    const observer = new ResizeObserver(updateOverflow);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [updateOverflow]);
+  }, [isExpanded, post.content, updateOverflow]);
 
   return (
     <div className="flex gap-3">
@@ -292,12 +272,76 @@ const PostContent: React.FC<PostContentProps> = ({
             <ShareButton
               description={post.content}
               postId={post.id}
-              thumbnail={post.attachments[0]?.url}
+              thumbnail={
+                post.attachments[0]
+                  ? getMediaProxyUrl(post.attachments[0])
+                  : undefined
+              }
               title={post.content}
             />
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Feed eddies are capped at this height; anything beyond it is hidden behind
+// a fade and a "Show more" link that opens the full post page.
+const COMMENTS_MAX_HEIGHT = 480;
+
+const FeedComments: React.FC<{ post: ExtendedPostData }> = ({ post }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isClamped, setIsClamped] = useState(false);
+
+  const measure = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) {
+      return;
+    }
+    // scrollHeight reports the full content height even while clipped, so the
+    // clamp only turns on once the eddies genuinely outgrow the limit.
+    setIsClamped(el.scrollHeight > COMMENTS_MAX_HEIGHT);
+  }, []);
+
+  useLayoutEffect(() => {
+    measure();
+  }, [measure]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) {
+      return;
+    }
+    // Re-measure as eddies stream in or load via pagination.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure]);
+
+  return (
+    <div className="border-border/60 border-t px-4 pt-2 pb-4">
+      <div
+        className={cn(
+          isClamped &&
+            "overflow-hidden [mask-image:linear-gradient(to_bottom,black_85%,transparent)]"
+        )}
+        ref={containerRef}
+        style={isClamped ? { maxHeight: COMMENTS_MAX_HEIGHT } : undefined}
+      >
+        <Comments post={post} />
+      </div>
+      {isClamped ? (
+        <div className="mt-2.5 flex justify-center">
+          <Button
+            asChild
+            className="h-8 rounded-full px-4 text-xs"
+            variant="premium"
+          >
+            <Link href={`/posts/${post.id}`}>Show more eddies</Link>
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -396,16 +440,25 @@ const PostCard: React.FC<PostCardProps> = ({
     />
   );
 
-  const commentsSection = showComments ? (
-    <div className="border-border/60 border-t px-4 pt-2 pb-4">
-      <Comments post={post} />
-    </div>
-  ) : null;
+  let commentsSection: React.ReactNode = null;
+  if (showComments) {
+    commentsSection = detail ? (
+      <div className="border-border/60 border-t px-4 pt-2 pb-4">
+        <Comments post={post} />
+      </div>
+    ) : (
+      <FeedComments post={post} />
+    );
+  }
 
   return (
-    <motion.div
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure
+    <motion.article
       animate={{ opacity: 1 }}
-      className={`${post.hnStoryShare ? "hn-story-share" : ""} ${detail ? "cursor-default" : "cursor-pointer"}`}
+      className={cn(
+        post.hnStoryShare ? "hn-story-share" : "",
+        detail ? "cursor-default" : "cursor-pointer"
+      )}
       id={`post-${post.id}`}
       initial={{ opacity: 0 }}
       onClick={handleCardClick}
@@ -435,7 +488,7 @@ const PostCard: React.FC<PostCardProps> = ({
           {commentsSection}
         </Card>
       )}
-    </motion.div>
+    </motion.article>
   );
 };
 

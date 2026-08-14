@@ -25,6 +25,7 @@ FROM node:24-alpine AS runtime
 RUN apk add --no-cache \
     openssl \
     curl \
+    ffmpeg \
     && addgroup -g 1001 -S nodejs \
     && adduser -S nextjs -u 1001
 WORKDIR /app

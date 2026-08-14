@@ -11,6 +11,7 @@ import type React from "react";
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -57,6 +58,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
               className="absolute inset-0 h-full w-full object-cover"
               muted
               playsInline
+              poster={getMediaProxyUrl(firstMedia)}
               preload="metadata"
               src={getMediaUrl(firstMedia.id)}
             />
@@ -158,7 +160,7 @@ const PostHistoryCard: React.FC = () => {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm leading-tight font-semibold">Recents</p>
-          <p className="text-primary truncate text-xs leading-tight">
+          <p className="text-foreground/80 truncate text-xs leading-tight font-medium">
             Recently visited posts
           </p>
         </div>

@@ -23,6 +23,18 @@
   }
 }
 
+/* Feed scrollbar thumb styling */
+.feed-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.28);
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.08);
+}
+.feed-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.45);
+}
+.feed-scrollbar-thumb:active {
+  background: hsl(var(--foreground) / 0.6);
+}
+
 .avatar-ring {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.5),

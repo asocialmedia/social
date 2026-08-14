@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import { cn, isGifUrl } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -47,6 +48,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
           controls
           onError={handleError}
           playsInline
+          poster={getMediaProxyUrl(media)}
           preload="metadata"
           src={getMediaUrl(media.id)}
         />

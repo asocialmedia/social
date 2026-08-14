@@ -296,16 +296,31 @@ export default function PostEditor({
                 isDragActive && "ring-primary ring-2 ring-offset-2"
               )}
             >
-              <EditorContent
-                className={cn(
-                  "premium-input text-foreground max-h-80 w-full overflow-y-auto px-5 py-3",
-                  "transition-all duration-300 ease-in-out",
-                  "focus-within:ring-primary focus-within:ring-2",
-                  isDragActive && "outline-primary outline-dashed"
-                )}
-                editor={editor}
-                onPaste={onPaste}
-              />
+              {editor ? (
+                <EditorContent
+                  className={cn(
+                    "premium-input text-foreground max-h-80 w-full overflow-y-auto px-5 py-3",
+                    "transition-all duration-300 ease-in-out",
+                    "focus-within:ring-primary focus-within:ring-2",
+                    isDragActive && "outline-primary outline-dashed"
+                  )}
+                  editor={editor}
+                  onPaste={onPaste}
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "premium-input text-foreground max-h-80 w-full overflow-y-auto px-5 py-3",
+                    "transition-all duration-300 ease-in-out"
+                  )}
+                >
+                  <div className="tiptap">
+                    <p className="text-muted-foreground/70 select-none">
+                      What&apos;s crack-a-lackin&apos;?
+                    </p>
+                  </div>
+                </div>
+              )}
               <InlineSuggestions
                 editor={editor}
                 onSelectMention={addMention}

@@ -228,14 +228,18 @@ model Media {
   post      Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
   commentId String?
   comment   Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  type      MediaType
-  url       String
-  key       String    @default("")
-  mimeType  String    @default("application/octet-stream")
-  size      Int       @default(0)
-  width     Int?
-  height    Int?
-  createdAt DateTime  @default(now())
+  type              MediaType
+  url               String
+  key               String    @default("")
+  mimeType          String    @default("application/octet-stream")
+  size              Int       @default(0)
+  width             Int?
+  height            Int?
+  // Frame extracted at ~2s for video uploads; served via /api/media/{id}?thumb=1
+  thumbnailKey      String?
+  thumbnailWidth    Int?
+  thumbnailHeight   Int?
+  createdAt         DateTime  @default(now())
 
   @@index([commentId])
   @@map("post_media")

@@ -100,10 +100,11 @@ const ClientPost: React.FC<ClientPostProps> = ({
                     View more content
                   </span>
                   <Link
+                    aria-label="View all posts on the global feed"
                     className="text-primary shrink-0 text-sm font-medium hover:underline"
                     href="/"
                   >
-                    See more
+                    View all posts
                   </Link>
                 </div>
                 <HomeFeed excludePostId={post.id} variant="global" />

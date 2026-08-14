@@ -19,7 +19,12 @@ export default async function Layout({
   return (
     <SessionProvider value={session}>
       <SpotlightProvider>
-        <div className="font-sofiaProSoft flex flex-1 flex-col">{children}</div>
+        <main
+          className="font-sofiaProSoft flex flex-1 flex-col"
+          id="main-content"
+        >
+          {children}
+        </main>
       </SpotlightProvider>
       {isLoggedIn ? <FloatingPostComposer /> : <GuestAuthBar />}
       <GooeyToaster />

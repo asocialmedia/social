@@ -7,6 +7,7 @@ import type React from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -48,6 +49,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 loop
                 muted
                 playsInline
+                poster={getMediaProxyUrl(media)}
                 preload="metadata"
                 src={getMediaUrl(media.id)}
               />

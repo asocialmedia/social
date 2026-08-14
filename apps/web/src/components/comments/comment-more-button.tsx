@@ -36,7 +36,12 @@ export default function CommentMoreButton({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button className={className} size="icon" variant="ghost">
+          <Button
+            aria-label="Comment options"
+            className={className}
+            size="icon"
+            variant="ghost"
+          >
             <MoreHorizontal className="text-muted-foreground size-5" />
           </Button>
         </DropdownMenuTrigger>

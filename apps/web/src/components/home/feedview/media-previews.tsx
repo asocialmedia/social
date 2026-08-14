@@ -14,6 +14,7 @@ import { useMediaQuery } from "usehooks-ts";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
 import MediaViewer from "./media-viewer";
@@ -111,11 +112,13 @@ const VideoPreview = ({
     previewStartedRef.current = true;
     const video = containerRef.current?.querySelector("video");
     if (video) {
-      try {
-        void video.play();
-      } catch {
-        // Autoplay may be blocked; ignore
-      }
+      void (async () => {
+        try {
+          await video.play();
+        } catch {
+          // Autoplay may be blocked or aborted by user navigation; ignore safely
+        }
+      })();
     }
     const height = getExpandedHeight();
     if (height !== null) {
@@ -148,9 +151,13 @@ const VideoPreview = ({
     }
     const video = containerRef.current?.querySelector("video");
     if (video) {
-      video.pause();
-      if (video.duration > 2) {
-        video.currentTime = 2;
+      try {
+        video.pause();
+        if (video.readyState >= 1 && video.duration > 2) {
+          video.currentTime = 2;
+        }
+      } catch {
+        // Ignore pause/seek aborts
       }
     }
     setExpandedHeight(null);
@@ -164,7 +171,11 @@ const VideoPreview = ({
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
       if (!autoPlay && video.duration > 2) {
-        video.currentTime = 2;
+        try {
+          video.currentTime = 2;
+        } catch {
+          // Ignore seek aborts
+        }
       }
       if (previewStartedRef.current) {
         const height = getExpandedHeight();
@@ -172,11 +183,13 @@ const VideoPreview = ({
           setExpandedHeight(height);
         }
         if (autoPlay) {
-          try {
-            void video.play();
-          } catch {
-            // Autoplay may be blocked; ignore
-          }
+          void (async () => {
+            try {
+              await video.play();
+            } catch {
+              // Autoplay may be blocked or aborted; ignore
+            }
+          })();
         }
       }
     },
@@ -218,7 +231,8 @@ const VideoPreview = ({
         muted
         onLoadedMetadata={handleLoadedMetadata}
         playsInline
-        preload="metadata"
+        poster={getMediaProxyUrl(media)}
+        preload={autoPlay ? "metadata" : "none"}
         src={getMediaUrl(media.id)}
       />
       <div
@@ -422,6 +436,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
               height={dims.h}
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
               width={dims.w}
@@ -433,6 +448,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="object-cover"
               fill
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
             />
@@ -448,6 +464,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="!relative !h-auto max-h-120 w-auto max-w-full rounded-lg object-cover"
               height={dims.h}
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
               width={dims.w}
@@ -459,6 +476,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="object-cover"
               fill
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
             />

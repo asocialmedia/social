@@ -2,7 +2,7 @@
 
 import type { PostData } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
-import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -230,14 +230,14 @@ const ExploreClient: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <Tabs
+      className="flex min-h-0 flex-1 flex-col"
+      onValueChange={handleTabChange}
+      value={activeTab}
+    >
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
-        <Tabs
-          className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5"
-          onValueChange={handleTabChange}
-          value={activeTab}
-        >
+        <div className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5">
           <TabsList className="flex h-full min-w-0 flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
             {(Object.keys(TAB_META) as ExploreTab[]).map((tab) => (
               <TabsTrigger
@@ -251,7 +251,7 @@ const ExploreClient: React.FC = () => {
           </TabsList>
 
           <div className="relative ml-auto hidden min-w-0 items-center gap-2 md:flex">
-            <div className="w-full max-w-[15rem]">
+            <div className="w-full max-w-60">
               <div className="relative">
                 {isFetching && debouncedSearch.trim() ? (
                   <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
@@ -280,7 +280,7 @@ const ExploreClient: React.FC = () => {
               </div>
             </div>
           </div>
-        </Tabs>
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -288,22 +288,27 @@ const ExploreClient: React.FC = () => {
           className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-16 lg:pb-0"
           ref={feedScrollRef}
         >
-          {activeTab === "for-you" && !showForYou ? (
-            <div className="px-4 py-10">
-              <AuthPromptCard
-                className="mx-auto w-full max-w-md"
-                description="Sign in to see fleets curated just for you."
-                imageSize={128}
-                title="Log in to see your feed"
-              />
-            </div>
-          ) : (
-            body
-          )}
+          <TabsContent className="mt-0" value="for-you">
+            {showForYou ? (
+              body
+            ) : (
+              <div className="px-4 py-10">
+                <AuthPromptCard
+                  className="mx-auto w-full max-w-md"
+                  description="Sign in to see fleets curated just for you."
+                  imageSize={128}
+                  title="Log in to see your feed"
+                />
+              </div>
+            )}
+          </TabsContent>
+          <TabsContent className="mt-0" value="trending">
+            {body}
+          </TabsContent>
         </div>
         <FeedScrollbar containerRef={feedScrollRef} />
       </div>
-    </div>
+    </Tabs>
   );
 };
 

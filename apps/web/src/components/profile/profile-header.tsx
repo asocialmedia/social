@@ -13,7 +13,7 @@ import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
-import { cn, formatNumber } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface SocialLink {
@@ -210,10 +210,10 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             </span>
           </Link>
           <span
-            className={cn(
-              "inline-flex items-center gap-1 font-semibold",
-              liveUserData.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-            )}
+            className="inline-flex items-center gap-1 font-semibold dark:text-orange-500"
+            style={{
+              color: liveUserData.aura < 0 ? "#7c5cff" : "#9a3412",
+            }}
           >
             <Flame className="size-4" />
             {formatNumber(liveUserData.aura)} Aura
