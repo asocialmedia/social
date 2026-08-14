@@ -53,6 +53,15 @@ function rewriteCookieDomain(cookieStr: string, host: string): string {
     .map((attr) => {
       const [key] = attr.split("=");
       if (key.toLowerCase() === "domain") {
+        const domainValue = attr.slice(key.length + 1);
+        // A shared parent domain (e.g. ".asocialmedia.cc") already covers the
+        // web host, so leave it untouched. Rewriting it to the web host would
+        // scope the cookie to the web subdomain only, breaking OAuth callbacks
+        // that return to the auth subdomain directly (state_mismatch).
+        const baseDomain = domainValue.replace(/^\./, "");
+        if (baseDomain && host.endsWith(`.${baseDomain}`)) {
+          return attr;
+        }
         return `Domain=${host}`;
       }
       return attr;
