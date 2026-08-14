@@ -69,6 +69,39 @@ describe("createSecurity", () => {
     });
   });
 
+  test("allows an OAuth callback GET without origin or secret", () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request(
+      "http://auth.localhost/api/auth/callback/google?code=abc&state=xyz",
+      { method: "GET" }
+    );
+    const decision = security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("allows a Reddit OAuth callback GET without origin or secret", () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request(
+      "http://auth.localhost/api/auth/callback/reddit?code=abc&state=xyz",
+      { method: "GET" }
+    );
+    const decision = security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("still requires origin or secret for OAuth callback POSTs", async () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request("http://auth.localhost/api/auth/callback/google", {
+      method: "POST",
+    });
+    const decision = security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(false);
+    expect(decision.response?.status).toBe(403);
+    expect(await decision.response?.json()).toEqual({
+      error: "internal-secret-required",
+    });
+  });
+
   test("allows a request with the internal secret and no origin", () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
