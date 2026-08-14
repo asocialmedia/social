@@ -58,15 +58,15 @@ export const GuestAuthBar: React.FC = () => {
           <div className="flex shrink-0 items-center gap-2">
             <Button
               asChild
-              className="h-9 rounded-full bg-white px-5 text-sm font-semibold text-[#e65500] shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),0_1px_2px_rgba(0,0,0,0.2)] transition-all hover:bg-white/95 hover:brightness-105 active:translate-y-px"
+              className="h-9 rounded-full bg-linear-to-b from-white to-[#ececec] px-5 text-sm font-semibold text-[#e65500] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.9),inset_0_1.5px_2px_rgba(255,255,255,0.95),0_0_0_1px_rgba(255,255,255,0.5),0_1px_1px_rgba(0,0,0,0.18),0_2px_5px_rgba(0,0,0,0.18)] transition-all duration-200 hover:from-white hover:to-white hover:text-[#e65500] hover:brightness-105 active:translate-y-px"
               variant="ghost"
             >
               <Link href="/login">Log in</Link>
             </Button>
             <Button
               asChild
-              className="h-9 rounded-full border border-white/60 bg-white/10 px-5 text-sm font-semibold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25)] backdrop-blur-sm transition-all hover:bg-white/20 active:translate-y-px"
-              variant="outline"
+              className="btn-3d-gray h-9 rounded-full px-5 text-sm! font-semibold hover:text-white active:translate-y-px"
+              variant="ghost"
             >
               <Link href="/signup">Sign up</Link>
             </Button>

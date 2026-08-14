@@ -24,14 +24,15 @@ import type { CommentNode } from "./comment-tree";
 // Indent per nesting level (pl-8). The reply's avatar sits at this offset,
 // giving replies room to the right of the parent's rail column.
 const LEVEL_PAD = 32;
-// The h-9 avatar is 36px tall/wide; its horizontal center is 18px from the
-// start of its row, and its vertical center is 24px (6px pt-1.5 + 18px half).
-const AVATAR_HALF = 18;
+// The h-9 avatar is 36px tall/wide; its vertical center is 24px (6px pt-1.5 + 18px half).
 const AVATAR_CENTER = 24;
-// Column of the thread rail: the horizontal center of the parent avatar. The
-// rail (a 2px line) is drawn at this column so it passes through the middle of
-// the avatar it hangs from, and each reply's elbow runs from it to the avatar.
-const RAIL_X = AVATAR_HALF;
+// Column of the thread rail: centered in the indent channel (16px from the
+// left edge and 16px to the reply avatar edge at LEVEL_PAD = 32).
+const RAIL_X = LEVEL_PAD / 2;
+// Generous curve radius matching the exact horizontal distance from the rail
+// column (16px) to the reply avatar edge (32px), creating a perfect 90-degree
+// smooth circular bend (start tangent vertical, end tangent horizontal).
+const CURVE_RADIUS = LEVEL_PAD - RAIL_X;
 
 interface CommentItemProps {
   applyCreated: (comment: CommentData) => void;
@@ -70,52 +71,67 @@ export default function CommentItem({
 
   return (
     <div className={`relative ${hasRail ? "pl-8" : ""}`}>
-      {/* Elbow: a rounded horizontal connector from the thread rail to this
-          reply's avatar. It starts at the rail's center (no vertical tick, so
-          nothing overlaps the rail) and ends a few px into the avatar column,
-          tucking under the avatar (which sits on a higher z-index) so the
-          connection reads as solid instead of ending at the rounded edge. */}
+      {/* Rail connector for this reply: A unified SVG drawing the continuous rail
+          and rounded branch. Centered on the parent avatar column (RAIL_X = 16),
+          it smoothly bends with a generous circular arc into this reply's
+          avatar (at LEVEL_PAD = 32, AVATAR_CENTER = 24). If this is the last
+          sibling, the stroke terminates cleanly at the avatar without extending
+          past it. Otherwise, the through-rail continues down to subsequent siblings. */}
       {hasRail && (
         <svg
           aria-hidden="true"
-          className="pointer-events-none absolute top-0 left-0"
-          style={{ height: 48, width: LEVEL_PAD + 6 }}
-        >
-          <path
-            d={`M${RAIL_X} ${AVATAR_CENTER} H${LEVEL_PAD + 3}`}
-            fill="none"
-            opacity="0.9"
-            stroke="hsl(var(--border))"
-            strokeLinecap="round"
-            strokeWidth="2"
-          />
-        </svg>
-      )}
-
-      {/* Rail segment for THIS reply: runs from the top of this reply down to
-          the next sibling (full height), or terminates at the avatar center if
-          this is the last sibling. The rail is centered on the parent avatar
-          column and the elbow connects it to this avatar. */}
-      {hasRail && (
-        <span
-          aria-hidden="true"
-          className="absolute top-0 w-[2px] rounded-full bg-[hsl(var(--border))]/60"
+          className="pointer-events-none absolute top-0 left-0 overflow-visible"
           style={{
-            left: RAIL_X - 1,
-            ...(isLast ? { height: AVATAR_CENTER } : { bottom: 0 }),
+            height: isLast ? AVATAR_CENTER + 4 : "100%",
+            width: LEVEL_PAD + 4,
           }}
-        />
+        >
+          {isLast ? (
+            <path
+              d={`M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+              fill="none"
+              stroke="hsl(var(--border))"
+              strokeWidth="2"
+            />
+          ) : (
+            <>
+              <line
+                stroke="hsl(var(--border))"
+                strokeWidth="2"
+                x1={RAIL_X}
+                x2={RAIL_X}
+                y1="-1"
+                y2="100%"
+              />
+              <path
+                d={`M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+                fill="none"
+                stroke="hsl(var(--border))"
+                strokeWidth="2"
+              />
+            </>
+          )}
+        </svg>
       )}
 
       {/* Stub: connects THIS comment's avatar down to its first reply's rail
           segment, so the thread line reads as hanging off the parent avatar. */}
       <div className="group/comment relative min-w-0 pt-1.5 pr-1 pb-1.5">
         {children.length > 0 && (
-          <span
+          <svg
             aria-hidden="true"
-            className="absolute top-6 bottom-0 w-[2px] rounded-full bg-[hsl(var(--border))]/60"
-            style={{ left: RAIL_X - 1 }}
-          />
+            className="pointer-events-none absolute top-6 bottom-0 left-0 overflow-visible"
+            style={{ height: "calc(100% - 24px + 2px)", width: RAIL_X + 4 }}
+          >
+            <line
+              stroke="hsl(var(--border))"
+              strokeWidth="2"
+              x1={RAIL_X}
+              x2={RAIL_X}
+              y1="0"
+              y2="100%"
+            />
+          </svg>
         )}
         <div className="flex gap-2.5">
           {comment.deleted ? (
@@ -140,8 +156,8 @@ export default function CommentItem({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2 text-sm">
               {isDeleted ? (
-                <span className="text-muted-foreground font-medium">
-                  [removed]
+                <span className="text-muted-foreground text-xs font-medium">
+                  [deleted]
                 </span>
               ) : (
                 <>
@@ -172,7 +188,7 @@ export default function CommentItem({
 
             {isDeleted ? (
               <p className="text-muted-foreground text-[15px] italic">
-                This eddy has been removed.
+                This comment has been deleted.
               </p>
             ) : (
               <>

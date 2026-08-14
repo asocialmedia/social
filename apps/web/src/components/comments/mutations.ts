@@ -69,12 +69,7 @@ export function useSubmitCommentMutation(
       // Reconcile any in-flight server pages with the new comment and drop
       // stale refetch results.
       const queryKey: QueryKey = ["comments", postId];
-      queryClient.invalidateQueries({
-        predicate(query) {
-          return !query.state.data;
-        },
-        queryKey,
-      });
+      queryClient.invalidateQueries({ queryKey });
 
       bumpCommentCount(queryClient, postId, 1);
 

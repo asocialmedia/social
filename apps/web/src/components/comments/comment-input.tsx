@@ -134,6 +134,15 @@ export default function CommentInput({
     );
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (canSubmit && !mutation.isPending && !isUploading) {
+        onSubmit(e);
+      }
+    }
+  };
+
   return (
     <form
       className={cn("my-3 flex w-full items-start gap-2", className)}
@@ -157,6 +166,7 @@ export default function CommentInput({
             autoFocus={autoFocus}
             className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent text-sm leading-relaxed outline-none"
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
             value={input}

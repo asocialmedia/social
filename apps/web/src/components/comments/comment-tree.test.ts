@@ -122,6 +122,36 @@ describe("buildCommentTree", () => {
     expect(merged[1].children.map((n) => n.comment.id)).toEqual(["r1"]);
   });
 
+  test("preserves deleted comments that have children so thread structure stays intact", () => {
+    const deletedParent = {
+      ...makeComment("parent-1", t(5000)),
+      content: "",
+      deleted: true,
+    };
+    const reply = makeComment("r1", t(4000), "parent-1");
+
+    const tree = buildCommentTree([deletedParent, reply]);
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0].comment.id).toBe("parent-1");
+    expect(tree[0].comment.deleted).toBe(true);
+    expect(tree[0].children.map((n) => n.comment.id)).toEqual(["r1"]);
+  });
+
+  test("prunes deleted comments that have no children", () => {
+    const deletedLeaf = {
+      ...makeComment("leaf-1", t(5000)),
+      content: "",
+      deleted: true,
+    };
+    const activeComment = makeComment("active-1", t(4000));
+
+    const tree = buildCommentTree([deletedLeaf, activeComment]);
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0].comment.id).toBe("active-1");
+  });
+
   test("clamps nothing internally but exposes a max depth constant", () => {
     expect(MAX_COMMENT_DEPTH).toBeGreaterThanOrEqual(4);
   });

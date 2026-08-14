@@ -39,21 +39,42 @@ export function buildCommentTree(comments: CommentData[]): CommentNode[] {
     return byTime === 0 ? b.id.localeCompare(a.id) : byTime;
   });
 
-  const build = (comment: CommentData, depth: number): CommentNode => {
-    const children = childrenOf.get(comment.id) ?? [];
-    children.sort((a, b) => {
+  const build = (comment: CommentData, depth: number): CommentNode | null => {
+    const rawChildren = childrenOf.get(comment.id) ?? [];
+    rawChildren.sort((a, b) => {
       const byTime = a.createdAt.getTime() - b.createdAt.getTime();
       return byTime === 0 ? a.id.localeCompare(b.id) : byTime;
     });
 
+    const children: CommentNode[] = [];
+    for (const child of rawChildren) {
+      const built = build(child, depth + 1);
+      if (built) {
+        children.push(built);
+      }
+    }
+
+    // A deleted comment with no remaining children is pruned so empty removed placeholders
+    // don't linger; if it has children, it is preserved to keep the thread tree intact.
+    if (comment.deleted && children.length === 0) {
+      return null;
+    }
+
     return {
-      children: children.map((child) => build(child, depth + 1)),
+      children,
       comment,
       depth,
     };
   };
 
-  return roots.map((root) => build(root, 0));
+  const tree: CommentNode[] = [];
+  for (const root of roots) {
+    const built = build(root, 0);
+    if (built) {
+      tree.push(built);
+    }
+  }
+  return tree;
 }
 
 // Folds the realtime/optimistic live store over the server-fetched pages.
