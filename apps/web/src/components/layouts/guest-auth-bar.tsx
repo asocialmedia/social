@@ -2,6 +2,7 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type React from "react";
 import { useEffect, useState } from "react";
 
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 // don't render one) and hugs the bottom edge otherwise; on larger screens it
 // always docks to the bottom edge.
 export const GuestAuthBar: React.FC = () => {
+  const pathname = usePathname();
   const [navHeight, setNavHeight] = useState(0);
 
   useEffect(() => {
@@ -34,6 +36,12 @@ export const GuestAuthBar: React.FC = () => {
   }, []);
 
   const hasNav = navHeight > 0;
+
+  // The gusts page is a full-screen reels player on mobile; the login banner
+  // would cover the feed there, so hide it on that route.
+  if (pathname === "/gusts") {
+    return null;
+  }
 
   return (
     <div

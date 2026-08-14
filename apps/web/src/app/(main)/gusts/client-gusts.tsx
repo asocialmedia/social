@@ -240,7 +240,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     }
 
     return (
-      <div className="flex h-full w-full max-w-6xl items-center justify-center gap-4 px-2 py-3 md:px-6">
+      <div className="flex h-full w-full max-w-6xl items-center justify-center gap-4 py-0 sm:px-2 sm:py-3 md:px-6">
         {/* Vertical Snap Stream */}
         <div
           className="hide-native-scrollbar h-full w-full max-w-4xl snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
@@ -316,26 +316,28 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
         {renderContent()}
 
         {/* Scroll Up / Down Navigation pinned to the rightmost edge (desktop) */}
-        <div className="fixed top-1/2 right-3 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
-          <button
-            aria-label="Previous Gust"
-            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
-            disabled={activeIndex === 0}
-            onClick={scrollToPrev}
-            type="button"
-          >
-            <ChevronUp className="size-5" />
-          </button>
-          <button
-            aria-label="Next Gust"
-            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
-            disabled={activeIndex >= posts.length - 1}
-            onClick={scrollToNext}
-            type="button"
-          >
-            <ChevronDown className="size-5" />
-          </button>
-        </div>
+        {status === "success" && posts.length > 0 ? (
+          <div className="fixed top-1/2 right-3 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
+            <button
+              aria-label="Previous Gust"
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
+              disabled={activeIndex === 0}
+              onClick={scrollToPrev}
+              type="button"
+            >
+              <ChevronUp className="size-5" />
+            </button>
+            <button
+              aria-label="Next Gust"
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
+              disabled={activeIndex >= posts.length - 1}
+              onClick={scrollToNext}
+              type="button"
+            >
+              <ChevronDown className="size-5" />
+            </button>
+          </div>
+        ) : null}
 
         {/* Mobile slide-up comments drawer */}
         <AnimatePresence>

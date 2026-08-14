@@ -68,23 +68,48 @@ const mockTx = {
     },
     deleteMany: (args: {
       where: {
-        issuerId: string;
-        postId: string;
-        recipientId: string;
-        type: string;
+        commentId?: string;
+        issuerId?: string;
+        postId?: string;
+        recipientId?: string;
+        type?: string | { in: string[] };
       };
     }) => {
-      const { issuerId, postId, recipientId, type } = args.where;
-      state.notifications = state.notifications.filter(
-        (notification) =>
-          !(
-            notification.type === type &&
-            notification.recipientId === recipientId &&
-            notification.issuerId === issuerId &&
-            notification.postId === postId
-          )
-      );
+      const { commentId, issuerId, postId, recipientId, type } = args.where;
+      state.notifications = state.notifications.filter((notification) => {
+        const typeMatches =
+          typeof type === "string"
+            ? notification.type === type
+            : (type?.in ?? []).includes(notification.type as string);
+        const commentIdMatches =
+          commentId === undefined ? true : notification.commentId === commentId;
+        return !(
+          typeMatches &&
+          commentIdMatches &&
+          (issuerId === undefined || notification.issuerId === issuerId) &&
+          (recipientId === undefined ||
+            notification.recipientId === recipientId) &&
+          (postId === undefined || notification.postId === postId)
+        );
+      });
     },
+    findMany: (args: {
+      select?: unknown;
+      where: {
+        commentId?: string;
+        type?: { in: string[] };
+      };
+    }) =>
+      state.notifications.filter((notification) => {
+        const typeMatches = (args.where.type?.in ?? []).includes(
+          notification.type as string
+        );
+        return (
+          (args.where.commentId === undefined ||
+            notification.commentId === args.where.commentId) &&
+          typeMatches
+        );
+      }),
   },
   user: {
     update: (args: {
@@ -223,6 +248,7 @@ describe("submitComment", () => {
     ]);
     expect(state.notifications).toEqual([
       {
+        commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
         recipientId: AUTHOR_ID,
@@ -271,12 +297,21 @@ describe("submitComment", () => {
     // The parent's author (not the post author) earns the received aura.
     expect(state.parentAuthorAura).toBe(1);
     expect(state.authorAura).toBe(0);
-    // The notification goes to the parent's author, not the post author.
+    // The parent's author is notified on a reply, and the post author is also
+    // notified when a thread on their post gets a reply (both differ here).
     expect(state.notifications).toEqual([
       {
+        commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
         recipientId: PARENT_AUTHOR_ID,
+        type: "COMMENT",
+      },
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
         type: "COMMENT",
       },
     ]);
@@ -339,12 +374,29 @@ describe("deleteComment", () => {
   test("revokes aura from the commenter and the post author", async () => {
     state.commenterAura = 1;
     state.authorAura = 1;
-    state.notifications.push({
-      issuerId: COMMENTER_ID,
-      postId: POST_ID,
-      recipientId: AUTHOR_ID,
-      type: "COMMENT",
-    });
+    state.notifications.push(
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      },
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: PARENT_AUTHOR_ID,
+        type: "AMPLIFY",
+      },
+      {
+        commentId: "other-comment",
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      }
+    );
 
     const deleted = await deleteComment(COMMENT_ID);
 
@@ -369,7 +421,17 @@ describe("deleteComment", () => {
         userId: AUTHOR_ID,
       },
     ]);
-    expect(state.notifications).toEqual([]);
+    // Notifications pointing at the deleted comment are cleaned up for every
+    // recipient, while unrelated notifications stay untouched.
+    expect(state.notifications).toEqual([
+      {
+        commentId: "other-comment",
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      },
+    ]);
   });
 
   test("deleting an unknown comment throws", async () => {

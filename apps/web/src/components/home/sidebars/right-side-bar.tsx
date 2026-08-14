@@ -8,10 +8,10 @@ import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
-import { PopularOnHackerNews } from "@/components/home/sidebars/right/popular-on-hackernews";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import PostHistoryCard from "@/components/posts/post-history-card";
 import { useFollowStates } from "@/hooks/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
@@ -60,8 +60,10 @@ const RightSideBar: React.FC = () => {
   return (
     <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
+        <TrendingTopics />
+
         {isLoggedIn ? (
-          <PopularOnHackerNews />
+          <PostHistoryCard />
         ) : (
           <AuthPromptCard
             description="Create an account to unlock the full Asocialmedia experience."
@@ -69,8 +71,6 @@ const RightSideBar: React.FC = () => {
             title="Get your account"
           />
         )}
-
-        <TrendingTopics />
 
         <SubCard
           icon={

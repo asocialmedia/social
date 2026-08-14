@@ -19,7 +19,7 @@ describe("email templates", () => {
 
     expect(html).toContain("Verify your email");
     expect(html).toContain("https://social.localhost/verify");
-    expect(html).toContain("Verify Email Address");
+    expect(html).toContain("zephyr-githubanner.jpg");
   });
 
   test("verification email component returns JSX", () => {
@@ -50,10 +50,10 @@ describe("email templates", () => {
     );
 
     expect(html).toContain("Password Reset Request");
-    expect(html).toContain("Reset Password");
     expect(html).toContain(
       "https://social.localhost/reset-password/confirm?token=t"
     );
+    expect(html).toContain("zephyr-githubanner.jpg");
   });
 
   test("password reset component returns JSX", () => {

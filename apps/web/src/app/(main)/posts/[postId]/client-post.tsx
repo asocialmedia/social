@@ -98,7 +98,9 @@ const ClientPost: React.FC<ClientPostProps> = ({
         <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
+              className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+                isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
+              }`}
               ref={scrollRef}
             >
               <div className="flex shrink-0 items-center gap-2 bg-[hsl(var(--background-alt))] px-3 py-2">

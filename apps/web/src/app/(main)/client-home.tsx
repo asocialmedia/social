@@ -128,7 +128,9 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
 
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-16 lg:pb-0"
+              className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+                isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+              }`}
               ref={feedScrollRef}
             >
               {isLoggedIn ? <PostEditor /> : null}

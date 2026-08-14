@@ -390,7 +390,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
                   )
                 )}
 
-                {renderCollapsedItem(profileItem)}
+                {isLoggedIn ? renderCollapsedItem(profileItem) : null}
               </nav>
 
               {isLoggedIn ? (
