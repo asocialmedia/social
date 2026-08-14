@@ -74,6 +74,17 @@ function isAllowedOrigin(
   );
 }
 
+// OAuth providers redirect the browser straight back to these endpoints
+// (Google -> /api/auth/callback/google). Top-level navigation redirects carry
+// no Origin header, so they would otherwise be rejected as server-to-server
+// calls without the internal secret. These are legitimate browser callbacks:
+// the provider's own state/CSRF handling protects them.
+const OAUTH_CALLBACK_PREFIX = "/api/auth/callback/";
+
+function isOAuthCallback(pathname: string): boolean {
+  return pathname.startsWith(OAUTH_CALLBACK_PREFIX);
+}
+
 function isStrictPath(pathname: string, strictPaths: RegExp[]): boolean {
   return strictPaths.some((pattern) => pattern.test(pathname));
 }
@@ -155,13 +166,21 @@ export function createSecurity(config: SecurityConfig): Security {
   const headers = (): Record<string, string> => ({ ...SECURITY_HEADERS });
 
   // Browser cross-origin calls carry an Origin header. Server-to-server calls
-  // from the web app do not, so they must present the internal secret.
-  const checkOriginOrSecret = (request: Request): SecurityDecision => {
+  // from the web app do not, so they must present the internal secret. OAuth
+  // callbacks are browser redirects (GET, no Origin) and are allowed through
+  // so Google/Reddit can hand the user back to the auth service.
+  const checkOriginOrSecret = (
+    request: Request,
+    pathname: string
+  ): SecurityDecision => {
     const origin = getClientOrigin(request);
     if (origin) {
       if (!isAllowedOrigin(origin, config.allowedOrigins)) {
         return buildReject(403, { error: "origin-not-allowed" });
       }
+      return { allowed: true };
+    }
+    if (request.method === "GET" && isOAuthCallback(pathname)) {
       return { allowed: true };
     }
     if (!hasValidSecret(request, config.internalSecret)) {
@@ -180,7 +199,7 @@ export function createSecurity(config: SecurityConfig): Security {
     const { pathname } = new URL(request.url);
 
     if (request.method === "OPTIONS") {
-      return checkOriginOrSecret(request);
+      return checkOriginOrSecret(request, pathname);
     }
 
     if (request.method !== "GET" && request.method !== "POST") {
@@ -216,7 +235,7 @@ export function createSecurity(config: SecurityConfig): Security {
       return buildReject(413, { error: "payload-too-large" });
     }
 
-    const authDecision = checkOriginOrSecret(request);
+    const authDecision = checkOriginOrSecret(request, pathname);
     if (!authDecision.allowed) {
       return authDecision;
     }
