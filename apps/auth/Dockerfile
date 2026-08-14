@@ -5,6 +5,12 @@ LABEL org.opencontainers.image.title="Asocialmedia Auth Service" \
       org.opencontainers.image.description="Authentication and background worker service for Asocialmedia" \
       org.opencontainers.image.vendor="Asocialmedia"
 WORKDIR /app
+# Build in production mode so Bun inlines process.env.NODE_ENV=production into
+# the compiled binary. The runtime ENV alone is not enough: Bun replaces
+# process.env.NODE_ENV at compile time, and building with the default
+# (development) bakes dev mode into the artifact, disabling cross-subdomain
+# cookies and breaking OAuth.
+ENV NODE_ENV=production
 COPY package.json bun.lock ./
 COPY packages/ ./packages/
 COPY apps/auth/ ./apps/auth/
