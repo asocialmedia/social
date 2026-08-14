@@ -2,10 +2,10 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeftIcon, ArrowRightIcon } from "@radix-ui/react-icons";
-import useEmblaCarousel, {
-  type UseEmblaCarouselType,
-} from "embla-carousel-react";
+import useEmblaCarousel from "embla-carousel-react";
+import type { UseEmblaCarouselType } from "embla-carousel-react";
 import React from "react";
+
 import { cn } from "../lib/utils";
 
 type CarouselApi = UseEmblaCarouselType[1];
@@ -106,6 +106,7 @@ const Carousel = ({
       return;
     }
 
+    // eslint-disable-next-line react-compiler -- sync embla state into React on init
     onSelect(api);
     api.on("reInit", onSelect);
     api.on("select", onSelect);
@@ -115,20 +116,32 @@ const Carousel = ({
     };
   }, [api, onSelect]);
 
+  const contextValue = React.useMemo(
+    () => ({
+      api,
+      canScrollNext,
+      canScrollPrev,
+      carouselRef,
+      opts,
+      orientation:
+        orientation || (opts?.axis === "y" ? "vertical" : "horizontal"),
+      scrollNext,
+      scrollPrev,
+    }),
+    [
+      api,
+      canScrollNext,
+      canScrollPrev,
+      carouselRef,
+      opts,
+      orientation,
+      scrollNext,
+      scrollPrev,
+    ]
+  );
+
   return (
-    <CarouselContext.Provider
-      value={{
-        carouselRef,
-        api,
-        opts,
-        orientation:
-          orientation || (opts?.axis === "y" ? "vertical" : "horizontal"),
-        scrollPrev,
-        scrollNext,
-        canScrollPrev,
-        canScrollNext,
-      }}
-    >
+    <CarouselContext.Provider value={contextValue}>
       <section
         className={cn("relative", className)}
         onKeyDownCapture={handleKeyDown}

@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
+
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -91,14 +92,17 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
     );
   } else if (avatarUrl) {
     bannerContent = (
-      <div
-        className="absolute inset-0 bg-center bg-cover"
-        role="img"
+      <Image
+        alt=""
+        className="object-cover"
+        fill
+        sizes="(max-width: 768px) 100vw, 600px"
+        src={avatarUrl}
         style={{
-          backgroundImage: `url(${avatarUrl})`,
           filter: "blur(10px) brightness(0.75)",
           transform: "scale(1.15)",
         }}
+        unoptimized
       />
     );
   } else {
@@ -140,23 +144,23 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
         {/* Identity */}
         <div className="mt-3">
-          <h1 className="flex items-center gap-1.5 font-bold text-xl sm:text-2xl">
+          <h1 className="flex items-center gap-1.5 text-xl font-bold sm:text-2xl">
             {liveUserData.displayName || liveUserData.username}
-            <BadgeCheck className="size-5 shrink-0 text-primary" />
+            <BadgeCheck className="text-primary size-5 shrink-0" />
           </h1>
           <p className="text-muted-foreground">@{liveUserData.username}</p>
         </div>
 
         {liveUserData.bio ? (
           <Linkify>
-            <p className="wrap-break-word mt-3 overflow-hidden whitespace-pre-line text-[15px]">
+            <p className="mt-3 overflow-hidden text-[15px] wrap-break-word whitespace-pre-line">
               {liveUserData.bio}
             </p>
           </Linkify>
         ) : null}
 
         {/* Meta */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-sm">
+        <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <span className="inline-flex items-center gap-1.5">
             <CalendarDays className="size-4" />
             Joined {joinedDate}
@@ -169,7 +173,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             {socialLinks.map((link) => (
               <a
                 aria-label={link.label}
-                className="pill-3d-hover inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:text-foreground"
+                className="pill-3d-hover text-muted-foreground hover:text-foreground inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-200"
                 href={link.href}
                 key={link.label}
                 rel="noopener noreferrer"
@@ -184,24 +188,24 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         {/* Stats */}
         <div className="mt-2.5 flex items-center gap-4 pb-4 text-sm">
           <Link
-            className="group rounded-md px-1 py-0.5 transition-colors hover:bg-accent/50"
+            className="group hover:bg-accent/50 rounded-md px-1 py-0.5 transition-colors"
             href={`/users/${liveUserData.username}/following`}
           >
             <span className="font-semibold">
               {formatNumber(liveUserData._count.following)}
             </span>{" "}
-            <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+            <span className="text-muted-foreground group-hover:text-foreground transition-colors">
               Following
             </span>
           </Link>
           <Link
-            className="group rounded-md px-1 py-0.5 transition-colors hover:bg-accent/50"
+            className="group hover:bg-accent/50 rounded-md px-1 py-0.5 transition-colors"
             href={`/users/${liveUserData.username}/followers`}
           >
             <span className="font-semibold">
               {formatNumber(followerInfo.followers)}
             </span>{" "}
-            <span className="text-muted-foreground transition-colors group-hover:text-foreground">
+            <span className="text-muted-foreground group-hover:text-foreground transition-colors">
               Followers
             </span>
           </Link>

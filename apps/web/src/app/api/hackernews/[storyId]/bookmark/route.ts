@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -20,8 +21,8 @@ export async function GET(
     const bookmark = await prisma.hNBookmark.findUnique({
       where: {
         userId_storyId: {
+          storyId: Math.trunc(Number(storyId)),
           userId: loggedInUser.id,
-          storyId: Number.parseInt(storyId, 10),
         },
       },
     });
@@ -44,7 +45,7 @@ export async function POST(
   }
   const { storyId } = await ctx.params;
   await prisma.hNBookmark.create({
-    data: { userId: user.id, storyId: Number(storyId) },
+    data: { storyId: Number(storyId), userId: user.id },
   });
   return Response.json({ success: true });
 }
@@ -60,7 +61,7 @@ export async function DELETE(
   }
   const { storyId } = await ctx.params;
   await prisma.hNBookmark.deleteMany({
-    where: { userId: user.id, storyId: Number(storyId) },
+    where: { storyId: Number(storyId), userId: user.id },
   });
   return Response.json({ success: true });
 }

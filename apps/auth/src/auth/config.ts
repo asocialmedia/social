@@ -1,4 +1,6 @@
-import { createAuthConfig, type EmailService } from "@asm/auth/core";
+import { createAuthConfig } from "@asm/auth/core";
+import type { EmailService } from "@asm/auth/core";
+
 import { env } from "../../env";
 import {
   sendPasswordResetEmail,
@@ -7,20 +9,20 @@ import {
 } from "../email/service";
 
 const emailService: EmailService = {
-  sendVerificationEmail: async (email: string, token: string) => {
-    const result = await sendVerificationEmail(email, token);
-    return {
-      success: result.success,
-      error: result.error,
-      verificationUrl: result.verificationUrl,
-    };
-  },
   sendPasswordResetEmail: async (email: string, token: string) => {
     const result = await sendPasswordResetEmail(email, token);
     return {
-      success: result.success,
       error: result.error,
       resetUrl: result.resetUrl,
+      success: result.success,
+    };
+  },
+  sendVerificationEmail: async (email: string, token: string) => {
+    const result = await sendVerificationEmail(email, token);
+    return {
+      error: result.error,
+      success: result.success,
+      verificationUrl: result.verificationUrl,
     };
   },
 };

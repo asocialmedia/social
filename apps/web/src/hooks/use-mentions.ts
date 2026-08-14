@@ -9,7 +9,7 @@ export function useMentions(postId?: string) {
   const queryClient = useQueryClient();
 
   const { data: mentions } = useQuery<MentionsResponse>({
-    queryKey: ["mentions", postId],
+    enabled: !!postId,
     queryFn: async () => {
       if (!postId) {
         return { mentions: [] };
@@ -20,7 +20,7 @@ export function useMentions(postId?: string) {
       }
       return res.json();
     },
-    enabled: !!postId,
+    queryKey: ["mentions", postId],
   });
 
   const updateMentions = useMutation({
@@ -30,15 +30,24 @@ export function useMentions(postId?: string) {
       }
 
       const res = await fetch(`/api/posts/${postId}/mentions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mentions: newMentions.map((m) => m.id) }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       });
 
       if (!res.ok) {
         throw new Error("Failed to update mentions");
       }
       return res.json();
+    },
+
+    onError: (context: { previousMentions?: unknown } | undefined) => {
+      if (postId && context?.previousMentions) {
+        queryClient.setQueryData(
+          ["mentions", postId],
+          context.previousMentions
+        );
+      }
     },
 
     onMutate: async (newMentions) => {
@@ -52,16 +61,6 @@ export function useMentions(postId?: string) {
       }
 
       return { previousMentions };
-    },
-
-    // biome-ignore lint/suspicious/noExplicitAny: ignore
-    onError: (context: any) => {
-      if (postId && context?.previousMentions) {
-        queryClient.setQueryData(
-          ["mentions", postId],
-          context.previousMentions
-        );
-      }
     },
 
     onSettled: () => {

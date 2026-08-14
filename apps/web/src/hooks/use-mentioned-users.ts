@@ -11,7 +11,6 @@ interface MentionedUsersResponse {
 
 export function useMentionedUsers() {
   const { data, isLoading } = useQuery<MentionedUsersResponse>({
-    queryKey: ["mentionedUsers"],
     queryFn: async () => {
       const res = await fetch("/api/users/mentioned");
       if (!res.ok) {
@@ -19,11 +18,12 @@ export function useMentionedUsers() {
       }
       return res.json();
     },
+    queryKey: ["mentionedUsers"],
     staleTime: 1000 * 60 * 5,
   });
 
   return {
-    mentionedUsers: data?.users ?? [],
     isLoading,
+    mentionedUsers: data?.users ?? [],
   };
 }

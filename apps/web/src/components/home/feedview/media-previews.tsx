@@ -1,3 +1,5 @@
+// oxlint-disable react-compiler -- nested preview components (SingleImagePreview/GridPreview/ShowMoreSection) need hooks and parent state, which the React Compiler rules reject
+
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { FileAudioIcon, FileCode, FileIcon, VolumeX } from "lucide-react";
@@ -8,9 +10,12 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
+
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
+
+// eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
 import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
@@ -25,7 +30,58 @@ interface MediaPreviewsProps {
 // the parent grid to re-render and remount the <video> element mid-playback.
 const VIDEO_HOVER_DELAY = 350;
 
-function VideoPreview({
+const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+
+const getCommonClasses = (isSmall: boolean) =>
+  cn(
+    "mx-auto w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105",
+    isSmall ? "h-20" : "h-56"
+  );
+
+const renderFilePreview = (
+  m: Media,
+  isSmall: boolean,
+  icon: React.ReactNode
+) => (
+  <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
+    <div className="bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105">
+      <div className="flex h-full flex-col items-center justify-center gap-2">
+        <div className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}>
+          {icon}
+        </div>
+        {!isSmall && (
+          <p className="max-w-full truncate text-sm font-medium">
+            {formatFileName(m.key)}
+          </p>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+const renderCodePreview = (m: Media, isSmall: boolean) => (
+  <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
+    <div className="bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105">
+      <div className="flex h-full flex-col items-center justify-center gap-2">
+        <FileCode
+          className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}
+        />
+        {!isSmall && (
+          <div className="flex flex-col items-center">
+            <p className="max-w-full truncate text-sm font-medium">
+              {formatFileName(m.key)}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {getLanguageFromFileName(m.key)}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+const VideoPreview = ({
   autoPlay = false,
   isSmall,
   media,
@@ -33,14 +89,12 @@ function VideoPreview({
   autoPlay?: boolean;
   isSmall: boolean;
   media: Media;
-}) {
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoveredRef = useRef(false);
   const previewStartedRef = useRef(false);
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
-
-  const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -57,7 +111,11 @@ function VideoPreview({
     previewStartedRef.current = true;
     const video = containerRef.current?.querySelector("video");
     if (video) {
-      video.play().catch(() => undefined);
+      try {
+        void video.play();
+      } catch {
+        // Autoplay may be blocked; ignore
+      }
     }
     const height = getExpandedHeight();
     if (height !== null) {
@@ -114,7 +172,11 @@ function VideoPreview({
           setExpandedHeight(height);
         }
         if (autoPlay) {
-          video.play().catch(() => undefined);
+          try {
+            void video.play();
+          } catch {
+            // Autoplay may be blocked; ignore
+          }
         }
       }
     },
@@ -176,23 +238,23 @@ function VideoPreview({
           "absolute bottom-2 left-2 flex h-7 items-center gap-1.5 rounded-full bg-black/50 px-2 text-white backdrop-blur-md transition-opacity duration-300",
           autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
-        role="status"
+        role="status" // eslint-disable-line jsx-a11y/prefer-tag-over-role -- status badge overlaid on the video
       >
         <VolumeX className="h-3.5 w-3.5" />
-        <span className="font-medium text-xs">Muted</span>
+        <span className="text-xs font-medium">Muted</span>
       </div>
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
   );
-}
+};
 
-export function MediaPreviews({
+export const MediaPreviews = ({
   attachments,
   autoPlayVideos = false,
   interactive = true,
   post,
   initialMediaIndex,
-}: MediaPreviewsProps) {
+}: MediaPreviewsProps) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(
     initialMediaIndex ?? null
   );
@@ -203,8 +265,6 @@ export function MediaPreviews({
   // (/posts/{postId}/media/{index}); otherwise (e.g. profile gallery) it is
   // driven by local state only.
   const router = useRouter();
-
-  const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
   const handleShowAll = useCallback(() => {
     setShowAll(true);
@@ -254,12 +314,6 @@ export function MediaPreviews({
   const remainingAttachments = attachments.slice(initialCount);
   const remainingCount = attachments.length - initialCount;
 
-  const getCommonClasses = (isSmall: boolean) =>
-    cn(
-      "mx-auto w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105",
-      isSmall ? "h-20" : "h-56"
-    );
-
   const renderImagePreview = (m: Media, isSmall: boolean) => {
     if (m.mimeType === "image/svg+xml") {
       return (
@@ -290,67 +344,28 @@ export function MediaPreviews({
     );
   };
 
-  const renderFilePreview = (
-    m: Media,
-    isSmall: boolean,
-    icon: React.ReactNode
-  ) => (
-    <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
-      <div className="h-full w-full rounded-lg bg-primary/5 p-4 transition-transform duration-300 group-hover:scale-105">
-        <div className="flex h-full flex-col items-center justify-center gap-2">
-          <div
-            className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}
-          >
-            {icon}
-          </div>
-          {!isSmall && (
-            <p className="max-w-full truncate font-medium text-sm">
-              {formatFileName(m.key)}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCodePreview = (m: Media, isSmall: boolean) => (
-    <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
-      <div className="h-full w-full rounded-lg bg-primary/5 p-4 transition-transform duration-300 group-hover:scale-105">
-        <div className="flex h-full flex-col items-center justify-center gap-2">
-          <FileCode
-            className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}
-          />
-          {!isSmall && (
-            <div className="flex flex-col items-center">
-              <p className="max-w-full truncate font-medium text-sm">
-                {formatFileName(m.key)}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {getLanguageFromFileName(m.key)}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
   const renderPreview = (m: Media, _index: number, isSmall = false) => {
     switch (m.type) {
-      case "IMAGE":
+      case "IMAGE": {
         return renderImagePreview(m, isSmall);
-      case "VIDEO":
+      }
+      case "VIDEO": {
         return (
           <VideoPreview autoPlay={autoPlayVideos} isSmall={isSmall} media={m} />
         );
-      case "AUDIO":
+      }
+      case "AUDIO": {
         return renderFilePreview(m, isSmall, <FileAudioIcon />);
-      case "CODE":
+      }
+      case "CODE": {
         return renderCodePreview(m, isSmall);
-      case "DOCUMENT":
+      }
+      case "DOCUMENT": {
         return renderFilePreview(m, isSmall, <FileIcon />);
-      default:
+      }
+      default: {
         return null;
+      }
     }
   };
 
@@ -359,7 +374,7 @@ export function MediaPreviews({
     [openAtIndex]
   );
 
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
+  // eslint-disable-next-line react/no-unstable-nested-components -- SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
   const SingleImagePreview = ({
     media,
     onSelect,
@@ -371,7 +386,7 @@ export function MediaPreviews({
     const storedH = typeof media.height === "number" ? media.height : null;
     const hasStoredDims = storedW !== null && storedH !== null;
     const [natural, setNatural] = useState<{ w: number; h: number } | null>(
-      hasStoredDims ? { w: storedW, h: storedH } : null
+      hasStoredDims ? { h: storedH, w: storedW } : null
     );
 
     useEffect(() => {
@@ -382,14 +397,15 @@ export function MediaPreviews({
         return;
       }
       const img = new window.Image();
-      img.onload = () => {
+      const handleLoad = () => {
         if (img.naturalWidth > 0) {
-          setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+          setNatural({ h: img.naturalHeight, w: img.naturalWidth });
         }
       };
+      img.addEventListener("load", handleLoad);
       img.src = getMediaUrl(media.id);
       return () => {
-        img.onload = null;
+        img.removeEventListener("load", handleLoad);
       };
     }, [media.id, natural, hasStoredDims]);
 
@@ -454,7 +470,7 @@ export function MediaPreviews({
     );
   };
 
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: GridPreview uses parent component props and state, making it reasonable to keep nested
+  // eslint-disable-next-line react/no-unstable-nested-components -- GridPreview uses parent component props and state, making it reasonable to keep nested
   const GridPreview = ({
     media,
     index,
@@ -493,9 +509,9 @@ export function MediaPreviews({
         initial={{ opacity: 0, y: 20 }}
         layout
         onClick={handleSelect}
-        role="button"
+        role="button" // eslint-disable-line jsx-a11y/prefer-tag-over-role -- motion.div needs role=button for keyboard access
         tabIndex={0}
-        transition={{ duration: 0.2, delay: index * 0.05 }}
+        transition={{ delay: index * 0.05, duration: 0.2 }}
       >
         {renderPreview(media, index, isSmall)}
       </motion.div>
@@ -511,7 +527,7 @@ export function MediaPreviews({
     );
   };
 
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: ShowMoreSection uses parent component state, making it reasonable to keep nested
+  // eslint-disable-next-line react/no-unstable-nested-components -- ShowMoreSection uses parent component state, making it reasonable to keep nested
   const ShowMoreSection = () => {
     if (isMobile) {
       return (
@@ -522,10 +538,10 @@ export function MediaPreviews({
           initial={{ opacity: 0 }}
           layout
         >
-          <div className="relative w-full overflow-hidden rounded-lg bg-primary/5 p-4 shadow-xs transition-all duration-300">
+          <div className="bg-primary/5 relative w-full overflow-hidden rounded-lg p-4 shadow-xs transition-all duration-300">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="font-medium text-sm">
+                <p className="text-sm font-medium">
                   {remainingCount} more items
                 </p>
                 <Button onClick={handleShowAll} size="sm" variant="secondary">
@@ -559,7 +575,7 @@ export function MediaPreviews({
       >
         <button
           aria-label="Show all media"
-          className="relative w-full cursor-pointer overflow-hidden rounded-lg bg-primary/5 shadow-xs transition-all duration-300 hover:bg-primary/10 hover:shadow-md"
+          className="bg-primary/5 hover:bg-primary/10 relative w-full cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
           onClick={handleShowAll}
           type="button"
         >
@@ -584,7 +600,7 @@ export function MediaPreviews({
               className="flex flex-col items-end gap-2 pr-4"
               initial={{ opacity: 0 }}
             >
-              <p className="font-medium text-lg">Show {remainingCount} more</p>
+              <p className="text-lg font-medium">Show {remainingCount} more</p>
               <Button variant="secondary">Expand</Button>
             </motion.div>
           </div>
@@ -664,4 +680,4 @@ export function MediaPreviews({
       )}
     </motion.div>
   );
-}
+};

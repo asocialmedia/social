@@ -14,12 +14,12 @@ interface HnShareState {
 export const useHnShareStore = create<HnShareState>()(
   persist(
     (set) => ({
-      story: null,
+      cancelSharing: () => set({ isSharing: false }),
+      clearState: () => set({ isSharing: false, story: null }),
       isSharing: false,
       setStory: (story) => set({ story }),
-      startSharing: (story) => set({ story, isSharing: true }),
-      cancelSharing: () => set({ isSharing: false }),
-      clearState: () => set({ story: null, isSharing: false }),
+      startSharing: (story) => set({ isSharing: true, story }),
+      story: null,
     }),
     {
       name: "hn-share-storage",

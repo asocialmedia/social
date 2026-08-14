@@ -1,100 +1,100 @@
 import { env } from "../../env";
 
 export const emailConfig = {
-  company: {
-    name: "Asocialmedia",
-    website: env.APP_URL,
-    supportEmail: env.SUPPORT_EMAIL,
-  },
-
   assets: {
     backgroundImage: `${env.APP_URL}/assets/auth/signup-image.jpg`,
     colors: {
+      border: "#e5e7eb",
+      cardBg: "#f8fafc",
       primary: "#f97316",
       primaryHover: "#fb923c",
       secondary: "#1f2937",
       text: "#6b7280",
       textDark: "#1f2937",
       textLight: "#9ca3af",
-      border: "#e5e7eb",
       warning: "#9a3412",
       warningBg: "#fff7ed",
       warningBorder: "#ffedd5",
-      cardBg: "#f8fafc",
     },
     features: [
       {
-        emoji: "🌐 ",
-        title: "Unified Social Feed",
         description:
           "Experience all your social media in one place. Asocialmedia seamlessly aggregates content from Twitter, Reddit, 4chan, and more into a single, customizable feed. No more platform hopping!",
+        emoji: "🌐 ",
+        title: "Unified Social Feed",
       },
       {
-        emoji: "⚡ ",
-        title: "Streamlined Experience",
         description:
           "Take control of your social media consumption with powerful filters, custom categories, and real-time updates. Save time and never miss important content from your favorite platforms.",
+        emoji: "⚡ ",
+        title: "Streamlined Experience",
       },
       {
-        emoji: "🐙 ",
-        title: "Open Source Freedom",
         description:
           "Asocialmedia is proudly Free and Open Source Software (FOSS). Inspect the code, suggest features, contribute improvements, and help build a more connected social media experience for everyone. More eyes make for better software!",
+        emoji: "🐙 ",
+        title: "Open Source Freedom",
       },
     ],
   },
 
-  social: {
-    github: {
-      url: "https://github.com/asocialmedia/social",
-      icon: "https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png",
-    },
-    discord: {
-      url: "https://discordapp.com/users/parazeeknova",
-      icon: "https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/636e0a69f118df70ad7828d4_icon_clyde_blurple_RGB.svg",
-    },
+  company: {
+    name: "Asocialmedia",
+    supportEmail: env.SUPPORT_EMAIL,
+    website: env.APP_URL,
   },
 
   legal: {
     privacy: {
-      url: `${env.APP_URL}/privacy`,
       text: "Privacy Policy",
+      url: `${env.APP_URL}/privacy`,
     },
     terms: {
-      url: `${env.APP_URL}/toc`,
       text: "Terms of Service",
+      url: `${env.APP_URL}/toc`,
     },
     unsubscribe: {
-      url: `${env.APP_URL}/soon`,
       text: "Unsubscribe",
-    },
-  },
-
-  templates: {
-    verification: {
-      subject: "🎉 One Last Step to Join the Asocialmedia!",
-      buttonText: "Verify Email Address",
-      expiryTime: "1 hour",
-    },
-    passwordReset: {
-      subject: "Reset Your Password",
-      buttonText: "Reset Password",
-      expiryTime: "1 hour",
+      url: `${env.APP_URL}/soon`,
     },
   },
 
   project: {
     description:
       "Asocialmedia is a social media aggregator that aggregates content from various social media platforms and displays them in a single feed. Completely FOSS and open to contributions.",
-    stats: {
-      stars: "⭐ Star on GitHub",
-      contribute: "🛠️ Contribute",
-      community: "👥 Join Community",
-    },
     links: {
-      repo: "https://github.com/asocialmedia/social",
       contribute: "https://github.com/asocialmedia/social/contribute",
       discord: "https://discordapp.com/users/parazeeknova",
+      repo: "https://github.com/asocialmedia/social",
+    },
+    stats: {
+      community: "👥 Join Community",
+      contribute: "🛠️ Contribute",
+      stars: "⭐ Star on GitHub",
+    },
+  },
+
+  social: {
+    discord: {
+      icon: "https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/636e0a69f118df70ad7828d4_icon_clyde_blurple_RGB.svg",
+      url: "https://discordapp.com/users/parazeeknova",
+    },
+    github: {
+      icon: "https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png",
+      url: "https://github.com/asocialmedia/social",
+    },
+  },
+
+  templates: {
+    passwordReset: {
+      buttonText: "Reset Password",
+      expiryTime: "1 hour",
+      subject: "Reset Your Password",
+    },
+    verification: {
+      buttonText: "Verify Email Address",
+      expiryTime: "1 hour",
+      subject: "🎉 One Last Step to Join the Asocialmedia!",
     },
   },
 };

@@ -1,8 +1,6 @@
 import { config, withStreamConfig } from "@asm/next";
 import type { NextConfig } from "next";
 
-let nextConfig: NextConfig = { ...config };
-
-nextConfig = withStreamConfig(nextConfig);
+const nextConfig: NextConfig = withStreamConfig({ ...config });
 
 export default nextConfig;

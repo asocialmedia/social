@@ -2,6 +2,7 @@ import { hybridSessionStore } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
 import { z } from "zod";
+
 import { procedure, protectedProcedure, router } from "../../trpc";
 import { auditLogout, checkLogoutRateLimit } from "../security";
 
@@ -14,9 +15,9 @@ export const authRouter = router({
     );
 
     const token = await new SignJWT({
-      sub: userId,
       email: ctx.user.email,
       name: ctx.user.name,
+      sub: userId,
     })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
@@ -28,42 +29,17 @@ export const authRouter = router({
     return { token };
   }),
 
-  validateToken: procedure
-    .input(z.object({ token: z.string() }))
-    .mutation(async ({ input }) => {
-      try {
-        const { validateJWTToken, cacheJWTValidation } = await import(
-          "@asm/auth/core"
-        );
-        const validation = await validateJWTToken(input.token);
-
-        if (!validation.valid) {
-          return {
-            valid: false,
-            error: validation.error,
-          } as const;
-        }
-
-        if (validation.payload) {
-          await cacheJWTValidation(input.token, validation.payload);
-        }
-
-        return {
-          valid: true,
-          userId: validation.payload?.sub,
-        } as const;
-      } catch (error) {
-        console.error("Token validation error:", error);
-        return {
-          valid: false,
-          error: "Validation failed",
-        } as const;
-      }
-    }),
-
   logout: protectedProcedure
     .input(
       z.object({
+        clientMetadata: z
+          .object({
+            deviceId: z.string().optional(),
+            location: z.string().optional(),
+            userAgent: z.string().optional(),
+          })
+          .optional(),
+        force: z.boolean().optional().default(false),
         reason: z
           .enum([
             "user-initiated",
@@ -74,14 +50,6 @@ export const authRouter = router({
           ])
           .optional()
           .default("user-initiated"),
-        force: z.boolean().optional().default(false),
-        clientMetadata: z
-          .object({
-            deviceId: z.string().optional(),
-            userAgent: z.string().optional(),
-            location: z.string().optional(),
-          })
-          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -94,10 +62,10 @@ export const authRouter = router({
         (ctx?.req?.headers as Headers | undefined)?.get?.("user-agent") || null;
 
       debugLog.api("logout:initiated", {
-        userId,
+        force: input.force,
         ip,
         reason: input.reason,
-        force: input.force,
+        userId,
       });
 
       try {
@@ -105,48 +73,48 @@ export const authRouter = router({
         const rateCheck = await checkLogoutRateLimit(userId, ip);
         if (!rateCheck.ok) {
           await auditLogout({
-            userId,
             ip,
-            userAgent,
-            reason: "rate-limited",
             metadata: {
-              retryAfter: rateCheck.retryAfter,
               originalReason: input.reason,
+              retryAfter: rateCheck.retryAfter,
             },
+            reason: "rate-limited",
+            userAgent,
+            userId,
           });
 
           return {
-            success: false,
             error: "rate-limited",
             retryAfter: rateCheck.retryAfter,
+            success: false,
           } as const;
         }
 
         // 2. VALIDATE USER SESSION INTEGRITY
         const currentSession = await prisma.session.findFirst({
-          where: {
-            userId,
-            expiresAt: { gt: new Date() },
-          },
           orderBy: { createdAt: "desc" },
-          select: { id: true, token: true, expiresAt: true },
+          select: { expiresAt: true, id: true, token: true },
+          where: {
+            expiresAt: { gt: new Date() },
+            userId,
+          },
         });
 
         if (!currentSession) {
           await auditLogout({
-            userId,
             ip,
-            userAgent,
-            reason: "no-active-session",
             metadata: {
-              originalReason: input.reason,
               force: input.force,
+              originalReason: input.reason,
             },
+            reason: "no-active-session",
+            userAgent,
+            userId,
           });
 
           return {
-            success: false,
             error: "no-active-session",
+            success: false,
           } as const;
         }
 
@@ -164,7 +132,7 @@ export const authRouter = router({
           debugLog.api("logout:force-all-sessions", { userId });
         } else {
           deleteConditions.ipAddress = ip;
-          debugLog.api("logout:selective-sessions", { userId, ip });
+          debugLog.api("logout:selective-sessions", { ip, userId });
         }
 
         const deleteResult = await prisma.session.deleteMany({
@@ -172,10 +140,10 @@ export const authRouter = router({
         });
 
         debugLog.api("logout:db-sessions-deleted", {
-          userId,
           deletedCount: deleteResult.count,
           force: input.force,
           ip,
+          userId,
         });
 
         // 5. INVALIDATE ACCOUNTS (Optional - only for security concerns)
@@ -183,29 +151,29 @@ export const authRouter = router({
           debugLog.api("logout:invalidating-accounts", { userId });
 
           await prisma.account.updateMany({
-            where: { userId },
             data: {
               accessToken: null,
-              refreshToken: null,
               accessTokenExpiresAt: new Date(),
+              refreshToken: null,
               refreshTokenExpiresAt: new Date(),
               updatedAt: new Date(),
             },
+            where: { userId },
           });
         }
 
         // 6. SECURITY AUDIT LOGGING
         await auditLogout({
-          userId,
           ip,
-          userAgent,
-          reason: input.reason,
           metadata: {
-            force: input.force,
-            sessionsDeleted: deleteResult.count,
             clientMetadata: input.clientMetadata,
             duration: Date.now() - startTime,
+            force: input.force,
+            sessionsDeleted: deleteResult.count,
           },
+          reason: input.reason,
+          userAgent,
+          userId,
         });
 
         // 7. NOTIFICATION (Optional - could notify user of logout)
@@ -215,53 +183,85 @@ export const authRouter = router({
         const duration = endTime - startTime;
 
         debugLog.api("logout:completed", {
-          userId,
           duration,
-          sessionsDeleted: deleteResult.count,
-          reason: input.reason,
           force: input.force,
+          reason: input.reason,
+          sessionsDeleted: deleteResult.count,
+          userId,
         });
 
         return {
-          success: true,
-          sessionsCleared: deleteResult.count,
-          redisCleared: true,
           accountsInvalidated: input.reason === "security-concern",
           duration,
           message: input.force
             ? "Logged out from all devices"
             : "Logged out successfully",
+          redisCleared: true,
+          sessionsCleared: deleteResult.count,
+          success: true,
         } as const;
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
 
         debugLog.api("logout:error", {
-          userId,
-          ip,
-          error: errorMessage,
-          reason: input.reason,
           duration: Date.now() - startTime,
+          error: errorMessage,
+          ip,
+          reason: input.reason,
+          userId,
         });
 
         await auditLogout({
-          userId,
           ip,
-          userAgent,
-          reason: "logout-error",
           metadata: {
             error: errorMessage,
-            originalReason: input.reason,
             force: input.force,
+            originalReason: input.reason,
           },
+          reason: "logout-error",
+          userAgent,
+          userId,
         }).catch(() => {
           // Ignore audit errors to prevent cascading failures
         });
 
         return {
-          success: false,
           error: "logout-failed",
           message: "An error occurred during logout. Please try again.",
+          success: false,
+        } as const;
+      }
+    }),
+
+  validateToken: procedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ input }) => {
+      try {
+        const { validateJWTToken, cacheJWTValidation } =
+          await import("@asm/auth/core");
+        const validation = await validateJWTToken(input.token);
+
+        if (!validation.valid) {
+          return {
+            error: validation.error,
+            valid: false,
+          } as const;
+        }
+
+        if (validation.payload) {
+          await cacheJWTValidation(input.token, validation.payload);
+        }
+
+        return {
+          userId: validation.payload?.sub,
+          valid: true,
+        } as const;
+      } catch (error) {
+        console.error("Token validation error:", error);
+        return {
+          error: "Validation failed",
+          valid: false,
         } as const;
       }
     }),

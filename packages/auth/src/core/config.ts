@@ -11,7 +11,9 @@ import type {
   GoogleProfile,
   RedditProfile,
 } from "better-auth/social-providers";
+
 import { env } from "../../env";
+import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
 
@@ -22,18 +24,16 @@ export function pickRandomDefaultAvatar(): string {
 export function extractTokenFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    return (
-      parsed.searchParams.get("token") ||
-      parsed.pathname.split("/").filter(Boolean).pop() ||
-      ""
-    );
+    const lastSegment = parsed.pathname
+      .split("/")
+      .toReversed()
+      .find((segment) => segment.length > 0);
+    return parsed.searchParams.get("token") || lastSegment || "";
   } catch {
     const withoutQuery = url.split("?")[0] || "";
     return withoutQuery.split("/").pop() || "";
   }
 }
-
-import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 function deriveUsernameFromProfile(
   profile:
@@ -58,9 +58,9 @@ function deriveUsernameFromProfile(
     (email ? email.split("@")[0] : "");
   const sanitized = String(candidate)
     .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    .replaceAll(/[^a-z0-9_]/g, "_")
+    .replaceAll(/_+/g, "_")
+    .replaceAll(/^_+|_+$/g, "");
   return sanitized || (email ? email.split("@")[0] : "user");
 }
 
@@ -123,11 +123,11 @@ function buildSocialProviderConfig(authBaseUrl: string): {
     socialProviders.google = {
       clientId: env.GOOGLE_CLIENT_ID,
       clientSecret: env.GOOGLE_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/google`,
       mapProfileToUser(profile: GoogleProfile): UsernameMapping {
         const derivedUsername = deriveUsernameFromProfile(profile);
         return { username: derivedUsername };
       },
+      redirectURI: `${authBaseUrl}/api/auth/callback/google`,
     };
     trustedProviders.push("google");
   }
@@ -136,11 +136,11 @@ function buildSocialProviderConfig(authBaseUrl: string): {
     socialProviders.reddit = {
       clientId: env.REDDIT_CLIENT_ID,
       clientSecret: env.REDDIT_CLIENT_SECRET,
-      redirectURI: `${authBaseUrl}/api/auth/callback/reddit`,
       mapProfileToUser(profile: RedditProfile): UsernameMapping {
         const derivedUsername = deriveUsernameFromProfile(profile);
         return { username: derivedUsername };
       },
+      redirectURI: `${authBaseUrl}/api/auth/callback/reddit`,
     };
     trustedProviders.push("reddit");
   }
@@ -160,6 +160,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
+  // eslint-disable-next-line sort-keys
   return betterAuth({
     baseURL: authBaseUrl,
     database: prismaAdapter(prisma, {
@@ -167,31 +168,31 @@ export function createAuthConfig(config: AuthConfig = {}) {
     }),
 
     user: {
-      fields: {
-        name: "displayName",
-      },
       additionalFields: {
-        username: {
-          type: "string",
-          required: true,
-        },
-        displayUsername: {
-          type: "string",
+        avatarKey: {
           required: false,
-        },
-        role: {
           type: "string",
-          required: true,
-          defaultValue: "user",
         },
         avatarUrl: {
-          type: "string",
           required: false,
-        },
-        avatarKey: {
           type: "string",
-          required: false,
         },
+        displayUsername: {
+          required: false,
+          type: "string",
+        },
+        role: {
+          defaultValue: "user",
+          required: true,
+          type: "string",
+        },
+        username: {
+          required: true,
+          type: "string",
+        },
+      },
+      fields: {
+        name: "displayName",
       },
     },
 
@@ -202,10 +203,10 @@ export function createAuthConfig(config: AuthConfig = {}) {
       ...(sendVerificationOTP
         ? [
             emailOTP({
-              overrideDefaultEmailVerification: true,
-              otpLength: 6,
-              expiresIn: 300,
               allowedAttempts: 3,
+              expiresIn: 300,
+              otpLength: 6,
+              overrideDefaultEmailVerification: true,
               sendVerificationOTP,
             }),
           ]
@@ -214,17 +215,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
 
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: true,
       password: {
-        hash: async (password: string) => hashPasswordWithScrypt(password),
-        verify: async ({
-          hash,
-          password,
-        }: {
-          hash: string;
-          password: string;
-        }) => verifyPasswordHash(password, hash),
+        hash: (password: string) => hashPasswordWithScrypt(password),
+        verify: ({ hash, password }: { hash: string; password: string }) =>
+          verifyPasswordHash(password, hash),
       },
+      requireEmailVerification: true,
       sendResetPassword: emailService?.sendPasswordResetEmail
         ? async ({ user, url }) => {
             const token = extractTokenFromUrl(url);
@@ -250,11 +246,11 @@ export function createAuthConfig(config: AuthConfig = {}) {
     },
 
     session: {
-      expiresIn: 60 * 60 * 24 * 7,
-      updateAge: 60 * 60 * 24,
       cookieCache: {
         enabled: false,
       },
+      expiresIn: 60 * 60 * 24 * 7,
+      updateAge: 60 * 60 * 24,
       // freshAge can protect sensitive actions; keep default or tune as needed
     },
 
@@ -263,8 +259,8 @@ export function createAuthConfig(config: AuthConfig = {}) {
       ...(environment === "production"
         ? {
             crossSubDomainCookies: {
-              enabled: true,
               domain: ".asocialmedia.cc",
+              enabled: true,
             },
           }
         : {}),
@@ -293,6 +289,36 @@ export function createAuthConfig(config: AuthConfig = {}) {
     },
 
     databaseHooks: {
+      session: {
+        create: {
+          before: async (session) => {
+            const user = await prisma.user.findUnique({
+              select: { banExpires: true, banReason: true, banned: true },
+              where: { id: session.userId },
+            });
+
+            if (user?.banned) {
+              const now = new Date();
+              const isExpired = user.banExpires && user.banExpires <= now;
+
+              if (isExpired) {
+                await prisma.user.update({
+                  data: { banExpires: null, banReason: null, banned: false },
+                  where: { id: session.userId },
+                });
+              } else {
+                throw new Error(
+                  JSON.stringify({
+                    banExpires: user.banExpires?.toISOString(),
+                    banReason: user.banReason || "Account suspended",
+                    code: "USER_BANNED",
+                  })
+                );
+              }
+            }
+          },
+        },
+      },
       user: {
         create: {
           after: async (user) => {
@@ -300,8 +326,8 @@ export function createAuthConfig(config: AuthConfig = {}) {
               const authBase = env.APP_URL ?? "https://social.localhost";
               const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
               await prisma.user.update({
-                where: { id: user.id },
                 data: { avatarUrl },
+                where: { id: user.id },
               });
             } catch (error) {
               console.error(
@@ -312,47 +338,17 @@ export function createAuthConfig(config: AuthConfig = {}) {
           },
         },
       },
-      session: {
-        create: {
-          before: async (session) => {
-            const user = await prisma.user.findUnique({
-              where: { id: session.userId },
-              select: { banned: true, banReason: true, banExpires: true },
-            });
-
-            if (user?.banned) {
-              const now = new Date();
-              const isExpired = user.banExpires && user.banExpires <= now;
-
-              if (isExpired) {
-                await prisma.user.update({
-                  where: { id: session.userId },
-                  data: { banned: false, banReason: null, banExpires: null },
-                });
-              } else {
-                throw new Error(
-                  JSON.stringify({
-                    code: "USER_BANNED",
-                    banReason: user.banReason || "Account suspended",
-                    banExpires: user.banExpires?.toISOString(),
-                  })
-                );
-              }
-            }
-          },
-        },
-      },
     },
 
     ...(!sendVerificationOTP &&
       emailService?.sendVerificationEmail && {
         emailVerification: {
+          autoSignInAfterVerification: true,
+          sendOnSignUp: true,
           sendVerificationEmail: async ({ user, url }) => {
             const token = extractTokenFromUrl(url);
             await emailService.sendVerificationEmail?.(user.email, token);
           },
-          sendOnSignUp: true,
-          autoSignInAfterVerification: true,
         },
       }),
   });

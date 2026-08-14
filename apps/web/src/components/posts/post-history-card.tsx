@@ -7,6 +7,7 @@ import { Eye, Flame, History, MessageSquare } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
+
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -15,11 +16,11 @@ const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
 const HistoryRowSkeleton: React.FC = () => (
   <div className="flex items-center gap-2.5 px-2.5 py-2">
-    <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-border/50" />
+    <div className="bg-border/50 h-12 w-12 shrink-0 animate-pulse rounded-lg" />
     <div className="min-w-0 flex-1 space-y-1.5">
-      <div className="h-3.5 w-full animate-pulse rounded-md bg-border/60" />
-      <div className="h-3.5 w-3/4 animate-pulse rounded-md bg-border/60" />
-      <div className="h-3 w-24 animate-pulse rounded-md bg-border/40" />
+      <div className="bg-border/60 h-3.5 w-full animate-pulse rounded-md" />
+      <div className="bg-border/60 h-3.5 w-3/4 animate-pulse rounded-md" />
+      <div className="bg-border/40 h-3 w-24 animate-pulse rounded-md" />
     </div>
   </div>
 );
@@ -63,13 +64,13 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
         </div>
       ) : null}
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-semibold text-sm">
+        <span className="block truncate text-sm font-semibold">
           {post.user.displayName || post.user.username}
         </span>
-        <span className="mt-0.5 line-clamp-2 block font-medium text-muted-foreground text-sm leading-snug">
+        <span className="text-muted-foreground mt-0.5 line-clamp-2 block text-sm leading-snug font-medium">
           {post.content || "View post"}
         </span>
-        <span className="mt-1 flex items-center gap-2 text-muted-foreground text-xs transition-colors group-hover:text-inherit">
+        <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
             {formatRelativeDate(post.createdAt)}
           </span>
@@ -93,12 +94,12 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
 
 const PostHistoryCard: React.FC = () => {
   const { data, status } = useQuery({
-    queryKey: ["post-history"],
     queryFn: () =>
       kyInstance.get("/api/posts/history").json<{ posts: PostData[] }>(),
-    staleTime: 30 * 1000,
+    queryKey: ["post-history"],
     refetchInterval: 30 * 1000,
     refetchIntervalInBackground: false,
+    staleTime: 30 * 1000,
   });
 
   const posts = data?.posts ?? [];
@@ -114,7 +115,7 @@ const PostHistoryCard: React.FC = () => {
     );
   } else if (status === "error") {
     body = (
-      <p className="px-3 py-2 text-muted-foreground text-sm">
+      <p className="text-muted-foreground px-3 py-2 text-sm">
         Couldn&apos;t load your history.
       </p>
     );
@@ -137,7 +138,7 @@ const PostHistoryCard: React.FC = () => {
           src={noSearchImage}
           width={128}
         />
-        <p className="w-16 text-muted-foreground text-sm">
+        <p className="text-muted-foreground w-16 text-sm">
           Posts you visit will show up here.
         </p>
       </div>
@@ -151,8 +152,8 @@ const PostHistoryCard: React.FC = () => {
           <History className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-sm leading-tight">Recents</p>
-          <p className="truncate text-primary text-xs leading-tight">
+          <p className="text-sm leading-tight font-semibold">Recents</p>
+          <p className="text-primary truncate text-xs leading-tight">
             Recently visited posts
           </p>
         </div>

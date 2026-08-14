@@ -22,11 +22,11 @@ export function useUpdateUsername() {
   return useMutation({
     mutationFn: async (values: z.infer<typeof usernameSchema>) => {
       const response = await fetch("/api/users/username", {
-        method: "PATCH",
+        body: JSON.stringify(values),
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(values),
+        method: "PATCH",
       });
 
       if (!response.ok) {
@@ -48,11 +48,11 @@ export function useUpdateEmail() {
   return useMutation({
     mutationFn: async (values: z.infer<typeof emailSchema>) => {
       const response = await fetch("/api/users/email", {
-        method: "PATCH",
+        body: JSON.stringify(values),
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(values),
+        method: "PATCH",
       });
 
       if (!response.ok) {

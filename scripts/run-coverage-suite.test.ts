@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+
 import { runCoverageCli, runCoverageForScope } from "./run-coverage-suite";
 
 const originalConsoleError = console.error;
@@ -11,18 +12,18 @@ describe("run-coverage-suite", () => {
   let sandbox = "";
 
   beforeEach(async () => {
-    console.error = mock(() => undefined) as typeof console.error;
-    sandbox = await mkdtemp(join(tmpdir(), "asm-run-coverage-suite-"));
+    console.error = mock(() => {}) as typeof console.error;
+    sandbox = await mkdtemp(path.join(tmpdir(), "asm-run-coverage-suite-"));
     originalCwd = process.cwd();
     process.chdir(sandbox);
 
-    await mkdir(join(sandbox, "scripts"), { recursive: true });
+    await mkdir(path.join(sandbox, "scripts"), { recursive: true });
     await writeFile(
-      join(sandbox, "scripts", "bunfig.coverage.toml"),
+      path.join(sandbox, "scripts", "bunfig.coverage.toml"),
       '[test]\ncoverageDir = "coverage/all"\n',
-      "utf8"
+      "utf-8"
     );
-    await mkdir(join(sandbox, "coverage", "all"), { recursive: true });
+    await mkdir(path.join(sandbox, "coverage", "all"), { recursive: true });
   });
 
   afterEach(async () => {
@@ -35,14 +36,14 @@ describe("run-coverage-suite", () => {
   });
 
   test("returns success for empty integration scope and writes placeholder lcov", async () => {
-    const logger = { error: mock(() => undefined), log: mock(() => undefined) };
+    const logger = { error: mock(() => {}), log: mock(() => {}) };
 
     const exitCode = await runCoverageForScope("integration", {
-      collectFiles: async () => [],
+      collectFiles: () => Promise.resolve([]),
       logger,
-      removeFile: async () => undefined,
-      runProcess: async () => 1,
-      writeText: async () => undefined,
+      removeFile: () => Promise.resolve(),
+      runProcess: () => Promise.resolve(1),
+      writeText: () => Promise.resolve(),
     });
 
     expect(exitCode).toBe(0);
@@ -52,14 +53,14 @@ describe("run-coverage-suite", () => {
   });
 
   test("fails non-integration scopes with no tests", async () => {
-    const logger = { error: mock(() => undefined), log: mock(() => undefined) };
+    const logger = { error: mock(() => {}), log: mock(() => {}) };
 
     const exitCode = await runCoverageForScope("unit", {
-      collectFiles: async () => [],
+      collectFiles: () => Promise.resolve([]),
       logger,
-      removeFile: async () => undefined,
-      runProcess: async () => 0,
-      writeText: async () => undefined,
+      removeFile: () => Promise.resolve(),
+      runProcess: () => Promise.resolve(0),
+      writeText: () => Promise.resolve(),
     });
 
     expect(exitCode).toBe(1);
@@ -71,12 +72,10 @@ describe("run-coverage-suite", () => {
     const writes = new Map<string, string>();
 
     const exitCode = await runCoverageForScope("unit", {
-      collectFiles: async () => [
-        "apps/auth/src/a.test.ts",
-        "scripts/b.test.ts",
-      ],
-      fileExists: async (filePath) =>
-        filePath.endsWith("coverage/all/lcov.info"),
+      collectFiles: () =>
+        Promise.resolve(["apps/auth/src/a.test.ts", "scripts/b.test.ts"]),
+      fileExists: (filePath) =>
+        Promise.resolve(filePath.endsWith("coverage/all/lcov.info")),
       readText: (filePath) => {
         if (filePath.endsWith("scripts/bunfig.coverage.toml")) {
           return Promise.resolve('[test]\ncoverageDir = "coverage/all"\n');
@@ -124,11 +123,12 @@ describe("run-coverage-suite", () => {
     const writes = new Map<string, string>();
 
     const exitCode = await runCoverageForScope("unit", {
-      collectFiles: async () => [
-        "apps/auth/src/a.test.ts",
-        "apps/auth/src/a2.test.ts",
-      ],
-      fileExists: async () => true,
+      collectFiles: () =>
+        Promise.resolve([
+          "apps/auth/src/a.test.ts",
+          "apps/auth/src/a2.test.ts",
+        ]),
+      fileExists: () => Promise.resolve(true),
       readText: (filePath) => {
         if (filePath.endsWith("scripts/bunfig.coverage.toml")) {
           return Promise.resolve('[test]\ncoverageDir = "coverage/all"\n');
@@ -153,8 +153,8 @@ describe("run-coverage-suite", () => {
           ].join("\n")
         );
       },
-      removeFile: async () => undefined,
-      runProcess: async () => 0,
+      removeFile: () => Promise.resolve(),
+      runProcess: () => Promise.resolve(0),
       writeText: (filePath, content) => {
         writes.set(filePath, content);
         return Promise.resolve();
@@ -177,11 +177,9 @@ describe("run-coverage-suite", () => {
     const writes = new Map<string, string>();
 
     const exitCode = await runCoverageForScope("unit", {
-      collectFiles: async () => [
-        "apps/auth/src/a.test.ts",
-        "scripts/b.test.ts",
-      ],
-      fileExists: async () => true,
+      collectFiles: () =>
+        Promise.resolve(["apps/auth/src/a.test.ts", "scripts/b.test.ts"]),
+      fileExists: () => Promise.resolve(true),
       readText: (filePath) => {
         if (filePath.endsWith("scripts/bunfig.coverage.toml")) {
           return Promise.resolve('[test]\ncoverageDir = "coverage/all"\n');
@@ -191,8 +189,8 @@ describe("run-coverage-suite", () => {
           "TN:\nSF:a.ts\nDA:1,1\nend_of_record\nTN:\nSF:b.ts\nDA:1,1\nend_of_record\n"
         );
       },
-      removeFile: async () => undefined,
-      runProcess: async () => 3,
+      removeFile: () => Promise.resolve(),
+      runProcess: () => Promise.resolve(3),
       writeText: (filePath, content) => {
         writes.set(filePath, content);
         return Promise.resolve();
@@ -207,11 +205,11 @@ describe("run-coverage-suite", () => {
 
   test("returns 1 when lcov file is missing after success", async () => {
     const writes = new Map<string, string>();
-    const logger = { error: mock(() => undefined), log: mock(() => undefined) };
+    const logger = { error: mock(() => {}), log: mock(() => {}) };
 
     const exitCode = await runCoverageForScope("unit", {
-      collectFiles: async () => ["apps/auth/src/a.test.ts"],
-      fileExists: async () => false,
+      collectFiles: () => Promise.resolve(["apps/auth/src/a.test.ts"]),
+      fileExists: () => Promise.resolve(false),
       logger,
       readText: (filePath) => {
         if (filePath.endsWith("scripts/bunfig.coverage.toml")) {
@@ -219,8 +217,8 @@ describe("run-coverage-suite", () => {
         }
         return Promise.resolve("");
       },
-      removeFile: async () => undefined,
-      runProcess: async () => 0,
+      removeFile: () => Promise.resolve(),
+      runProcess: () => Promise.resolve(0),
       writeText: (filePath, content) => {
         writes.set(filePath, content);
         return Promise.resolve();

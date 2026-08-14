@@ -8,6 +8,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 import { searchMutations } from "@/components/search/mutations";
 import kyInstance from "@/lib/ky";
@@ -60,24 +61,25 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const resultsRef = useRef<SpotlightResultItem[]>([]);
 
   const { data: history } = useQuery({
-    queryKey: ["spotlight-history"],
-    queryFn: async () =>
+    enabled: open,
+    queryFn: () =>
       kyInstance
         .get("/api/search", { searchParams: { type: "history" } })
         .json<string[]>(),
-    enabled: open,
+    queryKey: ["spotlight-history"],
     staleTime: 30_000,
   });
 
   const { data, isFetching } = useQuery({
-    queryKey: ["spotlight", query],
-    queryFn: () => fetchResults(query),
     enabled: open && Boolean(query.trim()),
+    queryFn: () => fetchResults(query),
+    queryKey: ["spotlight", query],
     staleTime: 15_000,
   });
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-compiler -- seed the search box with the requested query when opened
       setQuery(initialQuery ?? "");
       setActiveIndex(0);
       window.setTimeout(() => {
@@ -91,25 +93,25 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
     for (const suggestion of data?.users ?? []) {
       items.push({
-        type: "user",
-        id: `user-${suggestion.id}`,
-        displayName: suggestion.displayName || suggestion.username,
-        subtitle: `@${suggestion.username}`,
         avatarUrl: suggestion.avatarUrl,
+        displayName: suggestion.displayName || suggestion.username,
         href: `/users/${suggestion.username}`,
+        id: `user-${suggestion.id}`,
         meta: `${formatNumber(suggestion.aura ?? 0)} aura`,
+        subtitle: `@${suggestion.username}`,
+        type: "user",
       });
     }
 
     for (const post of data?.posts ?? []) {
       items.push({
-        type: "post",
-        id: `post-${post.id}`,
-        displayName: post.content,
-        subtitle: undefined,
         avatarUrl: post.authorAvatarUrl,
+        displayName: post.content,
         href: `/posts/${post.id}`,
+        id: `post-${post.id}`,
         meta: `${formatNumber(post.aura)} aura · ${formatNumber(post.viewCount)} views`,
+        subtitle: undefined,
+        type: "post",
       });
     }
 
@@ -124,11 +126,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
       if (!q) {
         for (const entry of history ?? []) {
           items.push({
-            type: "history",
-            id: `history-${entry}`,
             displayName: entry,
             href: "",
+            id: `history-${entry}`,
             meta: "Recent",
+            type: "history",
           });
         }
         return items;
@@ -137,11 +139,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
       for (const entry of history ?? []) {
         if (entry.toLowerCase().includes(q.toLowerCase())) {
           items.push({
-            type: "history",
-            id: `history-${entry}`,
             displayName: entry,
             href: "",
+            id: `history-${entry}`,
             meta: "Recent",
+            type: "history",
           });
         }
       }
@@ -238,11 +240,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
       />
 
       <div className="apple-panel relative w-full max-w-xl overflow-hidden rounded-2xl shadow-none">
-        <div className="flex items-center gap-3 border-border/60 border-b px-4 py-3">
-          <Search className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <div className="border-border/60 flex items-center gap-3 border-b px-4 py-3">
+          <Search className="text-muted-foreground h-5 w-5 shrink-0" />
           <input
             aria-label="Search"
-            className="w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
+            className="placeholder:text-muted-foreground w-full bg-transparent text-base outline-none"
             onChange={handleQueryChange}
             onKeyDown={handleKeyDown}
             placeholder="Search people and posts"
@@ -250,7 +252,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
             type="text"
             value={query}
           />
-          <kbd className="hidden shrink-0 rounded-md border border-border/60 bg-muted/50 px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground sm:block">
+          <kbd className="border-border/60 bg-muted/50 text-muted-foreground hidden shrink-0 rounded-md border px-1.5 py-0.5 font-sans text-[10px] sm:block">
             esc
           </kbd>
         </div>
@@ -274,7 +276,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                 src={noSearchImage}
                 width={128}
               />
-              <p className="font-medium text-sm">
+              <p className="text-sm font-medium">
                 No results for &quot;{query}&quot;
               </p>
               <p className="text-muted-foreground text-xs">
@@ -288,7 +290,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               {items.map((item, index) => (
                 <button
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-all duration-200 ease-out",
+                    "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
                     index === activeIndex
                       ? "pill-nav-active"
                       : "pill-3d-hover text-foreground"
@@ -306,7 +308,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                       size={36}
                     />
                   ) : (
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/50 text-muted-foreground">
+                    <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
                       {item.type === "history" ? (
                         <Clock3 className="h-4 w-4" />
                       ) : (
@@ -318,7 +320,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                   <div className="min-w-0 flex-1">
                     <span
                       className={cn(
-                        "font-medium text-sm",
+                        "text-sm font-medium",
                         item.type === "post"
                           ? "line-clamp-2 block leading-snug"
                           : "block truncate"
@@ -327,13 +329,13 @@ const Spotlight: React.FC<SpotlightProps> = ({
                       {item.displayName}
                     </span>
                     {item.subtitle ? (
-                      <span className="block truncate text-muted-foreground text-xs">
+                      <span className="text-muted-foreground block truncate text-xs">
                         {item.subtitle}
                       </span>
                     ) : null}
                   </div>
 
-                  <span className="shrink-0 text-muted-foreground text-xs">
+                  <span className="text-muted-foreground shrink-0 text-xs">
                     {item.meta}
                   </span>
                 </button>
@@ -351,7 +353,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                 src={noSearchImage}
                 width={144}
               />
-              <p className="font-medium text-sm">Search Asocialmedia</p>
+              <p className="text-sm font-medium">Search Asocialmedia</p>
               <p className="text-muted-foreground text-xs">
                 Start typing to find people and posts
               </p>
@@ -365,10 +367,10 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
 const SpotlightSkeleton: React.FC = () => (
   <div className="flex items-center gap-3 px-2.5 py-2">
-    <div className="h-9 w-9 animate-pulse rounded-lg bg-border/50" />
+    <div className="bg-border/50 h-9 w-9 animate-pulse rounded-lg" />
     <div className="min-w-0 flex-1 space-y-1.5">
-      <div className="h-3.5 w-1/3 animate-pulse rounded-md bg-border/60" />
-      <div className="h-3 w-2/3 animate-pulse rounded-md bg-border/40" />
+      <div className="bg-border/60 h-3.5 w-1/3 animate-pulse rounded-md" />
+      <div className="bg-border/40 h-3 w-2/3 animate-pulse rounded-md" />
     </div>
   </div>
 );

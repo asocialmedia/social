@@ -5,17 +5,17 @@ export async function GET() {
   try {
     const postsWithTags = await prisma.post.findMany({
       select: {
-        id: true,
         content: true,
+        id: true,
         tags: {
           select: {
-            id: true,
-            name: true,
             _count: {
               select: {
                 posts: true,
               },
             },
+            id: true,
+            name: true,
           },
         },
       },

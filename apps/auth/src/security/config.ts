@@ -64,6 +64,30 @@ export function readSecurityConfig(
 ): SecurityConfig {
   return {
     allowedOrigins: buildAllowedOrigins(env),
+    anonRateLimitMax: parseNumber(
+      env.AUTH_ANON_RATE_LIMIT_MAX,
+      DEFAULT_ANON_RATE_LIMIT_MAX
+    ),
+    anonRateLimitWindowMs: parseNumber(
+      env.AUTH_ANON_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_ANON_RATE_LIMIT_WINDOW_MS
+    ),
+    authRateLimitMax: parseNumber(
+      env.AUTH_AUTH_RATE_LIMIT_MAX,
+      DEFAULT_AUTH_RATE_LIMIT_MAX
+    ),
+    authRateLimitWindowMs: parseNumber(
+      env.AUTH_AUTH_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS
+    ),
+    burstRateLimitMax: parseNumber(
+      env.AUTH_BURST_RATE_LIMIT_MAX,
+      DEFAULT_BURST_MAX
+    ),
+    burstRateLimitWindowMs: parseNumber(
+      env.AUTH_BURST_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_BURST_WINDOW_MS
+    ),
     internalSecret: env.AUTH_INTERNAL_SECRET ?? env.BETTER_AUTH_SECRET,
     maxBodyBytes: parseNumber(env.AUTH_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES),
     maxConcurrentRequests: parseNumber(
@@ -74,22 +98,7 @@ export function readSecurityConfig(
       env.AUTH_REQUEST_TIMEOUT_MS,
       DEFAULT_REQUEST_TIMEOUT_MS
     ),
-    authRateLimitMax: parseNumber(
-      env.AUTH_AUTH_RATE_LIMIT_MAX,
-      DEFAULT_AUTH_RATE_LIMIT_MAX
-    ),
-    authRateLimitWindowMs: parseNumber(
-      env.AUTH_AUTH_RATE_LIMIT_WINDOW_MS,
-      DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS
-    ),
-    anonRateLimitMax: parseNumber(
-      env.AUTH_ANON_RATE_LIMIT_MAX,
-      DEFAULT_ANON_RATE_LIMIT_MAX
-    ),
-    anonRateLimitWindowMs: parseNumber(
-      env.AUTH_ANON_RATE_LIMIT_WINDOW_MS,
-      DEFAULT_ANON_RATE_LIMIT_WINDOW_MS
-    ),
+    strictPaths: DEFAULT_STRICT_PATHS,
     strictRateLimitMax: parseNumber(
       env.AUTH_STRICT_RATE_LIMIT_MAX,
       DEFAULT_STRICT_RATE_LIMIT_MAX
@@ -98,14 +107,5 @@ export function readSecurityConfig(
       env.AUTH_STRICT_RATE_LIMIT_WINDOW_MS,
       DEFAULT_STRICT_RATE_LIMIT_WINDOW_MS
     ),
-    burstRateLimitMax: parseNumber(
-      env.AUTH_BURST_RATE_LIMIT_MAX,
-      DEFAULT_BURST_MAX
-    ),
-    burstRateLimitWindowMs: parseNumber(
-      env.AUTH_BURST_RATE_LIMIT_WINDOW_MS,
-      DEFAULT_BURST_WINDOW_MS
-    ),
-    strictPaths: DEFAULT_STRICT_PATHS,
   };
 }

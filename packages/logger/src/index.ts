@@ -6,11 +6,7 @@ export {
   type LoggerOptions,
   logger,
 } from "./logger";
-export {
-  getTelemetryApi,
-  initTelemetry,
-  type Telemetry,
-} from "./otel";
+export { getTelemetryApi, initTelemetry, type Telemetry } from "./otel";
 export {
   enableOtelDiagnostics,
   type OtelConfig,

@@ -1,21 +1,21 @@
 export const stepVariants = {
+  center: {
+    opacity: 1,
+    transition: {
+      duration: 0.3,
+    },
+    x: 0,
+  },
   enter: {
     opacity: 0,
     x: 20,
   },
-  center: {
-    opacity: 1,
-    x: 0,
-    transition: {
-      duration: 0.3,
-    },
-  },
   exit: {
     opacity: 0,
-    x: -20,
     transition: {
       duration: 0.3,
     },
+    x: -20,
   },
 };
 
@@ -26,9 +26,9 @@ export const formContainerVariants = {
   },
   visible: {
     opacity: 1,
-    y: 0,
     transition: {
       duration: 0.5,
     },
+    y: 0,
   },
 };

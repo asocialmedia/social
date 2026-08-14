@@ -3,6 +3,7 @@ import type {
   FetchCreateContextFn,
   fetchRequestHandler,
 } from "@trpc/server/adapters/fetch";
+
 import type { Security } from "../security";
 import { securityHeaders } from "../security";
 
@@ -44,11 +45,11 @@ export function getAllowedOrigin(): string {
 
 export function corsHeaders(): Record<string, string> {
   return {
-    "Access-Control-Allow-Origin": getAllowedOrigin(),
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Headers":
       "Content-Type, Authorization, Cache-Control",
-    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Origin": getAllowedOrigin(),
   };
 }
 
@@ -73,10 +74,18 @@ function isTrpcPath(pathname: string): boolean {
 // A no-op logger used when one is not injected, so the handler stays
 // dependency-injected and trivially testable.
 const noopLogger: HttpLogger = {
-  debug: () => undefined,
-  info: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
+  debug: () => {
+    /* empty */
+  },
+  error: () => {
+    /* empty */
+  },
+  info: () => {
+    /* empty */
+  },
+  warn: () => {
+    /* empty */
+  },
 };
 
 export function createHttpHandler(deps: HttpHandlerDeps) {
@@ -95,16 +104,16 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     endpoint: string
   ): Promise<Response> {
     const response = await trpcFetchHandler({
-      endpoint,
-      req: request,
-      router: appRouter,
       createContext,
+      endpoint,
       onError({ error, path, input }) {
         log.error(
-          { path, message: error.message, input },
+          { input, message: error.message, path },
           "tRPC request failed"
         );
       },
+      req: request,
+      router: appRouter,
     });
     return addCorsHeaders(response);
   }
@@ -113,25 +122,25 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     const session = await authInstance.api.getSession({
       headers: request.headers,
     });
-    return new Response(JSON.stringify(session), {
-      status: 200,
+    return Response.json(session, {
       headers: {
-        "content-type": "application/json",
         "cache-control": "no-store",
+        "content-type": "application/json",
         ...corsHeaders(),
       },
+      status: 200,
     });
   }
 
   async function route(request: Request, pathname: string): Promise<Response> {
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders() });
+      return new Response(null, { headers: corsHeaders(), status: 204 });
     }
     if (pathname === "/api/health") {
       return Response.json(
         {
-          status: "ok",
           service: "auth",
+          status: "ok",
           timestamp: new Date().toISOString(),
         },
         { status: 200 }
@@ -173,23 +182,23 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       response = await route(request, pathname);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error({ pathname, message }, "request handler threw");
-      response = new Response(
-        JSON.stringify({ error: "Internal server error" }),
+      log.error({ message, pathname }, "request handler threw");
+      response = Response.json(
+        { error: "Internal server error" },
         {
-          status: 500,
           headers: { "content-type": "application/json", ...corsHeaders() },
+          status: 500,
         }
       );
     }
 
     log.info(
       {
+        duration_ms: Date.now() - startedAt,
         method: request.method,
         path: pathname,
-        status: response.status,
-        duration_ms: Date.now() - startedAt,
         request_id: request.headers.get("x-request-id") ?? undefined,
+        status: response.status,
       },
       "request completed"
     );

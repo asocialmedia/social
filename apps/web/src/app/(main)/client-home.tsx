@@ -12,6 +12,7 @@ import { ListPlus, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useRef } from "react";
+
 import FollowingFeed from "@/components/home/feedview/following";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import HomeFeed from "@/components/home/home-feed";
@@ -66,7 +67,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
     <div className="relative flex h-dvh overflow-hidden">
       <LeftSidebar userData={userData} />
 
-      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
           onValueChange={handleTabChange}
@@ -74,7 +75,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
         >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
-            <div className="relative flex items-center border-border/60 border-b py-1.5">
+            <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="for-you">
                   Trending
@@ -113,7 +114,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
                         <ListPlus className="size-4" />
                         Create feed
                       </span>
-                      <span className="ml-auto rounded-full border border-border/60 bg-muted/50 px-1.5 py-0.5 font-semibold text-[10px] text-muted-foreground tracking-wide">
+                      <span className="border-border/60 bg-muted/50 text-muted-foreground ml-auto rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">
                         Soon
                       </span>
                     </DropdownMenuItem>
@@ -125,7 +126,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
 
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
               <PostEditor />

@@ -20,6 +20,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 interface CustomVideoPlayerProps {
@@ -31,11 +32,17 @@ interface CustomVideoPlayerProps {
   src: string;
 }
 
-interface KeyboardControls {
-  [key: string]: () => void;
-}
+type KeyboardControls = Record<string, () => void>;
 
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+const EMPTY_CAPTIONS: { src: string; label: string; srclang: string }[] = [];
+
+function formatTime(time: number) {
+  const minutes = Math.floor(time / 60);
+  const seconds = Math.floor(time % 60);
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
 
 const ORANGE_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
@@ -64,14 +71,14 @@ const GlassIconButton: React.FC<{
 );
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Video player aggregates many independent control handlers
-export function CustomVideoPlayer({
+export const CustomVideoPlayer = ({
   autoPlay = false,
   src,
   onLoadedData,
   onError,
   className,
-  captions = [],
-}: CustomVideoPlayerProps) {
+  captions = EMPTY_CAPTIONS,
+}: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -111,19 +118,17 @@ export function CustomVideoPlayer({
     }
     video.muted = true;
     setIsMuted(true);
-    video
-      .play()
-      .then(() => setIsPlaying(true))
-      .catch(() => {
+    const attemptPlay = async () => {
+      try {
+        await video.play();
+        setIsPlaying(true);
+      } catch {
         setIsPlaying(false);
-      });
-  }, [autoPlay]);
+      }
+    };
 
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
+    void attemptPlay();
+  }, [autoPlay]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -199,13 +204,8 @@ export function CustomVideoPlayer({
       const newMuted = !isMuted;
       videoRef.current.muted = newMuted;
       setIsMuted(newMuted);
-      if (newMuted) {
-        videoRef.current.volume = 0;
-        setVolume(0);
-      } else {
-        videoRef.current.volume = 1;
-        setVolume(1);
-      }
+      videoRef.current.volume = newMuted ? 0 : 1;
+      setVolume(newMuted ? 0 : 1);
     }
   }, [isMuted]);
 
@@ -214,23 +214,21 @@ export function CustomVideoPlayer({
       return;
     }
 
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-    } else {
-      await containerRef.current.requestFullscreen();
-    }
+    await (document.fullscreenElement
+      ? document.exitFullscreen()
+      : containerRef.current.requestFullscreen());
   }, []);
 
   useEffect(() => {
     const keyboardControls: KeyboardControls = {
       " ": handlePlayPause,
-      k: handlePlayPause,
-      m: toggleMute,
-      f: toggleFullscreen,
+      ArrowDown: handleVolumeDown,
       ArrowLeft: skipLeft,
       ArrowRight: skipRight,
       ArrowUp: handleVolumeUp,
-      ArrowDown: handleVolumeDown,
+      f: toggleFullscreen,
+      k: handlePlayPause,
+      m: toggleMute,
     };
 
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -294,7 +292,7 @@ export function CustomVideoPlayer({
   }, []);
 
   const handlePlaybackSpeedChange = useCallback((speed: string) => {
-    const newSpeed = Number.parseFloat(speed);
+    const newSpeed = Number(speed);
     if (videoRef.current) {
       videoRef.current.playbackRate = newSpeed;
       setPlaybackSpeed(newSpeed);
@@ -365,8 +363,9 @@ export function CustomVideoPlayer({
       onMouseMove={handleMouseMove}
       ref={containerRef}
     >
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions are optional and passed via the captions prop when available */}
       <video
-        className="h-full w-full select-none outline-hidden focus:outline-hidden focus-visible:outline-none"
+        className="h-full w-full outline-hidden select-none focus:outline-hidden focus-visible:outline-none"
         loop
         muted={isMuted}
         onClick={handlePlayPause}
@@ -452,15 +451,15 @@ export function CustomVideoPlayer({
                 <AnimatePresence>
                   {showSpeedMenu ? (
                     <motion.div
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
                       className="absolute top-full right-0 mt-2 origin-top-right"
-                      exit={{ opacity: 0, y: -5, scale: 0.95 }}
-                      initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                      initial={{ opacity: 0, scale: 0.95, y: -5 }}
                       transition={{ duration: 0.15 }}
                     >
                       <div className="overflow-hidden rounded-lg border border-white/10 bg-black/80 shadow-lg backdrop-blur-md">
                         <div className="p-2">
-                          <p className="mb-2 px-2 font-medium text-white/60 text-xs">
+                          <p className="mb-2 px-2 text-xs font-medium text-white/60">
                             Playback Speed
                           </p>
                           <div className="space-y-0.5">
@@ -519,14 +518,14 @@ export function CustomVideoPlayer({
             <div className="space-y-3 p-5">
               {/** biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video progress controls need mouse interactions */}
               {/** biome-ignore lint/a11y/useSemanticElements: Video progress controls should use semantic elements */}
-              <div
+              {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- keeps the control bar visible while interacting with the seek slider */}
+              <section
                 aria-label="Video progress controls"
                 className="group relative"
                 onMouseEnter={handleControlsMouseEnter}
-                role="region"
               >
                 <Slider
-                  className="h-1.5 transition-all group-hover:h-2 [&>[role=slider]]:border-orange-400/70 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500] [&>span:first-child]:bg-white/20"
+                  className="h-1.5 transition-all group-hover:h-2 [&>[role=slider]]:border-orange-400/70 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
                   max={duration}
                   min={0}
                   onValueChange={handleProgressChange}
@@ -537,7 +536,7 @@ export function CustomVideoPlayer({
                   <span>{formatTime(currentTime)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
-              </div>
+              </section>
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -628,23 +627,23 @@ export function CustomVideoPlayer({
                     <AnimatePresence>
                       {showVolumeSlider ? (
                         <motion.div
-                          animate={{ width: "160px", opacity: 1 }}
+                          animate={{ opacity: 1, width: "160px" }}
                           className="ml-3 overflow-hidden"
-                          exit={{ width: 0, opacity: 0 }}
-                          initial={{ width: 0, opacity: 0 }}
+                          exit={{ opacity: 0, width: 0 }}
+                          initial={{ opacity: 0, width: 0 }}
                           onMouseLeave={handleVolumeSliderMouseLeave}
                           transition={{ duration: 0.2 }}
                         >
                           <div className="flex items-center gap-3 rounded-full bg-black/40 px-4 py-2.5 backdrop-blur-md">
                             <Slider
-                              className="relative flex h-5 w-full touch-none select-none items-center [&>[role=slider]]:border-orange-400/70 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500] [&>span:first-child]:bg-white/20"
+                              className="relative flex h-5 w-full touch-none items-center select-none [&>[role=slider]]:border-orange-400/70 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
                               max={1}
                               min={0}
                               onValueChange={handleVolumeChange}
                               step={0.01}
                               value={[volume]}
                             />
-                            <span className="min-w-8 text-right font-medium text-white/90 text-xs">
+                            <span className="min-w-8 text-right text-xs font-medium text-white/90">
                               {Math.round(volume * 100)}%
                             </span>
                           </div>
@@ -693,4 +692,4 @@ export function CustomVideoPlayer({
       </AnimatePresence>
     </div>
   );
-}
+};

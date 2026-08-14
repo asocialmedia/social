@@ -12,6 +12,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
+
 import { emailConfig } from "../config";
 
 interface VerificationEmailProps {
@@ -22,6 +23,7 @@ export const VerificationEmail = ({
   verificationUrl,
 }: VerificationEmailProps) => (
   <Html>
+    {/* eslint-disable-next-line no-duplicate-head -- each email template owns its own Head */}
     <Head />
     <Preview>
       Welcome to Asocialmedia! Click to verify your email and complete your
@@ -91,6 +93,7 @@ interface OTPVerificationEmailProps {
 
 export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => (
   <Html lang="en">
+    {/* eslint-disable-next-line no-duplicate-head -- each email template owns its own Head */}
     <Head />
     <Preview>Your verification code for Asocialmedia</Preview>
     <Body style={main}>
@@ -162,8 +165,8 @@ const main = {
 
 const container = {
   margin: "0 auto",
-  padding: "24px 0 48px",
   maxWidth: "640px",
+  padding: "24px 0 48px",
 };
 
 const outerCard = {
@@ -242,8 +245,8 @@ const codeLink = {
 };
 
 const footerLinks = {
-  textAlign: "center" as const,
   margin: "20px 0 8px",
+  textAlign: "center" as const,
 };
 
 const footerLink = {
@@ -271,11 +274,11 @@ const otpContainer = {
 
 const otpCode = {
   color: brandPrimary,
+  fontFamily: "monospace",
   fontSize: "32px",
   fontWeight: 700,
   letterSpacing: "8px",
   margin: "0",
-  fontFamily: "monospace",
 };
 
 const otpNote = {

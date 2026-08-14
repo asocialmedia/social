@@ -3,7 +3,9 @@ import type { NotificationCountInfo } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 import { HeaderIconButton } from "@/components/styles/header-buttons";
 import kyInstance from "@/lib/ky";
 
@@ -17,12 +19,12 @@ export default function NotificationsButton({
   mode = "desktop",
 }: NotificationsButtonProps) {
   const { data } = useQuery({
-    queryKey: ["unread-notification-count"],
+    initialData: initialState,
     queryFn: () =>
       kyInstance
         .get("/api/notifications/unread-count")
         .json<NotificationCountInfo>(),
-    initialData: initialState,
+    queryKey: ["unread-notification-count"],
     refetchInterval: 60 * 1000,
   });
 
@@ -33,19 +35,19 @@ export default function NotificationsButton({
     return (
       <Button
         asChild
-        className="h-10 rounded-xl border border-border/50 bg-card/70 px-2 py-1.5 shadow-xs backdrop-blur-md hover:bg-card/80"
+        className="border-border/50 bg-card/70 hover:bg-card/80 h-10 rounded-xl border px-2 py-1.5 shadow-xs backdrop-blur-md"
         variant="ghost"
       >
-        <a className="relative flex items-center" href="/notifications">
+        <Link className="relative flex items-center" href="/notifications">
           <Bell
             className={`h-5 w-5 ${isActive ? "text-primary" : "text-muted-foreground"}`}
           />
           {data.unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+            <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px]">
               {data.unreadCount}
             </span>
           )}
-        </a>
+        </Link>
       </Button>
     );
   }
@@ -58,7 +60,7 @@ export default function NotificationsButton({
         <>
           <Bell className={`h-5 w-5 ${isActive ? "text-primary" : ""}`} />
           {isActive && (
-            <span className="pointer-events-none absolute -bottom-2 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary" />
+            <span className="bg-primary pointer-events-none absolute -bottom-2 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full" />
           )}
         </>
       }

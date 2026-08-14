@@ -4,6 +4,7 @@ import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeft, Shield } from "lucide-react";
 import Link from "next/link";
 import React, { useEffect } from "react";
+
 import ScrollUpButton from "@/components/layouts/scroll-up-button";
 import { FossBanner } from "@/components/misc/foss-banner";
 
@@ -31,7 +32,7 @@ export default function TermsPage() {
       <div className="mb-8 flex items-center justify-between">
         <Link href="/">
           <Button
-            className="group flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            className="group text-muted-foreground hover:text-foreground flex items-center gap-2"
             variant="ghost"
           >
             <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
@@ -41,7 +42,7 @@ export default function TermsPage() {
 
         <Link href="/privacy">
           <Button
-            className="group flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            className="group text-muted-foreground hover:text-foreground flex items-center gap-2"
             variant="ghost"
           >
             Privacy Policy
@@ -52,8 +53,8 @@ export default function TermsPage() {
 
       <div className="container mx-auto max-w-4xl px-4 py-8 md:px-0">
         <div className="mb-8 flex items-center gap-2">
-          <Shield className="h-8 w-8 text-primary" />
-          <h1 className="font-bold text-3xl">Terms and Conditions</h1>
+          <Shield className="text-primary h-8 w-8" />
+          <h1 className="text-3xl font-bold">Terms and Conditions</h1>
         </div>
 
         <div className="prose prose-neutral dark:prose-invert max-w-none">
@@ -62,7 +63,7 @@ export default function TermsPage() {
           </p>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               1. Agreement to Terms
             </h2>
             <div className="space-y-4">
@@ -104,9 +105,9 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">2. User Accounts</h2>
+            <h2 className="mb-4 text-2xl font-semibold">2. User Accounts</h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 2.1 Account Creation and Eligibility
               </h3>
               <p>
@@ -128,7 +129,7 @@ export default function TermsPage() {
                 occur.
               </p>
 
-              <h3 className="font-medium text-xl">2.2 Account Security</h3>
+              <h3 className="text-xl font-medium">2.2 Account Security</h3>
               <p>
                 You are solely responsible for maintaining the confidentiality
                 and security of your account credentials, including your
@@ -148,7 +149,7 @@ export default function TermsPage() {
                 been compromised.
               </p>
 
-              <h3 className="font-medium text-xl">2.3 Account Restrictions</h3>
+              <h3 className="text-xl font-medium">2.3 Account Restrictions</h3>
               <p>
                 We maintain the right to suspend, terminate, or restrict access
                 to any account at our sole discretion, with or without notice,
@@ -162,11 +163,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               3. Data Collection, Processing, and Storage
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 3.1 Data Collection and Processing
               </h3>
               <p>
@@ -194,7 +195,7 @@ export default function TermsPage() {
                 experience.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 3.2 Infrastructure and Storage
               </h3>
               <p>
@@ -221,7 +222,7 @@ export default function TermsPage() {
                 availability.
               </p>
 
-              <h3 className="font-medium text-xl">3.3 Security Measures</h3>
+              <h3 className="text-xl font-medium">3.3 Security Measures</h3>
               <p>
                 We implement comprehensive security measures to protect data
                 throughout its lifecycle within our systems. All data
@@ -244,7 +245,7 @@ export default function TermsPage() {
                 and respond to potential security threats promptly.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 3.4 Data Retention and Deletion
               </h3>
               <p>
@@ -268,7 +269,7 @@ export default function TermsPage() {
                 changing legal requirements and evolving privacy standards.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 3.5 Data Protection Compliance
               </h3>
               <p>
@@ -295,9 +296,9 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">4. User Content</h2>
+            <h2 className="mb-4 text-2xl font-semibold">4. User Content</h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 4.1 Content Ownership and Licenses
               </h3>
               <p>
@@ -325,7 +326,7 @@ export default function TermsPage() {
                 technical and legal requirements.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 4.2 Content Responsibilities
               </h3>
               <p>
@@ -352,7 +353,7 @@ export default function TermsPage() {
                 users.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 4.3 Content Review and Moderation
               </h3>
               <p>
@@ -367,7 +368,7 @@ export default function TermsPage() {
                 platform community.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 4.4 Content Preservation and Removal
               </h3>
               <p>
@@ -392,7 +393,7 @@ export default function TermsPage() {
                 accountability in our content management practices.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 4.5 Content Distribution and Visibility
               </h3>
               <p>
@@ -411,11 +412,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               5. Prohibited Activities
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 5.1 Platform Security and Integrity
               </h3>
               <p>
@@ -442,7 +443,7 @@ export default function TermsPage() {
                 potential legal action.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 5.2 Content and Behavior Standards
               </h3>
               <p>
@@ -468,7 +469,7 @@ export default function TermsPage() {
                 these standards promptly.
               </p>
 
-              <h3 className="font-medium text-xl">5.3 Account Integrity</h3>
+              <h3 className="text-xl font-medium">5.3 Account Integrity</h3>
               <p>
                 Maintaining account integrity is crucial for platform security
                 and user trust. Users are prohibited from creating multiple
@@ -482,7 +483,7 @@ export default function TermsPage() {
                 channels.
               </p>
 
-              <h3 className="font-medium text-xl">5.4 Commercial Activities</h3>
+              <h3 className="text-xl font-medium">5.4 Commercial Activities</h3>
               <p>
                 Our platform maintains specific guidelines regarding commercial
                 activities to protect user experience and prevent abuse.
@@ -496,7 +497,7 @@ export default function TermsPage() {
                 violates these commercial activity restrictions.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 5.5 Network and Resource Usage
               </h3>
               <p>
@@ -521,7 +522,7 @@ export default function TermsPage() {
                 account functionality.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 5.6 Enforcement and Consequences
               </h3>
               <p>
@@ -541,11 +542,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               6. Privacy and Security
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">6.1 Privacy Commitment</h3>
+              <h3 className="text-xl font-medium">6.1 Privacy Commitment</h3>
               <p>
                 Our commitment to privacy forms the cornerstone of our platform
                 operations. We maintain comprehensive privacy practices that are
@@ -561,7 +562,7 @@ export default function TermsPage() {
                 evolving industry standards and regulatory requirements.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 6.2 Security Infrastructure
               </h3>
               <p>
@@ -588,7 +589,7 @@ export default function TermsPage() {
                 to maintain platform integrity and data security.
               </p>
 
-              <h3 className="font-medium text-xl">6.3 Continuous Monitoring</h3>
+              <h3 className="text-xl font-medium">6.3 Continuous Monitoring</h3>
               <p>
                 Our security operations center maintains 24/7 monitoring of all
                 platform components, employing advanced threat detection systems
@@ -602,7 +603,7 @@ export default function TermsPage() {
                 platform operations and user data.
               </p>
 
-              <h3 className="font-medium text-xl">6.4 Security Practices</h3>
+              <h3 className="text-xl font-medium">6.4 Security Practices</h3>
               <p>
                 We maintain rigorous security practices throughout our
                 organization, including regular security assessments and
@@ -614,7 +615,7 @@ export default function TermsPage() {
                 ensuring our security posture remains robust and effective.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 6.5 User Security Responsibilities
               </h3>
               <p>
@@ -644,11 +645,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               7. Infrastructure and Services
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">7.1 Core Infrastructure</h3>
+              <h3 className="text-xl font-medium">7.1 Core Infrastructure</h3>
               <p>
                 Our platform operates on enterprise-grade infrastructure
                 designed to deliver exceptional performance, reliability, and
@@ -673,7 +674,7 @@ export default function TermsPage() {
                 redundancy and improved service resilience.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 7.2 Storage and Data Management
               </h3>
               <p>
@@ -701,7 +702,7 @@ export default function TermsPage() {
                 performance.
               </p>
 
-              <h3 className="font-medium text-xl">7.3 Network Architecture</h3>
+              <h3 className="text-xl font-medium">7.3 Network Architecture</h3>
               <p>
                 Our network infrastructure implements advanced routing and load
                 balancing mechanisms to ensure optimal traffic distribution and
@@ -723,7 +724,7 @@ export default function TermsPage() {
                 excellent performance.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 7.4 Monitoring and Operations
               </h3>
               <p>
@@ -748,7 +749,7 @@ export default function TermsPage() {
                 lessons learned and emerging best practices.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 7.5 Disaster Recovery and Business Continuity
               </h3>
               <p>
@@ -777,11 +778,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               8. Intellectual Property
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">8.1 Platform Ownership</h3>
+              <h3 className="text-xl font-medium">8.1 Platform Ownership</h3>
               <p>
                 The Platform, including its original content, features, and
                 functionality, is owned exclusively by us and is protected by
@@ -795,7 +796,7 @@ export default function TermsPage() {
                 similarly protected under applicable intellectual property laws.
               </p>
 
-              <h3 className="font-medium text-xl">8.2 License Grants</h3>
+              <h3 className="text-xl font-medium">8.2 License Grants</h3>
               <p>
                 Through these Terms, we grant you a limited, non-exclusive,
                 non-transferable, and revocable license to access and use the
@@ -809,7 +810,7 @@ export default function TermsPage() {
                 distribute platform materials without explicit permission.
               </p>
 
-              <h3 className="font-medium text-xl">8.3 Trademark Protection</h3>
+              <h3 className="text-xl font-medium">8.3 Trademark Protection</h3>
               <p>
                 Our trademarks, service marks, logos, and brand elements
                 represent valuable intellectual property assets that are
@@ -823,7 +824,7 @@ export default function TermsPage() {
                 legal action.
               </p>
 
-              <h3 className="font-medium text-xl">8.4 Copyright Protection</h3>
+              <h3 className="text-xl font-medium">8.4 Copyright Protection</h3>
               <p>
                 We maintain a strong commitment to respecting intellectual
                 property rights, both our own and those of others. Our copyright
@@ -837,7 +838,7 @@ export default function TermsPage() {
                 effectively.
               </p>
 
-              <h3 className="font-medium text-xl">8.5 Third-Party Rights</h3>
+              <h3 className="text-xl font-medium">8.5 Third-Party Rights</h3>
               <p>
                 In our commitment to intellectual property rights, we
                 acknowledge and respect the intellectual property of third
@@ -867,9 +868,9 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">9. Termination</h2>
+            <h2 className="mb-4 text-2xl font-semibold">9. Termination</h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">9.1 Termination Grounds</h3>
+              <h3 className="text-xl font-medium">9.1 Termination Grounds</h3>
               <p>
                 We maintain the right to suspend or terminate your access to the
                 Platform when necessary to protect our services, users, or
@@ -889,7 +890,7 @@ export default function TermsPage() {
                 our actions.
               </p>
 
-              <h3 className="font-medium text-xl">9.2 Termination Process</h3>
+              <h3 className="text-xl font-medium">9.2 Termination Process</h3>
               <p>
                 When account termination becomes necessary, we follow a
                 structured process designed to protect both user interests and
@@ -910,7 +911,7 @@ export default function TermsPage() {
                 information.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 9.3 Post-Termination Effects
               </h3>
               <p>
@@ -936,11 +937,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               10. Changes to Terms
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">10.1 Evolution of Terms</h3>
+              <h3 className="text-xl font-medium">10.1 Evolution of Terms</h3>
               <p>
                 These Terms evolve alongside our platform, services, and legal
                 obligations. We regularly review and update them to reflect
@@ -961,7 +962,7 @@ export default function TermsPage() {
                 their potential impact on user experience.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 10.2 Communication of Changes
               </h3>
               <p>
@@ -987,11 +988,11 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               11. Contact Information
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 11.1 Official Communication Channels
               </h3>
               <p>
@@ -1006,7 +1007,7 @@ export default function TermsPage() {
                 credentials in response to emails from unverified sources.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 11.2 Communication Channels
               </h3>
               <p>
@@ -1034,7 +1035,7 @@ export default function TermsPage() {
                 inquiry with appropriate attention and care.
               </p>
 
-              <h3 className="font-medium text-xl">11.3 Response Commitment</h3>
+              <h3 className="text-xl font-medium">11.3 Response Commitment</h3>
               <p>
                 We understand the importance of timely communication and
                 maintain high standards for response times across all support
@@ -1054,7 +1055,7 @@ export default function TermsPage() {
                 additional time for thorough investigation and resolution.
               </p>
 
-              <h3 className="font-medium text-xl">
+              <h3 className="text-xl font-medium">
                 11.4 Email Security Advisory
               </h3>
               <p>
@@ -1074,7 +1075,7 @@ export default function TermsPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               12. Data Processing Agreement
             </h2>
             <div className="space-y-4">
@@ -1126,7 +1127,7 @@ export default function TermsPage() {
             </div>
           </section>
 
-          <section className="mt-8 rounded-lg bg-muted p-6">
+          <section className="bg-muted mt-8 rounded-lg p-6">
             <div className="space-y-4">
               <p className="text-muted-foreground">
                 By accessing or using the Asocialmedia platform, you acknowledge
@@ -1161,7 +1162,7 @@ export default function TermsPage() {
                 trusted platform.
               </p>
 
-              <p className="mt-4 border-border border-t pt-4 text-muted-foreground italic">
+              <p className="border-border text-muted-foreground mt-4 border-t pt-4 italic">
                 In the spirit of transparency, we should mention that these
                 Terms were crafted with the assistance of Mr. Chad Gee Pey T
                 while Asocialmedia was in development. While we've done our best

@@ -3,8 +3,6 @@
   "include": ["**/*.ts"],
   "compilerOptions": {
     "types": ["bun"],
-    "module": "NodeNext",
-    "target": "ES2022",
     "declaration": false,
     "declarationMap": false,
     "noEmit": true

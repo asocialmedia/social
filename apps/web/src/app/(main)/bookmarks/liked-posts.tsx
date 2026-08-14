@@ -5,6 +5,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Heart } from "lucide-react";
 import type React from "react";
 import { useCallback } from "react";
+
 import { FeedView } from "@/components/home/feed-view";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
@@ -20,8 +21,9 @@ const LikedPosts: React.FC = () => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["liked-posts"],
-    queryFn: async ({ pageParam }) => {
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const response = await kyInstance
         .get(
           "/api/posts/liked",
@@ -30,8 +32,7 @@ const LikedPosts: React.FC = () => {
         .json<PostsPage>();
       return response;
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["liked-posts"],
   });
 
   const likedPosts = (data?.pages.flatMap((page) => page.posts) || []).filter(
@@ -50,7 +51,7 @@ const LikedPosts: React.FC = () => {
 
   if (status === "error") {
     return (
-      <p className="px-4 py-8 text-center text-destructive">
+      <p className="text-destructive px-4 py-8 text-center">
         An error occurred while loading liked posts.
       </p>
     );
@@ -59,7 +60,7 @@ const LikedPosts: React.FC = () => {
   if (likedPosts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-16 text-center">
-        <Heart className="h-6 w-6 text-muted-foreground/60" />
+        <Heart className="text-muted-foreground/60 h-6 w-6" />
         <p className="font-medium">No liked posts yet.</p>
         <p className="text-muted-foreground text-sm">
           Posts you amplify will show up here.

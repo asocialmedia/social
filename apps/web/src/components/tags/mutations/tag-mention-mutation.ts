@@ -1,6 +1,8 @@
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
 import { useSession } from "@/app/(main)/session-provider";
+
 import { updatePostInCaches } from "./cache-utils";
 
 interface TagsMutationContext {
@@ -17,38 +19,16 @@ export function useUpdateTagsMutation(postId?: string) {
   return useMutation<PostData, Error, string[], TagsMutationContext>({
     mutationFn: async (tags) => {
       const response = await fetch(`/api/posts/${postId}/tags`, {
-        method: "POST",
+        body: JSON.stringify({ tags }),
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ tags }),
+        method: "POST",
       });
       if (!response.ok) {
         throw new Error("Failed to update tags");
       }
       return response.json();
-    },
-    onMutate: async (newTags) => {
-      if (!postId) {
-        return { previousPost: undefined };
-      }
-
-      await queryClient.cancelQueries({ queryKey: ["post", postId] });
-      const previousPost = queryClient.getQueryData<PostData>(["post", postId]);
-      const optimisticTags: TagWithCount[] = newTags.map((name) => ({
-        id: name,
-        name,
-        _count: { posts: 1 },
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }));
-
-      updatePostInCaches(queryClient, postId, (post) => ({
-        ...post,
-        tags: optimisticTags,
-      }));
-
-      return { previousPost };
     },
     onError: (_, __, context) => {
       if (postId && context?.previousPost) {
@@ -58,6 +38,28 @@ export function useUpdateTagsMutation(postId?: string) {
           () => context.previousPost as PostData
         );
       }
+    },
+    onMutate: async (newTags) => {
+      if (!postId) {
+        return { previousPost: undefined };
+      }
+
+      await queryClient.cancelQueries({ queryKey: ["post", postId] });
+      const previousPost = queryClient.getQueryData<PostData>(["post", postId]);
+      const optimisticTags: TagWithCount[] = newTags.map((name) => ({
+        _count: { posts: 1 },
+        createdAt: new Date(),
+        id: name,
+        name,
+        updatedAt: new Date(),
+      }));
+
+      updatePostInCaches(queryClient, postId, (post) => ({
+        ...post,
+        tags: optimisticTags,
+      }));
+
+      return { previousPost };
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["post", postId] });
@@ -78,16 +80,25 @@ export function useUpdateMentionsMutation(postId?: string) {
         : userIds;
 
       const response = await fetch(`/api/posts/${postId}/mentions`, {
-        method: "POST",
+        body: JSON.stringify({ userIds: filteredUserIds }),
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ userIds: filteredUserIds }),
+        method: "POST",
       });
       if (!response.ok) {
         throw new Error("Failed to update mentions");
       }
       return response.json();
+    },
+    onError: (_, __, context) => {
+      if (postId && context?.previousPost) {
+        updatePostInCaches(
+          queryClient,
+          postId,
+          () => context.previousPost as PostData
+        );
+      }
     },
     onMutate: async (newUserIds) => {
       if (!postId) {
@@ -108,24 +119,15 @@ export function useUpdateMentionsMutation(postId?: string) {
       updatePostInCaches(queryClient, postId, (post) => ({
         ...post,
         mentions: users.map((user) => ({
+          createdAt: new Date(),
           id: `${postId}-${user.id}`,
           postId,
-          userId: user.id,
           user,
-          createdAt: new Date(),
+          userId: user.id,
         })),
       }));
 
       return { previousPost };
-    },
-    onError: (_, __, context) => {
-      if (postId && context?.previousPost) {
-        updatePostInCaches(
-          queryClient,
-          postId,
-          () => context.previousPost as PostData
-        );
-      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["post", postId] });

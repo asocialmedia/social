@@ -7,7 +7,9 @@ import {
   redis,
   unreadNotificationCache,
 } from "@asm/db";
-import { resolveLogger, type WorkerLogger, withSpan } from "./log";
+
+import { resolveLogger, withSpan } from "./log";
+import type { WorkerLogger } from "./log";
 
 export interface MediaCleanupJobData {
   mediaId: string;
@@ -27,8 +29,8 @@ export async function processPostDeleted(
       // Load all attachments of the deleted post, delete their objects, then
       // the rows. Fixes the orphaned-media leak caused by onDelete: SetNull.
       const media = await prisma.media.findMany({
-        where: { postId },
         select: { id: true, key: true },
+        where: { postId },
       });
 
       await Promise.allSettled(
@@ -49,7 +51,7 @@ export async function processPostDeleted(
         redis.del(`${POST_VIEWS_KEY_PREFIX}${postId}`),
       ]);
 
-      log.info({ postId, mediaDeleted: media.length }, "post media cleaned");
+      log.info({ mediaDeleted: media.length, postId }, "post media cleaned");
     },
     { "post.id": postId }
   );
@@ -92,8 +94,8 @@ export async function processMediaCleanup(
     "job.media-cleanup",
     async () => {
       const media = await prisma.media.findUnique({
+        select: { createdAt: true, id: true, key: true, postId: true },
         where: { id: mediaId },
-        select: { id: true, key: true, postId: true, createdAt: true },
       });
 
       // Still orphaned after the grace period (never attached to a post):
@@ -139,17 +141,18 @@ export async function processInactiveUsersSweep(
     let totalDeleted = 0;
 
     for (;;) {
-      // biome-ignore lint/performance/noAwaitInLoops: batched paginated sweep must await each batch
+      // eslint-disable-next-line no-await-in-loop -- batched paginated sweep must await each batch
       const batch = await prisma.user.findMany({
-        where: { emailVerified: false, createdAt: { lt: thirtyDaysAgo } },
         select: { id: true },
         take: batchSize,
+        where: { createdAt: { lt: thirtyDaysAgo }, emailVerified: false },
       });
 
       if (batch.length === 0) {
         break;
       }
 
+      // eslint-disable-next-line no-await-in-loop -- batched paginated sweep must await each batch
       const deleted = await prisma.user.deleteMany({
         where: { id: { in: batch.map((user) => user.id) } },
       });

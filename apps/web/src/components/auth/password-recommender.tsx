@@ -12,10 +12,10 @@ interface PasswordRecommenderProps {
   requirements: Requirement[];
 }
 
-export function PasswordRecommender({
+export const PasswordRecommender = ({
   password,
   requirements,
-}: PasswordRecommenderProps) {
+}: PasswordRecommenderProps) => {
   if (!password) {
     return null;
   }
@@ -36,13 +36,13 @@ export function PasswordRecommender({
           {missingRequirements.map((req) => (
             <motion.div
               animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-2 text-muted-foreground text-xs"
+              className="text-muted-foreground flex items-center gap-2 text-xs"
               exit={{ opacity: 0, x: 8 }}
               initial={{ opacity: 0, x: -8 }}
               key={req.text}
               transition={{ duration: 0.15 }}
             >
-              <span className="size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+              <span className="bg-muted-foreground/50 size-1 shrink-0 rounded-full" />
               {req.text}
             </motion.div>
           ))}
@@ -50,4 +50,4 @@ export function PasswordRecommender({
       </div>
     </div>
   );
-}
+};

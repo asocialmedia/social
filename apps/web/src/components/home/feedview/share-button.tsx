@@ -1,7 +1,6 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -36,6 +35,7 @@ import {
   FaTwitter,
   FaWhatsapp,
 } from "react-icons/fa";
+
 import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -74,10 +74,10 @@ const ShareButton = ({
     try {
       setIsLoading(true);
       const response = await fetch(`/api/posts/${postId}/share/stats`, {
-        method: "GET",
         headers: {
           "Content-Type": "application/json",
         },
+        method: "GET",
       });
 
       if (!response.ok) {
@@ -95,9 +95,9 @@ const ShareButton = ({
     } catch (error) {
       clientLog.error("Failed to fetch share stats:", error);
       toast({
-        variant: "destructive",
-        title: "Stats Unavailable",
         description: "Couldn't load your share stats, try again?",
+        title: "Stats Unavailable",
+        variant: "destructive",
       });
       setShareStats([]);
     } finally {
@@ -107,6 +107,7 @@ const ShareButton = ({
 
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-compiler -- fetchShareStats intentionally syncs the loading state
       fetchShareStats();
     }
   }, [isOpen, fetchShareStats]);
@@ -121,11 +122,11 @@ const ShareButton = ({
   const trackShare = async (platform: string) => {
     try {
       const response = await fetch(`/api/posts/${postId}/share`, {
-        method: "POST",
+        body: JSON.stringify({ platform }),
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ platform }),
+        method: "POST",
       });
 
       if (!response.ok) {
@@ -141,9 +142,9 @@ const ShareButton = ({
     } catch (error) {
       clientLog.error("Failed to track share:", error);
       toast({
-        variant: "destructive",
-        title: "Share Not Counted",
         description: "That share didn't get counted, no big deal!",
+        title: "Share Not Counted",
+        variant: "destructive",
       });
     }
   };
@@ -151,11 +152,11 @@ const ShareButton = ({
   const trackClick = async (platform: string) => {
     try {
       const response = await fetch(`/api/posts/${postId}/share/click`, {
-        method: "POST",
+        body: JSON.stringify({ platform }),
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ platform }),
+        method: "POST",
       });
 
       if (!response.ok) {
@@ -171,18 +172,18 @@ const ShareButton = ({
     } catch (error) {
       clientLog.error("Failed to track click:", error);
       toast({
-        variant: "destructive",
-        title: "Click Not Counted",
         description: "That click didn't get counted, no big deal!",
+        title: "Click Not Counted",
+        variant: "destructive",
       });
     }
   };
 
   const socialShareOptions = [
     {
-      name: "Twitter",
-      icon: FaTwitter,
       color: "#1DA1F2",
+      icon: FaTwitter,
+      name: "Twitter",
       onClick: async () => {
         await trackShare("twitter");
         window.open(
@@ -195,9 +196,9 @@ const ShareButton = ({
       },
     },
     {
-      name: "Facebook",
-      icon: FaFacebook,
       color: "#4267B2",
+      icon: FaFacebook,
+      name: "Facebook",
       onClick: async () => {
         await trackShare("facebook");
         window.open(
@@ -208,9 +209,9 @@ const ShareButton = ({
       },
     },
     {
-      name: "LinkedIn",
-      icon: FaLinkedin,
       color: "#0077B5",
+      icon: FaLinkedin,
+      name: "LinkedIn",
       onClick: async () => {
         await trackShare("linkedin");
         window.open(
@@ -221,25 +222,26 @@ const ShareButton = ({
       },
     },
     {
-      name: "Instagram",
-      icon: FaInstagram,
       color: "#E4405F",
+      icon: FaInstagram,
+      name: "Instagram",
+      // eslint-disable-next-line react/no-unstable-nested-components -- handler contains JSX (toast icon)
       onClick: async () => {
         await trackShare("instagram");
         await navigator.clipboard.writeText(postUrl);
         window.open("https://instagram.com", "_blank");
         toast({
-          title: "Link Copied",
           description: "Paste it anywhere you like",
           icon: <Link2 />,
+          title: "Link Copied",
         });
         await trackClick("instagram");
       },
     },
     {
-      name: "Pinterest",
-      icon: FaPinterest,
       color: "#E60023",
+      icon: FaPinterest,
+      name: "Pinterest",
       onClick: async () => {
         await trackShare("pinterest");
         window.open(
@@ -250,9 +252,9 @@ const ShareButton = ({
       },
     },
     {
-      name: "Reddit",
-      icon: FaReddit,
       color: "#FF4500",
+      icon: FaReddit,
+      name: "Reddit",
       onClick: async () => {
         await trackShare("reddit");
         window.open(
@@ -263,9 +265,9 @@ const ShareButton = ({
       },
     },
     {
-      name: "WhatsApp",
-      icon: FaWhatsapp,
       color: "#25D366",
+      icon: FaWhatsapp,
+      name: "WhatsApp",
       onClick: async () => {
         await trackShare("whatsapp");
         window.open(
@@ -276,9 +278,9 @@ const ShareButton = ({
       },
     },
     {
-      name: "Discord",
-      icon: DiscordLogoIcon,
       color: "#5865F2",
+      icon: DiscordLogoIcon,
+      name: "Discord",
       onClick: async () => {
         await trackShare("discord");
         window.open(
@@ -291,9 +293,9 @@ const ShareButton = ({
       },
     },
     {
-      name: "Email",
-      icon: Mail,
       color: "#EA4335",
+      icon: Mail,
+      name: "Email",
       onClick: async () => {
         await trackShare("email");
         window.open(
@@ -312,16 +314,16 @@ const ShareButton = ({
       await navigator.clipboard.writeText(postUrl);
       setCopied(true);
       toast({
-        title: "Link Copied",
         description: "Link copied, paste it anywhere",
         icon: <Link2 />,
+        title: "Link Copied",
       });
       await trackShare("copy");
     } catch {
       toast({
-        variant: "destructive",
-        title: "Copy Failed",
         description: "Couldn't copy the link, try again?",
+        title: "Copy Failed",
+        variant: "destructive",
       });
     }
   };
@@ -340,9 +342,8 @@ const ShareButton = ({
         const svgData = new XMLSerializer().serializeToString(svg);
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        // biome-ignore lint/suspicious/noExplicitAny: <img> is not in lib.dom.d.ts
-        const img = new (Image as any)();
-        img.onload = () => {
+        const img = document.createElement("img");
+        img.addEventListener("load", () => {
           canvas.width = img.width;
           canvas.height = img.height;
           ctx?.drawImage(img, 0, 0);
@@ -351,20 +352,20 @@ const ShareButton = ({
           downloadLink.download = `qr-code-${postId}.png`;
           downloadLink.href = pngFile;
           downloadLink.click();
-        };
+        });
         img.src = `data:image/svg+xml;base64,${btoa(svgData)}`;
         await trackShare("qr");
         toast({
-          title: "QR Code Downloaded",
           description: "QR code saved to your device",
           icon: <QrCode />,
+          title: "QR Code Downloaded",
         });
       }
     } catch {
       toast({
-        variant: "destructive",
-        title: "Download Failed",
         description: "Couldn't download the QR code, try again?",
+        title: "Download Failed",
+        variant: "destructive",
       });
     }
   };
@@ -388,7 +389,7 @@ const ShareButton = ({
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-4">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
         </div>
       );
     }
@@ -399,7 +400,7 @@ const ShareButton = ({
             .filter((stat) => stat.shares > 0 || stat.clicks > 0)
             .map((stat) => (
               <div
-                className="flex items-center justify-between rounded-lg border border-border/50 bg-[hsl(var(--background-alt))] px-3 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
+                className="border-border/50 flex items-center justify-between rounded-lg border bg-[hsl(var(--background-alt))] px-3 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
                 key={stat.platform}
               >
                 <span className="font-medium capitalize">{stat.platform}</span>
@@ -417,7 +418,7 @@ const ShareButton = ({
       );
     }
     return (
-      <div className="py-2 text-center text-muted-foreground text-sm">
+      <div className="text-muted-foreground py-2 text-center text-sm">
         No shares yet
       </div>
     );
@@ -427,7 +428,7 @@ const ShareButton = ({
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
       <button
         aria-label="Share"
-        className="pill-3d-hover group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm active:translate-y-px"
+        className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
         onClick={handleOpen}
         type="button"
       >
@@ -438,13 +439,13 @@ const ShareButton = ({
         onClick={handleContentClick}
       >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
-          <DialogTitle className="flex items-center gap-2 font-semibold text-base">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
               <Share2 className="h-3.5 w-3.5" />
             </div>
             Share Post
           </DialogTitle>
-          <DialogDescription className="mt-1 text-muted-foreground text-xs">
+          <DialogDescription className="text-muted-foreground mt-1 text-xs">
             Share this post with your network
           </DialogDescription>
         </div>
@@ -455,21 +456,21 @@ const ShareButton = ({
             onValueChange={setActiveTab}
             value={activeTab}
           >
-            <TabsList className="mb-4 grid h-auto w-full grid-cols-3 items-stretch gap-1 rounded-xl border border-border/60 bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
+            <TabsList className="border-border/60 mb-4 grid h-auto w-full grid-cols-3 items-stretch gap-1 rounded-xl border bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
               <TabsTrigger
-                className="rounded-lg py-1.5 font-medium text-sm transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                className="rounded-lg py-1.5 text-sm font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                 value="social"
               >
                 Social
               </TabsTrigger>
               <TabsTrigger
-                className="rounded-lg py-1.5 font-medium text-sm transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                className="rounded-lg py-1.5 text-sm font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                 value="link"
               >
                 Link
               </TabsTrigger>
               <TabsTrigger
-                className="rounded-lg py-1.5 font-medium text-sm transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                className="rounded-lg py-1.5 text-sm font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                 value="qr"
               >
                 QR Code
@@ -483,7 +484,7 @@ const ShareButton = ({
                 transition={{ duration: 0.18, ease: "easeOut" }}
               >
                 {thumbnail ? (
-                  <div className="relative mb-4 h-32 overflow-hidden rounded-xl border border-border/60 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
+                  <div className="border-border/60 relative mb-4 h-32 overflow-hidden rounded-xl border shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
                     <Image
                       alt="Post thumbnail"
                       className="object-cover"
@@ -491,7 +492,7 @@ const ShareButton = ({
                       onError={handleThumbnailError}
                       src={thumbnail || FALLBACK_THUMBNAIL}
                     />
-                    <div className="absolute inset-0 bg-linear-to-t from-background/60 to-transparent" />
+                    <div className="from-background/60 absolute inset-0 bg-linear-to-t to-transparent" />
                   </div>
                 ) : null}
 
@@ -502,8 +503,9 @@ const ShareButton = ({
                     );
                     return (
                       <button
-                        className="pill-3d-hover group flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-[hsl(var(--background))] p-3.5 text-sm transition-all duration-200 active:translate-y-px"
+                        className="pill-3d-hover group border-border/60 flex flex-col items-center justify-center gap-1.5 rounded-xl border bg-[hsl(var(--background))] p-3.5 text-sm transition-all duration-200 active:translate-y-px"
                         key={option.name}
+                        // eslint-disable-next-line react/jsx-handler-names -- handler is defined in the options array
                         onClick={option.onClick}
                         type="button"
                       >
@@ -513,7 +515,7 @@ const ShareButton = ({
                         />
                         <span className="font-medium">{option.name}</span>
                         {stats && (stats.shares > 0 || stats.clicks > 0) ? (
-                          <div className="text-[11px] text-muted-foreground">
+                          <div className="text-muted-foreground text-[11px]">
                             {stats.shares > 0 ? `${stats.shares} shares` : null}
                             {stats.shares > 0 && stats.clicks > 0
                               ? " · "
@@ -559,8 +561,8 @@ const ShareButton = ({
                   </Button>
                 </div>
 
-                <div className="rounded-xl border border-border/60 bg-[hsl(var(--background))] p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
-                  <h4 className="mb-3 font-medium text-sm">Share Statistics</h4>
+                <div className="border-border/60 rounded-xl border bg-[hsl(var(--background))] p-4 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
+                  <h4 className="mb-3 text-sm font-medium">Share Statistics</h4>
                   {renderStatsBody()}
                 </div>
               </motion.div>
@@ -583,7 +585,7 @@ const ShareButton = ({
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      className="pill-3d-hover rounded-xl text-muted-foreground"
+                      className="pill-3d-hover text-muted-foreground rounded-xl"
                       onClick={downloadQrCode}
                       variant="outline"
                     >
@@ -591,7 +593,7 @@ const ShareButton = ({
                       Download QR Code
                     </Button>
                     <Button
-                      className="pill-3d-hover rounded-xl text-muted-foreground"
+                      className="pill-3d-hover text-muted-foreground rounded-xl"
                       onClick={copyToClipboard}
                       variant="outline"
                     >
@@ -604,7 +606,7 @@ const ShareButton = ({
                     </Button>
                   </div>
                   {shareStats.find((stat) => stat.platform === "qr") && (
-                    <div className="text-center text-muted-foreground text-sm">
+                    <div className="text-muted-foreground text-center text-sm">
                       {
                         shareStats.find((stat) => stat.platform === "qr")
                           ?.shares

@@ -10,14 +10,14 @@ export const appRouter = router({
   // Authentication procedures
   ...authRouter._def.procedures,
 
+  // Admin procedures
+  admin: adminRouter,
+
   // User management procedures
   ...userRouter._def.procedures,
 
   // Password reset procedures
   resetPassword: resetPasswordRouter,
-
-  // Admin procedures
-  admin: adminRouter,
 
   // Security procedures
   ...securityRouter._def.procedures,

@@ -6,6 +6,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+
 import { env } from "../../env";
 import { validateFile } from "./utils/file-validation";
 import { getContentType, getFileConfigFromMime } from "./utils/mime-utils";
@@ -111,7 +112,7 @@ export const uploadToAsmob = async (file: File, userId: string) => {
     }
 
     const fileConfig = getFileConfigFromMime(file.type);
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
     const uniquePrefix = `${Date.now()}-${crypto.randomUUID()}`;
     const key = `${userId}/${uniquePrefix}-${cleanFileName}`;
     const extension = file.name.split(".").pop()?.toLowerCase() || "";
@@ -201,7 +202,7 @@ export const uploadAvatar = async (file: File, userId: string) => {
       throw new Error("Avatar file size must be less than 8MB");
     }
 
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
     const uniquePrefix = `${Date.now()}-${crypto.randomUUID()}`;
     const key = `avatars/${userId}/${uniquePrefix}-${cleanFileName}`;
 
@@ -323,7 +324,7 @@ export const uploadBanner = async (file: File, userId: string) => {
       throw new Error("Banner file size must be less than 10MB");
     }
 
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
     const uniquePrefix = `${Date.now()}-${crypto.randomUUID()}`;
     const key = `banners/${userId}/${uniquePrefix}-${cleanFileName}`;
 

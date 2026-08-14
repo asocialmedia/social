@@ -1,8 +1,10 @@
 import { getUserDataSelect, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
+
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
+
 import FollowersFollowingPage from "./followers-following-page";
 
 interface PageProps {
@@ -11,13 +13,13 @@ interface PageProps {
 
 const getUser = cache(async (username: string, loggedInUserId: string) => {
   const user = await prisma.user.findFirst({
+    select: getUserDataSelect(loggedInUserId),
     where: {
       username: {
         equals: username,
         mode: "insensitive",
       },
     },
-    select: getUserDataSelect(loggedInUserId),
   });
 
   if (!user) {

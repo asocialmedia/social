@@ -18,7 +18,77 @@ const REDIS_USER_SESSIONS_PREFIX = "user:sessions:";
 
 const SESSION_TTL = 60 * 60 * 24 * 7;
 
+interface DbSessionShape {
+  createdAt: Date;
+  expiresAt: Date;
+  id: string;
+  ipAddress?: string | null;
+  token: string;
+  updatedAt: Date;
+  userAgent?: string | null;
+  userId: string;
+}
+
+function mapDbSessionToHybridSession(dbSession: DbSessionShape): HybridSession {
+  return {
+    createdAt: dbSession.createdAt,
+    expiresAt: dbSession.expiresAt,
+    id: dbSession.id,
+    ipAddress: dbSession.ipAddress,
+    lastSyncedAt: dbSession.updatedAt,
+    syncStatus: "active",
+    token: dbSession.token,
+    updatedAt: dbSession.updatedAt,
+    userAgent: dbSession.userAgent,
+    userId: dbSession.userId,
+  };
+}
+
+async function storeInPostgreSQL(
+  session: HybridSession
+): Promise<HybridSession> {
+  const dbSession = await prisma.session.create({
+    data: {
+      expiresAt: session.expiresAt,
+      id: session.id,
+      ipAddress: session.ipAddress,
+      token: session.token,
+      userAgent: session.userAgent,
+      userId: session.userId,
+    },
+  });
+
+  return mapDbSessionToHybridSession(dbSession);
+}
+
+async function updateInPostgreSQL(
+  id: string,
+  updates: Partial<HybridSession>
+): Promise<HybridSession | null> {
+  try {
+    const dbSession = await prisma.session.update({
+      data: {
+        ...(updates.token && { token: updates.token }),
+        ...(updates.expiresAt && { expiresAt: updates.expiresAt }),
+        ...(updates.ipAddress !== undefined && {
+          ipAddress: updates.ipAddress,
+        }),
+        ...(updates.userAgent !== undefined && {
+          userAgent: updates.userAgent,
+        }),
+        updatedAt: new Date(),
+      },
+      where: { id },
+    });
+
+    return mapDbSessionToHybridSession(dbSession);
+  } catch {
+    return null;
+  }
+}
+
 export class HybridSessionStore {
+  private readonly redisClient = redis;
   private syncInterval: NodeJS.Timeout | null = null;
   private readonly syncIntervalMs = 5 * 60 * 1000;
 
@@ -26,27 +96,23 @@ export class HybridSessionStore {
     this.startPeriodicSync();
   }
 
-  private get redis() {
-    return redis;
-  }
-
   async create(
     session: Omit<HybridSession, "id" | "createdAt" | "updatedAt">
   ): Promise<HybridSession> {
     const now = new Date();
     const fullSession: HybridSession = {
-      id: crypto.randomUUID(),
       ...session,
       createdAt: now,
-      updatedAt: now,
+      id: crypto.randomUUID(),
       lastSyncedAt: now,
       syncStatus: "active",
+      updatedAt: now,
     };
 
     try {
       await this.storeInRedis(fullSession);
 
-      await this.storeInPostgreSQL(fullSession);
+      await storeInPostgreSQL(fullSession);
 
       console.log(`Created session ${fullSession.id} in hybrid store`);
       return fullSession;
@@ -54,7 +120,7 @@ export class HybridSessionStore {
       console.error("Failed to create session in hybrid store:", error);
 
       try {
-        const dbSession = await this.storeInPostgreSQL(fullSession);
+        const dbSession = await storeInPostgreSQL(fullSession);
         console.log(
           `Fallback: Created session ${fullSession.id} in PostgreSQL only`
         );
@@ -90,7 +156,7 @@ export class HybridSessionStore {
       });
 
       if (dbSession) {
-        const session = this.mapDbSessionToHybridSession(dbSession);
+        const session = mapDbSessionToHybridSession(dbSession);
 
         if (session.expiresAt > new Date()) {
           await this.storeInRedis(session);
@@ -125,7 +191,7 @@ export class HybridSessionStore {
       const redisTokens = new Set(sessions.map((s) => s.token));
       const additionalSessions = dbSessions
         .filter((dbSession) => !redisTokens.has(dbSession.token))
-        .map((dbSession) => this.mapDbSessionToHybridSession(dbSession));
+        .map((dbSession) => mapDbSessionToHybridSession(dbSession));
 
       sessions.push(...additionalSessions);
     } catch (error) {
@@ -142,7 +208,7 @@ export class HybridSessionStore {
     try {
       const redisSession = await this.updateInRedis(id, updates);
       if (redisSession) {
-        await this.updateInPostgreSQL(id, updates);
+        await updateInPostgreSQL(id, updates);
         return redisSession;
       }
     } catch (error) {
@@ -150,7 +216,7 @@ export class HybridSessionStore {
     }
 
     try {
-      const updatedDbSession = await this.updateInPostgreSQL(id, updates);
+      const updatedDbSession = await updateInPostgreSQL(id, updates);
       if (updatedDbSession) {
         try {
           await this.storeInRedis(updatedDbSession);
@@ -206,7 +272,7 @@ export class HybridSessionStore {
 
   private async syncExpiredSessions(): Promise<void> {
     try {
-      const keys = await this.redis.keys(`${REDIS_SESSION_PREFIX}*`);
+      const keys = await this.redisClient.keys(`${REDIS_SESSION_PREFIX}*`);
 
       await Promise.all(
         keys.map(async (key) => {
@@ -214,9 +280,9 @@ export class HybridSessionStore {
           const session = await this.getFromRedis(token);
 
           if (session && session.expiresAt <= new Date()) {
-            await this.updateInPostgreSQL(session.id, {
-              syncStatus: "expired",
+            await updateInPostgreSQL(session.id, {
               lastSyncedAt: new Date(),
+              syncStatus: "expired",
             });
 
             await this.deleteFromRedis(token);
@@ -233,7 +299,7 @@ export class HybridSessionStore {
     const key = `${REDIS_SESSION_PREFIX}${session.token}`;
     const userSessionsKey = `${REDIS_USER_SESSIONS_PREFIX}${session.userId}`;
 
-    const pipeline = this.redis.pipeline();
+    const pipeline = this.redisClient.pipeline();
 
     pipeline.setex(key, SESSION_TTL, JSON.stringify(session));
 
@@ -244,7 +310,7 @@ export class HybridSessionStore {
 
   private async getFromRedis(token: string): Promise<HybridSession | null> {
     const key = `${REDIS_SESSION_PREFIX}${token}`;
-    const data = await this.redis.get(key);
+    const data = await this.redisClient.get(key);
 
     if (!data) {
       return null;
@@ -266,10 +332,10 @@ export class HybridSessionStore {
     id: string,
     updates: Partial<HybridSession>
   ): Promise<HybridSession | null> {
-    const keys = await this.redis.keys(`${REDIS_SESSION_PREFIX}*`);
+    const keys = await this.redisClient.keys(`${REDIS_SESSION_PREFIX}*`);
 
     const sessions = await Promise.all(
-      keys.map(async (key) =>
+      keys.map((key) =>
         this.getFromRedis(key.replace(REDIS_SESSION_PREFIX, ""))
       )
     );
@@ -294,12 +360,12 @@ export class HybridSessionStore {
     const session = await this.getFromRedis(token);
     if (session) {
       const userSessionsKey = `${REDIS_USER_SESSIONS_PREFIX}${session.userId}`;
-      const pipeline = this.redis.pipeline();
+      const pipeline = this.redisClient.pipeline();
       pipeline.del(key);
       pipeline.srem(userSessionsKey, token);
       await pipeline.exec();
     } else {
-      await this.redis.del(key);
+      await this.redisClient.del(key);
     }
   }
 
@@ -307,10 +373,10 @@ export class HybridSessionStore {
     userId: string
   ): Promise<HybridSession[]> {
     const userSessionsKey = `${REDIS_USER_SESSIONS_PREFIX}${userId}`;
-    const tokens = await this.redis.smembers(userSessionsKey);
+    const tokens = await this.redisClient.smembers(userSessionsKey);
 
     const sessions = await Promise.all(
-      tokens.map(async (token) => this.getFromRedis(token))
+      tokens.map((token) => this.getFromRedis(token))
     );
 
     return sessions.filter(
@@ -320,83 +386,16 @@ export class HybridSessionStore {
 
   private async deleteUserSessionsFromRedis(userId: string): Promise<void> {
     const userSessionsKey = `${REDIS_USER_SESSIONS_PREFIX}${userId}`;
-    const tokens = await this.redis.smembers(userSessionsKey);
+    const tokens = await this.redisClient.smembers(userSessionsKey);
 
     if (tokens.length > 0) {
-      const pipeline = this.redis.pipeline();
+      const pipeline = this.redisClient.pipeline();
       pipeline.del(userSessionsKey);
       for (const token of tokens) {
         pipeline.del(`${REDIS_SESSION_PREFIX}${token}`);
       }
       await pipeline.exec();
     }
-  }
-
-  private async storeInPostgreSQL(
-    session: HybridSession
-  ): Promise<HybridSession> {
-    const dbSession = await prisma.session.create({
-      data: {
-        id: session.id,
-        userId: session.userId,
-        token: session.token,
-        expiresAt: session.expiresAt,
-        ipAddress: session.ipAddress,
-        userAgent: session.userAgent,
-      },
-    });
-
-    return this.mapDbSessionToHybridSession(dbSession);
-  }
-
-  private async updateInPostgreSQL(
-    id: string,
-    updates: Partial<HybridSession>
-  ): Promise<HybridSession | null> {
-    try {
-      const dbSession = await prisma.session.update({
-        where: { id },
-        data: {
-          ...(updates.token && { token: updates.token }),
-          ...(updates.expiresAt && { expiresAt: updates.expiresAt }),
-          ...(updates.ipAddress !== undefined && {
-            ipAddress: updates.ipAddress,
-          }),
-          ...(updates.userAgent !== undefined && {
-            userAgent: updates.userAgent,
-          }),
-          updatedAt: new Date(),
-        },
-      });
-
-      return this.mapDbSessionToHybridSession(dbSession);
-    } catch {
-      return null;
-    }
-  }
-
-  private mapDbSessionToHybridSession(dbSession: {
-    id: string;
-    userId: string;
-    token: string;
-    expiresAt: Date;
-    ipAddress?: string | null;
-    userAgent?: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }): HybridSession {
-    return {
-      id: dbSession.id,
-      userId: dbSession.userId,
-      token: dbSession.token,
-      expiresAt: dbSession.expiresAt,
-      ipAddress: dbSession.ipAddress,
-      userAgent: dbSession.userAgent,
-      createdAt: dbSession.createdAt,
-      updatedAt: dbSession.updatedAt,
-      lastSyncedAt: dbSession.updatedAt,
-      syncStatus: "active",
-    };
   }
 
   destroy(): void {

@@ -9,6 +9,7 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { AtSign, Hash } from "lucide-react";
 import { useCallback, useState } from "react";
+
 import { MentionTagEditor } from "./mention-tag-editor";
 import { TagEditor } from "./tag-editor";
 
@@ -22,7 +23,7 @@ interface PostMetaEditorDialogProps {
   tags: TagWithCount[];
 }
 
-export function PostMetaEditorDialog({
+export const PostMetaEditorDialog = ({
   mentions,
   onClose,
   onMentionsChange,
@@ -30,7 +31,7 @@ export function PostMetaEditorDialog({
   open,
   postId,
   tags,
-}: PostMetaEditorDialogProps) {
+}: PostMetaEditorDialogProps) => {
   const [activeTab, setActiveTab] = useState<"tags" | "mentions">("tags");
 
   const handleClose = useCallback(() => {
@@ -75,22 +76,22 @@ export function PostMetaEditorDialog({
         onClick={handleContentClick}
       >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
-          <DialogTitle className="flex items-center gap-2 font-semibold text-base">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
               <Hash className="h-3.5 w-3.5" />
             </div>
             Edit Tags &amp; Mentions
           </DialogTitle>
-          <DialogDescription className="mt-1 text-muted-foreground text-xs">
+          <DialogDescription className="text-muted-foreground mt-1 text-xs">
             Manage tags and mentioned people for your post
           </DialogDescription>
         </div>
 
         <div className="px-5 pb-5">
-          <div className="mb-3 flex gap-1 rounded-xl border border-border/60 bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
+          <div className="border-border/60 mb-3 flex gap-1 rounded-xl border bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
             <button
               aria-pressed={activeTab === "tags"}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 font-medium text-sm transition-all duration-200 ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
                 activeTab === "tags"
                   ? "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                   : "pill-3d-hover text-muted-foreground hover:text-foreground"
@@ -103,7 +104,7 @@ export function PostMetaEditorDialog({
             </button>
             <button
               aria-pressed={activeTab === "mentions"}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 font-medium text-sm transition-all duration-200 ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
                 activeTab === "mentions"
                   ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                   : "pill-3d-hover text-muted-foreground hover:text-foreground"
@@ -136,4 +137,4 @@ export function PostMetaEditorDialog({
       </DialogContent>
     </Dialog>
   );
-}
+};

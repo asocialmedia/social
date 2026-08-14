@@ -4,6 +4,7 @@ import type { HNApiResponse } from "@asm/aggregator/hackernews";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import type React from "react";
+
 import {
   HackerNewsLogo,
   PopularOnHackerNews,
@@ -29,7 +30,7 @@ const SubCard: React.FC<{
   <div className={APPLE_CARD_CLASS}>
     <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
       {icon}
-      <h2 className="font-semibold text-sm">{title}</h2>
+      <h2 className="text-sm font-semibold">{title}</h2>
     </div>
     <div className="flex flex-col gap-0.5">{children}</div>
   </div>
@@ -37,13 +38,13 @@ const SubCard: React.FC<{
 
 const HnRightSideBar: React.FC = () => {
   const { data } = useQuery({
-    queryKey: ["hn-sidebar-stories"],
     queryFn: () =>
       kyInstance
         .get("/api/hackernews", {
           searchParams: { limit: 10, sort: "score" },
         })
         .json<HNApiResponse>(),
+    queryKey: ["hn-sidebar-stories"],
     staleTime: 5 * 60 * 1000,
   });
 
@@ -56,34 +57,34 @@ const HnRightSideBar: React.FC = () => {
   );
 
   return (
-    <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+    <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
         <SubCard
           icon={<HackerNewsLogo className="h-4 w-4 text-[10px]" />}
           title="HackerNews Stats"
         >
           <div className="grid grid-cols-3 gap-2 px-1 pt-1">
-            <div className="flex flex-col items-center rounded-xl bg-background/60 px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
-              <span className="bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text font-bold text-lg text-transparent tabular-nums">
+            <div className="bg-background/60 flex flex-col items-center rounded-xl px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
+              <span className="bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text text-lg font-bold text-transparent tabular-nums">
                 {formatNumber(totalStories)}
               </span>
-              <span className="mt-0.5 text-[11px] text-muted-foreground">
+              <span className="text-muted-foreground mt-0.5 text-[11px]">
                 Stories
               </span>
             </div>
-            <div className="flex flex-col items-center rounded-xl bg-background/60 px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
-              <span className="bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text font-bold text-lg text-transparent tabular-nums">
+            <div className="bg-background/60 flex flex-col items-center rounded-xl px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
+              <span className="bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text text-lg font-bold text-transparent tabular-nums">
                 {formatNumber(totalPoints)}
               </span>
-              <span className="mt-0.5 text-[11px] text-muted-foreground">
+              <span className="text-muted-foreground mt-0.5 text-[11px]">
                 Points
               </span>
             </div>
-            <div className="flex flex-col items-center rounded-xl bg-background/60 px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
-              <span className="bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text font-bold text-lg text-transparent tabular-nums">
+            <div className="bg-background/60 flex flex-col items-center rounded-xl px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
+              <span className="bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text text-lg font-bold text-transparent tabular-nums">
                 {formatNumber(totalComments)}
               </span>
-              <span className="mt-0.5 text-[11px] text-muted-foreground">
+              <span className="text-muted-foreground mt-0.5 text-[11px]">
                 Comments
               </span>
             </div>
@@ -94,11 +95,11 @@ const HnRightSideBar: React.FC = () => {
 
         <PostHistoryCard />
 
-        <footer className="flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-muted-foreground text-xs">
+        <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
           <span>© {new Date().getFullYear()} Asocialmedia</span>
           {FOOTER_LINKS.map(({ href, label }) => (
             <Link
-              className="transition-colors hover:text-foreground"
+              className="hover:text-foreground transition-colors"
               href={href}
               key={label}
               target={href.startsWith("http") ? "_blank" : undefined}

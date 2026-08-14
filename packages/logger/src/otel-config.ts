@@ -79,14 +79,14 @@ export function readOtelConfig(
     (env.OTEL_ENABLED === undefined && env.NODE_ENV !== "test");
 
   return {
+    enabled,
     endpoint,
     headers,
     logStreamName: env.OPENOBSERVE_LOG_STREAM ?? streamName,
     metricStreamName: env.OPENOBSERVE_METRIC_STREAM ?? streamName,
-    traceStreamName: env.OPENOBSERVE_TRACE_STREAM ?? streamName,
     organization,
     serviceName: env.OTEL_SERVICE_NAME,
-    enabled,
+    traceStreamName: env.OPENOBSERVE_TRACE_STREAM ?? streamName,
   };
 }
 

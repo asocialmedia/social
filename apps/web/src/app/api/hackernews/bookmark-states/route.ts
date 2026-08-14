@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -21,11 +22,11 @@ export async function POST(request: Request) {
   }
 
   const bookmarks = await prisma.hNBookmark.findMany({
-    where: {
-      userId: user.id,
-      storyId: { in: storyIds },
-    },
     select: { storyId: true },
+    where: {
+      storyId: { in: storyIds },
+      userId: user.id,
+    },
   });
 
   const bookmarked: Record<number, boolean> = {};

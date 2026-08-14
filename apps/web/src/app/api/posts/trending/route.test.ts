@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { GET } from "./route";
+
 const USER_ID = "user1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -12,9 +14,9 @@ interface PostRow {
 }
 
 const posts: PostRow[] = [
-  { id: "p1", aura: 30 },
-  { id: "p2", aura: 80 },
-  { id: "p3", aura: 50 },
+  { aura: 30, id: "p1" },
+  { aura: 80, id: "p2" },
+  { aura: 50, id: "p3" },
 ];
 
 let lastOrderBy: unknown;
@@ -29,7 +31,7 @@ const mockPrisma = {
     }) => {
       lastOrderBy = args.orderBy;
       lastTake = args.take;
-      const sorted = [...posts].sort((a, b) => b.aura - a.aura);
+      const sorted = [...posts].toSorted((a, b) => b.aura - a.aura);
       return sorted.slice(0, args.take);
     },
   },
@@ -43,8 +45,6 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { GET } from "./route";
 
 describe("GET /api/posts/trending", () => {
   beforeEach(() => {
@@ -74,8 +74,8 @@ describe("GET /api/posts/trending", () => {
 
   test("returns a nextCursor when there are more posts than the page size", async () => {
     const manyPosts = Array.from({ length: 25 }, (_, i) => ({
-      id: `p${i}`,
       aura: 100 - i,
+      id: `p${i}`,
     }));
     mockPrisma.post.findMany = (args: {
       cursor?: { id: string };

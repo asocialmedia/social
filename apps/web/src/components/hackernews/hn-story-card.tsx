@@ -24,6 +24,7 @@ import {
 import { useRouter } from "next/navigation";
 import type * as React from "react";
 import { useCallback } from "react";
+
 import { toast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +38,7 @@ const HNLogo: React.FC<{ className?: string }> = ({ className }) => (
   <span
     aria-hidden="true"
     className={cn(
-      "flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-[10px] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]",
+      "flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-linear-to-b from-[#ff9500] to-[#e65500] text-[10px] font-bold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]",
       className
     )}
   >
@@ -45,7 +46,7 @@ const HNLogo: React.FC<{ className?: string }> = ({ className }) => (
   </span>
 );
 
-export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
+export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
   const domain = story.url ? new URL(story.url).hostname : null;
   const timeAgo = formatDistanceToNow(story.time * 1000, { addSuffix: true });
   const hnItemUrl = `https://news.ycombinator.com/item?id=${story.id}`;
@@ -56,7 +57,7 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
   const isBatched = initialBookmarked !== undefined;
 
   const { data: bookmarkData } = useQuery({
-    queryKey: ["hn-bookmark", story.id],
+    enabled: !isBatched,
     queryFn: async () => {
       const response = await fetch(`/api/hackernews/${story.id}/bookmark`);
       if (!response.ok) {
@@ -64,10 +65,10 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
       }
       return response.json() as Promise<{ isBookmarked: boolean }>;
     },
-    enabled: !isBatched,
-    staleTime: 30_000,
+    queryKey: ["hn-bookmark", story.id],
     refetchOnWindowFocus: false,
     retry: false,
+    staleTime: 30_000,
   });
 
   const isBookmarked = isBatched
@@ -95,18 +96,18 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
 
   const handleShareToAsocialmedia = useCallback(() => {
     hnShareStore.startSharing({
-      id: story.id,
-      title: story.title,
-      url: story.url,
       by: story.by,
-      time: story.time,
-      score: story.score,
       descendants: story.descendants,
+      id: story.id,
+      score: story.score,
+      time: story.time,
+      title: story.title,
       type: story.type,
+      url: story.url,
     });
     toast({
-      title: "Story Ready",
       description: "Add your thoughts and share it with your followers!",
+      title: "Story Ready",
     });
     router.push("/");
   }, [hnShareStore, router, story]);
@@ -121,8 +122,8 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
       } else {
         await navigator.clipboard.writeText(story.url || hnItemUrl);
         toast({
-          title: "Link Copied",
           description: "Link copied, paste it anywhere",
+          title: "Link Copied",
         });
       }
     } catch {
@@ -145,10 +146,10 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
     toggleBookmark(undefined, {
       onSuccess: () => {
         toast({
-          title: isBookmarked ? "Removed" : "Saved",
           description: isBookmarked
             ? "Story removed from your bookmarks."
             : "Story saved to your bookmarks.",
+          title: isBookmarked ? "Removed" : "Saved",
         });
       },
     });
@@ -161,12 +162,12 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <HNLogo />
-          <span className="font-semibold text-[10px] text-orange-600 uppercase tracking-wide dark:text-orange-400">
+          <span className="text-[10px] font-semibold tracking-wide text-orange-600 uppercase dark:text-orange-400">
             Hacker News
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground/70 tabular-nums">
+          <span className="text-muted-foreground/70 flex items-center gap-1 text-[11px] tabular-nums">
             <Clock className="h-3 w-3" />
             {timeAgo}
           </span>
@@ -174,7 +175,7 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
             <DropdownMenuTrigger asChild>
               <button
                 aria-label="Story options"
-                className="pill-3d-hover group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground active:translate-y-px"
+                className="pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px"
                 type="button"
               >
                 <MoreHorizontal className="size-5" />
@@ -238,7 +239,7 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
 
       <div className="flex items-start justify-between gap-3">
         <a
-          className="line-clamp-2 min-w-0 flex-1 font-semibold text-foreground text-sm leading-snug transition-colors hover:text-orange-600 dark:hover:text-orange-400"
+          className="text-foreground line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-semibold transition-colors hover:text-orange-600 dark:hover:text-orange-400"
           href={story.url || hnItemUrl}
           onClick={handleVisit}
           rel="noopener noreferrer"
@@ -344,4 +345,4 @@ export function HNStoryCard({ story, initialBookmarked }: HNStoryCardProps) {
       </div>
     </div>
   );
-}
+};

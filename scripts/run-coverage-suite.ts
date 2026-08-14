@@ -1,11 +1,13 @@
 import { constants } from "node:fs";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { collectTestFiles, type TestScope } from "./test-file-discovery";
+import path from "node:path";
+
+import { collectTestFiles } from "./test-file-discovery";
+import type { TestScope } from "./test-file-discovery";
 
 type CoverageScope = TestScope;
 
-const COVERAGE_CONFIG_PATH = join("scripts", "bunfig.coverage.toml");
+const COVERAGE_CONFIG_PATH = path.join("scripts", "bunfig.coverage.toml");
 const COVERAGE_DIR_PREFIX = 'coverageDir = "';
 
 function isCoverageScope(value: string): value is CoverageScope {
@@ -39,7 +41,7 @@ async function getSourceLcovPath(deps: CoverageRunnerDeps): Promise<string> {
   const coverageConfig = await readText(COVERAGE_CONFIG_PATH);
   const coverageDir = parseCoverageDir(coverageConfig);
 
-  return join(coverageDir, "lcov.info");
+  return path.join(coverageDir, "lcov.info");
 }
 
 interface CoverageRunnerDeps {
@@ -59,8 +61,8 @@ interface LcovFileRecord {
 
 function createLcovRecord(): LcovFileRecord {
   return {
-    lines: new Map<number, number>(),
     functions: new Map<string, { hits: number; line: number }>(),
+    lines: new Map<number, number>(),
   };
 }
 
@@ -150,7 +152,7 @@ function parseDaLine(line: string):
     return;
   }
 
-  return { lineNumber, hits };
+  return { hits, lineNumber };
 }
 
 function applyFnLine(record: LcovFileRecord, line: string): void {
@@ -199,9 +201,9 @@ function defaultRunProcess(args: string[]): Promise<number> {
       ...process.env,
       NODE_ENV: "test",
     },
+    stderr: "inherit",
     stdin: "inherit",
     stdout: "inherit",
-    stderr: "inherit",
   });
 
   return proc.exited;
@@ -211,11 +213,11 @@ async function defaultWriteText(
   filePath: string,
   content: string
 ): Promise<void> {
-  await writeFile(filePath, content, "utf8");
+  await writeFile(filePath, content, "utf-8");
 }
 
 async function defaultReadText(filePath: string): Promise<string> {
-  return await readFile(filePath, "utf8");
+  return await readFile(filePath, "utf-8");
 }
 
 async function defaultRemoveFile(filePath: string): Promise<void> {
@@ -227,8 +229,8 @@ async function writeMergedLcov(
   chunks: string[],
   deps: CoverageRunnerDeps = {}
 ): Promise<void> {
-  const targetDir = join("coverage", scope);
-  const targetPath = join(targetDir, "lcov.info");
+  const targetDir = path.join("coverage", scope);
+  const targetPath = path.join(targetDir, "lcov.info");
   const writeText = deps.writeText ?? defaultWriteText;
 
   await mkdir(targetDir, { recursive: true });
@@ -299,8 +301,8 @@ function mergeLcovChunks(chunks: string[]): Map<string, LcovFileRecord> {
       for (const [name, fn] of record.functions) {
         const current = target.functions.get(name);
         target.functions.set(name, {
-          line: current?.line || fn.line,
           hits: Math.max(current?.hits ?? 0, fn.hits),
+          line: current?.line || fn.line,
         });
       }
     }
@@ -315,7 +317,7 @@ function serializeLcovRecords(records: Map<string, LcovFileRecord>): string {
   }
 
   const output: string[] = [];
-  const files = [...records.keys()].sort((a, b) => a.localeCompare(b));
+  const files = [...records.keys()].toSorted((a, b) => a.localeCompare(b));
 
   for (const filePath of files) {
     const record = records.get(filePath);
@@ -323,13 +325,14 @@ function serializeLcovRecords(records: Map<string, LcovFileRecord>): string {
       continue;
     }
 
-    const functionEntries = [...record.functions.entries()].sort((a, b) =>
+    const functionEntries = [...record.functions.entries()].toSorted((a, b) =>
       a[0].localeCompare(b[0])
     );
-    const lineEntries = [...record.lines.entries()].sort((a, b) => a[0] - b[0]);
+    const lineEntries = [...record.lines.entries()].toSorted(
+      (a, b) => a[0] - b[0]
+    );
 
-    output.push("TN:");
-    output.push(`SF:${filePath}`);
+    output.push("TN:", `SF:${filePath}`);
 
     for (const [name, fn] of functionEntries) {
       if (fn.line > 0) {
@@ -344,17 +347,18 @@ function serializeLcovRecords(records: Map<string, LcovFileRecord>): string {
     const functionHitCount = functionEntries.filter(
       ([, fn]) => fn.hits > 0
     ).length;
-    output.push(`FNF:${functionEntries.length}`);
-    output.push(`FNH:${functionHitCount}`);
+    output.push(`FNF:${functionEntries.length}`, `FNH:${functionHitCount}`);
 
     for (const [lineNumber, hits] of lineEntries) {
       output.push(`DA:${lineNumber},${hits}`);
     }
 
     const lineHitCount = lineEntries.filter(([, hits]) => hits > 0).length;
-    output.push(`LF:${lineEntries.length}`);
-    output.push(`LH:${lineHitCount}`);
-    output.push("end_of_record");
+    output.push(
+      `LF:${lineEntries.length}`,
+      `LH:${lineHitCount}`,
+      "end_of_record"
+    );
   }
 
   return `${output.join("\n")}\n`;
@@ -442,12 +446,13 @@ const isDirectExecution = Bun.argv.some(
 );
 
 if (isDirectExecution) {
-  runCoverageCli()
-    .then((exitCode) => {
+  (async () => {
+    try {
+      const exitCode = await runCoverageCli();
       process.exit(exitCode);
-    })
-    .catch((error: unknown) => {
+    } catch (error: unknown) {
       console.error("Failed to run coverage suite:", error);
       process.exit(1);
-    });
+    }
+  })();
 }

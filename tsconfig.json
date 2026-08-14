@@ -8,15 +8,18 @@
     "forceConsistentCasingInFileNames": true,
     "incremental": false,
     "isolatedModules": true,
-    "lib": ["es2022", "DOM", "DOM.Iterable"],
-    "module": "NodeNext",
+    "lib": ["esnext", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
     "moduleDetection": "force",
-    "moduleResolution": "NodeNext",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true,
-    "target": "ES2022",
+    "target": "ESNext",
     "strictNullChecks": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true
   }
 }

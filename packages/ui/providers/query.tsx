@@ -10,7 +10,8 @@ export default function ReactQueryProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [client] = useState(new QueryClient());
+  // eslint-disable-next-line hook-use-state -- lazy singleton client, setter is intentionally unused
+  const [client] = useState(() => new QueryClient());
 
   return (
     <QueryClientProvider client={client}>

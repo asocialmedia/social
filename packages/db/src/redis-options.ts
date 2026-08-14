@@ -14,9 +14,9 @@ export function createRedisConnectionOptions(
   }
 
   const parsedDb = parsedUrl.pathname.replace(REDIS_PATH_PREFIX_REGEX, "");
-  const db = parsedDb.length > 0 ? Number.parseInt(parsedDb, 10) : undefined;
+  const db = parsedDb.length > 0 ? Math.trunc(Number(parsedDb)) : undefined;
   const port = parsedUrl.port
-    ? Number.parseInt(parsedUrl.port, 10)
+    ? Math.trunc(Number(parsedUrl.port))
     : DEFAULT_REDIS_PORT;
 
   const options: RedisOptions = {

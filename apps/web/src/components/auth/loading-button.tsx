@@ -1,5 +1,7 @@
-import { Button, type ButtonProps } from "@asm/ui/shadui/button";
+import { Button } from "@asm/ui/shadui/button";
+import type { ButtonProps } from "@asm/ui/shadui/button";
 import { Loader2 } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 interface LoadingButtonProps extends ButtonProps {

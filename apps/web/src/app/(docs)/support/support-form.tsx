@@ -1,18 +1,38 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { useToast } from "@/lib/gooey-toast";
+
 import { StepIndicator } from "./components/step-indicator";
 import { StepOne } from "./components/steps/step-one";
 import { StepThree } from "./components/steps/step-three";
 import { StepTwo } from "./components/steps/step-two";
 import type { Attachment } from "./types";
+
+async function uploadFile(file: File) {
+  const fileFormData = new FormData();
+  fileFormData.append("file", file);
+  fileFormData.append("fileName", file.name);
+  fileFormData.append("fileType", file.type);
+
+  const response = await fetch("/api/support/upload", {
+    body: fileFormData,
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || "Upload failed");
+  }
+
+  return response.json();
+}
 
 export default function SupportForm() {
   const { toast } = useToast();
@@ -22,14 +42,14 @@ export default function SupportForm() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   const [formData, setFormData] = useState({
-    email: "",
-    type: "",
+    browser: navigator.userAgent,
     category: "",
-    priority: "medium",
-    subject: "",
+    email: "",
     message: "",
     os: navigator.platform,
-    browser: navigator.userAgent,
+    priority: "medium",
+    subject: "",
+    type: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,8 +68,8 @@ export default function SupportForm() {
           uploadFormData.append("file", file.file);
 
           const response = await fetch("/api/support/upload", {
-            method: "POST",
             body: uploadFormData,
+            method: "POST",
           });
 
           if (!response.ok) {
@@ -58,21 +78,21 @@ export default function SupportForm() {
 
           const data = await response.json();
           return {
-            url: data.url,
             key: data.key,
             name: file.name,
             type: file.type,
+            url: data.url,
           };
         })
       );
 
       const response = await fetch("/api/support", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
           attachments: uploadedFiles,
         }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       });
 
       if (!response.ok) {
@@ -81,27 +101,27 @@ export default function SupportForm() {
       }
 
       toast({
-        title: "Message Sent",
         description: "We'll get back to you as soon as we can!",
+        title: "Message Sent",
       });
 
       setFormData({
-        email: "",
-        type: "",
+        browser: navigator.userAgent,
         category: "",
-        priority: "medium",
-        subject: "",
+        email: "",
         message: "",
         os: navigator.platform,
-        browser: navigator.userAgent,
+        priority: "medium",
+        subject: "",
+        type: "",
       });
       setAttachments([]);
       setStep(1);
     } catch (error: unknown) {
       clientLog.error("Support submit error:", error);
       toast({
-        title: "Couldn't Send",
         description: "Couldn't send your message, try again?",
+        title: "Couldn't Send",
         variant: "destructive",
       });
     } finally {
@@ -113,8 +133,8 @@ export default function SupportForm() {
     const maxFiles = 3;
     if (attachments.length + files.length > maxFiles) {
       toast({
-        title: "Too Many Files",
         description: `You can attach up to ${maxFiles} files`,
+        title: "Too Many Files",
       });
       return false;
     }
@@ -133,40 +153,21 @@ export default function SupportForm() {
 
     if (!(file.type && allowedTypes.includes(file.type))) {
       toast({
-        title: "Wrong File Type",
         description: "Images, PDFs, or text files only, please",
+        title: "Wrong File Type",
       });
       return false;
     }
 
     if (file.size > maxSize) {
       toast({
-        title: "File Too Big",
         description: "Keep files under 5MB",
+        title: "File Too Big",
       });
       return false;
     }
 
     return true;
-  };
-
-  const uploadFile = async (file: File) => {
-    const fileFormData = new FormData();
-    fileFormData.append("file", file);
-    fileFormData.append("fileName", file.name);
-    fileFormData.append("fileType", file.type);
-
-    const response = await fetch("/api/support/upload", {
-      method: "POST",
-      body: fileFormData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Upload failed");
-    }
-
-    return response.json();
   };
 
   const handleFileUpload = async (files: FileList) => {
@@ -175,7 +176,7 @@ export default function SupportForm() {
     }
 
     await Promise.all(
-      Array.from(files).map(async (file) => {
+      [...files].map(async (file) => {
         if (!validateFile(file)) {
           return;
         }
@@ -186,26 +187,26 @@ export default function SupportForm() {
           setAttachments((prev) => [
             ...prev,
             {
-              name: file.name,
               file,
-              url: data.url,
+              isUploading: false,
               key: data.key,
+              name: file.name,
               originalName: data.originalName,
               size: data.size,
               type: data.type,
-              isUploading: false,
+              url: data.url,
             },
           ]);
 
           toast({
-            title: "File Uploaded",
             description: "Your file is attached",
+            title: "File Uploaded",
           });
         } catch (error: unknown) {
           clientLog.error("Upload error:", error);
           toast({
-            title: "Upload Failed",
             description: "Couldn't upload that file, try again?",
+            title: "Upload Failed",
             variant: "destructive",
           });
         }
@@ -215,7 +216,7 @@ export default function SupportForm() {
 
   const formContainerVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+    visible: { opacity: 1, transition: { duration: 0.5 }, y: 0 },
   };
 
   const handleNextToStepTwo = useCallback(() => setStep(2), []);
@@ -275,7 +276,7 @@ export default function SupportForm() {
               )}
             </AnimatePresence>
 
-            <motion.div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <motion.div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
               <motion.div
                 animate={{ width: `${(step / 3) * 100}%` }}
                 className="h-full bg-gradient-to-r from-[#ff9500] to-[#e65500]"
@@ -287,7 +288,7 @@ export default function SupportForm() {
 
           <div className="text-center">
             <Link
-              className="inline-flex items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-primary"
+              className="text-muted-foreground hover:text-primary inline-flex items-center gap-2 text-sm transition-colors"
               href="/login"
             >
               <ArrowLeft className="h-4 w-4" />

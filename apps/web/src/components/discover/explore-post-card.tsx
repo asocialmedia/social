@@ -5,6 +5,7 @@ import { Eye } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import { formatNumber } from "@/lib/utils";
@@ -61,14 +62,14 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
 
           <div className="flex items-center gap-2">
             <UserAvatar avatarUrl={post.user.avatarUrl} className="h-6 w-6" />
-            <span className="truncate font-medium text-xs">
+            <span className="truncate text-xs font-medium">
               {post.user.displayName || post.user.username}
             </span>
           </div>
         </div>
       </Link>
 
-      <div className="flex flex-nowrap items-center gap-2 overflow-x-hidden px-3 pb-3 text-muted-foreground text-xs">
+      <div className="text-muted-foreground flex flex-nowrap items-center gap-2 overflow-x-hidden px-3 pb-3 text-xs">
         <AuraVoteButton
           authorName={post.user.displayName}
           expandable={false}
@@ -79,7 +80,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           postId={post.id}
         />
         <span
-          className="flex h-8 items-center gap-1 rounded-full px-2 font-semibold text-muted-foreground text-sm tabular-nums"
+          className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums"
           title="Views"
         >
           <Eye aria-hidden="true" className="h-5 w-5" />

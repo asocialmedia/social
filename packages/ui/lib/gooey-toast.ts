@@ -1,9 +1,12 @@
 "use client";
 
-import { toast as gooeyToast, type ToastOptions } from "gooey-toast";
-import { isValidElement, type ReactElement, type ReactNode } from "react";
+import { toast as gooeyToast } from "gooey-toast";
+import type { ToastOptions } from "gooey-toast";
+import { isValidElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 
 type ToastVariant = "default" | "destructive";
 
@@ -26,12 +29,12 @@ function buildGooeyOptions(
   duration: number
 ): ToastOptions {
   return {
-    title,
     description: resolvedDescription,
-    icon: resolvedIcon,
     duration,
     fill: GOOEY_FILL,
+    icon: resolvedIcon,
     roundness: 12,
+    title,
   };
 }
 
@@ -47,11 +50,8 @@ function reactNodeToDom(node: ReactNode): { node: Node; unmount: () => void } {
       unmount: () => root.unmount(),
     };
   }
-  if (node === null || node === undefined) {
-    container.textContent = "";
-  } else {
-    container.textContent = String(node);
-  }
+  container.textContent =
+    node === null || node === undefined ? "" : String(node);
   return { node: container, unmount: noop };
 }
 

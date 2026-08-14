@@ -1,18 +1,19 @@
 import { describe, expect, mock, test } from "bun:test";
+
 import { runIntegrationTests } from "./run-integration-tests";
 
 describe("run-integration-tests", () => {
   test("returns success and logs when no integration tests exist", async () => {
     const logger = {
-      error: mock(() => undefined),
-      log: mock(() => undefined),
+      error: mock(() => {}),
+      log: mock(() => {}),
     };
 
     const exitCode = await runIntegrationTests([], {
-      collectFiles: async () => [],
+      collectFiles: () => Promise.resolve([]),
       logger,
       rootDir: "/tmp/repo",
-      runProcess: async () => 9,
+      runProcess: () => Promise.resolve(9),
     });
 
     expect(exitCode).toBe(0);
@@ -25,10 +26,11 @@ describe("run-integration-tests", () => {
     const calls: { cmd: string[]; cwd: string }[] = [];
 
     const exitCode = await runIntegrationTests(["--bail=1"], {
-      collectFiles: async () => [
-        "apps/auth/a.integration.test.ts",
-        "scripts/b.integration.test.ts",
-      ],
+      collectFiles: () =>
+        Promise.resolve([
+          "apps/auth/a.integration.test.ts",
+          "scripts/b.integration.test.ts",
+        ]),
       rootDir: "/tmp/repo",
       runProcess: ({ cmd, cwd }) => {
         calls.push({ cmd, cwd });
@@ -54,9 +56,9 @@ describe("run-integration-tests", () => {
 
   test("propagates non-zero process exit code", async () => {
     const exitCode = await runIntegrationTests([], {
-      collectFiles: async () => ["apps/auth/a.integration.test.ts"],
+      collectFiles: () => Promise.resolve(["apps/auth/a.integration.test.ts"]),
       rootDir: "/tmp/repo",
-      runProcess: async () => 17,
+      runProcess: () => Promise.resolve(17),
     });
 
     expect(exitCode).toBe(17);

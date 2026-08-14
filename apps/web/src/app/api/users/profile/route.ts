@@ -1,5 +1,7 @@
+import type { User } from "@asm/db";
 import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
+
 import { deleteAvatar, uploadAvatar } from "@/lib/object-storage";
 
 export async function POST(request: Request) {
@@ -26,22 +28,22 @@ export async function POST(request: Request) {
 
     // Persist first; on failure the freshly-uploaded object is orphaned, so
     // delete it rather than leak storage.
-    let updatedUser: import("@asm/db").User | null = null;
+    let updatedUser: User | null = null;
     try {
       updatedUser = await prisma.user.update({
-        where: { id: userId },
         data: {
-          displayName: values.displayName,
           bio: values.bio,
+          displayName: values.displayName,
           githubUsername: values.githubUsername || null,
           linkedinUsername: values.linkedinUsername || null,
-          twitterUsername: values.twitterUsername || null,
           redditUsername: values.redditUsername || null,
+          twitterUsername: values.twitterUsername || null,
           ...(avatarResult && {
-            avatarUrl: avatarResult.url,
             avatarKey: avatarResult.key,
+            avatarUrl: avatarResult.url,
           }),
         },
+        where: { id: userId },
       });
     } catch (error) {
       if (avatarResult) {
@@ -67,8 +69,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      user: updatedUser,
       avatar: avatarResult,
+      user: updatedUser,
     });
   } catch (error) {
     console.error("Profile update error:", error);

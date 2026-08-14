@@ -7,7 +7,7 @@ interface ComposerState {
 }
 
 export const useComposerStore = create<ComposerState>()((set) => ({
+  closeComposer: () => set({ isOpen: false }),
   isOpen: false,
   openComposer: () => set({ isOpen: true }),
-  closeComposer: () => set({ isOpen: false }),
 }));

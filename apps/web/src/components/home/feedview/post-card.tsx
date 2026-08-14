@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
 import FollowButton from "@/components/layouts/follow-button";
@@ -30,7 +31,9 @@ import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatRelativeDate } from "@/lib/utils";
+
 import { HNStoryCard } from "./hn-story-card";
+// eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
 import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
 
@@ -87,7 +90,7 @@ const PostContent: React.FC<PostContentProps> = ({
     // when the post is shown fully expanded (detail view).
     const paragraph = el.querySelector("p");
     const computedLineHeight = paragraph
-      ? Number.parseFloat(getComputedStyle(paragraph).lineHeight)
+      ? Number(getComputedStyle(paragraph).lineHeight)
       : 0;
     const lineHeight =
       Number.isFinite(computedLineHeight) && computedLineHeight > 0
@@ -144,14 +147,14 @@ const PostContent: React.FC<PostContentProps> = ({
               <div className="flex min-w-0 items-center gap-2">
                 <UserTooltip user={post.user}>
                   <Link
-                    className="truncate font-semibold text-foreground hover:underline"
+                    className="text-foreground truncate font-semibold hover:underline"
                     href={`/users/${post.user.username}`}
                   >
                     {post.user.displayName}
                   </Link>
                 </UserTooltip>
                 <Link
-                  className="shrink-0 text-muted-foreground hover:underline"
+                  className="text-muted-foreground shrink-0 hover:underline"
                   href={`/posts/${post.id}`}
                   suppressHydrationWarning
                 >
@@ -161,7 +164,7 @@ const PostContent: React.FC<PostContentProps> = ({
               <div className="mt-0.5 flex min-w-0 items-center gap-2">
                 <UserTooltip user={post.user}>
                   <Link
-                    className="truncate text-muted-foreground hover:underline"
+                    className="text-muted-foreground truncate hover:underline"
                     href={`/users/${post.user.username}`}
                   >
                     @{post.user.username}
@@ -183,7 +186,7 @@ const PostContent: React.FC<PostContentProps> = ({
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-16 text-sm">
               <UserTooltip user={post.user}>
                 <Link
-                  className="truncate font-semibold text-foreground hover:underline"
+                  className="text-foreground truncate font-semibold hover:underline"
                   href={`/users/${post.user.username}`}
                 >
                   {post.user.displayName}
@@ -191,15 +194,15 @@ const PostContent: React.FC<PostContentProps> = ({
               </UserTooltip>
               <UserTooltip user={post.user}>
                 <Link
-                  className="truncate text-muted-foreground hover:underline"
+                  className="text-muted-foreground truncate hover:underline"
                   href={`/users/${post.user.username}`}
                 >
                   @{post.user.username}
                 </Link>
               </UserTooltip>
-              <span className="shrink-0 text-muted-foreground">·</span>
+              <span className="text-muted-foreground shrink-0">·</span>
               <Link
-                className="shrink-0 text-muted-foreground hover:underline"
+                className="text-muted-foreground shrink-0 hover:underline"
                 href={`/posts/${post.id}`}
                 suppressHydrationWarning
               >
@@ -229,14 +232,14 @@ const PostContent: React.FC<PostContentProps> = ({
 
         <Linkify>
           <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
-            <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
+            <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
               {post.content}
             </p>
           </div>
         </Linkify>
         {isOverflowing ? (
           <button
-            className="mt-1 cursor-pointer font-medium text-primary text-sm hover:underline"
+            className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
             onClick={onToggleExpand}
             type="button"
           >
@@ -284,7 +287,7 @@ const PostContent: React.FC<PostContentProps> = ({
 
           <div className="flex items-center gap-1">
             <span
-              className="flex h-8 cursor-default items-center gap-1.5 rounded-full px-2 text-muted-foreground"
+              className="text-muted-foreground flex h-8 cursor-default items-center gap-1.5 rounded-full px-2"
               title="Views"
             >
               <Eye className="size-5" />
@@ -308,20 +311,18 @@ interface CommentButtonProps {
   post: PostData;
 }
 
-function CommentButton({ post, onClick }: CommentButtonProps) {
-  return (
-    <button
-      className="pill-3d-hover group inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 font-medium text-muted-foreground text-sm active:translate-y-px"
-      onClick={onClick}
-      type="button"
-    >
-      <MessageSquare className="size-5" />
-      <span className="font-medium text-sm tabular-nums">
-        {post._count.comments}
-      </span>
-    </button>
-  );
-}
+const CommentButton = ({ post, onClick }: CommentButtonProps) => (
+  <button
+    className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
+    onClick={onClick}
+    type="button"
+  >
+    <MessageSquare className="size-5" />
+    <span className="text-sm font-medium tabular-nums">
+      {post._count.comments}
+    </span>
+  </button>
+);
 
 const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
@@ -336,6 +337,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const [isExpanded, setIsExpanded] = useState(detail);
 
   useEffect(() => {
+    // eslint-disable-next-line react-compiler -- keep the editable post state in sync with the latest props
     setPost(initialPost);
   }, [initialPost]);
 

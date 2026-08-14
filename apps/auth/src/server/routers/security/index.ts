@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+
 import { debugLog } from "@asm/config/debug";
 import { redis } from "@asm/db";
+
 import { procedure, router } from "../../trpc";
 
 function hashPII(value: string): string {
@@ -46,8 +48,8 @@ async function executeFallbackRateCheck(
 
   return {
     primaryCount,
-    secondaryCount,
     primaryTtl: windowSeconds,
+    secondaryCount,
     secondaryTtl: windowSeconds,
   };
 }
@@ -118,11 +120,11 @@ function checkLogoutRateLimit(
   const ipKey = `${LOGOUT_RATE_PREFIX}ip:${hashPII(ip)}`;
 
   return checkRateLimit({
+    logContext: "logout",
+    maxPerWindow: LOGOUT_MAX_PER_WINDOW,
     primaryKey: userKey,
     secondaryKey: ipKey,
-    maxPerWindow: LOGOUT_MAX_PER_WINDOW,
     windowSeconds: LOGOUT_RATE_WINDOW_SECONDS,
-    logContext: "logout",
   });
 }
 
@@ -136,11 +138,11 @@ async function auditLogout(options: {
   const { userId, ip, userAgent, reason, metadata = {} } = options;
   const auditKey = `${LOGOUT_AUDIT_PREFIX}${userId}:${Date.now()}`;
   const auditData = {
-    userId,
     ip,
-    userAgent,
     reason,
     timestamp: new Date().toISOString(),
+    userAgent,
+    userId,
     ...metadata,
   };
 
@@ -162,11 +164,11 @@ function checkResetPasswordRateLimit(
   const ipKey = `${RESET_PASSWORD_RATE_PREFIX}ip:${hashPII(ip)}`;
 
   return checkRateLimit({
+    logContext: "reset-password",
+    maxPerWindow: RESET_PASSWORD_MAX_PER_WINDOW,
     primaryKey: identifierKey,
     secondaryKey: ipKey,
-    maxPerWindow: RESET_PASSWORD_MAX_PER_WINDOW,
     windowSeconds: RESET_PASSWORD_RATE_WINDOW_SECONDS,
-    logContext: "reset-password",
   });
 }
 
@@ -183,10 +185,10 @@ async function auditResetPassword(options: {
   const auditData = {
     identifier,
     ip,
-    userAgent,
     success,
-    userId,
     timestamp: new Date().toISOString(),
+    userAgent,
+    userId,
     ...metadata,
   };
 
@@ -209,13 +211,13 @@ export {
 
 export const securityRouter = router({
   securityHealth: procedure.query(() => ({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
     rateLimits: {
       logoutMaxPerWindow: LOGOUT_MAX_PER_WINDOW,
       logoutWindowSeconds: LOGOUT_RATE_WINDOW_SECONDS,
       resetPasswordMaxPerWindow: RESET_PASSWORD_MAX_PER_WINDOW,
       resetPasswordWindowSeconds: RESET_PASSWORD_RATE_WINDOW_SECONDS,
     },
+    status: "healthy",
+    timestamp: new Date().toISOString(),
   })),
 });

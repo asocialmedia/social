@@ -58,8 +58,7 @@ jobs:
           path: |
             **/node_modules
             !**/node_modules/.cache
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{
-            hashFiles('**/package.json') }}
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
           restore-keys: |
             ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-node-modules-

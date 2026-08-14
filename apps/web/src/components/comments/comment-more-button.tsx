@@ -8,6 +8,7 @@ import {
 } from "@asm/ui/shadui/dropdown-menu";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
+
 import DeleteCommentDialog from "./delete-comment-dialog";
 
 interface CommentMoreButtonProps {
@@ -34,12 +35,12 @@ export default function CommentMoreButton({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button className={className} size="icon" variant="ghost">
-            <MoreHorizontal className="size-5 text-muted-foreground" />
+            <MoreHorizontal className="text-muted-foreground size-5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           <DropdownMenuItem onClick={handleDeleteClick}>
-            <span className="flex items-center gap-3 text-destructive">
+            <span className="text-destructive flex items-center gap-3">
               <Trash2 className="size-4" />
               Delete
             </span>

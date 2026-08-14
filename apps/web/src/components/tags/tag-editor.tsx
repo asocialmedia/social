@@ -4,33 +4,37 @@ import type { Tag, TagWithCount } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Hash, Loader2, Plus, Search, X } from "lucide-react";
-import { AnimatePresence, motion, type Variants } from "motion/react";
-import { type MouseEvent, useCallback, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import type { Variants } from "motion/react";
+import { useCallback, useState } from "react";
+import type { MouseEvent } from "react";
+
 import { useTags } from "@/hooks/use-tags";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
+
 import { useUpdateTagsMutation } from "./mutations/tag-mention-mutation";
 
 const tagVariants: Variants = {
-  initial: { opacity: 0, scale: 0.9, y: -10 },
   animate: {
     opacity: 1,
     scale: 1,
-    y: 0,
     transition: {
-      type: "spring",
-      stiffness: 200,
       damping: 20,
+      stiffness: 200,
+      type: "spring",
     },
+    y: 0,
   },
   exit: {
     opacity: 0,
     scale: 0.9,
-    y: -10,
     transition: {
       duration: 0.2,
     },
+    y: -10,
   },
+  initial: { opacity: 0, scale: 0.9, y: -10 },
 };
 
 const containerVariants = {
@@ -48,12 +52,12 @@ interface TagEditorProps {
   postId?: string;
 }
 
-export function TagEditor({
+export const TagEditor = ({
   postId,
   initialTags,
   onCloseAction,
   onTagsUpdateAction,
-}: TagEditorProps) {
+}: TagEditorProps) => {
   const [search, setSearch] = useState("");
   const { suggestions, searchTags } = useTags(postId);
   const { toast } = useToast();
@@ -65,8 +69,8 @@ export function TagEditor({
     (tagName: string) => {
       if (selectedTags.length >= 5) {
         toast({
-          title: "Up to 5 Tags",
           description: "You can add up to 5 tags per post",
+          title: "Up to 5 Tags",
           variant: "destructive",
         });
         return;
@@ -77,13 +81,13 @@ export function TagEditor({
         setSelectedTags(newTags);
 
         const formattedTags: TagWithCount[] = newTags.map((name) => ({
-          id: name,
-          name: name.toLowerCase(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
           _count: {
             posts: 1,
           },
+          createdAt: new Date(),
+          id: name,
+          name: name.toLowerCase(),
+          updatedAt: new Date(),
         }));
 
         onTagsUpdateAction(formattedTags);
@@ -99,13 +103,13 @@ export function TagEditor({
       setSelectedTags(newTags);
 
       const formattedTags: TagWithCount[] = newTags.map((name) => ({
-        id: name,
-        name: name.toLowerCase(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
         _count: {
           posts: 1,
         },
+        createdAt: new Date(),
+        id: name,
+        name: name.toLowerCase(),
+        updatedAt: new Date(),
       }));
 
       onTagsUpdateAction(formattedTags);
@@ -116,11 +120,11 @@ export function TagEditor({
   const handleSave = useCallback(async () => {
     try {
       const optimisticTags: TagWithCount[] = selectedTags.map((name) => ({
+        _count: { posts: 1 },
+        createdAt: new Date(),
         id: name,
         name,
-        createdAt: new Date(),
         updatedAt: new Date(),
-        _count: { posts: 1 },
       }));
 
       onTagsUpdateAction(optimisticTags);
@@ -182,10 +186,10 @@ export function TagEditor({
                   variants={tagVariants}
                 >
                   <Hash className="meta-chip-accent h-3.5 w-3.5" />
-                  <span className="font-medium text-xs">{tagName}</span>
+                  <span className="text-xs font-medium">{tagName}</span>
                   <button
                     aria-label={`Remove tag ${tagName}`}
-                    className="meta-chip-accent flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive"
+                    className="meta-chip-accent text-muted-foreground hover:text-destructive flex h-4 w-4 items-center justify-center rounded-full transition-colors"
                     data-tag-name={tagName}
                     onClick={handleRemoveClick}
                     type="button"
@@ -206,9 +210,9 @@ export function TagEditor({
         >
           <Command className="premium-command overflow-hidden">
             <div className="flex items-center px-3">
-              <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <Search className="text-muted-foreground mr-2 h-4 w-4 shrink-0" />
               <Command.Input
-                className="h-9 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
+                className="placeholder:text-muted-foreground/70 h-9 flex-1 border-0 bg-transparent text-sm outline-hidden focus:ring-0"
                 onBlur={handleBlur}
                 onFocus={handleFocus}
                 onValueChange={handleSearch}
@@ -223,7 +227,7 @@ export function TagEditor({
                   onSelect={handleSelect}
                   value={search}
                 >
-                  <Plus className="h-4 w-4 text-primary/70 transition-colors group-hover:text-primary" />
+                  <Plus className="text-primary/70 group-hover:text-primary h-4 w-4 transition-colors" />
                   <span>
                     Create tag "<span className="font-medium">{search}</span>"
                   </span>
@@ -237,12 +241,12 @@ export function TagEditor({
                       onSelect={handleSelect}
                       value={tagName}
                     >
-                      <Hash className="h-4 w-4 text-primary/70 transition-colors group-hover:text-primary" />
+                      <Hash className="text-primary/70 group-hover:text-primary h-4 w-4 transition-colors" />
                       <span className="font-medium">{tagName}</span>
                     </Command.Item>
                   ))
                 : search && (
-                    <p className="p-2 text-muted-foreground text-sm">
+                    <p className="text-muted-foreground p-2 text-sm">
                       No tags found. Type to create a new one.
                     </p>
                   )}
@@ -273,4 +277,4 @@ export function TagEditor({
       </motion.div>
     </div>
   );
-}
+};

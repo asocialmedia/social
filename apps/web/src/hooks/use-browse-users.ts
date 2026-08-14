@@ -8,7 +8,6 @@ interface UseBrowseUsersOptions {
 
 export function useBrowseUsers({ searchTerm, sortBy }: UseBrowseUsersOptions) {
   return useQuery<UserData[]>({
-    queryKey: ["browse-users", searchTerm, sortBy],
     queryFn: async () => {
       const params = new URLSearchParams({
         search: searchTerm,
@@ -20,5 +19,6 @@ export function useBrowseUsers({ searchTerm, sortBy }: UseBrowseUsersOptions) {
       }
       return response.json();
     },
+    queryKey: ["browse-users", searchTerm, sortBy],
   });
 }

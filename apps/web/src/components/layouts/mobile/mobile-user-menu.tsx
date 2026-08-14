@@ -11,10 +11,12 @@ import {
   UserIcon,
   X,
 } from "lucide-react";
-import { AnimatePresence, motion, type Variants } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import type { Variants } from "motion/react";
 import Link from "next/link";
 import type React from "react";
 import { useCallback } from "react";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -36,6 +38,14 @@ interface MobileUserMenuProps {
 }
 
 const menuVariants: Variants = {
+  exit: {
+    opacity: 0,
+    scale: 0.95,
+    transition: {
+      duration: 0.2,
+    },
+    y: 20,
+  },
   hidden: {
     opacity: 0,
     scale: 0.95,
@@ -44,33 +54,28 @@ const menuVariants: Variants = {
   visible: {
     opacity: 1,
     scale: 1,
-    y: 0,
     transition: {
-      type: "spring",
-      stiffness: 300,
       damping: 30,
+      stiffness: 300,
+      type: "spring",
     },
-  },
-  exit: {
-    opacity: 0,
-    scale: 0.95,
-    y: 20,
-    transition: {
-      duration: 0.2,
-    },
+    y: 0,
   },
 };
 
-export function MobileUserMenu({
+export const MobileUserMenu = ({
   isOpen,
   onCloseAction,
   user,
   theme,
   setThemeAction,
   onLogoutAction,
-}: MobileUserMenuProps) {
+}: MobileUserMenuProps) => {
   const { data: avatarData } = useQuery({
-    queryKey: ["avatar", user.id],
+    initialData: {
+      key: user.avatarKey,
+      url: user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null,
+    },
     queryFn: async () => {
       try {
         const response = await fetch(`/api/users/avatar/${user.id}`);
@@ -79,26 +84,23 @@ export function MobileUserMenu({
         }
         const data = await response.json();
         return {
-          url: getSecureImageUrl(data.url),
           key: data.key,
+          url: getSecureImageUrl(data.url),
         };
       } catch {
         return {
-          url: user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null,
           key: user.avatarKey,
+          url: user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null,
         };
       }
     },
-    initialData: {
-      url: user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null,
-      key: user.avatarKey,
-    },
+    queryKey: ["avatar", user.id],
     staleTime: 1000 * 60 * 5,
   });
 
   const handleThemeClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
-      const value = e.currentTarget.getAttribute("data-theme-value");
+      const value = e.currentTarget.dataset.themeValue;
       if (value) {
         setThemeAction(value);
         onCloseAction();
@@ -113,7 +115,7 @@ export function MobileUserMenu({
         <div className="fixed inset-0 z-[200]">
           <motion.div
             animate={{ opacity: 1 }}
-            className="fixed inset-0 bg-background/90 backdrop-blur-lg"
+            className="bg-background/90 fixed inset-0 backdrop-blur-lg"
             exit={{ opacity: 0 }}
             initial={{ opacity: 0 }}
             onClick={onCloseAction}
@@ -128,9 +130,9 @@ export function MobileUserMenu({
                 initial="hidden"
                 variants={menuVariants}
               >
-                <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-background/100 p-6 shadow-lg backdrop-blur-xl">
+                <div className="border-border/50 bg-background/100 relative overflow-hidden rounded-2xl border p-6 shadow-lg backdrop-blur-xl">
                   <motion.button
-                    className="absolute top-4 right-4 rounded-full p-2 text-muted-foreground hover:bg-primary/10"
+                    className="text-muted-foreground hover:bg-primary/10 absolute top-4 right-4 rounded-full p-2"
                     onClick={onCloseAction}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
@@ -144,28 +146,28 @@ export function MobileUserMenu({
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
-                      <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-primary/20 via-primary/30 to-primary/20 opacity-75 blur-md" />
+                      <div className="from-primary/20 via-primary/30 to-primary/20 absolute -inset-4 rounded-full bg-gradient-to-r opacity-75 blur-md" />
                       <Link
                         href={`/users/${user.username || user.id}`}
                         onClick={onCloseAction}
                       >
                         <UserAvatar
                           avatarUrl={avatarData?.url}
-                          className="relative border-4 border-background shadow-xl"
+                          className="border-background relative border-4 shadow-xl"
                           priority
                           size={100}
                         />
                       </Link>
                     </motion.div>
                     <div className="text-center">
-                      <h3 className="font-medium text-lg">
+                      <h3 className="text-lg font-medium">
                         {user.displayName}
                       </h3>
                       <p className="text-muted-foreground text-sm">
                         {user.username ? `@${user.username}` : user.email}
                       </p>
                       {user.bio ? (
-                        <div className="mt-2 flex items-center justify-center gap-1 text-muted-foreground/60">
+                        <div className="text-muted-foreground/60 mt-2 flex items-center justify-center gap-1">
                           <Quote className="size-4" />
                           <p className="text-sm italic">{user.bio}</p>
                           <Quote className="size-4" />
@@ -198,7 +200,7 @@ export function MobileUserMenu({
                       onClick={onCloseAction}
                     />
 
-                    <div className="rounded-lg border border-border/50 p-3">
+                    <div className="border-border/50 rounded-lg border p-3">
                       <div className="mb-2 flex items-center gap-2">
                         <Monitor className="size-5" />
                         <span>Theme</span>
@@ -248,7 +250,7 @@ export function MobileUserMenu({
       ) : null}
     </AnimatePresence>
   );
-}
+};
 
 interface MobileMenuItemProps {
   href: string;
@@ -257,17 +259,20 @@ interface MobileMenuItemProps {
   onClick?: () => void;
 }
 
-function MobileMenuItem({ icon, label, href, onClick }: MobileMenuItemProps) {
-  return (
-    <Link href={href} onClick={onClick}>
-      <motion.div
-        className="flex items-center gap-2 rounded-lg border border-border/50 p-3 transition-colors hover:bg-primary/10"
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        {icon}
-        <span>{label}</span>
-      </motion.div>
-    </Link>
-  );
-}
+const MobileMenuItem = ({
+  icon,
+  label,
+  href,
+  onClick,
+}: MobileMenuItemProps) => (
+  <Link href={href} onClick={onClick}>
+    <motion.div
+      className="border-border/50 hover:bg-primary/10 flex items-center gap-2 rounded-lg border p-3 transition-colors"
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      {icon}
+      <span>{label}</span>
+    </motion.div>
+  </Link>
+);

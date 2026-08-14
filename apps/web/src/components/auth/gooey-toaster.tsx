@@ -2,19 +2,21 @@
 
 import { mountToaster } from "gooey-toast";
 import { useEffect } from "react";
+
 import "gooey-toast/styles.css";
 import { GOOEY_FILL } from "@/lib/gooey-toast";
+
 import "./gooey-toast.css";
 
-export function GooeyToaster() {
+export const GooeyToaster = () => {
   useEffect(() => {
     const mounted = mountToaster({
-      position: "bottom-right",
-      offset: { right: 16, bottom: 16 },
+      offset: { bottom: 16, right: 16 },
       options: {
         fill: GOOEY_FILL,
         roundness: 12,
       },
+      position: "bottom-right",
     });
 
     return () => {
@@ -23,4 +25,4 @@ export function GooeyToaster() {
   }, []);
 
   return null;
-}
+};

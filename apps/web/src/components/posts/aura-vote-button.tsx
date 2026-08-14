@@ -1,14 +1,10 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { VoteInfo } from "@asm/db";
-import {
-  type QueryKey,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
+
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
@@ -18,6 +14,16 @@ interface AuraVoteButtonProps {
   expandable?: boolean;
   initialState: VoteInfo;
   postId: string;
+}
+
+function calculateVoteChange(oldVote: number, newVote: number): number {
+  if (oldVote === newVote) {
+    return -oldVote;
+  }
+  if (oldVote === 0) {
+    return newVote;
+  }
+  return newVote - oldVote;
 }
 
 export default function AuraVoteButton({
@@ -31,19 +37,24 @@ export default function AuraVoteButton({
   const queryKey: QueryKey = ["vote-info", postId];
 
   const { data } = useQuery({
-    queryKey,
+    initialData: initialState,
     queryFn: () =>
       kyInstance.get(`/api/posts/${postId}/votes`).json<VoteInfo>(),
-    initialData: initialState,
+    queryKey,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     // The feed payload already includes aura + the user's vote, and the
     // mutation reconciles server state on success, so refetching on every
     // mount/window-focus is pure waste (it caused 2x requests per post).
     staleTime: 5 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
   });
 
-  const { mutate } = useMutation({
+  const { mutate } = useMutation<
+    { serverResponse: VoteInfo; voteAttempted: number },
+    Error,
+    number,
+    { previousState: VoteInfo | undefined }
+  >({
     mutationFn: async (vote: number) => {
       const response =
         vote === data.userVote
@@ -54,6 +65,14 @@ export default function AuraVoteButton({
               .post(`/api/posts/${postId}/votes`, { json: { value: vote } })
               .json<VoteInfo>();
       return { serverResponse: response, voteAttempted: vote };
+    },
+    onError(error, _variables, context) {
+      queryClient.setQueryData(queryKey, context?.previousState);
+      clientLog.error(error);
+      toast({
+        description: "That didn't go through, give it another try?",
+        variant: "destructive",
+      });
     },
     onMutate: async (newVote) => {
       await queryClient.cancelQueries({ queryKey });
@@ -75,7 +94,7 @@ export default function AuraVoteButton({
         }
         const currentPost = oldPost as {
           aura: number;
-          vote: Array<{ userId: string; value: number }>;
+          vote: { userId: string; value: number }[];
         };
         const voteChange = calculateVoteChange(
           currentPost.vote[0]?.value || 0,
@@ -90,6 +109,7 @@ export default function AuraVoteButton({
       });
       return { previousState };
     },
+    // oxlint-disable-next-line react/no-unstable-nested-components
     onSuccess: (result, _newVote) => {
       const { serverResponse } = result;
       queryClient.setQueryData<VoteInfo>(queryKey, {
@@ -104,7 +124,7 @@ export default function AuraVoteButton({
         }
         const currentPost = oldPost as {
           aura: number;
-          vote: Array<{ userId: string; value: number }>;
+          vote: { userId: string; value: number }[];
         };
         return {
           ...currentPost,
@@ -120,49 +140,31 @@ export default function AuraVoteButton({
 
       if (serverResponse.userVote === 1) {
         toast({
-          title: "+1 Aura",
           description: `Amplified ${authorName}'s post, nice boost!`,
           icon: <Flame />,
+          title: "+1 Aura",
         });
       } else if (serverResponse.userVote === -1) {
         toast({
-          title: "Muted",
           description: `You muted ${authorName}'s post, we'll show you fewer posts like this`,
           icon: <ArrowBigDown />,
+          title: "Muted",
         });
       } else if (serverResponse.userVote === 0 && previousVote === 1) {
         toast({
-          title: "Amplification Removed",
           description: "You can always amplify it again later",
           icon: <RotateCcw />,
+          title: "Amplification Removed",
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
-          title: "Mute Removed",
           description: "It'll show up in your feed normally again",
           icon: <RotateCcw />,
+          title: "Mute Removed",
         });
       }
     },
-    onError(error, _variables, context) {
-      queryClient.setQueryData(queryKey, context?.previousState);
-      clientLog.error(error);
-      toast({
-        variant: "destructive",
-        description: "That didn't go through, give it another try?",
-      });
-    },
   });
-
-  const calculateVoteChange = (oldVote: number, newVote: number): number => {
-    if (oldVote === newVote) {
-      return -oldVote;
-    }
-    if (oldVote === 0) {
-      return newVote;
-    }
-    return newVote - oldVote;
-  };
 
   const handleVoteUp = useCallback(() => mutate(1), [mutate]);
   const handleVoteDown = useCallback(() => mutate(-1), [mutate]);
@@ -231,7 +233,7 @@ export default function AuraVoteButton({
         ) : null}
       </button>
       <span
-        className="flex h-8 items-center gap-1 rounded-full px-2 font-semibold text-muted-foreground text-sm tabular-nums"
+        className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums"
         title="Aura"
       >
         <Flame aria-hidden="true" className="h-5 w-5 text-orange-500" />

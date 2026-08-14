@@ -2,9 +2,10 @@ import {
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
   getPostDataInclude,
-  type PostData,
   prisma,
 } from "@asm/db";
+import type { PostData } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
@@ -13,7 +14,7 @@ interface VoteInfo {
   userVote: number;
 }
 
-const VALID_VOTE_VALUES = [-1, 0, 1];
+const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
 
 export async function GET(
   _req: Request,
@@ -30,8 +31,8 @@ export async function GET(
     }
 
     const post = await prisma.post.findUnique({
-      where: { id: postId },
       include: getPostDataInclude(user.id),
+      where: { id: postId },
     });
 
     if (!post) {
@@ -67,7 +68,7 @@ export async function POST(
   }
 
   const { value } = (await request.json()) as { value?: number };
-  if (typeof value !== "number" || !VALID_VOTE_VALUES.includes(value)) {
+  if (typeof value !== "number" || !VALID_VOTE_VALUES.has(value)) {
     return Response.json({ error: "Invalid vote value" }, { status: 400 });
   }
 
@@ -75,29 +76,29 @@ export async function POST(
   try {
     const result = await prisma.$transaction(async (tx) => {
       const post = await tx.post.findUnique({
-        where: { id: postId },
         select: { id: true, userId: true },
+        where: { id: postId },
       });
       if (!post) {
         return null;
       }
 
       const existingVote = await tx.vote.findUnique({
-        where: { userId_postId: { userId: user.id, postId } },
+        where: { userId_postId: { postId, userId: user.id } },
       });
       const oldValue = existingVote?.value || 0;
 
       if (value === 0) {
         if (existingVote) {
           await tx.vote.delete({
-            where: { userId_postId: { userId: user.id, postId } },
+            where: { userId_postId: { postId, userId: user.id } },
           });
         }
       } else {
         await tx.vote.upsert({
-          where: { userId_postId: { userId: user.id, postId } },
-          create: { userId: user.id, postId, value },
+          create: { postId, userId: user.id, value },
           update: { value },
+          where: { userId_postId: { postId, userId: user.id } },
         });
       }
 
@@ -110,22 +111,22 @@ export async function POST(
         auraChanged = true;
         await Promise.all([
           tx.post.update({
-            where: { id: postId },
             data: { aura: { increment: auraDelta } },
+            where: { id: postId },
           }),
           tx.user.update({
-            where: { id: post.userId },
             data: { aura: { increment: auraDelta } },
+            where: { id: post.userId },
           }),
         ]);
 
         await tx.auraLog.create({
           data: {
-            userId: post.userId,
-            issuerId: user.id,
             amount: auraDelta,
-            type: auraDelta > 0 ? "POST_VOTE" : "POST_VOTE_REMOVED",
+            issuerId: user.id,
             postId,
+            type: auraDelta > 0 ? "POST_VOTE" : "POST_VOTE_REMOVED",
+            userId: post.userId,
           },
         });
       }
@@ -135,10 +136,10 @@ export async function POST(
         if (value === 1 && oldValue !== 1) {
           await tx.notification.create({
             data: {
-              type: "AMPLIFY",
-              recipientId: post.userId,
               issuerId: user.id,
               postId,
+              recipientId: post.userId,
+              type: "AMPLIFY",
             },
           });
           enqueueNotificationCreated(post.userId).catch((error: unknown) => {
@@ -150,10 +151,10 @@ export async function POST(
         } else if (value !== 1 && oldValue === 1) {
           await tx.notification.deleteMany({
             where: {
-              type: "AMPLIFY",
-              recipientId: post.userId,
               issuerId: user.id,
               postId,
+              recipientId: post.userId,
+              type: "AMPLIFY",
             },
           });
           enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
@@ -166,8 +167,8 @@ export async function POST(
       }
 
       return await tx.post.findUnique({
-        where: { id: postId },
         include: getPostDataInclude(user.id),
+        where: { id: postId },
       });
     });
 
@@ -206,21 +207,21 @@ export async function DELETE(
   try {
     const result = await prisma.$transaction(async (tx) => {
       const post = await tx.post.findUnique({
-        where: { id: postId },
         select: { id: true, userId: true },
+        where: { id: postId },
       });
       if (!post) {
         return null;
       }
 
       const existingVote = await tx.vote.findUnique({
-        where: { userId_postId: { userId: user.id, postId } },
+        where: { userId_postId: { postId, userId: user.id } },
       });
       const oldValue = existingVote?.value || 0;
 
       if (existingVote) {
         await tx.vote.delete({
-          where: { userId_postId: { userId: user.id, postId } },
+          where: { userId_postId: { postId, userId: user.id } },
         });
       }
 
@@ -230,8 +231,8 @@ export async function DELETE(
         // self-vote guard was active never earned any).
         const wasAwarded = await tx.auraLog.findFirst({
           where: {
-            postId,
             issuerId: user.id,
+            postId,
             type: { in: ["POST_VOTE", "POST_VOTE_REMOVED"] },
           },
         });
@@ -240,22 +241,22 @@ export async function DELETE(
           auraChanged = true;
           await Promise.all([
             tx.post.update({
-              where: { id: postId },
               data: { aura: { decrement: oldValue } },
+              where: { id: postId },
             }),
             tx.user.update({
-              where: { id: post.userId },
               data: { aura: { decrement: oldValue } },
+              where: { id: post.userId },
             }),
           ]);
 
           await tx.auraLog.create({
             data: {
-              userId: post.userId,
-              issuerId: user.id,
               amount: -oldValue,
-              type: "POST_VOTE_REMOVED",
+              issuerId: user.id,
               postId,
+              type: "POST_VOTE_REMOVED",
+              userId: post.userId,
             },
           });
         }
@@ -264,10 +265,10 @@ export async function DELETE(
       if (oldValue === 1 && !isSelfVote) {
         await tx.notification.deleteMany({
           where: {
-            type: "AMPLIFY",
-            recipientId: post.userId,
             issuerId: user.id,
             postId,
+            recipientId: post.userId,
+            type: "AMPLIFY",
           },
         });
         enqueueNotificationDeleted(post.userId).catch((error: unknown) => {
@@ -279,8 +280,8 @@ export async function DELETE(
       }
 
       return await tx.post.findUnique({
-        where: { id: postId },
         include: getPostDataInclude(user.id),
+        where: { id: postId },
       });
     });
 

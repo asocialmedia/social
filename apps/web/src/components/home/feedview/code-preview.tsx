@@ -1,7 +1,6 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import { Button } from "@asm/ui/shadui/button";
 import {
   AlignLeftIcon,
@@ -11,12 +10,11 @@ import {
   FileIcon,
   WrapTextIcon,
 } from "lucide-react";
+// oxlint-disable react-compiler -- the nested CodeHeader helper uses parent component state
 import { useCallback, useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  oneDark,
-  oneLight,
-} from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -30,24 +28,24 @@ interface CodePreviewProps {
 const normalizedlangRegex = /^\./;
 const normalizeLanguage = (language = ""): string => {
   const langMap: Record<string, string> = {
+    css: "css",
+    go: "go",
+    html: "html",
     js: "javascript",
-    ts: "typescript",
+    json: "json",
     jsx: "jsx",
-    tsx: "tsx",
+    md: "markdown",
+    php: "php",
     py: "python",
     rb: "ruby",
-    s: "csharp",
-    go: "go",
     rs: "rust",
-    php: "php",
-    html: "html",
-    css: "css",
+    s: "csharp",
     scss: "scss",
-    json: "json",
-    yml: "yaml",
-    yaml: "yaml",
-    md: "markdown",
     sql: "sql",
+    ts: "typescript",
+    tsx: "tsx",
+    yaml: "yaml",
+    yml: "yaml",
   };
 
   const normalizedLang = language
@@ -56,18 +54,17 @@ const normalizeLanguage = (language = ""): string => {
   return langMap[normalizedLang] || normalizedLang || "text";
 };
 
-export function CodePreview({
+export const CodePreview = ({
   mediaId,
   language = "text",
   fileName,
   className = "",
-}: CodePreviewProps) {
+}: CodePreviewProps) => {
   const { toast } = useToast();
   const [content, setContent] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [isDarkTheme, _setIsDarkTheme] = useState(true);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [wrapCode, setWrapCode] = useState(true);
 
@@ -81,9 +78,9 @@ export function CodePreview({
         }
         const text = await response.text();
         setContent(text);
-      } catch (err) {
+      } catch (fetchError) {
         setError("Failed to load code content");
-        clientLog.error(err);
+        clientLog.error(fetchError);
       } finally {
         setLoading(false);
       }
@@ -97,14 +94,14 @@ export function CodePreview({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       toast({
-        title: "Code Copied",
         description: "Code copied, paste it anywhere",
         icon: <Copy />,
+        title: "Code Copied",
       });
     } catch {
       toast({
-        title: "Copy Failed",
         description: "Couldn't copy, try again?",
+        title: "Copy Failed",
         variant: "destructive",
       });
     }
@@ -120,7 +117,7 @@ export function CodePreview({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-destructive">
+      <div className="border-destructive/20 bg-destructive/10 text-destructive flex items-center justify-center rounded-lg border p-4">
         <span>{error}</span>
       </div>
     );
@@ -129,16 +126,16 @@ export function CodePreview({
   if (loading) {
     return (
       <div className="flex items-center justify-center rounded-lg border p-4">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <div className="border-primary h-6 w-6 animate-spin rounded-full border-2 border-t-transparent" />
       </div>
     );
   }
 
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: CodeHeader uses multiple parent component state variables, making it reasonable to keep nested
+  // eslint-disable-next-line react/no-unstable-nested-components -- CodeHeader uses multiple parent component state variables, making it reasonable to keep nested
   const CodeHeader = () => (
-    <div className="flex items-center justify-between border-b bg-background/95 px-4 py-2 backdrop-blur-xs supports-[backdrop-filter]:bg-background/60">
+    <div className="bg-background/95 supports-[backdrop-filter]:bg-background/60 flex items-center justify-between border-b px-4 py-2 backdrop-blur-xs">
       <div className="flex items-center gap-2">
-        <FileIcon className="h-4 w-4 text-muted-foreground" />
+        <FileIcon className="text-muted-foreground h-4 w-4" />
         <span className="font-medium">{fileName || `Code.${language}`}</span>
         <span className="text-muted-foreground text-sm">{language}</span>
       </div>
@@ -172,7 +169,7 @@ export function CodePreview({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-card",
+        "bg-card rounded-lg border",
         isFullScreen && "fixed inset-0 z-50",
         className
       )}
@@ -186,20 +183,20 @@ export function CodePreview({
       >
         <SyntaxHighlighter
           customStyle={{
-            margin: 0,
-            padding: "1rem",
-            fontSize: "0.9rem",
             backgroundColor: "transparent",
             fontFamily: "var(--font-mono)",
+            fontSize: "0.9rem",
+            margin: 0,
+            padding: "1rem",
           }}
           language={normalizeLanguage(language)}
           lineNumberStyle={{
+            fontFamily: "var(--font-mono)",
             minWidth: "3em",
             paddingRight: "1em",
-            fontFamily: "var(--font-mono)",
           }}
           showLineNumbers={true}
-          style={isDarkTheme ? oneDark : oneLight}
+          style={oneDark}
           wrapLines
           wrapLongLines
         >
@@ -208,4 +205,4 @@ export function CodePreview({
       </div>
     </div>
   );
-}
+};

@@ -3,9 +3,12 @@
 import type { PostData } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
+
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
+
+// eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import PostCard from "./post-card";
 
 interface RelatedPostsProps {
@@ -18,8 +21,9 @@ interface RelatedPostsProps {
 export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } =
     useInfiniteQuery({
-      queryKey: ["related-posts", excludePostId],
-      queryFn: async ({ pageParam }) => {
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+      initialPageParam: null as string | null,
+      queryFn: async ({ pageParam }: { pageParam: string | null }) => {
         const result = await kyInstance
           .get(
             "/api/posts/for-you",
@@ -28,12 +32,11 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
           .json<{ posts: PostData[]; nextCursor: string | null }>();
         return result;
       },
-      initialPageParam: null as string | null,
-      getNextPageParam: (lastPage) => lastPage.nextCursor,
-      staleTime: 30 * 1000,
-      refetchOnWindowFocus: false,
+      queryKey: ["related-posts", excludePostId],
       refetchOnMount: false,
       refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+      staleTime: 30 * 1000,
     });
 
   const posts = (data?.pages.flatMap((page) => page.posts) || []).filter(
@@ -49,9 +52,9 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
   if (status === "pending") {
     return (
       <div className="space-y-3 px-4 py-3">
-        <div className="h-32 animate-pulse rounded-lg bg-border/40" />
-        <div className="h-32 animate-pulse rounded-lg bg-border/40" />
-        <div className="h-32 animate-pulse rounded-lg bg-border/40" />
+        <div className="bg-border/40 h-32 animate-pulse rounded-lg" />
+        <div className="bg-border/40 h-32 animate-pulse rounded-lg" />
+        <div className="bg-border/40 h-32 animate-pulse rounded-lg" />
       </div>
     );
   }

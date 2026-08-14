@@ -27,7 +27,7 @@ export function useInfiniteScroll(
           onIntersect();
         }
       },
-      { threshold, rootMargin }
+      { rootMargin, threshold }
     );
 
     const currentElement = observerRef.current;

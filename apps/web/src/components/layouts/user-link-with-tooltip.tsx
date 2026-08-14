@@ -5,7 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { HTTPError } from "ky";
 import Link from "next/link";
 import type { PropsWithChildren } from "react";
+
 import kyInstance from "@/lib/ky";
+
 import UserTooltip from "./user-tooltip";
 
 interface UserLinkWithTooltipProps extends PropsWithChildren {
@@ -17,9 +19,9 @@ export default function UserLinkWithTooltip({
   username,
 }: UserLinkWithTooltipProps) {
   const { data } = useQuery({
-    queryKey: ["user-data", username],
     queryFn: () =>
       kyInstance.get(`/api/users/username/${username}`).json<UserData>(),
+    queryKey: ["user-data", username],
     retry(failureCount, error) {
       if (error instanceof HTTPError && error.response.status === 404) {
         return false;

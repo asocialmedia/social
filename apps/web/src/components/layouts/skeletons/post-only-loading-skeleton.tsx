@@ -3,7 +3,7 @@ import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type React from "react";
 
 const PostCardSkeleton: React.FC = () => (
-  <Card className="border-border border-t border-b bg-background">
+  <Card className="border-border bg-background border-t border-b">
     <CardContent className="p-4">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
@@ -32,14 +32,14 @@ const PostCardSkeleton: React.FC = () => (
 
 export default function PostsOnlyLoadingSkeleton() {
   return (
-    <main className="flex-1 overflow-y-auto bg-background p-6 pb-24">
-      <Card className="mb-8 bg-card shadow-lg">
+    <main className="bg-background flex-1 overflow-y-auto p-6 pb-24">
+      <Card className="bg-card mb-8 shadow-lg">
         <CardContent className="p-4">
           <Skeleton className="mb-2 h-8 w-48" />
           <Skeleton className="mb-4 h-4 w-full" />
           <Skeleton className="mb-6 h-10 w-full max-w-md" />
           <div className="space-y-8">
-            {[...new Array(3)].map((_, index) => (
+            {Array.from({ length: 3 }).map((_, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: skeleton components use index keys as order never changes
               <PostCardSkeleton key={`post-skeleton-${index}`} />
             ))}

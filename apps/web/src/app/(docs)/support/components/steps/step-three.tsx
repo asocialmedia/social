@@ -1,15 +1,15 @@
 import { clientLog } from "@asm/config/debug";
-
 import { Button } from "@asm/ui/shadui/button";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import { Loader2, Upload } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback } from "react";
+
 import type { StepThreeProps } from "../../types";
 import { SupportMediaPreview } from "../support-media-preview";
 import { stepVariants } from "./variants";
 
-export function StepThree({
+export const StepThree = ({
   formData,
   setFormData,
   onBack,
@@ -18,7 +18,7 @@ export function StepThree({
   fileInputRef,
   handleFileUpload,
   setAttachments,
-}: StepThreeProps) {
+}: StepThreeProps) => {
   const handleMessageChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setFormData({ ...formData, message: e.target.value });
@@ -32,10 +32,10 @@ export function StepThree({
       if (files?.length) {
         clientLog.log("Files selected:", {
           count: files.length,
-          details: Array.from(files).map((f) => ({
+          details: [...files].map((f) => ({
             name: f.name,
-            type: f.type,
             size: f.size,
+            type: f.type,
           })),
         });
         handleFileUpload(files);
@@ -64,7 +64,7 @@ export function StepThree({
       variants={stepVariants}
     >
       <div className="space-y-2">
-        <h3 className="font-semibold text-lg">Additional Information</h3>
+        <h3 className="text-lg font-semibold">Additional Information</h3>
         <p className="text-muted-foreground text-sm">
           Provide more details and any relevant files
         </p>
@@ -135,4 +135,4 @@ export function StepThree({
       </div>
     </motion.div>
   );
-}
+};

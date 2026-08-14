@@ -2,12 +2,11 @@ import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-l
 
 export default function Loading() {
   return (
-    <div
+    <output
       aria-label="Page is loading"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background"
-      role="status"
+      className="bg-background fixed inset-0 z-50 flex items-center justify-center"
     >
       <CenteredLogoLoader size={64} />
-    </div>
+    </output>
   );
 }

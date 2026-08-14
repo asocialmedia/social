@@ -1,5 +1,4 @@
 import { clientLog } from "@asm/config/debug";
-
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -17,7 +16,9 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { motion } from "motion/react";
+import Image from "next/image";
 import { useCallback, useRef, useState } from "react";
+
 import { useUpdateAvatarMutation } from "@/app/(main)/users/[username]/avatar-mutations";
 import LoadingButton from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
@@ -55,16 +56,21 @@ export default function GifCenteringDialog({
     (direction: "up" | "down" | "left" | "right") => {
       setPosition((prev) => {
         switch (direction) {
-          case "up":
+          case "up": {
             return { ...prev, y: prev.y + MoveAmount };
-          case "down":
+          }
+          case "down": {
             return { ...prev, y: prev.y - MoveAmount };
-          case "left":
+          }
+          case "left": {
             return { ...prev, x: prev.x + MoveAmount };
-          case "right":
+          }
+          case "right": {
             return { ...prev, x: prev.x - MoveAmount };
-          default:
+          }
+          default: {
             return prev;
+          }
         }
       });
     },
@@ -102,20 +108,20 @@ export default function GifCenteringDialog({
 
       await mutation.mutateAsync({
         file,
-        userId: currentValues.userId,
         oldAvatarKey: currentValues.oldAvatarKey || undefined,
+        userId: currentValues.userId,
       });
 
       onClose();
       toast({
-        title: "Profile Picture Updated",
         description: "Nice! Your new avatar is live!",
+        title: "Profile Picture Updated",
       });
     } catch (error) {
       clientLog.error("Error processing GIF:", error);
       toast({
-        title: "Couldn't Update",
         description: "Couldn't set that avatar, try again?",
+        title: "Couldn't Update",
         variant: "destructive",
       });
     }
@@ -130,19 +136,18 @@ export default function GifCenteringDialog({
 
         <div className="flex flex-col items-center gap-4">
           <div
-            className="relative size-64 overflow-hidden rounded-full border-2 border-border bg-secondary"
+            className="border-border bg-secondary relative size-64 overflow-hidden rounded-full border-2"
             ref={containerRef}
           >
             <motion.div
               animate={{
+                scale: zoom,
                 x: position.x,
                 y: position.y,
-                scale: zoom,
               }}
               className="absolute inset-0 flex items-center justify-center"
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              transition={{ damping: 30, stiffness: 300, type: "spring" }}
             >
-              {/* @ts-expect-error */}
               <Image
                 alt="GIF preview"
                 className="max-w-none"

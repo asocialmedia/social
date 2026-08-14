@@ -1,5 +1,6 @@
 import { validateEmailAdvanced } from "@asm/auth";
 import { Resend } from "resend";
+
 import { env } from "../../env";
 import { emailConfig } from "./config";
 import { getPasswordResetEmailHtml } from "./templates/password-reset-email";
@@ -60,11 +61,11 @@ function getVerificationResult(
   options: Partial<EmailResult> & { success: boolean }
 ): EmailResult {
   return {
+    error: options.error,
+    message: options.message,
+    skipped: options.skipped,
     success: options.success,
     verificationUrl: options.verificationUrl,
-    error: options.error,
-    skipped: options.skipped,
-    message: options.message,
   };
 }
 
@@ -74,8 +75,8 @@ function initializeEmailService(): EmailResult | null {
     return null;
   } catch {
     return getVerificationResult({
-      success: false,
       error: "Failed to initialize email service",
+      success: false,
     });
   }
 }
@@ -90,8 +91,8 @@ export async function sendVerificationEmail(
   token: string
 ): Promise<EmailResult> {
   const validationOptions = {
-    skipSmtpCheck: true,
     skipMxCheck: false,
+    skipSmtpCheck: true,
     timeout: 5000,
   };
 
@@ -99,23 +100,23 @@ export async function sendVerificationEmail(
 
   if (!validation.isValid) {
     console.warn(`Email validation failed for ${email}:`, {
-      score: validation.score,
       confidence: validation.confidence,
-      reasons: validation.reasons,
       disposable: validation.disposable,
+      reasons: validation.reasons,
+      score: validation.score,
     });
 
     return getVerificationResult({
-      success: false,
       error: `Email validation failed: ${validation.reasons.join(", ")}`,
+      success: false,
     });
   }
 
   if (isDevelopmentMode()) {
     console.log(`Email validation passed for ${email}:`, {
-      score: validation.score,
       confidence: validation.confidence,
       reasons: validation.reasons,
+      score: validation.score,
     });
   }
 
@@ -126,8 +127,8 @@ export async function sendVerificationEmail(
 
   if (!resend) {
     return getVerificationResult({
-      success: false,
       error: "Email service not initialized",
+      success: false,
     });
   }
 
@@ -140,17 +141,17 @@ export async function sendVerificationEmail(
   try {
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
-      to: email,
-      subject: emailConfig.templates.verification.subject,
       html: await getVerificationEmailHtml(verificationUrl),
+      subject: emailConfig.templates.verification.subject,
+      to: email,
     });
 
     if (error) {
       console.error("Resend error:", error);
       return getVerificationResult({
+        error: error.message || "Failed to send verification email",
         success: false,
         verificationUrl,
-        error: error.message || "Failed to send verification email",
       });
     }
 
@@ -167,9 +168,9 @@ export async function sendVerificationEmail(
     console.error("Error sending verification email:", error);
 
     return getVerificationResult({
+      error: errorMessage,
       success: false,
       verificationUrl,
-      error: errorMessage,
     });
   }
 }
@@ -179,8 +180,8 @@ export async function sendVerificationOTP(
   otp: string
 ): Promise<EmailResult> {
   const validationOptions = {
-    skipSmtpCheck: true,
     skipMxCheck: false,
+    skipSmtpCheck: true,
     timeout: 5000,
   };
 
@@ -188,23 +189,23 @@ export async function sendVerificationOTP(
 
   if (!validation.isValid) {
     console.warn(`Email validation failed for ${email}:`, {
-      score: validation.score,
       confidence: validation.confidence,
-      reasons: validation.reasons,
       disposable: validation.disposable,
+      reasons: validation.reasons,
+      score: validation.score,
     });
 
     return getVerificationResult({
-      success: false,
       error: `Email validation failed: ${validation.reasons.join(", ")}`,
+      success: false,
     });
   }
 
   if (isDevelopmentMode()) {
     console.log(`Email validation passed for ${email}:`, {
-      score: validation.score,
       confidence: validation.confidence,
       reasons: validation.reasons,
+      score: validation.score,
     });
   }
 
@@ -215,8 +216,8 @@ export async function sendVerificationOTP(
 
   if (!resend) {
     return getVerificationResult({
-      success: false,
       error: "Email service not initialized",
+      success: false,
     });
   }
 
@@ -227,16 +228,16 @@ export async function sendVerificationOTP(
   try {
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
-      to: email,
-      subject: "Your Verification Code - Asocialmedia",
       html: await getOTPVerificationEmailHtml(otp),
+      subject: "Your Verification Code - Asocialmedia",
+      to: email,
     });
 
     if (error) {
       console.error("Resend error:", error);
       return getVerificationResult({
-        success: false,
         error: error.message || "Failed to send verification OTP",
+        success: false,
       });
     }
 
@@ -252,8 +253,8 @@ export async function sendVerificationOTP(
     console.error("Error sending verification OTP:", error);
 
     return getVerificationResult({
-      success: false,
       error: errorMessage,
+      success: false,
     });
   }
 }
@@ -278,23 +279,23 @@ export async function sendPasswordResetEmail(
 
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
-      to: email,
-      subject: emailConfig.templates.passwordReset.subject,
       html: await getPasswordResetEmailHtml(resetUrl),
+      subject: emailConfig.templates.passwordReset.subject,
+      to: email,
     });
 
     if (error) {
       console.error("Resend error:", error);
       return {
-        success: false,
         error: error.message || "Failed to send password reset email",
         resetUrl: isDevelopmentMode() ? resetUrl : undefined,
+        success: false,
       };
     }
 
     return {
-      success: true,
       resetUrl: isDevelopmentMode() ? resetUrl : undefined,
+      success: true,
     };
   } catch (error) {
     const errorMessage =
@@ -304,8 +305,8 @@ export async function sendPasswordResetEmail(
 
     console.error("Error sending password reset email:", error);
     return {
-      success: false,
       error: errorMessage,
+      success: false,
     };
   }
 }

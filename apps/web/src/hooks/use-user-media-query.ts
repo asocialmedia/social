@@ -2,6 +2,7 @@
 
 import type { Media } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
+
 import kyInstance from "@/lib/ky";
 
 export interface UserMediaPage {
@@ -11,17 +12,17 @@ export interface UserMediaPage {
 
 export function useUserMediaQuery(userId: string, enabled = true) {
   return useInfiniteQuery({
-    queryKey: ["media-gallery", userId],
-    queryFn: ({ pageParam }) =>
+    enabled,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
           `/api/users/${userId}/media`,
           pageParam ? { searchParams: { cursor: pageParam } } : undefined
         )
         .json<UserMediaPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    enabled,
+    queryKey: ["media-gallery", userId],
     staleTime: 1000 * 60,
   });
 }

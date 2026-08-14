@@ -1,33 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
 import type { CachedSession } from "@asm/db";
 import { SignJWT } from "jose";
-
-const originalConsoleError = console.error;
-
-const jwtSessionCacheMock = {
-  createTokenHash: mock((token: string) => `hash_${token}`),
-  setValidatedSession: mock(
-    async (_tokenHash: string, _sessionData: CachedSession): Promise<void> =>
-      Promise.resolve()
-  ),
-  getValidatedSession: mock(
-    async (_tokenHash: string): Promise<CachedSession | null> => null
-  ),
-  invalidateSession: mock(
-    async (_tokenHash: string): Promise<void> => Promise.resolve()
-  ),
-};
-
-const originalEnv = {
-  NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
-  APP_URL: process.env.APP_URL,
-};
-
-mock.module("@asm/db", () => ({
-  jwtSessionCache: jwtSessionCacheMock,
-  prisma: {},
-  redis: {},
-}));
 
 import {
   cacheJWTValidation,
@@ -38,12 +12,39 @@ import {
   validateJWTToken,
 } from "./jwt";
 
+const originalConsoleError = console.error;
+
+const jwtSessionCacheMock = {
+  createTokenHash: mock((token: string) => `hash_${token}`),
+  getValidatedSession: mock(
+    (_tokenHash: string): Promise<CachedSession | null> => Promise.resolve(null)
+  ),
+  invalidateSession: mock((_tokenHash: string): Promise<void> =>
+    Promise.resolve()
+  ),
+  setValidatedSession: mock(
+    (_tokenHash: string, _sessionData: CachedSession): Promise<void> =>
+      Promise.resolve()
+  ),
+};
+
+const originalEnv = {
+  APP_URL: process.env.APP_URL,
+  NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+};
+
+mock.module("@asm/db", () => ({
+  jwtSessionCache: jwtSessionCacheMock,
+  prisma: {},
+  redis: {},
+}));
+
 describe("jwt helpers", () => {
   let secret: Uint8Array;
   let issuer: string;
 
   beforeEach(() => {
-    console.error = mock(() => undefined) as typeof console.error;
+    console.error = mock(() => {}) as typeof console.error;
     process.env.NEXTAUTH_SECRET = "test-secret";
     process.env.APP_URL = "https://social.localhost";
 
@@ -117,31 +118,31 @@ describe("jwt helpers", () => {
     test("cacheJWTValidation stores session data", async () => {
       const expectedSessionData = {
         session: {
-          id: expect.any(String),
           createdAt: expect.any(Date),
-          updatedAt: expect.any(Date),
-          userId: "user123",
           expiresAt: new Date(12_345 * 1000),
-          token: "test",
+          id: expect.any(String),
           ipAddress: undefined,
+          token: "test",
+          updatedAt: expect.any(Date),
           userAgent: undefined,
+          userId: "user123",
         },
         user: {
-          id: "user123",
+          createdAt: expect.any(Date),
           email: "test@test.com",
           emailVerified: true,
+          id: "user123",
           name: "",
-          username: "",
-          createdAt: expect.any(Date),
           updatedAt: expect.any(Date),
+          username: "",
         },
       };
 
       await cacheJWTValidation("test", {
-        sub: "user123",
         email: "test@test.com",
         email_verified: true,
         exp: 12_345,
+        sub: "user123",
       });
 
       expect(jwtSessionCacheMock.setValidatedSession).toHaveBeenCalledWith(

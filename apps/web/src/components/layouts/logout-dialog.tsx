@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { useEffect, useState } from "react";
+
 import { getRandomJoke } from "./constants/logout-messages";
 
 interface LogoutDialogProps {
@@ -18,27 +19,28 @@ interface LogoutDialogProps {
   open: boolean;
 }
 
-export function LogoutDialog({
+export const LogoutDialog = ({
   onCloseAction,
   onLogoutAction,
   open,
-}: LogoutDialogProps) {
+}: LogoutDialogProps) => {
   const [logoutJoke, setLogoutJoke] = useState(getRandomJoke());
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-compiler -- pick a fresh joke each time the dialog opens
       setLogoutJoke(getRandomJoke());
     }
   }, [open]);
 
   return (
     <Dialog onOpenChange={onCloseAction} open={open}>
-      <DialogContent className="fixed top-[50%] left-[50%] w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-2xl border border-border/50 bg-background/95 p-6 backdrop-blur-md duration-200 sm:w-full sm:max-w-md">
+      <DialogContent className="border-border/50 bg-background/95 fixed top-[50%] left-[50%] w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-2xl border p-6 backdrop-blur-md duration-200 sm:w-full sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-center font-semibold text-xl sm:text-left">
+          <DialogTitle className="text-center text-xl font-semibold sm:text-left">
             Leaving so soon?
           </DialogTitle>
-          <DialogDescription className="px-2 text-center text-base text-muted-foreground sm:px-0 sm:text-left">
+          <DialogDescription className="text-muted-foreground px-2 text-center text-base sm:px-0 sm:text-left">
             {logoutJoke}
           </DialogDescription>
         </DialogHeader>
@@ -61,4 +63,4 @@ export function LogoutDialog({
       </DialogContent>
     </Dialog>
   );
-}
+};

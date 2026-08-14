@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DELETE, GET, POST } from "./route";
+
 const POST_ID = "post1";
 const AUTHOR_ID = "author1";
 const VOTER_ID = "voter1";
@@ -13,11 +15,11 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 }));
 
 const state = {
+  auraLogs: [] as Record<string, unknown>[],
+  existingVote: null as VoteRow | null,
+  notifications: [] as Record<string, unknown>[],
   postAura: 0,
   userAura: 0,
-  existingVote: null as VoteRow | null,
-  auraLogs: [] as Record<string, unknown>[],
-  notifications: [] as Record<string, unknown>[],
 };
 
 function resetState() {
@@ -29,6 +31,38 @@ function resetState() {
 }
 
 const mockTx = {
+  auraLog: {
+    create: (args: { data: Record<string, unknown> }) => {
+      state.auraLogs.push(args.data);
+    },
+    // Simulates that the vote was placed after this feature shipped and
+    // therefore earned aura.
+    findFirst: () => ({ id: "log-1" }),
+  },
+  notification: {
+    create: (args: { data: Record<string, unknown> }) => {
+      state.notifications.push(args.data);
+    },
+    deleteMany: (args: {
+      where: {
+        issuerId: string;
+        postId: string;
+        recipientId: string;
+        type: string;
+      };
+    }) => {
+      const { issuerId, postId, recipientId, type } = args.where;
+      state.notifications = state.notifications.filter(
+        (notification) =>
+          !(
+            notification.type === type &&
+            notification.recipientId === recipientId &&
+            notification.issuerId === issuerId &&
+            notification.postId === postId
+          )
+      );
+    },
+  },
   post: {
     findUnique: (args: {
       include?: unknown;
@@ -40,9 +74,9 @@ const mockTx = {
       }
       if (args.include) {
         return {
+          aura: state.postAura,
           id: POST_ID,
           userId: AUTHOR_ID,
-          aura: state.postAura,
           vote: state.existingVote
             ? [{ userId: VOTER_ID, value: state.existingVote.value }]
             : [],
@@ -79,38 +113,6 @@ const mockTx = {
       state.existingVote = { value: args.create.value };
     },
   },
-  auraLog: {
-    create: (args: { data: Record<string, unknown> }) => {
-      state.auraLogs.push(args.data);
-    },
-    // Simulates that the vote was placed after this feature shipped and
-    // therefore earned aura.
-    findFirst: () => ({ id: "log-1" }),
-  },
-  notification: {
-    create: (args: { data: Record<string, unknown> }) => {
-      state.notifications.push(args.data);
-    },
-    deleteMany: (args: {
-      where: {
-        issuerId: string;
-        postId: string;
-        recipientId: string;
-        type: string;
-      };
-    }) => {
-      const { issuerId, postId, recipientId, type } = args.where;
-      state.notifications = state.notifications.filter(
-        (notification) =>
-          !(
-            notification.type === type &&
-            notification.recipientId === recipientId &&
-            notification.issuerId === issuerId &&
-            notification.postId === postId
-          )
-      );
-    },
-  },
 };
 
 const mockPrisma = {
@@ -127,8 +129,6 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { DELETE, GET, POST } from "./route";
 
 function postRequest(value: number): Request {
   return new Request(`http://localhost/api/posts/${POST_ID}/votes`, {
@@ -185,11 +185,11 @@ describe("POST /api/posts/[postId]/votes", () => {
     expect(state.userAura).toBe(1);
     expect(state.auraLogs).toEqual([
       {
-        userId: AUTHOR_ID,
-        issuerId: AUTHOR_ID,
         amount: 1,
-        type: "POST_VOTE",
+        issuerId: AUTHOR_ID,
         postId: POST_ID,
+        type: "POST_VOTE",
+        userId: AUTHOR_ID,
       },
     ]);
     expect(state.notifications).toEqual([]);
@@ -205,19 +205,19 @@ describe("POST /api/posts/[postId]/votes", () => {
     expect(state.userAura).toBe(1);
     expect(state.auraLogs).toEqual([
       {
-        userId: AUTHOR_ID,
-        issuerId: VOTER_ID,
         amount: 1,
-        type: "POST_VOTE",
+        issuerId: VOTER_ID,
         postId: POST_ID,
+        type: "POST_VOTE",
+        userId: AUTHOR_ID,
       },
     ]);
     expect(state.notifications).toEqual([
       {
-        type: "AMPLIFY",
-        recipientId: AUTHOR_ID,
         issuerId: VOTER_ID,
         postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "AMPLIFY",
       },
     ]);
   });
@@ -227,10 +227,10 @@ describe("POST /api/posts/[postId]/votes", () => {
     state.postAura = 1;
     state.userAura = 1;
     state.notifications.push({
-      type: "AMPLIFY",
-      recipientId: AUTHOR_ID,
       issuerId: VOTER_ID,
       postId: POST_ID,
+      recipientId: AUTHOR_ID,
+      type: "AMPLIFY",
     });
 
     const res = await POST(postRequest(-1), context);
@@ -242,11 +242,11 @@ describe("POST /api/posts/[postId]/votes", () => {
     expect(state.userAura).toBe(-1);
     expect(state.auraLogs).toEqual([
       {
-        userId: AUTHOR_ID,
-        issuerId: VOTER_ID,
         amount: -2,
-        type: "POST_VOTE_REMOVED",
+        issuerId: VOTER_ID,
         postId: POST_ID,
+        type: "POST_VOTE_REMOVED",
+        userId: AUTHOR_ID,
       },
     ]);
     expect(state.notifications).toEqual([]);
@@ -257,10 +257,10 @@ describe("POST /api/posts/[postId]/votes", () => {
     state.postAura = 1;
     state.userAura = 1;
     state.notifications.push({
-      type: "AMPLIFY",
-      recipientId: AUTHOR_ID,
       issuerId: VOTER_ID,
       postId: POST_ID,
+      recipientId: AUTHOR_ID,
+      type: "AMPLIFY",
     });
 
     const res = await POST(postRequest(0), context);
@@ -272,11 +272,11 @@ describe("POST /api/posts/[postId]/votes", () => {
     expect(state.userAura).toBe(0);
     expect(state.auraLogs).toEqual([
       {
-        userId: AUTHOR_ID,
-        issuerId: VOTER_ID,
         amount: -1,
-        type: "POST_VOTE_REMOVED",
+        issuerId: VOTER_ID,
         postId: POST_ID,
+        type: "POST_VOTE_REMOVED",
+        userId: AUTHOR_ID,
       },
     ]);
     expect(state.notifications).toEqual([]);
@@ -294,10 +294,10 @@ describe("DELETE /api/posts/[postId]/votes", () => {
     state.postAura = 1;
     state.userAura = 1;
     state.notifications.push({
-      type: "AMPLIFY",
-      recipientId: AUTHOR_ID,
       issuerId: VOTER_ID,
       postId: POST_ID,
+      recipientId: AUTHOR_ID,
+      type: "AMPLIFY",
     });
 
     const res = await DELETE(
@@ -312,11 +312,11 @@ describe("DELETE /api/posts/[postId]/votes", () => {
     expect(state.userAura).toBe(0);
     expect(state.auraLogs).toEqual([
       {
-        userId: AUTHOR_ID,
-        issuerId: VOTER_ID,
         amount: -1,
-        type: "POST_VOTE_REMOVED",
+        issuerId: VOTER_ID,
         postId: POST_ID,
+        type: "POST_VOTE_REMOVED",
+        userId: AUTHOR_ID,
       },
     ]);
     expect(state.notifications).toEqual([]);

@@ -9,5 +9,5 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { username } = await ctx.params;
-  return Response.json({ username, id: session.user.id });
+  return Response.json({ id: session.user.id, username });
 }

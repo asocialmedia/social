@@ -1,6 +1,6 @@
 import { clientLog } from "@asm/config/debug";
-
-import { type ClassValue, clsx } from "clsx";
+import { clsx } from "clsx";
+import type { ClassValue } from "clsx";
 import { formatDate } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
@@ -32,8 +32,8 @@ export function formatRelativeDate(from: Date | string) {
       return formatDate(dateObj, "MMM d");
     }
     return formatDate(dateObj, "MMM d, yyyy");
-  } catch (e) {
-    clientLog.error("Error formatting date:", e, "Input was:", from);
+  } catch (error) {
+    clientLog.error("Error formatting date:", error, "Input was:", from);
     return "Invalid date";
   }
 }
@@ -53,11 +53,12 @@ export function formatNumber(num: number): string {
 export function slugify(input: string): string {
   return input
     .toLowerCase()
-    .replace(/ /g, "-")
-    .replace(/[^a-z0-9-]/g, "");
+    .replaceAll(" ", "-")
+    .replaceAll(/[^a-z0-9-]/g, "");
 }
 
-const TRANSPARENT_IMAGE_EXTENSION = /\.(png|webp|gif|svg|avif)(\?|$)/i;
+const TRANSPARENT_IMAGE_EXTENSION =
+  /\.(?<extension>png|webp|gif|svg|avif)(?<query>\?|$)/i;
 
 export function supportsTransparency(url?: string | null): boolean {
   if (!url) {
@@ -66,7 +67,7 @@ export function supportsTransparency(url?: string | null): boolean {
   return TRANSPARENT_IMAGE_EXTENSION.test(url);
 }
 
-const GIF_EXTENSION = /\.gif(\?.*)?(#.*)?$/i;
+const GIF_EXTENSION = /\.gif(?<query>\?.*)?(?<hash>#.*)?$/i;
 
 export function isGifUrl(url?: string | null): boolean {
   if (!url) {

@@ -12,60 +12,6 @@ export interface TagCount {
 }
 
 export const tagCache = {
-  async syncTagCounts(): Promise<void> {
-    try {
-      const tags = await prisma.tag.findMany({
-        select: {
-          name: true,
-          _count: {
-            select: { posts: true },
-          },
-        },
-      });
-
-      const pipeline = redis.pipeline();
-
-      pipeline.del(TAG_COUNTS_KEY);
-      pipeline.del(TAG_LIST_KEY);
-
-      for (const tag of tags) {
-        if (tag._count.posts > 0) {
-          pipeline.hset(TAG_COUNTS_KEY, tag.name, tag._count.posts.toString());
-          pipeline.sadd(TAG_LIST_KEY, tag.name);
-          pipeline.zadd(TAG_SUGGESTIONS_KEY, tag._count.posts, tag.name);
-        }
-      }
-
-      await pipeline.exec();
-      await redis.expire(TAG_COUNTS_KEY, TAG_TTL);
-      await redis.expire(TAG_LIST_KEY, TAG_TTL);
-      await redis.expire(TAG_SUGGESTIONS_KEY, TAG_TTL);
-    } catch (error) {
-      console.error("Error syncing tag counts:", error);
-    }
-  },
-
-  async incrementTagCount(tagName: string): Promise<number> {
-    try {
-      const pipeline = redis.pipeline();
-      pipeline.hincrby(TAG_COUNTS_KEY, tagName, 1);
-      pipeline.sadd(TAG_LIST_KEY, tagName);
-      pipeline.zadd(TAG_SUGGESTIONS_KEY, Date.now(), tagName);
-
-      await prisma.tag.upsert({
-        where: { name: tagName },
-        create: { name: tagName },
-        update: {},
-      });
-
-      const results = await pipeline.exec();
-      return (results?.[0]?.[1] as number) || 0;
-    } catch (error) {
-      console.error("Error incrementing tag count:", error);
-      return 0;
-    }
-  },
-
   async decrementTagCount(tagName: string): Promise<number> {
     try {
       const pipeline = redis.pipeline();
@@ -103,15 +49,44 @@ export const tagCache = {
 
       return Object.entries(tags)
         .map(([name, count]) => ({
+          count: Math.trunc(Number(count as string)),
           name,
-          count: Number.parseInt(count as string, 10),
         }))
         .filter((tag) => tag.count > 0)
-        .sort((a, b) => b.count - a.count)
+        .toSorted((a, b) => b.count - a.count)
         .slice(0, limit);
     } catch (error) {
       console.error("Error getting popular tags:", error);
       return [];
+    }
+  },
+
+  async incrementTagCount(tagName: string): Promise<number> {
+    try {
+      const pipeline = redis.pipeline();
+      pipeline.hincrby(TAG_COUNTS_KEY, tagName, 1);
+      pipeline.sadd(TAG_LIST_KEY, tagName);
+      pipeline.zadd(TAG_SUGGESTIONS_KEY, Date.now(), tagName);
+
+      await prisma.tag.upsert({
+        create: { name: tagName },
+        update: {},
+        where: { name: tagName },
+      });
+
+      const results = await pipeline.exec();
+      return (results?.[0]?.[1] as number) || 0;
+    } catch (error) {
+      console.error("Error incrementing tag count:", error);
+      return 0;
+    }
+  },
+
+  async refreshCache(): Promise<void> {
+    try {
+      await this.syncTagCounts();
+    } catch (error) {
+      console.error("Error refreshing tag cache:", error);
     }
   },
 
@@ -125,6 +100,12 @@ export const tagCache = {
 
         if (!tags || tags.length === 0) {
           const dbTags = await prisma.tag.findMany({
+            orderBy: {
+              posts: {
+                _count: "desc",
+              },
+            },
+            take: limit,
             where: {
               name: {
                 contains: query.toLowerCase(),
@@ -132,12 +113,6 @@ export const tagCache = {
               },
               posts: {
                 some: {},
-              },
-            },
-            take: limit,
-            orderBy: {
-              posts: {
-                _count: "desc",
               },
             },
           });
@@ -160,11 +135,36 @@ export const tagCache = {
     }
   },
 
-  async refreshCache(): Promise<void> {
+  async syncTagCounts(): Promise<void> {
     try {
-      await this.syncTagCounts();
+      const tags = await prisma.tag.findMany({
+        select: {
+          _count: {
+            select: { posts: true },
+          },
+          name: true,
+        },
+      });
+
+      const pipeline = redis.pipeline();
+
+      pipeline.del(TAG_COUNTS_KEY);
+      pipeline.del(TAG_LIST_KEY);
+
+      for (const tag of tags) {
+        if (tag._count.posts > 0) {
+          pipeline.hset(TAG_COUNTS_KEY, tag.name, tag._count.posts.toString());
+          pipeline.sadd(TAG_LIST_KEY, tag.name);
+          pipeline.zadd(TAG_SUGGESTIONS_KEY, tag._count.posts, tag.name);
+        }
+      }
+
+      await pipeline.exec();
+      await redis.expire(TAG_COUNTS_KEY, TAG_TTL);
+      await redis.expire(TAG_LIST_KEY, TAG_TTL);
+      await redis.expire(TAG_SUGGESTIONS_KEY, TAG_TTL);
     } catch (error) {
-      console.error("Error refreshing tag cache:", error);
+      console.error("Error syncing tag counts:", error);
     }
   },
 };

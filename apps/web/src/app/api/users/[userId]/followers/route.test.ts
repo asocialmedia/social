@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DELETE, POST } from "./route";
+
 const FOLLOWED_ID = "followed1";
 const FOLLOWER_ID = "follower1";
 
@@ -8,9 +10,9 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 }));
 
 const state = {
+  auraLogs: [] as Record<string, unknown>[],
   followedAura: 0,
   followerAura: 0,
-  auraLogs: [] as Record<string, unknown>[],
   isFollowing: false as boolean,
   notifications: [] as Record<string, unknown>[],
 };
@@ -24,6 +26,14 @@ function resetState() {
 }
 
 const mockTx = {
+  auraLog: {
+    create: (args: { data: Record<string, unknown> }) => {
+      state.auraLogs.push(args.data);
+    },
+    // Simulates that the follow was created after FOLLOW_GIVEN shipped and
+    // therefore earned follower aura.
+    findFirst: () => ({ id: "log-1" }),
+  },
   follow: {
     create: () => {
       state.isFollowing = true;
@@ -31,7 +41,7 @@ const mockTx = {
     delete: () => {
       state.isFollowing = false;
     },
-    deleteMany: () => undefined,
+    deleteMany: () => {},
     findUnique: () => (state.isFollowing ? { id: "follow-1" } : null),
   },
   notification: {
@@ -58,10 +68,10 @@ const mockTx = {
   },
   user: {
     findUnique: () => ({
-      id: FOLLOWED_ID,
-      displayName: "Alice",
-      username: "alice",
       _count: { followers: 1 },
+      displayName: "Alice",
+      id: FOLLOWED_ID,
+      username: "alice",
     }),
     update: (args: {
       data: { aura?: { decrement?: number; increment?: number } };
@@ -77,14 +87,6 @@ const mockTx = {
       }
     },
   },
-  auraLog: {
-    create: (args: { data: Record<string, unknown> }) => {
-      state.auraLogs.push(args.data);
-    },
-    // Simulates that the follow was created after FOLLOW_GIVEN shipped and
-    // therefore earned follower aura.
-    findFirst: () => ({ id: "log-1" }),
-  },
 };
 
 const mockPrisma = {
@@ -92,11 +94,11 @@ const mockPrisma = {
 };
 
 mock.module("@asm/config/debug", () => ({
-  debugLog: { api: () => undefined },
+  debugLog: { api: () => {} },
 }));
 
 mock.module("@asm/db", () => ({
-  followerInfoCache: { invalidate: () => undefined },
+  followerInfoCache: { invalidate: () => {} },
   prisma: mockPrisma,
 }));
 
@@ -105,10 +107,8 @@ mock.module("@/lib/session", () => ({
 }));
 
 mock.module("@/lib/suggested-users-cache", () => ({
-  suggestedUsersCache: { invalidateForUser: () => undefined },
+  suggestedUsersCache: { invalidateForUser: () => {} },
 }));
-
-import { DELETE, POST } from "./route";
 
 const context = { params: Promise.resolve({ userId: FOLLOWED_ID }) };
 
@@ -133,16 +133,16 @@ describe("POST /api/users/[userId]/followers", () => {
     expect(state.followerAura).toBe(1);
     expect(state.auraLogs).toEqual([
       {
-        userId: FOLLOWED_ID,
-        issuerId: FOLLOWER_ID,
         amount: 5,
+        issuerId: FOLLOWER_ID,
         type: "FOLLOW_GAINED",
+        userId: FOLLOWED_ID,
       },
       {
-        userId: FOLLOWER_ID,
-        issuerId: FOLLOWER_ID,
         amount: 1,
+        issuerId: FOLLOWER_ID,
         type: "FOLLOW_GIVEN",
+        userId: FOLLOWER_ID,
       },
     ]);
   });
@@ -181,16 +181,16 @@ describe("DELETE /api/users/[userId]/followers", () => {
     expect(state.followerAura).toBe(0);
     expect(state.auraLogs).toEqual([
       {
-        userId: FOLLOWED_ID,
-        issuerId: FOLLOWER_ID,
         amount: -5,
+        issuerId: FOLLOWER_ID,
         type: "FOLLOW_GAINED",
+        userId: FOLLOWED_ID,
       },
       {
-        userId: FOLLOWER_ID,
-        issuerId: FOLLOWER_ID,
         amount: -1,
+        issuerId: FOLLOWER_ID,
         type: "FOLLOW_GIVEN",
+        userId: FOLLOWER_ID,
       },
     ]);
   });

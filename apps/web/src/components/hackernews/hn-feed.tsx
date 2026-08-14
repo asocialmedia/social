@@ -7,17 +7,19 @@ import notFoundImage from "@assets/general/notfound.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback, useMemo } from "react";
+
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useHnBookmarkStates } from "@/hooks/use-hn-bookmark-states";
 import kyInstance from "@/lib/ky";
+
 import HnFeedSkeleton from "./hn-feed-skeleton";
 import { HNStoryCard } from "./hn-story-card";
 
 export const HN_SORT_OPTIONS = {
+  COMMENTS: "comments",
   SCORE: "score",
   TIME: "time",
-  COMMENTS: "comments",
 } as const;
 
 export type HNSortOption =
@@ -31,7 +33,7 @@ interface HNFeedProps {
   sortBy: HNSortOption;
 }
 
-export function HNFeed({ filter, search, sortBy }: HNFeedProps) {
+export const HNFeed = ({ filter, search, sortBy }: HNFeedProps) => {
   const {
     data,
     error,
@@ -41,11 +43,13 @@ export function HNFeed({ filter, search, sortBy }: HNFeedProps) {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["hackernews", search, sortBy, filter],
-    queryFn: ({ pageParam }) => {
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore ? allPages.length : undefined,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }: { pageParam: number }) => {
       const params: Record<string, string | number> = {
-        page: pageParam,
         limit: ITEMS_PER_PAGE,
+        page: pageParam,
         sort: sortBy,
       };
       if (search.trim()) {
@@ -58,9 +62,7 @@ export function HNFeed({ filter, search, sortBy }: HNFeedProps) {
         .get("/api/hackernews", { searchParams: params })
         .json<HNApiResponse>();
     },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.hasMore ? allPages.length : undefined,
+    queryKey: ["hackernews", search, sortBy, filter],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -121,7 +123,7 @@ export function HNFeed({ filter, search, sortBy }: HNFeedProps) {
           src={notFoundImage}
           width={1374}
         />
-        <p className="font-semibold text-base">No stories found</p>
+        <p className="text-base font-semibold">No stories found</p>
         <p className="text-muted-foreground text-sm">
           Try a different search or filter to find more stories.
         </p>
@@ -145,4 +147,4 @@ export function HNFeed({ filter, search, sortBy }: HNFeedProps) {
       {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
     </InfiniteScrollContainer>
   );
-}
+};

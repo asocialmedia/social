@@ -11,14 +11,17 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
+
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
+
 import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
 import ExplorePostCard from "./explore-post-card";
-import ExploreUserCard, { type ExploreUser } from "./explore-user-card";
+import ExploreUserCard from "./explore-user-card";
+import type { ExploreUser } from "./explore-user-card";
 
 type ExploreTab = "for-you" | "trending";
 
@@ -67,7 +70,7 @@ const ExploreClient: React.FC = () => {
   );
 
   const { data, status, isFetching } = useQuery({
-    queryKey,
+    placeholderData: (previousData) => previousData,
     queryFn: async () => {
       if (debouncedSearch.trim()) {
         const result = await kyInstance
@@ -92,12 +95,12 @@ const ExploreClient: React.FC = () => {
       ]);
       return { posts: posts.posts, users } satisfies FeedData;
     },
+    queryKey,
     staleTime: 60 * 1000,
-    placeholderData: (previousData) => previousData,
   });
 
-  const posts = data?.posts ?? [];
-  const users = data?.users ?? [];
+  const posts = useMemo(() => data?.posts ?? [], [data]);
+  const users = useMemo(() => data?.users ?? [], [data]);
 
   const handleFollowed = useCallback(
     (userId: string) => {
@@ -161,14 +164,14 @@ const ExploreClient: React.FC = () => {
     }
 
     return result;
-  }, [posts, users, handleFollowed]);
+  }, [handleFollowed, posts, users]);
 
   let body: React.ReactNode;
   if (status === "pending") {
     body = <ExploreMasonrySkeleton />;
   } else if (status === "error") {
     body = (
-      <p className="px-4 py-8 text-center text-destructive">
+      <p className="text-destructive px-4 py-8 text-center">
         An error occurred while loading content.
       </p>
     );
@@ -217,7 +220,7 @@ const ExploreClient: React.FC = () => {
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
         <Tabs
-          className="flex items-center gap-2 border-border/60 border-b px-3 py-1.5"
+          className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5"
           onValueChange={handleTabChange}
           value={activeTab}
         >
@@ -237,14 +240,14 @@ const ExploreClient: React.FC = () => {
             <div className="w-full max-w-[15rem]">
               <div className="relative">
                 {isFetching && debouncedSearch.trim() ? (
-                  <span className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                  <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
                 ) : (
-                  <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
                 )}
                 <Input
                   aria-label="Search explore"
                   autoComplete="off"
-                  className="h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
+                  className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
                   onChange={handleSearchChange}
                   placeholder="Search explore"
                   type="text"
@@ -253,7 +256,7 @@ const ExploreClient: React.FC = () => {
                 {search ? (
                   <button
                     aria-label="Clear search"
-                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
                     onClick={handleClearSearch}
                     type="button"
                   >
@@ -268,7 +271,7 @@ const ExploreClient: React.FC = () => {
 
       <div className="relative min-h-0 flex-1">
         <div
-          className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+          className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
           ref={feedScrollRef}
         >
           {body}

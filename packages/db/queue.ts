@@ -1,4 +1,5 @@
 import { Queue } from "bullmq";
+
 import { keys } from "./keys";
 import { redis } from "./src/redis";
 
@@ -10,7 +11,7 @@ import { redis } from "./src/redis";
 const { REDIS_URL } = keys;
 
 function bullConnection() {
-  return { url: REDIS_URL, maxRetriesPerRequest: null };
+  return { maxRetriesPerRequest: null, url: REDIS_URL };
 }
 
 export interface MediaCleanupJobData {
@@ -49,18 +50,6 @@ const MAINTENANCE_QUEUE = "maintenance";
 const UNREAD_NOTIFICATION_PREFIX = "unread:notif:";
 
 export const unreadNotificationCache = {
-  async increment(userId: string, amount = 1): Promise<number> {
-    try {
-      return await redis.incrby(
-        `${UNREAD_NOTIFICATION_PREFIX}${userId}`,
-        amount
-      );
-    } catch (error) {
-      console.error("Error incrementing unread count:", error);
-      return 0;
-    }
-  },
-
   async decrement(userId: string, amount = 1): Promise<number> {
     try {
       // Lua clamps the result at zero so deletes can never drive the badge
@@ -90,10 +79,22 @@ export const unreadNotificationCache = {
   async get(userId: string): Promise<number | null> {
     try {
       const value = await redis.get(`${UNREAD_NOTIFICATION_PREFIX}${userId}`);
-      return value === null ? null : Number.parseInt(value, 10);
+      return value === null ? null : Math.trunc(Number(value));
     } catch (error) {
       console.error("Error getting unread count:", error);
       return null;
+    }
+  },
+
+  async increment(userId: string, amount = 1): Promise<number> {
+    try {
+      return await redis.incrby(
+        `${UNREAD_NOTIFICATION_PREFIX}${userId}`,
+        amount
+      );
+    } catch (error) {
+      console.error("Error incrementing unread count:", error);
+      return 0;
     }
   },
 
@@ -134,8 +135,8 @@ export async function scheduleMediaCleanup(mediaId: string): Promise<void> {
     "media-cleanup",
     { mediaId },
     {
-      jobId: `media-cleanup-${mediaId}`,
       delay: 24 * 60 * 60 * 1000,
+      jobId: `media-cleanup-${mediaId}`,
       removeOnComplete: 1000,
       removeOnFail: 5000,
     }

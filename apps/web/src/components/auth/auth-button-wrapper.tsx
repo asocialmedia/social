@@ -23,7 +23,7 @@ export default function AuthButtonWrapper({
       <div
         className={`group relative overflow-hidden rounded-lg backdrop-blur-md transition-all duration-500 ease-in-out ${className}`}
       >
-        <div className="relative bg-background/50 transition-colors group-hover:bg-background/70">
+        <div className="bg-background/50 group-hover:bg-background/70 relative transition-colors">
           {children}
         </div>
       </div>

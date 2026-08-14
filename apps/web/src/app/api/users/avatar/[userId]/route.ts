@@ -1,5 +1,6 @@
 import { avatarCache, prisma } from "@asm/db";
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,14 +27,14 @@ export async function GET(
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: userId },
       select: {
-        avatarUrl: true,
         avatarKey: true,
+        avatarUrl: true,
       },
+      where: { id: userId },
     });
 
-    if (!user?.avatarUrl) {
+    if (!user?.avatarUrl || !user.avatarKey) {
       return NextResponse.json({ error: "Avatar not found" }, { status: 404 });
     }
 
@@ -43,10 +44,9 @@ export async function GET(
         : user.avatarUrl;
 
     const avatarData = {
-      url: secureUrl,
-      // biome-ignore lint/style/noNonNullAssertion: This is safe because we check for the value above
-      key: user.avatarKey!,
+      key: user.avatarKey,
       updatedAt: new Date().toISOString(),
+      url: secureUrl,
     };
 
     await avatarCache.set(userId, avatarData);

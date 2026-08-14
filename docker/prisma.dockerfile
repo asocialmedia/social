@@ -6,7 +6,6 @@ RUN bun install
 COPY packages/db/prisma ./packages/db/prisma
 COPY packages/db/prisma.config.ts ./packages/db/prisma.config.ts
 COPY packages/db/src ./packages/db/src
-COPY packages/db/scripts ./packages/db/scripts
 COPY packages/db/keys.ts ./packages/db/keys.ts
 COPY docker/prisma-bootstrap.sh /usr/local/bin/prisma-bootstrap.sh
 COPY docker/prisma-studio.sh /usr/local/bin/prisma-studio.sh

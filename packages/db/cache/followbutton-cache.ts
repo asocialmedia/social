@@ -1,4 +1,5 @@
 import { debugLog } from "@asm/config/debug";
+
 import { CACHE_KEYS } from "../constants/cache-keys";
 import type { FollowerInfo } from "../src/client";
 import { redis } from "../src/redis";
@@ -11,14 +12,14 @@ export const followerInfoCache = {
 
       const data = await redis.get(cacheKey);
       if (data) {
-        debugLog.cache("Primary cache hit:", { userId, data });
+        debugLog.cache("Primary cache hit:", { data, userId });
         return JSON.parse(data);
       }
 
       const backupData = await redis.get(`${cacheKey}:backup`);
       if (backupData) {
         const parsed = JSON.parse(backupData);
-        debugLog.cache("Backup cache hit:", { userId, data: parsed });
+        debugLog.cache("Backup cache hit:", { data: parsed, userId });
         await this.set(userId, parsed.data);
         return parsed.data;
       }
@@ -28,32 +29,6 @@ export const followerInfoCache = {
     } catch (error) {
       console.error("Cache get error:", error);
       return null;
-    }
-  },
-
-  async set(userId: string, data: FollowerInfo): Promise<void> {
-    try {
-      const cacheKey = CACHE_KEYS.followerInfo(userId);
-      const cacheData = JSON.stringify(data);
-      const backupData = JSON.stringify({
-        data,
-        timestamp: Date.now(),
-      });
-
-      debugLog.cache("Setting cache:", { key: cacheKey, data });
-
-      await Promise.all([
-        // Primary cache - 5 minutes
-        redis.set(cacheKey, cacheData, "EX", 300),
-        // Backup cache - 1 hour
-        redis.set(`${cacheKey}:backup`, backupData, "EX", 3600),
-        // Store in user's followed list - 24 hours
-        data.isFollowedByUser
-          ? redis.sadd(`user:${userId}:followers`, userId)
-          : redis.srem(`user:${userId}:followers`, userId),
-      ]);
-    } catch (error) {
-      console.error("Cache set error:", error);
     }
   },
 
@@ -71,6 +46,32 @@ export const followerInfoCache = {
       await Promise.all(keys.map((key) => redis.del(key)));
     } catch (error) {
       console.error("Cache invalidation error:", error);
+    }
+  },
+
+  async set(userId: string, data: FollowerInfo): Promise<void> {
+    try {
+      const cacheKey = CACHE_KEYS.followerInfo(userId);
+      const cacheData = JSON.stringify(data);
+      const backupData = JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      });
+
+      debugLog.cache("Setting cache:", { data, key: cacheKey });
+
+      await Promise.all([
+        // Primary cache - 5 minutes
+        redis.set(cacheKey, cacheData, "EX", 300),
+        // Backup cache - 1 hour
+        redis.set(`${cacheKey}:backup`, backupData, "EX", 3600),
+        // Store in user's followed list - 24 hours
+        data.isFollowedByUser
+          ? redis.sadd(`user:${userId}:followers`, userId)
+          : redis.srem(`user:${userId}:followers`, userId),
+      ]);
+    } catch (error) {
+      console.error("Cache set error:", error);
     }
   },
 };

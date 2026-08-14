@@ -1,7 +1,6 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import type { TagWithCount } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -13,9 +12,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Hash, Plus } from "lucide-react";
 import { easeInOut } from "motion";
-import { AnimatePresence, motion, type Variants } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import type { Variants } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
+
 import { cn, formatNumber } from "@/lib/utils";
+
 import { useUpdateTagsMutation } from "./mutations/tag-mention-mutation";
 import { TagEditor } from "./tag-editor";
 
@@ -28,7 +30,6 @@ interface TagsProps {
 }
 
 const containerVariants = {
-  initial: { opacity: 0 },
   animate: {
     opacity: 1,
     transition: {
@@ -36,26 +37,18 @@ const containerVariants = {
       when: "beforeChildren",
     },
   },
+  initial: { opacity: 0 },
 };
 
 const tagVariants: Variants = {
-  initial: { opacity: 0, y: -3 },
   animate: {
     opacity: 1,
-    y: 0,
     transition: {
-      type: "spring",
-      stiffness: 120,
       damping: 20,
-    },
-  },
-  hover: {
-    y: -1,
-    transition: {
+      stiffness: 120,
       type: "spring",
-      stiffness: 150,
-      damping: 15,
     },
+    y: 0,
   },
   exit: {
     opacity: 0,
@@ -65,42 +58,69 @@ const tagVariants: Variants = {
       ease: "easeOut",
     },
   },
+  hover: {
+    transition: {
+      damping: 15,
+      stiffness: 150,
+      type: "spring",
+    },
+    y: -1,
+  },
+  initial: { opacity: 0, y: -3 },
 };
 
 const glowVariants = {
-  initial: { opacity: 0 },
   animate: {
+    filter: ["blur(6px)", "blur(10px)", "blur(6px)"],
     opacity: [0.25, 0.4, 0.25],
     scale: [0.95, 1.05, 0.95],
-    filter: ["blur(6px)", "blur(10px)", "blur(6px)"],
     transition: {
       duration: 2,
-      repeat: Number.POSITIVE_INFINITY,
       ease: easeInOut,
+      repeat: Number.POSITIVE_INFINITY,
     },
   },
+  initial: { opacity: 0 },
 };
 
 const hashIconVariants = {
-  initial: { scale: 0.8, opacity: 0.5 },
   hover: {
-    scale: 1.2,
     opacity: 1,
     rotate: [0, -10, 0],
+    scale: 1.2,
     transition: { duration: 0.3 },
   },
+  initial: { opacity: 0.5, scale: 0.8 },
 };
 
 const baseTagClass =
   "flex items-center gap-1.5 rounded-full border px-3 py-1 shadow-xs h-7";
 
-export function Tags({
+function getTagWidth(tag: TagWithCount) {
+  const nameLength = tag.name.length;
+
+  if (nameLength <= 5) {
+    return "w-auto min-w-[70px]";
+  }
+  if (nameLength <= 10) {
+    return "w-auto min-w-[90px]";
+  }
+  if (nameLength <= 15) {
+    return "w-auto min-w-[110px]";
+  }
+  if (nameLength <= 20) {
+    return "w-auto min-w-[130px]";
+  }
+  return "w-auto min-w-[150px]";
+}
+
+export const Tags = ({
   tags: initialTags,
   isOwner,
   className,
   postId,
   onTagsChange,
-}: TagsProps) {
+}: TagsProps) => {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [localTags, setLocalTags] = useState<TagWithCount[]>(initialTags);
@@ -109,6 +129,7 @@ export function Tags({
 
   useEffect(() => {
     if (JSON.stringify(localTags) !== JSON.stringify(initialTags)) {
+      // eslint-disable-next-line react-compiler -- sync external tag changes into local state
       setLocalTags(initialTags);
     }
   }, [initialTags, localTags]);
@@ -133,24 +154,6 @@ export function Tags({
     [postId, updateTags, queryClient, initialTags, onTagsChange]
   );
 
-  const getTagWidth = (tag: TagWithCount) => {
-    const nameLength = tag.name.length;
-
-    if (nameLength <= 5) {
-      return "w-auto min-w-[70px]";
-    }
-    if (nameLength <= 10) {
-      return "w-auto min-w-[90px]";
-    }
-    if (nameLength <= 15) {
-      return "w-auto min-w-[110px]";
-    }
-    if (nameLength <= 20) {
-      return "w-auto min-w-[130px]";
-    }
-    return "w-auto min-w-[150px]";
-  };
-
   const handleHoverEnd = useCallback(() => {
     setHoveredTag(null);
   }, []);
@@ -174,8 +177,8 @@ export function Tags({
   return (
     <>
       <div className="space-y-2">
-        <h3 className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <Hash className="h-3 w-3 text-primary/70" />
+        <h3 className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Hash className="text-primary/70 h-3 w-3" />
           <span>Tags</span>
         </h3>
         <motion.div
@@ -199,7 +202,7 @@ export function Tags({
                 {hoveredTag === tag.id && (
                   <motion.div
                     animate="animate"
-                    className="absolute inset-0 -z-10 rounded-full bg-primary/20"
+                    className="bg-primary/20 absolute inset-0 -z-10 rounded-full"
                     initial="initial"
                     variants={glowVariants}
                   />
@@ -213,7 +216,7 @@ export function Tags({
                   )}
                 >
                   <motion.div
-                    className="flex items-center justify-center text-primary/70"
+                    className="text-primary/70 flex items-center justify-center"
                     initial="initial"
                     variants={hashIconVariants}
                     whileHover="hover"
@@ -227,7 +230,7 @@ export function Tags({
 
                     {tag._count?.posts !== undefined &&
                       tag._count.posts > 0 && (
-                        <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary/80 text-xs">
+                        <span className="bg-primary/10 text-primary/80 ml-1.5 rounded-full px-1.5 py-0.5 text-xs">
                           {formatNumber(tag._count.posts)}
                         </span>
                       )}
@@ -246,18 +249,18 @@ export function Tags({
                 <Button
                   className={cn(
                     baseTagClass,
-                    "h-7 border-primary/15 bg-primary/5 hover:border-primary/30 hover:bg-primary/10",
+                    "border-primary/15 bg-primary/5 hover:border-primary/30 hover:bg-primary/10 h-7",
                     "font-normal"
                   )}
                   onClick={handleEditClick}
                   size="sm"
                   variant="outline"
                 >
-                  <Plus className="mr-1 h-3 w-3 text-primary" />
+                  <Plus className="text-primary mr-1 h-3 w-3" />
                   <span className="text-primary text-xs">Add tag</span>
                 </Button>
                 <motion.div
-                  className="absolute inset-0 -z-10 rounded-full bg-primary/20 blur-md"
+                  className="bg-primary/20 absolute inset-0 -z-10 rounded-full blur-md"
                   initial={{ opacity: 0 }}
                   whileHover={{
                     opacity: 1,
@@ -271,9 +274,9 @@ export function Tags({
       </div>
 
       <Dialog onOpenChange={setIsEditing} open={isEditing}>
-        <DialogContent className="rounded-xl border border-primary/15 shadow-lg shadow-primary/5 sm:max-w-[400px]">
-          <DialogTitle className="flex items-center gap-2 font-medium text-base">
-            <Hash className="h-3.5 w-3.5 text-primary" />
+        <DialogContent className="border-primary/15 shadow-primary/5 rounded-xl border shadow-lg sm:max-w-[400px]">
+          <DialogTitle className="flex items-center gap-2 text-base font-medium">
+            <Hash className="text-primary h-3.5 w-3.5" />
             Edit Tags
           </DialogTitle>
           <DialogDescription
@@ -292,4 +295,4 @@ export function Tags({
       </Dialog>
     </>
   );
-}
+};

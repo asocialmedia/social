@@ -2,9 +2,10 @@ import {
   getPostDataInclude,
   hydrateViewCounts,
   MediaType,
-  type PostsPage,
   prisma,
 } from "@asm/db";
+import type { PostsPage } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -24,6 +25,10 @@ export async function GET(
   const { userId } = await ctx.params;
 
   const posts = await prisma.post.findMany({
+    cursor: cursor ? { id: cursor } : undefined,
+    include: getPostDataInclude(user.id),
+    orderBy: { createdAt: "desc" },
+    take: pageSize + 1,
     where: {
       userId,
       ...(filter === "media"
@@ -38,17 +43,13 @@ export async function GET(
           }
         : {}),
     },
-    orderBy: { createdAt: "desc" },
-    include: getPostDataInclude(user.id),
-    take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
   });
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
-    posts: hydrated,
     nextCursor,
+    posts: hydrated,
   };
   return Response.json(data);
 }

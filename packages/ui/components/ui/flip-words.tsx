@@ -1,6 +1,7 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { cn } from "../../lib/utils";
 
 export const FlipWords = ({
@@ -32,7 +33,7 @@ export const FlipWords = ({
 
   const wordSegments = useMemo(
     () =>
-      Array.from(currentWord.matchAll(/\S+/g)).map((match) => ({
+      [...currentWord.matchAll(/\S+/g)].map((match) => ({
         start: match.index ?? 0,
         word: match[0],
       })),
@@ -55,12 +56,12 @@ export const FlipWords = ({
           className
         )}
         exit={{
-          opacity: 0,
-          y: -40,
-          x: 40,
           filter: "blur(8px)",
-          scale: 2,
+          opacity: 0,
           position: "absolute",
+          scale: 2,
+          x: 40,
+          y: -40,
         }}
         initial={{
           opacity: 0,
@@ -68,28 +69,28 @@ export const FlipWords = ({
         }}
         key={currentWord}
         transition={{
-          type: "spring",
-          stiffness: 100,
           damping: 10,
+          stiffness: 100,
+          type: "spring",
         }}
       >
         {/* edit suggested by Sajal: https://x.com/DewanganSajal */}
         {wordSegments.map((segment) => (
           <motion.span
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
             className="inline-block whitespace-nowrap"
-            initial={{ opacity: 0, y: 10, filter: "blur(8px)" }}
+            initial={{ filter: "blur(8px)", opacity: 0, y: 10 }}
             key={`${currentWord}-${segment.start}`}
             transition={{
               delay: segment.start * 0.03,
               duration: 0.3,
             }}
           >
-            {segment.word.split("").map((letter, letterIndex) => (
+            {[...segment.word].map((letter, letterIndex) => (
               <motion.span
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
                 className="inline-block"
-                initial={{ opacity: 0, y: 10, filter: "blur(8px)" }}
+                initial={{ filter: "blur(8px)", opacity: 0, y: 10 }}
                 // biome-ignore lint/suspicious/noArrayIndexKey: Letters in a word maintain stable order for animation
                 key={`${segment.start}-${letterIndex}`}
                 transition={{

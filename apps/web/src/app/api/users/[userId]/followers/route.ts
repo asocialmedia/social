@@ -2,10 +2,11 @@ import { debugLog } from "@asm/config/debug";
 import {
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
-  type FollowerInfo,
   followerInfoCache,
   prisma,
 } from "@asm/db";
+import type { FollowerInfo } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
@@ -63,43 +64,43 @@ export async function POST(
         });
 
         await tx.user.update({
-          where: { id: userId },
           data: { aura: { increment: FOLLOW_AURA_REWARD } },
+          where: { id: userId },
         });
 
         await tx.auraLog.create({
           data: {
-            userId,
-            issuerId: loggedInUser.id,
             amount: FOLLOW_AURA_REWARD,
+            issuerId: loggedInUser.id,
             type: "FOLLOW_GAINED",
+            userId,
           },
         });
 
         // The follower also earns aura for building their network.
         await tx.user.update({
-          where: { id: loggedInUser.id },
           data: { aura: { increment: FOLLOW_GIVEN_AURA_REWARD } },
+          where: { id: loggedInUser.id },
         });
 
         await tx.auraLog.create({
           data: {
-            userId: loggedInUser.id,
-            issuerId: loggedInUser.id,
             amount: FOLLOW_GIVEN_AURA_REWARD,
+            issuerId: loggedInUser.id,
             type: "FOLLOW_GIVEN",
+            userId: loggedInUser.id,
           },
         });
       }
 
       const userData = await tx.user.findUnique({
-        where: { id: userId },
         select: {
-          id: true,
-          displayName: true,
-          username: true,
           _count: { select: { followers: true } },
+          displayName: true,
+          id: true,
+          username: true,
         },
+        where: { id: userId },
       });
 
       return { userData };
@@ -115,9 +116,9 @@ export async function POST(
       displayName: string;
       username: string;
     } = {
+      displayName: result.userData.displayName,
       followers: result.userData._count.followers,
       isFollowedByUser: true,
-      displayName: result.userData.displayName,
       username: result.userData.username,
     };
 
@@ -151,12 +152,12 @@ export async function GET(
 
     const [user, isFollowing] = await Promise.all([
       prisma.user.findUnique({
-        where: { id: userId },
         select: {
           _count: {
             select: { followers: true },
           },
         },
+        where: { id: userId },
       }),
       prisma.follow.findUnique({
         where: {
@@ -237,49 +238,49 @@ export async function DELETE(
         });
 
         await tx.user.update({
-          where: { id: userId },
           data: { aura: { decrement: FOLLOW_AURA_REWARD } },
+          where: { id: userId },
         });
 
         await tx.auraLog.create({
           data: {
-            userId,
-            issuerId: loggedInUser.id,
             amount: -FOLLOW_AURA_REWARD,
+            issuerId: loggedInUser.id,
             type: "FOLLOW_GAINED",
+            userId,
           },
         });
 
         // Reverse the follower aura only if it was ever granted (follows
         // created before FOLLOW_GIVEN shipped never earned it).
         const givenLog = await tx.auraLog.findFirst({
-          where: { userId: loggedInUser.id, type: "FOLLOW_GIVEN" },
+          where: { type: "FOLLOW_GIVEN", userId: loggedInUser.id },
         });
 
         if (givenLog) {
           await tx.user.update({
-            where: { id: loggedInUser.id },
             data: { aura: { decrement: FOLLOW_GIVEN_AURA_REWARD } },
+            where: { id: loggedInUser.id },
           });
 
           await tx.auraLog.create({
             data: {
-              userId: loggedInUser.id,
-              issuerId: loggedInUser.id,
               amount: -FOLLOW_GIVEN_AURA_REWARD,
+              issuerId: loggedInUser.id,
               type: "FOLLOW_GIVEN",
+              userId: loggedInUser.id,
             },
           });
         }
       }
 
       const userData = await tx.user.findUnique({
-        where: { id: userId },
         select: {
+          _count: { select: { followers: true } },
           displayName: true,
           username: true,
-          _count: { select: { followers: true } },
         },
+        where: { id: userId },
       });
 
       return userData;
@@ -293,9 +294,9 @@ export async function DELETE(
       displayName: string;
       username: string;
     } = {
+      displayName: result.displayName,
       followers: result._count.followers,
       isFollowedByUser: false,
-      displayName: result.displayName,
       username: result.username,
     };
 

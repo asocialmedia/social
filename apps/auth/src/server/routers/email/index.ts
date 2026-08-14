@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import {
   sendPasswordResetEmail,
   sendVerificationEmail,
@@ -7,17 +8,6 @@ import {
 import { procedure, router } from "../../trpc";
 
 export const emailRouter = router({
-  sendVerification: procedure
-    .input(
-      z.object({
-        email: z.email(),
-        token: z.string(),
-      })
-    )
-    .mutation(
-      async ({ input }) => await sendVerificationEmail(input.email, input.token)
-    ),
-
   sendPasswordReset: procedure
     .input(
       z.object({
@@ -28,6 +18,17 @@ export const emailRouter = router({
     .mutation(
       async ({ input }) =>
         await sendPasswordResetEmail(input.email, input.token)
+    ),
+
+  sendVerification: procedure
+    .input(
+      z.object({
+        email: z.email(),
+        token: z.string(),
+      })
+    )
+    .mutation(
+      async ({ input }) => await sendVerificationEmail(input.email, input.token)
     ),
 
   validateConfig: procedure.query(() => validateEmailServiceConfig()),

@@ -2,6 +2,7 @@
 
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 const MIN_THUMB_HEIGHT = 48;
@@ -39,7 +40,7 @@ function getTrackGeometry(el: HTMLElement): TrackGeometry {
   return { maxTranslate, scrollable, thumbHeight, trackHeight };
 }
 
-export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
+export const FeedScrollbar = ({ containerRef }: FeedScrollbarProps) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const dragStartScrollRef = useRef(0);
@@ -191,4 +192,4 @@ export function FeedScrollbar({ containerRef }: FeedScrollbarProps) {
       ) : null}
     </div>
   );
-}
+};

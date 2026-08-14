@@ -2,6 +2,7 @@
 
 import { Indicator, Root } from "@radix-ui/react-checkbox";
 import type * as React from "react";
+
 import { cn } from "../lib/utils";
 
 const Checkbox = ({

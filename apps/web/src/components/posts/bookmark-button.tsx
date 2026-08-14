@@ -1,14 +1,10 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { BookmarkInfo } from "@asm/db";
-import {
-  type QueryKey,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
+
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
@@ -19,6 +15,9 @@ interface BookmarkButtonProps {
   postId: string;
 }
 
+const BookmarkCheckIcon = <BookmarkCheck />;
+const BookmarkXIcon = <BookmarkX />;
+
 export default function BookmarkButton({
   className,
   postId,
@@ -28,10 +27,10 @@ export default function BookmarkButton({
   const queryClient = useQueryClient();
   const queryKey: QueryKey = ["bookmark-info", postId];
   const { data } = useQuery({
-    queryKey,
+    initialData: initialState,
     queryFn: () =>
       kyInstance.get(`/api/posts/${postId}/bookmark`).json<BookmarkInfo>(),
-    initialData: initialState,
+    queryKey,
     staleTime: Number.POSITIVE_INFINITY,
   });
 
@@ -40,13 +39,21 @@ export default function BookmarkButton({
       data.isBookmarkedByUser
         ? kyInstance.delete(`/api/posts/${postId}/bookmark`)
         : kyInstance.post(`/api/posts/${postId}/bookmark`),
+    onError(error, _variables, context) {
+      queryClient.setQueryData(queryKey, context?.previousState);
+      clientLog.error(error);
+      toast({
+        description: "That didn't go through, give it another try?",
+        variant: "destructive",
+      });
+    },
     onMutate: async () => {
       toast({
-        title: data.isBookmarkedByUser ? "Bookmark Removed" : "Bookmarked",
         description: data.isBookmarkedByUser
           ? "Removed from your bookmarks"
           : "Post saved, find it anytime in your bookmarks",
-        icon: data.isBookmarkedByUser ? <BookmarkX /> : <BookmarkCheck />,
+        icon: data.isBookmarkedByUser ? BookmarkXIcon : BookmarkCheckIcon,
+        title: data.isBookmarkedByUser ? "Bookmark Removed" : "Bookmarked",
       });
 
       await queryClient.cancelQueries({ queryKey });
@@ -58,14 +65,6 @@ export default function BookmarkButton({
 
       return { previousState };
     },
-    onError(error, _variables, context) {
-      queryClient.setQueryData(queryKey, context?.previousState);
-      clientLog.error(error);
-      toast({
-        variant: "destructive",
-        description: "That didn't go through, give it another try?",
-      });
-    },
   });
 
   const handleBookmark = useCallback(() => mutate(), [mutate]);
@@ -74,7 +73,7 @@ export default function BookmarkButton({
     <button
       aria-label={data.isBookmarkedByUser ? "Remove bookmark" : "Bookmark post"}
       className={cn(
-        "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm outline-none transition-all duration-200 ease-out active:translate-y-px",
+        "group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium transition-all duration-200 ease-out outline-none active:translate-y-px",
         !data.isBookmarkedByUser && "pill-3d-hover",
         data.isBookmarkedByUser &&
           "bg-gradient-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",

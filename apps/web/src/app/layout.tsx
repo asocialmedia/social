@@ -1,83 +1,84 @@
-import type { Metadata, Viewport } from "next";
-import "./globals.css";
 import { DesignSystemProvider, SofiaProSoft } from "@asm/ui";
+
+import "./globals.css";
 import { colors } from "@asm/ui/meta/colors";
 import { siteConfig } from "@asm/ui/meta/site";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: colors.light.primary },
-    { media: "(prefers-color-scheme: dark)", color: colors.dark.primary },
+    { color: colors.light.primary, media: "(prefers-color-scheme: light)" },
+    { color: colors.dark.primary, media: "(prefers-color-scheme: dark)" },
   ],
 };
 
 export const metadata: Metadata = {
+  authors: [...siteConfig.authors],
+  creator: siteConfig.creator,
+  description: siteConfig.description,
+  icons: {
+    apple: [
+      {
+        sizes: "180x180",
+        type: "image/png",
+        url: "/favicon/apple-touch-icon.png",
+      },
+    ],
+    icon: [
+      { url: "/favicon/favicon.ico" },
+      { sizes: "16x16", type: "image/png", url: "/favicon/favicon-16x16.png" },
+      { sizes: "32x32", type: "image/png", url: "/favicon/favicon-32x32.png" },
+    ],
+    other: [
+      {
+        color: colors.light.primary,
+        rel: "mask-icon",
+        url: "/favicon/maskable_icon.png",
+      },
+    ],
+  },
+  keywords: siteConfig.keywords,
+  manifest: "/site.webmanifest",
   metadataBase: new URL(siteConfig.url),
+  openGraph: {
+    description: siteConfig.description,
+    images: [
+      {
+        alt: siteConfig.name,
+        height: 630,
+        url: siteConfig.ogImage,
+        width: 1200,
+      },
+    ],
+    locale: "en_US",
+    siteName: siteConfig.name,
+    title: siteConfig.name,
+    type: "website",
+    url: siteConfig.url,
+  },
+  robots: {
+    follow: true,
+    googleBot: {
+      follow: true,
+      index: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+    index: true,
+  },
   title: {
     default: siteConfig.name,
     template: `%s | ${siteConfig.name}`,
   },
-  description: siteConfig.description,
-  keywords: siteConfig.keywords,
-  authors: [...siteConfig.authors],
-  creator: siteConfig.creator,
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: siteConfig.url,
-    title: siteConfig.name,
-    description: siteConfig.description,
-    siteName: siteConfig.name,
-    images: [
-      {
-        url: siteConfig.ogImage,
-        width: 1200,
-        height: 630,
-        alt: siteConfig.name,
-      },
-    ],
-  },
   twitter: {
     card: "summary_large_image",
-    title: siteConfig.name,
+    creator: "Harsh Sahu | parazeeknova",
     description: siteConfig.description,
     images: [siteConfig.ogImage],
-    creator: "Harsh Sahu | parazeeknova",
+    title: siteConfig.name,
   },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-video-preview": -1,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-    },
-  },
-  icons: {
-    icon: [
-      { url: "/favicon/favicon.ico" },
-      { url: "/favicon/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-      { url: "/favicon/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-    ],
-    apple: [
-      {
-        url: "/favicon/apple-touch-icon.png",
-        sizes: "180x180",
-        type: "image/png",
-      },
-    ],
-    other: [
-      {
-        rel: "mask-icon",
-        url: "/favicon/maskable_icon.png",
-        color: colors.light.primary,
-      },
-    ],
-  },
-  manifest: "/site.webmanifest",
   verification: {
     me: ["https://przknv.cc"],
   },
@@ -141,7 +142,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
         src="https://tracking.przknv.cc/script.js"
       />
     </head>
-    <body className={"min-h-screen font-sans antialiased"}>
+    <body className="min-h-screen font-sans antialiased">
       <DesignSystemProvider>{children}</DesignSystemProvider>
     </body>
   </html>

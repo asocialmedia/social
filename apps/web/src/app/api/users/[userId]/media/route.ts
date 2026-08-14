@@ -1,4 +1,5 @@
 import { MediaType, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -16,6 +17,9 @@ export async function GET(
   const { userId } = await ctx.params;
 
   const media = await prisma.media.findMany({
+    cursor: cursor ? { id: cursor } : undefined,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: pageSize + 1,
     where: {
       post: { userId },
       type: {
@@ -28,9 +32,6 @@ export async function GET(
         ],
       },
     },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
   });
 
   const nextCursor = media.length > pageSize ? media[pageSize].id : null;

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useRef } from "react";
+
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
@@ -54,16 +55,16 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
     tabParam === "following" ? "following" : "followers";
 
   const { data, status } = useQuery({
-    queryKey: [
-      activeTab === "followers" ? "followers-list" : "following-list",
-      userData.id,
-    ],
     queryFn: () =>
       kyInstance
         .get(
           `/api/users/${userData.id}/${activeTab === "followers" ? "followers-list" : "following-list"}`
         )
         .json<UserListItem[]>(),
+    queryKey: [
+      activeTab === "followers" ? "followers-list" : "following-list",
+      userData.id,
+    ],
     staleTime: 60 * 1000,
   });
 
@@ -101,7 +102,7 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
   if (status === "pending") {
     body = (
       <div className="flex justify-center py-10">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
       </div>
     );
   } else if (users.length === 0) {
@@ -139,16 +140,16 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
               </Link>
               <div className="min-w-0 flex-1">
                 <Link
-                  className="block truncate font-medium text-sm hover:underline"
+                  className="block truncate text-sm font-medium hover:underline"
                   href={`/users/${user.username}`}
                 >
                   {user.displayName}
                 </Link>
-                <span className="block truncate text-muted-foreground text-xs">
+                <span className="text-muted-foreground block truncate text-xs">
                   @{user.username}
                 </span>
                 {user.bio ? (
-                  <span className="mt-0.5 line-clamp-1 block text-muted-foreground text-xs">
+                  <span className="text-muted-foreground mt-0.5 line-clamp-1 block text-xs">
                     {user.bio}
                   </span>
                 ) : null}
@@ -172,10 +173,10 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
     <div className="relative flex h-dvh overflow-hidden">
       <LeftSidebar userData={loggedInUserData} />
 
-      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
           <MobileTopBar />
-          <div className="flex shrink-0 items-center gap-2 border-border/60 border-b bg-[hsl(var(--background-alt))] px-3 py-2">
+          <div className="border-border/60 flex shrink-0 items-center gap-2 border-b bg-[hsl(var(--background-alt))] px-3 py-2">
             <button
               aria-label="Go back"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 active:translate-y-px"
@@ -185,15 +186,15 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="min-w-0">
-              <h1 className="truncate font-semibold text-lg leading-tight">
+              <h1 className="truncate text-lg leading-tight font-semibold">
                 {userData.displayName || userData.username}
               </h1>
-              <p className="truncate text-muted-foreground text-xs">
+              <p className="text-muted-foreground truncate text-xs">
                 @{userData.username}
               </p>
             </div>
           </div>
-          <div className="flex items-center border-border/60 border-b">
+          <div className="border-border/60 flex items-center border-b">
             <button
               className={`${TAB_TRIGGER_CLASS} flex-1`}
               data-state={activeTab === "followers" ? "active" : "inactive"}
@@ -217,7 +218,7 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
 
         <div className="relative min-h-0 flex-1">
           <div
-            className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+            className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
             ref={feedScrollRef}
           >
             {body}
@@ -226,7 +227,7 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
         </div>
       </div>
 
-      <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+      <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
         <div className="flex flex-col gap-4">
           <PostHistoryCard />
           <TrendingTopics />

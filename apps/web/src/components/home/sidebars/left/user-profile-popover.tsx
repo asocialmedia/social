@@ -23,6 +23,7 @@ import type React from "react";
 import { useCallback, useState } from "react";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
+
 import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
@@ -46,11 +47,11 @@ const PopoverStat: React.FC<PopoverStatProps> = ({
   value,
 }) => (
   <div className="flex min-w-0 flex-col items-center gap-0.5">
-    <Icon className="h-4 w-4 text-muted-foreground" />
-    <span className="font-semibold text-sm tabular-nums">
+    <Icon className="text-muted-foreground h-4 w-4" />
+    <span className="text-sm font-semibold tabular-nums">
       {formatNumber(value)}
     </span>
-    <span className="truncate text-[10px] text-muted-foreground/80 uppercase tracking-wide">
+    <span className="text-muted-foreground/80 truncate text-[10px] tracking-wide uppercase">
       {label}
     </span>
   </div>
@@ -135,7 +136,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
     bannerContent = (
       <div
         aria-hidden
-        className="absolute inset-0 scale-110 bg-center bg-cover opacity-30 blur-md"
+        className="absolute inset-0 scale-110 bg-cover bg-center opacity-30 blur-md"
         style={{ backgroundImage: `url(${userData.avatarUrl})` }}
       />
     );
@@ -161,10 +162,10 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
               priority
             />
             <span className="min-w-0">
-              <span className="block truncate font-medium text-sm">
+              <span className="block truncate text-sm font-medium">
                 {userData.displayName || userData.username}
               </span>
-              <span className="block truncate text-muted-foreground text-xs">
+              <span className="text-muted-foreground block truncate text-xs">
                 @{userData.username}
               </span>
             </span>
@@ -185,7 +186,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             ) : (
               <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] to-transparent" />
             )}
-            <div className="absolute inset-x-0 bottom-0 h-px bg-border/40" />
+            <div className="bg-border/40 absolute inset-x-0 bottom-0 h-px" />
           </div>
 
           {/* Avatar + identity */}
@@ -196,14 +197,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                 className="rounded-2xl ring-4 ring-[hsl(var(--background-alt))]"
                 size={72}
               />
-              <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
                 <CalendarDays className="h-3.5 w-3.5" />
                 Joined {formatDate(new Date(userData.createdAt), "MMMM yyyy")}
               </span>
             </div>
 
             <div className="mt-2.5">
-              <h3 className="truncate font-semibold text-lg leading-tight">
+              <h3 className="truncate text-lg leading-tight font-semibold">
                 {userData.displayName || userData.username}
               </h3>
               <p className="text-muted-foreground text-sm">
@@ -213,7 +214,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
 
             {userData.bio ? (
               <Linkify>
-                <p className="mt-2.5 line-clamp-3 whitespace-pre-line text-muted-foreground text-sm">
+                <p className="text-muted-foreground mt-2.5 line-clamp-3 text-sm whitespace-pre-line">
                   {userData.bio}
                 </p>
               </Linkify>
@@ -224,7 +225,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                 {socialLinks.map((link) => (
                   <a
                     aria-label={link.label}
-                    className="pill-3d-hover flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:text-foreground"
+                    className="pill-3d-hover text-muted-foreground hover:text-foreground flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200"
                     href={link.href}
                     key={link.label}
                     rel="noopener noreferrer"

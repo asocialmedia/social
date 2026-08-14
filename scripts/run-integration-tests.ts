@@ -14,9 +14,9 @@ function defaultRunProcess(options: {
   const proc = Bun.spawn({
     cmd: options.cmd,
     cwd: options.cwd,
+    stderr: "inherit",
     stdin: "inherit",
     stdout: "inherit",
-    stderr: "inherit",
   });
 
   return proc.exited;
@@ -56,12 +56,13 @@ const isDirectExecution = Bun.argv.some(
 );
 
 if (isDirectExecution) {
-  runIntegrationTests()
-    .then((exitCode) => {
+  (async () => {
+    try {
+      const exitCode = await runIntegrationTests();
       process.exit(exitCode);
-    })
-    .catch((error: unknown) => {
+    } catch (error: unknown) {
       console.error("Failed to execute integration tests:", error);
       process.exit(1);
-    });
+    }
+  })();
 }

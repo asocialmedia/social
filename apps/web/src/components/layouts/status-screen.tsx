@@ -12,28 +12,26 @@ interface StatusScreenProps {
   title: string;
 }
 
-export function StatusScreen({
+export const StatusScreen = ({
   action,
   description,
   image,
   logo = true,
   minHeight = "min-h-screen",
   title,
-}: StatusScreenProps) {
-  return (
-    <div
-      className={`flex w-full ${minHeight} flex-col items-center justify-center gap-6 bg-background p-4 text-center`}
-    >
-      {image ? <StatusImage image={image} /> : null}
-      {!image && logo ? <Logo /> : null}
-      <div className="space-y-2 text-center">
-        <h1 className="font-semibold text-foreground text-xl">{title}</h1>
-        <p className="max-w-sm text-muted-foreground text-sm">{description}</p>
-      </div>
-      {action ? <div className="flex justify-center">{action}</div> : null}
+}: StatusScreenProps) => (
+  <div
+    className={`flex w-full ${minHeight} bg-background flex-col items-center justify-center gap-6 p-4 text-center`}
+  >
+    {image ? <StatusImage image={image} /> : null}
+    {!image && logo ? <Logo /> : null}
+    <div className="space-y-2 text-center">
+      <h1 className="text-foreground text-xl font-semibold">{title}</h1>
+      <p className="text-muted-foreground max-w-sm text-sm">{description}</p>
     </div>
-  );
-}
+    {action ? <div className="flex justify-center">{action}</div> : null}
+  </div>
+);
 
 const StatusImage = ({ image }: { image: StaticImageData | string }) => (
   <Image

@@ -5,6 +5,7 @@ import {
   validateJWTToken,
 } from "@asm/auth/core";
 import { prisma } from "@asm/db";
+
 import { auth } from "./config";
 
 interface UserBanState {
@@ -15,17 +16,17 @@ interface UserBanState {
 
 function selectUserData() {
   return {
-    username: true,
+    banExpires: true,
+    banReason: true,
+    banned: true,
+    createdAt: true,
+    displayName: true,
     email: true,
     emailVerified: true,
     name: true,
-    displayName: true,
     role: true,
-    banned: true,
-    banReason: true,
-    banExpires: true,
-    createdAt: true,
     updatedAt: true,
+    username: true,
   } as const;
 }
 
@@ -54,8 +55,8 @@ async function enforceBan(
 
     if (isExpired) {
       await prisma.user.update({
+        data: { banExpires: null, banReason: null, banned: false },
         where: { id: userId },
-        data: { banned: false, banReason: null, banExpires: null },
       });
     } else {
       return { session: null, user: null };
@@ -78,8 +79,8 @@ export async function getSessionFromRequest(
       if (cachedSession) {
         console.log("Using cached session from hybrid store");
         const userData = await prisma.user.findUnique({
-          where: { id: cachedSession.userId },
           select: selectUserData(),
+          where: { id: cachedSession.userId },
         });
 
         if (userData) {
@@ -90,27 +91,27 @@ export async function getSessionFromRequest(
 
           return {
             session: {
-              id: cachedSession.id,
-              userId: cachedSession.userId,
-              token: cachedSession.token,
-              expiresAt: cachedSession.expiresAt,
-              ipAddress: cachedSession.ipAddress,
-              userAgent: cachedSession.userAgent,
               createdAt: cachedSession.createdAt,
+              expiresAt: cachedSession.expiresAt,
+              id: cachedSession.id,
+              ipAddress: cachedSession.ipAddress,
+              token: cachedSession.token,
               updatedAt: cachedSession.updatedAt,
+              userAgent: cachedSession.userAgent,
+              userId: cachedSession.userId,
             },
             user: {
-              id: cachedSession.userId,
+              banExpires: userData.banExpires,
+              banReason: userData.banReason,
+              banned: userData.banned,
+              createdAt: userData.createdAt,
               email: userData.email || "",
               emailVerified: userData.emailVerified,
+              id: cachedSession.userId,
               name: userData.name || userData.displayName,
-              username: userData.username,
               role: userData.role,
-              banned: userData.banned,
-              banReason: userData.banReason,
-              banExpires: userData.banExpires,
-              createdAt: userData.createdAt,
               updatedAt: userData.updatedAt,
+              username: userData.username,
             },
           };
         }
@@ -124,8 +125,8 @@ export async function getSessionFromRequest(
         }
 
         const userData = await prisma.user.findUnique({
-          where: { id: userId },
           select: selectUserData(),
+          where: { id: userId },
         });
 
         if (userData) {
@@ -135,13 +136,13 @@ export async function getSessionFromRequest(
           }
 
           const hybridSession = await hybridSessionStore.create({
-            userId,
-            token,
             expiresAt: new Date((validationResult.payload.exp || 0) * 1000),
             ipAddress:
               (req.headers.get("x-forwarded-for") as string) ||
               (req.headers.get("x-real-ip") as string),
+            token,
             userAgent: req.headers.get("user-agent") as string,
+            userId,
           });
 
           console.log(
@@ -150,27 +151,27 @@ export async function getSessionFromRequest(
 
           return {
             session: {
-              id: hybridSession.id,
-              userId: hybridSession.userId,
-              token: hybridSession.token,
-              expiresAt: hybridSession.expiresAt,
-              ipAddress: hybridSession.ipAddress,
-              userAgent: hybridSession.userAgent,
               createdAt: hybridSession.createdAt,
+              expiresAt: hybridSession.expiresAt,
+              id: hybridSession.id,
+              ipAddress: hybridSession.ipAddress,
+              token: hybridSession.token,
               updatedAt: hybridSession.updatedAt,
+              userAgent: hybridSession.userAgent,
+              userId: hybridSession.userId,
             },
             user: {
-              id: hybridSession.userId,
+              banExpires: userData.banExpires,
+              banReason: userData.banReason,
+              banned: userData.banned,
+              createdAt: userData.createdAt,
               email: userData.email || "",
               emailVerified: userData.emailVerified,
+              id: hybridSession.userId,
               name: userData.name || userData.displayName,
-              username: userData.username,
               role: userData.role,
-              banned: userData.banned,
-              banReason: userData.banReason,
-              banExpires: userData.banExpires,
-              createdAt: userData.createdAt,
               updatedAt: userData.updatedAt,
+              username: userData.username,
             },
           };
         }
@@ -186,8 +187,8 @@ export async function getSessionFromRequest(
     }
 
     const userData = await prisma.user.findUnique({
-      where: { id: session.user.id },
       select: { username: true },
+      where: { id: session.user.id },
     });
 
     return {

@@ -7,6 +7,8 @@ echo "Generating Prisma client..."
 bunx prisma generate --config "$PRISMA_CONFIG_PATH"
 
 echo "Pushing Prisma schema..."
-bunx prisma db push --config "$PRISMA_CONFIG_PATH"
+# Dev bootstrap: the local database may contain data from older schemas, so accept
+# destructive changes (dropped columns/tables) instead of failing the init job.
+bunx prisma db push --config "$PRISMA_CONFIG_PATH" --accept-data-loss
 
 echo "Prisma bootstrap complete"

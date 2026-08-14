@@ -5,6 +5,7 @@ import signupImage from "@assets/auth/signup-image.jpg";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
+
 import GoogleSignInButton from "@/app/(auth)/client/google-sign-in-button";
 import RedditSignInButton from "@/app/(auth)/client/reddit-sign-in-button";
 import AnimatedAuthLink from "@/components/auth/animated-auth-link";
@@ -45,7 +46,7 @@ export default function AuthCard({
 
   return (
     <motion.div
-      className="relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:min-h-130 lg:flex-row"
+      className="border-border bg-card relative flex w-full max-w-5xl flex-col items-stretch overflow-hidden rounded-2xl border shadow-2xl lg:min-h-130 lg:flex-row"
       layout
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
     >
@@ -74,7 +75,7 @@ export default function AuthCard({
             />
           </motion.div>
         </AnimatePresence>
-        <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-transparent to-primary/20" />
+        <div className="to-primary/20 pointer-events-none absolute inset-0 bg-linear-to-b from-transparent" />
       </div>
 
       {/* Form half */}
@@ -115,7 +116,7 @@ export default function AuthCard({
   );
 }
 
-function LoginContent({
+const LoginContent = ({
   activeProvider,
   end,
   isLoading,
@@ -129,67 +130,63 @@ function LoginContent({
   onGoogleStart: () => void;
   onRedditStart: () => void;
   onSwitch: () => void;
-}) {
-  return (
-    <>
-      <h2 className="mb-6 text-center font-bold text-3xl text-[#ff9500] sm:text-4xl">
-        Welcome Back
-      </h2>
+}) => (
+  <>
+    <h2 className="mb-6 text-center text-3xl font-bold text-[#ff9500] sm:text-4xl">
+      Welcome Back
+    </h2>
 
-      <div className="mb-3 grid grid-cols-1 gap-0 sm:grid-cols-2 md:gap-2">
-        <AuthButtonWrapper className="w-full">
-          <GoogleSignInButton
-            disabled={isLoading && activeProvider !== "google"}
-            loading={activeProvider === "google"}
-            onEnd={end}
-            onStart={onGoogleStart}
-          />
-        </AuthButtonWrapper>
-        <AuthButtonWrapper className="w-full">
-          <RedditSignInButton
-            disabled={isLoading && activeProvider !== "reddit"}
-            loading={activeProvider === "reddit"}
-            onEnd={end}
-            onStart={onRedditStart}
-          />
-        </AuthButtonWrapper>
-      </div>
-
-      <div className="my-4 flex items-center gap-3">
-        <div className="h-px flex-1 bg-muted" />
-        <span className="px-2 text-muted-foreground text-sm">OR</span>
-        <div className="h-px flex-1 bg-muted" />
-      </div>
-
-      <LoginForm />
-
-      <div className="mt-6 text-center">
-        <AnimatedAuthLink
-          href="/signup"
-          onSwitch={onSwitch}
-          text="Don't have an account? Sign Up"
+    <div className="mb-3 grid grid-cols-1 gap-0 sm:grid-cols-2 md:gap-2">
+      <AuthButtonWrapper className="w-full">
+        <GoogleSignInButton
+          disabled={isLoading && activeProvider !== "google"}
+          loading={activeProvider === "google"}
+          onEnd={end}
+          onStart={onGoogleStart}
         />
-      </div>
-    </>
-  );
-}
-
-function SignupContent({ onSwitch }: { onSwitch: () => void }) {
-  return (
-    <>
-      <h2 className="mb-6 text-center font-bold text-3xl text-[#ff9500] sm:text-4xl">
-        Launch Your Journey
-      </h2>
-
-      <SignUpForm />
-
-      <div className="mt-4 text-center">
-        <AnimatedAuthLink
-          href="/login"
-          onSwitch={onSwitch}
-          text="Already have an account? Login"
+      </AuthButtonWrapper>
+      <AuthButtonWrapper className="w-full">
+        <RedditSignInButton
+          disabled={isLoading && activeProvider !== "reddit"}
+          loading={activeProvider === "reddit"}
+          onEnd={end}
+          onStart={onRedditStart}
         />
-      </div>
-    </>
-  );
-}
+      </AuthButtonWrapper>
+    </div>
+
+    <div className="my-4 flex items-center gap-3">
+      <div className="bg-muted h-px flex-1" />
+      <span className="text-muted-foreground px-2 text-sm">OR</span>
+      <div className="bg-muted h-px flex-1" />
+    </div>
+
+    <LoginForm />
+
+    <div className="mt-6 text-center">
+      <AnimatedAuthLink
+        href="/signup"
+        onSwitch={onSwitch}
+        text="Don't have an account? Sign Up"
+      />
+    </div>
+  </>
+);
+
+const SignupContent = ({ onSwitch }: { onSwitch: () => void }) => (
+  <>
+    <h2 className="mb-6 text-center text-3xl font-bold text-[#ff9500] sm:text-4xl">
+      Launch Your Journey
+    </h2>
+
+    <SignUpForm />
+
+    <div className="mt-4 text-center">
+      <AnimatedAuthLink
+        href="/login"
+        onSwitch={onSwitch}
+        text="Already have an account? Login"
+      />
+    </div>
+  </>
+);

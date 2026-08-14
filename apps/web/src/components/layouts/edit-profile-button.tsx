@@ -3,6 +3,7 @@
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useCallback, useState } from "react";
+
 import EditProfileDialog from "@/components/layouts/edit-profile-dialog";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,7 @@ export default function EditProfileButton({
     <>
       <Button
         className={cn(
-          "h-9 rounded-full border-0 font-semibold text-sm transition-all duration-200 active:translate-y-px",
+          "h-9 rounded-full border-0 text-sm font-semibold transition-all duration-200 active:translate-y-px",
           "bg-gradient-to-b from-[#e4e7ec] to-[#c6ccd5] text-[#1c1f26]",
           "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1.5px_2px_rgba(255,255,255,0.9),0_0_0_1px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.05),0_2px_4px_rgba(0,0,0,0.06)]",
           "hover:brightness-105",

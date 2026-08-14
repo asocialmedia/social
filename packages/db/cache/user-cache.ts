@@ -48,241 +48,6 @@ function doesKeyContainSearchQuery(key: string, searchQuery: string): boolean {
 }
 
 export const userCache = {
-  async setUserStats(stats: CachedUserStats): Promise<void> {
-    try {
-      await redis.setex(
-        USER_STATS_CACHE_KEY,
-        USER_STATS_TTL,
-        JSON.stringify(stats)
-      );
-    } catch (error) {
-      console.error("Error caching user stats:", error);
-    }
-  },
-
-  async getUserStats(): Promise<CachedUserStats | null> {
-    try {
-      const cached = await redis.get(USER_STATS_CACHE_KEY);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-      return null;
-    } catch (error) {
-      console.error("Error getting cached user stats:", error);
-      return null;
-    }
-  },
-
-  generateUserListKey(
-    filters: Record<string, unknown>,
-    sortBy: string,
-    sortOrder: string,
-    limit: number
-  ): string {
-    const filterStr = JSON.stringify(filters);
-    return `${USER_LIST_CACHE_KEY_PREFIX}:${Buffer.from(filterStr).toString("base64")}:${sortBy}:${sortOrder}:${limit}`;
-  },
-
-  async setUserList(
-    key: string,
-    data: {
-      users: unknown[];
-      totalCount: number;
-      hasMore: boolean;
-      nextCursor?: string;
-    }
-  ): Promise<void> {
-    try {
-      const cacheData = {
-        ...data,
-        cachedAt: Date.now(),
-      };
-      await redis.setex(key, USER_LIST_TTL, JSON.stringify(cacheData));
-    } catch (error) {
-      console.error("Error caching user list:", error);
-    }
-  },
-
-  async getUserList(key: string): Promise<{
-    users: unknown[];
-    totalCount: number;
-    hasMore: boolean;
-    nextCursor?: string;
-    cachedAt: number;
-  } | null> {
-    try {
-      const cached = await redis.get(key);
-      if (cached) {
-        const data = JSON.parse(cached);
-
-        if (Date.now() - data.cachedAt < (USER_LIST_TTL - 60) * 1000) {
-          return data;
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error("Error getting cached user list:", error);
-      return null;
-    }
-  },
-
-  async setUserDetail(userId: string, userData: unknown): Promise<void> {
-    try {
-      await redis.setex(
-        `${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`,
-        USER_DETAIL_TTL,
-        JSON.stringify(userData)
-      );
-    } catch (error) {
-      console.error("Error caching user detail:", error);
-    }
-  },
-
-  async getUserDetail(userId: string): Promise<unknown | null> {
-    try {
-      const cached = await redis.get(
-        `${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`
-      );
-      if (cached) {
-        return JSON.parse(cached);
-      }
-      return null;
-    } catch (error) {
-      console.error("Error getting cached user detail:", error);
-      return null;
-    }
-  },
-
-  async invalidateUserStats(): Promise<void> {
-    try {
-      await redis.del(USER_STATS_CACHE_KEY);
-    } catch (error) {
-      console.error("Error invalidating user stats cache:", error);
-    }
-  },
-
-  async invalidateUserList(): Promise<void> {
-    try {
-      await this.scanAndDeleteKeys(`${USER_LIST_CACHE_KEY_PREFIX}:*`);
-    } catch (error) {
-      console.error("Error invalidating user list cache:", error);
-    }
-  },
-
-  async invalidateUserDetail(userId: string): Promise<void> {
-    try {
-      await redis.del(`${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`);
-    } catch (error) {
-      console.error("Error invalidating user detail cache:", error);
-    }
-  },
-
-  async scanAndDeleteKeys(pattern: string): Promise<void> {
-    const BATCH_SIZE = 100;
-
-    const scanBatch = async (cursor: number): Promise<void> => {
-      const [newCursor, keys] = await redis.scan(
-        cursor,
-        "MATCH",
-        pattern,
-        "COUNT",
-        BATCH_SIZE
-      );
-
-      if (keys.length > 0) {
-        const pipeline = redis.pipeline();
-        for (const key of keys) {
-          pipeline.del(key);
-        }
-        await pipeline.exec();
-      }
-
-      const nextCursor = Number.parseInt(newCursor, 10);
-      if (nextCursor !== 0) {
-        await scanBatch(nextCursor);
-      }
-    };
-
-    await scanBatch(0);
-  },
-
-  async invalidateAllUserCaches(userId?: string): Promise<void> {
-    try {
-      const pipeline = redis.pipeline();
-
-      pipeline.del(USER_STATS_CACHE_KEY);
-
-      if (userId) {
-        pipeline.del(`${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`);
-        await this.scanAndDeleteKeys(
-          `${USER_ACTIVITY_CACHE_KEY_PREFIX}:${userId}:*`
-        );
-      }
-
-      await pipeline.exec();
-    } catch (error) {
-      console.error("Error invalidating user caches:", error);
-    }
-  },
-
-  async setAnalytics(timeframe: string, data: unknown): Promise<void> {
-    try {
-      await redis.setex(
-        `${USER_ANALYTICS_CACHE_KEY_PREFIX}:${timeframe}`,
-        USER_ANALYTICS_TTL,
-        JSON.stringify(data)
-      );
-    } catch (error) {
-      console.error("Error caching analytics:", error);
-    }
-  },
-
-  async getAnalytics(timeframe: string): Promise<unknown | null> {
-    try {
-      const cached = await redis.get(
-        `${USER_ANALYTICS_CACHE_KEY_PREFIX}:${timeframe}`
-      );
-      if (cached) {
-        return JSON.parse(cached);
-      }
-      return null;
-    } catch (error) {
-      console.error("Error getting cached analytics:", error);
-      return null;
-    }
-  },
-
-  async setUserActivity(
-    userId: string,
-    days: number,
-    data: unknown
-  ): Promise<void> {
-    try {
-      await redis.setex(
-        `${USER_ACTIVITY_CACHE_KEY_PREFIX}:${userId}:${days}`,
-        USER_ACTIVITY_TTL,
-        JSON.stringify(data)
-      );
-    } catch (error) {
-      console.error("Error caching user activity:", error);
-    }
-  },
-
-  async getUserActivity(userId: string, days: number): Promise<unknown | null> {
-    try {
-      const cached = await redis.get(
-        `${USER_ACTIVITY_CACHE_KEY_PREFIX}:${userId}:${days}`
-      );
-      if (cached) {
-        return JSON.parse(cached);
-      }
-      return null;
-    } catch (error) {
-      console.error("Error getting cached user activity:", error);
-      return null;
-    }
-  },
-
   async checkRateLimit(
     userId: string
   ): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
@@ -327,6 +92,47 @@ export const userCache = {
     }
   },
 
+  generateSearchCacheKey(options: {
+    searchQuery: string;
+    filters: Record<string, unknown>;
+    sortBy: string;
+    sortOrder: string;
+    limit: number;
+    cursor?: string;
+  }): string {
+    const filterStr = JSON.stringify({
+      ...options.filters,
+      search: options.searchQuery,
+    });
+    const keyData = `${Buffer.from(filterStr).toString("base64")}:${options.sortBy}:${options.sortOrder}:${options.limit}:${options.cursor || "nocursor"}`;
+    return `${USER_SEARCH_CACHE_KEY_PREFIX}:${keyData}`;
+  },
+
+  generateUserListKey(
+    filters: Record<string, unknown>,
+    sortBy: string,
+    sortOrder: string,
+    limit: number
+  ): string {
+    const filterStr = JSON.stringify(filters);
+    return `${USER_LIST_CACHE_KEY_PREFIX}:${Buffer.from(filterStr).toString("base64")}:${sortBy}:${sortOrder}:${limit}`;
+  },
+
+  async getAnalytics(timeframe: string): Promise<unknown | null> {
+    try {
+      const cached = await redis.get(
+        `${USER_ANALYTICS_CACHE_KEY_PREFIX}:${timeframe}`
+      );
+      if (cached) {
+        return JSON.parse(cached);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting cached analytics:", error);
+      return null;
+    }
+  },
+
   async getRateLimitStatus(
     userId: string
   ): Promise<{ requests: number; remaining: number; resetTime: number }> {
@@ -344,51 +150,14 @@ export const userCache = {
       const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - requestCount);
       const resetTime = now + RATE_LIMIT_WINDOW;
 
-      return { requests: requestCount, remaining, resetTime };
+      return { remaining, requests: requestCount, resetTime };
     } catch (error) {
       console.error("Error getting rate limit status:", error);
       return {
-        requests: 0,
         remaining: RATE_LIMIT_MAX_REQUESTS,
+        requests: 0,
         resetTime: Math.floor(Date.now() / 1000) + RATE_LIMIT_WINDOW,
       };
-    }
-  },
-
-  generateSearchCacheKey(options: {
-    searchQuery: string;
-    filters: Record<string, unknown>;
-    sortBy: string;
-    sortOrder: string;
-    limit: number;
-    cursor?: string;
-  }): string {
-    const filterStr = JSON.stringify({
-      ...options.filters,
-      search: options.searchQuery,
-    });
-    const keyData = `${Buffer.from(filterStr).toString("base64")}:${options.sortBy}:${options.sortOrder}:${options.limit}:${options.cursor || "nocursor"}`;
-    return `${USER_SEARCH_CACHE_KEY_PREFIX}:${keyData}`;
-  },
-
-  async setSearchResult(
-    key: string,
-    data: {
-      users: unknown[];
-      totalCount: number;
-      hasMore: boolean;
-      nextCursor?: string;
-    }
-  ): Promise<void> {
-    try {
-      const cacheData = {
-        ...data,
-        cachedAt: Date.now(),
-        type: "search",
-      };
-      await redis.setex(key, USER_SEARCH_TTL, JSON.stringify(cacheData));
-    } catch (error) {
-      console.error("Error caching search result:", error);
     }
   },
 
@@ -415,6 +184,91 @@ export const userCache = {
     }
   },
 
+  async getUserActivity(userId: string, days: number): Promise<unknown | null> {
+    try {
+      const cached = await redis.get(
+        `${USER_ACTIVITY_CACHE_KEY_PREFIX}:${userId}:${days}`
+      );
+      if (cached) {
+        return JSON.parse(cached);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting cached user activity:", error);
+      return null;
+    }
+  },
+
+  async getUserDetail(userId: string): Promise<unknown | null> {
+    try {
+      const cached = await redis.get(
+        `${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`
+      );
+      if (cached) {
+        return JSON.parse(cached);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting cached user detail:", error);
+      return null;
+    }
+  },
+
+  async getUserList(key: string): Promise<{
+    users: unknown[];
+    totalCount: number;
+    hasMore: boolean;
+    nextCursor?: string;
+    cachedAt: number;
+  } | null> {
+    try {
+      const cached = await redis.get(key);
+      if (cached) {
+        const data = JSON.parse(cached);
+
+        if (Date.now() - data.cachedAt < (USER_LIST_TTL - 60) * 1000) {
+          return data;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting cached user list:", error);
+      return null;
+    }
+  },
+
+  async getUserStats(): Promise<CachedUserStats | null> {
+    try {
+      const cached = await redis.get(USER_STATS_CACHE_KEY);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting cached user stats:", error);
+      return null;
+    }
+  },
+
+  async invalidateAllUserCaches(userId?: string): Promise<void> {
+    try {
+      const pipeline = redis.pipeline();
+
+      pipeline.del(USER_STATS_CACHE_KEY);
+
+      if (userId) {
+        pipeline.del(`${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`);
+        await this.scanAndDeleteKeys(
+          `${USER_ACTIVITY_CACHE_KEY_PREFIX}:${userId}:*`
+        );
+      }
+
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error invalidating user caches:", error);
+    }
+  },
+
   async invalidateSearchCache(searchQuery?: string): Promise<void> {
     try {
       const allKeys = await redis.keys(`${USER_SEARCH_CACHE_KEY_PREFIX}:*`);
@@ -422,15 +276,9 @@ export const userCache = {
         return;
       }
 
-      let keysToDelete: string[];
-
-      if (searchQuery) {
-        keysToDelete = allKeys.filter((key) =>
-          doesKeyContainSearchQuery(key, searchQuery)
-        );
-      } else {
-        keysToDelete = allKeys;
-      }
+      const keysToDelete = searchQuery
+        ? allKeys.filter((key) => doesKeyContainSearchQuery(key, searchQuery))
+        : allKeys;
 
       if (keysToDelete.length > 0) {
         const batchSize = 100;
@@ -442,6 +290,152 @@ export const userCache = {
       }
     } catch (error) {
       console.error("Error invalidating search cache:", error);
+    }
+  },
+
+  async invalidateUserDetail(userId: string): Promise<void> {
+    try {
+      await redis.del(`${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`);
+    } catch (error) {
+      console.error("Error invalidating user detail cache:", error);
+    }
+  },
+
+  async invalidateUserList(): Promise<void> {
+    try {
+      await this.scanAndDeleteKeys(`${USER_LIST_CACHE_KEY_PREFIX}:*`);
+    } catch (error) {
+      console.error("Error invalidating user list cache:", error);
+    }
+  },
+
+  async invalidateUserStats(): Promise<void> {
+    try {
+      await redis.del(USER_STATS_CACHE_KEY);
+    } catch (error) {
+      console.error("Error invalidating user stats cache:", error);
+    }
+  },
+
+  async scanAndDeleteKeys(pattern: string): Promise<void> {
+    const BATCH_SIZE = 100;
+
+    const scanBatch = async (cursor: number): Promise<void> => {
+      const [newCursor, keys] = await redis.scan(
+        cursor,
+        "MATCH",
+        pattern,
+        "COUNT",
+        BATCH_SIZE
+      );
+
+      if (keys.length > 0) {
+        const pipeline = redis.pipeline();
+        for (const key of keys) {
+          pipeline.del(key);
+        }
+        await pipeline.exec();
+      }
+
+      const nextCursor = Math.trunc(Number(newCursor));
+      if (nextCursor !== 0) {
+        await scanBatch(nextCursor);
+      }
+    };
+
+    await scanBatch(0);
+  },
+
+  async setAnalytics(timeframe: string, data: unknown): Promise<void> {
+    try {
+      await redis.setex(
+        `${USER_ANALYTICS_CACHE_KEY_PREFIX}:${timeframe}`,
+        USER_ANALYTICS_TTL,
+        JSON.stringify(data)
+      );
+    } catch (error) {
+      console.error("Error caching analytics:", error);
+    }
+  },
+
+  async setSearchResult(
+    key: string,
+    data: {
+      users: unknown[];
+      totalCount: number;
+      hasMore: boolean;
+      nextCursor?: string;
+    }
+  ): Promise<void> {
+    try {
+      const cacheData = {
+        ...data,
+        cachedAt: Date.now(),
+        type: "search",
+      };
+      await redis.setex(key, USER_SEARCH_TTL, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error("Error caching search result:", error);
+    }
+  },
+
+  async setUserActivity(
+    userId: string,
+    days: number,
+    data: unknown
+  ): Promise<void> {
+    try {
+      await redis.setex(
+        `${USER_ACTIVITY_CACHE_KEY_PREFIX}:${userId}:${days}`,
+        USER_ACTIVITY_TTL,
+        JSON.stringify(data)
+      );
+    } catch (error) {
+      console.error("Error caching user activity:", error);
+    }
+  },
+
+  async setUserDetail(userId: string, userData: unknown): Promise<void> {
+    try {
+      await redis.setex(
+        `${USER_DETAIL_CACHE_KEY_PREFIX}:${userId}`,
+        USER_DETAIL_TTL,
+        JSON.stringify(userData)
+      );
+    } catch (error) {
+      console.error("Error caching user detail:", error);
+    }
+  },
+
+  async setUserList(
+    key: string,
+    data: {
+      users: unknown[];
+      totalCount: number;
+      hasMore: boolean;
+      nextCursor?: string;
+    }
+  ): Promise<void> {
+    try {
+      const cacheData = {
+        ...data,
+        cachedAt: Date.now(),
+      };
+      await redis.setex(key, USER_LIST_TTL, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error("Error caching user list:", error);
+    }
+  },
+
+  async setUserStats(stats: CachedUserStats): Promise<void> {
+    try {
+      await redis.setex(
+        USER_STATS_CACHE_KEY,
+        USER_STATS_TTL,
+        JSON.stringify(stats)
+      );
+    } catch (error) {
+      console.error("Error caching user stats:", error);
     }
   },
 };

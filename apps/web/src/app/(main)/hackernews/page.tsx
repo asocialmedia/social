@@ -1,12 +1,14 @@
 import { Suspense } from "react";
+
 import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
+
 import ClientHackerNews from "./client-hackernews";
 
 export const metadata = {
-  title: "HackerNews",
   description: "Explore the latest stories from HackerNews",
+  title: "HackerNews",
 };
 
 export default async function HackerNewsPage() {

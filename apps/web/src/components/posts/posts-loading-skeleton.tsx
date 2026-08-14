@@ -13,7 +13,7 @@ const STORY_SKELETON_IDS = [
 const POST_SKELETON_IDS = ["post-1", "post-2", "post-3"];
 
 const StoryCardSkeleton: React.FC = () => (
-  <Card className="h-[300px] w-[200px] shrink-0 overflow-hidden bg-card shadow-lg">
+  <Card className="bg-card h-[300px] w-[200px] shrink-0 overflow-hidden shadow-lg">
     <CardContent className="flex h-full flex-col overflow-x-hidden p-0">
       <Skeleton className="h-[220px] w-full" />
       <div className="flex flex-grow items-center space-x-2 p-3">
@@ -28,7 +28,7 @@ const StoryCardSkeleton: React.FC = () => (
 );
 
 const PostCardSkeleton: React.FC = () => (
-  <Card className="border-border border-t border-b bg-background">
+  <Card className="border-border bg-background border-t border-b">
     <CardContent className="p-4">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
@@ -57,8 +57,8 @@ const PostCardSkeleton: React.FC = () => (
 
 export default function PostsLoadingSkeleton() {
   return (
-    <main className="flex-1 overflow-y-auto bg-background p-6 pb-24">
-      <Card className="mb-8 bg-card shadow-lg">
+    <main className="bg-background flex-1 overflow-y-auto p-6 pb-24">
+      <Card className="bg-card mb-8 shadow-lg">
         <CardContent className="p-4">
           <Skeleton className="mb-2 h-8 w-48" />
           <Skeleton className="mb-4 h-4 w-full" />
@@ -70,7 +70,7 @@ export default function PostsLoadingSkeleton() {
         </CardContent>
       </Card>
 
-      <Card className="mb-8 bg-card shadow-lg">
+      <Card className="bg-card mb-8 shadow-lg">
         <CardContent className="p-4">
           <Skeleton className="mb-2 h-8 w-48" />
           <Skeleton className="mb-4 h-4 w-full" />

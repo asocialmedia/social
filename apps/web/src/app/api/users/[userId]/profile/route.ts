@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function PATCH(
@@ -12,6 +13,6 @@ export async function PATCH(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json();
-  await prisma.user.update({ where: { id: user.id }, data: body });
+  await prisma.user.update({ data: body, where: { id: user.id } });
   return Response.json({ success: true });
 }

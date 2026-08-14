@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+
 import kyInstance from "@/lib/ky";
 
 export function useHnBookmarkStates(storyIds: number[]) {
-  const uniqueIds = Array.from(new Set(storyIds));
+  const uniqueIds = [...new Set(storyIds)];
 
   return useQuery({
-    queryKey: ["hn-bookmark-states", uniqueIds],
+    enabled: uniqueIds.length > 0,
     queryFn: async () => {
       const response = await kyInstance
         .post("/api/hackernews/bookmark-states", {
@@ -14,8 +15,8 @@ export function useHnBookmarkStates(storyIds: number[]) {
         .json<{ bookmarked: Record<number, boolean> }>();
       return response.bookmarked;
     },
-    enabled: uniqueIds.length > 0,
-    staleTime: 30_000,
+    queryKey: ["hn-bookmark-states", uniqueIds],
     refetchOnWindowFocus: false,
+    staleTime: 30_000,
   });
 }

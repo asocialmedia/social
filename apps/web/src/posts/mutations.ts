@@ -1,13 +1,11 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { PostsPage } from "@asm/db";
-import {
-  type InfiniteData,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
+
 import { useToast } from "@/lib/gooey-toast";
+
 import { deletePost } from "./actions";
 
 export function useDeletePostMutation() {
@@ -20,6 +18,13 @@ export function useDeletePostMutation() {
 
   const mutation = useMutation({
     mutationFn: deletePost,
+    onError(error) {
+      clientLog.error(error);
+      toast({
+        description: "Couldn't delete that post, try again?",
+        variant: "destructive",
+      });
+    },
     onSuccess: async (deletedPost) => {
       const queryFilter = { queryKey: ["post-feed"] };
 
@@ -49,13 +54,6 @@ export function useDeletePostMutation() {
       if (pathname === `/posts/${deletedPost.id}`) {
         router.push(`/users/${deletedPost.user.username}`);
       }
-    },
-    onError(error) {
-      clientLog.error(error);
-      toast({
-        variant: "destructive",
-        description: "Couldn't delete that post, try again?",
-      });
     },
   });
 

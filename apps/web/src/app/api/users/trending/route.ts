@@ -1,4 +1,5 @@
 import { getUserDataSelect, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
@@ -7,12 +8,6 @@ export async function GET() {
     const userId = session?.user?.id;
 
     const trendingUsers = await prisma.user.findMany({
-      take: 6,
-      where: {
-        id: {
-          not: userId || undefined,
-        },
-      },
       orderBy: [
         {
           followers: {
@@ -26,6 +21,12 @@ export async function GET() {
         },
       ],
       select: getUserDataSelect(userId || ""),
+      take: 6,
+      where: {
+        id: {
+          not: userId || undefined,
+        },
+      },
     });
 
     return Response.json(trendingUsers);

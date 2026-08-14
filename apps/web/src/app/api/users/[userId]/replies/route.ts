@@ -1,9 +1,6 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  type PostData,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import type { PostData } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export interface UserRepliesPage {
@@ -40,23 +37,23 @@ export async function GET(
   const { userId } = await ctx.params;
 
   const comments = await prisma.comment.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
+    cursor: cursor ? { id: cursor } : undefined,
     include: {
-      user: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-        },
-      },
       post: {
         include: getPostDataInclude(user.id),
       },
+      user: {
+        select: {
+          avatarUrl: true,
+          displayName: true,
+          id: true,
+          username: true,
+        },
+      },
     },
+    orderBy: { createdAt: "desc" },
     take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
+    where: { userId },
   });
 
   const replies = comments.slice(0, pageSize);
@@ -71,8 +68,8 @@ export async function GET(
 
   const nextCursor = comments.length > pageSize ? comments[pageSize].id : null;
   const data: UserRepliesPage = {
-    replies: repliesWithHydratedPosts,
     nextCursor,
+    replies: repliesWithHydratedPosts,
   };
   return Response.json(data);
 }

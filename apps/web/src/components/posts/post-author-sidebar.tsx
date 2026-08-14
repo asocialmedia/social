@@ -8,6 +8,7 @@ import Link from "next/link";
 import type React from "react";
 import { useCallback, useMemo } from "react";
 import { MdPlayArrow } from "react-icons/md";
+
 import { useSession } from "@/app/(main)/session-provider";
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import FollowButton from "@/components/layouts/follow-button";
@@ -23,11 +24,11 @@ interface PostAuthorSidebarProps {
 
 const PostRowSkeleton: React.FC = () => (
   <div className="flex items-center gap-2.5 px-2.5 py-2">
-    <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-border/50" />
+    <div className="bg-border/50 h-12 w-12 shrink-0 animate-pulse rounded-lg" />
     <div className="min-w-0 flex-1 space-y-1.5">
-      <div className="h-3.5 w-full animate-pulse rounded-md bg-border/60" />
-      <div className="h-3.5 w-3/4 animate-pulse rounded-md bg-border/60" />
-      <div className="h-3 w-24 animate-pulse rounded-md bg-border/40" />
+      <div className="bg-border/60 h-3.5 w-full animate-pulse rounded-md" />
+      <div className="bg-border/60 h-3.5 w-3/4 animate-pulse rounded-md" />
+      <div className="bg-border/40 h-3 w-24 animate-pulse rounded-md" />
     </div>
   </div>
 );
@@ -128,10 +129,10 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
         <MediaThumb media={firstMedia} />
       ) : null}
       <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 font-medium text-sm leading-snug">
+        <span className="line-clamp-2 text-sm leading-snug font-medium">
           {post.content || "View post"}
         </span>
-        <span className="mt-1 flex items-center gap-2 text-muted-foreground text-xs transition-colors group-hover:text-inherit">
+        <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
             {getRelativeAgo(post.createdAt)}
           </span>
@@ -169,16 +170,16 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-author-posts", author.id, post.id],
-    queryFn: ({ pageParam }) =>
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
           `/api/users/${author.id}/posts`,
           pageParam ? { searchParams: { cursor: pageParam } } : undefined
         )
         .json<PostsPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["post-author-posts", author.id, post.id],
     staleTime: 1000 * 60,
   });
 
@@ -207,7 +208,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     );
   } else if (status === "error") {
     postsBody = (
-      <p className="px-3 py-2 text-muted-foreground text-sm">
+      <p className="text-muted-foreground px-3 py-2 text-sm">
         Couldn't load more posts.
       </p>
     );
@@ -228,14 +229,14 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     );
   } else {
     postsBody = (
-      <p className="px-3 py-2 text-muted-foreground text-sm">
+      <p className="text-muted-foreground px-3 py-2 text-sm">
         No other posts from @{author.username} yet.
       </p>
     );
   }
 
   return (
-    <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-border/60 border-l px-5 pt-2.5 pb-6 xl:flex">
+    <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
         {/* Author profile card */}
         <div className="sidebar-subcard rounded-2xl p-2">
@@ -252,32 +253,32 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                 <span className="block truncate font-bold group-hover:underline">
                   {author.displayName || author.username}
                 </span>
-                <span className="block truncate text-muted-foreground text-xs transition-colors group-hover:text-inherit">
+                <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                   @{author.username}
                 </span>
                 {author.bio ? (
-                  <span className="mt-1 line-clamp-2 block text-muted-foreground text-xs leading-snug">
+                  <span className="text-muted-foreground mt-1 line-clamp-2 block text-xs leading-snug">
                     {author.bio}
                   </span>
                 ) : null}
               </div>
             </div>
-            <div className="flex items-center gap-3 text-muted-foreground text-xs">
+            <div className="text-muted-foreground flex items-center gap-3 text-xs">
               <span>
-                <span className="font-semibold text-foreground">
+                <span className="text-foreground font-semibold">
                   {formatNumber(author._count.posts)}
                 </span>{" "}
                 Posts
               </span>
               <span>
-                <span className="font-semibold text-foreground">
+                <span className="text-foreground font-semibold">
                   {formatNumber(followerInfo.followers)}
                 </span>{" "}
                 Followers
               </span>
               <span className="flex items-center gap-1">
                 <Flame className="h-3.5 w-3.5 text-orange-500" />
-                <span className="font-semibold text-foreground">
+                <span className="text-foreground font-semibold">
                   {formatNumber(author.aura)}
                 </span>{" "}
                 Aura
@@ -310,13 +311,13 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               <Newspaper className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-sm leading-tight">More from</p>
-              <p className="truncate text-primary text-xs leading-tight">
+              <p className="text-sm leading-tight font-semibold">More from</p>
+              <p className="text-primary truncate text-xs leading-tight">
                 @{author.username}
               </p>
             </div>
             <Link
-              className="shrink-0 font-medium text-[11px] text-muted-foreground transition-colors hover:text-primary"
+              className="text-muted-foreground hover:text-primary shrink-0 text-[11px] font-medium transition-colors"
               href={`/users/${author.username}`}
             >
               View all

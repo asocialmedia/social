@@ -11,9 +11,11 @@ import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
+
 import { searchMutations } from "../search/mutations";
 import { SearchCommandList } from "../search/search-command-list";
 
@@ -37,7 +39,7 @@ export default function SearchField({
   const debouncedInput = useDebounce(input, 300);
 
   const { data: suggestions } = useQuery({
-    queryKey: ["search-suggestions", debouncedInput],
+    enabled: Boolean(debouncedInput),
     queryFn: () => {
       if (!debouncedInput) {
         return Promise.resolve([]);
@@ -48,31 +50,31 @@ export default function SearchField({
         })
         .json<SearchSuggestion[]>();
     },
-    enabled: Boolean(debouncedInput),
+    queryKey: ["search-suggestions", debouncedInput],
   });
 
   const { data: history } = useQuery({
-    queryKey: ["search-history"],
-    queryFn: async () =>
+    enabled: open,
+    queryFn: () =>
       kyInstance
         .get("/api/search", { searchParams: { type: "history" } })
         .json<string[]>(),
-    enabled: open,
+    queryKey: ["search-history"],
   });
 
   const { data: spotlight } = useQuery({
-    queryKey: ["search-spotlight", debouncedInput],
+    enabled: open && Boolean(debouncedInput),
     queryFn: (): Promise<SpotlightResponse> => {
       if (!debouncedInput) {
         return Promise.resolve({ posts: [], users: [] });
       }
       return kyInstance
         .get("/api/search/spotlight", {
-          searchParams: { q: debouncedInput, limit: "4" },
+          searchParams: { limit: "4", q: debouncedInput },
         })
         .json<SpotlightResponse>();
     },
-    enabled: open && Boolean(debouncedInput),
+    queryKey: ["search-spotlight", debouncedInput],
     staleTime: 15_000,
   });
 
@@ -174,11 +176,11 @@ export default function SearchField({
   return (
     <div className="relative w-full max-w-md">
       <form className="relative" onSubmit={handleSubmit}>
-        <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
         <Input
           aria-label="Search on Asocialmedia"
           autoComplete="off"
-          className="h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2 focus-visible:ring-primary"
+          className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
           onChange={handleChange}
           onFocus={handleFocus}
           placeholder="Search on Asocialmedia"

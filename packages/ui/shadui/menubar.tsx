@@ -8,37 +8,38 @@ import {
 // biome-ignore lint/performance/noNamespaceImport:ignore
 import * as MenubarPrimitive from "@radix-ui/react-menubar";
 import type * as React from "react";
+
 import { cn } from "../lib/utils";
 
-function MenubarMenu({
+const MenubarMenu = ({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.Menu>) {
-  return <MenubarPrimitive.Menu {...props} />;
-}
+}: React.ComponentProps<typeof MenubarPrimitive.Menu>) => (
+  <MenubarPrimitive.Menu {...props} />
+);
 
-function MenubarGroup({
+const MenubarGroup = ({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.Group>) {
-  return <MenubarPrimitive.Group {...props} />;
-}
+}: React.ComponentProps<typeof MenubarPrimitive.Group>) => (
+  <MenubarPrimitive.Group {...props} />
+);
 
-function MenubarPortal({
+const MenubarPortal = ({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.Portal>) {
-  return <MenubarPrimitive.Portal {...props} />;
-}
+}: React.ComponentProps<typeof MenubarPrimitive.Portal>) => (
+  <MenubarPrimitive.Portal {...props} />
+);
 
-function MenubarRadioGroup({
+const MenubarRadioGroup = ({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.RadioGroup>) {
-  return <MenubarPrimitive.RadioGroup {...props} />;
-}
+}: React.ComponentProps<typeof MenubarPrimitive.RadioGroup>) => (
+  <MenubarPrimitive.RadioGroup {...props} />
+);
 
-function MenubarSub({
+const MenubarSub = ({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.Sub>) {
-  return <MenubarPrimitive.Sub data-slot="menubar-sub" {...props} />;
-}
+}: React.ComponentProps<typeof MenubarPrimitive.Sub>) => (
+  <MenubarPrimitive.Sub data-slot="menubar-sub" {...props} />
+);
 
 const Menubar = ({
   className,
@@ -49,7 +50,7 @@ const Menubar = ({
 }) => (
   <MenubarPrimitive.Root
     className={cn(
-      "flex h-9 items-center space-x-1 rounded-md border bg-background p-1 shadow-xs",
+      "bg-background flex h-9 items-center space-x-1 rounded-md border p-1 shadow-xs",
       className
     )}
     ref={ref}
@@ -67,7 +68,7 @@ const MenubarTrigger = ({
 }) => (
   <MenubarPrimitive.Trigger
     className={cn(
-      "flex cursor-default select-none items-center rounded-xs px-3 py-1 font-medium text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground",
+      "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-xs px-3 py-1 text-sm font-medium outline-hidden select-none",
       className
     )}
     ref={ref}
@@ -89,7 +90,7 @@ const MenubarSubTrigger = ({
 }) => (
   <MenubarPrimitive.SubTrigger
     className={cn(
-      "flex cursor-default select-none items-center rounded-xs px-2 py-1.5 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground",
+      "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-xs px-2 py-1.5 text-sm outline-hidden select-none",
       inset && "pl-8",
       className
     )}
@@ -111,7 +112,7 @@ const MenubarSubContent = ({
 }) => (
   <MenubarPrimitive.SubContent
     className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=open]:animate-in",
+      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 bg-popover text-popover-foreground data-[state=closed]:animate-out data-[state=open]:animate-in z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg",
       className
     )}
     ref={ref}
@@ -135,7 +136,7 @@ const MenubarContent = ({
       align={align}
       alignOffset={alignOffset}
       className={cn(
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in",
+        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 bg-popover text-popover-foreground data-[state=open]:animate-in z-50 min-w-[12rem] overflow-hidden rounded-md border p-1 shadow-md",
         className
       )}
       ref={ref}
@@ -158,7 +159,7 @@ const MenubarItem = ({
 }) => (
   <MenubarPrimitive.Item
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-xs px-2 py-1.5 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       inset && "pl-8",
       className
     )}
@@ -182,7 +183,7 @@ const MenubarCheckboxItem = ({
   <MenubarPrimitive.CheckboxItem
     checked={checked}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     ref={ref}
@@ -208,7 +209,7 @@ const MenubarRadioItem = ({
 }) => (
   <MenubarPrimitive.RadioItem
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     ref={ref}
@@ -236,7 +237,7 @@ const MenubarLabel = ({
 }) => (
   <MenubarPrimitive.Label
     className={cn(
-      "px-2 py-1.5 font-semibold text-sm",
+      "px-2 py-1.5 text-sm font-semibold",
       inset && "pl-8",
       className
     )}
@@ -254,7 +255,7 @@ const MenubarSeparator = ({
   ref?: React.Ref<React.ElementRef<typeof MenubarPrimitive.Separator> | null>;
 }) => (
   <MenubarPrimitive.Separator
-    className={cn("-mx-1 my-1 h-px bg-muted", className)}
+    className={cn("bg-muted -mx-1 my-1 h-px", className)}
     ref={ref}
     {...props}
   />
@@ -267,7 +268,7 @@ const MenubarShortcut = ({
 }: React.HTMLAttributes<HTMLSpanElement>) => (
   <span
     className={cn(
-      "ml-auto text-muted-foreground text-xs tracking-widest",
+      "text-muted-foreground ml-auto text-xs tracking-widest",
       className
     )}
     {...props}

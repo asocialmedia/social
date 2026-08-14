@@ -5,10 +5,13 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+
 import "cropperjs/dist/cropper.css";
 import { Crop, ImagePlus } from "lucide-react";
 import { useCallback, useRef } from "react";
-import { Cropper, type ReactCropperElement } from "react-cropper";
+import { Cropper } from "react-cropper";
+import type { ReactCropperElement } from "react-cropper";
+
 import { cn } from "@/lib/utils";
 
 const ORANGE_GRADIENT_CLASS =
@@ -49,7 +52,7 @@ export default function CropImageDialog({
         onClick={handleContentClick}
       >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
-          <DialogTitle className="flex items-center gap-2 font-semibold text-base">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <div
               className={cn(
                 "flex h-7 w-7 items-center justify-center rounded-lg",
@@ -60,13 +63,13 @@ export default function CropImageDialog({
             </div>
             Crop Image
           </DialogTitle>
-          <DialogDescription className="mt-1 text-muted-foreground text-xs">
+          <DialogDescription className="text-muted-foreground mt-1 text-xs">
             Adjust your photo before saving
           </DialogDescription>
         </div>
 
         <div className="px-5 pb-5">
-          <div className="overflow-hidden rounded-xl border border-border/60 bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
+          <div className="border-border/60 overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
             <Cropper
               aspectRatio={cropAspectRatio}
               className="mx-auto size-fit"
@@ -79,7 +82,7 @@ export default function CropImageDialog({
 
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Button
-              className="pill-3d-hover h-10 w-full rounded-xl text-muted-foreground"
+              className="pill-3d-hover text-muted-foreground h-10 w-full rounded-xl"
               onClick={onClose}
               variant="outline"
             >

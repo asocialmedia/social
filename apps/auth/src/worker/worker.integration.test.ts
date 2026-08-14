@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+
 import {
   ensureStreamGroups,
   POST_VIEWS_KEY_PREFIX,
@@ -8,6 +9,7 @@ import {
   redis,
   unreadNotificationCache,
 } from "@asm/db";
+
 import { processExpiredTokens, processPostDeleted } from "./jobs";
 import { computeViewAura } from "./view-flush";
 
@@ -15,8 +17,8 @@ const POST_ID = "cmsoxrlww0000m3vnr2xf0v6h";
 
 async function resetPostCounters() {
   await prisma.post.update({
+    data: { aura: 0, lastAwardedViewCount: 0, viewCount: 0 },
     where: { id: POST_ID },
-    data: { viewCount: 0, lastAwardedViewCount: 0, aura: 0 },
   });
   await redis.del(`${POST_VIEWS_KEY_PREFIX}${POST_ID}`);
   await redis.srem(POST_VIEWS_SET, POST_ID);

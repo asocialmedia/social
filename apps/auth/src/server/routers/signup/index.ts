@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
+
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma, redis } from "@asm/db";
 import { env } from "@root/env";
 import { z } from "zod";
+
 import { auth } from "@/auth/config";
 import { sendVerificationOTP } from "@/email/service";
+
 import { procedure, router } from "../../trpc";
 import { emailRouter } from "../email";
 
@@ -44,8 +47,8 @@ async function verifyEmailOtp(
   try {
     await prisma.verification.deleteMany({
       where: {
-        identifier: { equals: betterAuthIdentifier, mode: "insensitive" },
         expiresAt: { lt: new Date() },
+        identifier: { equals: betterAuthIdentifier, mode: "insensitive" },
       },
     });
   } catch (cleanupError) {
@@ -53,16 +56,16 @@ async function verifyEmailOtp(
   }
 
   const allVerifications = await prisma.verification.findMany({
+    select: { expiresAt: true, id: true, identifier: true, value: true },
     where: {
-      identifier: { equals: betterAuthIdentifier, mode: "insensitive" },
       expiresAt: { gte: new Date() },
+      identifier: { equals: betterAuthIdentifier, mode: "insensitive" },
     },
-    select: { identifier: true, value: true, expiresAt: true, id: true },
   });
 
   debugLog.api("verifyEmailOtp:lookup", {
-    emailLower,
     betterAuthIdentifier,
+    emailLower,
     recordCount: allVerifications.length,
   });
 
@@ -73,9 +76,9 @@ async function verifyEmailOtp(
 
   if (!v) {
     debugLog.api("verifyEmailOtp:not-found", {
+      betterAuthIdentifier,
       emailLower,
       otp,
-      betterAuthIdentifier,
     });
     return false;
   }
@@ -112,8 +115,8 @@ async function sendSignupVerificationOTP(email: string): Promise<boolean> {
     const result = await sendVerificationOTP(email, otp);
     debugLog.api("sendSignupVerificationOTP:result", {
       email,
-      success: result.success,
       error: result.error,
+      success: result.success,
     });
 
     return result.success;
@@ -187,7 +190,7 @@ async function checkRateLimit(
     const results = await multi.exec();
 
     if (!results) {
-      debugLog.api("rate:redis-error", { kind, ip, emailLower });
+      debugLog.api("rate:redis-error", { emailLower, ip, kind });
       return { allowed: false, remaining: 0, resetTime: now + 60 };
     }
 
@@ -202,10 +205,10 @@ async function checkRateLimit(
     if (!(globalIpAllowed && globalEmailAllowed)) {
       const resetTime = now + ttl;
       debugLog.api(`rate:global-exceeded:${kind}`, {
-        ip,
         emailLower,
-        globalIpCount,
         globalEmailCount,
+        globalIpCount,
+        ip,
         resetTime,
       });
       return { allowed: false, remaining: 0, resetTime };
@@ -219,10 +222,10 @@ async function checkRateLimit(
     if (!(actionIpAllowed && actionEmailAllowed)) {
       const resetTime = now + RATE_ACTION_WINDOW_SECONDS;
       debugLog.api(`rate:action-exceeded:${kind}`, {
-        ip,
-        emailLower,
-        actionIpCount,
         actionEmailCount,
+        actionIpCount,
+        emailLower,
+        ip,
         resetTime,
       });
       return { allowed: false, remaining: 0, resetTime };
@@ -239,18 +242,18 @@ async function checkRateLimit(
     const remaining = Math.min(globalRemaining, actionRemaining);
 
     debugLog.api(`rate:allowed:${kind}`, {
-      ip,
-      emailLower,
-      globalIpCount,
-      globalEmailCount,
-      actionIpCount,
       actionEmailCount,
+      actionIpCount,
+      emailLower,
+      globalEmailCount,
+      globalIpCount,
+      ip,
       remaining,
     });
 
     return { allowed: true, remaining, resetTime: now + ttl };
   } catch (error) {
-    debugLog.api("rate:error", { kind, ip, emailLower, error: String(error) });
+    debugLog.api("rate:error", { emailLower, error: String(error), ip, kind });
     return { allowed: false, remaining: 0, resetTime: now + 60 };
   }
 }
@@ -288,10 +291,10 @@ async function checkAccountCreationRateLimit(
     if (!(ipAllowed && emailAllowed)) {
       const resetTime = now + ttl;
       debugLog.api("rate:creation-exceeded", {
-        ip,
-        emailLower,
-        ipCount,
         emailCount,
+        emailLower,
+        ip,
+        ipCount,
         resetTime,
       });
       return { allowed: false, remaining: 0, resetTime };
@@ -304,9 +307,9 @@ async function checkAccountCreationRateLimit(
     return { allowed: true, remaining, resetTime: now + ttl };
   } catch (error) {
     debugLog.api("rate:creation-error", {
-      ip,
       emailLower,
       error: String(error),
+      ip,
     });
     return { allowed: false, remaining: 0, resetTime: now + 60 };
   }
@@ -324,17 +327,17 @@ async function findExistingSignupUser(
   username: string
 ): Promise<ExistingSignupUser | null> {
   return await prisma.user.findFirst({
-    where: {
-      OR: [
-        { email: { equals: emailLower, mode: "insensitive" } },
-        { username: { equals: username, mode: "insensitive" } },
-      ],
-    },
     select: {
       email: true,
       id: true,
       passwordHash: true,
       username: true,
+    },
+    where: {
+      OR: [
+        { email: { equals: emailLower, mode: "insensitive" } },
+        { username: { equals: username, mode: "insensitive" } },
+      ],
     },
   });
 }
@@ -347,11 +350,11 @@ async function repairMissingCredentialsInDevelopment(user: ExistingSignupUser) {
   const accountId = user.email.toLowerCase();
   const password = user.passwordHash;
   const existingAccounts = await prisma.account.findMany({
-    where: {
-      userId: user.id,
-      providerId: { in: ["email", "credential"] },
-    },
     select: { providerId: true },
+    where: {
+      providerId: { in: ["email", "credential"] },
+      userId: user.id,
+    },
   });
 
   const providerIds = new Set(
@@ -361,10 +364,10 @@ async function repairMissingCredentialsInDevelopment(user: ExistingSignupUser) {
   if (!providerIds.has("email")) {
     await prisma.account.create({
       data: {
-        userId: user.id,
-        providerId: "email",
         accountId,
         password,
+        providerId: "email",
+        userId: user.id,
       },
     });
   }
@@ -372,10 +375,10 @@ async function repairMissingCredentialsInDevelopment(user: ExistingSignupUser) {
   if (!providerIds.has("credential")) {
     await prisma.account.create({
       data: {
-        userId: user.id,
-        providerId: "credential",
         accountId,
         password,
+        providerId: "credential",
+        userId: user.id,
       },
     });
   }
@@ -403,10 +406,10 @@ async function ensureExistingSignupUserIsConsistent(
 
 function userExistsResponse() {
   return {
-    success: false,
     error: "user-exists",
     message:
       "An account with this email or username already exists. Try logging in or use Forgot Password.",
+    success: false,
   } as const;
 }
 
@@ -419,8 +422,8 @@ async function writePendingSignup(
   await redis.set(key, JSON.stringify(payload), "EX", PENDING_TTL_SECONDS);
   await redis.set(emailKey, token, "EX", PENDING_TTL_SECONDS);
   debugLog.api("pending:redis-set", {
-    key,
     emailKey,
+    key,
     ttl: PENDING_TTL_SECONDS,
   });
 }
@@ -472,14 +475,14 @@ async function createAccountImmediatelyInDevelopment(
   try {
     const user = await prisma.user.create({
       data: {
-        email: payload.email,
-        username: payload.username,
         displayName: payload.displayName,
         displayUsername: payload.username,
-        passwordHash: payload.passwordHash,
+        email: payload.email,
         emailVerified: true,
         emailVerifiedAt: new Date(),
+        passwordHash: payload.passwordHash,
         role: "user",
+        username: payload.username,
       },
       select: { id: true },
     });
@@ -489,20 +492,20 @@ async function createAccountImmediatelyInDevelopment(
 
     await prisma.account.create({
       data: {
-        userId: user.id,
-        providerId: "email",
         accountId: emailLower,
         password: passwordHash,
+        providerId: "email",
+        userId: user.id,
       },
     });
 
     await prisma.account
       .create({
         data: {
-          userId: user.id,
-          providerId: "credential",
           accountId: emailLower,
           password: passwordHash,
+          providerId: "credential",
+          userId: user.id,
         },
       })
       .catch(() => {
@@ -518,13 +521,13 @@ async function createAccountImmediatelyInDevelopment(
     });
 
     return {
-      success: true,
       requiresEmailVerification: false,
+      success: true,
       userId: user.id,
     } as const;
   } catch (devCreateError) {
     if (isPrismaUniqueConstraintError(devCreateError)) {
-      return { success: false, error: "user-exists" } as const;
+      return { error: "user-exists", success: false } as const;
     }
 
     debugLog.api("pendingSignupStart:dev-create-error", {
@@ -533,124 +536,12 @@ async function createAccountImmediatelyInDevelopment(
           ? devCreateError.message
           : String(devCreateError),
     });
-    return { success: false, error: "server-error" } as const;
+    return { error: "server-error", success: false } as const;
   }
 }
 
 export const signupRouter = router({
-  pendingSignupStart: procedure
-    .input(
-      z.object({
-        email: z.email(),
-        username: z.string().min(3).max(32),
-        password: z.string().min(8),
-        displayName: z.string().min(1).max(64),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      debugLog.api("pendingSignupStart:begin", {
-        email: input.email,
-        username: input.username,
-      });
-      try {
-        const ip = getClientIpFromHeaders(
-          ctx?.req?.headers as Headers | undefined
-        );
-        const rateCheck = await checkRateLimit(
-          "start",
-          ip,
-          input.email.toLowerCase()
-        );
-        if (!rateCheck.allowed) {
-          return {
-            success: false,
-            error: "rate-limited",
-            remaining: rateCheck.remaining,
-            resetTime: rateCheck.resetTime,
-          } as const;
-        }
-
-        const existingUser = await findExistingSignupUser(
-          input.email,
-          input.username
-        );
-        debugLog.api("pendingSignupStart:existing", {
-          exists: Boolean(existingUser),
-          userId: existingUser?.id,
-        });
-        if (existingUser) {
-          await ensureExistingSignupUserIsConsistent(existingUser);
-          return userExistsResponse();
-        }
-
-        const creationRateCheck = await checkAccountCreationRateLimit(
-          ip,
-          input.email.toLowerCase()
-        );
-        if (!creationRateCheck.allowed) {
-          debugLog.api("pendingSignupStart:creation-rate-limited", {
-            email: input.email,
-            ip,
-          });
-          return {
-            success: false,
-            error: "rate-limited",
-            remaining: creationRateCheck.remaining,
-            resetTime: creationRateCheck.resetTime,
-          } as const;
-        }
-
-        const hashedPassword = await hashPasswordWithScrypt(input.password);
-        debugLog.api("pendingSignupStart:hash-done");
-
-        const token = randomUUID();
-        const payload: PendingSignup = {
-          email: input.email,
-          username: input.username,
-          passwordHash: hashedPassword,
-          displayName: input.displayName,
-          password: input.password,
-        };
-
-        await writePendingSignup(token, payload);
-
-        if (env.NODE_ENV === "development") {
-          return await createAccountImmediatelyInDevelopment(
-            { email: input.email, username: input.username },
-            payload,
-            token
-          );
-        }
-
-        try {
-          const otpSent = await sendSignupVerificationOTP(input.email);
-
-          if (!otpSent) {
-            debugLog.api("pendingSignupStart:otp-send-failed", {
-              email: input.email,
-            });
-          }
-        } catch (otpError) {
-          debugLog.api("pendingSignupStart:otp-error", {
-            error:
-              otpError instanceof Error ? otpError.message : String(otpError),
-          });
-          debugLog.api("pendingSignupStart:otp-send-failed", {
-            email: input.email,
-            error:
-              otpError instanceof Error ? otpError.message : String(otpError),
-          });
-        }
-
-        debugLog.api("pendingSignupStart:done");
-        return { success: true, requiresEmailVerification: true } as const;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        debugLog.api("pendingSignupStart:error", { message });
-        console.error("pendingSignupStart:error", message);
-        return { success: false, error: "server-error" } as const;
-      }
-    }),
+  email: emailRouter,
 
   pendingSignupResend: procedure
     .input(z.object({ email: z.string().email() }))
@@ -665,17 +556,17 @@ export const signupRouter = router({
       );
       if (!rateCheck.allowed) {
         return {
-          success: false,
           error: "rate-limited",
           remaining: rateCheck.remaining,
           resetTime: rateCheck.resetTime,
+          success: false,
         } as const;
       }
       const emailKey = `${PENDING_PREFIX}email:${input.email.toLowerCase()}`;
       const token = await redis.get(emailKey);
       debugLog.api("pendingSignupResend:lookup", { found: Boolean(token) });
       if (!token) {
-        return { success: false, error: "not-found" } as const;
+        return { error: "not-found", success: false } as const;
       }
       try {
         const otpSent = await sendSignupVerificationOTP(input.email);
@@ -712,27 +603,141 @@ export const signupRouter = router({
       const rateCheck = await checkRateLimit("resend", ip, emailLower);
       if (!rateCheck.allowed) {
         return {
-          success: false,
           error: "rate-limited",
           remaining: rateCheck.remaining,
           resetTime: rateCheck.resetTime,
+          success: false,
         } as const;
       }
 
       const emailKey = `${PENDING_PREFIX}email:${emailLower}`;
       const token = await redis.get(emailKey);
       if (!token) {
-        return { success: false, error: "no-pending-signup" } as const;
+        return { error: "no-pending-signup", success: false } as const;
       }
       try {
         await _sendVerificationEmailSafe(emailLower, token);
         debugLog.api("pendingSignupSendLink:sent");
         return { success: true } as const;
-      } catch (e) {
+      } catch (error) {
         debugLog.api("pendingSignupSendLink:error", {
-          message: e instanceof Error ? e.message : String(e),
+          message: error instanceof Error ? error.message : String(error),
         });
-        return { success: false, error: "server-error" } as const;
+        return { error: "server-error", success: false } as const;
+      }
+    }),
+
+  pendingSignupStart: procedure
+    .input(
+      z.object({
+        displayName: z.string().min(1).max(64),
+        email: z.email(),
+        password: z.string().min(8),
+        username: z.string().min(3).max(32),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      debugLog.api("pendingSignupStart:begin", {
+        email: input.email,
+        username: input.username,
+      });
+      try {
+        const ip = getClientIpFromHeaders(
+          ctx?.req?.headers as Headers | undefined
+        );
+        const rateCheck = await checkRateLimit(
+          "start",
+          ip,
+          input.email.toLowerCase()
+        );
+        if (!rateCheck.allowed) {
+          return {
+            error: "rate-limited",
+            remaining: rateCheck.remaining,
+            resetTime: rateCheck.resetTime,
+            success: false,
+          } as const;
+        }
+
+        const existingUser = await findExistingSignupUser(
+          input.email,
+          input.username
+        );
+        debugLog.api("pendingSignupStart:existing", {
+          exists: Boolean(existingUser),
+          userId: existingUser?.id,
+        });
+        if (existingUser) {
+          await ensureExistingSignupUserIsConsistent(existingUser);
+          return userExistsResponse();
+        }
+
+        const creationRateCheck = await checkAccountCreationRateLimit(
+          ip,
+          input.email.toLowerCase()
+        );
+        if (!creationRateCheck.allowed) {
+          debugLog.api("pendingSignupStart:creation-rate-limited", {
+            email: input.email,
+            ip,
+          });
+          return {
+            error: "rate-limited",
+            remaining: creationRateCheck.remaining,
+            resetTime: creationRateCheck.resetTime,
+            success: false,
+          } as const;
+        }
+
+        const hashedPassword = await hashPasswordWithScrypt(input.password);
+        debugLog.api("pendingSignupStart:hash-done");
+
+        const token = randomUUID();
+        const payload: PendingSignup = {
+          displayName: input.displayName,
+          email: input.email,
+          password: input.password,
+          passwordHash: hashedPassword,
+          username: input.username,
+        };
+
+        await writePendingSignup(token, payload);
+
+        if (env.NODE_ENV === "development") {
+          return await createAccountImmediatelyInDevelopment(
+            { email: input.email, username: input.username },
+            payload,
+            token
+          );
+        }
+
+        try {
+          const otpSent = await sendSignupVerificationOTP(input.email);
+
+          if (!otpSent) {
+            debugLog.api("pendingSignupStart:otp-send-failed", {
+              email: input.email,
+            });
+          }
+        } catch (otpError) {
+          debugLog.api("pendingSignupStart:otp-error", {
+            error:
+              otpError instanceof Error ? otpError.message : String(otpError),
+          });
+          debugLog.api("pendingSignupStart:otp-send-failed", {
+            email: input.email,
+            error:
+              otpError instanceof Error ? otpError.message : String(otpError),
+          });
+        }
+
+        debugLog.api("pendingSignupStart:done");
+        return { requiresEmailVerification: true, success: true } as const;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        debugLog.api("pendingSignupStart:error", { message });
+        console.error("pendingSignupStart:error", message);
+        return { error: "server-error", success: false } as const;
       }
     }),
 
@@ -756,26 +761,24 @@ export const signupRouter = router({
 
       if ("otpVerified" in input && input.email && input.otp) {
         debugLog.api("pendingSignupVerify:otp-verification-start");
-        cleanupExpiredVerifications().catch(() => {
-          // Don't block on cleanup failure
-        });
+        void cleanupExpiredVerifications();
 
         const emailLower = input.email.toLowerCase();
         const otpIsValid = await verifyEmailOtp(emailLower, input.otp);
         if (!otpIsValid) {
-          return { success: false, error: "invalid-otp" } as const;
+          return { error: "invalid-otp", success: false } as const;
         }
 
         const emailKey = `${PENDING_PREFIX}email:${input.email.toLowerCase()}`;
         const token = await redis.get(emailKey);
         if (!token) {
-          return { success: false, error: "no-pending-signup" } as const;
+          return { error: "no-pending-signup", success: false } as const;
         }
 
         const pendingKey = `${PENDING_PREFIX}${token}`;
         const raw = await redis.get(pendingKey);
         if (!raw) {
-          return { success: false, error: "no-pending-signup" } as const;
+          return { error: "no-pending-signup", success: false } as const;
         }
 
         try {
@@ -783,10 +786,11 @@ export const signupRouter = router({
 
           if (pendingData.email.toLowerCase() !== input.email.toLowerCase()) {
             debugLog.api("pendingSignupVerify:email-mismatch");
-            return { success: false, error: "invalid-request" } as const;
+            return { error: "invalid-request", success: false } as const;
           }
 
           const existing = await prisma.user.findFirst({
+            select: { id: true },
             where: {
               OR: [
                 { email: { equals: pendingData.email, mode: "insensitive" } },
@@ -798,14 +802,13 @@ export const signupRouter = router({
                 },
               ],
             },
-            select: { id: true },
           });
           debugLog.api("pendingSignupVerify:existing", {
             exists: Boolean(existing),
           });
           if (existing) {
             await redis.del(pendingKey);
-            return { success: false, error: "user-exists" } as const;
+            return { error: "user-exists", success: false } as const;
           }
 
           try {
@@ -847,14 +850,14 @@ export const signupRouter = router({
 
           const user = await prisma.user.create({
             data: {
-              email: pendingData.email,
-              username: pendingData.username,
               displayName: pendingData.displayName,
               displayUsername: pendingData.username,
-              passwordHash: pendingData.passwordHash,
+              email: pendingData.email,
               emailVerified: true,
               emailVerifiedAt: new Date(),
+              passwordHash: pendingData.passwordHash,
               role: "user",
+              username: pendingData.username,
             },
             select: { id: true },
           });
@@ -868,29 +871,29 @@ export const signupRouter = router({
 
             await prisma.account.create({
               data: {
-                userId: user.id,
-                providerId: "email",
                 accountId: pendingEmailLower,
                 password: passwordObj,
+                providerId: "email",
+                userId: user.id,
               },
             });
 
             await prisma.account
               .create({
                 data: {
-                  userId: user.id,
-                  providerId: "credential",
                   accountId: pendingEmailLower,
                   password: passwordObj,
+                  providerId: "credential",
+                  userId: user.id,
                 },
               })
               .catch(() => {
                 /* ignore errors, account might already exist */
               });
             debugLog.api("pendingSignupVerify:account-created");
-          } catch (e) {
+          } catch (error) {
             debugLog.api("pendingSignupVerify:account-create-error", {
-              message: e instanceof Error ? e.message : String(e),
+              message: error instanceof Error ? error.message : String(error),
             });
           }
 
@@ -898,13 +901,13 @@ export const signupRouter = router({
           debugLog.api("pendingSignupVerify:redis-del");
 
           return {
+            email: pendingData.email,
             success: true,
             userId: user.id,
-            email: pendingData.email,
           } as const;
         } catch {
           debugLog.api("pendingSignupVerify:parse-error");
-          return { success: false, error: "no-pending-signup" } as const;
+          return { error: "no-pending-signup", success: false } as const;
         }
       }
 
@@ -912,36 +915,36 @@ export const signupRouter = router({
 
       if (!(data && key)) {
         const errorType = "invalid-token";
-        return { success: false, error: errorType } as const;
+        return { error: errorType, success: false } as const;
       }
 
       const existing = await prisma.user.findFirst({
+        select: { id: true },
         where: {
           OR: [
             { email: { equals: data.email, mode: "insensitive" } },
             { username: { equals: data.username, mode: "insensitive" } },
           ],
         },
-        select: { id: true },
       });
       debugLog.api("pendingSignupVerify:existing", {
         exists: Boolean(existing),
       });
       if (existing) {
         await redis.del(key);
-        return { success: false, error: "user-exists" } as const;
+        return { error: "user-exists", success: false } as const;
       }
 
       const user = await prisma.user.create({
         data: {
-          email: data.email,
-          username: data.username,
           displayName: data.displayName,
           displayUsername: data.username,
-          passwordHash: data.passwordHash,
+          email: data.email,
           emailVerified: true,
           emailVerifiedAt: new Date(),
+          passwordHash: data.passwordHash,
           role: "user",
+          username: data.username,
         },
         select: { id: true },
       });
@@ -953,29 +956,29 @@ export const signupRouter = router({
 
         await prisma.account.create({
           data: {
-            userId: user.id,
-            providerId: "email",
             accountId: emailLower,
             password,
+            providerId: "email",
+            userId: user.id,
           },
         });
 
         await prisma.account
           .create({
             data: {
-              userId: user.id,
-              providerId: "credential",
               accountId: emailLower,
               password,
+              providerId: "credential",
+              userId: user.id,
             },
           })
           .catch(() => {
             /* ignore errors, account might already exist */
           });
         debugLog.api("pendingSignupVerify:account-created");
-      } catch (e) {
+      } catch (error) {
         debugLog.api("pendingSignupVerify:account-exists-or-error", {
-          message: e instanceof Error ? e.message : String(e),
+          message: error instanceof Error ? error.message : String(error),
         });
       }
 
@@ -1015,12 +1018,10 @@ export const signupRouter = router({
       }
 
       return {
-        success: true,
-        userId: user.id,
         email: data.email,
         password: data.password,
+        success: true,
+        userId: user.id,
       } as const;
     }),
-
-  email: emailRouter,
 });

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DELETE, GET, POST } from "./route";
+
 const POST_ID = "post1";
 const AUTHOR_ID = "author1";
 const BOOKMARKER_ID = "bookmarker1";
@@ -9,9 +11,9 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 }));
 
 const state = {
-  bookmarkerAura: 0,
-  authorAura: 0,
   auraLogs: [] as Record<string, unknown>[],
+  authorAura: 0,
+  bookmarkerAura: 0,
   isBookmarked: false as boolean,
 };
 
@@ -23,6 +25,14 @@ function resetState() {
 }
 
 const mockTx = {
+  auraLog: {
+    create: (args: { data: Record<string, unknown> }) => {
+      state.auraLogs.push(args.data);
+    },
+    // Simulates that the deleted bookmark was created after this feature
+    // shipped and therefore earned aura.
+    findFirst: () => ({ id: "log-1" }),
+  },
   bookmark: {
     create: () => {
       state.isBookmarked = true;
@@ -46,14 +56,6 @@ const mockTx = {
         state.authorAura += delta;
       }
     },
-  },
-  auraLog: {
-    create: (args: { data: Record<string, unknown> }) => {
-      state.auraLogs.push(args.data);
-    },
-    // Simulates that the deleted bookmark was created after this feature
-    // shipped and therefore earned aura.
-    findFirst: () => ({ id: "log-1" }),
   },
 };
 
@@ -85,8 +87,6 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { DELETE, GET, POST } from "./route";
 
 const context = { params: Promise.resolve({ postId: POST_ID }) };
 
@@ -130,18 +130,18 @@ describe("POST /api/posts/[postId]/bookmark", () => {
     expect(state.authorAura).toBe(1);
     expect(state.auraLogs).toEqual([
       {
-        userId: BOOKMARKER_ID,
-        issuerId: BOOKMARKER_ID,
         amount: 1,
-        type: "POST_BOOKMARKED",
+        issuerId: BOOKMARKER_ID,
         postId: POST_ID,
+        type: "POST_BOOKMARKED",
+        userId: BOOKMARKER_ID,
       },
       {
-        userId: AUTHOR_ID,
-        issuerId: BOOKMARKER_ID,
         amount: 1,
-        type: "POST_BOOKMARK_RECEIVED",
+        issuerId: BOOKMARKER_ID,
         postId: POST_ID,
+        type: "POST_BOOKMARK_RECEIVED",
+        userId: AUTHOR_ID,
       },
     ]);
   });
@@ -192,18 +192,18 @@ describe("DELETE /api/posts/[postId]/bookmark", () => {
     expect(state.authorAura).toBe(0);
     expect(state.auraLogs).toEqual([
       {
-        userId: BOOKMARKER_ID,
-        issuerId: BOOKMARKER_ID,
         amount: -1,
-        type: "POST_BOOKMARKED",
+        issuerId: BOOKMARKER_ID,
         postId: POST_ID,
+        type: "POST_BOOKMARKED",
+        userId: BOOKMARKER_ID,
       },
       {
-        userId: AUTHOR_ID,
-        issuerId: BOOKMARKER_ID,
         amount: -1,
-        type: "POST_BOOKMARK_RECEIVED",
+        issuerId: BOOKMARKER_ID,
         postId: POST_ID,
+        type: "POST_BOOKMARK_RECEIVED",
+        userId: AUTHOR_ID,
       },
     ]);
   });

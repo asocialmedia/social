@@ -2,6 +2,7 @@
 
 import type React from "react";
 import { useCallback, useEffect } from "react";
+
 import PostEditor from "@/components/posts/editor/post-editor";
 import { useComposerStore } from "@/store/composer-store";
 

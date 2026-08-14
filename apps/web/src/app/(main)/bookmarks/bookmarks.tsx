@@ -10,6 +10,7 @@ import { Heart, Newspaper, Terminal } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useRef } from "react";
+
 import BookmarksSidebar from "@/components/bookmarks/bookmarks-sidebar";
 import { HNStoryCard } from "@/components/hackernews/hn-story-card";
 import { FeedView } from "@/components/home/feed-view";
@@ -23,6 +24,7 @@ import SearchField from "@/components/layouts/search-field";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
+
 import LikedPosts from "./liked-posts";
 
 interface HnBookmarksResponse {
@@ -51,8 +53,9 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     isFetchingNextPage: isFetchingNextPosts,
     status: postsStatus,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "bookmarks"],
-    queryFn: async ({ pageParam }) => {
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const response = await kyInstance
         .get(
           "/api/posts/bookmarked",
@@ -61,8 +64,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         .json<PostsPage>();
       return response;
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["post-feed", "bookmarks"],
   });
 
   const {
@@ -73,8 +75,9 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     isFetchingNextPage: isFetchingNextHn,
     status: hnStatus,
   } = useInfiniteQuery({
-    queryKey: ["hn-bookmarks"],
-    queryFn: async ({ pageParam }) => {
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const response = await fetch(
         `/api/hackernews/bookmarked${pageParam ? `?cursor=${pageParam}` : ""}`
       );
@@ -83,10 +86,9 @@ const Bookmarks: React.FC<BookmarksProps> = ({
       }
       return (await response.json()) as HnBookmarksResponse;
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    staleTime: 30_000,
+    queryKey: ["hn-bookmarks"],
     refetchOnWindowFocus: false,
+    staleTime: 30_000,
   });
 
   const posts = (postsData?.pages.flatMap((page) => page.posts) || []).filter(
@@ -126,7 +128,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     feedBody = <FeedViewSkeleton />;
   } else if (postsStatus === "error" && hnStatus === "error") {
     feedBody = (
-      <p className="px-4 py-8 text-center text-destructive">
+      <p className="text-destructive px-4 py-8 text-center">
         An error occurred while loading bookmarks.
       </p>
     );
@@ -184,17 +186,17 @@ const Bookmarks: React.FC<BookmarksProps> = ({
     <div className="relative flex h-dvh overflow-hidden">
       <LeftSidebar userData={userData} />
 
-      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="posts">
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
-            <div className="relative flex items-center border-border/60 border-b py-1.5">
+            <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
                   <Newspaper className="mr-2 h-4 w-4" />
                   Posts
                   {postBookmarkCount > 0 ? (
-                    <span className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-[10px] text-muted-foreground tabular-nums">
+                    <span className="border-border/60 bg-muted/50 text-muted-foreground ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {postBookmarkCount}
                     </span>
                   ) : null}
@@ -203,7 +205,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   <Terminal className="mr-2 h-4 w-4" />
                   HackerNews
                   {hnBookmarkCount > 0 ? (
-                    <span className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-[10px] text-muted-foreground tabular-nums">
+                    <span className="border-border/60 bg-muted/50 text-muted-foreground ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
                       {hnBookmarkCount}
                     </span>
                   ) : null}
@@ -223,7 +225,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
 
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
               {feedBody}

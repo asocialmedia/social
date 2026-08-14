@@ -6,22 +6,28 @@ export async function GET(req: NextRequest) {
     const token = req.nextUrl.searchParams.get("token");
 
     if (!token || typeof token !== "string" || token.length === 0) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json(
+        { error: "Invalid token" },
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
     }
 
     const resetToken = await prisma.passwordResetToken.findUnique({
-      where: { token },
       include: { user: true },
+      where: { token },
     });
 
     if (!resetToken) {
-      return new Response(JSON.stringify({ error: "Token not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json(
+        { error: "Token not found" },
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 404,
+        }
+      );
     }
 
     if (resetToken.expiresAt < new Date()) {
@@ -29,21 +35,30 @@ export async function GET(req: NextRequest) {
         where: { id: resetToken.id },
       });
 
-      return new Response(JSON.stringify({ error: "Token expired" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json(
+        { error: "Token expired" },
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 400,
+        }
+      );
     }
 
-    return new Response(JSON.stringify({ valid: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json(
+      { valid: true },
+      {
+        headers: { "Content-Type": "application/json" },
+        status: 200,
+      }
+    );
   } catch (error) {
     console.error("Reset token verification error:", error);
-    return new Response(JSON.stringify({ error: "Invalid token" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json(
+      { error: "Invalid token" },
+      {
+        headers: { "Content-Type": "application/json" },
+        status: 400,
+      }
+    );
   }
 }

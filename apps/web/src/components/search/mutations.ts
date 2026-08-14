@@ -12,8 +12,8 @@ export const searchMutations = {
   removeHistoryItem: async (query: string) =>
     await kyInstance.delete("/api/search", {
       searchParams: {
-        type: "history",
         query,
+        type: "history",
       },
     }),
 };

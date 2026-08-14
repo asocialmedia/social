@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import {
   areInitJobsComplete,
   buildPreflightProgressLine,
@@ -12,12 +13,14 @@ import {
   hasRedisPong,
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
-  type PreflightCheckKey,
-  type PreflightCheckState,
   parseServiceSnapshots,
-  type ServiceSnapshot,
   shouldUseSudoForPortless,
   withinTtl,
+} from "./dev-preflight-lib";
+import type {
+  PreflightCheckKey,
+  PreflightCheckState,
+  ServiceSnapshot,
 } from "./dev-preflight-lib";
 
 describe("service snapshot helpers", () => {
@@ -89,22 +92,22 @@ describe("service snapshot helpers", () => {
   test("parses a JSON array from podman-compose ps", () => {
     const output = JSON.stringify([
       {
+        Labels: { "com.docker.compose.service": "postgres-dev" },
         Names: ["asmdb"],
         State: "running",
         Status: "Up 2 hours (healthy)",
-        Labels: { "com.docker.compose.service": "postgres-dev" },
       },
       {
+        Labels: { "com.docker.compose.service": "asmob-dev" },
         Names: ["asmdev-asmob"],
         State: "stopped",
         Status: "Exited (1) 2 seconds ago",
-        Labels: { "com.docker.compose.service": "asmob-dev" },
       },
       {
+        Labels: { "com.docker.compose.service": "openobserve-dev" },
         Names: ["asmdev-openobserve"],
         State: "running",
         Status: "Up 2 hours",
-        Labels: { "com.docker.compose.service": "openobserve-dev" },
       },
     ]);
 
@@ -139,10 +142,10 @@ describe("service snapshot helpers", () => {
   test("uses the top-level Service field over labels", () => {
     const output = JSON.stringify([
       {
+        Labels: { "com.docker.compose.service": "ignored" },
         Names: ["custom-name"],
         Service: "postgres-dev",
         State: "running",
-        Labels: { "com.docker.compose.service": "ignored" },
       },
     ]);
 
@@ -233,13 +236,12 @@ describe("preflight ui helpers", () => {
   });
 
   test("builds compact single-line status output", () => {
-    const states = new Map<PreflightCheckKey, PreflightCheckState>(
-      PREFLIGHT_CHECK_ORDER.map((check) => [check.key, "pending"])
-    );
-
-    states.set("services", "ok");
-    states.set("postgres", "running");
-    states.set("portless", "cached");
+    const states = new Map<PreflightCheckKey, PreflightCheckState>([
+      ...PREFLIGHT_CHECK_ORDER.map((check) => [check.key, "pending"] as const),
+      ["services", "ok"] as const,
+      ["postgres", "running"] as const,
+      ["portless", "cached"] as const,
+    ]);
 
     expect(buildPreflightProgressLine(states)).toBe(
       "preflight svc:ok init:wait pg:... rd:wait obj:wait ozo:wait ptl:cache"

@@ -1,10 +1,11 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import pg from "pg";
+import { Pool } from "pg";
+
 import { keys } from "../keys";
 import { PrismaClient } from "../prisma/generated/prisma/client";
 
 const adapter = new PrismaPg(
-  new pg.Pool({
+  new Pool({
     connectionString: keys.DATABASE_URL,
   })
 );

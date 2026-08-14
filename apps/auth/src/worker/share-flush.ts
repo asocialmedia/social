@@ -6,7 +6,9 @@ import {
   SHARE_GROUP,
   SHARE_STREAM,
 } from "@asm/db";
-import { resolveLogger, type WorkerLogger, withSpan } from "./log";
+
+import { resolveLogger, withSpan } from "./log";
+import type { WorkerLogger } from "./log";
 
 const BATCH_SIZE = 500;
 const BLOCK_MS = 2000;
@@ -24,7 +26,7 @@ interface ShareDelta {
 // Reads and clears the buffered share/click counters for a post+platform and
 // applies them to the ShareStats table. Exporting for tests.
 export async function flushShareDeltas(
-  keys: Array<{ postId: string; platform: string }>,
+  keys: { postId: string; platform: string }[],
   logger?: WorkerLogger
 ): Promise<number> {
   const log = resolveLogger(logger);
@@ -43,15 +45,16 @@ export async function flushShareDeltas(
       const counters = await pipeline.exec();
 
       const deltas: ShareDelta[] = [];
-      keys.forEach((key, index) => {
+      for (let index = 0; index < keys.length; index += 1) {
+        const key = keys[index];
         const shareValue = counters?.[index * 2]?.[1];
         const clickValue = counters?.[index * 2 + 1]?.[1];
-        const shares = Number.parseInt(String(shareValue ?? "0"), 10);
-        const clicks = Number.parseInt(String(clickValue ?? "0"), 10);
+        const shares = Math.trunc(Number(String(shareValue ?? "0")));
+        const clicks = Math.trunc(Number(String(clickValue ?? "0")));
         if (shares > 0 || clicks > 0) {
-          deltas.push({ ...key, shares, clicks });
+          deltas.push({ ...key, clicks, shares });
         }
-      });
+      }
 
       if (deltas.length === 0) {
         return 0;
@@ -60,12 +63,12 @@ export async function flushShareDeltas(
       await prisma.$transaction(
         deltas.map(({ postId, platform, shares, clicks }) =>
           prisma.shareStats.upsert({
-            where: { postId_platform: { postId, platform } },
-            create: { postId, platform, shares, clicks },
+            create: { clicks, platform, postId, shares },
             update: {
-              shares: { increment: shares },
               clicks: { increment: clicks },
+              shares: { increment: shares },
             },
+            where: { postId_platform: { platform, postId } },
           })
         )
       );
@@ -154,12 +157,12 @@ export async function consumeShareStream(
 
   // One counter pair per post+platform, so dedupe before flushing.
   const seen = new Set<string>();
-  const uniqueKeys: Array<{ postId: string; platform: string }> = [];
+  const uniqueKeys: { postId: string; platform: string }[] = [];
   for (const event of events) {
     const dedupeKey = `${event.postId}:${event.platform}`;
     if (!seen.has(dedupeKey)) {
       seen.add(dedupeKey);
-      uniqueKeys.push({ postId: event.postId, platform: event.platform });
+      uniqueKeys.push({ platform: event.platform, postId: event.postId });
     }
   }
 

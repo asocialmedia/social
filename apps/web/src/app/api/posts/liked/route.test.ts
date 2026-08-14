@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { GET } from "./route";
+
 const USER_ID = "user1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -9,16 +11,16 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 const votes = [{ postId: "post2" }, { postId: "post1" }];
 
 const posts = [
-  { id: "post1", content: "one", user: { id: "author1" }, viewCount: 5 },
-  { id: "post2", content: "two", user: { id: "author2" }, viewCount: 10 },
+  { content: "one", id: "post1", user: { id: "author1" }, viewCount: 5 },
+  { content: "two", id: "post2", user: { id: "author2" }, viewCount: 10 },
 ];
 
 const mockPrisma = {
-  vote: {
-    findMany: () => [...votes],
-  },
   post: {
     findMany: () => [...posts],
+  },
+  vote: {
+    findMany: () => [...votes],
   },
 };
 
@@ -33,8 +35,6 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { GET } from "./route";
 
 describe("GET /api/posts/liked", () => {
   beforeEach(() => {

@@ -1,4 +1,4 @@
-const cleanNameRegex = /^(\d+[-_])?[a-f0-9-]+[-_]?/;
+const cleanNameRegex = /^(?<prefix>\d+[-_])?[a-f0-9-]+[-_]?/;
 
 export function formatFileName(
   key: string | undefined,

@@ -1,6 +1,7 @@
 import { debugLog } from "@asm/config/debug";
 import { keys } from "@root/keys";
 import type { NextRequest } from "next/server";
+
 import { authInternalHeaders } from "@/lib/auth-internal";
 
 export const dynamic = "force-dynamic";
@@ -17,18 +18,18 @@ async function tryPendingSignupVerification(
 ): Promise<PendingVerifyResult> {
   try {
     const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
-      method: "POST",
+      body: JSON.stringify({
+        id: 1,
+        json: { token },
+      }),
+      cache: "no-store",
       headers: authInternalHeaders({
         "content-type": "application/json",
         "user-agent": req.headers.get("user-agent") ?? "",
         "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
         "x-real-ip": req.headers.get("x-real-ip") ?? "",
       }),
-      cache: "no-store",
-      body: JSON.stringify({
-        id: 1,
-        json: { token },
-      }),
+      method: "POST",
     });
 
     const data = (await res.json().catch(() => ({}) as unknown)) as
@@ -59,8 +60,8 @@ async function tryPendingSignupVerification(
 
     if (email && password) {
       return {
-        ok: true,
         data: { email, password },
+        ok: true,
       };
     }
 
@@ -78,16 +79,16 @@ async function attemptAutoLogin(
 ): Promise<Response | null> {
   try {
     const loginRes = await fetch(`${authBase}/api/auth/sign-in/email`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "user-agent": req.headers.get("user-agent") ?? "",
-      },
-      credentials: "include",
       body: JSON.stringify({
         email,
         password,
       }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": req.headers.get("user-agent") ?? "",
+      },
+      method: "POST",
     });
 
     if (!loginRes.ok) {
@@ -96,7 +97,7 @@ async function attemptAutoLogin(
 
     const setCookieHeaders = loginRes.headers.getSetCookie();
     const response = Response.json(
-      { ok: true, autoLoggedIn: true },
+      { autoLoggedIn: true, ok: true },
       { status: 200 }
     );
 
@@ -124,11 +125,11 @@ async function handleVerificationFallback(
   const url = `${authBase}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
 
   const res = await fetch(url, {
-    method: "GET",
+    cache: "no-store",
     headers: {
       "user-agent": req.headers.get("user-agent") ?? "",
     },
-    cache: "no-store",
+    method: "GET",
   });
 
   const data = await res.json().catch(() => ({}) as unknown);
@@ -142,7 +143,7 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
   if (!token) {
     return Response.json(
-      { ok: false, error: "missing-token" },
+      { error: "missing-token", ok: false },
       { status: 400 }
     );
   }
@@ -204,7 +205,7 @@ export async function GET(req: NextRequest) {
     return await handleVerificationFallback(req, authBase, token);
   } catch {
     return Response.json(
-      { ok: false, error: "network-error" },
+      { error: "network-error", ok: false },
       { status: 502 }
     );
   }

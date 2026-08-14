@@ -24,16 +24,18 @@ import {
   UserIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
-import Link from "next/link";
 import { useTheme } from "next-themes";
+import Link from "next/link";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
+
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useLogout } from "@/hooks/use-logout";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
+
 import { LogoutDialog } from "./logout-dialog";
 import { MobileUserMenu } from "./mobile/mobile-user-menu";
 
@@ -54,10 +56,10 @@ const UserTrigger = ({ avatarUrl, className }: UserTriggerProps) => (
     whileHover={{ scale: 1.05 }}
     whileTap={{ scale: 0.95 }}
   >
-    <div className="absolute -inset-[2px] rounded-full bg-gradient-to-r from-primary/20 via-primary/30 to-primary/20 opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-100" />
+    <div className="from-primary/20 via-primary/30 to-primary/20 absolute -inset-[2px] rounded-full bg-gradient-to-r opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-100" />
     <Button
       className={cn(
-        "relative flex-none cursor-pointer rounded-full border border-border/50 bg-background/40 p-0 shadow-xs backdrop-blur-md transition-all duration-200 hover:border-border/80 hover:bg-background/60 hover:shadow-md",
+        "border-border/50 bg-background/40 hover:border-border/80 hover:bg-background/60 relative flex-none cursor-pointer rounded-full border p-0 shadow-xs backdrop-blur-md transition-all duration-200 hover:shadow-md",
         className
       )}
       variant="ghost"
@@ -88,7 +90,10 @@ export default function UserButton({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const { data: avatarData } = useQuery({
-    queryKey: ["avatar", user.id],
+    initialData: {
+      key: null,
+      url: user.image ? getSecureImageUrl(user.image) : null,
+    },
     queryFn: async () => {
       try {
         const response = await fetch(`/api/users/avatar/${user.id}`);
@@ -97,25 +102,23 @@ export default function UserButton({
         }
         const data = await response.json();
         return {
-          url: getSecureImageUrl(data.url),
           key: data.key,
+          url: getSecureImageUrl(data.url),
         };
       } catch {
         return {
-          url: user.image ? getSecureImageUrl(user.image) : null,
           key: null,
+          url: user.image ? getSecureImageUrl(user.image) : null,
         };
       }
     },
-    initialData: {
-      url: user.image ? getSecureImageUrl(user.image) : null,
-      key: null,
-    },
+    queryKey: ["avatar", user.id],
     staleTime: 1000 * 60 * 5,
   });
 
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-compiler -- gate rendering on client-side mount
     setIsMounted(true);
   }, []);
 
@@ -138,7 +141,7 @@ export default function UserButton({
   );
   const handleThemeSelect = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const value = e.currentTarget.getAttribute("data-theme-value");
+      const value = e.currentTarget.dataset.themeValue;
       if (value) {
         setTheme(value);
       }
@@ -160,7 +163,7 @@ export default function UserButton({
       <>
         <button
           aria-label="Open user menu"
-          className="rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="focus-visible:ring-primary rounded-md focus:outline-none focus-visible:ring-2"
           onClick={handleOpenMobileMenu}
           onKeyDown={handleMobileMenuKeyDown}
           type="button"
@@ -219,7 +222,7 @@ export default function UserButton({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="z-50 w-56 overflow-hidden rounded-xl border border-border/50 bg-background/75 shadow-lg backdrop-blur-xl"
+          className="border-border/50 bg-background/75 z-50 w-56 overflow-hidden rounded-xl border shadow-lg backdrop-blur-xl"
           sideOffset={8}
         >
           <motion.div
@@ -236,11 +239,11 @@ export default function UserButton({
                 opacity: 1,
                 scale: 1,
                 transition: {
-                  type: "spring",
-                  stiffness: 400,
                   damping: 25,
                   mass: 0.8,
                   staggerChildren: 0.1,
+                  stiffness: 400,
+                  type: "spring",
                 },
               },
             }}
@@ -251,12 +254,12 @@ export default function UserButton({
                 closed: { opacity: 0, y: -10 },
                 open: {
                   opacity: 1,
-                  y: 0,
                   transition: {
-                    type: "spring",
-                    stiffness: 400,
                     damping: 25,
+                    stiffness: 400,
+                    type: "spring",
                   },
+                  y: 0,
                 },
               }}
             >
@@ -268,16 +271,16 @@ export default function UserButton({
                         closed: { opacity: 0, x: -20 },
                         open: {
                           opacity: 1,
-                          x: 0,
                           transition: {
-                            type: "spring",
-                            stiffness: 400,
                             damping: 25,
+                            stiffness: 400,
+                            type: "spring",
                           },
+                          x: 0,
                         },
                       }}
                     >
-                      <p className="font-medium text-sm leading-none">
+                      <p className="text-sm leading-none font-medium">
                         {user.name}
                       </p>
                     </motion.div>
@@ -287,13 +290,13 @@ export default function UserButton({
                       closed: { opacity: 0, x: -20 },
                       open: {
                         opacity: 1,
-                        x: 0,
                         transition: {
-                          type: "spring",
-                          stiffness: 400,
                           damping: 25,
                           delay: 0.05,
+                          stiffness: 400,
+                          type: "spring",
                         },
+                        x: 0,
                       },
                     }}
                   >
@@ -305,7 +308,7 @@ export default function UserButton({
               </DropdownMenuLabel>
             </motion.div>
 
-            <div className="h-px bg-border/10" />
+            <div className="bg-border/10 h-px" />
 
             <div className="p-1">
               <MenuItem
@@ -315,12 +318,12 @@ export default function UserButton({
               />
 
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="relative my-1 w-full cursor-pointer rounded-md transition-colors duration-200 hover:bg-primary/10 focus:bg-primary/10">
+                <DropdownMenuSubTrigger className="hover:bg-primary/10 focus:bg-primary/10 relative my-1 w-full cursor-pointer rounded-md transition-colors duration-200">
                   <Monitor className="mr-2 size-4" />
                   <span>Theme</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuPortal>
-                  <DropdownMenuSubContent className="animate-in cursor-pointer rounded-xl border border-border/50 bg-background/90 shadow-lg backdrop-blur-xl">
+                  <DropdownMenuSubContent className="animate-in border-border/50 bg-background/90 cursor-pointer rounded-xl border shadow-lg backdrop-blur-xl">
                     {[
                       { icon: Monitor, label: "System", value: "system" },
                       { icon: Sun, label: "Light", value: "light" },
@@ -334,7 +337,7 @@ export default function UserButton({
                         }}
                       >
                         <DropdownMenuItem
-                          className="cursor-pointer pr-2 focus:bg-primary/10"
+                          className="focus:bg-primary/10 cursor-pointer pr-2"
                           data-theme-value={value}
                           onClick={handleThemeSelect}
                         >
@@ -342,13 +345,13 @@ export default function UserButton({
                           <span>{label}</span>
                           {theme === value && (
                             <motion.div
-                              animate={{ scale: 1, rotate: 0 }}
+                              animate={{ rotate: 0, scale: 1 }}
                               className="ml-auto pl-4"
-                              initial={{ scale: 0, rotate: -90 }}
+                              initial={{ rotate: -90, scale: 0 }}
                               transition={{
-                                type: "spring",
-                                stiffness: 400,
                                 damping: 17,
+                                stiffness: 400,
+                                type: "spring",
                               }}
                             >
                               <Check className="size-4" />
@@ -367,7 +370,7 @@ export default function UserButton({
                 label="Settings"
               />
 
-              <div className="my-1 h-px bg-border/10" />
+              <div className="bg-border/10 my-1 h-px" />
 
               <DropdownMenuSeparator />
 
@@ -381,7 +384,7 @@ export default function UserButton({
                   onClick={handleOpenDialog}
                 >
                   <motion.div
-                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                    transition={{ damping: 17, stiffness: 400, type: "spring" }}
                     whileHover={{ rotate: 15 }}
                   >
                     <LogOutIcon className="mr-2 size-4" />
@@ -403,41 +406,48 @@ export default function UserButton({
   );
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: any
-const MenuItem = ({ icon, label, href }: any) => (
+const MenuItem = ({
+  icon,
+  label,
+  href,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+}) => (
   <motion.div
     variants={{
       closed: { opacity: 0, x: -20 },
       open: {
         opacity: 1,
-        x: 0,
         transition: {
-          type: "spring",
-          stiffness: 400,
           damping: 25,
+          stiffness: 400,
+          type: "spring",
         },
+        x: 0,
       },
     }}
   >
     <motion.div
       transition={{
-        type: "spring",
-        stiffness: 400,
         damping: 17,
+        stiffness: 400,
+        type: "spring",
       }}
       whileHover={{ scale: 1.02, x: 4 }}
       whileTap={{ scale: 0.98 }}
     >
       <DropdownMenuItem
         asChild
-        className="cursor-pointer rounded-md transition-colors duration-200 hover:bg-primary/10 focus:bg-primary/10"
+        className="hover:bg-primary/10 focus:bg-primary/10 cursor-pointer rounded-md transition-colors duration-200"
       >
         <Link className="flex items-center" href={href}>
           <motion.div
             transition={{
-              type: "spring",
-              stiffness: 400,
               damping: 17,
+              stiffness: 400,
+              type: "spring",
             }}
             whileHover={{ rotate: 10, scale: 1.1 }}
           >

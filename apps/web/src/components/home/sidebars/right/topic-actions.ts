@@ -1,14 +1,15 @@
 "use server";
 
-import { prisma, type TrendingTopic, trendingTopicsCache } from "@asm/db";
+import { prisma, trendingTopicsCache } from "@asm/db";
+import type { TrendingTopic } from "@asm/db";
 
 async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
   try {
     const tags = await prisma.tag.findMany({
       orderBy: { posts: { _count: "desc" } },
       select: {
-        name: true,
         _count: { select: { posts: true } },
+        name: true,
       },
       take: 10,
     });
@@ -16,8 +17,8 @@ async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
     return tags
       .filter((tag) => tag._count.posts > 0)
       .map((tag) => ({
-        hashtag: `#${tag.name}`,
         count: tag._count.posts,
+        hashtag: `#${tag.name}`,
       }));
   } catch (error) {
     console.error("Error executing trending topics query:", error);
@@ -25,7 +26,9 @@ async function getTrendingTopicsFromDb(): Promise<TrendingTopic[]> {
   }
 }
 
-trendingTopicsCache.refreshCache = async function (): Promise<TrendingTopic[]> {
+trendingTopicsCache.refreshCache = async function refreshCache(): Promise<
+  TrendingTopic[]
+> {
   const topics = await getTrendingTopicsFromDb();
   await this.set(topics);
   return topics;

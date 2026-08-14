@@ -19,14 +19,15 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 export const HN_FILTER_OPTIONS = [
-  { id: "all", label: "All Stories", icon: Newspaper },
-  { id: "story", label: "News", icon: Activity },
-  { id: "job", label: "Jobs", icon: Briefcase },
-  { id: "show", label: "Show HN", icon: Newspaper },
-  { id: "ask", label: "Ask HN", icon: HelpCircle },
+  { icon: Newspaper, id: "all", label: "All Stories" },
+  { icon: Activity, id: "story", label: "News" },
+  { icon: Briefcase, id: "job", label: "Jobs" },
+  { icon: Newspaper, id: "show", label: "Show HN" },
+  { icon: HelpCircle, id: "ask", label: "Ask HN" },
 ] as const;
 
 export type HNFilterId = (typeof HN_FILTER_OPTIONS)[number]["id"];
@@ -39,13 +40,13 @@ interface HNSearchBarProps {
   search: string;
 }
 
-export function HNSearchBar({
+export const HNSearchBar = ({
   className,
   filter,
   onFilterChange,
   onSearchChange,
   search,
-}: HNSearchBarProps) {
+}: HNSearchBarProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const activeFilter =
@@ -110,7 +111,7 @@ export function HNSearchBar({
         {search ? (
           <button
             aria-label="Clear search"
-            className="absolute top-1/2 right-3 z-10 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-3 z-10 -translate-y-1/2 transition-colors"
             onClick={handleClear}
             type="button"
           >
@@ -126,7 +127,7 @@ export function HNSearchBar({
             type="button"
           >
             <activeFilter.icon className="h-3.5 w-3.5" />
-            <span className="hidden font-medium! text-[11px]! sm:inline">
+            <span className="hidden text-[11px]! font-medium! sm:inline">
               {activeFilter.label}
             </span>
             <ChevronDown className="h-3 w-3" />
@@ -157,4 +158,4 @@ export function HNSearchBar({
       </DropdownMenu>
     </div>
   );
-}
+};

@@ -18,12 +18,13 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
@@ -31,6 +32,7 @@ import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-coun
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn, isRouteActive } from "@/lib/utils";
 import { useComposerStore } from "@/store/composer-store";
+
 import UserProfilePopover from "./left/user-profile-popover";
 
 interface LeftSidebarProps {
@@ -45,18 +47,38 @@ interface NavItem {
 }
 
 const PRIMARY_ITEMS: NavItem[] = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/discover", label: "Explore", icon: Compass },
-  { href: "/soon?feature=communities", label: "Communities", icon: Users },
-  { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
+  { href: "/", icon: Home, label: "Home" },
+  { href: "/search", icon: Search, label: "Search" },
+  { href: "/discover", icon: Compass, label: "Explore" },
+  { href: "/soon?feature=communities", icon: Users, label: "Communities" },
+  { href: "/bookmarks", icon: Bookmark, label: "Bookmarks" },
 ];
 
 const SECONDARY_ITEMS: NavItem[] = [
-  { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/soon?feature=messages", label: "Messages", icon: MessagesSquare },
-  { href: "/hackernews", label: "HackerNews", icon: Compass },
+  { href: "/notifications", icon: Bell, label: "Notifications" },
+  { href: "/soon?feature=messages", icon: MessagesSquare, label: "Messages" },
+  { href: "/hackernews", icon: Compass, label: "HackerNews" },
 ];
+
+const renderActionItem = ({
+  label,
+  icon: Icon,
+  onClick,
+}: {
+  label: string;
+  icon: typeof Home;
+  onClick: () => void;
+}) => (
+  <button
+    className="group pill-3d-hover text-foreground hover:text-foreground flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out"
+    key={label}
+    onClick={onClick}
+    type="button"
+  >
+    <Icon className="h-6 w-6 shrink-0" />
+    <span className="min-w-0 flex-1">{label}</span>
+  </button>
+);
 
 const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const pathname = usePathname();
@@ -71,6 +93,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const openComposer = useComposerStore((state) => state.openComposer);
 
   useEffect(() => {
+    // eslint-disable-next-line react-compiler -- mark the theme as hydrated after first render
     setMounted(true);
   }, []);
 
@@ -99,31 +122,11 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       <Icon className="h-6 w-6 shrink-0" />
       <span className="min-w-0 flex-1">{label}</span>
       {count !== undefined && count > 0 ? (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/50 font-semibold text-muted-foreground text-xs tabular-nums">
+        <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums">
           {count}
         </span>
       ) : null}
     </Link>
-  );
-
-  const renderActionItem = ({
-    label,
-    icon: Icon,
-    onClick,
-  }: {
-    label: string;
-    icon: typeof Home;
-    onClick: () => void;
-  }) => (
-    <button
-      className="group pill-3d-hover flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base text-foreground transition-all duration-200 ease-out hover:text-foreground"
-      key={label}
-      onClick={onClick}
-      type="button"
-    >
-      <Icon className="h-6 w-6 shrink-0" />
-      <span className="min-w-0 flex-1">{label}</span>
-    </button>
   );
 
   const profileItem: NavItem = {
@@ -139,7 +142,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   };
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-border/60 border-r px-5 pt-2.5 pb-5 lg:flex">
+    <aside className="border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-5 pt-2.5 pb-5 lg:flex">
       <Link className="mb-8 block px-2" href="/">
         <div className="relative h-11 w-[58px]">
           <Image
@@ -157,8 +160,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         {PRIMARY_ITEMS.map((item) => {
           if (item.href === "/search") {
             return renderActionItem({
-              label: item.label,
               icon: item.icon,
+              label: item.label,
               onClick: () => openSpotlight(),
             });
           }
@@ -170,7 +173,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
           );
         })}
 
-        <Separator className="my-3 bg-border/60" />
+        <Separator className="bg-border/60 my-3" />
 
         {SECONDARY_ITEMS.map((item) =>
           renderItem(
@@ -207,7 +210,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
                 ? "Switch to light mode"
                 : "Switch to dark mode"
             }
-            className="pill-3d-hover group my-auto flex size-10 shrink-0 items-center justify-center self-center rounded-full border-0 text-muted-foreground"
+            className="pill-3d-hover group text-muted-foreground my-auto flex size-10 shrink-0 items-center justify-center self-center rounded-full border-0"
             onClick={handleToggleTheme}
             type="button"
           >

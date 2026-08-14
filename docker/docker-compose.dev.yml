@@ -13,14 +13,11 @@ services:
     volumes:
       - postgres_data_dev:/var/lib/postgresql
     command: >
-      postgres -c listen_addresses='*' -c max_connections=50 -c
-      shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c
-      effective_cache_size=256MB -c wal_level=replica -c max_wal_senders=4 -c
-      log_statement=none -c timezone=UTC
+      postgres -c listen_addresses='*' -c max_connections=50 -c shared_buffers=128MB -c work_mem=4MB -c maintenance_work_mem=32MB -c effective_cache_size=256MB -c wal_level=replica -c max_wal_senders=4 -c log_statement=none -c timezone=UTC
     networks:
       - dev_network
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d asocialmedia" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d asocialmedia"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,7 +25,7 @@ services:
     restart: unless-stopped
 
   postgres-init:
-    profiles: [ "init" ]
+    profiles: ["init"]
     container_name: asmdev-db-init
     image: postgres:18.3
     environment:
@@ -51,7 +48,7 @@ services:
       '
 
   prisma-migrate:
-    profiles: [ "init" ]
+    profiles: ["init"]
     container_name: asmdev-schema-init
     build:
       context: ..
@@ -63,13 +60,10 @@ services:
     depends_on:
       postgres-dev:
         condition: service_healthy
-    command:
-      [
-        "/usr/local/bin/prisma-bootstrap.sh",
-      ]
+    command: ["/usr/local/bin/prisma-bootstrap.sh"]
 
   prisma-studio:
-    profiles: [ "studio", "init" ]
+    profiles: ["studio", "init"]
     container_name: asmdev-prisma-studio
     build:
       context: ..
@@ -83,10 +77,7 @@ services:
     depends_on:
       postgres-dev:
         condition: service_healthy
-    command:
-      [
-        "/usr/local/bin/prisma-studio.sh",
-      ]
+    command: ["/usr/local/bin/prisma-studio.sh"]
     restart: unless-stopped
 
   redis-dev:
@@ -95,22 +86,20 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
     command: >
-      redis-server --requirepass asmredis --maxmemory 256mb
-      --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
-      --loglevel notice --save 900 1
+      redis-server --requirepass asmredis --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec --loglevel notice --save 900 1
     volumes:
       - redis_data_dev:/data
     networks:
       - dev_network
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "asmredis", "ping" ]
+      test: ["CMD", "redis-cli", "-a", "asmredis", "ping"]
       interval: 10s
       timeout: 3s
       retries: 3
     restart: unless-stopped
 
   redis-insight:
-    profiles: [ "studio" ]
+    profiles: ["studio"]
     container_name: asmdev-redis-insight
     image: redislabs/redisinsight:latest
     ports:
@@ -147,7 +136,7 @@ services:
       - dev_network
     command: rustfs --address 0.0.0.0:9000 /data
     healthcheck:
-      test: [ "CMD-SHELL", "curl -s http://localhost:9000 >/dev/null || exit 1" ]
+      test: ["CMD-SHELL", "curl -s http://localhost:9000 >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -155,7 +144,7 @@ services:
     restart: unless-stopped
 
   asmob-init:
-    profiles: [ "init" ]
+    profiles: ["init"]
     container_name: asmdev-asmob-init
     image: amazon/aws-cli:2.17.53
     depends_on:
@@ -209,7 +198,7 @@ services:
     networks:
       - dev_network
     healthcheck:
-      test: [ "CMD-SHELL", "curl -fsS http://localhost:5080/healthz || exit 1" ]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5080/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -5,6 +5,7 @@ import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
+
 import { authClient } from "@/lib/auth";
 import { authInternalHeaders } from "@/lib/auth-internal";
 
@@ -20,14 +21,14 @@ async function makePasswordResetRequest(
     const response = await fetch(
       `${process.env.NEXT_PUBLIC_AUTH_URL}/api/trpc/resetPassword.requestReset`,
       {
-        method: "POST",
+        body: JSON.stringify({
+          json: { identifier, ip, userAgent },
+        }),
         headers: authInternalHeaders({
           "Content-Type": "application/json",
           ...(userAgent && { "user-agent": userAgent }),
         }),
-        body: JSON.stringify({
-          json: { identifier, ip, userAgent },
-        }),
+        method: "POST",
         signal: controller.signal,
       }
     );
@@ -39,9 +40,9 @@ async function makePasswordResetRequest(
         .json()
         .catch(() => ({ error: "Network error" }));
       return {
-        success: false,
         error:
           errorData.error || `HTTP ${response.status}: ${response.statusText}`,
+        success: false,
       };
     }
 
@@ -50,18 +51,18 @@ async function makePasswordResetRequest(
     if (!result.result?.data?.json?.success) {
       const error = result.result?.data?.json?.error || "Rate limit exceeded";
       const retryAfter = result.result?.data?.json?.retryAfter;
-      return { success: false, error, retryAfter };
+      return { error, retryAfter, success: false };
     }
 
     return { success: true };
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
-      return { success: false, error: "Request timeout. Please try again." };
+      return { error: "Request timeout. Please try again.", success: false };
     }
     return {
-      success: false,
       error: error instanceof Error ? error.message : "Network error occurred",
+      success: false,
     };
   }
 }
@@ -79,7 +80,6 @@ const requestResetSchema = z.object({
 });
 
 const resetPasswordSchema = z.object({
-  token: z.string(),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters long")
@@ -87,6 +87,7 @@ const resetPasswordSchema = z.object({
       /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
       "Password must include: uppercase & lowercase letters, number, and special character"
     ),
+  token: z.string(),
 });
 
 async function getClientInfo() {
@@ -122,14 +123,14 @@ export async function requestPasswordReset(
 
     if (EMAIL_REGEX.test(identifier)) {
       user = await prisma.user.findUnique({
+        select: { email: true, id: true, username: true },
         where: { email: identifier },
-        select: { id: true, email: true, username: true },
       });
       email = identifier;
     } else {
       user = await prisma.user.findUnique({
+        select: { email: true, id: true, username: true },
         where: { username: identifier },
-        select: { id: true, email: true, username: true },
       });
       email = user?.email || null;
     }
@@ -142,14 +143,14 @@ export async function requestPasswordReset(
     await authClient.forgetPassword({
       email,
       fetchOptions: {
-        onSuccess: () => {
-          // Password reset email sent successfully
-        },
         onError: (error: unknown) => {
           debugLog.api("Password reset request error", {
             error: error instanceof Error ? error.message : String(error),
           });
           throw new Error("Failed to process password reset request");
+        },
+        onSuccess: () => {
+          // Password reset email sent successfully
         },
       },
     });
@@ -160,8 +161,8 @@ export async function requestPasswordReset(
       error: error instanceof Error ? error.message : String(error),
     });
     return {
-      success: false,
       error: "Failed to process password reset request",
+      success: false,
     };
   }
 }
@@ -173,19 +174,19 @@ export async function resetPassword(
     const { token, password } = resetPasswordSchema.parse(data);
 
     await authClient.resetPassword({
-      token,
-      newPassword: password,
       fetchOptions: {
-        onSuccess: () => {
-          // Password reset successfully
-        },
         onError: (error) => {
           debugLog.api("Password reset error", {
             error: error instanceof Error ? error.message : String(error),
           });
           throw new Error("Failed to reset password");
         },
+        onSuccess: () => {
+          // Password reset successfully
+        },
       },
+      newPassword: password,
+      token,
     });
 
     return { success: true };

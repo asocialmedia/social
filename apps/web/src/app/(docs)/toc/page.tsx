@@ -1,9 +1,9 @@
 import TermsPage from "./client-toc";
 
 export const metadata = {
-  title: "Terms and Conditions",
   description:
     "Terms and conditions for using Asocialmedia social media platform.",
+  title: "Terms and Conditions",
 };
 
 export default function TermsAndConditionsPage() {

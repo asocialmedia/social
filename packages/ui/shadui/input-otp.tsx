@@ -2,6 +2,7 @@
 
 import { OTPInput, OTPInputContext } from "input-otp";
 import React from "react";
+
 import { cn } from "../lib/utils";
 
 const InputOTP = ({
@@ -53,7 +54,7 @@ const InputOTPSlot = ({
   return (
     <div
       className={cn(
-        "premium-otp-slot relative flex h-10 w-10 items-center justify-center rounded-lg font-bold text-xl transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/20 sm:h-14 sm:w-12 sm:rounded-xl sm:text-2xl",
+        "premium-otp-slot focus-within:ring-primary/20 relative flex h-10 w-10 items-center justify-center rounded-lg text-xl font-bold transition-all duration-200 focus-within:ring-2 sm:h-14 sm:w-12 sm:rounded-xl sm:text-2xl",
         isActive && "z-10",
         char && "border-primary/60",
         className
@@ -65,7 +66,7 @@ const InputOTPSlot = ({
       {char}
       {hasFakeCaret ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-6 w-0.5 animate-caret-blink bg-primary sm:h-9" />
+          <div className="animate-caret-blink bg-primary h-6 w-0.5 sm:h-9" />
         </div>
       ) : null}
     </div>
@@ -82,7 +83,7 @@ const InputOTPSeparator = ({
 }) => (
   <hr
     className={cn(
-      "flex h-4 w-[1px] items-center justify-center bg-border",
+      "bg-border flex h-4 w-[1px] items-center justify-center",
       className
     )}
     ref={ref}

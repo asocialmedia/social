@@ -6,7 +6,7 @@
 
 .form-input-transition {
   @apply transition-all duration-200 ease-in-out;
-  @apply focus:ring-2 focus:ring-primary/20;
+  @apply focus:ring-primary/20 focus:ring-2;
   @apply hover:border-primary/50;
   @apply bg-background/50 backdrop-blur-sm;
 }

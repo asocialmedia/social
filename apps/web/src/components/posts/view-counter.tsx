@@ -2,6 +2,7 @@
 
 import { debugLog } from "@asm/config/debug";
 import { useCallback, useEffect, useRef } from "react";
+
 import { useIncrementViewMutation } from "@/posts/view/mutations";
 
 interface ViewTrackerProps {
@@ -34,8 +35,7 @@ export default function ViewTracker({ postId }: ViewTrackerProps) {
       debugLog.views(`Setting up IntersectionObserver for post: ${postId}`);
       observer = new IntersectionObserver(
         (entries) => {
-          // biome-ignore lint/complexity/noForEach: This is a batch operation
-          entries.forEach((entry) => {
+          for (const entry of entries) {
             if (entry.isIntersecting) {
               debugLog.views(
                 `Post ${postId} is intersecting, triggering view increment`
@@ -46,15 +46,15 @@ export default function ViewTracker({ postId }: ViewTrackerProps) {
                 debugLog.views(`Disconnected observer for post ${postId}`);
               }, 1000);
             }
-          });
+          }
         },
         {
-          threshold: 0.5,
           rootMargin: "0px",
+          threshold: 0.5,
         }
       );
 
-      const element = document.getElementById(`post-${postId}`);
+      const element = document.querySelector(`#post-${postId}`);
       if (element) {
         debugLog.views(
           `Found element for post: ${postId}, observing immediately`
@@ -65,7 +65,7 @@ export default function ViewTracker({ postId }: ViewTrackerProps) {
           `Element not found for post: ${postId}, will retry in 100ms`
         );
         timeout = setTimeout(() => {
-          const delayedElement = document.getElementById(`post-${postId}`);
+          const delayedElement = document.querySelector(`#post-${postId}`);
           if (delayedElement) {
             debugLog.views(
               `Found delayed element for post: ${postId}, observing`

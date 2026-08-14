@@ -2,7 +2,6 @@
   "extends": "@asm/config/nextjs.config.json",
   "compilerOptions": {
     "strictNullChecks": true,
-    "target": "ES2023",
     "strict": true,
     "esModuleInterop": true,
     "types": ["bun"]

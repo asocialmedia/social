@@ -1,13 +1,16 @@
 "use client";
 import type { Container, SingleOrMultiple } from "@tsparticles/engine";
-import Particles, {
-  type ParticlesPluginRegistrar,
-  ParticlesProvider,
-} from "@tsparticles/react";
+import { Particles, ParticlesProvider } from "@tsparticles/react";
+import type { ParticlesPluginRegistrar } from "@tsparticles/react";
 import { loadSlim } from "@tsparticles/slim";
 import { motion, useAnimation } from "motion/react";
 import { useId } from "react";
+
 import { cn } from "../../lib/utils";
+
+const initParticlesEngine: ParticlesPluginRegistrar = async (engine) => {
+  await loadSlim(engine);
+};
 
 interface ParticlesProps {
   background?: string;
@@ -31,13 +34,10 @@ export const SparklesCore = (props: ParticlesProps) => {
     particleColor,
     particleDensity,
   } = props;
-  const initParticlesEngine: ParticlesPluginRegistrar = async (engine) => {
-    await loadSlim(engine);
-  };
   const controls = useAnimation();
 
   // biome-ignore lint/suspicious/useAwait: start animation when particles are loaded
-  const particlesLoaded = async (container?: Container) => {
+  const particlesLoaded = (container?: Container) => {
     if (container) {
       controls.start({
         opacity: 1,
@@ -78,7 +78,7 @@ export const SparklesCore = (props: ParticlesProps) => {
                   enable: false,
                   mode: "repulse",
                 },
-                // biome-ignore lint/suspicious/noExplicitAny: types are wrong
+                // eslint-disable-next-line no-explicit-any -- tsparticles event types are inaccurate here
                 resize: true as any,
               },
               modes: {

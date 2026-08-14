@@ -1,15 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
+
 import { runUnitTests } from "./run-unit-tests";
 
 describe("run-unit-tests", () => {
   test("fails when no unit tests exist", async () => {
-    const logger = { error: mock(() => undefined) };
+    const logger = { error: mock(() => {}) };
 
     const exitCode = await runUnitTests([], {
-      collectFiles: async () => [],
+      collectFiles: () => Promise.resolve([]),
       logger,
-      runProcess: async () => 0,
       rootDir: "/tmp/repo",
+      runProcess: () => Promise.resolve(0),
     });
 
     expect(exitCode).toBe(1);
@@ -20,11 +21,12 @@ describe("run-unit-tests", () => {
     const invocations: string[][] = [];
 
     const exitCode = await runUnitTests(["--bail=1"], {
-      collectFiles: async () => [
-        "apps/auth/a.test.ts",
-        "packages/db/b.test.ts",
-        "scripts/c.test.ts",
-      ],
+      collectFiles: () =>
+        Promise.resolve([
+          "apps/auth/a.test.ts",
+          "packages/db/b.test.ts",
+          "scripts/c.test.ts",
+        ]),
       rootDir: "/tmp/repo",
       runProcess: ({ cmd }) => {
         invocations.push(cmd);
@@ -55,10 +57,8 @@ describe("run-unit-tests", () => {
     const invocations: string[][] = [];
 
     const exitCode = await runUnitTests([], {
-      collectFiles: async () => [
-        "apps/auth/a.test.ts",
-        "packages/db/b.test.ts",
-      ],
+      collectFiles: () =>
+        Promise.resolve(["apps/auth/a.test.ts", "packages/db/b.test.ts"]),
       rootDir: "/tmp/repo",
       runProcess: ({ cmd, env, cwd }) => {
         invocations.push(cmd);

@@ -8,9 +8,12 @@ import {
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
 import Link from "next/link";
-import { type PropsWithChildren, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import type { PropsWithChildren } from "react";
+import { LinkIt, LinkItUrl } from "react-linkify-it";
+
 import { useSession } from "@/app/(main)/session-provider";
-import Linkify from "@/helpers/global/linkify";
+
 import FollowButton from "./follow-button";
 import FollowerCount from "./follower-count";
 import UserAvatar from "./user-avatar";
@@ -19,12 +22,40 @@ interface UserTooltipProps extends PropsWithChildren {
   user: UserData;
 }
 
+const BIO_USERNAME_REGEX = /(?<username>@[a-zA-Z0-9_-]+)/;
+const BIO_HASHTAG_REGEX = /(?<hashtag>#[a-zA-Z0-9]+)/;
+
+function renderBioUsernameLink(match: string, key: number) {
+  return (
+    <Link
+      className="text-primary hover:underline"
+      href={`/users/${match.slice(1)}`}
+      key={key}
+    >
+      {match}
+    </Link>
+  );
+}
+
+function renderBioHashtagLink(match: string, key: number) {
+  return (
+    <Link
+      className="text-primary hover:underline"
+      href={`/hashtag/${match.slice(1)}`}
+      key={key}
+    >
+      {match}
+    </Link>
+  );
+}
+
 export default function UserTooltip({ children, user }: UserTooltipProps) {
   const { user: loggedInUser } = useSession();
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
+      // eslint-disable-next-line react-compiler -- detect the initial viewport size on mount
       setIsMobile(window.innerWidth < 768);
       const handleResize = () => {
         setIsMobile(window.innerWidth < 768);
@@ -47,7 +78,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
   };
 
   if (isMobile) {
-    return <>{children}</>;
+    return children;
   }
 
   return (
@@ -55,7 +86,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
       <Tooltip>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent className="apple-panel overflow-hidden bg-transparent p-1.5 shadow-none">
-          <div className="flex max-w-80 flex-col gap-3 break-words px-1 py-2.5 md:min-w-52">
+          <div className="flex max-w-80 flex-col gap-3 px-1 py-2.5 break-words md:min-w-52">
             <div className="flex items-center justify-between gap-2">
               <Link href={`/users/${user.username}`}>
                 <UserAvatar avatarUrl={user.avatarUrl} size={70} />
@@ -66,18 +97,28 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
             </div>
             <div>
               <Link href={`/users/${user.username}`}>
-                <div className="font-semibold text-card-foreground text-lg hover:underline">
+                <div className="text-card-foreground text-lg font-semibold hover:underline">
                   {user.displayName}
                 </div>
                 <div className="text-muted-foreground">@{user.username}</div>
               </Link>
             </div>
             {user.bio ? (
-              <Linkify>
-                <div className="line-clamp-4 whitespace-pre-line text-card-foreground">
-                  {user.bio}
-                </div>
-              </Linkify>
+              <LinkIt
+                component={renderBioUsernameLink}
+                regex={BIO_USERNAME_REGEX}
+              >
+                <LinkIt
+                  component={renderBioHashtagLink}
+                  regex={BIO_HASHTAG_REGEX}
+                >
+                  <LinkItUrl className="text-primary hover:underline">
+                    <div className="text-card-foreground line-clamp-4 whitespace-pre-line">
+                      {user.bio}
+                    </div>
+                  </LinkItUrl>
+                </LinkIt>
+              </LinkIt>
             ) : null}
             <div className="text-card-foreground">
               <FollowerCount initialState={followerState} userId={user.id} />

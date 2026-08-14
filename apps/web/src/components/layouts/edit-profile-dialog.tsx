@@ -1,7 +1,5 @@
-import {
-  type UpdateUserProfileValues,
-  updateUserProfileSchema,
-} from "@asm/auth/validation";
+import { updateUserProfileSchema } from "@asm/auth/validation";
+import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
 import type { UserData } from "@asm/db";
 import {
@@ -24,18 +22,20 @@ import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, ImagePlus, UserRound } from "lucide-react";
-import Image, { type StaticImageData } from "next/image";
+import Image from "next/image";
+import type { StaticImageData } from "next/image";
 import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  type Control,
-  type ControllerRenderProps,
-  type UseFormReturn,
-  useForm,
+import { useForm } from "react-hook-form";
+import type {
+  Control,
+  ControllerRenderProps,
+  UseFormReturn,
 } from "react-hook-form";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 import Resizer from "react-image-file-resizer";
+
 import {
   useDeleteBannerMutation,
   useUpdateAvatarMutation,
@@ -47,6 +47,7 @@ import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { useToast } from "@/lib/gooey-toast";
 import { cn, isGifUrl } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
+
 import CropImageDialog from "./crop-image-dialog";
 import GifCenteringDialog from "./gif-centering-dialog";
 
@@ -76,27 +77,27 @@ interface SocialFieldConfig {
 
 const SOCIAL_FIELDS: SocialFieldConfig[] = [
   {
-    name: "githubUsername",
-    label: "GitHub",
     icon: FaGithub,
+    label: "GitHub",
+    name: "githubUsername",
     placeholder: "octocat",
   },
   {
-    name: "linkedinUsername",
-    label: "LinkedIn",
     icon: FaLinkedin,
+    label: "LinkedIn",
+    name: "linkedinUsername",
     placeholder: "john-doe",
   },
   {
-    name: "twitterUsername",
-    label: "Twitter / X",
     icon: FaXTwitter,
+    label: "Twitter / X",
+    name: "twitterUsername",
     placeholder: "yourhandle",
   },
   {
-    name: "redditUsername",
-    label: "Reddit",
     icon: FaReddit,
+    label: "Reddit",
+    name: "redditUsername",
     placeholder: "yourusername",
   },
 ];
@@ -113,8 +114,8 @@ export default function EditProfileDialog({
       displayName: user.displayName,
       githubUsername: user.githubUsername ?? "",
       linkedinUsername: user.linkedinUsername ?? "",
-      twitterUsername: user.twitterUsername ?? "",
       redditUsername: user.redditUsername ?? "",
+      twitterUsername: user.twitterUsername ?? "",
     },
     resolver: zodResolver(updateUserProfileSchema),
   });
@@ -158,6 +159,7 @@ export default function EditProfileDialog({
 
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-compiler -- reset editor state when the dialog closes
       setCroppedAvatar(null);
       setGifToCenter(null);
       setCroppedBanner(null);
@@ -167,11 +169,11 @@ export default function EditProfileDialog({
         displayName: user.displayName,
         githubUsername: user.githubUsername ?? "",
         linkedinUsername: user.linkedinUsername ?? "",
-        twitterUsername: user.twitterUsername ?? "",
         redditUsername: user.redditUsername ?? "",
+        twitterUsername: user.twitterUsername ?? "",
       });
     }
-  }, [open, user, form.reset]);
+  }, [open, user, form.reset, form]);
 
   const checkForChanges = (values: UpdateUserProfileValues) => {
     const hasProfileChanges =
@@ -336,7 +338,7 @@ export default function EditProfileDialog({
         onClick={handleContentClick}
       >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
-          <DialogTitle className="flex items-center gap-2 font-semibold text-base">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <div
               className={cn(
                 "flex h-7 w-7 items-center justify-center rounded-lg",
@@ -347,7 +349,7 @@ export default function EditProfileDialog({
             </div>
             Edit Profile
           </DialogTitle>
-          <DialogDescription className="mt-1 text-muted-foreground text-xs">
+          <DialogDescription className="text-muted-foreground mt-1 text-xs">
             Update your profile details
           </DialogDescription>
         </div>
@@ -407,7 +409,7 @@ export default function EditProfileDialog({
                     >
                       <ImagePlus className="h-3.5 w-3.5" />
                     </div>
-                    <p className="font-medium text-sm">Social links</p>
+                    <p className="text-sm font-medium">Social links</p>
                   </div>
                   {SOCIAL_FIELDS.map((item) => (
                     <SocialFormField
@@ -445,7 +447,7 @@ interface SocialFormFieldProps {
   item: SocialFieldConfig;
 }
 
-function SocialFormField({ control, item }: SocialFormFieldProps) {
+const SocialFormField = ({ control, item }: SocialFormFieldProps) => {
   const renderSocialField = useCallback(
     ({
       field,
@@ -458,21 +460,21 @@ function SocialFormField({ control, item }: SocialFormFieldProps) {
   return (
     <FormField control={control} name={item.name} render={renderSocialField} />
   );
-}
+};
 
 interface SocialFieldRendererProps {
   field: ControllerRenderProps<UpdateUserProfileValues, SocialFieldName>;
   item: SocialFieldConfig;
 }
 
-function SocialFieldRenderer({ field, item }: SocialFieldRendererProps) {
+const SocialFieldRenderer = ({ field, item }: SocialFieldRendererProps) => {
   const Icon = item.icon;
   return (
     <FormItem>
       <FormLabel>{item.label}</FormLabel>
       <FormControl>
         <div className="relative">
-          <Icon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Icon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
             className="premium-input h-10 rounded-xl pr-3 pl-10 text-sm"
             placeholder={item.placeholder}
@@ -483,7 +485,7 @@ function SocialFieldRenderer({ field, item }: SocialFieldRendererProps) {
       <FormMessage />
     </FormItem>
   );
-}
+};
 
 interface BannerInputProps {
   canRemove: boolean;
@@ -494,14 +496,14 @@ interface BannerInputProps {
   src: string;
 }
 
-function BannerInput({
+const BannerInput = ({
   src,
   canRemove,
   isRemoved,
   onBannerCropped,
   onRemove,
   isUploading,
-}: BannerInputProps) {
+}: BannerInputProps) => {
   const { toast } = useToast();
   const [imageToCrop, setImageToCrop] = useState<File>();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -602,7 +604,7 @@ function BannerInput({
       />
       {canRemove && !isRemoved ? (
         <button
-          className="mt-2 w-full rounded-lg border border-border/60 bg-[hsl(var(--background))] py-1.5 text-muted-foreground text-xs transition-colors duration-200 hover:border-destructive/40 hover:text-destructive"
+          className="border-border/60 text-muted-foreground hover:border-destructive/40 hover:text-destructive mt-2 w-full rounded-lg border bg-[hsl(var(--background))] py-1.5 text-xs transition-colors duration-200"
           disabled={isUploading}
           onClick={handleRemoveClick}
           type="button"
@@ -611,7 +613,7 @@ function BannerInput({
         </button>
       ) : null}
       <button
-        className="group relative block h-28 w-full overflow-hidden rounded-xl border border-border/60 bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]"
+        className="group border-border/60 relative block h-28 w-full overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]"
         disabled={isUploading}
         onClick={handleBannerClick}
         type="button"
@@ -629,7 +631,7 @@ function BannerInput({
             }
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-linear-to-br from-[#ff9500]/10 via-transparent to-[#e65500]/10 text-muted-foreground text-sm">
+          <div className="text-muted-foreground absolute inset-0 flex items-center justify-center gap-2 bg-linear-to-br from-[#ff9500]/10 via-transparent to-[#e65500]/10 text-sm">
             <ImagePlus className="h-4 w-4" />
             Add a header image
           </div>
@@ -653,7 +655,7 @@ function BannerInput({
       ) : null}
     </>
   );
-}
+};
 
 interface AvatarInputProps {
   form: UseFormReturn<UpdateUserProfileValues>;
@@ -664,14 +666,14 @@ interface AvatarInputProps {
   user: UserData;
 }
 
-function AvatarInput({
+const AvatarInput = ({
   src,
   onImageCropped,
   onGifSelected,
   form,
   isUploading,
   user,
-}: AvatarInputProps) {
+}: AvatarInputProps) => {
   const { toast } = useToast();
   const [imageToCrop, setImageToCrop] = useState<File>();
   const [gifToCenter, setGifToCenter] = useState<File>();
@@ -784,7 +786,7 @@ function AvatarInput({
         ref={fileInputRef}
         type="file"
       />
-      <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-[hsl(var(--background))] p-3 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="border-border/60 flex items-center gap-4 rounded-xl border bg-[hsl(var(--background))] p-3 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
         <button
           className="group relative block shrink-0"
           disabled={isUploading}
@@ -817,8 +819,8 @@ function AvatarInput({
           </span>
         </button>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm">Change profile photo</p>
-          <p className="mt-1 text-muted-foreground text-xs">
+          <p className="text-sm font-medium">Change profile photo</p>
+          <p className="text-muted-foreground mt-1 text-xs">
             Supports JPG, PNG, and GIF (under 10MB)
           </p>
         </div>
@@ -847,4 +849,4 @@ function AvatarInput({
       ) : null}
     </>
   );
-}
+};

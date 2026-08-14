@@ -1,5 +1,7 @@
 import { prisma, tagCache } from "@asm/db";
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(
@@ -29,11 +31,11 @@ export async function POST(
     const { tags } = body;
 
     const post = await prisma.post.findUnique({
-      where: { id: postId },
       include: {
-        user: true,
         tags: true,
+        user: true,
       },
+      where: { id: postId },
     });
 
     if (!post) {
@@ -45,23 +47,22 @@ export async function POST(
     }
 
     await prisma.post.update({
-      where: { id: postId },
       data: {
         tags: {
           disconnect: post.tags.map((tag) => ({ id: tag.id })),
         },
       },
+      where: { id: postId },
     });
 
     const normalizedTags = tags.map((tag: string) => tag.toLowerCase());
 
     const updatedPost = await prisma.post.update({
-      where: { id: postId },
       data: {
         tags: {
           connectOrCreate: normalizedTags.map((tag: string) => ({
-            where: { name: tag },
             create: { name: tag },
+            where: { name: tag },
           })),
         },
       },
@@ -76,6 +77,7 @@ export async function POST(
           },
         },
       },
+      where: { id: postId },
     });
 
     await Promise.all(

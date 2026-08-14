@@ -10,12 +10,12 @@ interface ScrollUpButtonProps {
   isVisible: boolean;
 }
 
+function scrollToTop() {
+  window.scrollTo({ behavior: "smooth", top: 0 });
+}
+
 const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
   const circleId = useId();
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
 
   if (!isVisible) {
     return null;
@@ -29,20 +29,20 @@ const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
         transition={{ duration: 0.3 }}
       >
         <Button
-          className="group relative h-16 w-16 overflow-hidden rounded-full bg-primary p-2 transition-all duration-300 hover:bg-primary/90"
+          className="group bg-primary hover:bg-primary/90 relative h-16 w-16 overflow-hidden rounded-full p-2 transition-all duration-300"
           onClick={scrollToTop}
           size="icon"
           variant="outline"
         >
-          <ArrowUp className="absolute top-1/2 left-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 transform text-primary-foreground transition-all duration-300 group-hover:translate-y-[-200%]" />
+          <ArrowUp className="text-primary-foreground absolute top-1/2 left-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 transform transition-all duration-300 group-hover:translate-y-[-200%]" />
           <div className="absolute inset-0 flex items-center justify-center">
             <motion.div
               animate={{ rotate: 360 }}
               initial={{ rotate: 0 }}
               transition={{
                 duration: 10,
-                repeat: Number.POSITIVE_INFINITY,
                 ease: "linear",
+                repeat: Number.POSITIVE_INFINITY,
               }}
             >
               {/* biome-ignore lint/a11y/noSvgWithoutTitle: no need */}
@@ -53,7 +53,7 @@ const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
                     id={circleId}
                   />
                 </defs>
-                <text className="fill-primary-foreground font-semibold text-xs uppercase">
+                <text className="fill-primary-foreground text-xs font-semibold uppercase">
                   <textPath xlinkHref={`#${circleId}`}>
                     Scroll Up • Scroll Up • Scroll Up •
                   </textPath>

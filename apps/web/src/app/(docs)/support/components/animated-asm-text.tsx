@@ -1,4 +1,5 @@
 import { motion } from "motion/react";
+
 import { cn } from "@/lib/utils";
 
 interface AnimatedAsocialmediaTextProps {
@@ -8,17 +9,17 @@ interface AnimatedAsocialmediaTextProps {
 export const AnimatedAsocialmediaText = ({
   className,
 }: AnimatedAsocialmediaTextProps) => {
-  const letters = "ZEPHYR.".split("");
+  const letters = [..."ZEPHYR."];
 
   return (
     <motion.div
       animate={{ opacity: 1 }}
       className={cn(
-        "pointer-events-none z-10 select-none font-bold text-4xl sm:text-6xl",
+        "pointer-events-none z-10 text-4xl font-bold select-none sm:text-6xl",
         className
       )}
       initial={{ opacity: 0 }}
-      transition={{ duration: 0.8, delay: 0.7 }}
+      transition={{ delay: 0.7, duration: 0.8 }}
     >
       <div className="relative flex">
         {letters.map((letter, i) => (
@@ -31,14 +32,14 @@ export const AnimatedAsocialmediaText = ({
             initial={{ opacity: 0, y: 20 }}
             key={letter}
             style={{
-              textShadow: "0 2px 10px rgba(0, 0, 0, 0.1)",
               display: "inline-block",
+              textShadow: "0 2px 10px rgba(0, 0, 0, 0.1)",
             }}
             transition={{
-              duration: 4,
-              repeat: Number.POSITIVE_INFINITY,
-              ease: "easeInOut",
               delay: i * 0.1,
+              duration: 4,
+              ease: "easeInOut",
+              repeat: Number.POSITIVE_INFINITY,
               times: [0, 0.2, 0.5, 0.8, 1],
             }}
           >
@@ -48,16 +49,16 @@ export const AnimatedAsocialmediaText = ({
       </div>
       <motion.div
         animate={{
-          scaleX: [0, 1, 1, 1, 0],
           opacity: [0, 1, 1, 0.3, 0],
+          scaleX: [0, 1, 1, 1, 0],
         }}
-        className="absolute bottom-0 left-0 h-0.5 bg-primary/30"
+        className="bg-primary/30 absolute bottom-0 left-0 h-0.5"
         initial={{ scaleX: 0 }}
         style={{ transformOrigin: "left" }}
         transition={{
           duration: 4,
-          repeat: Number.POSITIVE_INFINITY,
           ease: "easeInOut",
+          repeat: Number.POSITIVE_INFINITY,
           times: [0, 0.2, 0.5, 0.8, 1],
         }}
       />

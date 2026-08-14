@@ -4,12 +4,14 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import React, { useCallback, useMemo } from "react";
+
 import type { UserRepliesPage } from "@/app/api/users/[userId]/replies/route";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 import { formatRelativeDate } from "@/lib/utils";
+
 import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
@@ -26,16 +28,16 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "user-replies", userId],
-    queryFn: ({ pageParam }) =>
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
           `/api/users/${userId}/replies`,
           pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
         .json<UserRepliesPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["post-feed", "user-replies", userId],
     staleTime: 1000 * 60,
   });
 
@@ -56,7 +58,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
 
   if (status === "error") {
     return (
-      <p className="text-center text-destructive">
+      <p className="text-destructive text-center">
         An error occurred while loading replies.
       </p>
     );
@@ -76,11 +78,11 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
       {replies.map((reply) => (
         <div className="border-border/60 border-b" key={reply.id}>
           <div className="px-4 pt-4">
-            <div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+            <div className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs">
               <Link2 className="size-3.5" />
               <span>Replied to</span>
               <Link
-                className="font-medium text-primary hover:underline"
+                className="text-primary font-medium hover:underline"
                 href={`/users/${reply.post.user.username}`}
               >
                 @{reply.post.user.username}
@@ -93,7 +95,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
           <PostCard isJoined post={reply.post} />
 
           <div className="border-border/60 border-t bg-[hsl(var(--background-alt))] px-4 pt-3 pb-4">
-            <p className="whitespace-pre-line break-words text-[15px]">
+            <p className="text-[15px] break-words whitespace-pre-line">
               {reply.content}
             </p>
           </div>
@@ -101,7 +103,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
       ))}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="animate-spin text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {!hasNextPage && replies.length > 0 ? (

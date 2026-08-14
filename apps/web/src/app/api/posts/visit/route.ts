@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -16,8 +17,8 @@ export async function POST(request: Request) {
   }
 
   const post = await prisma.post.findUnique({
-    where: { id: body.postId },
     select: { id: true },
+    where: { id: body.postId },
   });
 
   if (!post) {
@@ -27,16 +28,16 @@ export async function POST(request: Request) {
   // Upsert keeps one row per user+post, bumping visitedAt so the history
   // card reflects "most recently viewed" order.
   await prisma.postVisit.upsert({
-    where: {
-      userId_postId: {
-        userId: session.user.id,
-        postId: body.postId,
-      },
+    create: {
+      postId: body.postId,
+      userId: session.user.id,
     },
     update: { visitedAt: new Date() },
-    create: {
-      userId: session.user.id,
-      postId: body.postId,
+    where: {
+      userId_postId: {
+        postId: body.postId,
+        userId: session.user.id,
+      },
     },
   });
 

@@ -1,22 +1,23 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+
 import {
   bumpPatchVersion,
   determineChangedPackages,
   hasRootChanges,
-  type PackageJson,
   runBumpVersions,
   runBumpVersionWithContext,
 } from "./bump-versions-lib";
+import type { PackageJson } from "./bump-versions-lib";
 
-async function writePackageJson(path: string, pkg: PackageJson) {
-  await writeFile(path, `${JSON.stringify(pkg, null, 2)}\n`);
+async function writePackageJson(filePath: string, pkg: PackageJson) {
+  await writeFile(filePath, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
-async function readVersion(path: string) {
-  const content = await readFile(path, "utf8");
+async function readVersion(filePath: string) {
+  const content = await readFile(filePath, "utf-8");
   return (JSON.parse(content) as PackageJson).version;
 }
 
@@ -56,7 +57,7 @@ describe("determineChangedPackages", () => {
 
     const changed = determineChangedPackages(stagedFiles);
 
-    expect([...changed].sort()).toEqual(["auth", "db", "ui", "web"]);
+    expect([...changed].toSorted()).toEqual(["auth", "db", "ui", "web"]);
   });
 });
 
@@ -87,27 +88,36 @@ describe("runBumpVersionWithContext", () => {
       await rm(sandboxDir, { force: true, recursive: true });
     }
 
-    sandboxDir = await mkdtemp(join(tmpdir(), "asm-bump-script-"));
-    await mkdir(join(sandboxDir, "apps", "web"), { recursive: true });
-    await mkdir(join(sandboxDir, "apps", "docs"), { recursive: true });
-    await mkdir(join(sandboxDir, "packages", "db"), { recursive: true });
+    sandboxDir = await mkdtemp(path.join(tmpdir(), "asm-bump-script-"));
+    await mkdir(path.join(sandboxDir, "apps", "web"), { recursive: true });
+    await mkdir(path.join(sandboxDir, "apps", "docs"), { recursive: true });
+    await mkdir(path.join(sandboxDir, "packages", "db"), { recursive: true });
 
-    await writePackageJson(join(sandboxDir, "package.json"), {
+    await writePackageJson(path.join(sandboxDir, "package.json"), {
       name: "root",
       version: "1.0.1",
     });
-    await writePackageJson(join(sandboxDir, "apps", "web", "package.json"), {
-      name: "web",
-      version: "1.0.1",
-    });
-    await writePackageJson(join(sandboxDir, "apps", "docs", "package.json"), {
-      name: "docs",
-      version: "0.0.1",
-    });
-    await writePackageJson(join(sandboxDir, "packages", "db", "package.json"), {
-      name: "db",
-      version: "1.0.1",
-    });
+    await writePackageJson(
+      path.join(sandboxDir, "apps", "web", "package.json"),
+      {
+        name: "web",
+        version: "1.0.1",
+      }
+    );
+    await writePackageJson(
+      path.join(sandboxDir, "apps", "docs", "package.json"),
+      {
+        name: "docs",
+        version: "0.0.1",
+      }
+    );
+    await writePackageJson(
+      path.join(sandboxDir, "packages", "db", "package.json"),
+      {
+        name: "db",
+        version: "1.0.1",
+      }
+    );
 
     stagedFiles = new Set<string>();
     stagedByScript = new Set<string>();
@@ -124,11 +134,12 @@ describe("runBumpVersionWithContext", () => {
     stagedFiles = new Set(["apps/auth/src/index.ts"]);
 
     await runBumpVersionWithContext({
-      fileExists: (pkgPath) => Bun.file(join(sandboxDir, pkgPath)).exists(),
-      getStagedFiles: async () => [...stagedFiles],
+      fileExists: (pkgPath) =>
+        Bun.file(path.join(sandboxDir, pkgPath)).exists(),
+      getStagedFiles: () => Promise.resolve([...stagedFiles]),
       readPackageJson: async (pkgPath) =>
         JSON.parse(
-          await readFile(join(sandboxDir, pkgPath), "utf8")
+          await readFile(path.join(sandboxDir, pkgPath), "utf-8")
         ) as PackageJson,
       stageFile: (filePath) => {
         stagedByScript.add(filePath);
@@ -136,13 +147,15 @@ describe("runBumpVersionWithContext", () => {
       },
       writePackageJson: async (pkgPath, pkg) => {
         await writeFile(
-          join(sandboxDir, pkgPath),
+          path.join(sandboxDir, pkgPath),
           `${JSON.stringify(pkg, null, 2)}\n`
         );
       },
     });
 
-    expect(await readVersion(join(sandboxDir, "package.json"))).toBe("1.0.2");
+    expect(await readVersion(path.join(sandboxDir, "package.json"))).toBe(
+      "1.0.2"
+    );
     expect(stagedByScript.has("apps/auth/package.json")).toBe(false);
     expect(stagedByScript.has("package.json")).toBe(true);
   });
@@ -156,12 +169,12 @@ describe("runBumpVersionWithContext", () => {
 
     await runBumpVersionWithContext({
       fileExists: (pkgPath) => {
-        const path = join(sandboxDir, pkgPath);
-        return Bun.file(path).exists();
+        const filePath = path.join(sandboxDir, pkgPath);
+        return Bun.file(filePath).exists();
       },
-      getStagedFiles: async () => [...stagedFiles],
+      getStagedFiles: () => Promise.resolve([...stagedFiles]),
       readPackageJson: async (pkgPath) => {
-        const content = await readFile(join(sandboxDir, pkgPath), "utf8");
+        const content = await readFile(path.join(sandboxDir, pkgPath), "utf-8");
         return JSON.parse(content) as PackageJson;
       },
       stageFile: (filePath) => {
@@ -170,24 +183,26 @@ describe("runBumpVersionWithContext", () => {
       },
       writePackageJson: async (pkgPath, pkg) => {
         await writeFile(
-          join(sandboxDir, pkgPath),
+          path.join(sandboxDir, pkgPath),
           `${JSON.stringify(pkg, null, 2)}\n`
         );
       },
     });
 
-    expect(await readVersion(join(sandboxDir, "package.json"))).toBe("1.0.2");
+    expect(await readVersion(path.join(sandboxDir, "package.json"))).toBe(
+      "1.0.2"
+    );
     expect(
-      await readVersion(join(sandboxDir, "apps", "web", "package.json"))
+      await readVersion(path.join(sandboxDir, "apps", "web", "package.json"))
     ).toBe("1.0.2");
     expect(
-      await readVersion(join(sandboxDir, "packages", "db", "package.json"))
+      await readVersion(path.join(sandboxDir, "packages", "db", "package.json"))
     ).toBe("1.0.2");
     expect(
-      await readVersion(join(sandboxDir, "apps", "docs", "package.json"))
+      await readVersion(path.join(sandboxDir, "apps", "docs", "package.json"))
     ).toBe("0.0.1");
 
-    expect([...stagedByScript].sort()).toEqual([
+    expect([...stagedByScript].toSorted()).toEqual([
       "apps/web/package.json",
       "package.json",
       "packages/db/package.json",
@@ -196,11 +211,12 @@ describe("runBumpVersionWithContext", () => {
 
   test("does not bump anything when no staged files are present", async () => {
     await runBumpVersionWithContext({
-      fileExists: (pkgPath) => Bun.file(join(sandboxDir, pkgPath)).exists(),
-      getStagedFiles: async () => [],
+      fileExists: (pkgPath) =>
+        Bun.file(path.join(sandboxDir, pkgPath)).exists(),
+      getStagedFiles: () => Promise.resolve([]),
       readPackageJson: async (pkgPath) =>
         JSON.parse(
-          await readFile(join(sandboxDir, pkgPath), "utf8")
+          await readFile(path.join(sandboxDir, pkgPath), "utf-8")
         ) as PackageJson,
       stageFile: (filePath) => {
         stagedByScript.add(filePath);
@@ -208,47 +224,49 @@ describe("runBumpVersionWithContext", () => {
       },
       writePackageJson: async (pkgPath, pkg) => {
         await writeFile(
-          join(sandboxDir, pkgPath),
+          path.join(sandboxDir, pkgPath),
           `${JSON.stringify(pkg, null, 2)}\n`
         );
       },
     });
 
-    expect(await readVersion(join(sandboxDir, "package.json"))).toBe("1.0.1");
+    expect(await readVersion(path.join(sandboxDir, "package.json"))).toBe(
+      "1.0.1"
+    );
     expect(stagedByScript.size).toBe(0);
   });
 });
+
+interface SpawnResult {
+  exited: Promise<number>;
+  stderr: Blob;
+  stdout: Blob;
+}
+
+type SpawnFn = (args: string[], options?: unknown) => SpawnResult;
+
+const createSpawnResult = (
+  stdout = "",
+  stderr = "",
+  exitCode = 0
+): SpawnResult => ({
+  exited: Promise.resolve(exitCode),
+  stderr: new Blob([stderr]),
+  stdout: new Blob([stdout]),
+});
+
+const setSpawnMock = (spawnFn: SpawnFn): void => {
+  Bun.spawn = spawnFn as unknown as typeof Bun.spawn;
+};
 
 describe("runBumpVersions", () => {
   let originalSpawn: typeof Bun.spawn;
   let sandboxDir = "";
 
-  interface SpawnResult {
-    exited: Promise<number>;
-    stderr: Blob;
-    stdout: Blob;
-  }
-
-  type SpawnFn = (args: string[], options?: unknown) => SpawnResult;
-
-  const createSpawnResult = (
-    stdout = "",
-    stderr = "",
-    exitCode = 0
-  ): SpawnResult => ({
-    exited: Promise.resolve(exitCode),
-    stderr: new Blob([stderr]),
-    stdout: new Blob([stdout]),
-  });
-
-  const setSpawnMock = (spawnFn: SpawnFn): void => {
-    Bun.spawn = spawnFn as unknown as typeof Bun.spawn;
-  };
-
   beforeEach(async () => {
     originalSpawn = Bun.spawn;
-    sandboxDir = await mkdtemp(join(tmpdir(), "asm-run-bump-versions-"));
-    await writePackageJson(join(sandboxDir, "package.json"), {
+    sandboxDir = await mkdtemp(path.join(tmpdir(), "asm-run-bump-versions-"));
+    await writePackageJson(path.join(sandboxDir, "package.json"), {
       name: "root",
       version: "1.0.1",
     });
@@ -283,7 +301,9 @@ describe("runBumpVersions", () => {
 
     await runBumpVersions();
 
-    expect(await readVersion(join(sandboxDir, "package.json"))).toBe("1.0.2");
+    expect(await readVersion(path.join(sandboxDir, "package.json"))).toBe(
+      "1.0.2"
+    );
   });
 
   test("throws if getGitRepoRoot fails", async () => {
@@ -339,10 +359,11 @@ describe("bumpVersion error cases", () => {
   test("throws if version is missing", async () => {
     await expect(
       runBumpVersionWithContext({
-        fileExists: async () => true,
-        getStagedFiles: async () => ["docker/docker-compose.dev.yml"],
-        readPackageJson: async () =>
-          ({ name: "root" }) as unknown as PackageJson,
+        fileExists: () => Promise.resolve(true),
+        getStagedFiles: () =>
+          Promise.resolve(["docker/docker-compose.dev.yml"]),
+        readPackageJson: () =>
+          Promise.resolve({ name: "root" } as unknown as PackageJson),
         stageFile: async () => {
           // no-op
         },

@@ -1,5 +1,6 @@
 import { createLogger, getTelemetryApi } from "@asm/logger";
-import { type Attributes, SpanStatusCode } from "@opentelemetry/api";
+import { SpanStatusCode } from "@opentelemetry/api";
+import type { Attributes } from "@opentelemetry/api";
 
 // Minimal logger surface used across the worker modules so they can emit
 // structured logs (pino + trace context) instead of console.*. The entrypoint
@@ -14,10 +15,18 @@ export interface WorkerLogger {
 export const workerLogger = createLogger({ serviceName: "worker" });
 
 const noopLogger: WorkerLogger = {
-  debug: () => undefined,
-  error: () => undefined,
-  info: () => undefined,
-  warn: () => undefined,
+  debug: () => {
+    /* empty */
+  },
+  error: () => {
+    /* empty */
+  },
+  info: () => {
+    /* empty */
+  },
+  warn: () => {
+    /* empty */
+  },
 };
 
 export function resolveLogger(logger?: WorkerLogger): WorkerLogger {

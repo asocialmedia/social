@@ -7,7 +7,7 @@ export const keys = createEnv({
     NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
     NEXT_PUBLIC_PORT: z
       .string()
-      .transform((val) => Number.parseInt(val, 10))
+      .transform((val) => Math.trunc(Number(val)))
       .default(3000),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
   },
@@ -18,6 +18,7 @@ export const keys = createEnv({
     ASMOB_PRODUCTION_ENDPOINT: process.env.ASMOB_PRODUCTION_ENDPOINT,
     ASMOB_ROOT_PASSWORD: process.env.ASMOB_ROOT_PASSWORD,
     ASMOB_ROOT_USER: process.env.ASMOB_ROOT_USER,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,
     DATABASE_URL: process.env.DATABASE_URL,
     MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
@@ -30,7 +31,6 @@ export const keys = createEnv({
     REDIS_URL: process.env.REDIS_URL,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
-    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
   },
   server: {
     ASMOB_BUCKET_NAME: z.string().min(1).default("uploads"),
@@ -38,6 +38,7 @@ export const keys = createEnv({
     ASMOB_PRODUCTION_ENDPOINT: z.url().optional(),
     ASMOB_ROOT_PASSWORD: z.string().min(1).default("asmob-admin"),
     ASMOB_ROOT_USER: z.string().min(1).default("asmob-admin"),
+    BETTER_AUTH_SECRET: z.string().optional(),
     BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
     DATABASE_URL: z.url(),
     MEILISEARCH_MASTER_KEY: z.string().default("masterKey123"),
@@ -49,7 +50,6 @@ export const keys = createEnv({
     REDIS_URL: z.url(),
     SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
     TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
-    BETTER_AUTH_SECRET: z.string().optional(),
   },
 
   skipValidation: process.env.NODE_ENV === "production",

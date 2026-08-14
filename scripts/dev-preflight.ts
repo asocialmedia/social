@@ -2,14 +2,15 @@
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import path from "node:path";
 import process from "node:process";
+
 import { intro, log, outro, spinner } from "@clack/prompts";
+
 import {
   areInitJobsComplete,
   buildPreflightProgressLine,
   buildRuntimeFingerprint,
-  type CacheShape,
   computeCacheDigest,
   DEFAULT_PREFLIGHT_CONFIG,
   getMissingBuckets,
@@ -18,17 +19,20 @@ import {
   hasOpenObserveHealth,
   hasRedisPong,
   hasSchemaTables,
-  type OneShotStatus,
   PREFLIGHT_CHECK_ORDER,
-  type PreflightCheckKey,
-  type PreflightCheckState,
   parseServiceSnapshots,
-  type ServiceSnapshot,
   shouldUseSudoForPortless,
   withinTtl,
 } from "./dev-preflight-lib";
+import type {
+  CacheShape,
+  OneShotStatus,
+  PreflightCheckKey,
+  PreflightCheckState,
+  ServiceSnapshot,
+} from "./dev-preflight-lib";
 
-const CACHE_FILE = join(process.cwd(), ".cache", "dev-preflight.json");
+const CACHE_FILE = path.join(process.cwd(), ".cache", "dev-preflight.json");
 const CACHE_TTL_MS = 20_000;
 const CACHE_VERSION = 1;
 const ASMOB_ACCESS_KEY = process.env.ASMOB_ROOT_USER ?? "asmob-admin";
@@ -114,9 +118,9 @@ async function runInteractiveCmd(args: string[]) {
   };
 }
 
-async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
+async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
   try {
-    const content = await readFile(path, "utf8");
+    const content = await readFile(filePath, "utf-8");
     return JSON.parse(content) as T;
   } catch {
     return fallback;
@@ -124,7 +128,7 @@ async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
 }
 
 async function ensureCacheDir() {
-  await mkdir(dirname(CACHE_FILE), { recursive: true });
+  await mkdir(path.dirname(CACHE_FILE), { recursive: true });
 }
 
 function getCache(): Promise<CacheShape> {
@@ -421,9 +425,13 @@ async function ensurePortlessProxyReady() {
 }
 
 async function getComposeFileFingerprint() {
-  const composePath = join(process.cwd(), "docker", "docker-compose.dev.yml");
+  const composePath = path.join(
+    process.cwd(),
+    "docker",
+    "docker-compose.dev.yml"
+  );
   const [content, fileStat] = await Promise.all([
-    readFile(composePath, "utf8"),
+    readFile(composePath, "utf-8"),
     stat(composePath),
   ]);
 
@@ -531,7 +539,11 @@ async function run() {
   outro("Preflight checks passed");
 }
 
-run().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  fatal(message);
-});
+(async () => {
+  try {
+    await run();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    fatal(message);
+  }
+})();

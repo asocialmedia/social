@@ -5,10 +5,12 @@ import noFeedImage from "@assets/general/nofeed.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback, useMemo } from "react";
+
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
+
 import { FeedView } from "./feed-view";
 
 interface HomeFeedProps {
@@ -32,19 +34,19 @@ export default function HomeFeed({
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey,
-    queryFn: async ({ pageParam }) => {
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }: { pageParam: string | null }) => {
       const result = await kyInstance
         .get(endpoint, pageParam ? { searchParams: { cursor: pageParam } } : {})
         .json<PostsPage>();
       return result;
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    staleTime: 30 * 1000, // 30 seconds
-    refetchOnWindowFocus: false,
+    queryKey,
     refetchOnMount: false,
     refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000, // 30 seconds,
   });
 
   const posts = useMemo(
@@ -94,7 +96,7 @@ export default function HomeFeed({
         <p className="text-destructive text-sm sm:text-base">
           An error occurred while loading posts.
         </p>
-        <p className="mt-2 text-muted-foreground/70 text-xs sm:text-sm">
+        <p className="text-muted-foreground/70 mt-2 text-xs sm:text-sm">
           Please try refreshing the page.
         </p>
       </div>

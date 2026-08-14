@@ -2,9 +2,13 @@
 
 import type { PostData } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
-import { type QueryKey, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useState } from "react";
+
 import PostCard from "./feedview/post-card";
+
+const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
   cacheKey?: QueryKey;
@@ -15,7 +19,7 @@ interface FeedViewProps {
 
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
-  cacheKey = ["post-feed", "for-you"],
+  cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludePostId,
   sortBy = "newest",
 }) => {
@@ -40,9 +44,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
             .filter((post) => post.id !== excludePostId);
 
           if (updatedPosts.length) {
-            const uniquePosts = Array.from(
-              new Map(updatedPosts.map((post) => [post.id, post])).values()
-            );
+            const uniquePosts = [
+              ...new Map(updatedPosts.map((post) => [post.id, post])).values(),
+            ];
+            // eslint-disable-next-line react-compiler -- reflect cache updates into local feed state
             setPosts(uniquePosts);
           }
         }
@@ -65,9 +70,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
       (posts.length === 0 ||
         (initialFirstId && currentFirstId !== initialFirstId))
     ) {
-      const uniquePosts = Array.from(
-        new Map(safeInitial.map((post) => [post.id, post])).values()
-      );
+      const uniquePosts = [
+        ...new Map(safeInitial.map((post) => [post.id, post])).values(),
+      ];
+      // eslint-disable-next-line react-compiler -- sync the local list with the initial props
       setPosts(uniquePosts);
     }
   }, [excludePostId, initialPosts, posts]);
@@ -78,7 +84,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
     }
     return [...posts]
       .filter(Boolean)
-      .sort(
+      .toSorted(
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -94,7 +100,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
       ))}
       {sortedPosts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
-          <p className="text-center text-muted-foreground text-sm sm:text-base">
+          <p className="text-muted-foreground text-center text-sm sm:text-base">
             No posts to show here. Follow someone or create your first post.
           </p>
         </div>

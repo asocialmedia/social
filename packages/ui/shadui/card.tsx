@@ -12,7 +12,7 @@ const Card = ({
 }) => (
   <div
     className={cn(
-      "rounded-xl border bg-card text-card-foreground shadow",
+      "bg-card text-card-foreground rounded-xl border shadow",
       className
     )}
     ref={ref}
@@ -44,7 +44,7 @@ const CardTitle = ({
   ref?: React.Ref<HTMLDivElement | null>;
 }) => (
   <div
-    className={cn("font-semibold leading-none tracking-tight", className)}
+    className={cn("leading-none font-semibold tracking-tight", className)}
     ref={ref}
     {...props}
   />

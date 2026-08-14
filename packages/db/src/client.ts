@@ -2,85 +2,85 @@ import type { Prisma } from "../prisma/generated/prisma/client";
 
 export function getUserDataSelect(loggedInUserId: string) {
   return {
-    id: true,
+    _count: {
+      select: {
+        followers: true,
+        following: true,
+        posts: true,
+      },
+    },
     aura: true,
-    username: true,
-    email: true,
-    displayName: true,
-    avatarUrl: true,
     avatarKey: true,
-    bannerUrl: true,
+    avatarUrl: true,
     bannerKey: true,
+    bannerUrl: true,
     bio: true,
-    githubUsername: true,
-    linkedinUsername: true,
-    twitterUsername: true,
-    redditUsername: true,
     createdAt: true,
-    googleId: true,
-    redditId: true,
-    passwordHash: true,
+    displayName: true,
+    email: true,
     emailVerified: true,
     followers: {
-      where: {
-        followerId: loggedInUserId,
-      },
       select: {
         followerId: true,
       },
-    },
-    _count: {
-      select: {
-        posts: true,
-        followers: true,
-        following: true,
+      where: {
+        followerId: loggedInUserId,
       },
     },
+    githubUsername: true,
+    googleId: true,
+    id: true,
+    linkedinUsername: true,
+    passwordHash: true,
+    redditId: true,
+    redditUsername: true,
+    twitterUsername: true,
+    username: true,
   } satisfies Prisma.UserSelect;
 }
 
 export function getPostDataInclude(loggedInUserId: string) {
   return {
-    user: {
-      select: getUserDataSelect(loggedInUserId),
+    _count: {
+      select: {
+        comments: true,
+        mentions: true,
+        vote: true,
+      },
     },
     attachments: true,
-    tags: true,
+    bookmarks: {
+      select: {
+        userId: true,
+      },
+      where: {
+        userId: loggedInUserId,
+      },
+    },
+    hnStoryShare: true,
     mentions: {
       include: {
         user: {
           select: {
+            avatarUrl: true,
+            displayName: true,
             id: true,
             username: true,
-            displayName: true,
-            avatarUrl: true,
           },
         },
       },
     },
-    bookmarks: {
-      where: {
-        userId: loggedInUserId,
-      },
-      select: {
-        userId: true,
-      },
+    tags: true,
+    user: {
+      select: getUserDataSelect(loggedInUserId),
     },
     vote: {
-      where: {
-        userId: loggedInUserId,
-      },
       select: {
         userId: true,
         value: true,
       },
-    },
-    hnStoryShare: true,
-    _count: {
-      select: {
-        vote: true,
-        comments: true,
-        mentions: true,
+      where: {
+        userId: loggedInUserId,
       },
     },
   } satisfies Prisma.PostInclude;
@@ -115,16 +115,16 @@ export interface CommentsPage {
 export const notificationsInclude = {
   issuer: {
     select: {
+      avatarUrl: true,
+      displayName: true,
       id: true,
       username: true,
-      displayName: true,
-      avatarUrl: true,
     },
   },
   post: {
     select: {
-      id: true,
       content: true,
+      id: true,
     },
   },
 } satisfies Prisma.NotificationInclude;
@@ -265,10 +265,10 @@ export interface MentionData {
 export const mentionsInclude = {
   user: {
     select: {
+      avatarUrl: true,
+      displayName: true,
       id: true,
       username: true,
-      displayName: true,
-      avatarUrl: true,
     },
   },
 } satisfies Prisma.MentionInclude;

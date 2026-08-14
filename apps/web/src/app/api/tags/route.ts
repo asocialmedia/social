@@ -13,15 +13,15 @@ export async function GET(req: Request) {
 
       if (!tags || tags.length === 0) {
         const dbTags = await prisma.tag.findMany({
+          orderBy: {
+            name: "asc",
+          },
+          take: 10,
           where: {
             name: {
               contains: query,
               mode: "insensitive",
             },
-          },
-          take: 10,
-          orderBy: {
-            name: "asc",
           },
         });
         tags = dbTags.map((t) => t.name);

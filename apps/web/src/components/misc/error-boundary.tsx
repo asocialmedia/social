@@ -2,7 +2,8 @@ import { debugLog } from "@asm/config/debug";
 import { Button } from "@asm/ui/shadui/button";
 import errorImage from "@assets/general/error.png";
 import Image from "next/image";
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
@@ -16,24 +17,29 @@ interface State {
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = {
-    hasError: false,
-    error: null,
-  };
-
-  static getDerivedStateFromError(error: Error): State {
-    return {
-      hasError: true,
-      error,
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      error: null,
+      hasError: false,
     };
   }
 
+  static getDerivedStateFromError(error: Error): State {
+    return {
+      error,
+      hasError: true,
+    };
+  }
+
+  // eslint-disable-next-line class-methods-use-this -- componentDidCatch is a required React lifecycle hook
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     debugLog.component("Error boundary caught error:", { error, errorInfo });
   }
 
   private readonly handleReset = () => {
-    this.setState({ hasError: false, error: null });
+    // eslint-disable-next-line react/no-set-state -- error boundaries reset through instance setState
+    this.setState({ error: null, hasError: false });
     this.props.onReset?.();
   };
 
@@ -43,7 +49,7 @@ export class ErrorBoundary extends Component<Props, State> {
         this.props.fallback || (
           <ErrorFallback
             error={this.state.error}
-            resetErrorBoundary={this.handleReset}
+            onResetErrorBoundary={this.handleReset}
           />
         )
       );
@@ -55,30 +61,28 @@ export class ErrorBoundary extends Component<Props, State> {
 
 interface ErrorFallbackProps {
   error: Error | null;
-  resetErrorBoundary: () => void;
+  onResetErrorBoundary: () => void;
 }
 
-export function ErrorFallback({
+export const ErrorFallback = ({
   error,
-  resetErrorBoundary,
-}: ErrorFallbackProps) {
-  return (
-    <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 p-4 text-center">
-      <Image
-        alt=""
-        className="size-32 object-contain"
-        draggable={false}
-        height={1199}
-        src={errorImage}
-        width={1312}
-      />
-      <div className="space-y-1.5">
-        <h2 className="font-semibold text-lg">Something went wrong</h2>
-        <p className="text-muted-foreground text-sm">
-          {error?.message || "An unexpected error occurred"}
-        </p>
-      </div>
-      <Button onClick={resetErrorBoundary}>Try again</Button>
+  onResetErrorBoundary,
+}: ErrorFallbackProps) => (
+  <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 p-4 text-center">
+    <Image
+      alt=""
+      className="size-32 object-contain"
+      draggable={false}
+      height={1199}
+      src={errorImage}
+      width={1312}
+    />
+    <div className="space-y-1.5">
+      <h2 className="text-lg font-semibold">Something went wrong</h2>
+      <p className="text-muted-foreground text-sm">
+        {error?.message || "An unexpected error occurred"}
+      </p>
     </div>
-  );
-}
+    <Button onClick={onResetErrorBoundary}>Try again</Button>
+  </div>
+);

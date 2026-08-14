@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
+
 import { PasswordRecommender } from "./password-recommender";
 
 interface Requirement {
@@ -13,7 +14,7 @@ export const lowercaseRegex = /[a-z]/;
 export const onenumberRegex = /[0-9]/;
 export const specialCharRegex = /[@$!%*?&#]/;
 const numberRegex = /\d/;
-const repeatedCharRegex = /(.)\1{2,}/;
+const repeatedCharRegex = /(?<char>.)\k<char>{2,}/;
 const commonSequenceRegex = /(?:abc|123|qwe|xyz)/i;
 
 const requirements: Requirement[] = [
@@ -51,9 +52,9 @@ interface PasswordStrengthCheckerProps {
   password: string;
 }
 
-export function PasswordStrengthChecker({
+export const PasswordStrengthChecker = ({
   password,
-}: PasswordStrengthCheckerProps) {
+}: PasswordStrengthCheckerProps) => {
   const getStrengthPercent = () => {
     if (!password) {
       return 0;
@@ -96,13 +97,13 @@ export function PasswordStrengthChecker({
     <AnimatePresence mode="wait">
       {password.length > 0 && (
         <motion.div
-          animate={{ opacity: 1, height: "auto" }}
+          animate={{ height: "auto", opacity: 1 }}
           className="mt-2 space-y-2.5"
-          exit={{ opacity: 0, height: 0, transition: { duration: 0.2 } }}
-          initial={{ opacity: 0, height: 0 }}
+          exit={{ height: 0, opacity: 0, transition: { duration: 0.2 } }}
+          initial={{ height: 0, opacity: 0 }}
         >
           <div className="space-y-2">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
               <motion.div
                 animate={{ width: `${strengthPercent}%` }}
                 className={`h-full rounded-full ${getStrengthColor()}`}
@@ -131,4 +132,4 @@ export function PasswordStrengthChecker({
       )}
     </AnimatePresence>
   );
-}
+};

@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import {
   commonsequencesRegex,
   threerepeatRegex,
@@ -21,10 +22,6 @@ const requiredString = z.string().trim().min(1, "This field is required!");
 
 export const signUpSchema = z.object({
   email: requiredEmail.email("Please enter a valid email address"),
-  username: requiredUsername.regex(
-    /^[a-zA-Z0-9_]+$/,
-    "Username can only contain letters, numbers, and underscores (no weird symbols pls)"
-  ),
   password: requiredPassword
     .min(8, "Password needs at least 8 characters, keep it 100")
     .regex(/[A-Z]/, "Need at least one uppercase letter (be fancy!)")
@@ -43,18 +40,22 @@ export const signUpSchema = z.object({
       const commonWords = ["password", "admin", "user", "login"];
       return !commonWords.some((word) => password.toLowerCase().includes(word));
     }, "'password123' is so last season, pick something better!"),
+  username: requiredUsername.regex(
+    /^[a-zA-Z0-9_]+$/,
+    "Username can only contain letters, numbers, and underscores (no weird symbols pls)"
+  ),
 });
 
 export const loginSchema = z.object({
-  username: requiredUsername,
   password: requiredPassword,
+  username: requiredUsername,
 });
 
 export const createPostSchema = z.object({
   content: requiredString,
   mediaIds: z.array(z.string()).max(5, "Cannot have more than 5 attachments"),
-  tags: z.array(z.string()),
   mentions: z.array(z.string()).default([]),
+  tags: z.array(z.string()),
 });
 
 const socialUsername = z
@@ -68,7 +69,6 @@ const socialUsername = z
   .optional();
 
 export const updateUserProfileSchema = z.object({
-  displayName: requiredString,
   bio: z
     .string()
     .max(2000, "Bio must be at most 2000 characters")
@@ -77,10 +77,11 @@ export const updateUserProfileSchema = z.object({
         text.trim().split(whitespaceRegex).filter(Boolean).length <= 400,
       "Bio must not exceed 400 words"
     ),
+  displayName: requiredString,
   githubUsername: socialUsername,
   linkedinUsername: socialUsername,
-  twitterUsername: socialUsername,
   redditUsername: socialUsername,
+  twitterUsername: socialUsername,
 });
 
 export const createCommentSchema = z.object({

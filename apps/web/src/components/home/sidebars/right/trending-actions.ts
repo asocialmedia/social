@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@asm/db";
+
 import { getTrendingTopics } from "./topic-actions";
 
 export interface TrendingMention {
@@ -23,8 +24,8 @@ export type TrendingItem = TrendingHashtag | TrendingMention;
 async function getTopMentionedUsers(): Promise<TrendingMention[]> {
   try {
     const grouped = await prisma.mention.groupBy({
-      by: ["userId"],
       _count: { _all: true },
+      by: ["userId"],
       orderBy: { _count: { userId: "desc" } },
       take: 5,
     });
@@ -34,13 +35,13 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
     }
 
     const users = await prisma.user.findMany({
-      where: { id: { in: grouped.map((g) => g.userId) } },
       select: {
+        avatarUrl: true,
+        displayName: true,
         id: true,
         username: true,
-        displayName: true,
-        avatarUrl: true,
       },
+      where: { id: { in: grouped.map((g) => g.userId) } },
     });
 
     const userById = new Map(users.map((user) => [user.id, user]));
@@ -52,16 +53,16 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
           return null;
         }
         return {
+          avatarUrl: user.avatarUrl,
+          count: group._count._all,
+          displayName: user.displayName,
           type: "mention" as const,
           userId: user.id,
           username: user.username,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          count: group._count._all,
         };
       })
       .filter((item): item is TrendingMention => item !== null)
-      .sort((a, b) => b.count - a.count);
+      .toSorted((a, b) => b.count - a.count);
   } catch (error) {
     console.error("Error fetching top mentioned users:", error);
     return [];
@@ -78,9 +79,9 @@ export async function getTrendingFeed(
 
   const hashtags: TrendingHashtag[] = topics
     .slice(0, 5)
-    .map(({ hashtag, count }) => ({ type: "hashtag", hashtag, count }));
+    .map(({ hashtag, count }) => ({ count, hashtag, type: "hashtag" }));
 
   return [...hashtags, ...mentions]
-    .sort((a, b) => b.count - a.count)
+    .toSorted((a, b) => b.count - a.count)
     .slice(0, 10);
 }

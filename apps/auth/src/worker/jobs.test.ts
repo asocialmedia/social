@@ -9,8 +9,8 @@ describe("worker job processors", () => {
   });
 
   const mockRedis = {
-    srem: mock(async () => 1),
-    del: mock(async () => 1),
+    del: mock(() => 1),
+    srem: mock(() => 1),
   };
 
   interface MediaRow {
@@ -22,40 +22,40 @@ describe("worker job processors", () => {
 
   const mockPrisma = {
     media: {
-      findMany: mock(async () => [
+      delete: mock(() => ({})),
+      deleteMany: mock(() => ({ count: 2 })),
+      findMany: mock(() => [
         { id: "media-1", key: "uploads/a.jpg" },
         { id: "media-2", key: "" },
       ]),
-      deleteMany: mock(async () => ({ count: 2 })),
-      findUnique: mock(
-        async (): Promise<MediaRow | null> => ({
+      findUnique: mock((): Promise<MediaRow | null> =>
+        Promise.resolve({
+          createdAt: new Date(),
           id: "media-1",
           key: "uploads/a.jpg",
           postId: null,
-          createdAt: new Date(),
         })
       ),
-      delete: mock(async () => ({})),
-    },
-    user: {
-      findMany: mock(async () => [{ id: "user-1" }]),
-      deleteMany: mock(async () => ({ count: 1 })),
     },
     passwordResetToken: {
-      deleteMany: mock(async () => ({ count: 3 })),
+      deleteMany: mock(() => ({ count: 3 })),
+    },
+    user: {
+      deleteMany: mock(() => ({ count: 1 })),
+      findMany: mock(() => [{ id: "user-1" }]),
     },
   };
 
   mock.module("@asm/db", () => ({
-    prisma: mockPrisma,
-    redis: mockRedis,
-    deleteObject: mockDeleteObject,
-    unreadNotificationCache: {
-      increment: mock(async () => 1),
-      decrement: mock(async () => 0),
-    },
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
+    deleteObject: mockDeleteObject,
+    prisma: mockPrisma,
+    redis: mockRedis,
+    unreadNotificationCache: {
+      decrement: mock(() => 0),
+      increment: mock(() => 1),
+    },
   }));
 
   beforeEach(() => {
@@ -79,8 +79,8 @@ describe("worker job processors", () => {
     await processPostDeleted({ postId: "post-1" });
 
     expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
-      where: { postId: "post-1" },
       select: { id: true, key: true },
+      where: { postId: "post-1" },
     });
     // Only the media with a non-empty key reaches the object store.
     expect(deletedObjects).toEqual(["uploads/a.jpg"]);
@@ -95,8 +95,8 @@ describe("worker job processors", () => {
     await processMediaCleanup({ mediaId: "media-1" });
 
     expect(mockPrisma.media.findUnique).toHaveBeenCalledWith({
+      select: { createdAt: true, id: true, key: true, postId: true },
       where: { id: "media-1" },
-      select: { id: true, key: true, postId: true, createdAt: true },
     });
     expect(deletedObjects).toEqual(["uploads/a.jpg"]);
     expect(mockPrisma.media.delete).toHaveBeenCalledWith({
@@ -105,10 +105,10 @@ describe("worker job processors", () => {
 
     // Attached media should be left alone.
     mockPrisma.media.findUnique.mockResolvedValueOnce({
+      createdAt: new Date(),
       id: "media-2",
       key: "uploads/b.jpg",
       postId: "post-2",
-      createdAt: new Date(),
     });
     deletedObjects.length = 0;
     mockPrisma.media.delete.mockClear();

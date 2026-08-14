@@ -1,4 +1,5 @@
-import { type ButtonProps, buttonVariants } from "@asm/ui/shadui/button";
+import { buttonVariants } from "@asm/ui/shadui/button";
+import type { ButtonProps } from "@asm/ui/shadui/button";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -6,6 +7,7 @@ import {
 } from "@radix-ui/react-icons";
 import type * as React from "react";
 import type { ComponentProps } from "react";
+
 import { cn } from "../lib/utils";
 
 const Pagination = ({ className, ...props }: ComponentProps<"nav">) => (
@@ -46,6 +48,7 @@ type PaginationLinkProps = {
   Omit<ComponentProps<"a">, "href">;
 
 const PaginationLink = ({
+  children,
   className,
   isActive,
   size = "icon",
@@ -56,14 +59,16 @@ const PaginationLink = ({
     aria-current={isActive ? "page" : undefined}
     className={cn(
       buttonVariants({
-        variant: isActive ? "outline" : "ghost",
         size,
+        variant: isActive ? "outline" : "ghost",
       }),
       className
     )}
     href={href}
     {...props}
-  />
+  >
+    {children}
+  </a>
 );
 PaginationLink.displayName = "PaginationLink";
 

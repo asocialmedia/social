@@ -1,6 +1,8 @@
-import { type MediaType, prisma, scheduleMediaCleanup } from "@asm/db";
+import { prisma, scheduleMediaCleanup } from "@asm/db";
+import type { MediaType } from "@asm/db";
 import { imageSize } from "image-size";
 import { NextResponse } from "next/server";
+
 import { uploadToAsmob } from "@/lib/object-storage";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
 
   const media = await prisma.media.create({
     data: {
+      height,
       key: upload.key,
       mimeType: upload.mimeType,
       postId,
@@ -50,22 +53,23 @@ export async function POST(request: Request) {
       type: upload.type as MediaType,
       url: upload.url,
       width,
-      height,
     },
   });
 
   // Schedule a delayed cleanup in case the upload is never attached to a post
   // (abandoned draft). If the post is created first, submitPost cancels it.
-  scheduleMediaCleanup(media.id).catch((error: unknown) => {
+  try {
+    await scheduleMediaCleanup(media.id);
+  } catch (error) {
     console.error("Failed to schedule media cleanup:", error);
-  });
+  }
 
   return NextResponse.json({
+    height,
     key: upload.key,
     mediaId: media.id,
     type: media.type,
     url: upload.url,
     width,
-    height,
   });
 }

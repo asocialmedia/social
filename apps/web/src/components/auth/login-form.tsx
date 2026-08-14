@@ -1,6 +1,7 @@
 "use client";
 
-import { type LoginValues, loginSchema } from "@asm/auth/validation";
+import { loginSchema } from "@asm/auth/validation";
+import type { LoginValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
 import {
   Form,
@@ -17,7 +18,9 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { type ControllerRenderProps, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
+import type { ControllerRenderProps } from "react-hook-form";
+
 import { login } from "@/app/(auth)/login/actions";
 import { resendVerificationEmail } from "@/app/(auth)/signup/actions";
 import ForgotPasswordLink from "@/components/auth/forgot-password-link";
@@ -39,11 +42,11 @@ export default function LoginForm() {
   }>({});
 
   const form = useForm<LoginValues>({
-    resolver: zodResolver(loginSchema),
     defaultValues: {
-      username: "",
       password: "",
+      username: "",
     },
+    resolver: zodResolver(loginSchema),
   });
 
   useEffect(() => {
@@ -82,10 +85,10 @@ export default function LoginForm() {
     } catch (loginError) {
       clientLog.error("Login error:", loginError);
       toast({
-        variant: "destructive",
-        title: "Login Failed",
         description: "Something went wrong, try again? Our bad!",
         duration: 5000,
+        title: "Login Failed",
+        variant: "destructive",
       });
     }
   }
@@ -94,13 +97,13 @@ export default function LoginForm() {
     setError(loginErrorMessage);
     setShake(true);
     if (loginErrorMessage.includes("Invalid username/email or password")) {
-      setErrorFields({ username: true, password: true });
+      setErrorFields({ password: true, username: true });
     }
     toast({
-      variant: "destructive",
-      title: "Login Failed",
       description: loginErrorMessage,
       duration: 5000,
+      title: "Login Failed",
+      variant: "destructive",
     });
   }
 
@@ -110,9 +113,9 @@ export default function LoginForm() {
       : username;
 
     toast({
-      title: `Welcome back, ${displayName}!`,
       description: "You're in! Let's get this bread!",
       duration: 3000,
+      title: `Welcome back, ${displayName}!`,
     });
 
     router.refresh();
@@ -142,7 +145,7 @@ export default function LoginForm() {
                 className="absolute top-1/2 right-3 -translate-y-1/2"
                 initial={{ opacity: 0 }}
               >
-                <XCircle className="h-4 w-4 text-destructive" />
+                <XCircle className="text-destructive h-4 w-4" />
               </motion.div>
             ) : null}
           </div>
@@ -187,26 +190,26 @@ export default function LoginForm() {
       const result = await resendVerificationEmail(unverifiedEmail);
       if (result.error) {
         toast({
-          variant: "destructive",
-          title: "Verification Failed!",
           description: result.error,
           duration: 5000,
+          title: "Verification Failed!",
+          variant: "destructive",
         });
       } else if (result.success) {
         toast({
-          title: "Verification Email Sent!",
           description:
             "Check your inbox (and spam folder, just in case) to verify your email!",
           duration: 5000,
+          title: "Verification Email Sent!",
         });
       }
     } catch (resendError) {
       clientLog.error("Resend verification error:", resendError);
       toast({
-        variant: "destructive",
-        title: "Verification Failed!",
         description: "Something went wrong, try again? Our bad!",
         duration: 5000,
+        title: "Verification Failed!",
+        variant: "destructive",
       });
     }
   };
@@ -217,8 +220,8 @@ export default function LoginForm() {
         animate={shake ? "shake" : "stable"}
         variants={{
           shake: {
-            x: [0, -10, 10, -10, 10, 0],
             transition: { duration: 0.5 },
+            x: [0, -10, 10, -10, 10, 0],
           },
           stable: { x: 0 },
         }}
@@ -248,19 +251,19 @@ export default function LoginForm() {
           {unverifiedEmail ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
-              className="rounded-lg border border-primary/20 bg-primary/5 p-6 text-sm"
+              className="border-primary/20 bg-primary/5 rounded-lg border p-6 text-sm"
               initial={{ opacity: 0, y: -20 }}
             >
               <div className="flex flex-col items-center space-y-4">
                 <div className="relative">
-                  <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-md" />
-                  <div className="relative rounded-full border border-primary/20 bg-background/80 p-3 backdrop-blur-sm">
-                    <Mail className="h-6 w-6 text-primary" />
+                  <div className="bg-primary/20 absolute inset-0 animate-pulse rounded-full blur-md" />
+                  <div className="border-primary/20 bg-background/80 relative rounded-full border p-3 backdrop-blur-sm">
+                    <Mail className="text-primary h-6 w-6" />
                   </div>
                 </div>
 
                 <div className="space-y-2 text-center">
-                  <p className="font-medium text-foreground">
+                  <p className="text-foreground font-medium">
                     Email Verification Required
                   </p>
                   <p className="text-muted-foreground">
@@ -275,8 +278,8 @@ export default function LoginForm() {
                   onClick={handleResendVerification}
                   type="button"
                 >
-                  <div className="absolute -inset-0.5 rounded-lg bg-primary opacity-10 blur-sm transition group-hover:opacity-20" />
-                  <div className="relative flex items-center justify-center gap-2 rounded-lg border border-primary/20 bg-background/80 px-4 py-2 text-primary transition-colors hover:bg-background/90">
+                  <div className="bg-primary absolute -inset-0.5 rounded-lg opacity-10 blur-sm transition group-hover:opacity-20" />
+                  <div className="border-primary/20 bg-background/80 text-primary hover:bg-background/90 relative flex items-center justify-center gap-2 rounded-lg border px-4 py-2 transition-colors">
                     <Mail className="h-4 w-4" />
                     <span>
                       {isVerificationEmailSent
@@ -305,7 +308,7 @@ export default function LoginForm() {
             <ForgotPasswordLink />
             <span className="text-muted-foreground text-sm">or</span>
             <Link
-              className="px-2 py-1 text-muted-foreground text-sm transition-colors duration-300 hover:text-primary"
+              className="text-muted-foreground hover:text-primary px-2 py-1 text-sm transition-colors duration-300"
               href="/support"
             >
               Need help?

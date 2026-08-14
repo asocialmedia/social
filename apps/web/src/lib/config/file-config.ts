@@ -3,17 +3,17 @@ import { FILE_CONFIGS } from "../utils/mime-utils";
 export type FileCategory = "IMAGE" | "VIDEO" | "AUDIO" | "CODE" | "DOCUMENT";
 
 export const maxFileSizes = {
+  AUDIO: 20 * 1024 * 1024,
+  CODE: 10 * 1024 * 1024,
+  DOCUMENT: 200 * 1024 * 1024,
   IMAGE: 25 * 1024 * 1024,
   VIDEO: 250 * 1024 * 1024,
-  AUDIO: 20 * 1024 * 1024,
-  DOCUMENT: 200 * 1024 * 1024,
-  CODE: 10 * 1024 * 1024,
 } as const;
 
 export const FILE_SIZE_UNITS = {
+  GB: 1024 * 1024 * 1024,
   KB: 1024,
   MB: 1024 * 1024,
-  GB: 1024 * 1024 * 1024,
 } as const;
 
 export type AllowedAvatarExtension =
@@ -26,7 +26,6 @@ export type AllowedAvatarExtension =
   | "heif";
 
 export const avatarConfig = {
-  maxSize: 8 * 1024 * 1024,
   allowedExtensions: [
     "jpg",
     "jpeg",
@@ -36,6 +35,7 @@ export const avatarConfig = {
     "heic",
     "heif",
   ] as AllowedAvatarExtension[],
+  maxSize: 8 * 1024 * 1024,
 } as const;
 
 export const getAllowedMimeTypes = () =>

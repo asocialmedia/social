@@ -1,11 +1,7 @@
 import { FileAudioIcon, FileCode, FileIcon, ImageIcon } from "lucide-react";
-import {
-  type ChangeEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+
 import { cn } from "@/lib/utils";
 
 interface FileInputProps {
@@ -32,23 +28,6 @@ interface FileButtonProps {
   setHoveredButton: (button: FileButtonType | null) => void;
   type: FileButtonType;
 }
-
-const _useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
-    };
-
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
-  return isMobile;
-};
 
 const FileButton = ({
   icon: Icon,
@@ -110,9 +89,9 @@ const FileButton = ({
       <button
         aria-label={label}
         className={cn(
-          "pill-3d-hover group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-muted-foreground text-sm active:translate-y-px",
+          "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
           disabled &&
-            "cursor-not-allowed opacity-50 hover:bg-none hover:from-none hover:to-none hover:shadow-none"
+            "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
         )}
         disabled={disabled}
         onBlur={handleBlur}
@@ -126,7 +105,7 @@ const FileButton = ({
           <Icon className="size-5" size={20} />
           <span
             className={cn(
-              "max-w-0 overflow-hidden whitespace-nowrap font-medium text-xs transition-all duration-200 ease-in-out",
+              "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
               isHovered && "max-w-32"
             )}
           >
@@ -188,12 +167,12 @@ const FILE_BUTTONS: Omit<
   },
 ];
 
-export function FileInput({ onFilesSelected, disabled }: FileInputProps) {
+export const FileInput = ({ onFilesSelected, disabled }: FileInputProps) => {
   const inputRefs = useRef<Record<FileButtonType, HTMLInputElement | null>>({
-    image: null,
     audio: null,
-    document: null,
     code: null,
+    document: null,
+    image: null,
   });
 
   const [hoveredButton, setHoveredButton] = useState<FileButtonType | null>(
@@ -209,7 +188,7 @@ export function FileInput({ onFilesSelected, disabled }: FileInputProps) {
 
   const handleFileSelect = useCallback(
     (files: FileList | null) => {
-      const fileArray = Array.from(files || []);
+      const fileArray = [...(files || [])];
       if (fileArray.length) {
         onFilesSelected(fileArray);
       }
@@ -232,4 +211,4 @@ export function FileInput({ onFilesSelected, disabled }: FileInputProps) {
       ))}
     </div>
   );
-}
+};

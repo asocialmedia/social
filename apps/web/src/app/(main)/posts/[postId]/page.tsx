@@ -1,8 +1,10 @@
 import { getPostDataInclude, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
+
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
+
 import ClientPost from "./client-post";
 
 interface PageProps {
@@ -11,10 +13,10 @@ interface PageProps {
 
 const getPost = cache(async (postId: string, loggedInUser: string) => {
   const post = await prisma.post.findUnique({
+    include: getPostDataInclude(loggedInUser),
     where: {
       id: postId,
     },
-    include: getPostDataInclude(loggedInUser),
   });
 
   if (!post) {

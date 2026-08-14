@@ -24,30 +24,30 @@ type ExtendedCreatePostInput = CreatePostInput & {
 };
 
 const AURA_REWARDS = {
-  BASE_POST: 10,
-  HN_SHARE: 15,
   ATTACHMENTS: {
-    IMAGE: {
-      BASE: 20,
-      PER_ITEM: 5,
-      MAX_BONUS: 25,
-    },
-    VIDEO: {
-      BASE: 40,
-      PER_ITEM: 10,
-      MAX_BONUS: 20,
-    },
     AUDIO: {
       BASE: 25,
-      PER_ITEM: 8,
       MAX_BONUS: 16,
+      PER_ITEM: 8,
     },
     CODE: {
       BASE: 15,
-      PER_ITEM: 15,
       MAX_BONUS: 45,
+      PER_ITEM: 15,
+    },
+    IMAGE: {
+      BASE: 20,
+      MAX_BONUS: 25,
+      PER_ITEM: 5,
+    },
+    VIDEO: {
+      BASE: 40,
+      MAX_BONUS: 20,
+      PER_ITEM: 10,
     },
   },
+  BASE_POST: 10,
+  HN_SHARE: 15,
   MAX_TOTAL: 150,
 };
 
@@ -63,15 +63,15 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
   }
 
   const mediaItems = await prisma.media.findMany({
-    where: { id: { in: mediaIds } },
     select: { id: true, type: true },
+    where: { id: { in: mediaIds } },
   });
 
   const typeCount: Record<AttachmentType, number> = {
-    IMAGE: 0,
-    VIDEO: 0,
     AUDIO: 0,
     CODE: 0,
+    IMAGE: 0,
+    VIDEO: 0,
   };
 
   for (const item of mediaItems) {
@@ -114,8 +114,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     const validatedInput = createPostSchema.parse({
       content: input.content,
       mediaIds: input.mediaIds || [],
-      tags: input.tags || [],
       mentions: input.mentions || [],
+      tags: input.tags || [],
     });
 
     const auraReward = await calculateAuraReward(
@@ -126,34 +126,27 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     const newPost = await prisma.$transaction(async (tx) => {
       if (validatedInput.mentions.length > 0) {
         const validUsers = await tx.user.findMany({
+          select: { id: true },
           where: {
             id: {
               in: validatedInput.mentions,
             },
           },
-          select: { id: true },
         });
 
-        const validUserIds = validUsers.map((u) => u.id);
+        const validUserIds = new Set(validUsers.map((u) => u.id));
         validatedInput.mentions = validatedInput.mentions.filter((id) =>
-          validUserIds.includes(id)
+          validUserIds.has(id)
         );
       }
 
       const post = await tx.post.create({
         data: {
-          content: validatedInput.content,
-          userId: sessionData.user.id,
-          aura: 0,
           attachments: {
             connect: validatedInput.mediaIds.map((id) => ({ id })),
           },
-          tags: {
-            connectOrCreate: validatedInput.tags.map((tagName) => ({
-              where: { name: tagName.toLowerCase() },
-              create: { name: tagName.toLowerCase() },
-            })),
-          },
+          aura: 0,
+          content: validatedInput.content,
           mentions:
             validatedInput.mentions.length > 0
               ? {
@@ -162,23 +155,30 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   })),
                 }
               : undefined,
+          tags: {
+            connectOrCreate: validatedInput.tags.map((tagName) => ({
+              create: { name: tagName.toLowerCase() },
+              where: { name: tagName.toLowerCase() },
+            })),
+          },
+          userId: sessionData.user.id,
         },
         include: {
           ...getPostDataInclude(sessionData.user.id),
-          tags: true,
+          hnStoryShare: true,
           mentions: {
             include: {
               user: {
                 select: {
+                  avatarUrl: true,
+                  displayName: true,
                   id: true,
                   username: true,
-                  displayName: true,
-                  avatarUrl: true,
                 },
               },
             },
           },
-          hnStoryShare: true,
+          tags: true,
         },
       });
 
@@ -196,14 +196,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       if (input.hnStory) {
         await tx.hNStoryShare.create({
           data: {
+            by: input.hnStory.by,
+            descendants: input.hnStory.descendants,
             postId: post.id,
+            score: input.hnStory.score,
             storyId: input.hnStory.storyId,
+            time: input.hnStory.time,
             title: input.hnStory.title,
             url: input.hnStory.url || null,
-            by: input.hnStory.by,
-            time: input.hnStory.time,
-            score: input.hnStory.score,
-            descendants: input.hnStory.descendants,
           },
         });
       }
@@ -213,10 +213,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           validatedInput.mentions.map((userId) =>
             tx.notification.create({
               data: {
-                type: "MENTION",
-                recipientId: userId,
                 issuerId: sessionData.user.id,
                 postId: post.id,
+                recipientId: userId,
+                type: "MENTION",
               },
             })
           )
@@ -233,28 +233,28 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
 
       await tx.user.update({
-        where: { id: sessionData.user.id },
         data: { aura: { increment: auraReward } },
+        where: { id: sessionData.user.id },
       });
 
       await tx.auraLog.create({
         data: {
-          userId: sessionData.user.id,
-          issuerId: sessionData.user.id,
           amount: AURA_REWARDS.BASE_POST,
-          type: "POST_CREATION",
+          issuerId: sessionData.user.id,
           postId: post.id,
+          type: "POST_CREATION",
+          userId: sessionData.user.id,
         },
       });
 
       if (input.hnStory) {
         await tx.auraLog.create({
           data: {
-            userId: sessionData.user.id,
-            issuerId: sessionData.user.id,
             amount: AURA_REWARDS.HN_SHARE,
-            type: "POST_ATTACHMENT_BONUS",
+            issuerId: sessionData.user.id,
             postId: post.id,
+            type: "POST_ATTACHMENT_BONUS",
+            userId: sessionData.user.id,
           },
         });
       }
@@ -266,34 +266,34 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       if (attachmentBonus > 0) {
         await tx.auraLog.create({
           data: {
-            userId: sessionData.user.id,
-            issuerId: sessionData.user.id,
             amount: attachmentBonus,
-            type: "POST_ATTACHMENT_BONUS",
+            issuerId: sessionData.user.id,
             postId: post.id,
+            type: "POST_ATTACHMENT_BONUS",
+            userId: sessionData.user.id,
           },
         });
       }
 
       const completePost = await tx.post.findUnique({
-        where: { id: post.id },
         include: {
           ...getPostDataInclude(sessionData.user.id),
-          tags: true,
+          hnStoryShare: true,
           mentions: {
             include: {
               user: {
                 select: {
+                  avatarUrl: true,
+                  displayName: true,
                   id: true,
                   username: true,
-                  displayName: true,
-                  avatarUrl: true,
                 },
               },
             },
           },
-          hnStoryShare: true,
+          tags: true,
         },
+        where: { id: post.id },
       });
 
       return completePost;
@@ -324,8 +324,8 @@ export async function updatePostTags(postId: string, tags: string[]) {
   }
 
   const post = await prisma.post.findUnique({
-    where: { id: postId },
     include: { tags: true },
+    where: { id: postId },
   });
 
   if (!post) {
@@ -341,17 +341,17 @@ export async function updatePostTags(postId: string, tags: string[]) {
 
   return await prisma.$transaction(async (tx) => {
     const updatedPost = await tx.post.update({
-      where: { id: postId },
       data: {
         tags: {
           connectOrCreate: tagsToAdd.map((tagName) => ({
-            where: { name: tagName },
             create: { name: tagName },
+            where: { name: tagName },
           })),
           disconnect: tagsToRemove.map((tagName) => ({ name: tagName })),
         },
       },
       include: getPostDataInclude(sessionData.user.id),
+      where: { id: postId },
     });
 
     await Promise.all([
@@ -372,8 +372,8 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
     }
 
     const post = await prisma.post.findUnique({
-      where: { id: postId },
       include: { mentions: true },
+      where: { id: postId },
     });
 
     if (!post) {
@@ -398,10 +398,10 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
 
         await tx.notification.createMany({
           data: mentions.map((userId) => ({
-            type: "MENTION",
-            recipientId: userId,
             issuerId: sessionData.user.id,
             postId,
+            recipientId: userId,
+            type: "MENTION",
           })),
         });
 
@@ -416,11 +416,11 @@ export async function updatePostMentions(postId: string, mentions: string[]) {
       }
 
       return await tx.post.findUnique({
-        where: { id: postId },
         include: {
           ...getPostDataInclude(sessionData.user.id),
           hnStoryShare: true,
         },
+        where: { id: postId },
       });
     });
   } catch (error) {

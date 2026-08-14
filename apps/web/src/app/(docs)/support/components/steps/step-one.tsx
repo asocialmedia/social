@@ -10,12 +10,13 @@ import {
 import { AlertCircle } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useMemo, useState } from "react";
+
 import { SUPPORT_TYPES } from "../../constants";
 import type { StepProps } from "../../types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function StepOne({ formData, setFormData, onNext }: StepProps) {
+export const StepOne = ({ formData, setFormData, onNext }: StepProps) => {
   const [emailTouched, setEmailTouched] = useState(false);
 
   const emailValid = useMemo(
@@ -59,7 +60,7 @@ export function StepOne({ formData, setFormData, onNext }: StepProps) {
       variants={stepVariants}
     >
       <div className="space-y-2">
-        <h3 className="font-semibold text-lg">Basic Information</h3>
+        <h3 className="text-lg font-semibold">Basic Information</h3>
         <p className="text-muted-foreground text-sm">
           Let's start with your contact information
         </p>
@@ -68,7 +69,7 @@ export function StepOne({ formData, setFormData, onNext }: StepProps) {
       <div className="space-y-4">
         <div className="space-y-1.5">
           <Input
-            className={`w-full ${showEmailError ? "ring-2 ring-destructive/50" : ""}`}
+            className={`w-full ${showEmailError ? "ring-destructive/50 ring-2" : ""}`}
             onBlur={handleEmailBlur}
             onChange={handleEmailChange}
             placeholder="Your email address"
@@ -77,7 +78,7 @@ export function StepOne({ formData, setFormData, onNext }: StepProps) {
             value={formData.email}
           />
           {showEmailError ? (
-            <p className="flex items-center gap-1.5 text-destructive text-xs">
+            <p className="text-destructive flex items-center gap-1.5 text-xs">
               <AlertCircle className="h-3.5 w-3.5" />
               Please enter a valid email address
             </p>
@@ -109,10 +110,10 @@ export function StepOne({ formData, setFormData, onNext }: StepProps) {
       </div>
     </motion.div>
   );
-}
+};
 
 const stepVariants = {
+  center: { opacity: 1, transition: { duration: 0.3 }, x: 0 },
   enter: { opacity: 0, x: 20 },
-  center: { opacity: 1, x: 0, transition: { duration: 0.3 } },
-  exit: { opacity: 0, x: -20, transition: { duration: 0.3 } },
+  exit: { opacity: 0, transition: { duration: 0.3 }, x: -20 },
 };

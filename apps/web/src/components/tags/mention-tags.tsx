@@ -1,7 +1,6 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import {
@@ -12,16 +11,18 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { AtSign, Sparkles } from "lucide-react";
 import { easeInOut } from "motion";
-import { AnimatePresence, motion, type Variants } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import type { Variants } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 import { cn } from "@/lib/utils";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
+
 import { MentionTagEditor } from "./mention-tag-editor";
 
 const containerVariants = {
-  initial: { opacity: 0 },
   animate: {
     opacity: 1,
     transition: {
@@ -29,26 +30,18 @@ const containerVariants = {
       when: "beforeChildren",
     },
   },
+  initial: { opacity: 0 },
 };
 
 const tagVariants: Variants = {
-  initial: { opacity: 0, y: -3 },
   animate: {
     opacity: 1,
-    y: 0,
     transition: {
-      type: "spring",
-      stiffness: 120,
       damping: 20,
-    },
-  },
-  hover: {
-    y: -1,
-    transition: {
+      stiffness: 120,
       type: "spring",
-      stiffness: 150,
-      damping: 15,
     },
+    y: 0,
   },
   exit: {
     opacity: 0,
@@ -58,24 +51,52 @@ const tagVariants: Variants = {
       ease: "easeOut",
     },
   },
+  hover: {
+    transition: {
+      damping: 15,
+      stiffness: 150,
+      type: "spring",
+    },
+    y: -1,
+  },
+  initial: { opacity: 0, y: -3 },
 };
 
 const glowVariants: Variants = {
-  initial: { opacity: 0 },
   animate: {
+    filter: ["blur(6px)", "blur(10px)", "blur(6px)"],
     opacity: [0.25, 0.4, 0.25],
     scale: [0.95, 1.05, 0.95],
-    filter: ["blur(6px)", "blur(10px)", "blur(6px)"],
     transition: {
       duration: 2,
-      repeat: Number.POSITIVE_INFINITY,
       ease: easeInOut,
+      repeat: Number.POSITIVE_INFINITY,
     },
   },
+  initial: { opacity: 0 },
 };
 
 const baseTagClass =
   "flex items-center gap-1.5 rounded-full border px-3 py-1 shadow-xs h-7";
+
+function getTagWidth(user: UserData) {
+  const displayName = user.displayName || user.username;
+  const { username } = user;
+  const displayNameLength = displayName.length;
+  const usernameLength = username.length;
+  const maxLength = Math.max(displayNameLength, usernameLength);
+
+  if (maxLength <= 10) {
+    return "w-auto min-w-[80px]";
+  }
+  if (maxLength <= 15) {
+    return "w-auto min-w-[100px]";
+  }
+  if (maxLength <= 20) {
+    return "w-auto min-w-[120px]";
+  }
+  return "w-auto min-w-[140px]";
+}
 
 interface MentionTagsProps {
   className?: string;
@@ -85,13 +106,13 @@ interface MentionTagsProps {
   postId?: string;
 }
 
-export function MentionTags({
+export const MentionTags = ({
   mentions: initialMentions,
   isOwner,
   className,
   postId,
   onMentionsChange,
-}: MentionTagsProps) {
+}: MentionTagsProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [localMentions, setLocalMentions] =
     useState<UserData[]>(initialMentions);
@@ -100,6 +121,7 @@ export function MentionTags({
 
   useEffect(() => {
     if (JSON.stringify(localMentions) !== JSON.stringify(initialMentions)) {
+      // eslint-disable-next-line react-compiler -- sync edits with the saved mentions
       setLocalMentions(initialMentions);
     }
   }, [initialMentions, localMentions]);
@@ -142,30 +164,11 @@ export function MentionTags({
     setIsEditing(false);
   }, []);
 
-  const getTagWidth = (user: UserData) => {
-    const displayName = user.displayName || user.username;
-    const { username } = user;
-    const displayNameLength = displayName.length;
-    const usernameLength = username.length;
-    const maxLength = Math.max(displayNameLength, usernameLength);
-
-    if (maxLength <= 10) {
-      return "w-auto min-w-[80px]";
-    }
-    if (maxLength <= 15) {
-      return "w-auto min-w-[100px]";
-    }
-    if (maxLength <= 20) {
-      return "w-auto min-w-[120px]";
-    }
-    return "w-auto min-w-[140px]";
-  };
-
   return (
     <>
       {localMentions.length > 0 || isOwner ? (
         <div className="space-y-2">
-          <h3 className="flex items-center gap-1.5 text-muted-foreground text-xs">
+          <h3 className="text-muted-foreground flex items-center gap-1.5 text-xs">
             <Sparkles className="h-3 w-3 text-blue-400" />
             <span>Mentioned in post</span>
           </h3>
@@ -212,8 +215,8 @@ export function MentionTags({
                         <motion.span
                           animate={{
                             opacity: hoveredTag === user.id ? 0 : 1,
-                            y: hoveredTag === user.id ? -8 : 0,
                             transition: { duration: 0.15 },
+                            y: hoveredTag === user.id ? -8 : 0,
                           }}
                           className="pointer-events-none inline-block truncate text-center font-normal"
                         >
@@ -223,10 +226,10 @@ export function MentionTags({
                         <motion.span
                           animate={{
                             opacity: hoveredTag === user.id ? 1 : 0,
-                            y: hoveredTag === user.id ? 0 : 8,
                             transition: { duration: 0.15 },
+                            y: hoveredTag === user.id ? 0 : 8,
                           }}
-                          className="pointer-events-none absolute inline-block truncate text-center font-medium text-xs"
+                          className="pointer-events-none absolute inline-block truncate text-center text-xs font-medium"
                         >
                           @{user.username}
                         </motion.span>
@@ -254,7 +257,7 @@ export function MentionTags({
                     variant="outline"
                   >
                     <AtSign className="mr-1 h-3 w-3 text-blue-500" />
-                    <span className="text-blue-600 text-xs">Add mention</span>
+                    <span className="text-xs text-blue-600">Add mention</span>
                   </Button>
                   <motion.div
                     className="absolute inset-0 -z-10 rounded-full bg-blue-500/20 blur-md"
@@ -272,8 +275,8 @@ export function MentionTags({
       ) : null}
 
       <Dialog onOpenChange={setIsEditing} open={isEditing}>
-        <DialogContent className="rounded-xl border border-blue-500/15 shadow-blue-500/5 shadow-lg sm:max-w-[400px]">
-          <DialogTitle className="flex items-center gap-2 font-medium text-base">
+        <DialogContent className="rounded-xl border border-blue-500/15 shadow-lg shadow-blue-500/5 sm:max-w-[400px]">
+          <DialogTitle className="flex items-center gap-2 text-base font-medium">
             <AtSign className="h-3.5 w-3.5 text-blue-500" />
             Mention People
           </DialogTitle>
@@ -293,4 +296,4 @@ export function MentionTags({
       </Dialog>
     </>
   );
-}
+};

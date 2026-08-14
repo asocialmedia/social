@@ -1,5 +1,6 @@
 import type { BookmarkInfo } from "@asm/db";
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 // Aura awarded for curating content. Bookmarking credits both the bookmarker
@@ -25,8 +26,8 @@ export async function GET(
     const bookmark = await prisma.bookmark.findUnique({
       where: {
         userId_postId: {
-          userId: loggedInUser.id,
           postId,
+          userId: loggedInUser.id,
         },
       },
     });
@@ -54,8 +55,8 @@ export async function POST(
   const { postId } = await ctx.params;
 
   const post = await prisma.post.findUnique({
-    where: { id: postId },
     select: { id: true, userId: true },
+    where: { id: postId },
   });
 
   if (!post) {
@@ -71,7 +72,7 @@ export async function POST(
     // are idempotent instead of erroring or double-awarding.
     const existingBookmark = await tx.bookmark.findUnique({
       where: {
-        userId_postId: { userId: user.id, postId },
+        userId_postId: { postId, userId: user.id },
       },
     });
 
@@ -79,36 +80,36 @@ export async function POST(
       return;
     }
 
-    await tx.bookmark.create({ data: { userId: user.id, postId } });
+    await tx.bookmark.create({ data: { postId, userId: user.id } });
 
     if (!isSelfBookmark) {
       await tx.user.update({
-        where: { id: user.id },
         data: { aura: { increment: BOOKMARKED_AURA } },
+        where: { id: user.id },
       });
 
       await tx.auraLog.create({
         data: {
-          userId: user.id,
-          issuerId: user.id,
           amount: BOOKMARKED_AURA,
-          type: "POST_BOOKMARKED",
+          issuerId: user.id,
           postId,
+          type: "POST_BOOKMARKED",
+          userId: user.id,
         },
       });
 
       await tx.user.update({
-        where: { id: post.userId },
         data: { aura: { increment: BOOKMARK_RECEIVED_AURA } },
+        where: { id: post.userId },
       });
 
       await tx.auraLog.create({
         data: {
-          userId: post.userId,
-          issuerId: user.id,
           amount: BOOKMARK_RECEIVED_AURA,
-          type: "POST_BOOKMARK_RECEIVED",
+          issuerId: user.id,
           postId,
+          type: "POST_BOOKMARK_RECEIVED",
+          userId: post.userId,
         },
       });
     }
@@ -129,8 +130,8 @@ export async function DELETE(
   const { postId } = await ctx.params;
 
   const post = await prisma.post.findUnique({
-    where: { id: postId },
     select: { id: true, userId: true },
+    where: { id: postId },
   });
 
   if (!post) {
@@ -142,7 +143,7 @@ export async function DELETE(
   await prisma.$transaction(async (tx) => {
     const existingBookmark = await tx.bookmark.findUnique({
       where: {
-        userId_postId: { userId: user.id, postId },
+        userId_postId: { postId, userId: user.id },
       },
     });
 
@@ -152,45 +153,45 @@ export async function DELETE(
       return;
     }
 
-    await tx.bookmark.deleteMany({ where: { userId: user.id, postId } });
+    await tx.bookmark.deleteMany({ where: { postId, userId: user.id } });
 
     if (!isSelfBookmark) {
       const wasAwarded = await tx.auraLog.findFirst({
         where: {
-          userId: user.id,
-          type: "POST_BOOKMARKED",
           postId,
+          type: "POST_BOOKMARKED",
+          userId: user.id,
         },
       });
 
       if (wasAwarded) {
         await tx.user.update({
-          where: { id: user.id },
           data: { aura: { decrement: BOOKMARKED_AURA } },
+          where: { id: user.id },
         });
 
         await tx.auraLog.create({
           data: {
-            userId: user.id,
-            issuerId: user.id,
             amount: -BOOKMARKED_AURA,
-            type: "POST_BOOKMARKED",
+            issuerId: user.id,
             postId,
+            type: "POST_BOOKMARKED",
+            userId: user.id,
           },
         });
 
         await tx.user.update({
-          where: { id: post.userId },
           data: { aura: { decrement: BOOKMARK_RECEIVED_AURA } },
+          where: { id: post.userId },
         });
 
         await tx.auraLog.create({
           data: {
-            userId: post.userId,
-            issuerId: user.id,
             amount: -BOOKMARK_RECEIVED_AURA,
-            type: "POST_BOOKMARK_RECEIVED",
+            issuerId: user.id,
             postId,
+            type: "POST_BOOKMARK_RECEIVED",
+            userId: post.userId,
           },
         });
       }

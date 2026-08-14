@@ -1,7 +1,6 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
@@ -12,6 +11,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
 import FollowButton from "@/components/layouts/follow-button";
@@ -26,13 +26,18 @@ import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { cn, formatNumber } from "@/lib/utils";
+
 import { CodePreview } from "./code-preview";
 import { CustomVideoPlayer } from "./custom-video-player";
+// eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
 import { SVGViewer } from "./svg-viewer";
 
 const FALLBACK_IMAGE = fallbackImage;
+
+const getMediaUrl = (mediaId: string, download = false) =>
+  `/api/media/${mediaId}${download ? "?download=true" : ""}`;
 
 interface MediaViewerProps {
   initialIndex?: number;
@@ -58,11 +63,10 @@ const MediaViewer = ({
   const [isLoading, setIsLoading] = useState(true);
 
   const currentMedia = media[currentIndex];
-  const getMediaUrl = (mediaId: string, download = false) =>
-    `/api/media/${mediaId}${download ? "?download=true" : ""}`;
 
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-compiler -- sync the viewer position when the dialog opens
       setCurrentIndex(initialIndex);
       setIsLoading(true);
     }
@@ -111,8 +115,8 @@ const MediaViewer = ({
 
       if (!currentMedia) {
         toast({
-          title: "Download Failed",
           description: "No file to download yet",
+          title: "Download Failed",
           variant: "destructive",
         });
         return;
@@ -121,8 +125,8 @@ const MediaViewer = ({
 
       if (response.status === 429) {
         toast({
-          title: "Too Many Downloads",
           description: "Slow down a bit, then try again",
+          title: "Too Many Downloads",
           variant: "destructive",
         });
         return;
@@ -138,16 +142,16 @@ const MediaViewer = ({
       const a = document.createElement("a");
       a.href = downloadUrl;
       a.download = formatFileName(currentMedia.key);
-      document.body.appendChild(a);
+      document.body.append(a);
       a.click();
 
       window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(a);
+      a.remove();
     } catch (error) {
       clientLog.error("Download failed:", error);
       toast({
-        title: "Download Failed",
         description: "Couldn't download that file, try again?",
+        title: "Download Failed",
         variant: "destructive",
       });
     } finally {
@@ -155,7 +159,7 @@ const MediaViewer = ({
     }
   };
 
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: DownloadButton uses parent component state and functions, making it reasonable to keep nested
+  // eslint-disable-next-line react/no-unstable-nested-components -- DownloadButton uses parent component state and functions, making it reasonable to keep nested
   const DownloadButton = () => (
     <Button
       className="flex items-center gap-2"
@@ -165,7 +169,7 @@ const MediaViewer = ({
     >
       {isDownloading ? (
         <>
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
           Fetching file...
         </>
       ) : (
@@ -257,12 +261,12 @@ const MediaViewer = ({
   );
 
   const renderAudioMedia = (item: Media) => (
-    <div className="flex flex-col items-center gap-4 rounded-lg bg-background/50 p-8">
-      <div className="flex h-40 w-40 items-center justify-center rounded-full bg-primary/10">
-        <FileIcon className="h-20 w-20 text-primary" />
+    <div className="bg-background/50 flex flex-col items-center gap-4 rounded-lg p-8">
+      <div className="bg-primary/10 flex h-40 w-40 items-center justify-center rounded-full">
+        <FileIcon className="text-primary h-20 w-20" />
       </div>
-      <p className="font-medium text-lg">{formatFileName(item.key)}</p>
-      {/* biome-ignore lint/a11y/useMediaCaption: Audio content may not have captions available */}
+      <p className="text-lg font-medium">{formatFileName(item.key)}</p>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption -- audio content may not have captions available */}
       <audio
         aria-label={`Audio ${currentIndex + 1} of ${media.length}`}
         autoPlay
@@ -275,7 +279,7 @@ const MediaViewer = ({
   );
 
   const renderCodeMedia = (item: Media) => (
-    <div className="w-full max-w-4xl rounded-lg bg-background/50 p-4">
+    <div className="bg-background/50 w-full max-w-4xl rounded-lg p-4">
       {isLoading ? (
         <MediaViewerSkeleton type="CODE" />
       ) : (
@@ -308,9 +312,9 @@ const MediaViewer = ({
   );
 
   const renderDocumentMedia = (item: Media) => (
-    <div className="flex flex-col items-center gap-4 rounded-lg bg-background/50 p-8">
-      <div className="flex h-32 w-32 items-center justify-center rounded-full bg-primary/10">
-        <FileIcon className="h-16 w-16 text-primary" />
+    <div className="bg-background/50 flex flex-col items-center gap-4 rounded-lg p-8">
+      <div className="bg-primary/10 flex h-32 w-32 items-center justify-center rounded-full">
+        <FileIcon className="text-primary h-16 w-16" />
       </div>
       <p className="font-medium">{formatFileName(item.key)}</p>
       <p className="text-muted-foreground text-sm">{item.mimeType}</p>
@@ -338,18 +342,24 @@ const MediaViewer = ({
     }
 
     switch (currentMedia.type) {
-      case "IMAGE":
+      case "IMAGE": {
         return renderImageMedia(currentMedia);
-      case "VIDEO":
+      }
+      case "VIDEO": {
         return renderVideoMedia(currentMedia);
-      case "AUDIO":
+      }
+      case "AUDIO": {
         return renderAudioMedia(currentMedia);
-      case "CODE":
+      }
+      case "CODE": {
         return renderCodeMedia(currentMedia);
-      case "DOCUMENT":
+      }
+      case "DOCUMENT": {
         return renderDocumentMedia(currentMedia);
-      default:
+      }
+      default: {
         return <p className="text-destructive">Unsupported media type</p>;
+      }
     }
   };
 
@@ -384,7 +394,7 @@ const MediaViewer = ({
             title={post.content}
           />
         </div>
-        <span className="pr-2 text-muted-foreground text-sm lg:hidden">
+        <span className="text-muted-foreground pr-2 text-sm lg:hidden">
           {formatNumber(post.viewCount)} views
         </span>
       </div>
@@ -500,7 +510,7 @@ const MediaViewer = ({
           </div>
 
           {post ? (
-            <aside className="hidden h-full w-95 flex-col border-white/10 border-l bg-[hsl(var(--background))] lg:flex">
+            <aside className="hidden h-full w-95 flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
               <div className="flex items-center gap-3 px-4 py-3">
                 <Link
                   className="shrink-0"
@@ -513,13 +523,13 @@ const MediaViewer = ({
                 </Link>
                 <div className="min-w-0 flex-1">
                   <Link
-                    className="block truncate font-semibold text-foreground hover:underline"
+                    className="text-foreground block truncate font-semibold hover:underline"
                     href={`/users/${post.user.username}`}
                   >
                     {post.user.displayName}
                   </Link>
                   <Link
-                    className="block truncate text-muted-foreground hover:underline"
+                    className="text-muted-foreground block truncate hover:underline"
                     href={`/users/${post.user.username}`}
                   >
                     @{post.user.username}
@@ -532,7 +542,7 @@ const MediaViewer = ({
 
               <div className="px-4 pt-1 pb-2">
                 <Linkify>
-                  <p className="wrap-break-word whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
+                  <p className="text-foreground text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
                     {post.content}
                   </p>
                 </Linkify>
@@ -546,11 +556,11 @@ const MediaViewer = ({
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-2 px-4 pb-2 text-muted-foreground text-sm">
+              <div className="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-sm">
                 <span>
                   {new Date(post.createdAt).toLocaleDateString(undefined, {
-                    month: "short",
                     day: "numeric",
+                    month: "short",
                     year: "numeric",
                   })}
                 </span>
@@ -565,7 +575,7 @@ const MediaViewer = ({
                 <span>{formatNumber(post.viewCount)} views</span>
               </div>
 
-              <div className="flex items-center gap-1 border-border/60 border-y px-4 py-2">
+              <div className="border-border/60 flex items-center gap-1 border-y px-4 py-2">
                 <AuraVoteButton
                   authorName={post.user.displayName}
                   initialState={{
@@ -598,11 +608,11 @@ const MediaViewer = ({
                 </div>
                 <div>
                   <div className="flex items-center justify-between px-4 py-2">
-                    <span className="font-semibold text-sm">
+                    <span className="text-sm font-semibold">
                       View more content
                     </span>
                     <Link
-                      className="shrink-0 font-medium text-primary text-sm hover:underline"
+                      className="text-primary shrink-0 text-sm font-medium hover:underline"
                       href="/"
                     >
                       See more

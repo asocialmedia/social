@@ -1,12 +1,10 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { PostsPage } from "@asm/db";
-import {
-  type InfiniteData,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
+
 import { useToast } from "@/lib/gooey-toast";
+
 import { submitPost, updatePostMentions } from "./actions";
 
 interface PostInput {
@@ -33,12 +31,12 @@ export function useSubmitPostMutation() {
     mutationFn: async (input: PostInput) => {
       const payload = {
         content: input.content,
+        hnStory: input.hnStory,
         mediaIds: input.mediaIds,
-        tags: input.tags,
         mentions: Array.isArray(input.mentions)
           ? input.mentions.filter(Boolean)
           : [],
-        hnStory: input.hnStory,
+        tags: input.tags,
       };
 
       const response = await submitPost(payload);
@@ -46,6 +44,13 @@ export function useSubmitPostMutation() {
         throw new Error("Failed to create post");
       }
       return response;
+    },
+    onError(error) {
+      clientLog.error("Post creation error:", error);
+      toast({
+        description: "Couldn't create your post, try again?",
+        variant: "destructive",
+      });
     },
     onSuccess: async (newPost) => {
       const queryFilter = { queryKey: ["post-feed", "for-you"] };
@@ -63,8 +68,8 @@ export function useSubmitPostMutation() {
             pageParams: oldData.pageParams,
             pages: [
               {
-                posts: [newPost, ...oldData.pages[0].posts],
                 nextCursor: oldData.pages[0].nextCursor,
+                posts: [newPost, ...oldData.pages[0].posts],
               },
               ...oldData.pages.slice(1),
             ],
@@ -75,18 +80,11 @@ export function useSubmitPostMutation() {
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });
       const isHnShare = !!newPost.hnStoryShare;
       toast({
-        title: isHnShare ? "Story Shared" : "Post Published",
         description: isHnShare
           ? "Your thoughts on this story are live"
           : "Your post is live, nice one!",
         duration: 5000,
-      });
-    },
-    onError(error) {
-      clientLog.error("Post creation error:", error);
-      toast({
-        variant: "destructive",
-        description: "Couldn't create your post, try again?",
+        title: isHnShare ? "Story Shared" : "Post Published",
       });
     },
   });
@@ -110,21 +108,21 @@ export function useUpdateMentionsMutation(postId?: string) {
       }
       return response;
     },
+    onError: (error) => {
+      clientLog.error("Failed to update mentions:", error);
+      toast({
+        description: "Couldn't update mentions, try again?",
+        variant: "destructive",
+      });
+    },
     onSuccess: (updatedPost) => {
       if (postId) {
         queryClient.setQueryData(["post", postId], updatedPost);
       }
       toast({
-        title: "Mentions Updated",
         description: "Everyone you mentioned has been notified",
         duration: 3000,
-      });
-    },
-    onError: (error) => {
-      clientLog.error("Failed to update mentions:", error);
-      toast({
-        variant: "destructive",
-        description: "Couldn't update mentions, try again?",
+        title: "Mentions Updated",
       });
     },
   });

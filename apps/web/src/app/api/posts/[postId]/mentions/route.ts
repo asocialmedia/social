@@ -1,4 +1,5 @@
 import { enqueueNotificationCreated, NotificationType, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -37,8 +38,8 @@ export async function POST(
       : [];
 
     const post = await prisma.post.findUnique({
-      where: { id: postId },
       select: { userId: true },
+      where: { id: postId },
     });
 
     if (!post) {
@@ -66,10 +67,10 @@ export async function POST(
       const notificationPromises = filteredUserIds.map((userId: string) =>
         tx.notification.create({
           data: {
-            type: NotificationType.MENTION,
-            recipientId: userId,
             issuerId: user.id,
             postId,
+            recipientId: userId,
+            type: NotificationType.MENTION,
           },
         })
       );
@@ -84,18 +85,18 @@ export async function POST(
     });
 
     const updatedMentions = await prisma.mention.findMany({
-      where: {
-        postId,
-      },
       include: {
         user: {
           select: {
+            avatarUrl: true,
+            displayName: true,
             id: true,
             username: true,
-            displayName: true,
-            avatarUrl: true,
           },
         },
+      },
+      where: {
+        postId,
       },
     });
 

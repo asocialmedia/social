@@ -13,13 +13,13 @@ const FORWARDED_HEADER_BLOCKLIST = new Set([
 function buildUpstreamHeaders(request: NextRequest) {
   const headers = new Headers();
 
-  request.headers.forEach((value, key) => {
+  for (const [key, value] of request.headers) {
     const lower = key.toLowerCase();
     if (FORWARDED_HEADER_BLOCKLIST.has(lower)) {
-      return;
+      continue;
     }
     headers.set(key, value);
-  });
+  }
 
   const forwardedHost =
     request.headers.get("x-forwarded-host") || request.nextUrl.host;
@@ -47,6 +47,19 @@ function buildUpstreamHeaders(request: NextRequest) {
   return headers;
 }
 
+function rewriteCookieDomain(cookieStr: string, host: string): string {
+  const parts = cookieStr.split(/;\s*/);
+  return parts
+    .map((attr) => {
+      const [key] = attr.split("=");
+      if (key.toLowerCase() === "domain") {
+        return `Domain=${host}`;
+      }
+      return attr;
+    })
+    .join("; ");
+}
+
 async function proxy(request: NextRequest) {
   const url = new URL(request.url);
   const target = new URL(AUTH_BASE);
@@ -56,10 +69,10 @@ async function proxy(request: NextRequest) {
   const headers = buildUpstreamHeaders(request);
 
   const init: RequestInit = {
-    method: request.method,
-    headers,
-    redirect: "manual",
     credentials: "include",
+    headers,
+    method: request.method,
+    redirect: "manual",
   };
 
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -71,7 +84,7 @@ async function proxy(request: NextRequest) {
     const upstream = await fetch(target.toString(), init);
     const body = await upstream.arrayBuffer();
     const responseHeaders = new Headers();
-    upstream.headers.forEach((value, key) => {
+    for (const [key, value] of upstream.headers) {
       const lower = key.toLowerCase();
       if (
         lower === "transfer-encoding" ||
@@ -80,10 +93,10 @@ async function proxy(request: NextRequest) {
         lower === "connection" ||
         lower === "set-cookie"
       ) {
-        return;
+        continue;
       }
       responseHeaders.append(key, value);
-    });
+    }
 
     const [hostForCookie] = (
       request.headers.get("x-forwarded-host") ||
@@ -95,29 +108,20 @@ async function proxy(request: NextRequest) {
     ).getSetCookie?.bind(upstream.headers);
     const setCookieValues: string[] = getSetCookie ? getSetCookie() || [] : [];
 
-    function rewriteCookieDomain(cookieStr: string): string {
-      // biome-ignore lint/performance/useTopLevelRegex: ignore
-      const parts = cookieStr.split(/;\s*/);
-      let _replaced = false;
-      const rewritten = parts.map((attr) => {
-        const [k] = attr.split("=");
-        if (k.toLowerCase() === "domain") {
-          _replaced = true;
-          return `Domain=${hostForCookie}`;
-        }
-        return attr;
-      });
-      return rewritten.join("; ");
-    }
-
     if (setCookieValues.length > 0) {
       for (const c of setCookieValues) {
-        responseHeaders.append("set-cookie", rewriteCookieDomain(c));
+        responseHeaders.append(
+          "set-cookie",
+          rewriteCookieDomain(c, hostForCookie)
+        );
       }
     } else {
       const single = upstream.headers.get("set-cookie");
       if (single) {
-        responseHeaders.append("set-cookie", rewriteCookieDomain(single));
+        responseHeaders.append(
+          "set-cookie",
+          rewriteCookieDomain(single, hostForCookie)
+        );
       }
     }
 
@@ -142,19 +146,22 @@ async function proxy(request: NextRequest) {
     responseHeaders.append("vary", "cookie");
 
     return new Response(body, {
+      headers: responseHeaders,
       status: upstream.status,
       statusText: upstream.statusText,
-      headers: responseHeaders,
     });
   } catch {
     console.error("Auth proxy upstream request failed", {
       method: request.method,
       target: target.toString(),
     });
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { "content-type": "application/json" },
-    });
+    return Response.json(
+      { error: "Internal server error" },
+      {
+        headers: { "content-type": "application/json" },
+        status: 500,
+      }
+    );
   }
 }
 

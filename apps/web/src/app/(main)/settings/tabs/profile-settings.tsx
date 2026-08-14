@@ -1,9 +1,7 @@
 "use client";
 
-import {
-  type UpdateUserProfileValues,
-  updateUserProfileSchema,
-} from "@asm/auth/validation";
+import { updateUserProfileSchema } from "@asm/auth/validation";
+import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import type { UserData } from "@asm/db";
 import {
   Form,
@@ -19,13 +17,11 @@ import { Textarea } from "@asm/ui/shadui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link2, UserRound } from "lucide-react";
 import { useCallback } from "react";
-import {
-  type Control,
-  type ControllerRenderProps,
-  useForm,
-} from "react-hook-form";
+import { useForm } from "react-hook-form";
+import type { Control, ControllerRenderProps } from "react-hook-form";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
+
 import LoadingButton from "@/components/auth/loading-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
@@ -37,6 +33,7 @@ import {
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
+
 import { useUpdateProfileMutation } from "../../users/[username]/avatar-mutations";
 
 const whitespaceRegex = /\s+/;
@@ -79,58 +76,54 @@ const SOCIAL_FIELDS: SocialFieldConfig[] = [
   },
 ];
 
-function DisplayNameFieldRenderer({
+const DisplayNameFieldRenderer = ({
   field,
 }: {
   field: ControllerRenderProps<UpdateUserProfileValues, "displayName">;
-}) {
-  return (
-    <FormItem>
-      <FormLabel>Display name</FormLabel>
-      <FormControl>
-        <Input
-          className="premium-input h-10 rounded-xl text-sm"
-          placeholder="Your display name"
-          {...field}
-        />
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  );
-}
+}) => (
+  <FormItem>
+    <FormLabel>Display name</FormLabel>
+    <FormControl>
+      <Input
+        className="premium-input h-10 rounded-xl text-sm"
+        placeholder="Your display name"
+        {...field}
+      />
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
 
-function BioFieldRenderer({
+const BioFieldRenderer = ({
   field,
 }: {
   field: ControllerRenderProps<UpdateUserProfileValues, "bio">;
-}) {
-  return (
-    <FormItem>
-      <FormLabel>Bio</FormLabel>
-      <FormControl>
-        <div className="space-y-1">
-          <Textarea
-            className="premium-input resize-none rounded-xl text-sm"
-            placeholder="Tell us a little bit about yourself"
-            rows={4}
-            {...field}
+}) => (
+  <FormItem>
+    <FormLabel>Bio</FormLabel>
+    <FormControl>
+      <div className="space-y-1">
+        <Textarea
+          className="premium-input resize-none rounded-xl text-sm"
+          placeholder="Tell us a little bit about yourself"
+          rows={4}
+          {...field}
+        />
+        <div className="flex justify-end">
+          <AnimatedWordCounter
+            current={
+              field.value.trim().split(whitespaceRegex).filter(Boolean).length
+            }
+            max={400}
           />
-          <div className="flex justify-end">
-            <AnimatedWordCounter
-              current={
-                field.value.trim().split(whitespaceRegex).filter(Boolean).length
-              }
-              max={400}
-            />
-          </div>
         </div>
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  );
-}
+      </div>
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
 
-function SocialFieldRenderer({
+const SocialFieldRenderer = ({
   field,
   item,
 }: {
@@ -139,14 +132,14 @@ function SocialFieldRenderer({
     SocialFieldConfig["name"]
   >;
   item: SocialFieldConfig;
-}) {
+}) => {
   const Icon = item.icon;
   return (
     <FormItem>
       <FormLabel>{item.label}</FormLabel>
       <FormControl>
         <div className="relative">
-          <Icon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Icon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
             className="premium-input h-10 rounded-xl pr-3 pl-10 text-sm"
             placeholder={item.placeholder}
@@ -157,15 +150,15 @@ function SocialFieldRenderer({
       <FormMessage />
     </FormItem>
   );
-}
+};
 
-function SocialFormField({
+const SocialFormField = ({
   control,
   item,
 }: {
   control: Control<UpdateUserProfileValues>;
   item: SocialFieldConfig;
-}) {
+}) => {
   const renderSocialField = useCallback(
     ({
       field,
@@ -181,7 +174,7 @@ function SocialFormField({
   return (
     <FormField control={control} name={item.name} render={renderSocialField} />
   );
-}
+};
 
 interface ProfileSettingsProps {
   user: UserData;
@@ -190,15 +183,15 @@ interface ProfileSettingsProps {
 export default function ProfileSettings({ user }: ProfileSettingsProps) {
   const { toast } = useToast();
   const form = useForm<UpdateUserProfileValues>({
-    resolver: zodResolver(updateUserProfileSchema),
     defaultValues: {
-      displayName: user.displayName,
       bio: user.bio || "",
+      displayName: user.displayName,
       githubUsername: user.githubUsername ?? "",
       linkedinUsername: user.linkedinUsername ?? "",
-      twitterUsername: user.twitterUsername ?? "",
       redditUsername: user.redditUsername ?? "",
+      twitterUsername: user.twitterUsername ?? "",
     },
+    resolver: zodResolver(updateUserProfileSchema),
   });
 
   const watchedDisplayName = form.watch("displayName");
@@ -209,21 +202,21 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
   function onSubmit(values: UpdateUserProfileValues) {
     mutation.mutate(
       {
-        values,
         userId: user.id,
+        values,
       },
       {
-        onSuccess: () => {
-          toast({
-            title: "Profile Updated",
-            description: "Your profile is looking fresh!",
-          });
-        },
         onError: () => {
           toast({
-            variant: "destructive",
-            title: "Couldn't Save",
             description: "Something went wrong, try again?",
+            title: "Couldn't Save",
+            variant: "destructive",
+          });
+        },
+        onSuccess: () => {
+          toast({
+            description: "Your profile is looking fresh!",
+            title: "Profile Updated",
           });
         },
       }
@@ -245,17 +238,17 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
         <div className="flex items-center gap-4">
           <UserAvatar avatarUrl={avatarUrl} className="h-16 w-16" size={64} />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-bold text-lg">{previewName}</p>
-            <p className="truncate text-muted-foreground">@{user.username}</p>
+            <p className="truncate text-lg font-bold">{previewName}</p>
+            <p className="text-muted-foreground truncate">@{user.username}</p>
             {watchedBio.trim() ? (
-              <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+              <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">
                 {watchedBio}
               </p>
             ) : null}
           </div>
         </div>
 
-        <Separator className="my-6 bg-border/60" />
+        <Separator className="bg-border/60 my-6" />
 
         <Form {...form}>
           <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
@@ -281,7 +274,7 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
                 >
                   <Link2 className="h-3.5 w-3.5" />
                 </div>
-                <p className="font-medium text-sm">Social links</p>
+                <p className="text-sm font-medium">Social links</p>
               </div>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 {SOCIAL_FIELDS.map((item) => (

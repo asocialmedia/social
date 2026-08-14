@@ -1,9 +1,6 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  type PostsPage,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -22,16 +19,16 @@ export async function GET(
   const { userId } = await ctx.params;
 
   const votes = await prisma.vote.findMany({
-    where: { userId, value: 1 },
     orderBy: [{ createdAt: "desc" }, { postId: "desc" }],
-    select: { postId: true, createdAt: true },
+    select: { createdAt: true, postId: true },
     take: pageSize + 1,
+    where: { userId, value: 1 },
     ...(cursor
       ? {
           cursor: {
             userId_postId: {
-              userId,
               postId: cursor,
+              userId,
             },
           },
           skip: 1,
@@ -50,8 +47,8 @@ export async function GET(
   }
 
   const posts = await prisma.post.findMany({
-    where: { id: { in: pageVotes.map((vote) => vote.postId) } },
     include: getPostDataInclude(user.id),
+    where: { id: { in: pageVotes.map((vote) => vote.postId) } },
   });
 
   // Preserve the vote order (most recently amplified first).
@@ -62,8 +59,8 @@ export async function GET(
 
   const hydrated = await hydrateViewCounts(orderedPosts);
   const data: PostsPage = {
-    posts: hydrated,
     nextCursor,
+    posts: hydrated,
   };
   return Response.json(data);
 }

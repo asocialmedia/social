@@ -9,7 +9,9 @@ import {
   useRef,
   useState,
 } from "react";
-import Spotlight, { type SpotlightResultItem } from "./spotlight";
+
+import Spotlight from "./spotlight";
+import type { SpotlightResultItem } from "./spotlight";
 
 interface SpotlightContextValue {
   openSpotlight: (query?: string) => void;
@@ -29,10 +31,11 @@ interface SpotlightProviderProps {
   children: React.ReactNode;
 }
 
-export function SpotlightProvider({ children }: SpotlightProviderProps) {
+export const SpotlightProvider = ({ children }: SpotlightProviderProps) => {
   const [open, setOpen] = useState(false);
   const [initialQuery, setInitialQuery] = useState("");
   const openRef = useRef(open);
+  // eslint-disable-next-line react-compiler -- ref must mirror the latest open state for the keydown handler
   openRef.current = open;
 
   const openSpotlight = useCallback((query?: string) => {
@@ -66,6 +69,7 @@ export function SpotlightProvider({ children }: SpotlightProviderProps) {
   }, [handleClose, openSpotlight]);
 
   return (
+    // eslint-disable-next-line react/jsx-no-constructed-context-values -- openSpotlight is stable via useCallback
     <SpotlightContext.Provider value={{ openSpotlight }}>
       {children}
       {open ? (
@@ -78,4 +82,4 @@ export function SpotlightProvider({ children }: SpotlightProviderProps) {
       ) : null}
     </SpotlightContext.Provider>
   );
-}
+};

@@ -2,13 +2,14 @@ import { Input } from "@asm/ui/shadui/input";
 import { Eye, EyeOff } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
 
 const PasswordInput = ({
   className,
-  type,
+  type: _type,
   ref,
   ...props
 }: InputProps & { ref?: React.Ref<HTMLInputElement | null> }) => {
@@ -27,7 +28,7 @@ const PasswordInput = ({
         {...props}
       />
       <button
-        className="absolute top-1/2 right-3 -translate-y-1/2 transform text-muted-foreground"
+        className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2 transform"
         onClick={togglePasswordVisibility}
         title={showPassword ? "Hide password" : "Show password"}
         type="button"

@@ -23,9 +23,9 @@ export function useUserDataQuery(userData: UserData) {
   }, [queryClient, userId, userData]);
 
   return useQuery({
-    queryKey: ["user", userId],
-    queryFn: async () => userData,
     initialData: userData,
+    queryFn: () => userData,
+    queryKey: ["user", userId],
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

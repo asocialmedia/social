@@ -1,6 +1,7 @@
 import { Hash } from "lucide-react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
 import HashtagFeed from "@/components/posts/hashtag-feed";
@@ -23,8 +24,8 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const params = await props.params;
   const tag = safeDecodeTag(params.tag);
   return {
-    title: `#${tag} posts`,
     description: `Posts tagged with #${tag}`,
+    title: `#${tag} posts`,
   };
 }
 
@@ -45,13 +46,13 @@ export default async function Page(props: PageProps) {
     <div className="relative flex h-dvh overflow-hidden">
       <LeftSidebar userData={userData} />
 
-      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-        <div className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden">
+      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+        <div className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto">
           <div className="px-4 py-6">
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-4">
-              <Hash className="h-6 w-6 shrink-0 text-primary" />
-              <h1 className="font-semibold text-xl">#{tag}</h1>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground text-sm">
+            <div className="border-border bg-card flex items-center gap-2 rounded-xl border p-4">
+              <Hash className="text-primary h-6 w-6 shrink-0" />
+              <h1 className="text-xl font-semibold">#{tag}</h1>
+              <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-sm">
                 posts
               </span>
             </div>

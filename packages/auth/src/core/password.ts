@@ -1,36 +1,31 @@
 import {
-  scrypt as nodeScrypt,
   randomBytes,
+  scrypt as nodeScrypt,
   timingSafeEqual,
 } from "node:crypto";
+import type { BinaryLike, ScryptOptions } from "node:crypto";
+import { promisify } from "node:util";
 
-function scryptAsync(
-  password: string,
-  salt: Buffer,
-  keylen = 64
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    nodeScrypt(
-      password,
-      salt,
-      keylen,
-      { N: 16_384, r: 8, p: 1 },
-      (err, derivedKey) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(derivedKey);
-      }
-    );
-  });
-}
+// `promisify` cannot infer the options overload or the Buffer return of
+// node:crypto's scrypt, so the result is typed explicitly.
+const scryptAsync = promisify(nodeScrypt) as (
+  password: BinaryLike,
+  salt: BinaryLike,
+  keylen: number,
+  options: ScryptOptions
+) => Promise<Buffer>;
+
+const SCRYPT_DEFAULTS: ScryptOptions = {
+  N: 16_384,
+  p: 1,
+  r: 8,
+};
 
 export async function hashPasswordWithScrypt(
   password: string
 ): Promise<string> {
   const salt = randomBytes(16);
-  const derivedKey = await scryptAsync(password, salt, 64);
+  const derivedKey = await scryptAsync(password, salt, 64, SCRYPT_DEFAULTS);
   const saltB64 = salt.toString("base64");
   const keyB64 = derivedKey.toString("base64");
   return `scrypt$16384$8$1$${saltB64}$${keyB64}`;
@@ -46,22 +41,18 @@ export async function verifyPasswordWithScrypt(
     return false;
   }
   const [, nStr, rStr, pStr, saltB64, keyB64] = parts;
-  const N = Number.parseInt(nStr, 10);
-  const r = Number.parseInt(rStr, 10);
-  const p = Number.parseInt(pStr, 10);
+  const N = Math.trunc(Number(nStr));
+  const r = Math.trunc(Number(rStr));
+  const p = Math.trunc(Number(pStr));
   if (!(Number.isFinite(N) && Number.isFinite(r) && Number.isFinite(p))) {
     return false;
   }
   const salt = Buffer.from(saltB64, "base64");
   const expected = Buffer.from(keyB64, "base64");
-  const derivedKey = await new Promise<Buffer>((resolve, reject) => {
-    nodeScrypt(password, salt, expected.length, { N, r, p }, (err, dk) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve(dk);
-    });
+  const derivedKey = await scryptAsync(password, salt, expected.length, {
+    N,
+    p,
+    r,
   });
   if (derivedKey.length !== expected.length) {
     return false;
@@ -101,7 +92,7 @@ export function normalizePasswordHash(stored: unknown): string | undefined {
  */
 export async function verifyPasswordHash(
   password: string,
-  stored: unknown
+  stored?: unknown
 ): Promise<boolean> {
   const normalized = normalizePasswordHash(stored);
   if (typeof normalized !== "string") {

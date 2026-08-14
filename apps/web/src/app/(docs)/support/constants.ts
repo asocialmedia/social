@@ -1,21 +1,21 @@
 export const SUPPORT_TYPES = [
-  { value: "help", label: "Help Request" },
-  { value: "bug", label: "Bug Report" },
-  { value: "suggestion", label: "Suggestion" },
-  { value: "other", label: "Other" },
+  { label: "Help Request", value: "help" },
+  { label: "Bug Report", value: "bug" },
+  { label: "Suggestion", value: "suggestion" },
+  { label: "Other", value: "other" },
 ] as const;
 
 export const CATEGORIES = [
-  { value: "account", label: "Account Issues" },
-  { value: "technical", label: "Technical Problems" },
-  { value: "feature", label: "Feature Requests" },
-  { value: "billing", label: "Billing Questions" },
-  { value: "security", label: "Security Concerns" },
+  { label: "Account Issues", value: "account" },
+  { label: "Technical Problems", value: "technical" },
+  { label: "Feature Requests", value: "feature" },
+  { label: "Billing Questions", value: "billing" },
+  { label: "Security Concerns", value: "security" },
 ] as const;
 
 export const PRIORITIES = [
-  { value: "low", label: "Low Priority" },
-  { value: "medium", label: "Medium Priority" },
-  { value: "high", label: "High Priority" },
-  { value: "critical", label: "Critical" },
+  { label: "Low Priority", value: "low" },
+  { label: "Medium Priority", value: "medium" },
+  { label: "High Priority", value: "high" },
+  { label: "Critical", value: "critical" },
 ] as const;

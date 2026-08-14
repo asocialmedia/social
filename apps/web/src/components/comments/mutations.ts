@@ -1,15 +1,12 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { CommentsPage } from "@asm/db";
-import {
-  type InfiniteData,
-  type QueryKey,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData, QueryKey } from "@tanstack/react-query";
 import { MessageCirclePlus, MessageCircleX } from "lucide-react";
 import { createElement } from "react";
+
 import { useToast } from "@/lib/gooey-toast";
+
 import { deleteComment, submitComment } from "./actions";
 
 export function useSubmitCommentMutation(postId: string) {
@@ -17,6 +14,13 @@ export function useSubmitCommentMutation(postId: string) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: submitComment,
+    onError(error) {
+      clientLog.error(error);
+      toast({
+        description: "Couldn't post your eddy, give it another try?",
+        variant: "destructive",
+      });
+    },
     onSuccess: async (newComment) => {
       const queryKey: QueryKey = ["comments", postId];
 
@@ -32,8 +36,8 @@ export function useSubmitCommentMutation(postId: string) {
               pageParams: oldData.pageParams,
               pages: [
                 {
-                  previousCursor: firstPage.previousCursor,
                   comments: [...firstPage.comments, newComment],
+                  previousCursor: firstPage.previousCursor,
                 },
                 ...oldData.pages.slice(1),
               ],
@@ -43,23 +47,16 @@ export function useSubmitCommentMutation(postId: string) {
       );
 
       queryClient.invalidateQueries({
-        queryKey,
         predicate(query) {
           return !query.state.data;
         },
+        queryKey,
       });
 
       toast({
-        title: "Eddy Created",
         description: "Your eddy is live, nice one!",
         icon: createElement(MessageCirclePlus),
-      });
-    },
-    onError(error) {
-      clientLog.error(error);
-      toast({
-        variant: "destructive",
-        description: "Couldn't post your eddy, give it another try?",
+        title: "Eddy Created",
       });
     },
   });
@@ -74,6 +71,13 @@ export function useDeleteCommentMutation() {
 
   const mutation = useMutation({
     mutationFn: deleteComment,
+    onError(error) {
+      clientLog.error(error);
+      toast({
+        description: "Couldn't delete your eddy, try again?",
+        variant: "destructive",
+      });
+    },
     onSuccess: async (deletedComment) => {
       const queryKey: QueryKey = ["comments", deletedComment.postId];
 
@@ -89,24 +93,17 @@ export function useDeleteCommentMutation() {
           return {
             pageParams: oldData.pageParams,
             pages: oldData.pages.map((page) => ({
-              previousCursor: page.previousCursor,
               comments: page.comments.filter((c) => c.id !== deletedComment.id),
+              previousCursor: page.previousCursor,
             })),
           };
         }
       );
 
       toast({
-        title: "Eddy Deleted",
         description: "Your eddy is gone",
         icon: createElement(MessageCircleX),
-      });
-    },
-    onError(error) {
-      clientLog.error(error);
-      toast({
-        variant: "destructive",
-        description: "Couldn't delete your eddy, try again?",
+        title: "Eddy Deleted",
       });
     },
   });

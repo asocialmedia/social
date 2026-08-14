@@ -16,24 +16,24 @@ export async function GET(
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: userId },
       include: {
         _count: {
           select: {
-            posts: true,
             followers: true,
             following: true,
+            posts: true,
           },
         },
         followers: {
-          where: {
-            followerId: userId,
-          },
           select: {
             followerId: true,
           },
+          where: {
+            followerId: userId,
+          },
         },
       },
+      where: { id: userId },
     });
 
     if (!user) {

@@ -4,10 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, SendHorizonal } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
+
 import { useSubmitCommentMutation } from "./mutations";
 
 const SEND_BTN_SHADOW =
@@ -24,8 +26,8 @@ export default function CommentInput({ post }: CommentInputProps) {
   const mutation = useSubmitCommentMutation(post.id);
 
   const { data: userData } = useQuery({
-    queryKey: ["user", user.id],
     queryFn: () => kyInstance.get(`/api/users/${user.id}`).json<UserData>(),
+    queryKey: ["user", user.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -45,8 +47,8 @@ export default function CommentInput({ post }: CommentInputProps) {
 
     mutation.mutate(
       {
-        post,
         content: input,
+        post,
       },
       {
         onSuccess: () => setInput(""),

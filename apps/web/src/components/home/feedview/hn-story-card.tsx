@@ -24,7 +24,7 @@ interface HnStoryCardProps {
   };
 }
 
-export function HNStoryCard({ hnStory }: HnStoryCardProps) {
+export const HNStoryCard = ({ hnStory }: HnStoryCardProps) => {
   const domain = hnStory.url ? new URL(hnStory.url).hostname : null;
   const timeAgo = formatDistanceToNow(hnStory.time * 1000, { addSuffix: true });
   const hnItemUrl = `https://news.ycombinator.com/item?id=${hnStory.storyId}`;
@@ -33,21 +33,21 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
     <div className="flex flex-col gap-1.5 p-3 sm:p-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-[10px] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-linear-to-b from-[#ff9500] to-[#e65500] text-[10px] font-bold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]">
             Y
           </div>
-          <span className="font-semibold text-[10px] text-orange-600 uppercase tracking-wide dark:text-orange-400">
+          <span className="text-[10px] font-semibold tracking-wide text-orange-600 uppercase dark:text-orange-400">
             Hacker News
           </span>
         </div>
-        <span className="text-[11px] text-muted-foreground/70 tabular-nums">
+        <span className="text-muted-foreground/70 text-[11px] tabular-nums">
           {timeAgo}
         </span>
       </div>
 
       <div className="flex items-start justify-between gap-3">
         <a
-          className="line-clamp-2 min-w-0 flex-1 font-semibold text-foreground text-sm leading-snug transition-colors hover:text-orange-600"
+          className="text-foreground line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-semibold transition-colors hover:text-orange-600"
           href={hnStory.url || hnItemUrl}
           rel="noopener noreferrer"
           target="_blank"
@@ -97,7 +97,7 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
         </div>
       </div>
 
-      <div className="mt-0.5 flex items-center justify-between gap-2 border-orange-500/15 border-t pt-1.5">
+      <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-orange-500/15 pt-1.5">
         <Link className="hn-link dark:text-orange-400" href="/hackernews">
           <span>Browse HN</span>
           <motion.span
@@ -121,4 +121,4 @@ export function HNStoryCard({ hnStory }: HnStoryCardProps) {
       </div>
     </div>
   );
-}
+};

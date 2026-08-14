@@ -1,5 +1,6 @@
 import { prisma } from "@asm/db";
 import { z } from "zod";
+
 import { getSessionFromApi } from "@/lib/session";
 
 const usernameSchema = z.object({
@@ -46,8 +47,8 @@ export async function PATCH(request: Request) {
 
     // Update username
     await prisma.user.update({
-      where: { id: user.id },
       data: { username },
+      where: { id: user.id },
     });
 
     return Response.json({ success: true });

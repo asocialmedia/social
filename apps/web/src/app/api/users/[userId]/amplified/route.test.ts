@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { GET } from "./route";
+
 const USER_ID = "user1";
 const PROFILE_ID = "profile1";
 
@@ -8,19 +10,22 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 }));
 
 const votes = [
-  { postId: "post2", createdAt: new Date("2026-01-03T00:00:00Z") },
-  { postId: "post1", createdAt: new Date("2026-01-02T00:00:00Z") },
+  { createdAt: new Date("2026-01-03T00:00:00Z"), postId: "post2" },
+  { createdAt: new Date("2026-01-02T00:00:00Z"), postId: "post1" },
 ];
 
 const posts = [
-  { id: "post1", content: "one", user: { id: "author1" }, viewCount: 5 },
-  { id: "post2", content: "two", user: { id: "author2" }, viewCount: 10 },
+  { content: "one", id: "post1", user: { id: "author1" }, viewCount: 5 },
+  { content: "two", id: "post2", user: { id: "author2" }, viewCount: 10 },
 ];
 
 let lastWhere: unknown;
 let lastTake: number;
 
 const mockPrisma = {
+  post: {
+    findMany: () => [...posts],
+  },
   vote: {
     findMany: (args: {
       take: number;
@@ -30,9 +35,6 @@ const mockPrisma = {
       lastTake = args.take;
       return [...votes];
     },
-  },
-  post: {
-    findMany: () => [...posts],
   },
 };
 
@@ -47,8 +49,6 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { GET } from "./route";
 
 const context = { params: Promise.resolve({ userId: PROFILE_ID }) };
 

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { GET } from "./route";
+
 const USER_ID = "user1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -9,14 +11,17 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 const visits = [{ postId: "post2" }, { postId: "post1" }, { postId: "post3" }];
 
 const posts = [
-  { id: "post1", content: "one", user: { id: "author1" } },
-  { id: "post2", content: "two", user: { id: "author2" } },
-  { id: "post3", content: "three", user: { id: "author3" } },
+  { content: "one", id: "post1", user: { id: "author1" } },
+  { content: "two", id: "post2", user: { id: "author2" } },
+  { content: "three", id: "post3", user: { id: "author3" } },
 ];
 
 let lastTake: number;
 
 const mockPrisma = {
+  post: {
+    findMany: () => [...posts],
+  },
   postVisit: {
     findMany: (args: {
       orderBy: unknown;
@@ -27,9 +32,6 @@ const mockPrisma = {
       lastTake = args.take;
       return [...visits];
     },
-  },
-  post: {
-    findMany: () => [...posts],
   },
 };
 
@@ -44,8 +46,6 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { GET } from "./route";
 
 describe("GET /api/posts/history", () => {
   beforeEach(() => {

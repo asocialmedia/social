@@ -1,5 +1,6 @@
 import { prisma } from "@asm/db";
 import { z } from "zod";
+
 import { getSessionFromApi } from "@/lib/session";
 
 const emailSchema = z.object({
@@ -35,11 +36,11 @@ export async function PATCH(request: Request) {
 
     // Update email in database and mark as unverified
     await prisma.user.update({
-      where: { id: user.id },
       data: {
         email,
         emailVerified: false,
       },
+      where: { id: user.id },
     });
 
     // Better Auth will automatically send verification email when email is changed

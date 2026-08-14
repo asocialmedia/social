@@ -1,17 +1,18 @@
 import { describe, expect, test } from "bun:test";
+
 import { readOtelConfig } from "./otel-config";
 import { createOtlpLogDestination } from "./otlp-log-destination";
 
 describe("otel-config", () => {
   test("reads OpenObserve endpoint and auth from env", () => {
     const config = readOtelConfig({
-      OPENOBSERVE_ENDPOINT: "http://localhost:5080",
-      OPENOBSERVE_USER: "root@example.com",
-      OPENOBSERVE_PASSWORD: "Complexpass#123",
-      OPENOBSERVE_ORG: "default",
-      OPENOBSERVE_ENABLED: "true",
-      OTEL_SERVICE_NAME: "auth",
       NODE_ENV: "production",
+      OPENOBSERVE_ENABLED: "true",
+      OPENOBSERVE_ENDPOINT: "http://localhost:5080",
+      OPENOBSERVE_ORG: "default",
+      OPENOBSERVE_PASSWORD: "Complexpass#123",
+      OPENOBSERVE_USER: "root@example.com",
+      OTEL_SERVICE_NAME: "auth",
     });
 
     expect(config.enabled).toBe(true);
@@ -28,9 +29,9 @@ describe("otel-config", () => {
 
   test("parses OTEL_EXPORTER_OTLP_HEADERS", () => {
     const config = readOtelConfig({
-      OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Bearer abc,stream-name=logs",
       NODE_ENV: "production",
       OTEL_ENABLED: "true",
+      OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Bearer abc,stream-name=logs",
     });
     expect(config.headers.Authorization).toBe("Bearer abc");
     expect(config.headers["stream-name"]).toBe("logs");
@@ -39,41 +40,35 @@ describe("otel-config", () => {
 
 describe("otlp-log-destination", () => {
   test("builds an OTLP log payload and posts it", async () => {
-    const posted: Array<{ url: string; body: string }> = [];
+    const posted: { url: string; body: string }[] = [];
 
     globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
       posted.push({
-        url: String(url),
         body: String(init?.body ?? ""),
+        url: String(url),
       });
-      return Promise.resolve(
-        new Response(JSON.stringify({ code: 200 }), { status: 200 })
-      );
+      return Promise.resolve(Response.json({ code: 200 }, { status: 200 }));
     }) as typeof fetch;
 
     const dest = createOtlpLogDestination({
+      batchSize: 1,
       endpoint: "http://localhost:5080/api/default/v1/logs",
+      flushIntervalMs: 100,
       headers: { Authorization: "Basic abc" },
       serviceName: "auth-test",
-      batchSize: 1,
-      flushIntervalMs: 100,
     });
 
-    const done = new Promise<void>((resolve) => {
-      dest.write(
-        JSON.stringify({
-          level: 30,
-          time: "2026-01-01T00:00:00.000Z",
-          msg: "hello",
-          service: "auth",
-        }),
-        () => {
-          setTimeout(resolve, 50);
-        }
-      );
-    });
+    dest.write(
+      JSON.stringify({
+        level: 30,
+        msg: "hello",
+        service: "auth",
+        time: "2026-01-01T00:00:00.000Z",
+      })
+    );
 
-    await done;
+    // Give the batching stream time to flush the single queued record.
+    await Bun.sleep(100);
 
     expect(posted.length).toBeGreaterThan(0);
     const [record] = posted;

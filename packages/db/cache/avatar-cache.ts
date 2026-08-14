@@ -10,6 +10,10 @@ export interface CachedAvatarData {
 }
 
 export const avatarCache = {
+  async del(userId: string): Promise<void> {
+    await redis.del(`${AVATAR_CACHE_PREFIX}${userId}`);
+  },
+
   async get(userId: string): Promise<CachedAvatarData | null> {
     const cached = await redis.get(`${AVATAR_CACHE_PREFIX}${userId}`);
     if (!cached) {
@@ -21,6 +25,15 @@ export const avatarCache = {
       data.url = data.url.replace("http://", "https://");
     }
     return data;
+  },
+
+  async refresh(userId: string): Promise<void> {
+    await this.del(userId);
+    const response = await fetch(`/api/users/avatar/${userId}`);
+    if (response.ok) {
+      const data = await response.json();
+      await this.set(userId, data);
+    }
   },
 
   async set(userId: string, data: CachedAvatarData): Promise<void> {
@@ -38,18 +51,5 @@ export const avatarCache = {
       "EX",
       AVATAR_CACHE_TTL
     );
-  },
-
-  async del(userId: string): Promise<void> {
-    await redis.del(`${AVATAR_CACHE_PREFIX}${userId}`);
-  },
-
-  async refresh(userId: string): Promise<void> {
-    await this.del(userId);
-    const response = await fetch(`/api/users/avatar/${userId}`);
-    if (response.ok) {
-      const data = await response.json();
-      await this.set(userId, data);
-    }
   },
 };

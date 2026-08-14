@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(request: Request) {
@@ -10,14 +11,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q") || "";
   const results = await prisma.user.findMany({
+    select: { avatarUrl: true, displayName: true, id: true, username: true },
+    take: 10,
     where: {
       OR: [
         { username: { contains: q, mode: "insensitive" } },
         { displayName: { contains: q, mode: "insensitive" } },
       ],
     },
-    select: { id: true, username: true, displayName: true, avatarUrl: true },
-    take: 10,
   });
   return Response.json({ users: results });
 }

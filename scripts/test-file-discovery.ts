@@ -1,5 +1,5 @@
 import { readdir } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import path from "node:path";
 
 export type TestScope = "all" | "integration" | "unit";
 
@@ -18,7 +18,7 @@ const INTEGRATION_TEST_PATTERN =
   /\.integration\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/;
 
 function toPosixPath(filePath: string): string {
-  return filePath.split(sep).join("/");
+  return filePath.split(path.sep).join("/");
 }
 
 function isTestFile(fileName: string): boolean {
@@ -41,7 +41,7 @@ async function collectTestFilesRecursive(
   );
   const nestedFiles = await Promise.all(
     directoryEntries.map((entry) =>
-      collectTestFilesRecursive(join(directory, entry.name), rootDir)
+      collectTestFilesRecursive(path.join(directory, entry.name), rootDir)
     )
   );
   files.push(...nestedFiles.flat());
@@ -51,19 +51,20 @@ async function collectTestFilesRecursive(
       continue;
     }
 
-    const absolutePath = join(directory, entry.name);
-    const repoRelativePath = toPosixPath(relative(rootDir, absolutePath));
+    const absolutePath = path.join(directory, entry.name);
+    const repoRelativePath = toPosixPath(path.relative(rootDir, absolutePath));
     files.push(repoRelativePath);
   }
 
   return files;
 }
 
+function sortFiles(paths: string[]): string[] {
+  return [...paths].toSorted((a, b) => a.localeCompare(b));
+}
+
 function selectFilesForScope(files: string[], scope: TestScope): string[] {
   // Contract: collectTestFiles returns alphabetically sorted file paths.
-  const sortFiles = (paths: string[]) =>
-    [...paths].sort((a, b) => a.localeCompare(b));
-
   const integrationFiles = files.filter(isIntegrationTestFile);
 
   const unitFiles = files.filter(
@@ -85,9 +86,8 @@ export async function collectTestFiles(
   scope: TestScope,
   rootDir = process.cwd()
 ): Promise<string[]> {
-  const allFiles = (await collectTestFilesRecursive(rootDir, rootDir)).sort(
-    (a, b) => a.localeCompare(b)
-  );
+  const collected = await collectTestFilesRecursive(rootDir, rootDir);
+  const allFiles = collected.toSorted((a, b) => a.localeCompare(b));
 
   return selectFilesForScope(allFiles, scope);
 }

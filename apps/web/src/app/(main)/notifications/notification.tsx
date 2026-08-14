@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AtSign, Heart, MessageCircle, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 import kyInstance from "@/lib/ky";
 import { cn, formatRelativeDate } from "@/lib/utils";
@@ -23,29 +24,29 @@ interface TypeConfig {
 }
 
 const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
-  FOLLOW: {
-    action: "followed you",
-    badgeClass: "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
-    icon: UserPlus,
-    href: (notification) => `/users/${notification.issuer.username}`,
+  AMPLIFY: {
+    action: "amplified your post",
+    badgeClass: "bg-gradient-to-b from-[#fb7185] to-[#e11d48]",
+    href: (notification) => `/posts/${notification.postId}`,
+    icon: Heart,
   },
   COMMENT: {
     action: "eddied on your post",
     badgeClass: "bg-gradient-to-b from-[#38bdf8] to-[#0284c7]",
+    href: (notification) => `/posts/${notification.postId}`,
     icon: MessageCircle,
-    href: (notification) => `/posts/${notification.postId}`,
   },
-  AMPLIFY: {
-    action: "amplified your post",
-    badgeClass: "bg-gradient-to-b from-[#fb7185] to-[#e11d48]",
-    icon: Heart,
-    href: (notification) => `/posts/${notification.postId}`,
+  FOLLOW: {
+    action: "followed you",
+    badgeClass: "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
+    href: (notification) => `/users/${notification.issuer.username}`,
+    icon: UserPlus,
   },
   MENTION: {
     action: "mentioned you",
     badgeClass: "bg-gradient-to-b from-[#a78bfa] to-[#7c3aed]",
-    icon: AtSign,
     href: (notification) => `/posts/${notification.postId}`,
+    icon: AtSign,
   },
 };
 
@@ -106,12 +107,12 @@ export default function Notification({ notification }: NotificationProps) {
           </p>
 
           {notification.post ? (
-            <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+            <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">
               {notification.post.content}
             </p>
           ) : null}
 
-          <span className="mt-1 block text-muted-foreground/70 text-xs">
+          <span className="text-muted-foreground/70 mt-1 block text-xs">
             {formatRelativeDate(notification.createdAt)}
           </span>
         </div>
@@ -119,7 +120,7 @@ export default function Notification({ notification }: NotificationProps) {
 
       <button
         aria-label="Dismiss notification"
-        className="icon-btn-3d mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-0 outline-none transition-all duration-150 focus-visible:opacity-100 group-hover:opacity-100"
+        className="icon-btn-3d mt-1 flex h-7 w-7 shrink-0 items-center justify-center opacity-0 transition-all duration-150 outline-none group-hover:opacity-100 focus-visible:opacity-100"
         onClick={handleDismiss}
         type="button"
       >

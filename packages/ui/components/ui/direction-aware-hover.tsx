@@ -4,7 +4,19 @@ import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import type * as React from "react";
 import { useRef, useState } from "react";
+
 import { cn } from "../../lib/utils";
+
+function getDirection(
+  ev: React.MouseEvent<HTMLDivElement, MouseEvent>,
+  obj: HTMLElement
+) {
+  const { width: w, height: h, left, top } = obj.getBoundingClientRect();
+  const x = ev.clientX - left - (w / 2) * (w > h ? h / w : 1);
+  const y = ev.clientY - top - (h / 2) * (h > w ? w / h : 1);
+  const d = Math.round(Math.atan2(y, x) / 1.57079633 + 5) % 4;
+  return d;
+}
 
 export const DirectionAwareHover = ({
   imageUrl,
@@ -34,33 +46,27 @@ export const DirectionAwareHover = ({
 
     const mouseDirection = getDirection(event, ref.current);
     switch (mouseDirection) {
-      case 0:
+      case 0: {
         setDirection("top");
         break;
-      case 1:
+      }
+      case 1: {
         setDirection("right");
         break;
-      case 2:
+      }
+      case 2: {
         setDirection("bottom");
         break;
-      case 3:
+      }
+      case 3: {
         setDirection("left");
         break;
-      default:
+      }
+      default: {
         setDirection("left");
         break;
+      }
     }
-  };
-
-  const getDirection = (
-    ev: React.MouseEvent<HTMLDivElement, MouseEvent>,
-    obj: HTMLElement
-  ) => {
-    const { width: w, height: h, left, top } = obj.getBoundingClientRect();
-    const x = ev.clientX - left - (w / 2) * (w > h ? h / w : 1);
-    const y = ev.clientY - top - (h / 2) * (h > w ? w / h : 1);
-    const d = Math.round(Math.atan2(y, x) / 1.570_796_33 + 5) % 4;
-    return d;
   };
 
   return (
@@ -119,53 +125,57 @@ export const DirectionAwareHover = ({
 };
 
 const variants = {
-  initial: {
-    x: 0,
+  bottom: {
+    y: -20,
   },
 
   exit: {
     x: 0,
     y: 0,
   },
-  top: {
-    y: 20,
+
+  initial: {
+    x: 0,
   },
-  bottom: {
-    y: -20,
-  },
+
   left: {
     x: 20,
   },
+
   right: {
     x: -20,
+  },
+
+  top: {
+    y: 20,
   },
 };
 
 const textVariants = {
-  initial: {
-    y: 0,
-    x: 0,
-    opacity: 0,
+  bottom: {
+    opacity: 1,
+    y: 2,
   },
   exit: {
-    y: 0,
-    x: 0,
     opacity: 0,
+    x: 0,
+    y: 0,
   },
-  top: {
-    y: -20,
-    opacity: 1,
-  },
-  bottom: {
-    y: 2,
-    opacity: 1,
+  initial: {
+    opacity: 0,
+    x: 0,
+    y: 0,
   },
   left: {
-    x: -2,
     opacity: 1,
+    x: -2,
   },
   right: {
-    x: 20,
     opacity: 1,
+    x: 20,
+  },
+  top: {
+    opacity: 1,
+    y: -20,
   },
 };

@@ -1,38 +1,41 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Command } from "cmdk";
 import { Loader2, Search, X } from "lucide-react";
-import { AnimatePresence, motion, type Variants } from "motion/react";
-import { type MouseEvent, useCallback, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import type { Variants } from "motion/react";
+import { useCallback, useState } from "react";
+import type { MouseEvent } from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import { useToast } from "@/lib/gooey-toast";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
+
 import UserAvatar from "../layouts/user-avatar";
 
 const tagVariants: Variants = {
-  initial: { opacity: 0, scale: 0.9, y: -10 },
   animate: {
     opacity: 1,
     scale: 1,
-    y: 0,
     transition: {
-      type: "spring",
-      stiffness: 200,
       damping: 20,
+      stiffness: 200,
+      type: "spring",
     },
+    y: 0,
   },
   exit: {
     opacity: 0,
     scale: 0.9,
-    y: -10,
     transition: {
       duration: 0.2,
     },
+    y: -10,
   },
+  initial: { opacity: 0, scale: 0.9, y: -10 },
 };
 
 const containerVariants = {
@@ -50,12 +53,12 @@ interface MentionTagEditorProps {
   postId?: string;
 }
 
-export function MentionTagEditor({
+export const MentionTagEditor = ({
   postId,
   initialMentions,
   onCloseAction,
   onMentionsUpdateAction,
-}: MentionTagEditorProps) {
+}: MentionTagEditorProps) => {
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<UserData[]>([]);
@@ -86,8 +89,8 @@ export function MentionTagEditor({
       } catch (error) {
         clientLog.error("Error searching users:", error);
         toast({
-          title: "No Luck Finding People",
           description: "Try searching again in a moment",
+          title: "No Luck Finding People",
           variant: "destructive",
         });
       } finally {
@@ -101,8 +104,8 @@ export function MentionTagEditor({
     (user: UserData) => {
       if (selectedMentions.length >= 5) {
         toast({
-          title: "Up to 5 Mentions",
           description: "You can mention up to 5 people per post",
+          title: "Up to 5 Mentions",
           variant: "destructive",
         });
         return;
@@ -196,7 +199,7 @@ export function MentionTagEditor({
                   variants={tagVariants}
                 >
                   <UserAvatar size={16} user={user} />
-                  <span className="font-medium text-xs">
+                  <span className="text-xs font-medium">
                     @{user.username}
                     {isCurrentUser(user.id) && (
                       <span className="ml-1 text-[10px] opacity-70">(you)</span>
@@ -204,7 +207,7 @@ export function MentionTagEditor({
                   </span>
                   <button
                     aria-label={`Remove mention ${user.username}`}
-                    className="meta-chip-accent flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive"
+                    className="meta-chip-accent text-muted-foreground hover:text-destructive flex h-4 w-4 items-center justify-center rounded-full transition-colors"
                     data-user-id={user.id}
                     onClick={handleRemoveClick}
                     type="button"
@@ -220,9 +223,9 @@ export function MentionTagEditor({
         <div className="relative rounded-xl transition-all duration-200">
           <Command className="premium-command overflow-hidden">
             <div className="flex items-center px-3">
-              <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+              <Search className="text-muted-foreground mr-2 h-4 w-4 shrink-0" />
               <Command.Input
-                className="h-9 flex-1 border-0 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/70 focus:ring-0"
+                className="placeholder:text-muted-foreground/70 h-9 flex-1 border-0 bg-transparent text-sm outline-hidden focus:ring-0"
                 onValueChange={handleValueChange}
                 placeholder="Search users to mention..."
                 value={search}
@@ -250,7 +253,7 @@ export function MentionTagEditor({
                 </Command.Item>
               ))}
               {search && !isLoading && suggestions.length === 0 && (
-                <p className="p-2 text-muted-foreground text-sm">
+                <p className="text-muted-foreground p-2 text-sm">
                   No users found matching "{search}"
                 </p>
               )}
@@ -276,4 +279,4 @@ export function MentionTagEditor({
       </motion.div>
     </div>
   );
-}
+};

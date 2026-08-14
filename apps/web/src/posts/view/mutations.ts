@@ -24,9 +24,9 @@ async function flushViews(): Promise<void> {
   debugLog.views(`Flushing ${postIds.length} view increments in one request`);
   try {
     await fetch("/api/views/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ postIds }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
     });
   } catch (error) {
     debugLog.views("Failed to batch increment views:", error);
@@ -38,9 +38,7 @@ function scheduleFlush(): void {
     return;
   }
   flushTimer = setTimeout(() => {
-    flushViews().catch((error: unknown) => {
-      debugLog.views("Failed to flush view increments:", error);
-    });
+    void flushViews();
   }, FLUSH_DELAY_MS);
 }
 
@@ -51,14 +49,12 @@ export function useIncrementViewMutation() {
       pendingViews.add(postId);
 
       if (pendingViews.size >= MAX_BATCH) {
-        flushViews().catch((error: unknown) => {
-          debugLog.views("Failed to flush view increments:", error);
-        });
+        void flushViews();
       } else {
         scheduleFlush();
       }
 
-      return Promise.resolve({ queued: true, postId });
+      return Promise.resolve({ postId, queued: true });
     },
     retry: false,
   });

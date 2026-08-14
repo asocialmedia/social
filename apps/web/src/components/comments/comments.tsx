@@ -4,8 +4,10 @@ import noCommentsImage from "@assets/general/nocomments.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback } from "react";
+
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
+
 import Comment from "./comment";
 import CommentInput from "./comment-input";
 
@@ -16,19 +18,19 @@ interface CommentsProps {
 export default function Comments({ post }: CommentsProps) {
   const { data, fetchNextPage, hasNextPage, isFetching, status } =
     useInfiniteQuery({
-      queryKey: ["comments", post.id],
-      queryFn: ({ pageParam }) =>
+      getNextPageParam: (firstPage) => firstPage.previousCursor,
+      initialPageParam: null as string | null,
+      queryFn: ({ pageParam }: { pageParam: string | null }) =>
         kyInstance
           .get(
             `/api/posts/${post.id}/comments`,
             pageParam ? { searchParams: { cursor: pageParam } } : {}
           )
           .json<CommentsPage>(),
-      initialPageParam: null as string | null,
-      getNextPageParam: (firstPage) => firstPage.previousCursor,
+      queryKey: ["comments", post.id],
       select: (commentsData) => ({
-        pages: [...commentsData.pages].reverse(),
-        pageParams: [...commentsData.pageParams].reverse(),
+        pageParams: [...commentsData.pageParams].toReversed(),
+        pages: [...commentsData.pages].toReversed(),
       }),
     });
 
@@ -69,7 +71,7 @@ export default function Comments({ post }: CommentsProps) {
         </div>
       )}
       {status === "error" && (
-        <p className="text-center text-destructive">
+        <p className="text-destructive text-center">
           An error occurred while loading eddies.
         </p>
       )}

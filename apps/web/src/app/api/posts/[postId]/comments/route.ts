@@ -1,4 +1,5 @@
 import { getCommentDataInclude, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(
@@ -13,7 +14,7 @@ export async function POST(
   const { postId } = await ctx.params;
   const { content } = await request.json();
   const comment = await prisma.comment.create({
-    data: { postId, userId: user.id, content },
+    data: { content, postId, userId: user.id },
   });
   return Response.json(comment);
 }
@@ -29,9 +30,9 @@ export async function GET(
   }
   const { postId } = await ctx.params;
   const comments = await prisma.comment.findMany({
-    where: { postId },
-    orderBy: { createdAt: "desc" },
     include: getCommentDataInclude(user.id),
+    orderBy: { createdAt: "desc" },
+    where: { postId },
   });
 
   return Response.json({

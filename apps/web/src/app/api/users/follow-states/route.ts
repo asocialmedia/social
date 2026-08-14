@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(req: Request) {
@@ -19,11 +20,11 @@ export async function POST(req: Request) {
     });
 
     const followers = await prisma.user.findMany({
-      where: { id: { in: userIds } },
       select: {
-        id: true,
         _count: { select: { followers: true } },
+        id: true,
       },
+      where: { id: { in: userIds } },
     });
 
     const followStates: Record<

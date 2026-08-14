@@ -1,8 +1,10 @@
 import { getPostDataInclude, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
+
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
+
 import ClientPost from "../../client-post";
 
 interface PageProps {
@@ -16,10 +18,10 @@ const INDEX_SEGMENT_PATTERN = /^\d+$/;
 
 const getPost = cache(async (postId: string, loggedInUser: string) => {
   const post = await prisma.post.findUnique({
+    include: getPostDataInclude(loggedInUser),
     where: {
       id: postId,
     },
-    include: getPostDataInclude(loggedInUser),
   });
 
   if (!post) {
@@ -39,7 +41,7 @@ export default async function Page(props: PageProps) {
   if (!INDEX_SEGMENT_PATTERN.test(index)) {
     notFound();
   }
-  const parsedIndex = Number.parseInt(index, 10);
+  const parsedIndex = Math.trunc(Number(index));
 
   const session = await getSessionFromApi();
 

@@ -9,11 +9,17 @@ import {
 } from "@asm/ui/shadui/select";
 import { motion } from "motion/react";
 import { useCallback } from "react";
+
 import { CATEGORIES, PRIORITIES } from "../../constants";
 import type { StepProps } from "../../types";
 import { stepVariants } from "./variants";
 
-export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
+export const StepTwo = ({
+  formData,
+  setFormData,
+  onBack,
+  onNext,
+}: StepProps) => {
   const handleCategoryChange = useCallback(
     (value: string) => {
       setFormData({ ...formData, category: value });
@@ -44,7 +50,7 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
       variants={stepVariants}
     >
       <div className="space-y-2">
-        <h3 className="font-semibold text-lg">Request Details</h3>
+        <h3 className="text-lg font-semibold">Request Details</h3>
         <p className="text-muted-foreground text-sm">
           Help us understand your request better
         </p>
@@ -107,4 +113,4 @@ export function StepTwo({ formData, setFormData, onBack, onNext }: StepProps) {
       </div>
     </motion.div>
   );
-}
+};

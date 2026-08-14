@@ -10,277 +10,278 @@ export interface FileTypeConfig {
   };
 }
 
+// eslint-disable-next-line eslint/sort-keys -- config map intentionally grouped by file category
 export const FILE_CONFIGS: Record<string, FileTypeConfig> = {
   jpg: {
-    mime: "image/jpeg",
     category: "IMAGE",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "ImageIcon" },
+    mime: "image/jpeg",
+    tag: { bg: "bg-blue-500/30", icon: "ImageIcon", text: "text-blue-100" },
   },
   jpeg: {
-    mime: "image/jpeg",
     category: "IMAGE",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "ImageIcon" },
+    mime: "image/jpeg",
+    tag: { bg: "bg-blue-500/30", icon: "ImageIcon", text: "text-blue-100" },
   },
   png: {
-    mime: "image/png",
     category: "IMAGE",
-    tag: { bg: "bg-green-500/30", text: "text-green-100", icon: "ImageIcon" },
+    mime: "image/png",
+    tag: { bg: "bg-green-500/30", icon: "ImageIcon", text: "text-green-100" },
   },
   gif: {
-    mime: "image/gif",
     category: "IMAGE",
-    tag: { bg: "bg-purple-500/30", text: "text-purple-100", icon: "ImageIcon" },
+    mime: "image/gif",
+    tag: { bg: "bg-purple-500/30", icon: "ImageIcon", text: "text-purple-100" },
   },
   webp: {
-    mime: "image/webp",
     category: "IMAGE",
-    tag: { bg: "bg-yellow-500/30", text: "text-yellow-100", icon: "ImageIcon" },
+    mime: "image/webp",
+    tag: { bg: "bg-yellow-500/30", icon: "ImageIcon", text: "text-yellow-100" },
   },
   heic: {
-    mime: "image/heic",
     category: "IMAGE",
-    tag: { bg: "bg-indigo-500/30", text: "text-indigo-100", icon: "ImageIcon" },
+    mime: "image/heic",
+    tag: { bg: "bg-indigo-500/30", icon: "ImageIcon", text: "text-indigo-100" },
   },
   heif: {
-    mime: "image/heif",
     category: "IMAGE",
-    tag: { bg: "bg-indigo-500/30", text: "text-indigo-100", icon: "ImageIcon" },
+    mime: "image/heif",
+    tag: { bg: "bg-indigo-500/30", icon: "ImageIcon", text: "text-indigo-100" },
   },
   svg: {
-    mime: "image/svg+xml",
     category: "IMAGE",
-    tag: { bg: "bg-orange-500/30", text: "text-orange-100", icon: "ImageIcon" },
+    mime: "image/svg+xml",
+    tag: { bg: "bg-orange-500/30", icon: "ImageIcon", text: "text-orange-100" },
   },
   tiff: {
-    mime: "image/tiff",
     category: "IMAGE",
-    tag: { bg: "bg-cyan-500/30", text: "text-cyan-100", icon: "ImageIcon" },
+    mime: "image/tiff",
+    tag: { bg: "bg-cyan-500/30", icon: "ImageIcon", text: "text-cyan-100" },
   },
   raw: {
-    mime: "image/raw",
     category: "IMAGE",
-    tag: { bg: "bg-red-500/30", text: "text-red-100", icon: "ImageIcon" },
+    mime: "image/raw",
+    tag: { bg: "bg-red-500/30", icon: "ImageIcon", text: "text-red-100" },
   },
 
   // Videos
   mp4: {
-    mime: "video/mp4",
     category: "VIDEO",
-    tag: { bg: "bg-red-500/30", text: "text-red-100", icon: "VideoIcon" },
+    mime: "video/mp4",
+    tag: { bg: "bg-red-500/30", icon: "VideoIcon", text: "text-red-100" },
   },
   webm: {
-    mime: "video/webm",
     category: "VIDEO",
-    tag: { bg: "bg-purple-500/30", text: "text-purple-100", icon: "VideoIcon" },
+    mime: "video/webm",
+    tag: { bg: "bg-purple-500/30", icon: "VideoIcon", text: "text-purple-100" },
   },
   mov: {
-    mime: "video/quicktime",
     category: "VIDEO",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "VideoIcon" },
+    mime: "video/quicktime",
+    tag: { bg: "bg-blue-500/30", icon: "VideoIcon", text: "text-blue-100" },
   },
   avi: {
-    mime: "video/x-msvideo",
     category: "VIDEO",
-    tag: { bg: "bg-gray-500/30", text: "text-gray-100", icon: "VideoIcon" },
+    mime: "video/x-msvideo",
+    tag: { bg: "bg-gray-500/30", icon: "VideoIcon", text: "text-gray-100" },
   },
   mkv: {
-    mime: "video/x-matroska",
     category: "VIDEO",
-    tag: { bg: "bg-green-500/30", text: "text-green-100", icon: "VideoIcon" },
+    mime: "video/x-matroska",
+    tag: { bg: "bg-green-500/30", icon: "VideoIcon", text: "text-green-100" },
   },
   flv: {
-    mime: "video/x-flv",
     category: "VIDEO",
-    tag: { bg: "bg-yellow-500/30", text: "text-yellow-100", icon: "VideoIcon" },
+    mime: "video/x-flv",
+    tag: { bg: "bg-yellow-500/30", icon: "VideoIcon", text: "text-yellow-100" },
   },
 
   // Audio
   mp3: {
-    mime: "audio/mpeg",
     category: "AUDIO",
-    tag: { bg: "bg-pink-500/30", text: "text-pink-100", icon: "AudioWaveform" },
+    mime: "audio/mpeg",
+    tag: { bg: "bg-pink-500/30", icon: "AudioWaveform", text: "text-pink-100" },
   },
   wav: {
-    mime: "audio/wav",
     category: "AUDIO",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "AudioWaveform" },
+    mime: "audio/wav",
+    tag: { bg: "bg-blue-500/30", icon: "AudioWaveform", text: "text-blue-100" },
   },
   ogg: {
-    mime: "audio/ogg",
     category: "AUDIO",
+    mime: "audio/ogg",
     tag: {
       bg: "bg-purple-500/30",
-      text: "text-purple-100",
       icon: "AudioWaveform",
+      text: "text-purple-100",
     },
   },
   aac: {
-    mime: "audio/aac",
     category: "AUDIO",
-    tag: { bg: "bg-red-500/30", text: "text-red-100", icon: "AudioWaveform" },
+    mime: "audio/aac",
+    tag: { bg: "bg-red-500/30", icon: "AudioWaveform", text: "text-red-100" },
   },
   flac: {
-    mime: "audio/flac",
     category: "AUDIO",
+    mime: "audio/flac",
     tag: {
       bg: "bg-green-500/30",
-      text: "text-green-100",
       icon: "AudioWaveform",
+      text: "text-green-100",
     },
   },
   m4a: {
-    mime: "audio/mp4",
     category: "AUDIO",
+    mime: "audio/mp4",
     tag: {
       bg: "bg-yellow-500/30",
-      text: "text-yellow-100",
       icon: "AudioWaveform",
+      text: "text-yellow-100",
     },
   },
 
   // Code
   js: {
-    mime: "text/javascript",
     category: "CODE",
-    tag: { bg: "bg-yellow-500/30", text: "text-yellow-100", icon: "CodeIcon" },
+    mime: "text/javascript",
+    tag: { bg: "bg-yellow-500/30", icon: "CodeIcon", text: "text-yellow-100" },
   },
   ts: {
-    mime: "text/typescript",
     category: "CODE",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "CodeIcon" },
+    mime: "text/typescript",
+    tag: { bg: "bg-blue-500/30", icon: "CodeIcon", text: "text-blue-100" },
   },
   jsx: {
-    mime: "text/jsx",
     category: "CODE",
-    tag: { bg: "bg-cyan-500/30", text: "text-cyan-100", icon: "CodeIcon" },
+    mime: "text/jsx",
+    tag: { bg: "bg-cyan-500/30", icon: "CodeIcon", text: "text-cyan-100" },
   },
   tsx: {
-    mime: "text/tsx",
     category: "CODE",
-    tag: { bg: "bg-cyan-500/30", text: "text-cyan-100", icon: "CodeIcon" },
+    mime: "text/tsx",
+    tag: { bg: "bg-cyan-500/30", icon: "CodeIcon", text: "text-cyan-100" },
   },
   py: {
-    mime: "text/x-python",
     category: "CODE",
-    tag: { bg: "bg-green-500/30", text: "text-green-100", icon: "CodeIcon" },
+    mime: "text/x-python",
+    tag: { bg: "bg-green-500/30", icon: "CodeIcon", text: "text-green-100" },
   },
   java: {
-    mime: "text/x-java",
     category: "CODE",
-    tag: { bg: "bg-red-500/30", text: "text-red-100", icon: "CodeIcon" },
+    mime: "text/x-java",
+    tag: { bg: "bg-red-500/30", icon: "CodeIcon", text: "text-red-100" },
   },
   cpp: {
-    mime: "text/x-cpp",
     category: "CODE",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "CodeIcon" },
+    mime: "text/x-cpp",
+    tag: { bg: "bg-blue-500/30", icon: "CodeIcon", text: "text-blue-100" },
   },
   c: {
-    mime: "text/x-c",
     category: "CODE",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "CodeIcon" },
+    mime: "text/x-c",
+    tag: { bg: "bg-blue-500/30", icon: "CodeIcon", text: "text-blue-100" },
   },
   cs: {
-    mime: "text/x-csharp",
     category: "CODE",
-    tag: { bg: "bg-purple-500/30", text: "text-purple-100", icon: "CodeIcon" },
+    mime: "text/x-csharp",
+    tag: { bg: "bg-purple-500/30", icon: "CodeIcon", text: "text-purple-100" },
   },
   rb: {
-    mime: "text/x-ruby",
     category: "CODE",
-    tag: { bg: "bg-red-500/30", text: "text-red-100", icon: "CodeIcon" },
+    mime: "text/x-ruby",
+    tag: { bg: "bg-red-500/30", icon: "CodeIcon", text: "text-red-100" },
   },
   php: {
-    mime: "text/x-php",
     category: "CODE",
-    tag: { bg: "bg-purple-500/30", text: "text-purple-100", icon: "CodeIcon" },
+    mime: "text/x-php",
+    tag: { bg: "bg-purple-500/30", icon: "CodeIcon", text: "text-purple-100" },
   },
   go: {
-    mime: "text/x-go",
     category: "CODE",
-    tag: { bg: "bg-cyan-500/30", text: "text-cyan-100", icon: "CodeIcon" },
+    mime: "text/x-go",
+    tag: { bg: "bg-cyan-500/30", icon: "CodeIcon", text: "text-cyan-100" },
   },
   rs: {
-    mime: "text/x-rust",
     category: "CODE",
-    tag: { bg: "bg-orange-500/30", text: "text-orange-100", icon: "CodeIcon" },
+    mime: "text/x-rust",
+    tag: { bg: "bg-orange-500/30", icon: "CodeIcon", text: "text-orange-100" },
   },
   swift: {
-    mime: "text/x-swift",
     category: "CODE",
-    tag: { bg: "bg-orange-500/30", text: "text-orange-100", icon: "CodeIcon" },
+    mime: "text/x-swift",
+    tag: { bg: "bg-orange-500/30", icon: "CodeIcon", text: "text-orange-100" },
   },
   kt: {
-    mime: "text/x-kotlin",
     category: "CODE",
-    tag: { bg: "bg-purple-500/30", text: "text-purple-100", icon: "CodeIcon" },
+    mime: "text/x-kotlin",
+    tag: { bg: "bg-purple-500/30", icon: "CodeIcon", text: "text-purple-100" },
   },
 
   // Documents
   pdf: {
-    mime: "application/pdf",
     category: "DOCUMENT",
-    tag: { bg: "bg-red-500/30", text: "text-red-100", icon: "FileTextIcon" },
+    mime: "application/pdf",
+    tag: { bg: "bg-red-500/30", icon: "FileTextIcon", text: "text-red-100" },
   },
   doc: {
-    mime: "application/msword",
     category: "DOCUMENT",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "FileTextIcon" },
+    mime: "application/msword",
+    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
   },
   docx: {
-    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     category: "DOCUMENT",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "FileTextIcon" },
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
   },
   xls: {
-    mime: "application/vnd.ms-excel",
     category: "DOCUMENT",
+    mime: "application/vnd.ms-excel",
     tag: {
       bg: "bg-green-500/30",
-      text: "text-green-100",
       icon: "FileTextIcon",
+      text: "text-green-100",
     },
   },
   xlsx: {
-    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     category: "DOCUMENT",
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     tag: {
       bg: "bg-green-500/30",
-      text: "text-green-100",
       icon: "FileTextIcon",
+      text: "text-green-100",
     },
   },
   ppt: {
-    mime: "application/vnd.ms-powerpoint",
     category: "DOCUMENT",
+    mime: "application/vnd.ms-powerpoint",
     tag: {
       bg: "bg-orange-500/30",
-      text: "text-orange-100",
       icon: "FileTextIcon",
+      text: "text-orange-100",
     },
   },
   pptx: {
-    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     category: "DOCUMENT",
+    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     tag: {
       bg: "bg-orange-500/30",
-      text: "text-orange-100",
       icon: "FileTextIcon",
+      text: "text-orange-100",
     },
   },
   txt: {
-    mime: "text/plain",
     category: "DOCUMENT",
-    tag: { bg: "bg-gray-500/30", text: "text-gray-100", icon: "FileTextIcon" },
+    mime: "text/plain",
+    tag: { bg: "bg-gray-500/30", icon: "FileTextIcon", text: "text-gray-100" },
   },
   rtf: {
-    mime: "application/rtf",
     category: "DOCUMENT",
-    tag: { bg: "bg-gray-500/30", text: "text-gray-100", icon: "FileTextIcon" },
+    mime: "application/rtf",
+    tag: { bg: "bg-gray-500/30", icon: "FileTextIcon", text: "text-gray-100" },
   },
   md: {
-    mime: "text/markdown",
     category: "DOCUMENT",
-    tag: { bg: "bg-blue-500/30", text: "text-blue-100", icon: "FileTextIcon" },
+    mime: "text/markdown",
+    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
   },
 };
 
@@ -302,8 +303,8 @@ export const getContentDisposition = (filename: string, inline = false) => {
 export const getTagConfig = (extension: string) =>
   FILE_CONFIGS[extension]?.tag || {
     bg: "bg-gray-500/30",
-    text: "text-gray-100",
     icon: "FileIcon",
+    text: "text-gray-100",
   };
 
 export const shouldDisplayInline = (mimeType: string) => {

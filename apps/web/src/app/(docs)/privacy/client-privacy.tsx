@@ -4,6 +4,7 @@ import { Button } from "@asm/ui/shadui/button";
 import { ArrowLeft, LockKeyhole } from "lucide-react";
 import Link from "next/link";
 import React, { useEffect } from "react";
+
 import ScrollUpButton from "@/components/layouts/scroll-up-button";
 import { FossBanner } from "@/components/misc/foss-banner";
 
@@ -31,7 +32,7 @@ export default function PrivacyPolicyPage() {
       <div className="mb-8 flex items-center justify-between">
         <Link href="/">
           <Button
-            className="group flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            className="group text-muted-foreground hover:text-foreground flex items-center gap-2"
             variant="ghost"
           >
             <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
@@ -41,7 +42,7 @@ export default function PrivacyPolicyPage() {
 
         <Link href="/toc">
           <Button
-            className="group flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            className="group text-muted-foreground hover:text-foreground flex items-center gap-2"
             variant="ghost"
           >
             Terms of Service
@@ -52,8 +53,8 @@ export default function PrivacyPolicyPage() {
 
       <div className="container mx-auto max-w-4xl px-4 py-8 md:px-0">
         <div className="mb-8 flex items-center gap-3">
-          <LockKeyhole className="h-8 w-8 text-primary" />
-          <h1 className="font-bold text-3xl">Privacy Policy</h1>
+          <LockKeyhole className="text-primary h-8 w-8" />
+          <h1 className="text-3xl font-bold">Privacy Policy</h1>
         </div>
 
         <div className="prose prose-neutral dark:prose-invert max-w-none">
@@ -62,7 +63,7 @@ export default function PrivacyPolicyPage() {
           </p>
 
           <section className="mt-8">
-            <p className="text-lg text-muted-foreground">
+            <p className="text-muted-foreground text-lg">
               At Asocialmedia, we take your privacy seriously. This Privacy
               Policy explains how we collect, use, disclose, and safeguard your
               information when you use our platform. Our commitment to privacy
@@ -72,11 +73,11 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               Information Collection
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">Personal Information</h3>
+              <h3 className="text-xl font-medium">Personal Information</h3>
               <p>
                 We collect certain personal information necessary for platform
                 functionality and user experience enhancement. This includes
@@ -99,7 +100,7 @@ export default function PrivacyPolicyPage() {
                 authentication systems to ensure continued security.
               </p>
 
-              <h3 className="font-medium text-xl">Content Information</h3>
+              <h3 className="text-xl font-medium">Content Information</h3>
               <p>
                 As you interact with our platform, we collect and store content
                 that you create and share. This includes posts, comments, and
@@ -114,9 +115,9 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">Information Usage</h2>
+            <h2 className="mb-4 text-2xl font-semibold">Information Usage</h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">Service Provision</h3>
+              <h3 className="text-xl font-medium">Service Provision</h3>
               <p>
                 Your information enables us to provide and maintain core
                 platform functionality. We use this data to manage your account,
@@ -127,7 +128,7 @@ export default function PrivacyPolicyPage() {
                 between users while maintaining privacy and security standards.
               </p>
 
-              <h3 className="font-medium text-xl">Platform Enhancement</h3>
+              <h3 className="text-xl font-medium">Platform Enhancement</h3>
               <p>
                 We analyze platform usage patterns and performance metrics to
                 continuously improve our services. This analysis helps identify
@@ -142,11 +143,11 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               Data Storage and Protection
             </h2>
             <div className="space-y-4">
-              <h3 className="font-medium text-xl">Security Infrastructure</h3>
+              <h3 className="text-xl font-medium">Security Infrastructure</h3>
               <p>
                 We implement comprehensive security measures to protect your
                 data throughout its lifecycle. Sensitive information is
@@ -158,7 +159,7 @@ export default function PrivacyPolicyPage() {
                 authentication and authorization systems.
               </p>
 
-              <h3 className="font-medium text-xl">Data Retention Policies</h3>
+              <h3 className="text-xl font-medium">Data Retention Policies</h3>
               <p>
                 Our data retention policies balance user needs with privacy
                 considerations. Active account data remains available throughout
@@ -171,7 +172,7 @@ export default function PrivacyPolicyPage() {
                 capabilities while minimizing data retention periods.
               </p>
 
-              <h3 className="font-medium text-xl">Third-Party Services</h3>
+              <h3 className="text-xl font-medium">Third-Party Services</h3>
               <p>
                 We carefully select and monitor third-party service providers
                 who assist in platform operation. Cloud storage services,
@@ -186,7 +187,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               User Rights and Controls
             </h2>
             <div className="space-y-4">
@@ -222,7 +223,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">Cookie Policy</h2>
+            <h2 className="mb-4 text-2xl font-semibold">Cookie Policy</h2>
             <div className="space-y-4">
               <p>
                 Our platform utilizes cookies and similar technologies to
@@ -249,7 +250,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">Children's Privacy</h2>
+            <h2 className="mb-4 text-2xl font-semibold">Children's Privacy</h2>
             <div className="space-y-4">
               <p>
                 We take the protection of children's privacy extremely seriously
@@ -277,7 +278,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               International Data Transfers
             </h2>
             <div className="space-y-4">
@@ -309,7 +310,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">
+            <h2 className="mb-4 text-2xl font-semibold">
               Changes to This Policy
             </h2>
             <div className="space-y-4">
@@ -340,7 +341,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section className="mt-8">
-            <h2 className="mb-4 font-semibold text-2xl">Contact Information</h2>
+            <h2 className="mb-4 text-2xl font-semibold">Contact Information</h2>
             <div className="space-y-4">
               <p>
                 We maintain open channels of communication for all
@@ -352,7 +353,7 @@ export default function PrivacyPolicyPage() {
                 help.
               </p>
 
-              <div className="rounded-lg bg-muted p-4">
+              <div className="bg-muted rounded-lg p-4">
                 <p>Asocialmedia FOSS</p>
                 <p>
                   Email:{" "}
@@ -369,7 +370,7 @@ export default function PrivacyPolicyPage() {
 
           <FossBanner />
 
-          <section className="mt-8 rounded-lg bg-muted p-4">
+          <section className="bg-muted mt-8 rounded-lg p-4">
             <p className="text-muted-foreground text-sm">
               By using Asocialmedia, you acknowledge that you have read and
               understood this Privacy Policy in its entirety. Your continued use

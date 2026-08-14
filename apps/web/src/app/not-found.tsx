@@ -1,6 +1,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import errorImage from "@assets/general/error.png";
 import Link from "next/link";
+
 import { StatusScreen } from "@/components/layouts/status-screen";
 
 export default function NotFound() {

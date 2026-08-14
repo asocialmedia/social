@@ -3,5 +3,25 @@ coverageReporter = ["text", "lcov"]
 coverageDir = "coverage/all"
 coverageThreshold = 0.0
 coverageSkipTestFiles = true
-pathIgnorePatterns = ["**/.next/**", "**/dist/**", "**/build/**", "**/.turbo/**", "**/node_modules/**", "**/coverage/**", "**/prisma/generated/**"]
-coveragePathIgnorePatterns = ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.d.ts", "**/.next/**", "**/dist/**", "**/build/**", "**/coverage/**", "**/node_modules/**", "**/prisma/generated/**"]
+pathIgnorePatterns = [
+  "**/.next/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/.turbo/**",
+  "**/node_modules/**",
+  "**/coverage/**",
+  "**/prisma/generated/**",
+]
+coveragePathIgnorePatterns = [
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+  "**/*.d.ts",
+  "**/.next/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/coverage/**",
+  "**/node_modules/**",
+  "**/prisma/generated/**",
+]

@@ -1,43 +1,42 @@
 "use client";
 
-import Placeholder from "@tiptap/extension-placeholder";
-import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { Hash, Loader2, X } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import {
-  type ClipboardEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { useDropzone } from "react-dropzone";
-import { useSession } from "@/app/(main)/session-provider";
-import LoadingButton from "@/components/auth/loading-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import { cn } from "@/lib/utils";
-import { useSubmitPostMutation } from "@/posts/editor/mutations";
-import { AttachmentPreview } from "./attachment-preview";
-import { FileInput } from "./file-input";
-import "./styles.css";
 import type { UserData } from "@asm/db";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { useQuery } from "@tanstack/react-query";
+import { Placeholder } from "@tiptap/extension-placeholder";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { StarterKit } from "@tiptap/starter-kit";
+import { Hash, Loader2, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ClipboardEvent } from "react";
+import { useDropzone } from "react-dropzone";
+
+import { useSession } from "@/app/(main)/session-provider";
+import LoadingButton from "@/components/auth/loading-button";
+import UserAvatar from "@/components/layouts/user-avatar";
 import kyInstance from "@/lib/ky";
+
+import "./styles.css";
+import { cn } from "@/lib/utils";
+import { useSubmitPostMutation } from "@/posts/editor/mutations";
+
+import { AttachmentPreview } from "./attachment-preview";
+import { FileInput } from "./file-input";
 import { HNStoryPreview } from "./hn-story-preview";
 import { InlineSuggestions } from "./inline-suggestions";
-import useMediaUpload, { type Attachment } from "./use-media-upload";
+import useMediaUpload from "./use-media-upload";
+import type { Attachment } from "./use-media-upload";
 
 const containerVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: {
     opacity: 1,
-    y: 0,
     transition: {
       duration: 0.3,
       staggerChildren: 0.1,
     },
+    y: 0,
   },
 };
 
@@ -58,8 +57,8 @@ export default function PostEditor({
   const isHnSharing = hnShareStore.isSharing;
 
   const { data: userData } = useQuery({
-    queryKey: ["user", user.id],
     queryFn: () => kyInstance.get(`/api/users/${user.id}`).json<UserData>(),
+    queryKey: ["user", user.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -73,8 +72,14 @@ export default function PostEditor({
   } = useMediaUpload();
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    // biome-ignore lint/suspicious/noExplicitAny: any
-    onDrop: async (acceptedFiles: any[]) => {
+    accept: {
+      "image/*": [],
+      "video/*": [],
+    },
+    maxSize: 128 * 1024 * 1024,
+    noClick: true,
+    noKeyboard: true,
+    onDrop: async (acceptedFiles: File[]) => {
       const validFiles = acceptedFiles.filter(
         (file: { type: string }) =>
           file.type.startsWith("image/") || file.type.startsWith("video/")
@@ -83,45 +88,21 @@ export default function PostEditor({
         await startUpload(validFiles);
       }
     },
-    accept: {
-      "image/*": [],
-      "video/*": [],
-    },
-    maxSize: 128 * 1024 * 1024,
-    noClick: true,
-    noKeyboard: true,
   });
 
   const rootProps = getRootProps();
 
   const [inputText, setInputText] = useState("");
-  const [_isEditorFocused, setIsEditorFocused] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
   const onSubmitRef = useRef<(() => void) | null>(null);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        bold: false,
-        italic: false,
-      }),
-      Placeholder.configure({
-        placeholder: "What's crack-a-lackin'?",
-      }),
-    ],
-    onUpdate: ({ editor: currentEditor }) => {
-      setInputText(currentEditor.getText({ blockSeparator: "\n" }) || "");
-    },
     editorProps: {
       attributes: {
         class: "focus:outline-none",
       },
       handleDOMEvents: {
-        focus: () => {
-          setIsEditorFocused(true);
-          return false;
-        },
         keydown: (_view, event) => {
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
@@ -132,7 +113,19 @@ export default function PostEditor({
         },
       },
     },
+    extensions: [
+      StarterKit.configure({
+        bold: false,
+        italic: false,
+      }),
+      Placeholder.configure({
+        placeholder: "What's crack-a-lackin'?",
+      }),
+    ],
     immediatelyRender: false,
+    onUpdate: ({ editor: currentEditor }) => {
+      setInputText(currentEditor.getText({ blockSeparator: "\n" }) || "");
+    },
   });
 
   const input = inputText || editor?.getText({ blockSeparator: "\n" }) || "";
@@ -177,18 +170,18 @@ export default function PostEditor({
       mediaIds: attachments
         .map((a) => a.mediaId)
         .filter((id): id is string => Boolean(id)),
-      tags: selectedTags.map((tag) => tag.toLowerCase()),
       mentions: selectedMentions.map((mentionedUser) => mentionedUser.id),
+      tags: selectedTags.map((tag) => tag.toLowerCase()),
       ...(isHnSharing && sharedHnStory
         ? {
             hnStory: {
+              by: sharedHnStory.by,
+              descendants: sharedHnStory.descendants,
+              score: sharedHnStory.score,
               storyId: sharedHnStory.id,
+              time: sharedHnStory.time,
               title: sharedHnStory.title,
               url: sharedHnStory.url,
-              by: sharedHnStory.by,
-              time: sharedHnStory.time,
-              score: sharedHnStory.score,
-              descendants: sharedHnStory.descendants,
             },
           }
         : {}),
@@ -205,7 +198,6 @@ export default function PostEditor({
         resetMediaUploads();
         setSelectedTags([]);
         setSelectedMentions([]);
-        setIsEditorFocused(false);
         if (isHnSharing) {
           hnShareStore.clearState();
         }
@@ -234,7 +226,7 @@ export default function PostEditor({
 
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLInputElement>) => {
-      const files = Array.from(e.clipboardData.items)
+      const files = [...e.clipboardData.items]
         .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile()) as File[];
       startUpload(files);
@@ -247,14 +239,14 @@ export default function PostEditor({
       className={cn(
         "flex flex-col gap-5 p-5 shadow-none transition-shadow duration-300",
         variant === "feed"
-          ? "rounded-none border-border border-t border-b bg-[hsl(var(--background-alt))]"
+          ? "border-border rounded-none border-t border-b bg-[hsl(var(--background-alt))]"
           : "rounded-none border-0 bg-transparent"
       )}
     >
       <div className="flex gap-5">
         <div className="mt-1 shrink-0">
           <motion.div
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+            transition={{ damping: 17, stiffness: 400, type: "spring" }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -295,15 +287,15 @@ export default function PostEditor({
             <div
               className={cn(
                 "relative rounded-2xl transition-all duration-300",
-                isDragActive && "ring-2 ring-primary ring-offset-2"
+                isDragActive && "ring-primary ring-2 ring-offset-2"
               )}
             >
               <EditorContent
                 className={cn(
-                  "premium-input max-h-80 w-full overflow-y-auto px-5 py-3 text-foreground",
+                  "premium-input text-foreground max-h-80 w-full overflow-y-auto px-5 py-3",
                   "transition-all duration-300 ease-in-out",
-                  "focus-within:ring-2 focus-within:ring-primary",
-                  isDragActive && "outline-dashed outline-primary"
+                  "focus-within:ring-primary focus-within:ring-2",
+                  isDragActive && "outline-primary outline-dashed"
                 )}
                 editor={editor}
                 onPaste={onPaste}
@@ -318,11 +310,11 @@ export default function PostEditor({
               {isDragActive ? (
                 <motion.div
                   animate={{ opacity: 1 }}
-                  className="absolute inset-0 flex items-center justify-center rounded-2xl bg-primary/10 backdrop-blur-sm"
+                  className="bg-primary/10 absolute inset-0 flex items-center justify-center rounded-2xl backdrop-blur-sm"
                   exit={{ opacity: 0 }}
                   initial={{ opacity: 0 }}
                 >
-                  <p className="font-medium text-lg text-primary">
+                  <p className="text-primary text-lg font-medium">
                     Drop files here
                   </p>
                 </motion.div>
@@ -339,7 +331,7 @@ export default function PostEditor({
               <input
                 {...getInputProps()}
                 className="pointer-events-none absolute inset-0 opacity-0"
-                style={{ width: 0, height: 0 }}
+                style={{ height: 0, width: 0 }}
               />
             </div>
           </div>
@@ -354,10 +346,10 @@ export default function PostEditor({
                     exit={{ opacity: 0, x: -20 }}
                     initial={{ opacity: 0, x: -20 }}
                   >
-                    <span className="font-medium text-sm tabular-nums">
+                    <span className="text-sm font-medium tabular-nums">
                       {(uploadProgress ?? 0).toFixed(1)}%
                     </span>
-                    <Loader2 className="size-5 animate-spin text-primary" />
+                    <Loader2 className="text-primary size-5 animate-spin" />
                   </motion.div>
                 ) : null}
               </AnimatePresence>
@@ -390,9 +382,9 @@ export default function PostEditor({
       <AnimatePresence mode="wait">
         {!!attachments.length && (
           <motion.div
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            initial={{ opacity: 0, height: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            initial={{ height: 0, opacity: 0 }}
             layout
             transition={{ duration: 0.3 }}
           >
@@ -412,10 +404,10 @@ interface AttachmentPreviewsProps {
   removeAttachment: (fileName: string) => void;
 }
 
-function AttachmentPreviews({
+const AttachmentPreviews = ({
   attachments,
   removeAttachment,
-}: AttachmentPreviewsProps) {
+}: AttachmentPreviewsProps) => {
   const handleRemoveClick = useCallback(
     (attachment: Attachment) => () => {
       removeAttachment(attachment.file.name);
@@ -455,7 +447,7 @@ function AttachmentPreviews({
       ))}
     </motion.div>
   );
-}
+};
 
 interface RemoveChipBaseProps {
   label: string;
@@ -467,14 +459,14 @@ interface RemoveChipBaseProps {
 type RemoveChipProps = RemoveChipBaseProps &
   ({ user: UserData; variant: "mention" } | { user?: never; variant: "tag" });
 
-function RemoveChip({
+const RemoveChip = ({
   label,
   onRemove,
   removeLabel,
   user,
   value,
   variant,
-}: RemoveChipProps) {
+}: RemoveChipProps) => {
   const handleRemove = useCallback(() => {
     onRemove(value);
   }, [onRemove, value]);
@@ -497,7 +489,7 @@ function RemoveChip({
       <span className="truncate">{label}</span>
       <button
         aria-label={removeLabel}
-        className="meta-chip-accent ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-destructive"
+        className="meta-chip-accent text-muted-foreground hover:text-destructive ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors"
         onClick={handleRemove}
         type="button"
       >
@@ -505,4 +497,4 @@ function RemoveChip({
       </button>
     </span>
   );
-}
+};

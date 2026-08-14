@@ -7,7 +7,9 @@ import {
   mock,
   test,
 } from "bun:test";
+
 import type { Session } from "@asm/db";
+
 import { HybridSessionStore } from "./hybrid-session-store";
 
 interface HybridSessionData {
@@ -30,74 +32,76 @@ interface RedisPipeline {
 }
 
 const mockSessionCreate = mock(
-  async ({ data }: { data: HybridSessionData }): Promise<Session> => ({
-    ...data,
-    impersonatedBy: null,
-    ipAddress: data.ipAddress ?? null,
-    userAgent: data.userAgent ?? null,
-  })
+  ({ data }: { data: HybridSessionData }): Promise<Session> =>
+    Promise.resolve({
+      ...data,
+      impersonatedBy: null,
+      ipAddress: data.ipAddress ?? null,
+      userAgent: data.userAgent ?? null,
+    })
 );
 
-const mockSessionFindUnique = mock(async (): Promise<Session | null> => null);
-const mockSessionFindMany = mock(async (): Promise<Session[]> => []);
+const mockSessionFindUnique = mock((): Promise<Session | null> =>
+  Promise.resolve(null)
+);
+const mockSessionFindMany = mock((): Promise<Session[]> => Promise.resolve([]));
 const mockSessionUpdate = mock(
-  async ({
+  ({
     where,
     data,
   }: {
     data: Partial<HybridSessionData>;
     where: { id: string };
-  }) => ({
-    id: where.id,
-    userId: data.userId ?? "u1",
-    token: data.token ?? "token",
-    expiresAt: data.expiresAt ?? new Date(Date.now() + 10_000),
-    impersonatedBy: null,
-    ipAddress: data.ipAddress ?? null,
-    userAgent: data.userAgent ?? null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })
+  }): Promise<Session> =>
+    Promise.resolve({
+      createdAt: new Date(),
+      expiresAt: data.expiresAt ?? new Date(Date.now() + 10_000),
+      id: where.id,
+      impersonatedBy: null,
+      ipAddress: data.ipAddress ?? null,
+      token: data.token ?? "token",
+      updatedAt: new Date(),
+      userAgent: data.userAgent ?? null,
+      userId: data.userId ?? "u1",
+    })
 );
 const mockSessionDeleteMany = mock(
-  async (): Promise<{ count: number }> => ({
-    count: 1,
-  })
+  (_args: unknown): Promise<{ count: number }> => Promise.resolve({ count: 1 })
 );
 
 const mockPipelineFactory = mock((): RedisPipeline => {
   const pipeline: RedisPipeline = {
-    setex: () => pipeline,
-    sadd: () => pipeline,
-    exec: async () => [],
     del: () => pipeline,
+    exec: () => Promise.resolve([]),
+    sadd: () => pipeline,
+    setex: () => pipeline,
     srem: () => pipeline,
   };
 
   return pipeline;
 });
 
-const mockRedisGet = mock(async (): Promise<string | null> => null);
-const mockRedisKeys = mock(async (): Promise<string[]> => []);
-const mockRedisSmembers = mock(async (): Promise<string[]> => []);
-const mockRedisDel = mock(async (): Promise<number> => 1);
+const mockRedisGet = mock((): Promise<string | null> => Promise.resolve(null));
+const mockRedisKeys = mock((): Promise<string[]> => Promise.resolve([]));
+const mockRedisSmembers = mock((): Promise<string[]> => Promise.resolve([]));
+const mockRedisDel = mock((): Promise<number> => Promise.resolve(1));
 
 mock.module("@asm/db", () => ({
   prisma: {
     session: {
       create: mockSessionCreate,
-      findUnique: mockSessionFindUnique,
-      findMany: mockSessionFindMany,
-      update: mockSessionUpdate,
       deleteMany: mockSessionDeleteMany,
+      findMany: mockSessionFindMany,
+      findUnique: mockSessionFindUnique,
+      update: mockSessionUpdate,
     },
   },
   redis: {
-    pipeline: mockPipelineFactory,
+    del: mockRedisDel,
     get: mockRedisGet,
     keys: mockRedisKeys,
+    pipeline: mockPipelineFactory,
     smembers: mockRedisSmembers,
-    del: mockRedisDel,
   },
 }));
 
@@ -130,9 +134,9 @@ describe("HybridSessionStore", () => {
 
   test("create stores in redis and postgres", async () => {
     const session = await store.create({
+      expiresAt: new Date(Date.now() + 10_000),
       token: "test-token",
       userId: "user1",
-      expiresAt: new Date(Date.now() + 10_000),
     });
 
     expect(session.id).toBeDefined();
@@ -146,9 +150,9 @@ describe("HybridSessionStore", () => {
     });
 
     const session = await store.create({
+      expiresAt: new Date(Date.now() + 10_000),
       token: "test-token",
       userId: "user1",
-      expiresAt: new Date(Date.now() + 10_000),
     });
 
     expect(session.id).toBeDefined();
@@ -158,12 +162,12 @@ describe("HybridSessionStore", () => {
   test("findByToken finds from redis", async () => {
     mockRedisGet.mockResolvedValueOnce(
       JSON.stringify({
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
         id: "s1",
         token: "test",
-        userId: "u1",
-        expiresAt: new Date(Date.now() + 10_000).toISOString(),
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        userId: "u1",
       })
     );
 
@@ -174,12 +178,12 @@ describe("HybridSessionStore", () => {
 
   test("findByToken deletes from redis if expired", async () => {
     const expired = JSON.stringify({
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() - 10_000).toISOString(),
       id: "s1",
       token: "test",
-      userId: "u1",
-      expiresAt: new Date(Date.now() - 10_000).toISOString(),
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      userId: "u1",
     });
 
     mockRedisGet.mockResolvedValueOnce(expired);
@@ -193,15 +197,15 @@ describe("HybridSessionStore", () => {
   test("findByToken fallback to postgres if not in redis", async () => {
     mockRedisGet.mockResolvedValueOnce(null);
     mockSessionFindUnique.mockResolvedValueOnce({
-      id: "s1",
-      token: "test",
-      userId: "u1",
-      expiresAt: new Date(Date.now() + 10_000),
       createdAt: new Date(),
-      updatedAt: new Date(),
+      expiresAt: new Date(Date.now() + 10_000),
+      id: "s1",
       impersonatedBy: null,
       ipAddress: null,
+      token: "test",
+      updatedAt: new Date(),
       userAgent: null,
+      userId: "u1",
     });
 
     const result = await store.findByToken("test");
@@ -214,26 +218,26 @@ describe("HybridSessionStore", () => {
     mockRedisSmembers.mockResolvedValueOnce(["token1"]);
     mockRedisGet.mockResolvedValueOnce(
       JSON.stringify({
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
         id: "s1",
         token: "token1",
-        userId: "u1",
-        expiresAt: new Date(Date.now() + 10_000).toISOString(),
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        userId: "u1",
       })
     );
 
     mockSessionFindMany.mockResolvedValueOnce([
       {
-        id: "s2",
-        token: "token2",
-        userId: "u1",
-        expiresAt: new Date(Date.now() + 10_000),
         createdAt: new Date(),
-        updatedAt: new Date(),
+        expiresAt: new Date(Date.now() + 10_000),
+        id: "s2",
         impersonatedBy: null,
         ipAddress: null,
+        token: "token2",
+        updatedAt: new Date(),
         userAgent: null,
+        userId: "u1",
       },
     ]);
 
@@ -246,12 +250,12 @@ describe("HybridSessionStore", () => {
     mockRedisKeys.mockResolvedValueOnce(["session:active:token1"]);
     mockRedisGet.mockResolvedValueOnce(
       JSON.stringify({
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
         id: "s1",
         token: "token1",
-        userId: "u1",
-        expiresAt: new Date(Date.now() + 10_000).toISOString(),
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        userId: "u1",
       })
     );
 
@@ -263,15 +267,15 @@ describe("HybridSessionStore", () => {
   test("update fallback to postgres if not in redis", async () => {
     mockRedisKeys.mockResolvedValueOnce([]);
     mockSessionUpdate.mockResolvedValueOnce({
-      id: "s1",
-      token: "token1",
-      userId: "u1",
-      ipAddress: "127.0.0.1",
-      expiresAt: new Date(Date.now() + 10_000),
       createdAt: new Date(),
-      updatedAt: new Date(),
+      expiresAt: new Date(Date.now() + 10_000),
+      id: "s1",
       impersonatedBy: null,
+      ipAddress: "127.0.0.1",
+      token: "token1",
+      updatedAt: new Date(),
       userAgent: null,
+      userId: "u1",
     });
 
     const result = await store.update("s1", { ipAddress: "127.0.0.1" });
@@ -282,12 +286,12 @@ describe("HybridSessionStore", () => {
   test("delete clears both stores", async () => {
     mockRedisGet.mockResolvedValueOnce(
       JSON.stringify({
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date().toISOString(),
         id: "s1",
         token: "token1",
-        userId: "u1",
-        expiresAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        userId: "u1",
       })
     );
 
@@ -306,12 +310,12 @@ describe("HybridSessionStore", () => {
 
   test("sync of expired sessions occurs through public API", async () => {
     const expired = JSON.stringify({
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() - 10_000).toISOString(),
       id: "s1",
       token: "token1",
-      userId: "u1",
-      expiresAt: new Date(Date.now() - 10_000).toISOString(),
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      userId: "u1",
     });
 
     mockRedisGet.mockResolvedValueOnce(expired);

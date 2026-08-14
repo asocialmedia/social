@@ -1,5 +1,6 @@
 import type { NotificationCountInfo } from "@asm/db";
 import { prisma, unreadNotificationCache } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
@@ -20,7 +21,7 @@ export async function GET() {
   }
 
   const unreadCount = await prisma.notification.count({
-    where: { recipientId: userId, read: false },
+    where: { read: false, recipientId: userId },
   });
 
   if (unreadCount > 0) {

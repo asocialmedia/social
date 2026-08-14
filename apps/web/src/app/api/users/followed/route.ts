@@ -1,4 +1,5 @@
 import { getUserDataSelect, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
@@ -9,8 +10,8 @@ export async function GET() {
   const userId = session.user.id;
 
   const followed = await prisma.follow.findMany({
-    where: { followerId: userId },
     select: { following: { select: getUserDataSelect(userId) } },
+    where: { followerId: userId },
   });
 
   return Response.json(

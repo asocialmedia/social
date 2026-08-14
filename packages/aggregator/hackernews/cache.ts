@@ -1,4 +1,5 @@
 import { redis } from "@asm/db";
+
 import type { HNStory } from "./types";
 
 const HN_CACHE_PREFIX = "hn:";
@@ -8,6 +9,41 @@ const CACHE_TTL = 900; // 15 minutes
 const BACKUP_TTL = 3600; // 1 hour for backup/stale data
 
 export const hackerNewsCache = {
+  async getMultipleStories(ids: number[]): Promise<Record<number, HNStory>> {
+    try {
+      const pipeline = redis.pipeline();
+
+      // Get from both primary and backup cache
+      for (const id of ids) {
+        pipeline.get(`${HN_STORY_KEY_PREFIX}${id}`);
+        pipeline.get(`${HN_STORY_KEY_PREFIX}${id}:backup`);
+      }
+
+      const results = await pipeline.exec();
+      const stories: Record<number, HNStory> = {};
+
+      for (let index = 0; index < ids.length; index += 1) {
+        const id = ids[index];
+        const primaryIdx = index * 2;
+        const backupIdx = primaryIdx + 1;
+
+        const primary = results?.[primaryIdx]?.[1] as string | null;
+        const backup = results?.[backupIdx]?.[1] as string | null;
+
+        if (primary) {
+          stories[id] = JSON.parse(primary);
+        } else if (backup) {
+          stories[id] = JSON.parse(backup);
+        }
+      }
+
+      return stories;
+    } catch (error) {
+      console.error("Error getting multiple HN stories from cache:", error);
+      return {};
+    }
+  },
+
   async getStories(): Promise<number[]> {
     try {
       // Try getting from primary cache
@@ -22,6 +58,42 @@ export const hackerNewsCache = {
     } catch (error) {
       console.error("Error getting HN stories from cache:", error);
       return [];
+    }
+  },
+
+  async getStory(id: number): Promise<HNStory | null> {
+    try {
+      // Try primary cache
+      const story = await redis.get(`${HN_STORY_KEY_PREFIX}${id}`);
+      if (story) {
+        return JSON.parse(story);
+      }
+
+      // Try backup if primary fails
+      const backupStory = await redis.get(`${HN_STORY_KEY_PREFIX}${id}:backup`);
+      return backupStory ? JSON.parse(backupStory) : null;
+    } catch (error) {
+      console.error(`Error getting HN story ${id} from cache:`, error);
+      return null;
+    }
+  },
+
+  async invalidateStories(): Promise<void> {
+    try {
+      const pipeline = redis.pipeline();
+
+      // Get all keys with the HN prefix
+      const keys = await redis.keys(`${HN_CACHE_PREFIX}*`);
+
+      // Add del commands to pipeline
+      if (keys.length > 0) {
+        pipeline.del(...keys);
+      }
+
+      await pipeline.exec();
+      console.log("Invalidated HN cache");
+    } catch (error) {
+      console.error("Error invalidating HN cache:", error);
     }
   },
 
@@ -54,23 +126,6 @@ export const hackerNewsCache = {
     }
   },
 
-  async getStory(id: number): Promise<HNStory | null> {
-    try {
-      // Try primary cache
-      const story = await redis.get(`${HN_STORY_KEY_PREFIX}${id}`);
-      if (story) {
-        return JSON.parse(story);
-      }
-
-      // Try backup if primary fails
-      const backupStory = await redis.get(`${HN_STORY_KEY_PREFIX}${id}:backup`);
-      return backupStory ? JSON.parse(backupStory) : null;
-    } catch (error) {
-      console.error(`Error getting HN story ${id} from cache:`, error);
-      return null;
-    }
-  },
-
   async setStory(story: HNStory): Promise<void> {
     try {
       const pipeline = redis.pipeline();
@@ -98,69 +153,16 @@ export const hackerNewsCache = {
     }
   },
 
-  async getMultipleStories(ids: number[]): Promise<Record<number, HNStory>> {
-    try {
-      const pipeline = redis.pipeline();
-
-      // Get from both primary and backup cache
-      for (const id of ids) {
-        pipeline.get(`${HN_STORY_KEY_PREFIX}${id}`);
-        pipeline.get(`${HN_STORY_KEY_PREFIX}${id}:backup`);
-      }
-
-      const results = await pipeline.exec();
-      const stories: Record<number, HNStory> = {};
-
-      ids.forEach((id, index) => {
-        const primaryIdx = index * 2;
-        const backupIdx = primaryIdx + 1;
-
-        const primary = results?.[primaryIdx]?.[1] as string | null;
-        const backup = results?.[backupIdx]?.[1] as string | null;
-
-        if (primary) {
-          stories[id] = JSON.parse(primary);
-        } else if (backup) {
-          stories[id] = JSON.parse(backup);
-        }
-      });
-
-      return stories;
-    } catch (error) {
-      console.error("Error getting multiple HN stories from cache:", error);
-      return {};
-    }
-  },
-
   async shouldRefresh(): Promise<boolean> {
     try {
       const lastUpdated = await redis.get(`${HN_STORIES_KEY}:last_updated`);
       if (!lastUpdated) {
         return true;
       }
-      const timeSinceUpdate = Date.now() - Number.parseInt(lastUpdated, 10);
+      const timeSinceUpdate = Date.now() - Math.trunc(Number(lastUpdated));
       return timeSinceUpdate > (CACHE_TTL * 1000) / 2;
     } catch {
       return true;
-    }
-  },
-
-  async invalidateStories(): Promise<void> {
-    try {
-      const pipeline = redis.pipeline();
-
-      // Get all keys with the HN prefix
-      const keys = await redis.keys(`${HN_CACHE_PREFIX}*`);
-
-      // Add del commands to pipeline
-      if (keys.length > 0) {
-        pipeline.del(...keys);
-      }
-
-      await pipeline.exec();
-      console.log("Invalidated HN cache");
-    } catch (error) {
-      console.error("Error invalidating HN cache:", error);
     }
   },
 };

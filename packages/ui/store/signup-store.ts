@@ -48,31 +48,74 @@ interface SignupState {
 }
 
 const initialRateLimit: RateLimitInfo = {
+  isLimited: false,
   remaining: 0,
   resetTime: 0,
-  isLimited: false,
 };
 
 const initialState = {
-  rateLimits: {
-    start: { ...initialRateLimit },
-    resend: { ...initialRateLimit },
-    verify: { ...initialRateLimit },
-    create: { ...initialRateLimit },
-  },
-  isStarting: false,
-  isResending: false,
-  isVerifying: false,
-  isCreating: false,
-  showOTPPanel: false,
-  showEmailVerification: false,
   currentEmail: null,
+  isCreating: false,
+  isResending: false,
+  isStarting: false,
+  isVerifying: false,
+  rateLimits: {
+    create: { ...initialRateLimit },
+    resend: { ...initialRateLimit },
+    start: { ...initialRateLimit },
+    verify: { ...initialRateLimit },
+  },
+  showEmailVerification: false,
+  showOTPPanel: false,
 };
 
 export const useSignupStore = create<SignupState>()(
   devtools(
     (set, get) => ({
       ...initialState,
+
+      canCreate: () => {
+        const { rateLimits, isCreating } = get();
+        return !(isCreating || rateLimits.create.isLimited);
+      },
+
+      canResend: () => {
+        const { rateLimits, isResending } = get();
+        return !(isResending || rateLimits.resend.isLimited);
+      },
+
+      canStartSignup: () => {
+        const { rateLimits, isStarting } = get();
+        return !(isStarting || rateLimits.start.isLimited);
+      },
+
+      canVerify: () => {
+        const { rateLimits, isVerifying } = get();
+        return !(isVerifying || rateLimits.verify.isLimited);
+      },
+
+      clearRateLimit: (action) =>
+        set((state) => ({
+          rateLimits: {
+            ...state.rateLimits,
+            [action]: { ...initialRateLimit },
+          },
+        })),
+
+      reset: () =>
+        set({
+          ...initialState,
+          rateLimits: {
+            create: { ...initialState.rateLimits.create },
+            resend: { ...initialState.rateLimits.resend },
+            start: { ...initialState.rateLimits.start },
+            verify: { ...initialState.rateLimits.verify },
+          },
+        }),
+
+      setCreating: (creating) => set({ isCreating: creating }),
+
+      setCurrentEmail: (email) => set({ currentEmail: email }),
 
       setRateLimit: (action, info) =>
         set((state) => {
@@ -93,53 +136,15 @@ export const useSignupStore = create<SignupState>()(
           };
         }),
 
-      clearRateLimit: (action) =>
-        set((state) => ({
-          rateLimits: {
-            ...state.rateLimits,
-            [action]: { ...initialRateLimit },
-          },
-        })),
-
-      setStarting: (starting) => set({ isStarting: starting }),
       setResending: (resending) => set({ isResending: resending }),
-      setVerifying: (verifying) => set({ isVerifying: verifying }),
-      setCreating: (creating) => set({ isCreating: creating }),
+
+      setShowEmailVerification: (show) => set({ showEmailVerification: show }),
 
       setShowOTPPanel: (show) => set({ showOTPPanel: show }),
-      setShowEmailVerification: (show) => set({ showEmailVerification: show }),
-      setCurrentEmail: (email) => set({ currentEmail: email }),
 
-      canStartSignup: () => {
-        const { rateLimits, isStarting } = get();
-        return !(isStarting || rateLimits.start.isLimited);
-      },
+      setStarting: (starting) => set({ isStarting: starting }),
 
-      canResend: () => {
-        const { rateLimits, isResending } = get();
-        return !(isResending || rateLimits.resend.isLimited);
-      },
-
-      canVerify: () => {
-        const { rateLimits, isVerifying } = get();
-        return !(isVerifying || rateLimits.verify.isLimited);
-      },
-
-      canCreate: () => {
-        const { rateLimits, isCreating } = get();
-        return !(isCreating || rateLimits.create.isLimited);
-      },
-
-      reset: () =>
-        set({
-          ...initialState,
-          rateLimits: {
-            start: { ...initialState.rateLimits.start },
-            resend: { ...initialState.rateLimits.resend },
-            verify: { ...initialState.rateLimits.verify },
-            create: { ...initialState.rateLimits.create },
-          },
-        }),
+      setVerifying: (verifying) => set({ isVerifying: verifying }),
     }),
     {
       name: "signup-store",
@@ -153,14 +158,15 @@ export const useRateLimitCountdown = (
   const rateLimit = useSignupStore((state) => state.rateLimits[action]);
 
   if (!rateLimit.isLimited || rateLimit.resetTime === 0) {
-    return { timeLeft: 0, isActive: false };
+    return { isActive: false, timeLeft: 0 };
   }
 
+  // eslint-disable-next-line react-compiler -- countdown time must be read at render time
   const now = Date.now() / 1000;
   const timeLeft = Math.max(0, Math.ceil(rateLimit.resetTime - now));
 
   return {
-    timeLeft,
     isActive: timeLeft > 0,
+    timeLeft,
   };
 };

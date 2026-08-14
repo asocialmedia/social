@@ -7,16 +7,12 @@ import { RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
-import {
-  HN_SORT_OPTIONS,
-  HNFeed,
-  type HNSortOption,
-} from "@/components/hackernews/hn-feed";
+
+import { HN_SORT_OPTIONS, HNFeed } from "@/components/hackernews/hn-feed";
+import type { HNSortOption } from "@/components/hackernews/hn-feed";
 import HnRightSideBar from "@/components/hackernews/hn-right-side-bar";
-import {
-  type HNFilterId,
-  HNSearchBar,
-} from "@/components/hackernews/hn-search-bar";
+import { HNSearchBar } from "@/components/hackernews/hn-search-bar";
+import type { HNFilterId } from "@/components/hackernews/hn-search-bar";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -62,13 +58,13 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
         queryClient.invalidateQueries({ queryKey: ["hn-sidebar-stories"] }),
       ]);
       toast({
-        title: "Refreshed",
         description: "Fresh stories, ready when you are!",
+        title: "Refreshed",
       });
     } catch {
       toast({
-        title: "Couldn't Refresh",
         description: "Couldn't refresh stories, try again?",
+        title: "Couldn't Refresh",
         variant: "destructive",
       });
     } finally {
@@ -113,7 +109,7 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
     <div className="relative flex h-dvh overflow-hidden">
       <LeftSidebar userData={userData} />
 
-      <div className="mx-auto flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
           onValueChange={handleSortChange}
@@ -121,7 +117,7 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
         >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
-            <div className="relative flex items-center border-border/60 border-b py-1.5">
+            <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="score">
                   Score
@@ -143,7 +139,7 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
                 {refreshButton}
               </div>
             </div>
-            <div className="flex items-center gap-2 border-border/60 border-b px-3 py-2 md:hidden">
+            <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2 md:hidden">
               <HNSearchBar
                 filter={filter}
                 onFilterChange={setFilter}
@@ -156,7 +152,7 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
 
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
               <HNFeed

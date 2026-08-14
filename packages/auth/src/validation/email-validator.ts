@@ -29,6 +29,20 @@ export interface EmailValidationOptions {
   timeout?: number;
 }
 
+function getConfidence(
+  score: number,
+  highThreshold: number,
+  mediumThreshold: number
+): "high" | "low" | "medium" {
+  if (score >= highThreshold) {
+    return "high";
+  }
+  if (score >= mediumThreshold) {
+    return "medium";
+  }
+  return "low";
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This function is complex due to multiple validation steps
 export async function validateEmailAdvanced(
   email: string,
@@ -37,12 +51,12 @@ export async function validateEmailAdvanced(
   const { skipSmtpCheck = true, skipMxCheck = false, timeout = 5000 } = options;
 
   const result: EmailValidationResult = {
-    isValid: false,
-    score: 0,
     confidence: "low",
-    reasons: [],
     disposable: false,
+    isValid: false,
     mxRecords: false,
+    reasons: [],
+    score: 0,
   };
 
   // Basic format validation (weight: 20)
@@ -111,9 +125,7 @@ export async function validateEmailAdvanced(
 
   if (skipMxCheck && skipSmtpCheck) {
     result.isValid = result.score >= 40;
-    result.confidence =
-      // biome-ignore lint/style/noNestedTernary: skip
-      result.score >= 60 ? "high" : result.score >= 40 ? "medium" : "low";
+    result.confidence = getConfidence(result.score, 60, 40);
     return result;
   }
 
@@ -155,9 +167,12 @@ export async function validateEmailAdvanced(
           isRole?: boolean;
         } | null>([
           smtpVerifier(email, timeout),
-          new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout")), timeout)
-          ),
+          // eslint-disable-next-line promise/avoid-new
+          new Promise<null>((_resolve, reject) => {
+            setTimeout(() => {
+              reject(new Error("Timeout"));
+            }, timeout);
+          }),
         ]);
 
         result.smtpCheck = verification?.wellFormed ?? false;
@@ -204,9 +219,7 @@ export async function validateEmailAdvanced(
   }
 
   result.isValid = result.score >= 50;
-  result.confidence =
-    // biome-ignore lint/style/noNestedTernary: skip
-    result.score >= 80 ? "high" : result.score >= 60 ? "medium" : "low";
+  result.confidence = getConfidence(result.score, 80, 60);
   return result;
 }
 

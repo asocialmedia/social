@@ -1,22 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+
 import type { User as AuthUser, Session } from "@asm/auth/core";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
-
-interface SessionFromRequestResult {
-  session: Session | null;
-  user: AuthUser | null;
-}
-
-const mockGetSessionFromRequest = mock(
-  async (): Promise<SessionFromRequestResult> => ({
-    session: null,
-    user: null,
-  })
-);
-
-mock.module("@asm/auth/core", () => ({
-  getSessionFromRequest: mockGetSessionFromRequest,
-}));
 
 import {
   adminProcedure,
@@ -24,6 +9,19 @@ import {
   protectedProcedure,
   router,
 } from "./trpc";
+
+interface SessionFromRequestResult {
+  session: Session | null;
+  user: AuthUser | null;
+}
+
+const mockGetSessionFromRequest = mock((): Promise<SessionFromRequestResult> =>
+  Promise.resolve({ session: null, user: null })
+);
+
+mock.module("@asm/auth/core", () => ({
+  getSessionFromRequest: mockGetSessionFromRequest,
+}));
 
 function createBaseCtx(overrides: Record<string, unknown> = {}) {
   return {
@@ -40,40 +38,40 @@ describe("server trpc", () => {
     const req = new Request("https://auth.localhost/api/trpc");
     const resHeaders = new Headers();
     const session: Session = {
-      id: "s1",
-      userId: "u1",
-      token: "t1",
-      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-      ipAddress: null,
-      userAgent: null,
       createdAt: new Date("2030-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+      id: "s1",
+      ipAddress: null,
+      token: "t1",
       updatedAt: new Date("2030-01-01T00:00:00.000Z"),
+      userAgent: null,
+      userId: "u1",
     };
     const user: AuthUser = {
-      id: "u1",
+      banned: false,
+      createdAt: new Date("2030-01-01T00:00:00.000Z"),
       email: "u1@example.com",
       emailVerified: true,
-      name: "User One",
-      username: "u1",
-      role: "user",
-      banned: false,
+      id: "u1",
       image: null,
-      createdAt: new Date("2030-01-01T00:00:00.000Z"),
+      name: "User One",
+      role: "user",
       updatedAt: new Date("2030-01-01T00:00:00.000Z"),
+      username: "u1",
     };
 
     const options: FetchCreateContextFnOptions = {
-      req,
-      resHeaders,
       info: {
+        accept: null,
         calls: [],
         connectionParams: null,
         isBatchCall: false,
         signal: new AbortController().signal,
         type: "query",
-        accept: null,
         url: new URL(req.url),
       },
+      req,
+      resHeaders,
     };
 
     mockGetSessionFromRequest.mockResolvedValueOnce({

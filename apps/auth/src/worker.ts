@@ -67,31 +67,35 @@ if (import.meta.main) {
     );
 
     const runViewLoopWithRecovery = async () => {
+      // eslint-disable-next-line no-unmodified-loop-condition -- running is flipped false by shutdown()
       while (running) {
         try {
-          // biome-ignore lint/performance/noAwaitInLoops: blocking stream consumer reads sequentially
+          // eslint-disable-next-line no-await-in-loop -- blocking stream consumer reads sequentially
           await runViewLoop();
         } catch (error) {
           logger.error(
             { error, stack: error instanceof Error ? error.stack : undefined },
             "view stream consumer failed"
           );
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          // eslint-disable-next-line no-await-in-loop -- retry backoff must delay before the next read
+          await Bun.sleep(1000);
         }
       }
     };
 
     const runShareLoopWithRecovery = async () => {
+      // eslint-disable-next-line no-unmodified-loop-condition -- running is flipped false by shutdown()
       while (running) {
         try {
-          // biome-ignore lint/performance/noAwaitInLoops: blocking stream consumer reads sequentially
+          // eslint-disable-next-line no-await-in-loop -- blocking stream consumer reads sequentially
           await runShareLoop();
         } catch (error) {
           logger.error(
             { error, stack: error instanceof Error ? error.stack : undefined },
             "share stream consumer failed"
           );
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          // eslint-disable-next-line no-await-in-loop -- retry backoff must delay before the next read
+          await Bun.sleep(1000);
         }
       }
     };
@@ -107,14 +111,18 @@ if (import.meta.main) {
       "content-events",
       (job) => {
         switch (job.name) {
-          case "post-deleted":
+          case "post-deleted": {
             return processPostDeleted(job.data, logger);
-          case "notification-created":
+          }
+          case "notification-created": {
             return processNotificationCreated(job.data);
-          case "notification-deleted":
+          }
+          case "notification-deleted": {
             return processNotificationDeleted(job.data);
-          default:
+          }
+          default: {
             throw new Error(`Unknown content event: ${job.name}`);
+          }
         }
       },
       { connection }
@@ -128,21 +136,25 @@ if (import.meta.main) {
         }
         throw new Error(`Unknown media job: ${job.name}`);
       },
-      { connection, concurrency: 4 }
+      { concurrency: 4, connection }
     );
 
     const maintenanceWorker = new QueueWorker(
       "maintenance",
       (job) => {
         switch (job.name) {
-          case "hn-refresh":
+          case "hn-refresh": {
             return processHnRefresh();
-          case "expired-tokens":
+          }
+          case "expired-tokens": {
             return processExpiredTokens(logger);
-          case "inactive-users":
+          }
+          case "inactive-users": {
             return processInactiveUsersSweep(logger);
-          default:
+          }
+          default: {
             throw new Error(`Unknown maintenance job: ${job.name}`);
+          }
         }
       },
       { connection }
@@ -152,7 +164,7 @@ if (import.meta.main) {
 
     for (const worker of workers) {
       worker.on("failed", (job, error) => {
-        logger.error({ job: job?.name, error }, "job failed");
+        logger.error({ error, job: job?.name }, "job failed");
       });
     }
 
@@ -175,16 +187,24 @@ if (import.meta.main) {
   };
 
   process.on("SIGINT", () => {
-    shutdown("SIGINT").catch((error: unknown) => {
-      logger.error({ error }, "shutdown failed");
-      process.exit(1);
-    });
+    void (async () => {
+      try {
+        await shutdown("SIGINT");
+      } catch (error: unknown) {
+        logger.error({ error }, "shutdown failed");
+        process.exit(1);
+      }
+    })();
   });
   process.on("SIGTERM", () => {
-    shutdown("SIGTERM").catch((error: unknown) => {
-      logger.error({ error }, "shutdown failed");
-      process.exit(1);
-    });
+    void (async () => {
+      try {
+        await shutdown("SIGTERM");
+      } catch (error: unknown) {
+        logger.error({ error }, "shutdown failed");
+        process.exit(1);
+      }
+    })();
   });
 
   await start();

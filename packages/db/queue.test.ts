@@ -7,9 +7,9 @@ describe("unreadNotificationCache", () => {
   const delKeys: string[] = [];
 
   const mockRedis = {
-    incrby: mock((key: string, amount: number) => {
-      incrbyArgs.push(key);
-      return amount;
+    del: mock((key: string) => {
+      delKeys.push(key);
+      return 1;
     }),
     eval: mock(
       (_script: string, _numkeys: number, _key: string, _amount: number) => {
@@ -18,9 +18,9 @@ describe("unreadNotificationCache", () => {
       }
     ),
     get: getValue,
-    del: mock((key: string) => {
-      delKeys.push(key);
-      return 1;
+    incrby: mock((key: string, amount: number) => {
+      incrbyArgs.push(key);
+      return amount;
     }),
   };
 

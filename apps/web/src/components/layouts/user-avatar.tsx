@@ -1,6 +1,7 @@
 import type { UserData } from "@asm/db";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import Image from "next/image";
+
 import { cn, isGifUrl, supportsTransparency } from "@/lib/utils";
 
 interface UserAvatarProps {

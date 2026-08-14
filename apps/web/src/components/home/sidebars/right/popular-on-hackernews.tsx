@@ -4,7 +4,9 @@ import type { HNStory } from "@asm/aggregator/hackernews";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Flame } from "lucide-react";
 import type React from "react";
+
 import { cn, formatNumber } from "@/lib/utils";
+
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
 
 export const HackerNewsLogo: React.FC<{ className?: string }> = ({
@@ -29,15 +31,14 @@ const SubCard: React.FC<{
   <div className={APPLE_CARD_CLASS}>
     <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
       {icon}
-      <h2 className="font-semibold text-sm">{title}</h2>
+      <h2 className="text-sm font-semibold">{title}</h2>
     </div>
     <div className="flex flex-col gap-0.5">{children}</div>
   </div>
 );
 
-export function PopularOnHackerNews() {
+export const PopularOnHackerNews = () => {
   const { data: hnStories } = useQuery({
-    queryKey: ["hn-top-stories"],
     queryFn: async () => {
       const res = await fetch("/api/hackernews?limit=5&sort=score");
       if (!res.ok) {
@@ -45,6 +46,7 @@ export function PopularOnHackerNews() {
       }
       return res.json() as Promise<{ stories: HNStory[] }>;
     },
+    queryKey: ["hn-top-stories"],
     staleTime: 5 * 60 * 1000,
   });
 
@@ -68,7 +70,7 @@ export function PopularOnHackerNews() {
           >
             <div className="flex items-start justify-between gap-2">
               <a
-                className="line-clamp-2 font-medium text-sm"
+                className="line-clamp-2 text-sm font-medium"
                 href={storyHref}
                 rel="noopener noreferrer"
                 target={story.url ? "_blank" : undefined}
@@ -77,7 +79,7 @@ export function PopularOnHackerNews() {
               </a>
               <a
                 aria-label={`Visit ${story.title}`}
-                className="mt-0.5 flex shrink-0 items-center gap-0.5 text-muted-foreground text-xs transition-colors group-hover:text-inherit"
+                className="text-muted-foreground mt-0.5 flex shrink-0 items-center gap-0.5 text-xs transition-colors group-hover:text-inherit"
                 href={storyHref}
                 rel="noopener noreferrer"
                 target={story.url ? "_blank" : undefined}
@@ -86,7 +88,7 @@ export function PopularOnHackerNews() {
                 <ExternalLink className="h-3 w-3" />
               </a>
             </div>
-            <span className="flex items-center gap-1 pl-0 text-muted-foreground text-xs transition-colors group-hover:text-inherit">
+            <span className="text-muted-foreground flex items-center gap-1 pl-0 text-xs transition-colors group-hover:text-inherit">
               <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
               {formatNumber(story.score)} points
             </span>
@@ -94,10 +96,10 @@ export function PopularOnHackerNews() {
         );
       })}
       {stories.length === 0 ? (
-        <p className="px-3 py-2 text-muted-foreground text-sm">
+        <p className="text-muted-foreground px-3 py-2 text-sm">
           No stories right now.
         </p>
       ) : null}
     </SubCard>
   );
-}
+};

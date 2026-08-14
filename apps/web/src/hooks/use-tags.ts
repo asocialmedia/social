@@ -1,5 +1,4 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { Tag } from "@asm/db";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -16,7 +15,6 @@ export function useTags(postId?: string) {
   const queryClient = useQueryClient();
 
   const { data: popularTags } = useQuery<PopularTagsResponse>({
-    queryKey: ["popularTags"],
     queryFn: async () => {
       const res = await fetch("/api/tags/popular");
       if (!res.ok) {
@@ -24,10 +22,11 @@ export function useTags(postId?: string) {
       }
       return res.json();
     },
+    queryKey: ["popularTags"],
   });
 
   const { data: suggestions } = useQuery<TagResponse>({
-    queryKey: ["tagSuggestions"],
+    enabled: false,
     queryFn: async () => {
       const res = await fetch("/api/tags");
       if (!res.ok) {
@@ -35,7 +34,7 @@ export function useTags(postId?: string) {
       }
       return res.json();
     },
-    enabled: false,
+    queryKey: ["tagSuggestions"],
   });
 
   const searchTags = useCallback(
@@ -67,9 +66,9 @@ export function useTags(postId?: string) {
       }
 
       const res = await fetch(`/api/posts/${postId}/tags`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tags }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       });
 
       if (!res.ok) {
@@ -78,6 +77,11 @@ export function useTags(postId?: string) {
       return res.json();
     },
 
+    onError: (context: { previousTags?: unknown } | undefined) => {
+      if (postId && context?.previousTags) {
+        queryClient.setQueryData(["post", postId], context.previousTags);
+      }
+    },
     onMutate: async (newTags) => {
       await queryClient.cancelQueries({ queryKey: ["post", postId] });
       await queryClient.cancelQueries({ queryKey: ["popularTags"] });
@@ -85,21 +89,13 @@ export function useTags(postId?: string) {
       const previousTags = queryClient.getQueryData(["post", postId]);
 
       if (postId) {
-        // biome-ignore lint/suspicious/noExplicitAny: any
-        queryClient.setQueryData(["post", postId], (old: any) => ({
-          ...old,
+        queryClient.setQueryData(["post", postId], (old: unknown) => ({
+          ...(typeof old === "object" && old !== null ? old : {}),
           tags: newTags.map((tag) => ({ id: tag, name: tag })),
         }));
       }
 
       return { previousTags };
-    },
-
-    // biome-ignore lint/suspicious/noExplicitAny: ignore
-    onError: (context: any) => {
-      if (postId && context?.previousTags) {
-        queryClient.setQueryData(["post", postId], context.previousTags);
-      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["post", postId] });
@@ -109,8 +105,8 @@ export function useTags(postId?: string) {
 
   return {
     popularTags: popularTags?.tags ?? [],
-    suggestions: suggestions?.tags ?? [],
     searchTags,
+    suggestions: suggestions?.tags ?? [],
     updateTags,
   };
 }

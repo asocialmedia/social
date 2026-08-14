@@ -1,9 +1,6 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  type PostsPage,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(request: Request) {
@@ -18,22 +15,22 @@ export async function GET(request: Request) {
   const pageSize = 20;
 
   const posts = await prisma.post.findMany({
-    where: {
-      user: { followers: { some: { followerId: userId } } },
-      // Never surface the current user's own posts in their following feed.
-      NOT: { userId },
-    },
+    cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
+    where: {
+      // Never surface the current user's own posts in their following feed.
+      NOT: { userId },
+      user: { followers: { some: { followerId: userId } } },
+    },
   });
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
-    posts: hydrated,
     nextCursor,
+    posts: hydrated,
   };
   return Response.json(data);
 }

@@ -1,17 +1,17 @@
 {
   "name": "@asm/db",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "private": true,
   "description": "Asocialmedia database & cache package",
   "license": "AGPL-3.0",
+  "main": "./index.ts",
+  "types": "./index.ts",
   "exports": {
     ".": {
       "types": "./index.ts",
       "default": "./index.ts"
     }
   },
-  "main": "./index.ts",
-  "types": "./index.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
     "db:generate": "prisma generate",

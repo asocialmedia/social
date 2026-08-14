@@ -13,8 +13,10 @@ import { Input } from "@asm/ui/shadui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AtSign, Mail } from "lucide-react";
 import { useState } from "react";
-import { type ControllerRenderProps, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
+import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
+
 import LoadingButton from "@/components/auth/loading-button";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
@@ -25,6 +27,7 @@ import {
 } from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
+
 import { useUpdateEmail, useUpdateUsername } from "../mutations";
 
 const usernameSchema = z.object({
@@ -45,55 +48,55 @@ const emailSchema = z.object({
 type UsernameFormValues = z.infer<typeof usernameSchema>;
 type EmailFormValues = z.infer<typeof emailSchema>;
 
+function handleSocialLink(provider: string) {
+  window.location.href = `/api/auth/link/${provider}`;
+}
+
 const BUTTON_CLASS = cn(
   "h-9 rounded-xl px-5",
   ORANGE_GRADIENT_CLASS,
   "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
 );
 
-function UsernameFieldRenderer({
+const UsernameFieldRenderer = ({
   field,
 }: {
   field: ControllerRenderProps<UsernameFormValues, "username">;
-}) {
-  return (
-    <FormItem>
-      <FormLabel>Username</FormLabel>
-      <FormControl>
-        <div className="relative">
-          <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-medium text-muted-foreground">
-            @
-          </span>
-          <Input
-            className="premium-input h-10 rounded-xl pl-7 text-sm"
-            {...field}
-          />
-        </div>
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  );
-}
+}) => (
+  <FormItem>
+    <FormLabel>Username</FormLabel>
+    <FormControl>
+      <div className="relative">
+        <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-medium">
+          @
+        </span>
+        <Input
+          className="premium-input h-10 rounded-xl pl-7 text-sm"
+          {...field}
+        />
+      </div>
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
 
-function EmailFieldRenderer({
+const EmailFieldRenderer = ({
   field,
 }: {
   field: ControllerRenderProps<EmailFormValues, "email">;
-}) {
-  return (
-    <FormItem>
-      <FormLabel>Email</FormLabel>
-      <FormControl>
-        <Input
-          className="premium-input h-10 rounded-xl text-sm"
-          type="email"
-          {...field}
-        />
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  );
-}
+}) => (
+  <FormItem>
+    <FormLabel>Email</FormLabel>
+    <FormControl>
+      <Input
+        className="premium-input h-10 rounded-xl text-sm"
+        type="email"
+        {...field}
+      />
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
 
 interface AccountSettingsProps {
   user: UserData;
@@ -104,17 +107,17 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   const [verificationEmailSent, setVerificationEmailSent] = useState(false);
 
   const usernameForm = useForm<UsernameFormValues>({
-    resolver: zodResolver(usernameSchema),
     defaultValues: {
       username: user.username,
     },
+    resolver: zodResolver(usernameSchema),
   });
 
   const emailForm = useForm<EmailFormValues>({
-    resolver: zodResolver(emailSchema),
     defaultValues: {
       email: user.email || "",
     },
+    resolver: zodResolver(emailSchema),
   });
 
   const usernameMutation = useUpdateUsername();
@@ -123,24 +126,24 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   function onUsernameSubmit(values: UsernameFormValues) {
     if (values.username === user.username) {
       toast({
-        title: "No Changes",
         description: "That username is already yours, pick a new one",
+        title: "No Changes",
       });
       return;
     }
 
     usernameMutation.mutate(values, {
-      onSuccess: () => {
-        toast({
-          title: "Username Updated",
-          description: "Your new username is live!",
-        });
-      },
       onError: () => {
         toast({
-          variant: "destructive",
-          title: "Couldn't Update",
           description: "That username didn't work, try another?",
+          title: "Couldn't Update",
+          variant: "destructive",
+        });
+      },
+      onSuccess: () => {
+        toast({
+          description: "Your new username is live!",
+          title: "Username Updated",
         });
       },
     });
@@ -149,33 +152,29 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   function onEmailSubmit(values: EmailFormValues) {
     if (values.email === user.email) {
       toast({
-        title: "No Changes",
         description: "That's already your email, try a new one",
+        title: "No Changes",
       });
       return;
     }
 
     emailMutation.mutate(values, {
+      onError: () => {
+        toast({
+          description: "That email didn't work, try another?",
+          title: "Couldn't Update",
+          variant: "destructive",
+        });
+      },
       onSuccess: () => {
         setVerificationEmailSent(true);
         toast({
-          title: "Check Your Inbox",
           description: "We sent a verification link to your new email",
-        });
-      },
-      onError: () => {
-        toast({
-          variant: "destructive",
-          title: "Couldn't Update",
-          description: "That email didn't work, try another?",
+          title: "Check Your Inbox",
         });
       },
     });
   }
-
-  const handleSocialLink = (provider: string) => {
-    window.location.href = `/api/auth/link/${provider}`;
-  };
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6">

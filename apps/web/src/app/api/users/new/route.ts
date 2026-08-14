@@ -1,4 +1,5 @@
 import { getUserDataSelect, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
@@ -8,9 +9,9 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const users = await prisma.user.findMany({
-    take: 10,
     orderBy: { createdAt: "desc" },
     select: getUserDataSelect(user.id),
+    take: 10,
   });
   return Response.json(users);
 }

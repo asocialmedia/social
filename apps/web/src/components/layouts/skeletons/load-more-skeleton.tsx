@@ -3,7 +3,7 @@ import { Skeleton } from "@asm/ui/shadui/skeleton";
 
 export default function LoadMoreSkeleton() {
   return (
-    <Card className="mx-auto my-4 w-full max-w-3xl bg-card/50">
+    <Card className="bg-card/50 mx-auto my-4 w-full max-w-3xl">
       <div className="p-4">
         <div className="flex items-center space-x-3">
           <Skeleton className="h-8 w-8 rounded-full" />

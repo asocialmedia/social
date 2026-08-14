@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+
 import { readSecurityConfig } from "./config";
 import { createSecurity, securityHeaders } from "./index";
 
@@ -7,15 +8,15 @@ const TEST_SECRET = "test-better-auth-secret-1234567890";
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return {
     allowedOrigins: ["https://social.localhost"],
+    anonRateLimitMax: 5,
+    anonRateLimitWindowMs: 60_000,
+    authRateLimitMax: 10,
+    authRateLimitWindowMs: 60_000,
+    burstRateLimitMax: 4,
+    burstRateLimitWindowMs: 60_000,
     internalSecret: TEST_SECRET,
     maxBodyBytes: 1024,
     maxConcurrentRequests: 4,
-    anonRateLimitWindowMs: 60_000,
-    anonRateLimitMax: 5,
-    authRateLimitWindowMs: 60_000,
-    authRateLimitMax: 10,
-    burstRateLimitWindowMs: 60_000,
-    burstRateLimitMax: 4,
     requestTimeoutMs: 15_000,
     // biome-ignore lint/performance/useTopLevelRegex: test-only pattern
     strictPaths: [/^\/api\/auth\/sign-in/],
@@ -35,8 +36,8 @@ describe("createSecurity", () => {
   test("allows a request with an allowed browser origin", () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      method: "POST",
       headers: { origin: "https://social.localhost" },
+      method: "POST",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
@@ -45,8 +46,8 @@ describe("createSecurity", () => {
   test("rejects a request with a disallowed origin", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      method: "POST",
       headers: { origin: "https://evil.example.com" },
+      method: "POST",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
@@ -72,8 +73,8 @@ describe("createSecurity", () => {
   test("allows a request with the internal secret and no origin", () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      method: "POST",
       headers: { "x-internal-secret": TEST_SECRET },
+      method: "POST",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
@@ -82,8 +83,8 @@ describe("createSecurity", () => {
   test("rejects a request with a wrong internal secret", () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      method: "POST",
       headers: { "x-internal-secret": "wrong-secret" },
+      method: "POST",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
@@ -93,8 +94,8 @@ describe("createSecurity", () => {
   test("rejects non-GET/POST methods", () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      method: "DELETE",
       headers: { "x-internal-secret": TEST_SECRET },
+      method: "DELETE",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
@@ -104,8 +105,8 @@ describe("createSecurity", () => {
   test("rejects unknown paths", () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/admin/delete", {
-      method: "POST",
       headers: { "x-internal-secret": TEST_SECRET },
+      method: "POST",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
@@ -124,11 +125,11 @@ describe("createSecurity", () => {
   test("rejects oversized bodies", () => {
     const security = createSecurity(baseConfig({ maxBodyBytes: 100 }));
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      method: "POST",
       headers: {
         "content-length": "500",
         "x-internal-secret": TEST_SECRET,
       },
+      method: "POST",
     });
     const decision = security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
@@ -141,8 +142,8 @@ describe("createSecurity", () => {
     );
     const makeReq = () =>
       new Request("http://auth.localhost/api/auth/get-session", {
-        method: "GET",
         headers: { "x-internal-secret": TEST_SECRET },
+        method: "GET",
       });
 
     for (let i = 0; i < 3; i += 1) {
@@ -164,11 +165,11 @@ describe("createSecurity", () => {
     );
     const makeReq = (withSession: boolean) =>
       new Request("http://auth.localhost/api/auth/get-session", {
-        method: "GET",
         headers: {
           "x-internal-secret": TEST_SECRET,
           ...(withSession ? { cookie: "better-auth.session_token=abc" } : {}),
         },
+        method: "GET",
       });
 
     // Anonymous: trips after 3.
@@ -189,8 +190,8 @@ describe("createSecurity", () => {
     );
     const makeReq = () =>
       new Request("http://auth.localhost/api/auth/get-session", {
-        method: "GET",
         headers: { "x-internal-secret": TEST_SECRET },
+        method: "GET",
       });
 
     expect(security.check(makeReq(), "3.3.3.3").allowed).toBe(true);
@@ -204,8 +205,8 @@ describe("createSecurity", () => {
     const security = createSecurity(baseConfig({ strictRateLimitMax: 2 }));
     const makeReq = () =>
       new Request("http://auth.localhost/api/auth/sign-in/email", {
-        method: "POST",
         headers: { "x-internal-secret": TEST_SECRET },
+        method: "POST",
       });
 
     expect(security.check(makeReq(), "5.5.5.5").allowed).toBe(true);
@@ -221,8 +222,8 @@ describe("createSecurity", () => {
     );
     const makeReq = () =>
       new Request("http://auth.localhost/api/auth/get-session", {
-        method: "GET",
         headers: { "x-internal-secret": TEST_SECRET },
+        method: "GET",
       });
 
     expect(security.check(makeReq(), "1.1.1.1").allowed).toBe(true);
@@ -245,9 +246,9 @@ describe("security headers", () => {
 describe("readSecurityConfig", () => {
   test("falls back to BETTER_AUTH_SECRET for the internal secret", () => {
     const config = readSecurityConfig({
-      BETTER_AUTH_SECRET: TEST_SECRET,
       APP_URL: "https://asocialmedia.cc",
       AUTH_URL: "https://auth.asocialmedia.cc",
+      BETTER_AUTH_SECRET: TEST_SECRET,
     });
     expect(config.internalSecret).toBe(TEST_SECRET);
     expect(config.allowedOrigins).toContain("https://asocialmedia.cc");

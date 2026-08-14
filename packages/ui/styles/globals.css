@@ -416,7 +416,7 @@
 
 @layer utilities {
   .glass-effect {
-    @apply bg-background/40 backdrop-blur-md border border-border/50;
+    @apply bg-background/40 border-border/50 border backdrop-blur-md;
   }
 
   .glass-hover {

@@ -1,9 +1,6 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  type PostsPage,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import type { PostsPage } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(request: Request) {
@@ -18,18 +15,18 @@ export async function GET(request: Request) {
   const pageSize = 20;
 
   const posts = await prisma.post.findMany({
+    cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
     orderBy: [{ aura: "desc" }, { id: "desc" }],
     take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
   });
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const data: PostsPage = {
-    posts: hydrated,
     nextCursor,
+    posts: hydrated,
   };
   return Response.json(data);
 }

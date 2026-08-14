@@ -1,9 +1,9 @@
+import { getUserDataSelect, Prisma, prisma, redis } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
 export type { UserData } from "@asm/db";
-
-import { getUserDataSelect, Prisma, prisma, redis } from "@asm/db";
 
 const RECENTLY_SHOWN_CACHE_KEY = (userId: string) =>
   `recently-shown-users:${userId}`;
@@ -27,7 +27,6 @@ export async function GET(_req: Request) {
     const recentlyShown = (await redis.smembers(recentlyShownKey)) || [];
 
     const suggestedUsers = await prisma.user.findMany({
-      take: 15,
       orderBy:
         Math.random() > 0.3
           ? { aura: Prisma.SortOrder.desc }
@@ -36,6 +35,31 @@ export async function GET(_req: Request) {
                 _count: Prisma.SortOrder.desc,
               },
             },
+      select: {
+        ...getUserDataSelect(user.id),
+        aura: true,
+        followers: {
+          select: {
+            follower: {
+              select: {
+                avatarUrl: true,
+                displayName: true,
+                username: true,
+              },
+            },
+          },
+          where: {
+            follower: {
+              followers: {
+                some: {
+                  followerId: user.id,
+                },
+              },
+            },
+          },
+        },
+      },
+      take: 15,
       where: {
         AND: [
           { id: { not: user.id } },
@@ -49,30 +73,6 @@ export async function GET(_req: Request) {
           },
         ],
       },
-      select: {
-        ...getUserDataSelect(user.id),
-        aura: true,
-        followers: {
-          where: {
-            follower: {
-              followers: {
-                some: {
-                  followerId: user.id,
-                },
-              },
-            },
-          },
-          select: {
-            follower: {
-              select: {
-                username: true,
-                displayName: true,
-                avatarUrl: true,
-              },
-            },
-          },
-        },
-      },
     });
 
     let candidates = suggestedUsers;
@@ -80,8 +80,32 @@ export async function GET(_req: Request) {
       // Pool exhausted (e.g. few users total): fall back to any user the
       // viewer isn't already following, so the widget never renders empty.
       candidates = await prisma.user.findMany({
-        take: 15,
         orderBy: { aura: Prisma.SortOrder.desc },
+        select: {
+          ...getUserDataSelect(user.id),
+          aura: true,
+          followers: {
+            select: {
+              follower: {
+                select: {
+                  avatarUrl: true,
+                  displayName: true,
+                  username: true,
+                },
+              },
+            },
+            where: {
+              follower: {
+                followers: {
+                  some: {
+                    followerId: user.id,
+                  },
+                },
+              },
+            },
+          },
+        },
+        take: 15,
         where: {
           AND: [
             { id: { not: user.id } },
@@ -94,35 +118,11 @@ export async function GET(_req: Request) {
             },
           ],
         },
-        select: {
-          ...getUserDataSelect(user.id),
-          aura: true,
-          followers: {
-            where: {
-              follower: {
-                followers: {
-                  some: {
-                    followerId: user.id,
-                  },
-                },
-              },
-            },
-            select: {
-              follower: {
-                select: {
-                  username: true,
-                  displayName: true,
-                  avatarUrl: true,
-                },
-              },
-            },
-          },
-        },
       });
     }
 
     const selectedUsers = candidates
-      .sort(() => Math.random() - 0.5)
+      .toSorted(() => Math.random() - 0.5)
       .slice(0, 6);
 
     await Promise.all(

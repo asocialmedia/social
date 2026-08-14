@@ -5,10 +5,12 @@ import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
+
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
+
 import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
@@ -25,16 +27,16 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "user-amplified", userId],
-    queryFn: ({ pageParam }) =>
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
           `/api/users/${userId}/amplified`,
           pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
         .json<PostsPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["post-feed", "user-amplified", userId],
     staleTime: 1000 * 60,
   });
 
@@ -55,7 +57,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
 
   if (status === "error") {
     return (
-      <p className="text-center text-destructive">
+      <p className="text-destructive text-center">
         An error occurred while loading amplified posts.
       </p>
     );
@@ -80,7 +82,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
       ))}
       {isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="animate-spin text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {!hasNextPage && posts.length > 0 ? (

@@ -2,6 +2,7 @@ import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
 import { z } from "zod";
+
 import { procedure, router } from "../../trpc";
 import { auditResetPassword, checkResetPasswordRateLimit } from "../security";
 
@@ -25,11 +26,11 @@ const requestResetSchema = z
 
 const resetPasswordSchema = z
   .object({
-    token: z.string(),
     newPassword: z
       .string()
       .trim()
       .min(8, "Password must be at least 8 characters"),
+    token: z.string(),
   })
   .strict();
 
@@ -45,48 +46,40 @@ export const resetPasswordRouter = router({
           await auditResetPassword({
             identifier,
             ip,
-            userAgent,
-            success: false,
             metadata: {
               reason: "rate-limited",
               retryAfter: rateCheck.retryAfter,
             },
+            success: false,
+            userAgent,
           });
 
           return {
-            success: false,
             error: "Too many reset attempts. Please try again later.",
             retryAfter: rateCheck.retryAfter,
+            success: false,
           };
         }
 
-        let user: {
-          id: string;
-          email: string | null;
-          username: string;
-        } | null = null;
-
-        if (EMAIL_REGEX.test(identifier)) {
-          user = await prisma.user.findUnique({
-            where: { email: identifier },
-            select: { id: true, email: true, username: true },
-          });
-        } else {
-          user = await prisma.user.findUnique({
-            where: { username: identifier },
-            select: { id: true, email: true, username: true },
-          });
-        }
+        const user = EMAIL_REGEX.test(identifier)
+          ? await prisma.user.findUnique({
+              select: { email: true, id: true, username: true },
+              where: { email: identifier },
+            })
+          : await prisma.user.findUnique({
+              select: { email: true, id: true, username: true },
+              where: { username: identifier },
+            });
 
         if (!user) {
           await auditResetPassword({
             identifier,
             ip,
-            userAgent,
-            success: false,
             metadata: {
               reason: "user-not-found",
             },
+            success: false,
+            userAgent,
           });
 
           return { success: true };
@@ -95,36 +88,36 @@ export const resetPasswordRouter = router({
         await auditResetPassword({
           identifier,
           ip,
-          userAgent,
-          success: true,
-          userId: user.id,
           metadata: {
             foundBy: EMAIL_REGEX.test(identifier) ? "email" : "username",
           },
+          success: true,
+          userAgent,
+          userId: user.id,
         });
 
         return { success: true };
       } catch (error) {
         debugLog.api("reset-password:request-error", {
-          identifier,
           error: error instanceof Error ? error.message : String(error),
+          identifier,
         });
 
         await auditResetPassword({
           identifier,
           ip,
-          userAgent,
-          success: false,
           metadata: {
             error: error instanceof Error ? error.message : String(error),
           },
+          success: false,
+          userAgent,
         }).catch(() => {
           // Ignore audit errors
         });
 
         return {
-          success: false,
           error: "Failed to process password reset request",
+          success: false,
         };
       }
     }),
@@ -136,17 +129,17 @@ export const resetPasswordRouter = router({
 
       try {
         const verification = await prisma.verification.findFirst({
-          where: {
-            value: token,
-            expiresAt: { gt: new Date() },
-          },
           select: { id: true, userId: true },
+          where: {
+            expiresAt: { gt: new Date() },
+            value: token,
+          },
         });
 
         if (!verification?.userId) {
           return {
-            success: false,
             error: "Invalid or expired reset token",
+            success: false,
           };
         }
 
@@ -155,8 +148,8 @@ export const resetPasswordRouter = router({
         await prisma.$transaction(async (tx) => {
           const userId = verification.userId as string;
           await tx.user.update({
-            where: { id: userId },
             data: { passwordHash: hashedPassword },
+            where: { id: userId },
           });
 
           await tx.verification.delete({
@@ -174,8 +167,8 @@ export const resetPasswordRouter = router({
           error: error instanceof Error ? error.message : String(error),
         });
         return {
-          success: false,
           error: "Failed to reset password",
+          success: false,
         };
       }
     }),

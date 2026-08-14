@@ -1,9 +1,9 @@
 import { clientLog } from "@asm/config/debug";
-
 import type { UserData } from "@asm/db";
 import { Link2 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
+
 import LoadingButton from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
@@ -60,13 +60,13 @@ const AccountCard = ({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-[hsl(var(--background))] p-4",
+        "border-border/60 flex items-center justify-between gap-4 rounded-xl border bg-[hsl(var(--background))] p-4",
         CARD_SHADOW_CLASS,
         isComingSoon && "opacity-50"
       )}
     >
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-[hsl(var(--background-alt))]">
+        <div className="border-border/60 flex size-9 shrink-0 items-center justify-center rounded-lg border bg-[hsl(var(--background-alt))]">
           <Image
             alt={provider}
             className="size-5"
@@ -77,7 +77,7 @@ const AccountCard = ({
         </div>
         <div className="min-w-0">
           <p className="truncate font-medium">{provider}</p>
-          <p className="truncate text-muted-foreground text-xs">
+          <p className="text-muted-foreground truncate text-xs">
             {getStatusText(isComingSoon, isConnected)}
           </p>
         </div>
@@ -123,17 +123,17 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
         }
 
         toast({
-          title: "Account Unlinked",
           description: `Your ${provider} account is no longer connected`,
+          title: "Account Unlinked",
         });
 
         window.location.reload();
       } catch (error) {
         clientLog.error("Unlink account error:", error);
         toast({
-          variant: "destructive",
-          title: "Couldn't Unlink",
           description: "Couldn't unlink that account, try again?",
+          title: "Couldn't Unlink",
+          variant: "destructive",
         });
       } finally {
         setLoadingProvider(null);

@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const heartbeat = await redis.get(WORKER_HEARTBEAT_KEY);
     if (heartbeat) {
-      const age = Date.now() - Number.parseInt(heartbeat, 10);
+      const age = Date.now() - Math.trunc(Number(heartbeat));
       worker =
         Number.isNaN(age) || age > WORKER_STALE_MS ? "unhealthy" : "healthy";
     }
@@ -20,8 +20,8 @@ export async function GET() {
   return NextResponse.json({
     service: "asm-web",
     status: "healthy",
-    worker,
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || "1.0.0",
+    worker,
   });
 }

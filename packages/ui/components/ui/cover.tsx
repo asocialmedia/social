@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+
 import { cn } from "../../lib/utils";
 import { SparklesCore } from "./sparkles";
 
@@ -99,7 +100,9 @@ export const Cover = ({
       </AnimatePresence>
       {beamPositions.map((position, _index) => (
         <Beam
+          // eslint-disable-next-line react-compiler -- randomized beam delay is intentional
           delay={Math.random() * 2 + 1}
+          // eslint-disable-next-line react-compiler -- randomized beam duration is intentional
           duration={Math.random() * 2 + 1}
           hovered={hovered}
           key={`beam-${position}`}
@@ -116,7 +119,7 @@ export const Cover = ({
           y: hovered ? [0, 30, -30, 30, -30, 0] : 0,
         }}
         className={cn(
-          "relative z-20 inline-block text-foreground transition duration-200 group-hover/cover:text-primary",
+          "text-foreground group-hover/cover:text-primary relative z-20 inline-block transition duration-200",
           className
         )}
         exit={{
@@ -128,6 +131,12 @@ export const Cover = ({
         key={String(hovered)}
         transition={{
           duration: 0.2,
+          filter: {
+            duration: 0.2,
+          },
+          scale: {
+            duration: 0.2,
+          },
           x: {
             duration: 0.2,
             repeat: Number.POSITIVE_INFINITY,
@@ -137,12 +146,6 @@ export const Cover = ({
             duration: 0.2,
             repeat: Number.POSITIVE_INFINITY,
             repeatType: "loop",
-          },
-          scale: {
-            duration: 0.2,
-          },
-          filter: {
-            duration: 0.2,
           },
         }}
       >
@@ -206,10 +209,12 @@ export const Beam = ({
           }}
           key={String(hovered)}
           transition={{
+            // eslint-disable-next-line react-compiler -- randomized gradient delay is intentional
+            delay: hovered ? Math.random() * (1 - 0.2) + 0.2 : 0,
             duration: hovered ? 0.5 : (duration ?? 2),
             ease: "linear",
             repeat: Number.POSITIVE_INFINITY,
-            delay: hovered ? Math.random() * (1 - 0.2) + 0.2 : 0,
+            // eslint-disable-next-line react-compiler -- randomized repeat delay is intentional
             repeatDelay: hovered ? Math.random() * (2 - 1) + 1 : (delay ?? 1),
           }}
         >

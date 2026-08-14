@@ -3,6 +3,7 @@
 import type { PostsPage } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback } from "react";
+
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -22,8 +23,10 @@ export default function HashtagFeed({ tag }: HashtagFeedProps) {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "hashtag", tag],
-    queryFn: ({ pageParam }) =>
+    gcTime: 0,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get("/api/search", {
           searchParams: {
@@ -32,9 +35,7 @@ export default function HashtagFeed({ tag }: HashtagFeedProps) {
           },
         })
         .json<PostsPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
-    gcTime: 0,
+    queryKey: ["post-feed", "hashtag", tag],
   });
 
   const posts = data?.pages.flatMap((page) => page.posts) || [];
@@ -51,7 +52,7 @@ export default function HashtagFeed({ tag }: HashtagFeedProps) {
 
   if (status === "error") {
     return (
-      <p className="px-4 py-8 text-center text-destructive">
+      <p className="text-destructive px-4 py-8 text-center">
         An error occurred while loading posts for this tag.
       </p>
     );
@@ -61,7 +62,7 @@ export default function HashtagFeed({ tag }: HashtagFeedProps) {
     return (
       <div className="px-4 py-16 text-center">
         <p className="font-medium">No posts found for #{tag}</p>
-        <p className="mt-1 text-muted-foreground text-sm">
+        <p className="text-muted-foreground mt-1 text-sm">
           Be the first to rustle something about this topic.
         </p>
       </div>

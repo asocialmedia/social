@@ -1,5 +1,7 @@
+import type { User } from "@asm/db";
 import { avatarCache, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
+
 import { deleteAvatar, uploadAvatar } from "@/lib/object-storage";
 
 export async function POST(request: Request) {
@@ -14,13 +16,13 @@ export async function POST(request: Request) {
     }
 
     console.log("Avatar update started:", {
-      userId,
-      oldAvatarKey: oldAvatarKey || "none",
       newFile: {
         name: file.name,
-        type: file.type,
         size: file.size,
+        type: file.type,
       },
+      oldAvatarKey: oldAvatarKey || "none",
+      userId,
     });
 
     const result = await uploadAvatar(file, userId);
@@ -32,14 +34,14 @@ export async function POST(request: Request) {
 
     // Update the DB row first. If it fails, the freshly-uploaded object is
     // orphaned, so delete it to avoid leaking storage.
-    let updatedUser: import("@asm/db").User | null = null;
+    let updatedUser: User | null = null;
     try {
       updatedUser = await prisma.user.update({
-        where: { id: userId },
         data: {
-          avatarUrl,
           avatarKey: result.key,
+          avatarUrl,
         },
+        where: { id: userId },
       });
     } catch (error) {
       console.error(
@@ -65,19 +67,19 @@ export async function POST(request: Request) {
     }
 
     await avatarCache.set(userId, {
-      url: avatarUrl,
       key: result.key,
       updatedAt: new Date().toISOString(),
+      url: avatarUrl,
     });
 
     console.log("Avatar update completed successfully:", {
-      userId,
       newAvatarKey: result.key,
+      userId,
     });
 
     return NextResponse.json({
-      user: updatedUser,
       avatar: { ...result, url: avatarUrl },
+      user: updatedUser,
     });
   } catch (error) {
     console.error("Avatar update error:", error);
@@ -101,11 +103,11 @@ export async function DELETE(request: Request) {
 
     // Clear the DB reference first; if that fails, the avatar stays intact.
     const updatedUser = await prisma.user.update({
-      where: { id: userId },
       data: {
-        avatarUrl: null,
         avatarKey: null,
+        avatarUrl: null,
       },
+      where: { id: userId },
     });
 
     await avatarCache.del(userId);
@@ -146,27 +148,26 @@ export async function GET(request: Request) {
       return NextResponse.json(cachedAvatar);
     }
     const user = await prisma.user.findUnique({
-      where: { id: userId },
       select: {
-        avatarUrl: true,
         avatarKey: true,
+        avatarUrl: true,
       },
+      where: { id: userId },
     });
 
-    if (!user?.avatarUrl) {
+    if (!user?.avatarUrl || !user.avatarKey) {
       return new NextResponse("Avatar not found", { status: 404 });
     }
 
     await avatarCache.set(userId, {
-      url: user.avatarUrl,
-      // biome-ignore lint/style/noNonNullAssertion: We know `user.avatarKey` is defined
-      key: user.avatarKey!,
+      key: user.avatarKey,
       updatedAt: new Date().toISOString(),
+      url: user.avatarUrl,
     });
 
     return NextResponse.json({
-      url: user.avatarUrl,
       key: user.avatarKey,
+      url: user.avatarUrl,
     });
   } catch (error) {
     console.error("Error fetching avatar:", error);

@@ -5,9 +5,9 @@ import {
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
   getCommentDataInclude,
-  type PostData,
   prisma,
 } from "@asm/db";
+import type { PostData } from "@asm/db";
 
 // Aura awarded for participating in comment threads. Commenting credits both
 // the commenter and (unless it is their own post) the post author.
@@ -43,43 +43,43 @@ export async function submitComment({
     });
 
     await tx.user.update({
-      where: { id: sessionData.user.id },
       data: { aura: { increment: COMMENT_CREATION_AURA } },
+      where: { id: sessionData.user.id },
     });
 
     await tx.auraLog.create({
       data: {
-        userId: sessionData.user.id,
-        issuerId: sessionData.user.id,
         amount: COMMENT_CREATION_AURA,
-        type: "COMMENT_CREATION",
-        postId: post.id,
         commentId: comment.id,
+        issuerId: sessionData.user.id,
+        postId: post.id,
+        type: "COMMENT_CREATION",
+        userId: sessionData.user.id,
       },
     });
 
     if (!isSelfComment) {
       await tx.user.update({
-        where: { id: post.user.id },
         data: { aura: { increment: COMMENT_RECEIVED_AURA } },
+        where: { id: post.user.id },
       });
 
       await tx.auraLog.create({
         data: {
-          userId: post.user.id,
-          issuerId: sessionData.user.id,
           amount: COMMENT_RECEIVED_AURA,
-          type: "COMMENT_RECEIVED",
-          postId: post.id,
           commentId: comment.id,
+          issuerId: sessionData.user.id,
+          postId: post.id,
+          type: "COMMENT_RECEIVED",
+          userId: post.user.id,
         },
       });
 
       await tx.notification.create({
         data: {
           issuerId: sessionData.user.id,
-          recipientId: post.user.id,
           postId: post.id,
+          recipientId: post.user.id,
           type: "COMMENT",
         },
       });
@@ -116,8 +116,8 @@ export async function deleteComment(id: string) {
   }
 
   const post = await prisma.post.findUnique({
-    where: { id: comment.postId },
     select: { id: true, userId: true },
+    where: { id: comment.postId },
   });
 
   if (!post) {
@@ -128,8 +128,8 @@ export async function deleteComment(id: string) {
 
   const deletedComment = await prisma.$transaction(async (tx) => {
     const deleted = await tx.comment.delete({
-      where: { id },
       include: getCommentDataInclude(sessionData.user.id),
+      where: { id },
     });
 
     // Only reverse aura that was actually awarded (comments created before
@@ -140,35 +140,35 @@ export async function deleteComment(id: string) {
 
     if (wasAwarded) {
       await tx.user.update({
-        where: { id: sessionData.user.id },
         data: { aura: { decrement: COMMENT_CREATION_AURA } },
+        where: { id: sessionData.user.id },
       });
 
       await tx.auraLog.create({
         data: {
-          userId: sessionData.user.id,
-          issuerId: sessionData.user.id,
           amount: -COMMENT_CREATION_AURA,
-          type: "COMMENT_CREATION",
-          postId: comment.postId,
           commentId: id,
+          issuerId: sessionData.user.id,
+          postId: comment.postId,
+          type: "COMMENT_CREATION",
+          userId: sessionData.user.id,
         },
       });
 
       if (!isSelfComment) {
         await tx.user.update({
-          where: { id: post.userId },
           data: { aura: { decrement: COMMENT_RECEIVED_AURA } },
+          where: { id: post.userId },
         });
 
         await tx.auraLog.create({
           data: {
-            userId: post.userId,
-            issuerId: sessionData.user.id,
             amount: -COMMENT_RECEIVED_AURA,
-            type: "COMMENT_RECEIVED",
-            postId: comment.postId,
             commentId: id,
+            issuerId: sessionData.user.id,
+            postId: comment.postId,
+            type: "COMMENT_RECEIVED",
+            userId: post.userId,
           },
         });
       }
@@ -179,10 +179,10 @@ export async function deleteComment(id: string) {
     if (!isSelfComment) {
       await tx.notification.deleteMany({
         where: {
-          type: "COMMENT",
-          recipientId: post.userId,
           issuerId: sessionData.user.id,
           postId: comment.postId,
+          recipientId: post.userId,
+          type: "COMMENT",
         },
       });
 

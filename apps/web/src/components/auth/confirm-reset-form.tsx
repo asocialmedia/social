@@ -16,16 +16,20 @@ import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { type ControllerRenderProps, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
+import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
+
 import { resetPassword } from "@/app/(auth)/reset-password/server-actions";
 import { useToast } from "@/lib/gooey-toast";
+
 import { LoadingButton } from "./loading-button";
 import { PasswordInput } from "./password-input";
 import { PasswordStrengthChecker } from "./password-strength-checker";
 
 const schema = z
   .object({
+    confirmPassword: z.string(),
     password: z
       .string()
       .min(8, "Password must be at least 8 characters long")
@@ -33,7 +37,6 @@ const schema = z
         /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
         "Password must include: uppercase & lowercase letters, number, and special character"
       ),
-    confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",
@@ -42,42 +45,38 @@ const schema = z
 
 type ConfirmResetFormValues = z.infer<typeof schema>;
 
-function PasswordFieldRenderer({
+const PasswordFieldRenderer = ({
   field,
 }: {
   field: ControllerRenderProps<ConfirmResetFormValues, "password">;
-}) {
-  return (
-    <FormItem>
-      <FormLabel>New Password</FormLabel>
-      <FormControl>
-        <div className="relative">
-          <PasswordInput {...field} className="focus-visible:ring-blue-400" />
-        </div>
-      </FormControl>
-      <PasswordStrengthChecker password={field.value} />
-      <FormMessage />
-    </FormItem>
-  );
-}
+}) => (
+  <FormItem>
+    <FormLabel>New Password</FormLabel>
+    <FormControl>
+      <div className="relative">
+        <PasswordInput {...field} className="focus-visible:ring-blue-400" />
+      </div>
+    </FormControl>
+    <PasswordStrengthChecker password={field.value} />
+    <FormMessage />
+  </FormItem>
+);
 
-function ConfirmPasswordFieldRenderer({
+const ConfirmPasswordFieldRenderer = ({
   field,
 }: {
   field: ControllerRenderProps<ConfirmResetFormValues, "confirmPassword">;
-}) {
-  return (
-    <FormItem>
-      <FormLabel>Confirm Password</FormLabel>
-      <FormControl>
-        <div className="relative">
-          <PasswordInput {...field} className="focus-visible:ring-blue-400" />
-        </div>
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  );
-}
+}) => (
+  <FormItem>
+    <FormLabel>Confirm Password</FormLabel>
+    <FormControl>
+      <div className="relative">
+        <PasswordInput {...field} className="focus-visible:ring-blue-400" />
+      </div>
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
 
 export default function ConfirmResetForm() {
   const [token, setToken] = useState<string | null>(null);
@@ -93,11 +92,11 @@ export default function ConfirmResetForm() {
   }, [router]);
 
   const form = useForm<ConfirmResetFormValues>({
-    resolver: zodResolver(schema),
     defaultValues: {
-      password: "",
       confirmPassword: "",
+      password: "",
     },
+    resolver: zodResolver(schema),
   });
 
   useEffect(() => {
@@ -110,10 +109,10 @@ export default function ConfirmResetForm() {
 
         if (!response.ok || data.error) {
           toast({
-            variant: "destructive",
-            title: "Invalid Reset Link",
             description:
               data.error || "Please request a new password reset link.",
+            title: "Invalid Reset Link",
+            variant: "destructive",
           });
           await router.push("/reset-password");
           return;
@@ -122,9 +121,9 @@ export default function ConfirmResetForm() {
         setIsTokenValid(true);
       } catch {
         toast({
-          variant: "destructive",
-          title: "Couldn't Check",
           description: "Couldn't check that link, try again?",
+          title: "Couldn't Check",
+          variant: "destructive",
         });
         await router.push("/reset-password");
       } finally {
@@ -135,14 +134,15 @@ export default function ConfirmResetForm() {
     const tokenParam = searchParams.get("token");
     if (!tokenParam) {
       toast({
-        variant: "destructive",
-        title: "Invalid Reset Link",
         description: "Please request a new password reset link.",
+        title: "Invalid Reset Link",
+        variant: "destructive",
       });
       router.push("/reset-password");
       return;
     }
 
+    // eslint-disable-next-line react-compiler -- store the validated token before fetching its status
     setToken(tokenParam);
     validateToken(tokenParam);
   }, [searchParams, router, toast]);
@@ -155,30 +155,30 @@ export default function ConfirmResetForm() {
     startTransition(async () => {
       try {
         const result = await resetPassword({
-          token,
           password: values.password,
+          token,
         });
 
         if (result.error) {
           toast({
-            variant: "destructive",
-            title: "Couldn't Reset",
             description: result.error,
+            title: "Couldn't Reset",
+            variant: "destructive",
           });
           return;
         }
 
         toast({
-          title: "Password Reset",
           description: "You're all set, log in with your new password!",
+          title: "Password Reset",
         });
 
         router.push("/login");
       } catch {
         toast({
-          variant: "destructive",
-          title: "Couldn't Reset",
           description: "Couldn't reset your password, try again?",
+          title: "Couldn't Reset",
+          variant: "destructive",
         });
       }
     });
@@ -198,8 +198,8 @@ export default function ConfirmResetForm() {
               className="absolute inset-0 rounded-full border-2 border-blue-400/20"
               transition={{
                 duration: 2,
-                repeat: Number.POSITIVE_INFINITY,
                 ease: "linear",
+                repeat: Number.POSITIVE_INFINITY,
               }}
             />
             <motion.div
@@ -208,8 +208,8 @@ export default function ConfirmResetForm() {
               style={{ borderRightColor: "transparent" }}
               transition={{
                 duration: 1,
-                repeat: Number.POSITIVE_INFINITY,
                 ease: "linear",
+                repeat: Number.POSITIVE_INFINITY,
               }}
             />
           </div>
@@ -224,19 +224,19 @@ export default function ConfirmResetForm() {
       <div className="container flex min-h-screen items-center justify-center">
         <motion.div
           animate={{ opacity: 1, scale: 1 }}
-          className="rounded-lg border border-white/10 bg-card/40 p-8 text-center backdrop-blur-xl"
+          className="bg-card/40 rounded-lg border border-white/10 p-8 text-center backdrop-blur-xl"
           initial={{ opacity: 0, scale: 0.9 }}
         >
           <motion.div
             animate={{ rotate: [0, 10, -10, 0] }}
-            transition={{ duration: 0.5, delay: 0.2 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
           >
-            <AlertCircle className="mx-auto mb-4 h-12 w-12 text-destructive" />
+            <AlertCircle className="text-destructive mx-auto mb-4 h-12 w-12" />
           </motion.div>
-          <p className="mb-2 font-medium text-destructive text-lg">
+          <p className="text-destructive mb-2 text-lg font-medium">
             Invalid or expired reset link
           </p>
-          <p className="mb-6 text-muted-foreground">
+          <p className="text-muted-foreground mb-6">
             The reset link you're trying to use is no longer valid.
           </p>
           <Button
@@ -254,10 +254,10 @@ export default function ConfirmResetForm() {
     <AnimatePresence>
       <motion.div
         animate={{ opacity: 1 }}
-        className="relative flex min-h-screen overflow-hidden bg-background"
+        className="bg-background relative flex min-h-screen overflow-hidden"
         initial={{ opacity: 0 }}
       >
-        <div className="absolute inset-0 z-0 bg-linear-to-bl from-primary/5 via-background to-background/95" />
+        <div className="from-primary/5 via-background to-background/95 absolute inset-0 z-0 bg-linear-to-bl" />
         <motion.div
           animate={{ opacity: 1, x: 0 }}
           className="absolute left-20 hidden h-full items-center md:flex"
@@ -265,7 +265,7 @@ export default function ConfirmResetForm() {
           transition={{ delay: 0.3 }}
         >
           <div className="relative">
-            <h1 className="vertical-left absolute top-1/2 left-0 -translate-y-1/2 select-none whitespace-nowrap font-bold text-3d text-6xl tracking-wider xl:text-8xl 2xl:text-9xl">
+            <h1 className="vertical-left text-3d absolute top-1/2 left-0 -translate-y-1/2 text-6xl font-bold tracking-wider whitespace-nowrap select-none xl:text-8xl 2xl:text-9xl">
               CONFIRM
             </h1>
           </div>
@@ -273,20 +273,20 @@ export default function ConfirmResetForm() {
 
         <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-8">
           <motion.div
-            animate={{ y: 0, opacity: 1 }}
-            className="relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:h-130 lg:flex-row"
-            initial={{ y: 20, opacity: 0 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="border-border bg-card relative flex w-full max-w-5xl flex-col-reverse items-stretch overflow-hidden rounded-2xl border shadow-2xl lg:h-130 lg:flex-row"
+            initial={{ opacity: 0, y: 20 }}
             transition={{ delay: 0.2 }}
           >
             <motion.div
               animate={{ opacity: 1, x: 0 }}
-              className="relative hidden w-full bg-primary/80 lg:flex lg:h-full lg:w-1/2"
+              className="bg-primary/80 relative hidden w-full lg:flex lg:h-full lg:w-1/2"
               initial={{ opacity: 0, x: -50 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
             >
               <motion.div
                 animate={{ opacity: 1 }}
-                className="absolute inset-0 bg-linear-to-b from-transparent to-primary/20"
+                className="to-primary/20 absolute inset-0 bg-linear-to-b from-transparent"
                 initial={{ opacity: 0 }}
                 transition={{ duration: 1 }}
               />
@@ -309,7 +309,7 @@ export default function ConfirmResetForm() {
               >
                 <motion.h2
                   animate={{ opacity: 1 }}
-                  className="mb-6 text-center font-bold text-3xl text-[#ff9500]"
+                  className="mb-6 text-center text-3xl font-bold text-[#ff9500]"
                   initial={{ opacity: 0 }}
                   transition={{ delay: 0.5 }}
                 >
@@ -350,7 +350,7 @@ export default function ConfirmResetForm() {
 
         <motion.div
           animate={{ opacity: 0.05 }}
-          className="absolute top-0 right-0 h-full w-full bg-center bg-cover opacity-5 blur-md lg:w-1/2"
+          className="absolute top-0 right-0 h-full w-full bg-cover bg-center opacity-5 blur-md lg:w-1/2"
           initial={{ opacity: 0 }}
           style={{
             backgroundImage: `url(${resetImage.src})`,

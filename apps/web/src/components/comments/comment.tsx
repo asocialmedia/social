@@ -1,10 +1,12 @@
 import type { CommentData } from "@asm/db";
 import Link from "next/link";
+
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import Linkify from "@/helpers/global/linkify";
 import { formatRelativeDate } from "@/lib/utils";
+
 import CommentMoreButton from "./comment-more-button";
 
 interface CommentProps {
@@ -31,21 +33,21 @@ export default function Comment({ comment }: CommentProps) {
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <UserTooltip user={comment.user}>
             <Link
-              className="truncate font-semibold text-foreground hover:underline"
+              className="text-foreground truncate font-semibold hover:underline"
               href={`/users/${comment.user.username}`}
             >
               {comment.user.displayName}
             </Link>
           </UserTooltip>
           <Link
-            className="truncate text-muted-foreground hover:underline"
+            className="text-muted-foreground truncate hover:underline"
             href={`/users/${comment.user.username}`}
           >
             @{comment.user.username}
           </Link>
-          <span className="shrink-0 text-muted-foreground">·</span>
+          <span className="text-muted-foreground shrink-0">·</span>
           <span
-            className="shrink-0 text-muted-foreground"
+            className="text-muted-foreground shrink-0"
             suppressHydrationWarning
           >
             {formatRelativeDate(comment.createdAt)}
@@ -53,7 +55,7 @@ export default function Comment({ comment }: CommentProps) {
         </div>
 
         <UserTooltip user={comment.user}>
-          <p className="wrap-break-word max-w-full whitespace-pre-wrap text-[15px] text-foreground leading-relaxed">
+          <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
             <Linkify>{comment.content}</Linkify>
           </p>
         </UserTooltip>

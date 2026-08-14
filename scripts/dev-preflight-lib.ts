@@ -44,10 +44,10 @@ export type PreflightCheckState =
   | "cached"
   | "failed";
 
-export const PREFLIGHT_CHECK_ORDER: Array<{
+export const PREFLIGHT_CHECK_ORDER: {
   key: PreflightCheckKey;
   label: string;
-}> = [
+}[] = [
   { key: "services", label: "svc" },
   { key: "init-jobs", label: "init" },
   { key: "postgres", label: "pg" },
@@ -103,14 +103,16 @@ export interface RawContainerStatus {
   Status?: string;
 }
 
-const HEALTH_STATUS_PATTERN = /\((healthy|unhealthy|starting)\)/;
+const HEALTH_STATUS_PATTERN = /\((?<health>healthy|unhealthy|starting)\)/;
 
 export function parseContainerSnapshot(
   raw: RawContainerStatus
 ): ServiceSnapshot {
   const state = raw.State || "";
   const health =
-    raw.Health || raw.Status?.match(HEALTH_STATUS_PATTERN)?.[1] || "";
+    raw.Health ||
+    raw.Status?.match(HEALTH_STATUS_PATTERN)?.groups?.health ||
+    "";
   const service =
     raw.Service ||
     raw.Labels?.["com.docker.compose.service"] ||
@@ -131,16 +133,13 @@ export function parseServiceSnapshots(stdout: string): ServiceSnapshot[] {
     return [];
   }
 
-  let rawRecords: RawContainerStatus[];
-  if (trimmed.startsWith("[")) {
-    rawRecords = JSON.parse(trimmed) as RawContainerStatus[];
-  } else {
-    rawRecords = trimmed
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as RawContainerStatus);
-  }
+  const rawRecords = trimmed.startsWith("[")
+    ? (JSON.parse(trimmed) as RawContainerStatus[])
+    : trimmed
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as RawContainerStatus);
 
   return rawRecords.map(parseContainerSnapshot);
 }
@@ -218,7 +217,7 @@ export function buildRuntimeFingerprint(snapshots: ServiceSnapshot[]) {
           Service: item.Service ?? "",
           State: item.State ?? "",
         }))
-        .sort((a, b) => a.Service.localeCompare(b.Service))
+        .toSorted((a, b) => a.Service.localeCompare(b.Service))
     )
   );
 }

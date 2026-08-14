@@ -3,45 +3,47 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 describe("share stream flush", () => {
   const executedArgs: string[] = [];
 
-  const mockExec = mock(async () => [
-    [null, "3"],
-    [null, "2"],
-    [null, null],
-    [null, null],
-  ]);
+  const mockExec = mock((): Promise<[null, string | null][]> =>
+    Promise.resolve([
+      [null, "3"],
+      [null, "2"],
+      [null, null],
+      [null, null],
+    ])
+  );
 
   const mockRedis = {
     pipeline: () => ({
+      exec: mockExec,
       getdel: (key: string) => {
         executedArgs.push(key);
       },
-      exec: mockExec,
     }),
-    xack: mock(async () => 1),
+    xack: mock(() => 1),
   };
 
   const upsertCalls: unknown[] = [];
 
   const mockPrisma = {
+    $transaction: mock(async (ops: unknown[]) => {
+      await Promise.all(ops as Promise<unknown>[]);
+      return 1;
+    }),
     shareStats: {
       upsert: mock((args: unknown) => {
         upsertCalls.push(args);
         return { id: "share-1" };
       }),
     },
-    $transaction: mock(async (ops: unknown[]) => {
-      await Promise.all(ops as Promise<unknown>[]);
-      return 1;
-    }),
   };
 
   mock.module("@asm/db", () => ({
-    prisma: mockPrisma,
-    redis: mockRedis,
-    getBlockingRedisClient: () => mockRedis,
     SHARE_CONSUMER_PREFIX: "share-worker",
     SHARE_GROUP: "share-flush",
     SHARE_STREAM: "share:stream",
+    getBlockingRedisClient: () => mockRedis,
+    prisma: mockPrisma,
+    redis: mockRedis,
   }));
 
   beforeEach(() => {
@@ -57,7 +59,7 @@ describe("share stream flush", () => {
     const { flushShareDeltas } = await import("./share-flush");
 
     const result = await flushShareDeltas([
-      { postId: "post-1", platform: "twitter" },
+      { platform: "twitter", postId: "post-1" },
     ]);
 
     expect(executedArgs).toEqual([
@@ -78,18 +80,18 @@ describe("share stream flush", () => {
       update: { shares: { increment: number }; clicks: { increment: number } };
     };
     expect(upsert.where.postId_platform).toEqual({
-      postId: "post-1",
       platform: "twitter",
+      postId: "post-1",
     });
     expect(upsert.create).toEqual({
-      postId: "post-1",
-      platform: "twitter",
-      shares: 3,
       clicks: 2,
+      platform: "twitter",
+      postId: "post-1",
+      shares: 3,
     });
     expect(upsert.update).toEqual({
-      shares: { increment: 3 },
       clicks: { increment: 2 },
+      shares: { increment: 3 },
     });
 
     expect(result).toBe(1);
@@ -103,7 +105,7 @@ describe("share stream flush", () => {
     const { flushShareDeltas } = await import("./share-flush");
 
     const result = await flushShareDeltas([
-      { postId: "post-1", platform: "twitter" },
+      { platform: "twitter", postId: "post-1" },
     ]);
 
     expect(result).toBe(0);

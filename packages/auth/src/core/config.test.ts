@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { extractTokenFromUrl } from "./config";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
@@ -50,6 +51,6 @@ describe("password verification (emailAndPassword.password.verify)", () => {
 
   test("rejects an unrecognized stored value", async () => {
     expect(await verifyPasswordHash("password", 42)).toBe(false);
-    expect(await verifyPasswordHash("password", undefined)).toBe(false);
+    expect(await verifyPasswordHash("password")).toBe(false);
   });
 });

@@ -8,7 +8,9 @@ import {
   VIEWS_GROUP,
   VIEWS_STREAM,
 } from "@asm/db";
-import { resolveLogger, type WorkerLogger, withSpan } from "./log";
+
+import { resolveLogger, withSpan } from "./log";
+import type { WorkerLogger } from "./log";
 
 const BATCH_SIZE = 500;
 const BLOCK_MS = 2000;
@@ -55,9 +57,9 @@ export async function flushViewDeltas(
 ): Promise<FlushResult> {
   const log = resolveLogger(logger);
   const result: FlushResult = {
-    flushedPosts: 0,
     auraAwarded: 0,
     deletedKeys: 0,
+    flushedPosts: 0,
   };
 
   const uniqueIds = [...new Set(postIds)];
@@ -75,26 +77,27 @@ export async function flushViewDeltas(
       const counters = await pipeline.exec();
 
       const deltas: ViewDelta[] = [];
-      uniqueIds.forEach((postId, index) => {
+      for (let index = 0; index < uniqueIds.length; index += 1) {
+        const postId = uniqueIds[index];
         const value = counters?.[index]?.[1];
-        const delta = Number.parseInt(String(value ?? "0"), 10);
+        const delta = Math.trunc(Number(String(value ?? "0")));
         if (delta > 0) {
-          deltas.push({ postId, delta });
+          deltas.push({ delta, postId });
         }
-      });
+      }
 
       if (deltas.length === 0) {
         return result;
       }
 
       const posts = await prisma.post.findMany({
-        where: { id: { in: deltas.map((d) => d.postId) } },
         select: {
           id: true,
+          lastAwardedViewCount: true,
           userId: true,
           viewCount: true,
-          lastAwardedViewCount: true,
         },
+        where: { id: { in: deltas.map((d) => d.postId) } },
       });
 
       const postMap = new Map(posts.map((post) => [post.id, post]));
@@ -118,11 +121,11 @@ export async function flushViewDeltas(
           newTotal
         );
         updates.push({
+          auraDelta: aura,
           id: postId,
+          lastAwardedViewCount,
           userId: post.userId,
           viewCount: newTotal,
-          lastAwardedViewCount,
-          auraDelta: aura,
         });
       }
 
@@ -152,7 +155,7 @@ export async function flushViewDeltas(
 
         const auraUsers = updates
           .filter((u) => u.auraDelta > 0)
-          .map((u) => ({ userId: u.userId, auraDelta: u.auraDelta }));
+          .map((u) => ({ auraDelta: u.auraDelta, userId: u.userId }));
 
         if (auraUsers.length > 0) {
           const userIdsParam = auraUsers.map((u) => u.userId);
@@ -169,11 +172,11 @@ export async function flushViewDeltas(
             data: updates
               .filter((u) => u.auraDelta > 0)
               .map((u) => ({
-                userId: u.userId,
-                issuerId: u.userId,
                 amount: u.auraDelta,
-                type: "POST_VIEWS_MILESTONE",
+                issuerId: u.userId,
                 postId: u.id,
+                type: "POST_VIEWS_MILESTONE",
+                userId: u.userId,
               })),
           });
         }
@@ -191,9 +194,9 @@ export async function flushViewDeltas(
 
       log.info(
         {
-          flushedPosts: result.flushedPosts,
           auraAwarded: result.auraAwarded,
           batchSize: uniqueIds.length,
+          flushedPosts: result.flushedPosts,
         },
         "view counts flushed"
       );

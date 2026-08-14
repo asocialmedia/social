@@ -1,7 +1,9 @@
 import type { Media } from "@asm/db";
 import { useCallback } from "react";
+
 import { MediaPreviews } from "@/components/home/feedview/media-previews";
 import { AttachmentPreview } from "@/components/posts/editor/attachment-preview";
+
 import type { Attachment } from "../types";
 
 interface SupportMediaPreviewProps {
@@ -16,7 +18,7 @@ interface AttachmentRowProps {
   onRemove: (index: number) => void;
 }
 
-function AttachmentRow({ attachment, index, onRemove }: AttachmentRowProps) {
+const AttachmentRow = ({ attachment, index, onRemove }: AttachmentRowProps) => {
   const handleRemoveClick = useCallback(() => {
     if (attachment.previewUrl) {
       URL.revokeObjectURL(attachment.previewUrl);
@@ -33,26 +35,24 @@ function AttachmentRow({ attachment, index, onRemove }: AttachmentRowProps) {
       onRemoveClick={handleRemoveClick}
     />
   );
-}
+};
 
-export function SupportMediaPreview({
+export const SupportMediaPreview = ({
   attachments,
   onRemove,
   uploadedMedia,
-}: SupportMediaPreviewProps) {
-  return (
-    <div className="space-y-4">
-      {attachments.map((attachment, index) => (
-        <AttachmentRow
-          attachment={attachment}
-          index={index}
-          key={attachment.key}
-          onRemove={onRemove}
-        />
-      ))}
-      {uploadedMedia && uploadedMedia.length > 0 && (
-        <MediaPreviews attachments={uploadedMedia} />
-      )}
-    </div>
-  );
-}
+}: SupportMediaPreviewProps) => (
+  <div className="space-y-4">
+    {attachments.map((attachment, index) => (
+      <AttachmentRow
+        attachment={attachment}
+        index={index}
+        key={attachment.key}
+        onRemove={onRemove}
+      />
+    ))}
+    {uploadedMedia && uploadedMedia.length > 0 && (
+      <MediaPreviews attachments={uploadedMedia} />
+    )}
+  </div>
+);

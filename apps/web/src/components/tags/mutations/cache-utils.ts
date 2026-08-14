@@ -8,8 +8,7 @@ export function updatePostInCaches(
 ) {
   queryClient.setQueryData(["post", postId], updater);
 
-  // biome-ignore lint/complexity/noForEach: ignore
-  ["post-feed", "posts:for-you", "posts:following"].forEach((key) => {
+  for (const key of ["post-feed", "posts:for-you", "posts:following"]) {
     queryClient.setQueryData(
       [key],
       (oldData: { pages: { posts: PostData[] }[] } | undefined) => {
@@ -27,5 +26,5 @@ export function updatePostInCaches(
         };
       }
     );
-  });
+  }
 }

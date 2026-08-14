@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type React from "react";
+
 import { cn } from "@/lib/utils";
 
 export const ORANGE_GRADIENT_CLASS =
@@ -11,28 +12,26 @@ interface SettingsSectionHeaderProps {
   title: string;
 }
 
-export function SettingsSectionHeader({
+export const SettingsSectionHeader = ({
   description,
   icon: Icon,
   title,
-}: SettingsSectionHeaderProps) {
-  return (
-    <div className="flex items-center gap-3">
-      <div
-        className={cn(
-          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-          ORANGE_GRADIENT_CLASS
-        )}
-      >
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <h2 className="truncate font-semibold text-base sm:text-lg">{title}</h2>
-        <p className="truncate text-muted-foreground text-sm">{description}</p>
-      </div>
+}: SettingsSectionHeaderProps) => (
+  <div className="flex items-center gap-3">
+    <div
+      className={cn(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+        ORANGE_GRADIENT_CLASS
+      )}
+    >
+      <Icon className="h-5 w-5" />
     </div>
-  );
-}
+    <div className="min-w-0">
+      <h2 className="truncate text-base font-semibold sm:text-lg">{title}</h2>
+      <p className="text-muted-foreground truncate text-sm">{description}</p>
+    </div>
+  </div>
+);
 
 interface SettingsCardProps {
   children: React.ReactNode;
@@ -40,18 +39,20 @@ interface SettingsCardProps {
   id?: string;
 }
 
-export function SettingsCard({ children, className, id }: SettingsCardProps) {
-  return (
-    <div
-      className={cn(
-        "rounded-2xl border border-border/60 bg-[hsl(var(--background))] p-5 sm:p-6",
-        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)]",
-        "dark:border-white/10 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]",
-        className
-      )}
-      id={id}
-    >
-      {children}
-    </div>
-  );
-}
+export const SettingsCard = ({
+  children,
+  className,
+  id,
+}: SettingsCardProps) => (
+  <div
+    className={cn(
+      "border-border/60 rounded-2xl border bg-[hsl(var(--background))] p-5 sm:p-6",
+      "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)]",
+      "dark:border-white/10 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]",
+      className
+    )}
+    id={id}
+  >
+    {children}
+  </div>
+);

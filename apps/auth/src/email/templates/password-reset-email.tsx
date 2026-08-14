@@ -10,6 +10,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
+
 import { emailConfig } from "../config";
 
 interface PasswordResetEmailProps {
@@ -99,89 +100,89 @@ const main = {
 
 const container = {
   margin: "0 auto",
-  padding: "20px 0 48px",
   maxWidth: "700px",
+  padding: "20px 0 48px",
 };
 
 const box = {
-  backgroundColor: "rgba(255, 255, 255, 0.98)",
   backdropFilter: "blur(10px)",
-  borderRadius: "24px",
-  padding: "40px",
-  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+  backgroundColor: "rgba(255, 255, 255, 0.98)",
   border: "1px solid #e5e7eb",
+  borderRadius: "24px",
+  boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+  padding: "40px",
 };
 
 const heading = {
+  color: emailConfig.assets.colors.textDark,
   fontSize: "24px",
   fontWeight: "600",
-  color: emailConfig.assets.colors.textDark,
-  textAlign: "center" as const,
   margin: "0 0 12px",
+  textAlign: "center" as const,
 };
 
 const paragraph = {
+  color: emailConfig.assets.colors.text,
   fontSize: "16px",
   lineHeight: "24px",
-  color: emailConfig.assets.colors.text,
   margin: "0 0 24px",
 };
 
 const card = {
   backgroundColor: emailConfig.assets.colors.cardBg,
-  borderRadius: "16px",
-  padding: "24px",
   border: `1px solid ${emailConfig.assets.colors.border}`,
+  borderRadius: "16px",
   marginBottom: "16px",
+  padding: "24px",
   textAlign: "center" as const,
 };
 
 const emoji = {
+  display: "block",
   fontSize: "48px",
   marginBottom: "16px",
-  display: "block",
 };
 
 const subheading = {
+  color: emailConfig.assets.colors.textDark,
   fontSize: "20px",
   fontWeight: "600",
-  color: emailConfig.assets.colors.textDark,
   margin: "0 0 12px",
 };
 
 const button = {
   backgroundColor: emailConfig.assets.colors.primary,
   borderRadius: "12px",
+  boxShadow: "0 4px 6px -1px rgba(249, 115, 22, 0.25)",
   color: "#fff",
+  display: "inline-block",
   fontSize: "16px",
   fontWeight: "600",
-  textDecoration: "none",
-  textAlign: "center" as const,
-  display: "inline-block",
   padding: "16px 40px",
-  boxShadow: "0 4px 6px -1px rgba(249, 115, 22, 0.25)",
+  textAlign: "center" as const,
+  textDecoration: "none",
 };
 
 const warningCard = {
   backgroundColor: emailConfig.assets.colors.warningBg,
-  borderRadius: "16px",
-  padding: "24px",
   border: `1px solid ${emailConfig.assets.colors.warningBorder}`,
+  borderRadius: "16px",
   marginBottom: "16px",
+  padding: "24px",
   textAlign: "center" as const,
 };
 
 const warningText = {
-  fontSize: "14px",
   color: emailConfig.assets.colors.warning,
-  margin: "0",
+  fontSize: "14px",
   fontStyle: "italic",
+  margin: "0",
 };
 
 const helpTitle = {
+  color: emailConfig.assets.colors.textDark,
   fontSize: "18px",
   fontWeight: "600",
-  color: emailConfig.assets.colors.textDark,
   margin: "0 0 12px",
 };
 
@@ -191,26 +192,26 @@ const links = {
 
 const link = {
   color: emailConfig.assets.colors.primary,
-  textDecoration: "none",
   fontSize: "14px",
   margin: "0 12px",
+  textDecoration: "none",
 };
 
 const footerLinks = {
-  textAlign: "center" as const,
   marginBottom: "16px",
+  textAlign: "center" as const,
 };
 
 const footerLink = {
   color: emailConfig.assets.colors.text,
-  textDecoration: "none",
   fontSize: "12px",
   margin: "0 8px",
+  textDecoration: "none",
 };
 
 const footer = {
-  fontSize: "12px",
   color: emailConfig.assets.colors.textLight,
-  textAlign: "center" as const,
+  fontSize: "12px",
   margin: "0",
+  textAlign: "center" as const,
 };

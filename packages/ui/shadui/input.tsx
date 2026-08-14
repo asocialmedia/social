@@ -13,7 +13,7 @@ const Input = ({
 }) => (
   <input
     className={cn(
-      "premium-input w-full file:border-0 file:bg-transparent file:font-medium file:text-foreground file:text-sm placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+      "premium-input file:text-foreground placeholder:text-muted-foreground w-full file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
       className
     )}
     ref={ref}

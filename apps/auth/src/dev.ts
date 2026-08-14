@@ -11,15 +11,15 @@ if (import.meta.main) {
   const serverProc = Bun.spawn(["bun", "--watch", "src/server.ts"], {
     cwd: process.cwd(),
     env: process.env,
-    stdout: "inherit",
     stderr: "inherit",
+    stdout: "inherit",
   });
 
   const workerProc = Bun.spawn(["bun", "--watch", "src/worker.ts"], {
     cwd: process.cwd(),
     env: process.env,
-    stdout: "inherit",
     stderr: "inherit",
+    stdout: "inherit",
   });
 
   let stopping = false;
@@ -42,26 +42,38 @@ if (import.meta.main) {
   };
 
   process.on("SIGINT", () => {
-    shutdown("SIGINT").catch(() => process.exit(1));
+    void (async () => {
+      try {
+        await shutdown("SIGINT");
+      } catch {
+        process.exit(1);
+      }
+    })();
   });
   process.on("SIGTERM", () => {
-    shutdown("SIGTERM").catch(() => process.exit(1));
+    void (async () => {
+      try {
+        await shutdown("SIGTERM");
+      } catch {
+        process.exit(1);
+      }
+    })();
   });
 
   // Whichever child exits first stops its sibling, so `turbo dev` never hangs
   // with an orphaned watcher while the other keeps running. An unexpected
   // (non-zero) exit fails the dev process so CI notices the crash.
   const onChildExit = (name: string, proc: ReturnType<typeof Bun.spawn>) => {
-    proc.exited.then((code) => {
+    void (async () => {
+      const code = await proc.exited;
       if (stopping) {
         return;
       }
       stopping = true;
       console.log(`[dev] ${name} exited with code ${code ?? "signal"}`);
-      stopChildren().then(() => {
-        process.exit(code === 0 ? 0 : 1);
-      });
-    });
+      await stopChildren();
+      process.exit(code === 0 ? 0 : 1);
+    })();
   };
   onChildExit("server", serverProc);
   onChildExit("worker", workerProc);

@@ -8,32 +8,31 @@ import {
   test,
 } from "bun:test";
 
-type CreateAuthConfigInput = Parameters<
-  typeof import("@asm/auth/core")["createAuthConfig"]
->[0];
+import type { createAuthConfig } from "@asm/auth/core";
 
+type CreateAuthConfigInput = Parameters<typeof createAuthConfig>[0];
 type AuthConfigInput = Exclude<CreateAuthConfigInput, undefined>;
 
 type VerificationOtpResult =
   | { success: true }
   | { error: string; success: false };
 
-const mockSendVerificationOTP = mock(
-  async (): Promise<VerificationOtpResult> => ({ success: true })
+const mockSendVerificationOTP = mock((): Promise<VerificationOtpResult> =>
+  Promise.resolve({ success: true })
 );
-const mockSendVerificationEmail = mock(async () => ({
+const mockSendVerificationEmail = mock(() => ({
   success: true,
   verificationUrl: "url",
 }));
-const mockSendPasswordResetEmail = mock(async () => ({
-  success: true,
+const mockSendPasswordResetEmail = mock(() => ({
   resetUrl: "url",
+  success: true,
 }));
 
 mock.module("../email/service", () => ({
-  sendVerificationOTP: mockSendVerificationOTP,
-  sendVerificationEmail: mockSendVerificationEmail,
   sendPasswordResetEmail: mockSendPasswordResetEmail,
+  sendVerificationEmail: mockSendVerificationEmail,
+  sendVerificationOTP: mockSendVerificationOTP,
 }));
 
 const mockCreateAuthConfig = mock(
@@ -125,8 +124,8 @@ describe("auth config wrappers", () => {
 
   test("sendVerificationOTP wrapper throws if result not success", async () => {
     mockSendVerificationOTP.mockResolvedValueOnce({
-      success: false,
       error: "Failed",
+      success: false,
     });
 
     const { sendVerificationOTP } = authConfig;

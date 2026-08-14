@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
+
 import { signUpSchema } from "./schemas";
 
 describe("signUpSchema sample validation", () => {
   test("accepts valid signup payload", () => {
     const result = signUpSchema.safeParse({
       email: "hello@example.com",
-      username: "valid_user_123",
       password: "ValidPass2026!",
+      username: "valid_user_123",
     });
 
     expect(result.success).toBe(true);
@@ -18,8 +19,8 @@ describe("signUpSchema sample validation", () => {
 
   test("rejects missing email", () => {
     const result = signUpSchema.safeParse({
-      username: "valid_user_123",
       password: "ValidPass2026!",
+      username: "valid_user_123",
     });
 
     expect(result.success).toBe(false);
@@ -31,8 +32,8 @@ describe("signUpSchema sample validation", () => {
   test("rejects malformed email", () => {
     const result = signUpSchema.safeParse({
       email: "not-an-email",
-      username: "valid_user_123",
       password: "ValidPass2026!",
+      username: "valid_user_123",
     });
 
     expect(result.success).toBe(false);
@@ -44,8 +45,8 @@ describe("signUpSchema sample validation", () => {
   test("rejects invalid username", () => {
     const result = signUpSchema.safeParse({
       email: "hello@example.com",
-      username: "bad user!",
       password: "ValidPass2026!",
+      username: "bad user!",
     });
 
     expect(result.success).toBe(false);
@@ -57,8 +58,8 @@ describe("signUpSchema sample validation", () => {
   test("rejects short password", () => {
     const result = signUpSchema.safeParse({
       email: "hello@example.com",
-      username: "valid_user_123",
       password: "Ab1!",
+      username: "valid_user_123",
     });
 
     expect(result.success).toBe(false);
@@ -70,8 +71,8 @@ describe("signUpSchema sample validation", () => {
   test("rejects password missing required classes", () => {
     const result = signUpSchema.safeParse({
       email: "hello@example.com",
-      username: "valid_user_123",
       password: "lowercaseonly",
+      username: "valid_user_123",
     });
 
     expect(result.success).toBe(false);

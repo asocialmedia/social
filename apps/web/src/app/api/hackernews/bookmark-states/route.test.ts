@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { POST } from "./route";
+
 const USER_ID = "user1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -28,8 +30,6 @@ mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
-import { POST } from "./route";
-
 describe("POST /api/hackernews/bookmark-states", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
@@ -41,9 +41,9 @@ describe("POST /api/hackernews/bookmark-states", () => {
 
     const res = await POST(
       new Request("http://localhost/api/hackernews/bookmark-states", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storyIds: [1001, 1002] }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 
@@ -53,9 +53,9 @@ describe("POST /api/hackernews/bookmark-states", () => {
   test("returns bookmark states for the given stories", async () => {
     const res = await POST(
       new Request("http://localhost/api/hackernews/bookmark-states", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storyIds: [1001, 1002, 1003] }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 
@@ -70,9 +70,9 @@ describe("POST /api/hackernews/bookmark-states", () => {
   test("returns an empty map when no story ids are provided", async () => {
     const res = await POST(
       new Request("http://localhost/api/hackernews/bookmark-states", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storyIds: [] }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 
@@ -84,9 +84,9 @@ describe("POST /api/hackernews/bookmark-states", () => {
   test("ignores non-integer story ids", async () => {
     const res = await POST(
       new Request("http://localhost/api/hackernews/bookmark-states", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storyIds: [1001, "abc", null] }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 

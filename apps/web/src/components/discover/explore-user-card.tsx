@@ -5,6 +5,7 @@ import { Flame, Users } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
+
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useFollowStates } from "@/hooks/use-follow-states";
@@ -52,7 +53,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
     headerMedia = (
       <div
         aria-hidden
-        className="absolute inset-0 bg-center bg-cover transition-transform duration-300 group-hover:scale-105"
+        className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-105"
         style={{
           backgroundImage: `url(${avatarUrl})`,
           filter: "blur(10px) brightness(0.75)",
@@ -78,7 +79,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
         ) : (
           <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] to-transparent" />
         )}
-        <div className="absolute inset-x-0 bottom-0 h-px bg-border/40" />
+        <div className="bg-border/40 absolute inset-x-0 bottom-0 h-px" />
       </Link>
 
       <div className="p-3">
@@ -99,28 +100,28 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
           >
             {user.displayName}
           </Link>
-          <p className="truncate text-muted-foreground text-xs">
+          <p className="text-muted-foreground truncate text-xs">
             @{user.username}
           </p>
         </div>
 
         {user.bio ? (
-          <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+          <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">
             {user.bio}
           </p>
         ) : null}
 
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
+        <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-3 text-xs">
           <span className="flex items-center gap-1">
             <Users className="h-3.5 w-3.5" />
-            <span className="font-medium text-foreground">
+            <span className="text-foreground font-medium">
               {formatNumber(followers)}
             </span>{" "}
             followers
           </span>
           <span className="flex items-center gap-1">
             <Flame className="h-3.5 w-3.5 text-orange-500" />
-            <span className="font-medium text-foreground">
+            <span className="text-foreground font-medium">
               {formatNumber(user.aura)}
             </span>{" "}
             aura

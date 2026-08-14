@@ -1,4 +1,5 @@
 // biome-ignore lint/performance/noBarrelFile: This is a small auth package with limited exports
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./core";
 export {
   createPostSchema,

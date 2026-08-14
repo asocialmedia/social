@@ -2,12 +2,12 @@ import { Writable } from "node:stream";
 
 const LEVELS: Record<string, { severityText: string; severityNumber: number }> =
   {
-    "10": { severityText: "TRACE", severityNumber: 1 },
-    "20": { severityText: "DEBUG", severityNumber: 5 },
-    "30": { severityText: "INFO", severityNumber: 9 },
-    "40": { severityText: "WARN", severityNumber: 13 },
-    "50": { severityText: "ERROR", severityNumber: 17 },
-    "60": { severityText: "FATAL", severityNumber: 21 },
+    "10": { severityNumber: 1, severityText: "TRACE" },
+    "20": { severityNumber: 5, severityText: "DEBUG" },
+    "30": { severityNumber: 9, severityText: "INFO" },
+    "40": { severityNumber: 13, severityText: "WARN" },
+    "50": { severityNumber: 17, severityText: "ERROR" },
+    "60": { severityNumber: 21, severityText: "FATAL" },
   };
 
 export interface OtlpLogDestinationOptions {
@@ -29,9 +29,9 @@ function toNanoSeconds(timeIso: string | number): string {
   }
   const ms = Date.parse(timeIso);
   if (Number.isNaN(ms)) {
-    return (BigInt(Date.now()) * BigInt(1_000_000)).toString();
+    return (BigInt(Date.now()) * 1_000_000n).toString();
   }
-  return (BigInt(ms) * BigInt(1_000_000)).toString();
+  return (BigInt(ms) * 1_000_000n).toString();
 }
 
 function toAttributeValue(value: unknown): OtlpAttribute["value"] {
@@ -51,7 +51,7 @@ function flattenObject(obj: Record<string, unknown>): OtlpAttribute[] {
 
 function toOtlpLogRecord(line: Record<string, unknown>, serviceName: string) {
   const level = String(line.level ?? 30);
-  const severity = LEVELS[level] ?? { severityText: "INFO", severityNumber: 9 };
+  const severity = LEVELS[level] ?? { severityNumber: 9, severityText: "INFO" };
   const attributes: OtlpAttribute[] = [];
 
   for (const [key, value] of Object.entries(line)) {
@@ -71,16 +71,16 @@ function toOtlpLogRecord(line: Record<string, unknown>, serviceName: string) {
   }
 
   return {
-    timeUnixNano: toNanoSeconds(String(line.time ?? Date.now())),
-    severityNumber: severity.severityNumber,
-    severityText: severity.severityText,
-    body: { stringValue: String(line.msg ?? "") },
     attributes,
+    body: { stringValue: String(line.msg ?? "") },
     resource: {
       attributes: [
         { key: "service.name", value: { stringValue: serviceName } },
       ],
     },
+    severityNumber: severity.severityNumber,
+    severityText: severity.severityText,
+    timeUnixNano: toNanoSeconds(String(line.time ?? Date.now())),
   };
 }
 
@@ -105,7 +105,7 @@ export function createOtlpLogDestination(
     if (queue.length === 0) {
       return;
     }
-    const records = queue.splice(0, queue.length);
+    const records = queue.splice(0);
     const payload = {
       resourceLogs: [
         {
@@ -127,12 +127,12 @@ export function createOtlpLogDestination(
 
     try {
       await fetch(endpoint, {
-        method: "POST",
+        body: JSON.stringify(payload),
         headers: {
           "Content-Type": "application/json",
           ...headers,
         },
-        body: JSON.stringify(payload),
+        method: "POST",
       });
     } catch (error) {
       // Logging must never crash the service; fall back to stderr.
@@ -144,30 +144,39 @@ export function createOtlpLogDestination(
   function scheduleFlush() {
     if (!timer && queue.length > 0) {
       timer = setTimeout(() => {
-        flush().catch(() => undefined);
+        void flush();
       }, flushIntervalMs);
     }
   }
 
   return new Writable({
+    // eslint-disable-next-line promise/prefer-await-to-callbacks -- Writable final() requires a callback
+    final(callback) {
+      void (async () => {
+        try {
+          await flush();
+        } catch {
+          // Logging must never crash the service.
+        }
+        // eslint-disable-next-line promise/prefer-await-to-callbacks
+        callback();
+      })();
+    },
+    // eslint-disable-next-line promise/prefer-await-to-callbacks -- Writable write() requires a callback
     write(chunk: Buffer, _encoding, callback) {
       try {
         const line = JSON.parse(chunk.toString()) as Record<string, unknown>;
         queue.push(line);
         if (queue.length >= batchSize) {
-          flush().catch(() => undefined);
+          void flush();
         } else {
           scheduleFlush();
         }
       } catch {
         // Ignore malformed lines.
       }
+      // eslint-disable-next-line promise/prefer-await-to-callbacks
       callback();
-    },
-    final(callback) {
-      flush()
-        .catch(() => undefined)
-        .finally(() => callback());
     },
   });
 }

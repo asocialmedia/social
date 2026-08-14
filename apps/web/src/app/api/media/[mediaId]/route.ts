@@ -1,6 +1,7 @@
 import { prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
+
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
 import {
   getContentDisposition,
@@ -37,7 +38,7 @@ function rangeNotSatisfiable(
   if (contentRange) {
     headers.set("Content-Range", contentRange);
   }
-  return new NextResponse("Range Not Satisfiable", { status: 416, headers });
+  return new NextResponse("Range Not Satisfiable", { headers, status: 416 });
 }
 
 export async function GET(
@@ -105,8 +106,8 @@ export async function GET(
         headers.set("Content-Length", response.ContentLength.toString());
       }
       return new NextResponse(response.Body.transformToWebStream(), {
-        status: 206,
         headers,
+        status: 206,
       });
     }
 

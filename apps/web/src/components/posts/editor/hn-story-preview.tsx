@@ -18,7 +18,10 @@ interface HnStoryPreviewProps {
   story: HNStory;
 }
 
-export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
+export const HNStoryPreview = ({
+  story,
+  onRemoveAction,
+}: HnStoryPreviewProps) => {
   const domain = story.url ? new URL(story.url).hostname : null;
 
   return (
@@ -30,13 +33,13 @@ export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
       <Card className="hn-story-solid overflow-hidden p-3 shadow-none">
         <div className="flex items-start justify-between">
           <div className="flex items-center">
-            <div className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 font-bold text-white text-xs shadow-[inset_0_1px_1px_rgba(255,255,255,0.3),0_1px_2px_rgba(0,0,0,0.2)]">
+            <div className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-xs font-bold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.3),0_1px_2px_rgba(0,0,0,0.2)]">
               Y
             </div>
             <span className="text-muted-foreground text-xs">Hacker News</span>
           </div>
           <button
-            className="pill-3d-hover flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground"
+            className="pill-3d-hover text-muted-foreground flex h-7 w-7 items-center justify-center rounded-full"
             onClick={onRemoveAction}
             type="button"
           >
@@ -69,7 +72,7 @@ export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
           ) : null}
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+        <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-2 text-xs">
           <div className="flex items-center gap-1">
             <User className="h-3 w-3" />
             <span>{story.by}</span>
@@ -102,4 +105,4 @@ export function HNStoryPreview({ story, onRemoveAction }: HnStoryPreviewProps) {
       </Card>
     </motion.div>
   );
-}
+};

@@ -15,6 +15,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
+
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
@@ -36,13 +37,13 @@ const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 // Matches the hover preview delay used by video thumbnails in the post feed.
 const VIDEO_HOVER_DELAY = 350;
 
-function VideoTile({
+const VideoTile = ({
   aspectRatio,
   item,
 }: {
   aspectRatio: number;
   item: Media;
-}) {
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -51,7 +52,11 @@ function VideoTile({
       clearTimeout(hoverTimeoutRef.current);
     }
     hoverTimeoutRef.current = setTimeout(() => {
-      videoRef.current?.play().catch(() => undefined);
+      try {
+        void videoRef.current?.play();
+      } catch {
+        // Autoplay may be blocked; ignore
+      }
     }, VIDEO_HOVER_DELAY);
   }, []);
 
@@ -117,7 +122,7 @@ function VideoTile({
       </div>
     </div>
   );
-}
+};
 
 const renderMediaTile = (item: Media) => {
   const aspectRatio =
@@ -130,11 +135,11 @@ const renderMediaTile = (item: Media) => {
   if (item.type === "AUDIO") {
     return (
       <div
-        className="group relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl bg-primary/5 p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:bg-primary/10 hover:shadow-md"
+        className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
         style={{ aspectRatio }}
       >
-        <FileAudioIcon className="h-8 w-8 text-primary" />
-        <span className="max-w-full truncate text-[10px] text-muted-foreground">
+        <FileAudioIcon className="text-primary h-8 w-8" />
+        <span className="text-muted-foreground max-w-full truncate text-[10px]">
           {formatFileName(item.key)}
         </span>
       </div>
@@ -144,14 +149,14 @@ const renderMediaTile = (item: Media) => {
   if (item.type === "CODE") {
     return (
       <div
-        className="group relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl bg-primary/5 p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:bg-primary/10 hover:shadow-md"
+        className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
         style={{ aspectRatio }}
       >
-        <FileCode className="h-8 w-8 text-primary" />
-        <span className="max-w-full truncate font-medium text-[10px] text-muted-foreground">
+        <FileCode className="text-primary h-8 w-8" />
+        <span className="text-muted-foreground max-w-full truncate text-[10px] font-medium">
           {formatFileName(item.key)}
         </span>
-        <span className="max-w-full truncate text-[9px] text-muted-foreground/70 uppercase tracking-wide">
+        <span className="text-muted-foreground/70 max-w-full truncate text-[9px] tracking-wide uppercase">
           {getLanguageFromFileName(item.key)}
         </span>
       </div>
@@ -161,14 +166,14 @@ const renderMediaTile = (item: Media) => {
   if (item.type === "DOCUMENT") {
     return (
       <div
-        className="group relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl bg-primary/5 p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:bg-primary/10 hover:shadow-md"
+        className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
         style={{ aspectRatio }}
       >
-        <FileIcon className="h-8 w-8 text-primary" />
-        <span className="max-w-full truncate font-medium text-[10px] text-muted-foreground">
+        <FileIcon className="text-primary h-8 w-8" />
+        <span className="text-muted-foreground max-w-full truncate text-[10px] font-medium">
           {formatFileName(item.key)}
         </span>
-        <span className="max-w-full truncate text-[9px] text-muted-foreground/70 uppercase tracking-wide">
+        <span className="text-muted-foreground/70 max-w-full truncate text-[9px] tracking-wide uppercase">
           {item.mimeType}
         </span>
       </div>
@@ -198,9 +203,9 @@ const renderMediaTile = (item: Media) => {
 };
 
 const renderGenericFileTile = (item: Media) => (
-  <div className="group relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl bg-primary/5 p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:bg-primary/10 hover:shadow-md">
-    <FileIcon className="h-8 w-8 text-primary" />
-    <span className="max-w-full truncate font-medium text-[10px] text-muted-foreground">
+  <div className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+    <FileIcon className="text-primary h-8 w-8" />
+    <span className="text-muted-foreground max-w-full truncate text-[10px] font-medium">
       {formatFileName(item.key)}
     </span>
   </div>
@@ -231,7 +236,7 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
       </button>
       {postHref ? (
         <Link
-          className="mt-1 block truncate text-[11px] text-muted-foreground transition-colors duration-200 hover:text-primary"
+          className="text-muted-foreground hover:text-primary mt-1 block truncate text-[11px] transition-colors duration-200"
           href={postHref}
         >
           View post
@@ -301,7 +306,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
       <div className="columns-2 gap-2 space-y-2 px-1">
         {SKELETON_KEYS.map((key, index) => (
           <div
-            className="animate-pulse rounded-xl bg-border/40"
+            className="bg-border/40 animate-pulse rounded-xl"
             key={key}
             style={{ aspectRatio: SKELETON_ASPECTS[index] }}
           />
@@ -310,14 +315,14 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
     );
   } else if (status === "error") {
     body = (
-      <p className="px-2 py-3 text-center text-destructive text-sm">
+      <p className="text-destructive px-2 py-3 text-center text-sm">
         Couldn't load media.
       </p>
     );
   } else if (media.length === 0) {
     body = (
       <div className="flex flex-col items-center gap-1.5 px-2 py-6 text-center">
-        <ImageIcon className="h-5 w-5 text-muted-foreground/60" />
+        <ImageIcon className="text-muted-foreground/60 h-5 w-5" />
         <p className="text-muted-foreground text-sm">No media yet</p>
         <p className="text-muted-foreground/70 text-xs">
           Media from this profile's posts will show up here
@@ -339,7 +344,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
         </div>
         {isFetchingNextPage ? (
           <div className="flex justify-center py-3">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <Loader2 className="text-primary h-4 w-4 animate-spin" />
           </div>
         ) : null}
       </InfiniteScrollContainer>

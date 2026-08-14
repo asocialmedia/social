@@ -42,7 +42,7 @@ function isControlChar(code: number): boolean {
 function sanitizeString(value: string): string {
   let result = "";
   for (const char of value) {
-    const code = char.charCodeAt(0);
+    const code = char.codePointAt(0) ?? 0;
     result += isControlChar(code) ? escapeControlChar(code) : char;
   }
   return result;
@@ -71,41 +71,12 @@ function sanitize(value: unknown): unknown {
   return value;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: any is used to allow for any number of arguments
-function safeArgs(args: any[]): unknown[] {
+function safeArgs(args: unknown[]): unknown[] {
   return args.map(sanitize);
 }
 
 export const debugLog = {
-  // biome-ignore lint/suspicious/noExplicitAny: any is used to allow for any number of arguments
-  cache: (...args: any[]) => {
-    if (IS_BROWSER) {
-      return;
-    }
-    if (DEBUG) {
-      console.log(`[Cache ${new Date().toISOString()}]`, ...safeArgs(args));
-    }
-  },
-  // biome-ignore lint/suspicious/noExplicitAny: same as above
-  views: (...args: any[]) => {
-    if (IS_BROWSER) {
-      return;
-    }
-    if (DEBUG) {
-      console.log(`[Views ${new Date().toISOString()}]`, ...safeArgs(args));
-    }
-  },
-  // biome-ignore lint/suspicious/noExplicitAny: same as above
-  mutation: (...args: any[]) => {
-    if (IS_BROWSER) {
-      return;
-    }
-    if (DEBUG) {
-      console.log(`[Mutation ${new Date().toISOString()}]`, ...safeArgs(args));
-    }
-  },
-  // biome-ignore lint/suspicious/noExplicitAny: same as above
-  api: (...args: any[]) => {
+  api: (...args: unknown[]) => {
     if (IS_BROWSER) {
       return;
     }
@@ -113,8 +84,15 @@ export const debugLog = {
       console.log(`[API ${new Date().toISOString()}]`, ...safeArgs(args));
     }
   },
-  // biome-ignore lint/suspicious/noExplicitAny: same as above
-  component: (...args: any[]) => {
+  cache: (...args: unknown[]) => {
+    if (IS_BROWSER) {
+      return;
+    }
+    if (DEBUG) {
+      console.log(`[Cache ${new Date().toISOString()}]`, ...safeArgs(args));
+    }
+  },
+  component: (...args: unknown[]) => {
     if (IS_BROWSER) {
       return;
     }
@@ -122,13 +100,28 @@ export const debugLog = {
       console.log(`[Component ${new Date().toISOString()}]`, ...safeArgs(args));
     }
   },
-  // biome-ignore lint/suspicious/noExplicitAny: same as above
-  state: (...args: any[]) => {
+  mutation: (...args: unknown[]) => {
+    if (IS_BROWSER) {
+      return;
+    }
+    if (DEBUG) {
+      console.log(`[Mutation ${new Date().toISOString()}]`, ...safeArgs(args));
+    }
+  },
+  state: (...args: unknown[]) => {
     if (IS_BROWSER) {
       return;
     }
     if (DEBUG) {
       console.log(`[State ${new Date().toISOString()}]`, ...safeArgs(args));
+    }
+  },
+  views: (...args: unknown[]) => {
+    if (IS_BROWSER) {
+      return;
+    }
+    if (DEBUG) {
+      console.log(`[Views ${new Date().toISOString()}]`, ...safeArgs(args));
     }
   },
 } as const;
@@ -142,16 +135,15 @@ function makeClientMethod(method: "log" | "error" | "warn" | "info" | "debug") {
   if (IS_BROWSER) {
     return noop;
   }
-  // biome-ignore lint/suspicious/noExplicitAny: matching console method signatures
-  return (...args: any[]) => {
+  return (...args: unknown[]) => {
     console[method](...safeArgs(args));
   };
 }
 
 export const clientLog = {
-  log: makeClientMethod("log"),
-  error: makeClientMethod("error"),
-  warn: makeClientMethod("warn"),
-  info: makeClientMethod("info"),
   debug: makeClientMethod("debug"),
+  error: makeClientMethod("error"),
+  info: makeClientMethod("info"),
+  log: makeClientMethod("log"),
+  warn: makeClientMethod("warn"),
 } as const;

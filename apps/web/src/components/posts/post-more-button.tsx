@@ -8,9 +8,11 @@ import {
 import { Hash, MoreHorizontal, Trash2 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useState } from "react";
+
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
+
 import DeletePostDialog from "./delete-post-dialog";
 
 interface PostMoreButtonProps {
@@ -67,7 +69,7 @@ export default function PostMoreButton({
           <button
             aria-label="Post options"
             className={cn(
-              "pill-3d-hover group inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 text-muted-foreground active:translate-y-px",
+              "pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px",
               className,
               isOpen ? "opacity-100" : undefined
             )}
@@ -94,7 +96,7 @@ export default function PostMoreButton({
             className="pill-3d-hover rounded-md px-2 py-2"
             onClick={handleShowDeleteDialog}
           >
-            <span className="flex items-center gap-3 text-destructive">
+            <span className="text-destructive flex items-center gap-3">
               <Trash2 className="size-4" />
               Delete
             </span>

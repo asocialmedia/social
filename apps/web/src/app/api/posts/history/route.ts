@@ -1,9 +1,6 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  type PostData,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import type { PostData } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
@@ -14,10 +11,10 @@ export async function GET() {
   const userId = session.user.id;
 
   const visits = await prisma.postVisit.findMany({
-    where: { userId },
     orderBy: { visitedAt: "desc" },
-    take: 12,
     select: { postId: true },
+    take: 12,
+    where: { userId },
   });
 
   const postIds = visits.map((visit) => visit.postId);
@@ -27,8 +24,8 @@ export async function GET() {
   }
 
   const posts = await prisma.post.findMany({
-    where: { id: { in: postIds } },
     include: getPostDataInclude(userId),
+    where: { id: { in: postIds } },
   });
 
   // Preserve the visited order (most recently visited first).

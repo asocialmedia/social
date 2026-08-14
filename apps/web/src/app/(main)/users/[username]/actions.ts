@@ -1,10 +1,9 @@
 "use server";
 
-import {
-  type UpdateUserProfileValues,
-  updateUserProfileSchema,
-} from "@asm/auth/validation";
+import { updateUserProfileSchema } from "@asm/auth/validation";
+import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { getUserDataSelect, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function updateUserProfile(values: UpdateUserProfileValues) {
@@ -16,16 +15,16 @@ export async function updateUserProfile(values: UpdateUserProfileValues) {
   }
 
   const updatedUser = await prisma.user.update({
-    where: { id: session.user.id },
     data: {
-      displayName: validatedValues.displayName,
       bio: validatedValues.bio,
+      displayName: validatedValues.displayName,
       githubUsername: validatedValues.githubUsername || null,
       linkedinUsername: validatedValues.linkedinUsername || null,
-      twitterUsername: validatedValues.twitterUsername || null,
       redditUsername: validatedValues.redditUsername || null,
+      twitterUsername: validatedValues.twitterUsername || null,
     },
     select: getUserDataSelect(session.user.id),
+    where: { id: session.user.id },
   });
 
   return updatedUser;

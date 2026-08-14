@@ -1,22 +1,21 @@
-import IoRedis, { type RedisOptions } from "ioredis";
+import { createHash } from "node:crypto";
+
+import IoRedis from "ioredis";
+import type { RedisOptions } from "ioredis";
 import type { JSONWebKeySet } from "jose";
+
 import { keys } from "../keys";
 import { createRedisConnectionOptions } from "./redis-options";
 
 const createRedisConfig = (): RedisOptions => {
   const config: RedisOptions = {
-    maxRetriesPerRequest: 2,
-    connectTimeout: 5000,
-    commandTimeout: 3000,
-    retryStrategy(times: number) {
-      const delay = Math.min(times * 50, 1000);
-      return delay;
-    },
-    lazyConnect: true,
-    enableReadyCheck: true,
-    showFriendlyErrorStack: true,
-    keepAlive: 10_000,
     autoResendUnfulfilledCommands: true,
+    commandTimeout: 3000,
+    connectTimeout: 5000,
+    enableReadyCheck: true,
+    keepAlive: 10_000,
+    lazyConnect: true,
+    maxRetriesPerRequest: 2,
     reconnectOnError: (err) => {
       const targetError = "READONLY";
       if (err.message.includes(targetError)) {
@@ -24,6 +23,11 @@ const createRedisConfig = (): RedisOptions => {
       }
       return false;
     },
+    retryStrategy(times: number) {
+      const delay = Math.min(times * 50, 1000);
+      return delay;
+    },
+    showFriendlyErrorStack: true,
   };
 
   return config;
@@ -131,6 +135,20 @@ export const trendingTopicsCache = {
     }
   },
 
+  async invalidate(): Promise<void> {
+    try {
+      const pipeline = redis.pipeline();
+      pipeline.del(TRENDING_TOPICS_KEY);
+      pipeline.del(`${TRENDING_TOPICS_KEY}:last_updated`);
+      await pipeline.exec();
+      console.log("Invalidated trending topics cache");
+    } catch (error) {
+      console.error("Error invalidating trending topics cache:", error);
+    }
+  },
+
+  refreshCache: null as unknown as () => Promise<TrendingTopic[]>,
+
   async set(topics: TrendingTopic[]): Promise<void> {
     try {
       const pipeline = redis.pipeline();
@@ -162,18 +180,6 @@ export const trendingTopicsCache = {
     }
   },
 
-  async invalidate(): Promise<void> {
-    try {
-      const pipeline = redis.pipeline();
-      pipeline.del(TRENDING_TOPICS_KEY);
-      pipeline.del(`${TRENDING_TOPICS_KEY}:last_updated`);
-      await pipeline.exec();
-      console.log("Invalidated trending topics cache");
-    } catch (error) {
-      console.error("Error invalidating trending topics cache:", error);
-    }
-  },
-
   async shouldRefresh(): Promise<boolean> {
     try {
       const lastUpdated = await redis.get(
@@ -182,7 +188,7 @@ export const trendingTopicsCache = {
       if (!lastUpdated) {
         return true;
       }
-      const timeSinceUpdate = Date.now() - Number.parseInt(lastUpdated, 10);
+      const timeSinceUpdate = Date.now() - Math.trunc(Number(lastUpdated));
       return timeSinceUpdate > (CACHE_TTL * 1000) / 2;
     } catch {
       return true;
@@ -200,8 +206,6 @@ export const trendingTopicsCache = {
       console.error("Error warming trending topics cache:", error);
     }
   },
-
-  refreshCache: null as unknown as () => Promise<TrendingTopic[]>,
 };
 
 export const POST_VIEWS_KEY_PREFIX = "post:views:";
@@ -282,6 +286,40 @@ export async function enqueueShareEvent(
 }
 
 export const postViewsCache = {
+  async getMultipleViews(postIds: string[]): Promise<Record<string, number>> {
+    try {
+      const pipeline = redis.pipeline();
+      for (const id of postIds) {
+        pipeline.get(`${POST_VIEWS_KEY_PREFIX}${id}`);
+      }
+
+      const results = await pipeline.exec();
+
+      const views: Record<string, number> = {};
+      for (let index = 0; index < postIds.length; index += 1) {
+        const id = postIds[index];
+        views[id] = Math.trunc(
+          Number((results?.[index]?.[1] as string) || "0")
+        );
+      }
+      return views;
+    } catch (error) {
+      console.error("Error getting multiple post views:", error);
+      return {};
+    }
+  },
+
+  async getViews(postId: string): Promise<number> {
+    try {
+      const views = await redis.get(`${POST_VIEWS_KEY_PREFIX}${postId}`);
+      console.log(`Redis: Got views for post ${postId}: ${views}`);
+      return Math.trunc(Number(views || "0"));
+    } catch (error) {
+      console.error("Error getting post views:", error);
+      return 0;
+    }
+  },
+
   async incrementView(postId: string, _userId?: string): Promise<number> {
     try {
       // Impression-style counting: every screenview increments, no per-user
@@ -301,42 +339,6 @@ export const postViewsCache = {
     } catch (error) {
       console.error("Error incrementing post view:", error);
       return 0;
-    }
-  },
-
-  async getViews(postId: string): Promise<number> {
-    try {
-      const views = await redis.get(`${POST_VIEWS_KEY_PREFIX}${postId}`);
-      console.log(`Redis: Got views for post ${postId}: ${views}`);
-      return Number.parseInt(views || "0", 10);
-    } catch (error) {
-      console.error("Error getting post views:", error);
-      return 0;
-    }
-  },
-
-  async getMultipleViews(postIds: string[]): Promise<Record<string, number>> {
-    try {
-      const pipeline = redis.pipeline();
-      for (const id of postIds) {
-        pipeline.get(`${POST_VIEWS_KEY_PREFIX}${id}`);
-      }
-
-      const results = await pipeline.exec();
-
-      return postIds.reduce(
-        (acc, id, index) => {
-          acc[id] = Number.parseInt(
-            (results?.[index]?.[1] as string) || "0",
-            10
-          );
-          return acc;
-        },
-        {} as Record<string, number>
-      );
-    } catch (error) {
-      console.error("Error getting multiple post views:", error);
-      return {};
     }
   },
 
@@ -391,13 +393,8 @@ export interface CachedSession {
 }
 
 export const jwtSessionCache = {
-  async setJWKS(jwks: JSONWebKeySet): Promise<void> {
-    try {
-      await redis.setex(JWKS_CACHE_KEY, JWKS_CACHE_TTL, JSON.stringify(jwks));
-      console.log("Cached JWKS in Redis");
-    } catch (error) {
-      console.error("Error caching JWKS:", error);
-    }
+  createTokenHash(token: string): string {
+    return createHash("sha256").update(token).digest("hex").slice(0, 16);
   },
 
   async getJWKS(): Promise<JSONWebKeySet | null> {
@@ -411,24 +408,6 @@ export const jwtSessionCache = {
     } catch (error) {
       console.error("Error getting cached JWKS:", error);
       return null;
-    }
-  },
-
-  async setValidatedSession(
-    tokenHash: string,
-    sessionData: CachedSession
-  ): Promise<void> {
-    try {
-      await redis.setex(
-        `${SESSION_CACHE_KEY_PREFIX}${tokenHash}`,
-        SESSION_CACHE_TTL,
-        JSON.stringify(sessionData)
-      );
-      console.log(
-        `Cached validated session for token hash: ${tokenHash.slice(0, 8)}...`
-      );
-    } catch (error) {
-      console.error("Error caching validated session:", error);
     }
   },
 
@@ -463,8 +442,30 @@ export const jwtSessionCache = {
     }
   },
 
-  createTokenHash(token: string): string {
-    const crypto = require("node:crypto");
-    return crypto.createHash("sha256").update(token).digest("hex").slice(0, 16);
+  async setJWKS(jwks: JSONWebKeySet): Promise<void> {
+    try {
+      await redis.setex(JWKS_CACHE_KEY, JWKS_CACHE_TTL, JSON.stringify(jwks));
+      console.log("Cached JWKS in Redis");
+    } catch (error) {
+      console.error("Error caching JWKS:", error);
+    }
+  },
+
+  async setValidatedSession(
+    tokenHash: string,
+    sessionData: CachedSession
+  ): Promise<void> {
+    try {
+      await redis.setex(
+        `${SESSION_CACHE_KEY_PREFIX}${tokenHash}`,
+        SESSION_CACHE_TTL,
+        JSON.stringify(sessionData)
+      );
+      console.log(
+        `Cached validated session for token hash: ${tokenHash.slice(0, 8)}...`
+      );
+    } catch (error) {
+      console.error("Error caching validated session:", error);
+    }
   },
 };

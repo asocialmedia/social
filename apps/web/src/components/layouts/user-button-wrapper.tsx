@@ -2,6 +2,7 @@
 
 import { ChevronDown } from "lucide-react";
 import type React from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import UserButton from "@/components/layouts/user-button";
 import { cn } from "@/lib/utils";
@@ -17,7 +18,7 @@ const UserButtonWrapper: React.FC<UserButtonWrapperProps> = ({ className }) => {
     <UserButton
       asChild
       className={cn(
-        "group h-11 items-center gap-2 overflow-hidden rounded-xl border border-border/50 bg-card/70 px-1 py-1.5 shadow-xs backdrop-blur-md transition-colors duration-200 hover:bg-card/80",
+        "group border-border/50 bg-card/70 hover:bg-card/80 h-11 items-center gap-2 overflow-hidden rounded-xl border px-1 py-1.5 shadow-xs backdrop-blur-md transition-colors duration-200",
         className
       )}
     >
@@ -25,16 +26,16 @@ const UserButtonWrapper: React.FC<UserButtonWrapperProps> = ({ className }) => {
         <div className="flex items-center gap-2">
           <div className="hidden items-center gap-2 pr-2 md:flex">
             <div className="flex min-w-0 flex-col justify-center leading-tight">
-              <span className="max-w-[180px] truncate font-medium text-foreground text-sm">
+              <span className="text-foreground max-w-[180px] truncate text-sm font-medium">
                 {user?.name}
               </span>
-              <span className="max-w-[180px] truncate text-muted-foreground text-xs">
+              <span className="text-muted-foreground max-w-[180px] truncate text-xs">
                 @{user?.username}
               </span>
             </div>
             <ChevronDown
               className={cn(
-                "h-4 w-4 text-primary transition-transform duration-200 group-hover:text-primary/80",
+                "text-primary group-hover:text-primary/80 h-4 w-4 transition-transform duration-200",
                 open ? "rotate-180" : "rotate-0"
               )}
             />

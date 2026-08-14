@@ -5,6 +5,7 @@ import noSearchImage from "@assets/general/nosearch.png";
 import { Search, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 export type SettingsTab = "profile" | "account" | "security";
@@ -103,8 +104,8 @@ const SETTINGS_CATALOG: SettingsEntry[] = [
 ];
 
 const TAB_LABELS: Record<SettingsTab, string> = {
-  profile: "Profile",
   account: "Account",
+  profile: "Profile",
   security: "Security",
 };
 
@@ -132,6 +133,7 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
   }, [query]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-compiler -- reset selection when the dialog mounts
     setActiveIndex(0);
   }, []);
 
@@ -206,7 +208,7 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
   return (
     <div className="relative w-full" ref={rootRef}>
       <div className="relative">
-        <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
         <Input
           aria-label="Search settings"
           autoComplete="off"
@@ -222,7 +224,7 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
         {query ? (
           <button
             aria-label="Clear search"
-            className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
             onClick={handleClear}
             type="button"
           >
@@ -237,7 +239,7 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
             {results.map((result, index) => (
               <button
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-all duration-200 ease-out",
+                  "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
                   index === activeIndex
                     ? "pill-nav-active"
                     : "pill-3d-hover text-foreground"
@@ -249,12 +251,12 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
                 type="button"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-sm">{result.label}</p>
-                  <p className="truncate text-muted-foreground text-xs">
+                  <p className="truncate text-sm font-medium">{result.label}</p>
+                  <p className="text-muted-foreground truncate text-xs">
                     {result.description}
                   </p>
                 </div>
-                <span className="shrink-0 rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 font-semibold text-[10px] text-muted-foreground tabular-nums">
+                <span className="border-border/60 bg-muted/50 text-muted-foreground shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold tabular-nums">
                   {TAB_LABELS[result.tab]}
                 </span>
               </button>
@@ -274,7 +276,7 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
               src={noSearchImage}
               width={128}
             />
-            <p className="font-medium text-sm">No settings found</p>
+            <p className="text-sm font-medium">No settings found</p>
             <p className="text-muted-foreground text-xs">
               Nothing matches &quot;{query}&quot;, try something else
             </p>

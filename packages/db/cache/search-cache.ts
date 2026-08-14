@@ -31,36 +31,6 @@ export const searchSuggestionsCache = {
     }
   },
 
-  async getSuggestions(prefix: string, limit = 5): Promise<SearchSuggestion[]> {
-    try {
-      if (!prefix.trim()) {
-        return [];
-      }
-
-      const normalizedPrefix = prefix.toLowerCase().trim();
-      const key = "search:suggestions";
-
-      const results = await redis.zrevrange(key, 0, -1, "WITHSCORES");
-      const suggestions: SearchSuggestion[] = [];
-      for (let i = 0; i < results.length; i += 2) {
-        const query = results[i];
-        const count = Number.parseInt(results[i + 1] || "0", 10);
-
-        if (query.startsWith(normalizedPrefix)) {
-          suggestions.push({ query, count });
-          if (suggestions.length >= limit) {
-            break;
-          }
-        }
-      }
-
-      return suggestions;
-    } catch (error) {
-      console.error("Error getting search suggestions:", error);
-      return [];
-    }
-  },
-
   async addToHistory(userId: string, query: string): Promise<void> {
     try {
       if (!query.trim()) {
@@ -82,6 +52,14 @@ export const searchSuggestionsCache = {
     }
   },
 
+  async clearHistory(userId: string): Promise<void> {
+    try {
+      await redis.del(`user:${userId}:search:history`);
+    } catch (error) {
+      console.error("Error clearing search history:", error);
+    }
+  },
+
   async getHistory(userId: string): Promise<string[]> {
     try {
       const key = `user:${userId}:search:history`;
@@ -92,11 +70,33 @@ export const searchSuggestionsCache = {
     }
   },
 
-  async clearHistory(userId: string): Promise<void> {
+  async getSuggestions(prefix: string, limit = 5): Promise<SearchSuggestion[]> {
     try {
-      await redis.del(`user:${userId}:search:history`);
+      if (!prefix.trim()) {
+        return [];
+      }
+
+      const normalizedPrefix = prefix.toLowerCase().trim();
+      const key = "search:suggestions";
+
+      const results = await redis.zrevrange(key, 0, -1, "WITHSCORES");
+      const suggestions: SearchSuggestion[] = [];
+      for (let i = 0; i < results.length; i += 2) {
+        const query = results[i];
+        const count = Math.trunc(Number(results[i + 1] || "0"));
+
+        if (query.startsWith(normalizedPrefix)) {
+          suggestions.push({ count, query });
+          if (suggestions.length >= limit) {
+            break;
+          }
+        }
+      }
+
+      return suggestions;
     } catch (error) {
-      console.error("Error clearing search history:", error);
+      console.error("Error getting search suggestions:", error);
+      return [];
     }
   },
 
@@ -111,8 +111,8 @@ export const searchSuggestionsCache = {
 };
 
 export const searchCache = {
+  addSuggestion: searchSuggestionsCache.addSuggestion,
   addToHistory: searchSuggestionsCache.addToHistory,
   getHistory: searchSuggestionsCache.getHistory,
-  addSuggestion: searchSuggestionsCache.addSuggestion,
   getSuggestions: searchSuggestionsCache.getSuggestions,
 };

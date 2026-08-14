@@ -1,4 +1,5 @@
 import { searchPosts, searchUsers } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q")?.trim() ?? "";
   const limit = Math.min(
-    Math.max(Number.parseInt(url.searchParams.get("limit") ?? "6", 10), 1),
+    Math.max(Math.trunc(Number(url.searchParams.get("limit") ?? "6")), 1),
     20
   );
 

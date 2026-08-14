@@ -15,16 +15,16 @@ const Slider = ({
 }) => (
   <Root
     className={cn(
-      "relative flex w-full touch-none select-none items-center",
+      "relative flex w-full touch-none items-center select-none",
       className
     )}
     ref={ref}
     {...props}
   >
-    <Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-primary/20">
-      <Range className="absolute h-full bg-primary" />
+    <Track className="bg-primary/20 relative h-1.5 w-full grow overflow-hidden rounded-full">
+      <Range className="bg-primary absolute h-full" />
     </Track>
-    <Thumb className="block h-4 w-4 rounded-full border border-primary/50 bg-background shadow-sm transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50" />
+    <Thumb className="border-primary/50 bg-background focus-visible:ring-ring block h-4 w-4 rounded-full border shadow-sm transition-colors focus-visible:ring-1 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50" />
   </Root>
 );
 Slider.displayName = Root.displayName;

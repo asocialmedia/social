@@ -5,15 +5,16 @@ import { Button } from "@asm/ui/shadui/button";
 import dynamic from "next/dynamic";
 import type React from "react";
 import { useCallback } from "react";
+
 import { ErrorBoundary } from "@/components/misc/error-boundary";
 
 const ClientFollowButton = dynamic(
   () => import("./client/client-follow-button"),
   {
-    ssr: false,
     loading: () => (
-      <Button className="h-8 w-20 animate-pulse rounded-md bg-secondary/50" />
+      <Button className="bg-secondary/50 h-8 w-20 animate-pulse rounded-md" />
     ),
+    ssr: false,
   }
 );
 
@@ -46,9 +47,9 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   onFollowed,
 }) => {
   debugLog.component("Rendering FollowButton:", {
-    userId,
-    initialState,
     className,
+    initialState,
+    userId,
   });
 
   return (

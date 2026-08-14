@@ -1,4 +1,5 @@
 import { postViewsCache } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
 
     const results: Record<string, number> = Object.fromEntries(entries);
 
-    return Response.json({ success: true, results });
+    return Response.json({ results, success: true });
   } catch (error) {
     console.error("Failed to batch increment views:", error);
     return Response.json(

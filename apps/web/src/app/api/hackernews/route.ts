@@ -5,8 +5,8 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const page = Number.parseInt(searchParams.get("page") || "0", 10);
-    const limit = Number.parseInt(searchParams.get("limit") || "30", 10);
+    const page = Math.trunc(Number(searchParams.get("page") || "0"));
+    const limit = Math.trunc(Number(searchParams.get("limit") || "30"));
     const search = searchParams.get("search") || undefined;
     const sort = searchParams.get("sort") || "score";
     const type = searchParams.get("type") || "all";
@@ -15,12 +15,12 @@ export async function GET(request: Request) {
     const ip = headersList.get("x-forwarded-for") || "unknown";
 
     const result = await hackerNewsAPI.fetchStories({
-      page,
+      identifier: ip,
       limit,
+      page,
       search,
       sort,
       type,
-      identifier: ip,
     });
 
     return NextResponse.json(result);

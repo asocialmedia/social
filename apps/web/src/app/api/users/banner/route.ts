@@ -1,5 +1,7 @@
+import type { User } from "@asm/db";
 import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
+
 import { deleteBanner, uploadBanner } from "@/lib/object-storage";
 
 export async function POST(request: Request) {
@@ -14,13 +16,13 @@ export async function POST(request: Request) {
     }
 
     console.log("Banner update started:", {
-      userId,
-      oldBannerKey: oldBannerKey || "none",
       newFile: {
         name: file.name,
-        type: file.type,
         size: file.size,
+        type: file.type,
       },
+      oldBannerKey: oldBannerKey || "none",
+      userId,
     });
 
     const result = await uploadBanner(file, userId);
@@ -32,14 +34,14 @@ export async function POST(request: Request) {
 
     // Persist first; on failure the freshly-uploaded object is orphaned, so
     // delete it rather than leak storage.
-    let updatedUser: import("@asm/db").User | null = null;
+    let updatedUser: User | null = null;
     try {
       updatedUser = await prisma.user.update({
-        where: { id: userId },
         data: {
-          bannerUrl,
           bannerKey: result.key,
+          bannerUrl,
         },
+        where: { id: userId },
       });
     } catch (error) {
       console.error(
@@ -65,13 +67,13 @@ export async function POST(request: Request) {
     }
 
     console.log("Banner update completed successfully:", {
-      userId,
       newBannerKey: result.key,
+      userId,
     });
 
     return NextResponse.json({
-      user: updatedUser,
       banner: { ...result, url: bannerUrl },
+      user: updatedUser,
     });
   } catch (error) {
     console.error("Banner update error:", error);
@@ -95,11 +97,11 @@ export async function DELETE(request: Request) {
 
     // Clear the DB reference first; if that fails, the banner stays intact.
     const updatedUser = await prisma.user.update({
-      where: { id: userId },
       data: {
-        bannerUrl: null,
         bannerKey: null,
+        bannerUrl: null,
       },
+      where: { id: userId },
     });
 
     // Best-effort removal of the object from storage.

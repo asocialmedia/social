@@ -1,10 +1,7 @@
 import { clientLog } from "@asm/config/debug";
 
-import {
-  type AllowedAvatarExtension,
-  avatarConfig,
-  maxFileSizes,
-} from "../config/file-config";
+import { avatarConfig, maxFileSizes } from "../config/file-config";
+import type { AllowedAvatarExtension } from "../config/file-config";
 import { getFileConfigFromMime } from "./mime-utils";
 
 export const validateFile = (file: File) => {
@@ -14,9 +11,9 @@ export const validateFile = (file: File) => {
 
   const fileConfig = getFileConfigFromMime(file.type);
   clientLog.log("File validation:", {
-    type: file.type,
     config: fileConfig,
     size: file.size,
+    type: file.type,
   });
 
   if (!fileConfig) {
@@ -36,14 +33,14 @@ export const validateFile = (file: File) => {
   return true;
 };
 
+const isAllowedExtension = (
+  ext: string | undefined
+): ext is AllowedAvatarExtension =>
+  !!ext &&
+  avatarConfig.allowedExtensions.includes(ext as AllowedAvatarExtension);
+
 export const validateAvatar = (file: File) => {
   const extension = file.name.split(".").pop()?.toLowerCase();
-
-  const isAllowedExtension = (
-    ext: string | undefined
-  ): ext is AllowedAvatarExtension =>
-    !!ext &&
-    avatarConfig.allowedExtensions.includes(ext as AllowedAvatarExtension);
 
   if (!isAllowedExtension(extension)) {
     throw new Error("Avatar must be in JPG, PNG, GIF, WebP, or HEIC format");

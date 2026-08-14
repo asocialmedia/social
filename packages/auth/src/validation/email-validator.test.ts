@@ -1,5 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
+
 import { validateEmailAdvanced, validateEmailBasic } from "./email-validator";
+
+type SmtpVerifierResult = {
+  isCatchAll?: boolean;
+  isRole?: boolean;
+  wellFormed?: boolean;
+} | null;
 
 const mxResolver = mock((domain: string) => {
   if (domain === "gmail.com") {
@@ -88,11 +95,14 @@ describe("email-validator", () => {
     });
 
     test("SMTP verifier success", async () => {
-      const mockVerifier = mock(async () => ({
-        wellFormed: true,
-        isCatchAll: false,
-        isRole: false,
-      }));
+      const mockVerifier = mock(
+        (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>
+          Promise.resolve({
+            isCatchAll: false,
+            isRole: false,
+            wellFormed: true,
+          })
+      );
       const result = await validateEmailAdvanced("hello@example.com", {
         skipMxCheck: true,
         skipSmtpCheck: false,
@@ -103,11 +113,14 @@ describe("email-validator", () => {
     });
 
     test("SMTP verifier catch all and role account", async () => {
-      const mockVerifier = mock(async () => ({
-        wellFormed: true,
-        isCatchAll: true,
-        isRole: true,
-      }));
+      const mockVerifier = mock(
+        (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>
+          Promise.resolve({
+            isCatchAll: true,
+            isRole: true,
+            wellFormed: true,
+          })
+      );
       const result = await validateEmailAdvanced("admin@example.com", {
         skipMxCheck: true,
         skipSmtpCheck: false,
@@ -122,11 +135,14 @@ describe("email-validator", () => {
     });
 
     test("SMTP verifier trusted provider catch-all", async () => {
-      const mockVerifier = mock(async () => ({
-        wellFormed: true,
-        isCatchAll: true,
-        isRole: false,
-      }));
+      const mockVerifier = mock(
+        (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>
+          Promise.resolve({
+            isCatchAll: true,
+            isRole: false,
+            wellFormed: true,
+          })
+      );
       const result = await validateEmailAdvanced("test@gmail.com", {
         skipMxCheck: true,
         skipSmtpCheck: false,
@@ -139,7 +155,10 @@ describe("email-validator", () => {
     });
 
     test("SMTP verifier failure", async () => {
-      const mockVerifier = mock(async () => ({ wellFormed: false }));
+      const mockVerifier = mock(
+        (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>
+          Promise.resolve({ wellFormed: false })
+      );
       const result = await validateEmailAdvanced("hello@example.com", {
         skipMxCheck: true,
         skipSmtpCheck: false,
@@ -150,7 +169,10 @@ describe("email-validator", () => {
     });
 
     test("SMTP verifier failure (trusted)", async () => {
-      const mockVerifier = mock(async () => ({ wellFormed: false }));
+      const mockVerifier = mock(
+        (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>
+          Promise.resolve({ wellFormed: false })
+      );
       const result = await validateEmailAdvanced("test@gmail.com", {
         skipMxCheck: true,
         skipSmtpCheck: false,
@@ -186,7 +208,10 @@ describe("email-validator", () => {
     });
 
     test("SMTP check skipped if disposable", async () => {
-      const mockVerifier = mock(async () => ({ wellFormed: true }));
+      const mockVerifier = mock(
+        (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>
+          Promise.resolve({ wellFormed: true })
+      );
       const _result = await validateEmailAdvanced("test@mailinator.com", {
         skipMxCheck: true,
         skipSmtpCheck: false,

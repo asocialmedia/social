@@ -1,15 +1,30 @@
 import ky from "ky";
+
 import { hackerNewsCache } from "./cache";
 import { checkRateLimit } from "./rate-limiter";
-import {
-  type FetchStoriesOptions,
-  HackerNewsError,
-  type HNApiResponse,
-  type HNStory,
-} from "./types";
+import { HackerNewsError } from "./types";
+import type { FetchStoriesOptions, HNApiResponse, HNStory } from "./types";
 
 const HN_API_BASE = "https://hacker-news.firebaseio.com/v0";
 const DEFAULT_TIMEOUT = 5000;
+
+async function fetchWithRateLimit<T>(
+  identifier: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const canProceed = await checkRateLimit(identifier);
+  if (!canProceed) {
+    throw new HackerNewsError("Rate limit exceeded", { statusCode: 429 });
+  }
+  return fn();
+}
+
+function getResponseStatus(error: unknown): number | undefined {
+  if (error && typeof error === "object" && "response" in error) {
+    return (error as { response?: { status?: number } }).response?.status;
+  }
+  return undefined;
+}
 
 export class HackerNewsAPI {
   private readonly client: typeof ky;
@@ -26,19 +41,6 @@ export class HackerNewsAPI {
     });
   }
 
-  private async fetchWithRateLimit(
-    identifier: string,
-    // biome-ignore lint/suspicious/noExplicitAny: ignore
-    fn: () => Promise<any>
-    // biome-ignore lint/suspicious/noExplicitAny: ignore
-  ): Promise<any> {
-    const canProceed = await checkRateLimit(identifier);
-    if (!canProceed) {
-      throw new HackerNewsError("Rate limit exceeded", { statusCode: 429 });
-    }
-    return fn();
-  }
-
   async fetchTopStories(): Promise<number[]> {
     try {
       const cachedStories = await hackerNewsCache.getStories();
@@ -46,7 +48,7 @@ export class HackerNewsAPI {
         return cachedStories;
       }
 
-      const stories = await this.fetchWithRateLimit("topstories", () =>
+      const stories = await fetchWithRateLimit("topstories", () =>
         this.client.get("topstories.json").json<number[]>()
       );
 
@@ -57,9 +59,8 @@ export class HackerNewsAPI {
         throw error;
       }
       throw new HackerNewsError("Failed to fetch top stories", {
-        // biome-ignore lint/suspicious/noExplicitAny: ignore
-        statusCode: (error as any)?.response?.status,
         cause: error,
+        statusCode: getResponseStatus(error),
       });
     }
   }
@@ -71,7 +72,7 @@ export class HackerNewsAPI {
         return cachedStory;
       }
 
-      const story = await this.fetchWithRateLimit(`story:${id}`, () =>
+      const story = await fetchWithRateLimit(`story:${id}`, () =>
         this.client.get(`item/${id}.json`).json<HNStory>()
       );
 
@@ -86,9 +87,8 @@ export class HackerNewsAPI {
         throw error;
       }
       throw new HackerNewsError(`Failed to fetch story ${id}`, {
-        // biome-ignore lint/suspicious/noExplicitAny: ignore
-        statusCode: (error as any)?.response?.status,
         cause: error,
+        statusCode: getResponseStatus(error),
       });
     }
   }
@@ -138,12 +138,15 @@ export class HackerNewsAPI {
 
       stories.sort((a, b) => {
         switch (sort) {
-          case "time":
+          case "time": {
             return b.time - a.time;
-          case "comments":
+          }
+          case "comments": {
             return b.descendants - a.descendants;
-          default:
+          }
+          default: {
             return b.score - a.score;
+          }
         }
       });
 
@@ -157,9 +160,8 @@ export class HackerNewsAPI {
         throw error;
       }
       throw new HackerNewsError("Failed to fetch stories", {
-        // biome-ignore lint/suspicious/noExplicitAny: ignore
-        statusCode: (error as any)?.response?.status,
         cause: error,
+        statusCode: getResponseStatus(error),
       });
     }
   }
@@ -172,9 +174,8 @@ export class HackerNewsAPI {
       await Promise.all(firstPageIds.map((id) => this.fetchStory(id)));
     } catch (error) {
       throw new HackerNewsError("Failed to refresh cache", {
-        // biome-ignore lint/suspicious/noExplicitAny: ignore
-        statusCode: (error as any)?.response?.status,
         cause: error,
+        statusCode: getResponseStatus(error),
       });
     }
   }

@@ -18,12 +18,13 @@ import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
 } from "@opentelemetry/semantic-conventions";
+
 import {
   buildOpenObserveAuth,
   getOtlpEndpoints,
-  type OtelConfig,
   readOtelConfig,
 } from "./otel-config";
+import type { OtelConfig } from "./otel-config";
 
 export interface Telemetry {
   shutdown: () => Promise<void>;
@@ -62,7 +63,10 @@ export function initTelemetry(options: {
   const config = readOtelConfig();
 
   if (!config.enabled) {
-    return { tracerProvider: null, shutdown: async () => undefined };
+    return {
+      shutdown: () => Promise.resolve(),
+      tracerProvider: null,
+    };
   }
 
   const serviceName = config.serviceName ?? options.serviceName;
@@ -85,24 +89,24 @@ export function initTelemetry(options: {
     : {};
 
   const traceExporter = new OTLPTraceExporter({
-    url: traceEndpoint,
     headers: {
       ...baseHeaders,
       ...buildHeaders(config, config.traceStreamName),
     },
+    url: traceEndpoint,
   });
 
   const metricExporter = new OTLPMetricExporter({
-    url: metricEndpoint,
     headers: {
       ...baseHeaders,
       ...buildHeaders(config, config.metricStreamName),
     },
+    url: metricEndpoint,
   });
 
   const logExporter = new OTLPLogExporter({
-    url: logEndpoint,
     headers: { ...baseHeaders, ...buildStreamHeader(config) },
+    url: logEndpoint,
   });
 
   const tracerProvider = new NodeTracerProvider({
@@ -112,36 +116,36 @@ export function initTelemetry(options: {
   tracerProvider.register();
 
   const meterProvider = new MeterProvider({
-    resource,
     readers: [
       new PeriodicExportingMetricReader({
-        exporter: metricExporter,
         exportIntervalMillis: 60_000,
+        exporter: metricExporter,
       }),
     ],
+    resource,
   });
   metrics.setGlobalMeterProvider(meterProvider);
 
   const loggerProvider = new LoggerProvider({
-    resource,
     processors: [new SimpleLogRecordProcessor({ exporter: logExporter })],
+    resource,
   });
   logs.setGlobalLoggerProvider(loggerProvider);
 
   return {
-    tracerProvider,
     shutdown: async () => {
       await tracerProvider.shutdown();
       await meterProvider.shutdown();
       await loggerProvider.shutdown();
     },
+    tracerProvider,
   };
 }
 
 // Returns the tracer and meter for manual instrumentation.
 export function getTelemetryApi() {
   return {
-    tracer: trace.getTracer("asm", "1.0.0"),
     meter: metrics.getMeter("asm", "1.0.0"),
+    tracer: trace.getTracer("asm", "1.0.0"),
   };
 }

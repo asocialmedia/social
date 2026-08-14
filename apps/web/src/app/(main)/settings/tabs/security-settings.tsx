@@ -14,8 +14,10 @@ import { Input } from "@asm/ui/shadui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { KeyRound, Mail } from "lucide-react";
 import { useCallback, useState, useTransition } from "react";
-import { type ControllerRenderProps, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
+import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
+
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
 import LoadingButton from "@/components/auth/loading-button";
 import {
@@ -50,10 +52,10 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
   const { toast } = useToast();
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(identifierSchema),
     defaultValues: {
       identifier: user.email || user.username || "",
     },
+    resolver: zodResolver(identifierSchema),
   });
 
   const renderIdentifierField = useCallback(
@@ -81,17 +83,17 @@ export default function SecuritySettings({ user }: SecuritySettingsProps) {
 
       if (result.error) {
         toast({
-          variant: "destructive",
-          title: "Couldn't Send",
           description: result.error,
+          title: "Couldn't Send",
+          variant: "destructive",
         });
         return;
       }
 
       setIsEmailSent(true);
       toast({
-        title: "Email Sent",
         description: "Check your inbox for the reset link",
+        title: "Email Sent",
       });
     });
   }

@@ -1,4 +1,5 @@
 import { getUserDataSelect, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -18,13 +19,13 @@ export async function GET(
     }
 
     const user = await prisma.user.findFirst({
+      select: getUserDataSelect(loggedInUser.id),
       where: {
         username: {
           equals: username,
           mode: "insensitive",
         },
       },
-      select: getUserDataSelect(loggedInUser.id),
     });
 
     if (!user) {

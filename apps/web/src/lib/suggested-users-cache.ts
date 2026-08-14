@@ -1,5 +1,4 @@
 import { clientLog } from "@asm/config/debug";
-
 import { redis } from "@asm/db";
 
 const SUGGESTED_USERS_CACHE_KEY = (userId: string) =>
@@ -14,19 +13,6 @@ export const suggestedUsersCache = {
     } catch (error) {
       clientLog.error("Error getting suggested users from cache:", error);
       return null;
-    }
-  },
-
-  async set(userId: string, data: unknown) {
-    try {
-      await redis.set(
-        SUGGESTED_USERS_CACHE_KEY(userId),
-        JSON.stringify(data),
-        "EX",
-        CACHE_TTL
-      );
-    } catch (error) {
-      clientLog.error("Error setting suggested users cache:", error);
     }
   },
 
@@ -57,6 +43,19 @@ export const suggestedUsersCache = {
       ]);
     } catch (error) {
       clientLog.error("Error invalidating user caches:", error);
+    }
+  },
+
+  async set(userId: string, data: unknown) {
+    try {
+      await redis.set(
+        SUGGESTED_USERS_CACHE_KEY(userId),
+        JSON.stringify(data),
+        "EX",
+        CACHE_TTL
+      );
+    } catch (error) {
+      clientLog.error("Error setting suggested users cache:", error);
     }
   },
 };

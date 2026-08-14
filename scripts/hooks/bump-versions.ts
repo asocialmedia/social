@@ -2,8 +2,12 @@
 
 import { runBumpVersions } from "./bump-versions-lib";
 
-runBumpVersions().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`[bump-versions] ${message}`);
-  process.exit(1);
-});
+(async () => {
+  try {
+    await runBumpVersions();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[bump-versions] ${message}`);
+    process.exit(1);
+  }
+})();

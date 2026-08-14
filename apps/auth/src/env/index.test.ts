@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
 import { loadRootEnv } from "./index";
 
 const TMP_ROOT = "/tmp/opencode/env-load-test";
@@ -17,7 +18,7 @@ describe("loadRootEnv", () => {
     process.chdir(originalCwd);
     for (const [key, value] of originalVars) {
       if (value === undefined) {
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       } else {
         process.env[key] = value;
       }

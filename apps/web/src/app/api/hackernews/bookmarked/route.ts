@@ -1,5 +1,6 @@
 import { hackerNewsAPI } from "@asm/aggregator/hackernews";
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
@@ -10,17 +11,16 @@ export async function GET() {
   }
 
   const bookmarks = await prisma.hNBookmark.findMany({
-    where: { userId: user.id },
     orderBy: { createdAt: "desc" },
+    where: { userId: user.id },
   });
 
-  const stories = (
-    await Promise.all(
-      bookmarks.map((bookmark) =>
-        hackerNewsAPI.fetchStory(bookmark.storyId).catch(() => null)
-      )
+  const fetchedStories = await Promise.all(
+    bookmarks.map((bookmark) =>
+      hackerNewsAPI.fetchStory(bookmark.storyId).catch(() => null)
     )
-  ).filter((story) => story !== null);
+  );
+  const stories = fetchedStories.filter((story) => story !== null);
 
   return Response.json({ nextCursor: null, stories });
 }

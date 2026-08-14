@@ -6,6 +6,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useCallback } from "react";
+
 import { FeedView } from "@/components/home/feed-view";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import PostsLoadingSkeleton from "@/components/posts/posts-loading-skeleton";
@@ -20,16 +21,16 @@ export default function FollowingFeed() {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["post-feed", "following"],
-    queryFn: ({ pageParam }) =>
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
           "/api/posts/following",
           pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
         .json<PostsPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["post-feed", "following"],
   });
 
   const posts = data?.pages.flatMap((page) => page.posts) || [];
@@ -64,7 +65,7 @@ export default function FollowingFeed() {
 
   if (status === "error") {
     return (
-      <p className="text-center text-destructive">
+      <p className="text-destructive text-center">
         An error occurred while loading posts.
       </p>
     );
@@ -74,7 +75,7 @@ export default function FollowingFeed() {
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       <FeedView posts={posts} />
       {isFetchingNextPage ? (
-        <Loader2 className="mx-auto my-3 animate-spin bg-background" />
+        <Loader2 className="bg-background mx-auto my-3 animate-spin" />
       ) : null}
     </InfiniteScrollContainer>
   );

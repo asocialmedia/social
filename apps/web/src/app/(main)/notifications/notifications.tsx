@@ -1,7 +1,6 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-
 import type { NotificationsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import noBookmarksImage from "@assets/general/nonotibook.png";
@@ -13,12 +12,14 @@ import {
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import kyInstance from "@/lib/ky";
+
 import Notification from "./notification";
 
 type NotificationTab = "all" | "mentions";
@@ -35,8 +36,9 @@ export default function Notifications() {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
-    queryKey: ["notifications", activeTab],
-    queryFn: ({ pageParam }) =>
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
       kyInstance
         .get(
           "/api/notifications",
@@ -45,21 +47,20 @@ export default function Notifications() {
             : { searchParams: { type: activeTab } }
         )
         .json<NotificationsPage>(),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    queryKey: ["notifications", activeTab],
   });
 
   const queryClient = useQueryClient();
 
   const { mutate } = useMutation({
     mutationFn: () => kyInstance.patch("/api/notifications/mark-as-read"),
+    onError(error) {
+      clientLog.error("Failed to mark notifications as read", error);
+    },
     onSuccess: () => {
       queryClient.setQueryData(["unread-notification-count"], {
         unreadCount: 0,
       });
-    },
-    onError(error) {
-      clientLog.error("Failed to mark notifications as read", error);
     },
   });
 
@@ -83,7 +84,7 @@ export default function Notifications() {
     feedBody = <NotificationsSkeleton />;
   } else if (status === "error") {
     feedBody = (
-      <p className="px-4 py-8 text-center text-destructive">
+      <p className="text-destructive px-4 py-8 text-center">
         An error occurred while loading rustles.
       </p>
     );
@@ -127,7 +128,7 @@ export default function Notifications() {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
-        <div className="flex items-center border-border/60 border-b">
+        <div className="border-border/60 flex items-center border-b">
           <button
             className={`${TAB_TRIGGER_CLASS} flex-1 ${
               activeTab === "all" ? "data-[state=active]" : ""
@@ -153,7 +154,7 @@ export default function Notifications() {
 
       <div className="relative min-h-0 flex-1">
         <div
-          className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+          className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
           ref={feedScrollRef}
         >
           {feedBody}

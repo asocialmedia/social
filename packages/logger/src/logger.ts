@@ -1,6 +1,7 @@
 import { trace } from "@opentelemetry/api";
 import pino from "pino";
 import pretty from "pino-pretty";
+
 import { buildOpenObserveAuth, getOtlpEndpoints } from "./otel-config";
 import { createOtlpLogDestination } from "./otlp-log-destination";
 
@@ -37,9 +38,9 @@ function bindTraceContext(): Record<string, unknown> {
     }
     const spanContext = span.spanContext();
     return {
-      trace_id: spanContext.traceId,
       span_id: spanContext.spanId,
       trace_flags: spanContext.traceFlags,
+      trace_id: spanContext.traceId,
     };
   } catch {
     return {};
@@ -63,8 +64,8 @@ function buildStreams(options: LoggerOptions): pino.DestinationStream[] {
     streams.push(
       pretty({
         colorize: true,
-        translateTime: "SYS:HH:MM:ss.l",
         ignore: "pid,hostname",
+        translateTime: "SYS:HH:MM:ss.l",
       })
     );
   } else {
@@ -107,14 +108,14 @@ export function createLogger(options: LoggerOptions = {}): Logger {
 
   return pino(
     {
-      name: resolved.name ?? serviceName,
-      level: level as pino.Level,
       base: { service: serviceName },
       formatters: {
         log(object) {
           return { ...object, ...bindTraceContext() };
         },
       },
+      level: level as pino.Level,
+      name: resolved.name ?? serviceName,
       timestamp: pino.stdTimeFunctions.isoTime,
     },
     destination

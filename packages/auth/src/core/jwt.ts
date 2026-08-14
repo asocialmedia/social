@@ -1,5 +1,7 @@
-import { type CachedSession, jwtSessionCache } from "@asm/db";
-import { type JWTPayload, jwtVerify } from "jose";
+import { jwtSessionCache } from "@asm/db";
+import type { CachedSession } from "@asm/db";
+import { jwtVerify } from "jose";
+import type { JWTPayload } from "jose";
 
 export interface JWTValidationResult {
   error?: string;
@@ -16,17 +18,17 @@ export async function validateJWTToken(
     );
 
     const { payload } = await jwtVerify(token, secret, {
-      issuer: process.env.APP_URL || "https://social.localhost",
       audience: process.env.APP_URL || "https://social.localhost",
+      issuer: process.env.APP_URL || "https://social.localhost",
     });
 
-    return { valid: true, payload };
+    return { payload, valid: true };
   } catch (error) {
     console.error("JWT validation failed:", error);
     return {
-      valid: false,
       error:
         error instanceof Error ? error.message : "Unknown validation error",
+      valid: false,
     };
   }
 }
@@ -58,29 +60,29 @@ export async function cacheJWTValidation(
 
   const sessionData = {
     session: {
+      createdAt: new Date(payload.iat ? payload.iat * 1000 : Date.now()),
+      expiresAt: new Date((payload.exp || 0) * 1000),
       id: String(
         payload.jti || payload.sid || `session_${userId}_${Date.now()}`
       ),
-      createdAt: new Date(payload.iat ? payload.iat * 1000 : Date.now()),
-      updatedAt: new Date(),
-      userId,
-      expiresAt: new Date((payload.exp || 0) * 1000),
-      token,
       ipAddress: payload.ip as string,
+      token,
+      updatedAt: new Date(),
       userAgent: payload.ua as string,
+      userId,
     },
     user: {
-      id: userId,
+      createdAt: new Date(payload.iat ? payload.iat * 1000 : Date.now()),
       email: payload.email as string,
       emailVerified: payload.email_verified as boolean,
+      id: userId,
       name: (payload.name as string) || "",
+      updatedAt: new Date(),
       username:
         userData?.username ||
         (payload.username as string) ||
         (payload.preferred_username as string) ||
         "",
-      createdAt: new Date(payload.iat ? payload.iat * 1000 : Date.now()),
-      updatedAt: new Date(),
     },
   };
 

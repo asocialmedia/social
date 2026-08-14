@@ -1,10 +1,6 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  type PostsPage,
-  type Prisma,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import type { PostsPage, Prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 // A valid take value is a positive integer only (no partial-prefix parsing).
@@ -24,25 +20,25 @@ export async function GET(request: Request) {
   const takeValue = url.searchParams.get("take");
   const requestedTake =
     takeValue && TAKE_PATTERN.test(takeValue)
-      ? Number.parseInt(takeValue, 10)
+      ? Math.trunc(Number(takeValue))
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
   const where: Prisma.PostWhereInput = {};
   const posts = await prisma.post.findMany({
-    where,
+    cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
+    where,
   });
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const data: PostsPage = {
-    posts: hydrated,
     nextCursor,
+    posts: hydrated,
   };
   return Response.json(data);
 }

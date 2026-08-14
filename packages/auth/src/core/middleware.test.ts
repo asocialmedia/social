@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { getSessionFromRequest, optionalAuth, requireAuth } from "./middleware";
 import type { AuthContext, Session, User } from "./types";
 
 const originalConsoleError = console.error;
@@ -8,7 +10,9 @@ interface SessionResponse {
   user: User;
 }
 
-const mockGetSession = mock(async (): Promise<SessionResponse | null> => null);
+const mockGetSession = mock((): Promise<SessionResponse | null> =>
+  Promise.resolve(null)
+);
 
 const mockAuth = {
   api: {
@@ -18,11 +22,9 @@ const mockAuth = {
 
 mock.module("./config", () => ({ auth: mockAuth }));
 
-import { getSessionFromRequest, optionalAuth, requireAuth } from "./middleware";
-
 describe("middleware", () => {
   beforeEach(() => {
-    console.error = mock(() => undefined) as typeof console.error;
+    console.error = mock(() => {}) as typeof console.error;
     mockGetSession.mockClear();
   });
 
@@ -43,25 +45,25 @@ describe("middleware", () => {
   test("getSessionFromRequest returns session and user", async () => {
     const sessionResponse: SessionResponse = {
       session: {
-        id: "s1",
-        userId: "u1",
-        token: "token",
-        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-        ipAddress: null,
-        userAgent: null,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        id: "s1",
+        ipAddress: null,
+        token: "token",
         updatedAt: new Date("2030-01-01T00:00:00.000Z"),
+        userAgent: null,
+        userId: "u1",
       },
       user: {
-        id: "u1",
-        email: "test@example.com",
-        emailVerified: true,
-        name: "Test User",
-        username: "testuser",
-        role: "user",
         banned: false,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
+        email: "test@example.com",
+        emailVerified: true,
+        id: "u1",
+        name: "Test User",
+        role: "user",
         updatedAt: new Date("2030-01-01T00:00:00.000Z"),
+        username: "testuser",
       },
     };
 
@@ -94,25 +96,25 @@ describe("middleware", () => {
   test("requireAuth returns context if authorized", async () => {
     const authContext: AuthContext = {
       session: {
-        id: "s1",
-        userId: "u1",
-        token: "token",
-        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-        ipAddress: null,
-        userAgent: null,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        id: "s1",
+        ipAddress: null,
+        token: "token",
         updatedAt: new Date("2030-01-01T00:00:00.000Z"),
+        userAgent: null,
+        userId: "u1",
       },
       user: {
-        id: "u1",
-        email: "test@example.com",
-        emailVerified: true,
-        name: "Test User",
-        username: "testuser",
-        role: "user",
         banned: false,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
+        email: "test@example.com",
+        emailVerified: true,
+        id: "u1",
+        name: "Test User",
+        role: "user",
         updatedAt: new Date("2030-01-01T00:00:00.000Z"),
+        username: "testuser",
       },
     };
 

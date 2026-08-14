@@ -1,7 +1,18 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
 import type { HybridSession, JWTValidationResult } from "@asm/auth/core";
 
-type MiddlewareModule = typeof import("./middleware");
+import type {
+  getSessionFromRequest,
+  optionalAuth,
+  requireAuth,
+} from "./middleware";
+
+interface MiddlewareModule {
+  getSessionFromRequest: typeof getSessionFromRequest;
+  optionalAuth: typeof optionalAuth;
+  requireAuth: typeof requireAuth;
+}
 
 interface SessionLookupUser {
   banExpires: Date | null;
@@ -23,16 +34,23 @@ type ApiSessionResult = {
 } | null;
 
 const mockFindUnique = mock(
-  async (): Promise<SessionLookupUser | { username: string } | null> => null
+  (): Promise<SessionLookupUser | { username: string } | null> =>
+    Promise.resolve(null)
 );
 
-const mockFindByToken = mock(async (): Promise<HybridSession | null> => null);
-const mockCreate = mock(async (): Promise<HybridSession | null> => null);
-const mockValidateJWTToken = mock(
-  async (): Promise<JWTValidationResult> => ({ valid: false })
+const mockFindByToken = mock((): Promise<HybridSession | null> =>
+  Promise.resolve(null)
+);
+const mockCreate = mock((): Promise<HybridSession | null> =>
+  Promise.resolve(null)
+);
+const mockValidateJWTToken = mock((): Promise<JWTValidationResult> =>
+  Promise.resolve({ valid: false })
 );
 
-const mockGetSession = mock(async (): Promise<ApiSessionResult> => null);
+const mockGetSession = mock((): Promise<ApiSessionResult> =>
+  Promise.resolve(null)
+);
 
 const originalEnv = {
   BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
@@ -59,36 +77,36 @@ describe("middleware", () => {
   ): void => {
     const value = originalEnv[key];
     if (value === undefined) {
-      delete process.env[key];
+      Reflect.deleteProperty(process.env, key);
       return;
     }
     process.env[key] = value;
   };
 
   const validUserData: SessionLookupUser = {
-    username: "test",
+    banExpires: null,
+    banReason: null,
+    banned: false,
+    createdAt: new Date(),
+    displayName: "Test User",
     email: "test@example.com",
     emailVerified: true,
     name: "Test",
-    displayName: "Test User",
     role: "user",
-    banned: false,
-    banReason: null,
-    banExpires: null,
-    createdAt: new Date(),
     updatedAt: new Date(),
+    username: "test",
   };
 
   beforeEach(async () => {
-    console.error = mock(() => undefined) as typeof console.error;
-    console.log = mock(() => undefined) as typeof console.log;
-    console.warn = mock(() => undefined) as typeof console.warn;
+    console.error = mock(() => {}) as typeof console.error;
+    console.log = mock(() => {}) as typeof console.log;
+    console.warn = mock(() => {}) as typeof console.warn;
 
     mock.module("@asm/db", () => ({
       prisma: {
         user: {
           findUnique: mockFindUnique,
-          update: mock(async () => ({})),
+          update: mock(() => ({})),
         },
       },
     }));
@@ -97,8 +115,8 @@ describe("middleware", () => {
       extractTokenFromHeader: (h: string | null) =>
         h ? h.replace("Bearer ", "") : null,
       hybridSessionStore: {
-        findByToken: mockFindByToken,
         create: mockCreate,
+        findByToken: mockFindByToken,
       },
       validateJWTToken: mockValidateJWTToken,
     }));
@@ -162,14 +180,14 @@ describe("middleware", () => {
     test("uses cached session from hybrid store", async () => {
       const now = new Date();
       mockFindByToken.mockResolvedValueOnce({
-        id: "s1",
-        userId: "u1",
-        token: "valid",
-        expiresAt: now,
-        ipAddress: "127.0.0.1",
-        userAgent: "ua",
         createdAt: now,
+        expiresAt: now,
+        id: "s1",
+        ipAddress: "127.0.0.1",
+        token: "valid",
         updatedAt: now,
+        userAgent: "ua",
+        userId: "u1",
       });
       mockFindUnique.mockResolvedValueOnce(validUserData);
 
@@ -189,20 +207,20 @@ describe("middleware", () => {
     test("rejects cached session for a banned user", async () => {
       const now = new Date();
       mockFindByToken.mockResolvedValueOnce({
-        id: "s1",
-        userId: "u1",
-        token: "valid",
-        expiresAt: now,
-        ipAddress: "127.0.0.1",
-        userAgent: "ua",
         createdAt: now,
+        expiresAt: now,
+        id: "s1",
+        ipAddress: "127.0.0.1",
+        token: "valid",
         updatedAt: now,
+        userAgent: "ua",
+        userId: "u1",
       });
       mockFindUnique.mockResolvedValueOnce({
         ...validUserData,
-        banned: true,
-        banReason: "Spam",
         banExpires: new Date("2030-01-01T00:00:00.000Z"),
+        banReason: "Spam",
+        banned: true,
       });
 
       const req = new Request("http://localhost", {
@@ -218,20 +236,20 @@ describe("middleware", () => {
     test("clears an expired ban and allows the cached session", async () => {
       const now = new Date();
       mockFindByToken.mockResolvedValueOnce({
-        id: "s1",
-        userId: "u1",
-        token: "valid",
-        expiresAt: now,
-        ipAddress: "127.0.0.1",
-        userAgent: "ua",
         createdAt: now,
+        expiresAt: now,
+        id: "s1",
+        ipAddress: "127.0.0.1",
+        token: "valid",
         updatedAt: now,
+        userAgent: "ua",
+        userId: "u1",
       });
       mockFindUnique.mockResolvedValueOnce({
         ...validUserData,
-        banned: true,
-        banReason: "Old",
         banExpires: new Date("2020-01-01T00:00:00.000Z"),
+        banReason: "Old",
+        banned: true,
       });
 
       const req = new Request("http://localhost", {
@@ -247,14 +265,14 @@ describe("middleware", () => {
     test("returns null if cached session but user not found", async () => {
       const now = new Date();
       mockFindByToken.mockResolvedValueOnce({
-        id: "s1",
-        userId: "u1",
-        token: "valid",
-        expiresAt: now,
-        ipAddress: "127.0.0.1",
-        userAgent: "ua",
         createdAt: now,
+        expiresAt: now,
+        id: "s1",
+        ipAddress: "127.0.0.1",
+        token: "valid",
         updatedAt: now,
+        userAgent: "ua",
+        userId: "u1",
       });
       mockFindUnique.mockResolvedValueOnce(null);
 
@@ -272,19 +290,19 @@ describe("middleware", () => {
 
       mockFindByToken.mockResolvedValueOnce(null);
       mockValidateJWTToken.mockResolvedValueOnce({
+        payload: { exp: Date.now() / 1000 + 10_000, sub: "u1" },
         valid: true,
-        payload: { sub: "u1", exp: Date.now() / 1000 + 10_000 },
       });
       mockFindUnique.mockResolvedValueOnce(validUserData);
       mockCreate.mockResolvedValueOnce({
-        id: "s1",
-        userId: "u1",
-        token: "valid",
-        expiresAt: now,
-        ipAddress: "127.0.0.1",
-        userAgent: "ua",
         createdAt: now,
+        expiresAt: now,
+        id: "s1",
+        ipAddress: "127.0.0.1",
+        token: "valid",
         updatedAt: now,
+        userAgent: "ua",
+        userId: "u1",
       });
 
       const req = new Request("http://localhost", {
@@ -302,8 +320,8 @@ describe("middleware", () => {
     test("returns null if validation result has no sub", async () => {
       mockFindByToken.mockResolvedValueOnce(null);
       mockValidateJWTToken.mockResolvedValueOnce({
-        valid: true,
         payload: { exp: Date.now() / 1000 + 10_000 },
+        valid: true,
       });
       const req = new Request("http://localhost", {
         headers: { authorization: "Bearer valid" },
@@ -317,8 +335,8 @@ describe("middleware", () => {
     test("falls through if userData is null after validation", async () => {
       mockFindByToken.mockResolvedValueOnce(null);
       mockValidateJWTToken.mockResolvedValueOnce({
+        payload: { exp: Date.now() / 1000 + 10_000, sub: "u1" },
         valid: true,
-        payload: { sub: "u1", exp: Date.now() / 1000 + 10_000 },
       });
       mockFindUnique.mockResolvedValueOnce(null);
 

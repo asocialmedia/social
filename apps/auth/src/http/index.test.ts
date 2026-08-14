@@ -1,20 +1,23 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { createHttpHandler } from "./index";
 
-const mockGetSession = mock(async (): Promise<unknown> => null);
-const mockAuthHandler = mock(
-  async (_request: Request) => new Response("auth-ok")
+import { corsHeaders, createHttpHandler, getAllowedOrigin } from "./index";
+
+const mockGetSession = mock((): Promise<unknown> => Promise.resolve(null));
+const mockAuthHandler = mock((_request: Request) =>
+  Promise.resolve(new Response("auth-ok"))
 );
-const mockTrpcFetchHandler = mock(async () => new Response("trpc-ok"));
+const mockTrpcFetchHandler = mock(() =>
+  Promise.resolve(new Response("trpc-ok"))
+);
 
 function createHandler() {
   return createHttpHandler({
+    appRouter: {} as Parameters<typeof createHttpHandler>[0]["appRouter"],
     authInstance: {
       api: { getSession: mockGetSession },
       handler: mockAuthHandler,
     },
-    appRouter: {} as Parameters<typeof createHttpHandler>[0]["appRouter"],
-    createContext: async () => ({ session: null, user: null }),
+    createContext: () => ({ session: null, user: null }),
     trpcFetchHandler: mockTrpcFetchHandler,
   });
 }
@@ -130,7 +133,6 @@ describe("auth service http handler", () => {
     try {
       process.env.NODE_ENV = "production";
       process.env.APP_URL = "https://asocialmedia.cc";
-      const { getAllowedOrigin, corsHeaders } = require("./index");
       expect(getAllowedOrigin()).toBe("https://asocialmedia.cc");
       expect(corsHeaders()["Access-Control-Allow-Origin"]).toBe(
         "https://asocialmedia.cc"

@@ -1,11 +1,12 @@
 import { Button } from "@asm/ui/shadui/button";
 import errorImage from "@assets/general/error.png";
 import Link from "next/link";
+
 import { StatusScreen } from "@/components/layouts/status-screen";
 
 export const metadata = {
-  title: "Coming Soon",
   description: "This feature is under development.",
+  title: "Coming Soon",
 };
 
 export default function ComingSoonPage() {

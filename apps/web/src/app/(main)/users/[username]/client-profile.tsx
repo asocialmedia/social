@@ -6,6 +6,7 @@ import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
+
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -48,6 +49,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
   useEffect(() => {
     if (isXl && activeTab === "media") {
+      // eslint-disable-next-line react-compiler -- reset the tab when the layout switches to the media sidebar
       setActiveTab("posts");
     }
   }, [activeTab, isXl]);
@@ -59,8 +61,8 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
       <LeftSidebar userData={loggedInUserData} />
 
       <div className="flex min-w-0 flex-1">
-        <div className="mx-auto flex w-full min-w-0 max-w-[88rem] justify-center">
-          <div className="flex min-w-0 flex-1 flex-col border-border/60 bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+        <div className="mx-auto flex w-full max-w-[88rem] min-w-0 justify-center">
+          <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
             <Tabs
               className="flex min-h-0 flex-1 flex-col"
               onValueChange={handleTabChange}
@@ -68,7 +70,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
             >
               <div className="relative min-h-0 flex-1">
                 <div
-                  className="hide-native-scrollbar h-full overflow-y-auto overflow-x-hidden"
+                  className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
                   ref={feedScrollRef}
                 >
                   <div className="relative">
@@ -96,7 +98,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                     </div>
                   </div>
 
-                  <div className="sticky top-0 z-10 flex items-center justify-center border-border/60 border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
+                  <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
                     <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
                       <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
                         Posts

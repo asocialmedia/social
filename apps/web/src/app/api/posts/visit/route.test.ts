@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { POST } from "./route";
+
 const USER_ID = "user1";
 const POST_ID = "post1";
 
@@ -29,8 +31,6 @@ mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
-import { POST } from "./route";
-
 describe("POST /api/posts/visit", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
@@ -42,9 +42,9 @@ describe("POST /api/posts/visit", () => {
 
     const res = await POST(
       new Request("http://localhost/api/posts/visit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ postId: POST_ID }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 
@@ -55,9 +55,9 @@ describe("POST /api/posts/visit", () => {
   test("rejects requests without a postId", async () => {
     const res = await POST(
       new Request("http://localhost/api/posts/visit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 
@@ -68,9 +68,9 @@ describe("POST /api/posts/visit", () => {
   test("returns 404 for a missing post", async () => {
     const res = await POST(
       new Request("http://localhost/api/posts/visit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ postId: "missing" }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 
@@ -81,9 +81,9 @@ describe("POST /api/posts/visit", () => {
   test("records the visit for an authenticated user", async () => {
     const res = await POST(
       new Request("http://localhost/api/posts/visit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ postId: POST_ID }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       })
     );
 

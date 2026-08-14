@@ -24,7 +24,6 @@ if (import.meta.main) {
   const securityConfig = readSecurityConfig();
   const security = createSecurity(securityConfig);
 
-  let server: ReturnType<typeof Bun.serve> | undefined;
   let activeRequests = 0;
 
   const getClientIp = (request: Request): string => {
@@ -42,29 +41,30 @@ if (import.meta.main) {
     return request.headers.get("x-real-ip") ?? "unknown";
   };
 
+  const { fetchRequestHandler: trpcFetchHandler } =
+    await import("@trpc/server/adapters/fetch");
+
   const handleRequest = createHttpHandler({
-    authInstance: auth,
     appRouter,
+    authInstance: auth,
     createContext,
-    trpcFetchHandler: (await import("@trpc/server/adapters/fetch"))
-      .fetchRequestHandler,
+    getClientIp,
     logger,
     security,
-    getClientIp,
+    trpcFetchHandler,
   });
 
-  server = Bun.serve({
-    port,
-    hostname: "0.0.0.0",
-    maxRequestBodySize: securityConfig.maxBodyBytes,
-    idleTimeout: Math.min(securityConfig.requestTimeoutMs, 255_000) / 1000,
+  const server = Bun.serve({
     fetch: async (request: Request) => {
       // Cap concurrent in-flight requests to shed load under a flood.
       if (activeRequests >= securityConfig.maxConcurrentRequests) {
-        return new Response(JSON.stringify({ error: "too-many-requests" }), {
-          status: 429,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { error: "too-many-requests" },
+          {
+            headers: { "content-type": "application/json" },
+            status: 429,
+          }
+        );
       }
 
       activeRequests += 1;
@@ -74,6 +74,10 @@ if (import.meta.main) {
         activeRequests -= 1;
       }
     },
+    hostname: "0.0.0.0",
+    idleTimeout: Math.min(securityConfig.requestTimeoutMs, 255_000) / 1000,
+    maxRequestBodySize: securityConfig.maxBodyBytes,
+    port,
   });
 
   logger.info({ port }, "auth service listening");
@@ -86,15 +90,23 @@ if (import.meta.main) {
   };
 
   process.on("SIGINT", () => {
-    shutdown("SIGINT").catch((error: unknown) => {
-      logger.error({ error }, "shutdown failed");
-      process.exit(1);
-    });
+    void (async () => {
+      try {
+        await shutdown("SIGINT");
+      } catch (error: unknown) {
+        logger.error({ error }, "shutdown failed");
+        process.exit(1);
+      }
+    })();
   });
   process.on("SIGTERM", () => {
-    shutdown("SIGTERM").catch((error: unknown) => {
-      logger.error({ error }, "shutdown failed");
-      process.exit(1);
-    });
+    void (async () => {
+      try {
+        await shutdown("SIGTERM");
+      } catch (error: unknown) {
+        logger.error({ error }, "shutdown failed");
+        process.exit(1);
+      }
+    })();
   });
 }

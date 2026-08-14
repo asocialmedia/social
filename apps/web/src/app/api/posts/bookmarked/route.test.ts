@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { GET } from "./route";
+
 const USER_ID = "user1";
 const POST_ID = "post1";
 
@@ -11,21 +13,21 @@ const mockPrisma = {
   bookmark: {
     findMany: () => [
       {
-        id: "bookmark1",
-        userId: USER_ID,
-        postId: POST_ID,
         createdAt: new Date("2026-01-02T00:00:00Z"),
+        id: "bookmark1",
         post: { id: POST_ID },
+        postId: POST_ID,
+        userId: USER_ID,
       },
     ],
   },
   post: {
     findMany: () => [
       {
-        id: POST_ID,
-        userId: "author1",
         content: "hello world",
+        id: POST_ID,
         user: { id: "author1", username: "author1" },
+        userId: "author1",
       },
     ],
   },
@@ -34,16 +36,14 @@ const mockPrisma = {
 const mockHydrate = mock((posts: unknown[]) => posts);
 
 mock.module("@asm/db", () => ({
-  prisma: mockPrisma,
   getPostDataInclude: () => ({ user: true }),
   hydrateViewCounts: mockHydrate,
+  prisma: mockPrisma,
 }));
 
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
-
-import { GET } from "./route";
 
 describe("GET /api/posts/bookmarked", () => {
   beforeEach(() => {
@@ -68,10 +68,10 @@ describe("GET /api/posts/bookmarked", () => {
       nextCursor: null,
       posts: [
         {
-          id: POST_ID,
-          userId: "author1",
           content: "hello world",
+          id: POST_ID,
           user: { id: "author1", username: "author1" },
+          userId: "author1",
         },
       ],
     });
@@ -81,32 +81,32 @@ describe("GET /api/posts/bookmarked", () => {
   test("preserves bookmark order (most recently bookmarked first)", async () => {
     mockPrisma.bookmark.findMany = () => [
       {
-        id: "bookmark2",
-        userId: USER_ID,
-        postId: "post2",
         createdAt: new Date("2026-01-03T00:00:00Z"),
+        id: "bookmark2",
         post: { id: "post2" },
+        postId: "post2",
+        userId: USER_ID,
       },
       {
-        id: "bookmark1",
-        userId: USER_ID,
-        postId: POST_ID,
         createdAt: new Date("2026-01-02T00:00:00Z"),
+        id: "bookmark1",
         post: { id: POST_ID },
+        postId: POST_ID,
+        userId: USER_ID,
       },
     ];
     mockPrisma.post.findMany = () => [
       {
-        id: POST_ID,
-        userId: "author1",
         content: "older",
+        id: POST_ID,
         user: { id: "author1", username: "author1" },
+        userId: "author1",
       },
       {
-        id: "post2",
-        userId: "author2",
         content: "newer",
+        id: "post2",
         user: { id: "author2", username: "author2" },
+        userId: "author2",
       },
     ];
 

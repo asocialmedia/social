@@ -91,7 +91,7 @@ function buildReject(
   }
   return {
     allowed: false,
-    response: new Response(JSON.stringify(body), { status, headers }),
+    response: Response.json(body, { headers, status }),
   };
 }
 
@@ -133,11 +133,11 @@ function rateLimitHit(
 }
 
 const SECURITY_HEADERS: Record<string, string> = {
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
-  "referrer-policy": "no-referrer",
   "x-robots-tag": "noindex, nofollow",
-  "permissions-policy": "camera=(), microphone=(), geolocation=()",
 };
 
 export function securityHeaders(): Record<string, string> {

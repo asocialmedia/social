@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+
 import { clientLog } from "./debug-logger";
 
 // The public logger (clientLog) is active server-side regardless of NODE_ENV,
@@ -7,7 +8,6 @@ import { clientLog } from "./debug-logger";
 function captureConsole(method: "log" | "error") {
   const spy = spyOn(console, method);
   return {
-    spy,
     firstArg() {
       const [call] = spy.mock.calls;
       if (!call) {
@@ -16,6 +16,7 @@ function captureConsole(method: "log" | "error") {
       const [first] = call;
       return first;
     },
+    spy,
   };
 }
 
@@ -34,7 +35,7 @@ describe("clientLog sanitization", () => {
     const { spy, firstArg } = captureConsole("log");
     try {
       // NUL and other non-whitespace C0 controls have no readable escape
-      clientLog.log("a\x00b\x01c\x1fd");
+      clientLog.log("a\u0000b\u0001c\u001Fd");
       expect(firstArg()).toBe("a\\u0000b\\u0001c\\u001fd");
     } finally {
       spy.mockRestore();
@@ -44,7 +45,7 @@ describe("clientLog sanitization", () => {
   test("DEL and C1 controls become literal \\uXXXX escapes", () => {
     const { spy, firstArg } = captureConsole("log");
     try {
-      clientLog.log("del\x7f\u0080\u009fend");
+      clientLog.log("del\u007F\u0080\u009Fend");
       expect(firstArg()).toBe("del\\u007f\\u0080\\u009fend");
     } finally {
       spy.mockRestore();

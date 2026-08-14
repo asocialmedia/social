@@ -3,6 +3,7 @@ import type { FollowerInfo, UserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { UserMinus, UserPlus } from "lucide-react";
 import { createElement } from "react";
+
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 
@@ -57,8 +58,36 @@ export function useFollowUserMutation() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<FollowResponseData, Error, string, MutationContext>({
     mutationFn: followUser,
+
+    onError: (error, userId, context) => {
+      debugLog.mutation("Follow mutation error:", error);
+      if (context?.previousData) {
+        // Revert all optimistic updates
+        queryClient.setQueryData(
+          QUERY_KEYS.followerInfo(userId),
+          context.previousData.followerInfo
+        );
+        queryClient.setQueryData(
+          QUERY_KEYS.suggestedUsers,
+          context.previousData.suggestedUsers
+        );
+        queryClient.setQueryData(
+          QUERY_KEYS.user(userId),
+          context.previousData.user
+        );
+        queryClient.setQueryData(
+          QUERY_KEYS.userProfile(userId),
+          context.previousData.userProfile
+        );
+      }
+
+      toast({
+        description: "Couldn't follow that person, give it another try?",
+        variant: "destructive",
+      });
+    },
 
     onMutate: async (userId): Promise<MutationContext> => {
       debugLog.mutation("Starting follow mutation for user:", userId);
@@ -109,45 +138,6 @@ export function useFollowUserMutation() {
       return { previousData };
     },
 
-    onError: (error, userId, context) => {
-      debugLog.mutation("Follow mutation error:", error);
-      if (context?.previousData) {
-        // Revert all optimistic updates
-        queryClient.setQueryData(
-          QUERY_KEYS.followerInfo(userId),
-          context.previousData.followerInfo
-        );
-        queryClient.setQueryData(
-          QUERY_KEYS.suggestedUsers,
-          context.previousData.suggestedUsers
-        );
-        queryClient.setQueryData(
-          QUERY_KEYS.user(userId),
-          context.previousData.user
-        );
-        queryClient.setQueryData(
-          QUERY_KEYS.userProfile(userId),
-          context.previousData.userProfile
-        );
-      }
-
-      toast({
-        description: "Couldn't follow that person, give it another try?",
-        variant: "destructive",
-      });
-    },
-
-    onSuccess: (data, userId) => {
-      debugLog.mutation("Follow mutation succeeded:", { userId, data });
-      queryClient.setQueryData(QUERY_KEYS.followerInfo(userId), data);
-
-      toast({
-        title: "Followed",
-        description: `You're now following ${data.displayName || "this user"}`,
-        icon: createElement(UserPlus),
-      });
-    },
-
     onSettled: async (_, __, userId) => {
       debugLog.mutation("Follow mutation settled, invalidating queries");
       await Promise.all([
@@ -162,6 +152,17 @@ export function useFollowUserMutation() {
       ]);
     },
 
+    onSuccess: (data, userId) => {
+      debugLog.mutation("Follow mutation succeeded:", { data, userId });
+      queryClient.setQueryData(QUERY_KEYS.followerInfo(userId), data);
+
+      toast({
+        description: `You're now following ${data.displayName || "this user"}`,
+        icon: createElement(UserPlus),
+        title: "Followed",
+      });
+    },
+
     retry: 2,
   });
 }
@@ -170,8 +171,42 @@ export function useUnfollowUserMutation() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<FollowResponseData, Error, string, MutationContext>({
     mutationFn: unfollowUser,
+
+    onError: (error, userId, context) => {
+      debugLog.mutation("Unfollow mutation error:", error);
+      if (context?.previousData) {
+        // Revert all optimistic updates
+        if (context.previousData.followerInfo) {
+          queryClient.setQueryData(
+            QUERY_KEYS.followerInfo(userId),
+            context.previousData.followerInfo
+          );
+        }
+        if (context.previousData.suggestedUsers) {
+          queryClient.setQueryData(
+            QUERY_KEYS.suggestedUsers,
+            context.previousData.suggestedUsers
+          );
+        }
+        if (context.previousData.user) {
+          queryClient.setQueryData(
+            QUERY_KEYS.user(userId),
+            context.previousData.user
+          );
+        }
+        queryClient.setQueryData(
+          QUERY_KEYS.userProfile(userId),
+          context.previousData.userProfile
+        );
+      }
+
+      toast({
+        description: "Couldn't unfollow, give it another try?",
+        variant: "destructive",
+      });
+    },
 
     onMutate: async (userId): Promise<MutationContext> => {
       debugLog.mutation("Starting unfollow mutation for user:", userId);
@@ -215,60 +250,6 @@ export function useUnfollowUserMutation() {
       return { previousData };
     },
 
-    onError: (error, userId, context) => {
-      debugLog.mutation("Unfollow mutation error:", error);
-      if (context?.previousData) {
-        // Revert all optimistic updates
-        if (context.previousData.followerInfo) {
-          queryClient.setQueryData(
-            QUERY_KEYS.followerInfo(userId),
-            context.previousData.followerInfo
-          );
-        }
-        if (context.previousData.suggestedUsers) {
-          queryClient.setQueryData(
-            QUERY_KEYS.suggestedUsers,
-            context.previousData.suggestedUsers
-          );
-        }
-        if (context.previousData.user) {
-          queryClient.setQueryData(
-            QUERY_KEYS.user(userId),
-            context.previousData.user
-          );
-        }
-        queryClient.setQueryData(
-          QUERY_KEYS.userProfile(userId),
-          context.previousData.userProfile
-        );
-      }
-
-      toast({
-        description: "Couldn't unfollow, give it another try?",
-        variant: "destructive",
-      });
-    },
-
-    onSuccess: (data, userId) => {
-      debugLog.mutation("Unfollow mutation succeeded:", { userId, data });
-
-      if (data) {
-        queryClient.setQueryData<FollowerInfo>(
-          QUERY_KEYS.followerInfo(userId),
-          {
-            followers: data.followers,
-            isFollowedByUser: false,
-          }
-        );
-
-        toast({
-          title: "Unfollowed",
-          description: `You've unfollowed ${data.displayName || "this user"}, you can follow them again anytime`,
-          icon: createElement(UserMinus),
-        });
-      }
-    },
-
     onSettled: async (data, error, userId) => {
       debugLog.mutation("Unfollow mutation settled:", { data, error });
 
@@ -283,6 +264,26 @@ export function useUnfollowUserMutation() {
           queryKey: QUERY_KEYS.userProfile(userId),
         }),
       ]);
+    },
+
+    onSuccess: (data, userId) => {
+      debugLog.mutation("Unfollow mutation succeeded:", { data, userId });
+
+      if (data) {
+        queryClient.setQueryData<FollowerInfo>(
+          QUERY_KEYS.followerInfo(userId),
+          {
+            followers: data.followers,
+            isFollowedByUser: false,
+          }
+        );
+
+        toast({
+          description: `You've unfollowed ${data.displayName || "this user"}, you can follow them again anytime`,
+          icon: createElement(UserMinus),
+          title: "Unfollowed",
+        });
+      }
     },
 
     retry: 2,

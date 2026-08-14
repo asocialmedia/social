@@ -7,23 +7,23 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 const ERROR_MESSAGES = {
+  accountNotFound: "Account not found.",
   emailExists: "This email is already registered.",
   invalidCredentials: "Invalid email or password.",
   oauthError: "Error connecting with social provider.",
   serverError: "An unexpected error occurred.",
-  accountNotFound: "Account not found.",
   unauthorized: "You must be logged in to access this page.",
 };
 
 const AnimatedAsocialmediaText = () => {
-  const letters = "ZEPHYR.".split("");
+  const letters = [..."ZEPHYR."];
 
   return (
     <motion.div
       animate={{ opacity: 1 }}
-      className="pointer-events-none select-none font-bold text-4xl sm:text-6xl"
+      className="pointer-events-none text-4xl font-bold select-none sm:text-6xl"
       initial={{ opacity: 0 }}
-      transition={{ duration: 0.8, delay: 0.7 }}
+      transition={{ delay: 0.7, duration: 0.8 }}
     >
       <div className="relative flex">
         {letters.map((letter, i) => (
@@ -36,14 +36,14 @@ const AnimatedAsocialmediaText = () => {
             initial={{ opacity: 0, y: 20 }}
             key={letter}
             style={{
-              textShadow: "0 2px 10px rgba(0, 0, 0, 0.1)",
               display: "inline-block",
+              textShadow: "0 2px 10px rgba(0, 0, 0, 0.1)",
             }}
             transition={{
-              duration: 4,
-              repeat: Number.POSITIVE_INFINITY,
-              ease: "easeInOut",
               delay: i * 0.1,
+              duration: 4,
+              ease: "easeInOut",
+              repeat: Number.POSITIVE_INFINITY,
               times: [0, 0.2, 0.5, 0.8, 1],
             }}
           >
@@ -53,16 +53,16 @@ const AnimatedAsocialmediaText = () => {
       </div>
       <motion.div
         animate={{
-          scaleX: [0, 1, 1, 1, 0],
           opacity: [0, 1, 1, 0.3, 0],
+          scaleX: [0, 1, 1, 1, 0],
         }}
-        className="absolute bottom-0 left-0 h-0.5 bg-primary/30"
+        className="bg-primary/30 absolute bottom-0 left-0 h-0.5"
         initial={{ scaleX: 0 }}
         style={{ transformOrigin: "left" }}
         transition={{
           duration: 4,
-          repeat: Number.POSITIVE_INFINITY,
           ease: "easeInOut",
+          repeat: Number.POSITIVE_INFINITY,
           times: [0, 0.2, 0.5, 0.8, 1],
         }}
       />
@@ -83,7 +83,7 @@ export default function LoginErrorPage() {
     <AnimatePresence>
       <motion.div
         animate={{ opacity: 1 }}
-        className="relative min-h-screen w-full overflow-hidden bg-gradient-to-br from-background via-background/95 to-background"
+        className="from-background via-background/95 to-background relative min-h-screen w-full overflow-hidden bg-gradient-to-br"
         exit={{ opacity: 0 }}
         initial={{ opacity: 0 }}
       >
@@ -96,7 +96,7 @@ export default function LoginErrorPage() {
         <div className="relative flex min-h-screen items-center justify-center p-4">
           <motion.div
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md rounded-lg border border-border/50 bg-background/60 p-8 shadow-lg backdrop-blur-xl"
+            className="border-border/50 bg-background/60 w-full max-w-md rounded-lg border p-8 shadow-lg backdrop-blur-xl"
             initial={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.5 }}
           >
@@ -107,15 +107,15 @@ export default function LoginErrorPage() {
             >
               <motion.div
                 animate={{ scale: 1 }}
-                className="rounded-full bg-destructive/10 p-4"
+                className="bg-destructive/10 rounded-full p-4"
                 initial={{ scale: 0 }}
-                transition={{ type: "spring", duration: 0.5 }}
+                transition={{ duration: 0.5, type: "spring" }}
               >
-                <AlertCircle className="h-12 w-12 text-destructive" />
+                <AlertCircle className="text-destructive h-12 w-12" />
               </motion.div>
 
               <div className="space-y-2 text-center">
-                <h2 className="font-bold text-2xl text-foreground">
+                <h2 className="text-foreground text-2xl font-bold">
                   Authentication Error
                 </h2>
                 <p className="text-muted-foreground">{errorMessage}</p>
@@ -137,7 +137,7 @@ export default function LoginErrorPage() {
 
               <motion.p
                 animate={{ opacity: 1 }}
-                className="text-center text-muted-foreground text-sm"
+                className="text-muted-foreground text-center text-sm"
                 initial={{ opacity: 0 }}
                 transition={{ delay: 0.5 }}
               >

@@ -3,21 +3,22 @@
 import type { TagWithCount } from "@asm/db";
 import { Hash } from "lucide-react";
 import Link from "next/link";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 
 // Accept the payload shapes produced by getPostDataInclude (post.mentions[*].
 // user and post.tags) directly, so callers don't need unchecked casts.
 interface PostMetaProps {
-  mentions: Array<{
+  mentions: {
     avatarUrl: string | null;
     displayName: string | null;
     id: string;
     username: string;
-  }>;
+  }[];
   tags: TagWithCount[];
 }
 
-export function PostMeta({ mentions, tags }: PostMetaProps) {
+export const PostMeta = ({ mentions, tags }: PostMetaProps) => {
   const hasTags = tags.length > 0;
   const hasMentions = mentions.length > 0;
 
@@ -56,4 +57,4 @@ export function PostMeta({ mentions, tags }: PostMetaProps) {
         : null}
     </div>
   );
-}
+};

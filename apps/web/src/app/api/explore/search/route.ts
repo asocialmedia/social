@@ -2,9 +2,10 @@ import {
   getPostDataInclude,
   getUserDataSelect,
   hydrateViewCounts,
-  type Prisma,
   prisma,
 } from "@asm/db";
+import type { Prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
   const takeValue = url.searchParams.get("take");
   const requestedTake =
     takeValue && TAKE_PATTERN.test(takeValue)
-      ? Number.parseInt(takeValue, 10)
+      ? Math.trunc(Number(takeValue))
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
@@ -42,12 +43,15 @@ export async function GET(request: Request) {
       : { createdAt: "desc" };
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({
-      where: { content: { contains: q, mode: "insensitive" } },
       include: getPostDataInclude(userId),
       orderBy: postOrderBy,
       take: pageSize,
+      where: { content: { contains: q, mode: "insensitive" } },
     }),
     prisma.user.findMany({
+      orderBy: { aura: "desc" },
+      select: getUserDataSelect(userId),
+      take: pageSize,
       where: {
         OR: [
           { username: { contains: q, mode: "insensitive" } },
@@ -55,9 +59,6 @@ export async function GET(request: Request) {
           { displayUsername: { contains: q, mode: "insensitive" } },
         ],
       },
-      select: getUserDataSelect(userId),
-      orderBy: { aura: "desc" },
-      take: pageSize,
     }),
   ]);
 

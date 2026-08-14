@@ -1,5 +1,6 @@
 import { GitPullRequest } from "lucide-react";
 import Link from "next/link";
+
 import { APPLE_CARD_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 
 const ORANGE_TILE_CLASS =
@@ -9,30 +10,28 @@ interface FossBannerProps {
   className?: string;
 }
 
-export function FossBanner({ className }: FossBannerProps) {
-  return (
-    <div className={`${APPLE_CARD_CLASS} mt-8 ${className}`}>
-      <div className="flex items-start gap-3 p-2">
-        <div className={ORANGE_TILE_CLASS}>
-          <GitPullRequest className="h-4 w-4" />
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-semibold text-sm">Open Source Project</h3>
-          <p className="mt-1 text-muted-foreground text-sm">
-            Asocialmedia is a Free and Open Source Software (FOSS) project. We
-            welcome contributions and suggestions. Visit our{" "}
-            <Link
-              className="font-medium text-primary hover:underline"
-              href="https://github.com/asocialmedia/social"
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              GitHub repository
-            </Link>{" "}
-            to contribute or provide feedback on our policies and documentation.
-          </p>
-        </div>
+export const FossBanner = ({ className }: FossBannerProps) => (
+  <div className={`${APPLE_CARD_CLASS} mt-8 ${className}`}>
+    <div className="flex items-start gap-3 p-2">
+      <div className={ORANGE_TILE_CLASS}>
+        <GitPullRequest className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold">Open Source Project</h3>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Asocialmedia is a Free and Open Source Software (FOSS) project. We
+          welcome contributions and suggestions. Visit our{" "}
+          <Link
+            className="text-primary font-medium hover:underline"
+            href="https://github.com/asocialmedia/social"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            GitHub repository
+          </Link>{" "}
+          to contribute or provide feedback on our policies and documentation.
+        </p>
       </div>
     </div>
-  );
-}
+  </div>
+);

@@ -7,11 +7,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
+
 import {
   useFollowUserMutation,
   useUnfollowUserMutation,
 } from "@/hooks/user-mutations";
 import { cn } from "@/lib/utils";
+
 import { useFollowStateStore } from "./follow-state";
 
 interface ClientFollowButtonProps {
@@ -26,21 +28,22 @@ interface ClientFollowButtonProps {
 
 const LoadingPulse = () => (
   <div className="flex items-center justify-center space-x-1">
-    {[...new Array(3)].map((_, i) => (
+    {" "}
+    {Array.from({ length: 3 }).map((_, i) => (
       <motion.div
         animate={{
-          scale: [0.8, 1.2, 0.8],
           opacity: [0.6, 1, 0.6],
+          scale: [0.8, 1.2, 0.8],
         }}
         className="h-1.5 w-1.5 rounded-full bg-current"
-        initial={{ scale: 0.8, opacity: 0.6 }}
+        initial={{ opacity: 0.6, scale: 0.8 }}
         // biome-ignore lint/suspicious/noArrayIndexKey: skeleton loading animation uses index-based keys
         key={`loading-pulse-${i}`}
         transition={{
-          duration: 1,
-          repeat: Number.POSITIVE_INFINITY,
           delay: i * 0.2,
+          duration: 1,
           ease: "easeInOut",
+          repeat: Number.POSITIVE_INFINITY,
         }}
       />
     ))}
@@ -91,6 +94,7 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
   useEffect(() => {
     const persistedState = followMap[userId];
     if (persistedState && persistedState.lastUpdated > Date.now() - 300_000) {
+      // eslint-disable-next-line react-compiler -- restore persisted follow state from the store
       setLocalState({
         followers: persistedState.followers,
         isFollowedByUser: persistedState.isFollowing,
@@ -102,8 +106,8 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
     (newState: FollowerInfo) => {
       setLocalState(newState);
       setUserFollowState(userId, {
-        isFollowing: newState.isFollowedByUser,
         followers: newState.followers,
+        isFollowing: newState.isFollowedByUser,
         lastUpdated: Date.now(),
       });
 
@@ -194,9 +198,9 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
   };
 
   debugLog.component("ClientFollowButton render:", {
-    userId,
-    localState,
     isLoading,
+    localState,
+    userId,
   });
 
   const isFollowing = localState.isFollowedByUser;
@@ -208,9 +212,9 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
           className,
           "relative overflow-hidden transition-all duration-300",
           {
-            "bg-primary/90 hover:bg-primary": !isFollowing,
             "bg-linear-to-b from-orange-500/20 to-orange-600/10 text-orange-600 hover:from-orange-500/25 hover:to-orange-600/15 dark:text-orange-400":
               isFollowing,
+            "bg-primary/90 hover:bg-primary": !isFollowing,
             "cursor-not-allowed": isLoading,
           }
         )}
@@ -230,8 +234,8 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
               initial={{ x: "-100%" }}
               transition={{
                 duration: 1,
-                repeat: Number.POSITIVE_INFINITY,
                 ease: "linear",
+                repeat: Number.POSITIVE_INFINITY,
               }}
             />
           ) : null}

@@ -2,7 +2,8 @@
 
 import { motion } from "motion/react";
 import Link from "next/link";
-import { type MouseEvent as ReactMouseEvent, useCallback } from "react";
+import { useCallback } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 
 interface AnimatedAuthLinkProps {
   href: string;
@@ -41,13 +42,13 @@ export default function AnimatedAuthLink({
           ease: "easeInOut",
         }}
       >
-        <span className="relative z-10 text-primary text-sm transition-colors duration-300 group-hover:text-primary">
+        <span className="text-primary group-hover:text-primary relative z-10 text-sm transition-colors duration-300">
           {text}
         </span>
 
         <motion.span
-          className="absolute bottom-0 left-0 h-px w-full bg-primary/50"
-          initial={{ scaleX: 0, originX: 0 }}
+          className="bg-primary/50 absolute bottom-0 left-0 h-px w-full"
+          initial={{ originX: 0, scaleX: 0 }}
           whileHover={{
             scaleX: 1,
             transition: {

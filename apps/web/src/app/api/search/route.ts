@@ -1,11 +1,12 @@
 import {
   getPostDataInclude,
   hydrateViewCounts,
-  type PostsPage,
   prisma,
   searchSuggestionsCache,
 } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 import type { NextRequest } from "next/server";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(request: Request) {
@@ -36,20 +37,20 @@ export async function GET(request: Request) {
   const pageSize = 10;
 
   const posts = await prisma.post.findMany({
-    where: {
-      content: { contains: q, mode: "insensitive" },
-    },
+    cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(user.id),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
-    cursor: cursor ? { id: cursor } : undefined,
+    where: {
+      content: { contains: q, mode: "insensitive" },
+    },
   });
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
   const data: PostsPage = {
-    posts: hydrated,
     nextCursor,
+    posts: hydrated,
   };
   return Response.json(data);
 }
@@ -95,11 +96,9 @@ export async function DELETE(req: NextRequest) {
       return Response.json({ error: "Invalid operation" }, { status: 400 });
     }
 
-    if (query) {
-      await searchSuggestionsCache.removeHistoryItem(user.id, query);
-    } else {
-      await searchSuggestionsCache.clearHistory(user.id);
-    }
+    await (query
+      ? searchSuggestionsCache.removeHistoryItem(user.id, query)
+      : searchSuggestionsCache.clearHistory(user.id));
 
     return Response.json({ success: true });
   } catch (error) {

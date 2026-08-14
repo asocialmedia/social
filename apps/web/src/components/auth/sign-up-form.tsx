@@ -1,6 +1,7 @@
 "use client";
 
-import { type SignUpValues, signUpSchema } from "@asm/auth/validation";
+import { signUpSchema } from "@asm/auth/validation";
+import type { SignUpValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
 import { useVerification } from "@asm/ui/providers/verification";
 import { Button } from "@asm/ui/shadui/button";
@@ -29,7 +30,6 @@ import { AlertCircle, ArrowLeft, Mail, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import {
-  type ChangeEvent,
   useCallback,
   useEffect,
   useId,
@@ -37,18 +37,21 @@ import {
   useState,
   useTransition,
 } from "react";
-import {
-  type ControllerRenderProps,
-  type FieldValues,
-  type SubmitErrorHandler,
-  useForm,
+import type { ChangeEvent } from "react";
+import { useForm } from "react-hook-form";
+import type {
+  ControllerRenderProps,
+  FieldValues,
+  SubmitErrorHandler,
 } from "react-hook-form";
 import { useCountdown } from "usehooks-ts";
+
 import { signUp } from "@/app/(auth)/signup/actions";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
 import { useSignupUrlState } from "@/hooks/use-signup-url-state";
 import { useToast } from "@/lib/gooey-toast";
+
 import { PasswordStrengthChecker } from "./password-strength-checker";
 
 const DIGITS_ONLY_REGEX = /^\d*$/;
@@ -156,13 +159,13 @@ export default function SignUpForm() {
   const verificationChannel = useRef<BroadcastChannel | null>(null);
 
   const form = useForm<SignUpValues>({
-    resolver: zodResolver(signUpSchema),
     defaultValues: {
       email: "",
-      username: "",
       password: "",
+      username: "",
     },
     mode: "onBlur",
+    resolver: zodResolver(signUpSchema),
   });
 
   useEffect(() => {
@@ -195,6 +198,7 @@ export default function SignUpForm() {
       stopCountdown();
       resetCountdown();
       resetOtpResendCountdown();
+      // eslint-disable-next-line react-compiler -- clear OTP when leaving the OTP panel
       setOtp("");
     }
   }, [
@@ -214,10 +218,10 @@ export default function SignUpForm() {
         (firstError?.message as string) || "Please check your input";
 
       toast({
-        variant: "destructive",
-        title: "Oopsie daisy!",
         description: errorMessage,
         duration: 3000,
+        title: "Oopsie daisy!",
+        variant: "destructive",
       });
 
       const [firstErrorField] = Object.keys(errors);
@@ -258,7 +262,7 @@ export default function SignUpForm() {
               className="transition-all duration-500 ease-in-out"
               name="username"
             />
-            <User className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <User className="text-muted-foreground absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2" />
           </div>
         </FormControl>
         <FormMessage />
@@ -281,7 +285,7 @@ export default function SignUpForm() {
               className="transition-all duration-500 ease-in-out"
               name="email"
             />
-            <Mail className="absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Mail className="text-muted-foreground absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2" />
           </div>
         </FormControl>
         <FormMessage />
@@ -315,21 +319,21 @@ export default function SignUpForm() {
     setError(undefined);
     if (!(isAgeVerified && acceptedTerms)) {
       toast({
-        variant: "destructive",
-        title: "Hold up!",
         description:
           "You gotta check those boxes, we can't let just anyone join the squad!",
         duration: 3000,
+        title: "Hold up!",
+        variant: "destructive",
       });
       return;
     }
 
     if (!canStartSignup()) {
       toast({
-        variant: "destructive",
-        title: "Too Fast!",
         description: `You've reached the signup limit. Try again in ${startCountdownInfo.timeLeft} seconds.`,
         duration: 3000,
+        title: "Too Fast!",
+        variant: "destructive",
       });
       return;
     }
@@ -345,29 +349,29 @@ export default function SignUpForm() {
           if (result.requiresEmailVerification === false) {
             const { authClient } = await import("@/lib/auth");
             const loginResult = await authClient.signIn.email({
-              email: values.email,
-              password: values.password,
               callbackURL: "/",
+              email: values.email,
               fetchOptions: {
                 onError: () => {
                   // handled below with fallback redirect
                 },
               },
+              password: values.password,
             });
 
             if (loginResult?.data) {
               setRateLimit("start", { isLimited: false });
               toast({
-                title: "Welcome to Asocialmedia!",
                 description: "Account created and signed in, welcome!",
+                title: "Welcome to Asocialmedia!",
               });
               window.location.href = "/";
               return;
             }
 
             toast({
-              title: "Account Created!",
               description: "Your account is ready, please log in to continue.",
+              title: "Account Created!",
             });
             window.location.href = "/login";
             return;
@@ -376,14 +380,14 @@ export default function SignUpForm() {
           setOTPState(values.email);
           setRateLimit("start", { isLimited: false });
           toast({
-            title: "Check Your Email!",
             description: "We've sent a verification code to your email.",
+            title: "Check Your Email!",
           });
         } else if (result.rateLimited && result.rateLimitInfo) {
           setRateLimit("start", {
+            isLimited: true,
             remaining: result.rateLimitInfo.remaining,
             resetTime: result.rateLimitInfo.resetTime,
-            isLimited: true,
           });
 
           const { resetTime } = result.rateLimitInfo;
@@ -399,18 +403,18 @@ export default function SignUpForm() {
 
           setError(rateLimitMessage);
           toast({
-            variant: "destructive",
-            title: "Rate Limited",
             description: rateLimitMessage,
             duration: 8000,
+            title: "Rate Limited",
+            variant: "destructive",
           });
         } else if (result.error) {
           const msg = String(result.error);
           setError(msg);
           toast({
-            variant: "destructive",
-            title: "Signup Failed!",
             description: msg,
+            title: "Signup Failed!",
+            variant: "destructive",
           });
         }
       } catch (signupError) {
@@ -418,12 +422,12 @@ export default function SignUpForm() {
         clientLog.error("Signup error:", signupError);
         setError(errorMessage);
         toast({
-          variant: "destructive",
-          title: "Something went wrong!",
           description:
             process.env.NODE_ENV === "development"
               ? errorMessage
               : "An unexpected error occurred, try again? Our bad!",
+          title: "Something went wrong!",
+          variant: "destructive",
         });
       } finally {
         setIsLoading(false);
@@ -441,9 +445,6 @@ export default function SignUpForm() {
         const email = currentEmail || form.getValues("email");
         const authBase = env.NEXT_PUBLIC_AUTH_URL;
         const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({
             id: 1,
             json: {
@@ -452,6 +453,9 @@ export default function SignUpForm() {
               otpVerified: true,
             },
           }),
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          method: "POST",
         });
 
         const data = await res.json().catch(() => ({}) as unknown);
@@ -507,10 +511,10 @@ export default function SignUpForm() {
 
           clientLog.error("OTP verification error:", serverError);
           toast({
-            variant: "destructive",
-            title: errorTitle,
             description: userFriendlyError,
             duration: serverError === "rate-limited" ? 8000 : 5000,
+            title: errorTitle,
+            variant: "destructive",
           });
           return;
         }
@@ -525,18 +529,18 @@ export default function SignUpForm() {
             const { authClient } = await import("@/lib/auth");
 
             const loginResult = await authClient.signIn.email({
-              email: responseEmail,
-              password: responsePassword,
               callbackURL: "/",
+              email: responseEmail,
               fetchOptions: {
-                onSuccess: () => {
-                  clientLog.log("Auto-login successful");
-                },
                 onError: (ctx) => {
                   clientLog.error("Auto-login error:", ctx.error);
                   throw new Error(ctx.error.message || "Auto-login failed");
                 },
+                onSuccess: () => {
+                  clientLog.log("Auto-login successful");
+                },
               },
+              password: responsePassword,
             });
 
             if (loginResult?.data) {
@@ -545,21 +549,24 @@ export default function SignUpForm() {
               setIsVerifying(true);
               clearSignupState();
               toast({
-                title: "Welcome to Asocialmedia!",
                 description:
                   "Your account has been created and you're now logged in.",
+                title: "Welcome to Asocialmedia!",
               });
 
-              await new Promise((resolve) => setTimeout(resolve, 500));
+              // eslint-disable-next-line promise/avoid-new -- intentional sleep before redirect
+              await new Promise((resolve) => {
+                setTimeout(resolve, 500);
+              });
               window.location.href = "/";
               return;
             }
           } catch (signError) {
             clientLog.error("Auto sign-in failed:", signError);
             toast({
-              title: "Account Created!",
               description:
                 "Your account has been created. Please log in to continue.",
+              title: "Account Created!",
             });
             clearSignupState();
             setTimeout(() => {
@@ -572,9 +579,9 @@ export default function SignUpForm() {
         setIsVerifying(true);
         clearSignupState();
         toast({
-          title: "Welcome to Asocialmedia!",
           description:
             "Your account has been created successfully. Please log in.",
+          title: "Welcome to Asocialmedia!",
         });
         verificationChannel.current?.postMessage("verification-success");
         setTimeout(() => {
@@ -586,9 +593,9 @@ export default function SignUpForm() {
             ? verificationError.message
             : "OTP verification failed";
         toast({
-          variant: "destructive",
-          title: "Verification Failed",
           description: message,
+          title: "Verification Failed",
+          variant: "destructive",
         });
         throw verificationError;
       } finally {
@@ -607,9 +614,8 @@ export default function SignUpForm() {
       return;
     }
     setResending(true);
-    const { sendVerificationLink } = await import(
-      "@/app/(auth)/signup/actions"
-    );
+    const { sendVerificationLink } =
+      await import("@/app/(auth)/signup/actions");
     const res = await sendVerificationLink(
       currentEmail || form.getValues("email")
     );
@@ -618,25 +624,25 @@ export default function SignUpForm() {
       startResendCountdown();
       setRateLimit("resend", { isLimited: false });
       toast({
-        title: "Email Sent!",
         description: "A new verification link has been sent to your email.",
+        title: "Email Sent!",
       });
     } else if (res.rateLimited && res.rateLimitInfo) {
       setRateLimit("resend", {
+        isLimited: true,
         remaining: res.rateLimitInfo.remaining,
         resetTime: res.rateLimitInfo.resetTime,
-        isLimited: true,
       });
       toast({
-        variant: "destructive",
-        title: "Rate Limited!",
         description: res.error || "Too many requests. Try again later.",
+        title: "Rate Limited!",
+        variant: "destructive",
       });
     } else {
       toast({
-        variant: "destructive",
-        title: "Failed to Send",
         description: res.error || "Failed to send verification link.",
+        title: "Failed to Send",
+        variant: "destructive",
       });
     }
     setResending(false);
@@ -657,9 +663,8 @@ export default function SignUpForm() {
     }
     setTooltipDismissed(true);
     setResending(true);
-    const { resendVerificationEmail } = await import(
-      "@/app/(auth)/signup/actions"
-    );
+    const { resendVerificationEmail } =
+      await import("@/app/(auth)/signup/actions");
     const result = await resendVerificationEmail(
       currentEmail || form.getValues("email")
     );
@@ -670,25 +675,25 @@ export default function SignUpForm() {
       setTooltipDismissed(false);
       setRateLimit("resend", { isLimited: false });
       toast({
-        title: "Code Sent!",
         description: "A new verification code has been sent.",
+        title: "Code Sent!",
       });
     } else if (result.rateLimited && result.rateLimitInfo) {
       setRateLimit("resend", {
+        isLimited: true,
         remaining: result.rateLimitInfo.remaining,
         resetTime: result.rateLimitInfo.resetTime,
-        isLimited: true,
       });
       toast({
-        variant: "destructive",
-        title: "Rate Limited!",
         description: result.error || "Too many requests. Try again later.",
+        title: "Rate Limited!",
+        variant: "destructive",
       });
     } else {
       toast({
-        variant: "destructive",
-        title: "Failed to Resend",
         description: result.error || "Failed to resend verification code.",
+        title: "Failed to Resend",
+        variant: "destructive",
       });
     }
     setResending(false);
@@ -714,10 +719,10 @@ export default function SignUpForm() {
       } else {
         setOtpError(true);
         toast({
-          variant: "destructive",
-          title: "Numbers only, please!",
           description: "We're looking for digits, not your life story!",
           duration: 2000,
+          title: "Numbers only, please!",
+          variant: "destructive",
         });
       }
     },
@@ -729,9 +734,8 @@ export default function SignUpForm() {
       return;
     }
     setResending(true);
-    const { resendVerificationEmail } = await import(
-      "@/app/(auth)/signup/actions"
-    );
+    const { resendVerificationEmail } =
+      await import("@/app/(auth)/signup/actions");
     const result = await resendVerificationEmail(
       currentEmail || form.getValues("email")
     );
@@ -741,25 +745,25 @@ export default function SignUpForm() {
       setOtp("");
       setRateLimit("resend", { isLimited: false });
       toast({
-        title: "Code Sent!",
         description: "A new verification code has been sent.",
+        title: "Code Sent!",
       });
     } else if (result.rateLimited && result.rateLimitInfo) {
       setRateLimit("resend", {
+        isLimited: true,
         remaining: result.rateLimitInfo.remaining,
         resetTime: result.rateLimitInfo.resetTime,
-        isLimited: true,
       });
       toast({
-        variant: "destructive",
-        title: "Rate Limited!",
         description: result.error || "Too many requests. Try again later.",
+        title: "Rate Limited!",
+        variant: "destructive",
       });
     } else {
       toast({
-        variant: "destructive",
-        title: "Failed to Resend",
         description: result.error || "Failed to resend verification code.",
+        title: "Failed to Resend",
+        variant: "destructive",
       });
     }
     setResending(false);
@@ -775,9 +779,8 @@ export default function SignUpForm() {
   ]);
 
   const handleVerifyViaEmailLink = useCallback(async () => {
-    const { sendVerificationLink } = await import(
-      "@/app/(auth)/signup/actions"
-    );
+    const { sendVerificationLink } =
+      await import("@/app/(auth)/signup/actions");
     const res = await sendVerificationLink(
       currentEmail || form.getValues("email")
     );
@@ -785,25 +788,25 @@ export default function SignUpForm() {
       setEmailVerificationState(currentEmail || form.getValues("email"));
       setRateLimit("resend", { isLimited: false });
       toast({
-        title: "Email Link Sent!",
         description: "Check your inbox for the verification link.",
+        title: "Email Link Sent!",
       });
     } else if (res.rateLimited && res.rateLimitInfo) {
       setRateLimit("resend", {
+        isLimited: true,
         remaining: res.rateLimitInfo.remaining,
         resetTime: res.rateLimitInfo.resetTime,
-        isLimited: true,
       });
       toast({
-        variant: "destructive",
-        title: "Rate Limited!",
         description: res.error || "Too many requests. Try again later.",
+        title: "Rate Limited!",
+        variant: "destructive",
       });
     } else {
       toast({
-        variant: "destructive",
-        title: "Failed to Send",
         description: res.error || "Failed to send verification link.",
+        title: "Failed to Send",
+        variant: "destructive",
       });
     }
   }, [currentEmail, form, setEmailVerificationState, setRateLimit, toast]);
@@ -880,14 +883,14 @@ export default function SignUpForm() {
                       >
                         I agree to the{" "}
                         <Link
-                          className="font-medium text-primary underline-offset-4 hover:underline"
+                          className="text-primary font-medium underline-offset-4 hover:underline"
                           href="/toc"
                         >
                           Terms of Service
                         </Link>{" "}
                         and{" "}
                         <Link
-                          className="font-medium text-primary underline-offset-4 hover:underline"
+                          className="text-primary font-medium underline-offset-4 hover:underline"
                           href="/privacy"
                         >
                           Privacy Policy
@@ -907,10 +910,10 @@ export default function SignUpForm() {
 
                   <div className="relative">
                     <div className="absolute inset-0 flex items-center">
-                      <span className="mt-2 w-full border-border/30 border-t" />
+                      <span className="border-border/30 mt-2 w-full border-t" />
                     </div>
                     <div className="relative flex justify-center text-xs uppercase">
-                      <span className="mt-2 px-2 text-muted-foreground">
+                      <span className="text-muted-foreground mt-2 px-2">
                         or continue with
                       </span>
                     </div>
@@ -938,7 +941,7 @@ export default function SignUpForm() {
                   transition={{ duration: 0.3 }}
                 >
                   <button
-                    className="group -mt-2 mb-2 -ml-2 flex items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground"
+                    className="group text-muted-foreground hover:text-foreground -mt-2 mb-2 -ml-2 flex items-center gap-2 text-sm transition-colors"
                     onClick={handleBackToCodeEntry}
                     type="button"
                   >
@@ -947,14 +950,14 @@ export default function SignUpForm() {
                   </button>
                   <div className="flex flex-col items-center space-y-2 pt-2 text-center">
                     <div className="relative">
-                      <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-md" />
-                      <div className="relative rounded-full border border-primary/20 bg-background/80 p-4 backdrop-blur-sm">
-                        <Mail className="h-8 w-8 text-primary" />
+                      <div className="bg-primary/20 absolute inset-0 animate-pulse rounded-full blur-md" />
+                      <div className="border-primary/20 bg-background/80 relative rounded-full border p-4 backdrop-blur-sm">
+                        <Mail className="text-primary h-8 w-8" />
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <h3 className="bg-gradient-to-r from-primary via-primary/80 to-primary bg-clip-text font-bold text-2xl text-transparent">
+                      <h3 className="from-primary via-primary/80 to-primary bg-gradient-to-r bg-clip-text text-2xl font-bold text-transparent">
                         Check Your Email
                       </h3>
                     </div>
@@ -963,7 +966,7 @@ export default function SignUpForm() {
                       <p className="text-muted-foreground text-sm">
                         We've sent a verification link to
                       </p>
-                      <p className="rounded-lg border border-border/50 bg-muted/50 px-4 py-2 font-medium text-foreground">
+                      <p className="border-border/50 bg-muted/50 text-foreground rounded-lg border px-4 py-2 font-medium">
                         {currentEmail || form.getValues("email")}
                       </p>
                     </div>
@@ -988,7 +991,7 @@ export default function SignUpForm() {
                       </Button>
 
                       <details className="group">
-                        <summary className="flex cursor-pointer items-center justify-center gap-1 text-center text-muted-foreground text-xs transition-colors hover:text-foreground">
+                        <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center justify-center gap-1 text-center text-xs transition-colors">
                           <span>More info</span>
                           <svg
                             className="h-3 w-3 transition-transform group-open:rotate-180"
@@ -1005,7 +1008,7 @@ export default function SignUpForm() {
                             />
                           </svg>
                         </summary>
-                        <p className="mt-2 text-center text-muted-foreground text-xs">
+                        <p className="text-muted-foreground mt-2 text-center text-xs">
                           Please check your inbox to complete your registration
                           or Check your spam folder if you don't see the email
                           in your inbox
@@ -1025,13 +1028,13 @@ export default function SignUpForm() {
                   <div className="space-y-6 p-4 sm:p-6">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1 space-y-1 text-left">
-                        <h2 className="font-bold text-foreground text-lg sm:text-2xl">
+                        <h2 className="text-foreground text-lg font-bold sm:text-2xl">
                           Verify Your Email
                         </h2>
                         <p className="text-muted-foreground text-xs sm:text-sm">
                           Enter the 6-digit code sent to
                         </p>
-                        <p className="truncate font-medium text-foreground text-xs sm:text-sm">
+                        <p className="text-foreground truncate text-xs font-medium sm:text-sm">
                           {currentEmail || form.getValues("email")}
                         </p>
                       </div>
@@ -1041,12 +1044,12 @@ export default function SignUpForm() {
                           animate={
                             count === 0 && !tooltipDismissed
                               ? {
-                                  y: [0, -8, 0],
                                   transition: {
                                     duration: 0.6,
-                                    repeat: Number.POSITIVE_INFINITY,
                                     ease: "easeInOut",
+                                    repeat: Number.POSITIVE_INFINITY,
                                   },
+                                  y: [0, -8, 0],
                                 }
                               : {}
                           }
@@ -1095,7 +1098,7 @@ export default function SignUpForm() {
                           {count === 0 && !tooltipDismissed && (
                             <motion.div
                               animate={{ opacity: 1, scale: 1 }}
-                              className="absolute top-full right-0 z-10 mt-2 w-40 rounded-lg border border-border bg-popover p-2.5 text-popover-foreground shadow-lg sm:w-48 sm:p-3"
+                              className="border-border bg-popover text-popover-foreground absolute top-full right-0 z-10 mt-2 w-40 rounded-lg border p-2.5 shadow-lg sm:w-48 sm:p-3"
                               exit={{ opacity: 0, scale: 0.95 }}
                               initial={{ opacity: 0, scale: 0.95 }}
                               transition={{ duration: 0.2 }}
@@ -1104,7 +1107,7 @@ export default function SignUpForm() {
                                 Code expired! Click the button to resend a new
                                 verification code.
                               </p>
-                              <div className="absolute -top-2 right-4 h-4 w-4 rotate-45 border-border border-t border-l bg-popover" />
+                              <div className="border-border bg-popover absolute -top-2 right-4 h-4 w-4 rotate-45 border-t border-l" />
                             </motion.div>
                           )}
                         </AnimatePresence>
@@ -1131,8 +1134,8 @@ export default function SignUpForm() {
                                 animate={
                                   otp[index]
                                     ? {
-                                        scale: [1, 1.1, 1],
                                         rotate: [0, 5, -5, 0],
+                                        scale: [1, 1.1, 1],
                                       }
                                     : {}
                                 }
@@ -1154,18 +1157,18 @@ export default function SignUpForm() {
                         {isVerifyingOTP ? (
                           <motion.div
                             animate={{ opacity: 1, y: 0 }}
-                            className="flex items-center justify-center gap-2 text-primary text-sm"
+                            className="text-primary flex items-center justify-center gap-2 text-sm"
                             exit={{ opacity: 0, y: -10 }}
                             initial={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.2 }}
                           >
                             <motion.div
                               animate={{ rotate: 360 }}
-                              className="h-4 w-4 shrink-0 rounded-full border-2 border-primary/20 border-t-primary"
+                              className="border-primary/20 border-t-primary h-4 w-4 shrink-0 rounded-full border-2"
                               transition={{
                                 duration: 1,
-                                repeat: Number.POSITIVE_INFINITY,
                                 ease: "linear",
+                                repeat: Number.POSITIVE_INFINITY,
                               }}
                             />
                             <span>Verifying your code...</span>
@@ -1174,7 +1177,7 @@ export default function SignUpForm() {
                         {!isVerifyingOTP && otpError && (
                           <motion.div
                             animate={{ opacity: 1, y: 0 }}
-                            className="flex items-center justify-center gap-2 text-destructive text-sm"
+                            className="text-destructive flex items-center justify-center gap-2 text-sm"
                             exit={{ opacity: 0, y: -10 }}
                             initial={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.2 }}

@@ -1,7 +1,7 @@
 "use client";
 
 import type * as React from "react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 interface VerificationContextType {
   isVerifying: boolean;
@@ -13,17 +13,18 @@ const VerificationContext = createContext<VerificationContextType | undefined>(
   undefined
 );
 
-export function VerificationProvider({
+export const VerificationProvider = ({
   children,
 }: {
   children: React.ReactNode;
-}) {
+}) => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationChannel, setVerificationChannel] =
     useState<BroadcastChannel | null>(null);
 
   useEffect(() => {
     const channel = new BroadcastChannel("email-verification");
+    // eslint-disable-next-line react-compiler -- the channel is only available client-side after mount
     setVerificationChannel(channel);
 
     return () => {
@@ -31,18 +32,21 @@ export function VerificationProvider({
     };
   }, []);
 
+  const contextValue = useMemo(
+    () => ({
+      isVerifying,
+      setIsVerifying,
+      verificationChannel,
+    }),
+    [isVerifying, setIsVerifying, verificationChannel]
+  );
+
   return (
-    <VerificationContext.Provider
-      value={{
-        isVerifying,
-        setIsVerifying,
-        verificationChannel,
-      }}
-    >
+    <VerificationContext.Provider value={contextValue}>
       {children}
     </VerificationContext.Provider>
   );
-}
+};
 
 export const useVerification = () => {
   const context = useContext(VerificationContext);

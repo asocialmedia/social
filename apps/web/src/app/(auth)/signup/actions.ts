@@ -1,6 +1,7 @@
 "use server";
 
 import { env } from "@root/env";
+
 import { authInternalHeaders } from "@/lib/auth-internal";
 
 const RATE_LIMIT_ERROR = "rate-limited";
@@ -24,8 +25,6 @@ function handleRateLimitError(
       | undefined
   )?.result?.data?.json;
   return {
-    success: false,
-    rateLimited: true,
     error: userMessage,
     rateLimitInfo: rateLimitInfo
       ? {
@@ -33,6 +32,8 @@ function handleRateLimitError(
           resetTime: rateLimitInfo.resetTime || 0,
         }
       : undefined,
+    rateLimited: true,
+    success: false,
   };
 }
 
@@ -60,24 +61,24 @@ export async function signUp(credentials: {
   try {
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/trpc/pendingSignupStart`, {
-      method: "POST",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
-      credentials: "include",
       body: JSON.stringify({
         id: 1,
         json: {
-          email: credentials.email,
-          username: credentials.username,
-          password: credentials.password,
           displayName: credentials.username,
+          email: credentials.email,
+          password: credentials.password,
+          username: credentials.username,
         },
       }),
+      credentials: "include",
+      headers: authInternalHeaders({ "content-type": "application/json" }),
+      method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
 
     if (!res.ok) {
       const err = data?.message || data?.error || "HTTP request failed";
-      return { success: false, error: String(err) };
+      return { error: String(err), success: false };
     }
 
     const resultJson = data?.result?.data?.json;
@@ -94,10 +95,10 @@ export async function signUp(credentials: {
 
       if (String(err) === "user-exists") {
         return {
-          success: false,
           error:
             userFacingMessage ||
             "An account with this email or username already exists. Try logging in or reset your password.",
+          success: false,
         };
       }
 
@@ -108,17 +109,17 @@ export async function signUp(credentials: {
         );
       }
 
-      return { success: false, error: String(err) };
+      return { error: String(err), success: false };
     }
 
     return {
-      success: true,
-      requiresEmailVerification:
-        resultJson?.requiresEmailVerification !== false,
       message:
         resultJson?.requiresEmailVerification === false
           ? "Account created. Redirecting..."
           : "Pending signup created. Please check your email to verify your address.",
+      requiresEmailVerification:
+        resultJson?.requiresEmailVerification !== false,
+      success: true,
       ...(resultJson?.requiresEmailVerification === false
         ? {}
         : {
@@ -131,11 +132,11 @@ export async function signUp(credentials: {
   } catch (error) {
     console.error("Signup error:", error);
     return {
-      success: false,
       error:
         error instanceof Error
           ? error.message
           : "Something went wrong. Please try again.",
+      success: false,
     };
   }
 }
@@ -152,10 +153,10 @@ export async function resendVerificationEmail(email: string): Promise<{
   try {
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/trpc/pendingSignupResend`, {
-      method: "POST",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
-      credentials: "include",
       body: JSON.stringify({ id: 1, json: { email } }),
+      credentials: "include",
+      headers: authInternalHeaders({ "content-type": "application/json" }),
+      method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
     const ok = data?.result?.data?.success === true || data?.success === true;
@@ -174,17 +175,17 @@ export async function resendVerificationEmail(email: string): Promise<{
         );
       }
 
-      return { success: false, error: String(err) };
+      return { error: String(err), success: false };
     }
     return { success: true };
   } catch (error) {
     console.error("Resend verification email error:", error);
     return {
-      success: false,
       error:
         error instanceof Error
           ? error.message
           : "Failed to resend verification email",
+      success: false,
     };
   }
 }
@@ -204,10 +205,10 @@ export async function verifyOTP(
   try {
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/auth/email-otp/verify-email`, {
-      method: "POST",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
-      credentials: "include",
       body: JSON.stringify({ email, otp }),
+      credentials: "include",
+      headers: authInternalHeaders({ "content-type": "application/json" }),
+      method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
 
@@ -221,8 +222,6 @@ export async function verifyOTP(
             | undefined
         )?.json;
         return {
-          success: false,
-          rateLimited: true,
           error: "Too many verification attempts. Please try again later.",
           rateLimitInfo: rateLimitInfo
             ? {
@@ -230,24 +229,26 @@ export async function verifyOTP(
                 resetTime: rateLimitInfo.resetTime || 0,
               }
             : { remaining: 0, resetTime: 0 },
+          rateLimited: true,
+          success: false,
         };
       }
 
-      return { success: false, error: String(err) };
+      return { error: String(err), success: false };
     }
 
     const ok = data?.success === true;
     if (!ok) {
       const err = data?.message || data?.error || "Invalid OTP code";
-      return { success: false, error: String(err) };
+      return { error: String(err), success: false };
     }
 
     return { success: true };
   } catch (error) {
     console.error("OTP verification error:", error);
     return {
-      success: false,
       error: error instanceof Error ? error.message : "Failed to verify OTP",
+      success: false,
     };
   }
 }
@@ -264,10 +265,10 @@ export async function sendVerificationLink(email: string): Promise<{
   try {
     const authBase = env.NEXT_PUBLIC_AUTH_URL;
     const res = await fetch(`${authBase}/api/trpc/pendingSignupSendLink`, {
-      method: "POST",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
-      credentials: "include",
       body: JSON.stringify({ id: 1, json: { email } }),
+      credentials: "include",
+      headers: authInternalHeaders({ "content-type": "application/json" }),
+      method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
     const ok =
@@ -286,14 +287,14 @@ export async function sendVerificationLink(email: string): Promise<{
         );
       }
 
-      return { success: false, error: String(err) };
+      return { error: String(err), success: false };
     }
     return { success: true };
   } catch (error) {
     console.error("Send verification link error:", error);
     return {
-      success: false,
       error: error instanceof Error ? error.message : "Failed to send link",
+      success: false,
     };
   }
 }

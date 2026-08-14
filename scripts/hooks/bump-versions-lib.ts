@@ -1,9 +1,9 @@
 import { constants } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import path from "node:path";
 
-const packagesRegex = /^packages\/([^/]+)/;
-const appsRegex = /^apps\/([^/]+)/;
+const packagesRegex = /^packages\/(?<package>[^/]+)/;
+const appsRegex = /^apps\/(?<package>[^/]+)/;
 
 export interface PackageJson {
   version: string;
@@ -25,7 +25,7 @@ interface GitCommandResult {
 }
 
 export function bumpPatchVersion(version: string): string {
-  const parts = version.split(".").map((part) => Number.parseInt(part, 10));
+  const parts = version.split(".").map((part) => Math.trunc(Number(part)));
 
   if (
     parts.length !== 3 ||
@@ -55,16 +55,16 @@ export function determineChangedPackages(stagedFiles: string[]): Set<string> {
   for (const file of stagedFiles) {
     if (file.startsWith("packages/")) {
       const match = file.match(packagesRegex);
-      if (match?.[1]) {
-        changedPackages.add(match[1]);
+      if (match?.groups?.package) {
+        changedPackages.add(match.groups.package);
       }
       continue;
     }
 
     if (file.startsWith("apps/")) {
       const match = file.match(appsRegex);
-      if (match?.[1]) {
-        changedPackages.add(match[1]);
+      if (match?.groups?.package) {
+        changedPackages.add(match.groups.package);
       }
     }
   }
@@ -82,8 +82,8 @@ function getVersionTargets(changedPackages: Set<string>): string[] {
   const targets = new Set<string>(["package.json"]);
 
   for (const pkg of changedPackages) {
-    targets.add(join("packages", pkg, "package.json"));
-    targets.add(join("apps", pkg, "package.json"));
+    targets.add(path.join("packages", pkg, "package.json"));
+    targets.add(path.join("apps", pkg, "package.json"));
   }
 
   return [...targets];
@@ -99,7 +99,7 @@ async function bumpVersion(
 
   const pkg = await context.readPackageJson(pkgPath);
   if (typeof pkg.version !== "string") {
-    throw new Error(`Missing version in ${pkgPath}`);
+    throw new TypeError(`Missing version in ${pkgPath}`);
   }
 
   pkg.version = bumpPatchVersion(pkg.version);
@@ -115,10 +115,10 @@ async function bumpVersions(
 ): Promise<void> {
   const targets = getVersionTargets(changedPackages);
 
-  await targets.reduce(async (previousBump, target) => {
-    await previousBump;
+  for (const target of targets) {
+    // eslint-disable-next-line no-await-in-loop
     await bumpVersion(target, context);
-  }, Promise.resolve());
+  }
 }
 
 export async function runBumpVersionWithContext(context: BumpContext) {
@@ -178,7 +178,7 @@ function createRuntimeContext(repoRoot: string): BumpContext {
   return {
     fileExists: async (pkgPath) => {
       try {
-        await access(join(repoRoot, pkgPath), constants.F_OK);
+        await access(path.join(repoRoot, pkgPath), constants.F_OK);
         return true;
       } catch {
         return false;
@@ -201,7 +201,7 @@ function createRuntimeContext(repoRoot: string): BumpContext {
         .filter(Boolean);
     },
     readPackageJson: async (pkgPath) => {
-      const content = await readFile(join(repoRoot, pkgPath), "utf8");
+      const content = await readFile(path.join(repoRoot, pkgPath), "utf-8");
       return JSON.parse(content) as PackageJson;
     },
     stageFile: async (filePath) => {
@@ -214,7 +214,7 @@ function createRuntimeContext(repoRoot: string): BumpContext {
     },
     writePackageJson: async (pkgPath, pkg) => {
       await writeFile(
-        join(repoRoot, pkgPath),
+        path.join(repoRoot, pkgPath),
         `${JSON.stringify(pkg, null, 2)}\n`
       );
     },

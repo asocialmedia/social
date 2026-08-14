@@ -1,4 +1,5 @@
 import { prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
@@ -15,22 +16,22 @@ export async function GET(
     const { userId } = await ctx.params;
 
     const following = await prisma.user.findMany({
+      select: {
+        _count: {
+          select: {
+            followers: true,
+          },
+        },
+        avatarUrl: true,
+        bio: true,
+        displayName: true,
+        id: true,
+        username: true,
+      },
       where: {
         followers: {
           some: {
             followerId: userId,
-          },
-        },
-      },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        avatarUrl: true,
-        bio: true,
-        _count: {
-          select: {
-            followers: true,
           },
         },
       },

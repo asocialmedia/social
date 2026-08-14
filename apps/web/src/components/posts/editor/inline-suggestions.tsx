@@ -1,9 +1,12 @@
 "use client";
 
+// oxlint-disable react-compiler -- debounced suggestion fetching intentionally uses render-phase ref sync
+
 import type { UserData } from "@asm/db";
 import type { Editor } from "@tiptap/core";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import UserAvatar from "@/components/layouts/user-avatar";
 
 interface InlineSuggestionsProps {
@@ -22,8 +25,9 @@ interface SuggestionState {
 }
 
 const MAX_SUGGESTIONS = 6;
-const TRIGGER_PATTERN = /(?:^|\s)([#@])([\w-]*)$/;
+const TRIGGER_PATTERN = /(?:^|\s)(?<trigger>[#@])(?<query>[\w-]*)$/;
 const MAX_TEXT_BEFORE = 50;
+const EMPTY_IDS: string[] = [];
 
 type SuggestionItem = string | UserData;
 
@@ -37,13 +41,13 @@ function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
   };
 }
 
-export function InlineSuggestions({
+export const InlineSuggestions = ({
   editor,
   onSelectTag,
   onSelectMention,
-  selectedMentionIds = [],
-  selectedTagNames = [],
-}: InlineSuggestionsProps) {
+  selectedMentionIds = EMPTY_IDS,
+  selectedTagNames = EMPTY_IDS,
+}: InlineSuggestionsProps) => {
   const [suggestion, setSuggestion] = useState<SuggestionState | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
@@ -56,59 +60,63 @@ export function InlineSuggestions({
   selectedTagNamesRef.current = selectedTagNames;
   selectedMentionIdsRef.current = selectedMentionIds;
 
-  const fetchTags = useCallback(
-    debounce(async (q: string) => {
-      const requestQuery = q;
-      activeQueryRef.current = requestQuery;
-      try {
-        const res = await fetch(`/api/tags?q=${encodeURIComponent(q)}`);
-        if (!res.ok) {
-          return;
+  const fetchTags = useMemo(
+    () =>
+      debounce(async (q: string) => {
+        const requestQuery = q;
+        activeQueryRef.current = requestQuery;
+        try {
+          const res = await fetch(`/api/tags?q=${encodeURIComponent(q)}`);
+          if (!res.ok) {
+            return;
+          }
+          const data = (await res.json()) as { tags: string[] };
+          if (activeQueryRef.current !== requestQuery) {
+            return;
+          }
+          const filtered = data.tags
+            .filter((tag) => !selectedTagNamesRef.current.includes(tag))
+            .slice(0, MAX_SUGGESTIONS);
+          setTags(filtered);
+        } catch {
+          setTags([]);
+        } finally {
+          if (activeQueryRef.current === requestQuery) {
+            setLoading(false);
+          }
         }
-        const data = (await res.json()) as { tags: string[] };
-        if (activeQueryRef.current !== requestQuery) {
-          return;
-        }
-        const filtered = data.tags
-          .filter((tag) => !selectedTagNamesRef.current.includes(tag))
-          .slice(0, MAX_SUGGESTIONS);
-        setTags(filtered);
-      } catch {
-        setTags([]);
-      } finally {
-        if (activeQueryRef.current === requestQuery) {
-          setLoading(false);
-        }
-      }
-    }, 250),
+      }, 250),
     []
   );
 
-  const fetchUsers = useCallback(
-    debounce(async (q: string) => {
-      const requestQuery = q;
-      activeQueryRef.current = requestQuery;
-      try {
-        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
-        if (!res.ok) {
-          return;
+  const fetchUsers = useMemo(
+    () =>
+      debounce(async (q: string) => {
+        const requestQuery = q;
+        activeQueryRef.current = requestQuery;
+        try {
+          const res = await fetch(
+            `/api/users/search?q=${encodeURIComponent(q)}`
+          );
+          if (!res.ok) {
+            return;
+          }
+          const data = (await res.json()) as { users: UserData[] };
+          if (activeQueryRef.current !== requestQuery) {
+            return;
+          }
+          const filtered = data.users
+            .filter((user) => !selectedMentionIdsRef.current.includes(user.id))
+            .slice(0, MAX_SUGGESTIONS);
+          setUsers(filtered);
+        } catch {
+          setUsers([]);
+        } finally {
+          if (activeQueryRef.current === requestQuery) {
+            setLoading(false);
+          }
         }
-        const data = (await res.json()) as { users: UserData[] };
-        if (activeQueryRef.current !== requestQuery) {
-          return;
-        }
-        const filtered = data.users
-          .filter((user) => !selectedMentionIdsRef.current.includes(user.id))
-          .slice(0, MAX_SUGGESTIONS);
-        setUsers(filtered);
-      } catch {
-        setUsers([]);
-      } finally {
-        if (activeQueryRef.current === requestQuery) {
-          setLoading(false);
-        }
-      }
-    }, 250),
+      }, 250),
     []
   );
 
@@ -179,12 +187,12 @@ export function InlineSuggestions({
       );
       const match = textBefore.match(TRIGGER_PATTERN);
 
-      if (!match) {
+      if (!match?.groups) {
         setSuggestion(null);
         return;
       }
 
-      const [, trigger, queryRaw] = match;
+      const { trigger, query: queryRaw } = match.groups;
       const triggerType = trigger === "#" ? "tag" : "mention";
       const query = queryRaw || "";
       const { view } = editor;
@@ -193,10 +201,10 @@ export function InlineSuggestions({
       const editorEl = dom.getBoundingClientRect();
 
       setSuggestion({
-        type: triggerType,
+        left: coords.left - editorEl.left,
         query,
         top: coords.top - editorEl.top + 28,
-        left: coords.left - editorEl.left,
+        type: triggerType,
       });
       setActiveIndex(0);
       setLoading(true);
@@ -341,6 +349,7 @@ export function InlineSuggestions({
           data-index={index}
           id={optionId}
           key={user.id}
+          // eslint-disable-next-line jsx-a11y/prefer-tag-over-role -- combobox option needs button semantics
           role="option"
           type="button"
         >
@@ -349,7 +358,7 @@ export function InlineSuggestions({
             <span className="block truncate font-medium">
               {user.displayName}
             </span>
-            <span className="block truncate text-muted-foreground text-xs">
+            <span className="text-muted-foreground block truncate text-xs">
               @{user.username}
             </span>
           </span>
@@ -366,6 +375,7 @@ export function InlineSuggestions({
         data-index={index}
         id={optionId}
         key={tag}
+        // eslint-disable-next-line jsx-a11y/prefer-tag-over-role -- combobox option needs button semantics
         role="option"
         type="button"
       >
@@ -379,14 +389,14 @@ export function InlineSuggestions({
     if (loading && items.length === 0) {
       return (
         <div className="flex items-center justify-center gap-2 p-3">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <Loader2 className="text-muted-foreground size-4 animate-spin" />
           <span className="text-muted-foreground text-sm">Searching...</span>
         </div>
       );
     }
     if (items.length === 0) {
       return (
-        <p className="p-3 text-muted-foreground text-sm">
+        <p className="text-muted-foreground p-3 text-sm">
           {suggestion.type === "tag" ? "No matching tags" : "No matching users"}
         </p>
       );
@@ -398,6 +408,7 @@ export function InlineSuggestions({
         onFocus={handleListFocus}
         onKeyDown={handleListKeyDown}
         onMouseOver={handleListMouseOver}
+        // eslint-disable-next-line jsx-a11y/prefer-tag-over-role -- combobox list container
         role="listbox"
         tabIndex={-1}
       >
@@ -408,13 +419,13 @@ export function InlineSuggestions({
 
   return (
     <div
-      className="absolute z-30 w-64 overflow-hidden rounded-xl border border-border bg-card shadow-[0_0_0_1.5px_rgba(255,255,255,0.25),0_0_0_3.5px_hsl(var(--border)),0_8px_20px_rgba(0,0,0,0.25)]"
+      className="border-border bg-card absolute z-30 w-64 overflow-hidden rounded-xl border shadow-[0_0_0_1.5px_rgba(255,255,255,0.25),0_0_0_3.5px_hsl(var(--border)),0_8px_20px_rgba(0,0,0,0.25)]"
       style={{
-        top: suggestion.top,
         left: suggestion.left,
+        top: suggestion.top,
       }}
     >
       <div className="max-h-64 overflow-y-auto">{renderBody()}</div>
     </div>
   );
-}
+};

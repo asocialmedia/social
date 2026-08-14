@@ -14,7 +14,7 @@ interface ContributeCardProps {
 export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
   if (isCollapsed) {
     return (
-      <div className="rounded-xl border bg-card p-2">
+      <div className="bg-card rounded-xl border p-2">
         <Button
           asChild
           className="h-auto w-full p-2"
@@ -26,7 +26,7 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
             rel="noopener noreferrer"
             target="_blank"
           >
-            <FaGithub className="h-5 w-5 text-muted-foreground transition-colors hover:text-primary" />
+            <FaGithub className="text-muted-foreground hover:text-primary h-5 w-5 transition-colors" />
           </Link>
         </Button>
       </div>
@@ -34,9 +34,9 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="bg-card overflow-hidden rounded-xl border">
       <div className="space-y-4 p-4">
-        <div className="flex items-center gap-2 text-primary">
+        <div className="text-primary flex items-center gap-2">
           <GitPullRequest className="h-5 w-5" />
           <h3 className="font-semibold">Contribute to Asocialmedia</h3>
         </div>
@@ -47,29 +47,29 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
 
         <div className="space-y-2">
           <Link
-            className="group flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-accent"
+            className="group hover:bg-accent flex items-center justify-between rounded-lg p-2 transition-colors"
             href="https://github.com/asocialmedia/social"
             rel="noopener noreferrer"
             target="_blank"
           >
             <div className="flex items-center gap-2">
-              <GitHubLogoIcon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
-              <span className="font-medium text-sm">Repository</span>
+              <GitHubLogoIcon className="text-muted-foreground group-hover:text-primary h-4 w-4 transition-colors" />
+              <span className="text-sm font-medium">Repository</span>
             </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
+            <ChevronRight className="text-muted-foreground group-hover:text-primary h-4 w-4 transition-colors" />
           </Link>
 
           <Link
-            className="group flex items-center justify-between rounded-lg p-2 transition-colors hover:bg-accent"
+            className="group hover:bg-accent flex items-center justify-between rounded-lg p-2 transition-colors"
             href="https://github.com/asocialmedia/social/issues"
             rel="noopener noreferrer"
             target="_blank"
           >
             <div className="flex items-center gap-2">
-              <Code2 className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
-              <span className="font-medium text-sm">Issues</span>
+              <Code2 className="text-muted-foreground group-hover:text-primary h-4 w-4 transition-colors" />
+              <span className="text-sm font-medium">Issues</span>
             </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
+            <ChevronRight className="text-muted-foreground group-hover:text-primary h-4 w-4 transition-colors" />
           </Link>
         </div>
 

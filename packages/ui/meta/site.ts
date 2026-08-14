@@ -1,9 +1,8 @@
 export const siteConfig = {
-  name: "Asocialmedia",
+  authors: [{ name: "parazeeknova", url: "https://przknv.cc" }],
+  creator: "Harsh Sahu",
   description:
     "The last social platform you'll ever need. Open source, cozy, and slightly unhinged.",
-  url: "https://asocialmedia.cc",
-  ogImage: "og-image.png",
   keywords: [
     "social platform",
     "content aggregator",
@@ -20,10 +19,11 @@ export const siteConfig = {
     "content discovery",
     "digital collaboration",
   ].join(", "),
-  authors: [{ name: "parazeeknova", url: "https://przknv.cc" }],
-  creator: "Harsh Sahu",
   links: {
     github: "https://github.com/asocialmedia/social",
     twitter: "https://twitter.com/parazeeknova",
   },
+  name: "Asocialmedia",
+  ogImage: "og-image.png",
+  url: "https://asocialmedia.cc",
 } as const;

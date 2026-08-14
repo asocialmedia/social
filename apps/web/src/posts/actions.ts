@@ -8,6 +8,7 @@ import {
   prisma,
   redis,
 } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function deletePost(id: string) {
@@ -30,8 +31,8 @@ export async function deletePost(id: string) {
   }
 
   const deletedPost = await prisma.post.delete({
-    where: { id },
     include: getPostDataInclude(session.user.id),
+    where: { id },
   });
 
   try {
@@ -45,9 +46,11 @@ export async function deletePost(id: string) {
 
   // The worker deletes the post's media objects + rows (fixes the orphaned
   // media leak caused by the SetNull FK).
-  enqueuePostDeleted(id).catch((error: unknown) => {
+  try {
+    await enqueuePostDeleted(id);
+  } catch (error) {
     console.error("Failed to enqueue post-deleted event:", error);
-  });
+  }
 
   return deletedPost;
 }

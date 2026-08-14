@@ -1,3 +1,5 @@
+// oxlint-disable react-compiler -- the nested Controls helper needs viewer state and the React Compiler rules reject it
+
 import { Button } from "@asm/ui/shadui/button";
 import { Slider } from "@asm/ui/shadui/slider";
 import {
@@ -15,6 +17,7 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
+
 import { cn } from "@/lib/utils";
 
 interface SvgViewerProps {
@@ -24,12 +27,12 @@ interface SvgViewerProps {
   url: string;
 }
 
-export function SVGViewer({
+export const SVGViewer = ({
   url,
   className,
   onLoad,
   onDownload,
-}: SvgViewerProps) {
+}: SvgViewerProps) => {
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [flipX, setFlipX] = useState(false);
@@ -40,9 +43,11 @@ export function SVGViewer({
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [_dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  // eslint-disable-next-line react/hook-use-state -- follows the [thing, setThing] pattern for a flag
+  const [_dimensions, setDimensions] = useState({ height: 0, width: 0 });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isMobile = useMediaQuery("(max-width: 768px)");
+  // eslint-disable-next-line react/hook-use-state -- follows the [thing, setThing] pattern for a flag
   const [showControls, setShowControls] = useState(!isMobile);
 
   useEffect(() => {
@@ -57,11 +62,9 @@ export function SVGViewer({
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
-    if (isFullscreen) {
-      await document.exitFullscreen();
-    } else {
-      await containerRef.current?.requestFullscreen();
-    }
+    await (isFullscreen
+      ? document.exitFullscreen()
+      : containerRef.current?.requestFullscreen());
   }, [isFullscreen]);
 
   useEffect(() => {
@@ -73,8 +76,8 @@ export function SVGViewer({
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         setDimensions({
-          width: rect.width,
           height: rect.height,
+          width: rect.width,
         });
       }
     };
@@ -206,8 +209,7 @@ export function SVGViewer({
     setFlipY((prev) => !prev);
   }, []);
 
-  // biome-ignore lint/correctness/noNestedComponentDefinitions: Controls component uses parent state and is tightly coupled
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: SVG controls component handles multiple interaction states and styling logic
+  // eslint-disable-next-line react/no-unstable-nested-components -- Controls uses parent state and is tightly coupled
   const Controls = () => {
     let controlsClassName: string;
     if (!isMobile) {
@@ -223,7 +225,7 @@ export function SVGViewer({
     return (
       <div
         className={cn(
-          "z-50 flex flex-col gap-4 rounded-lg bg-background/80 p-4 backdrop-blur-sm",
+          "bg-background/80 z-50 flex flex-col gap-4 rounded-lg p-4 backdrop-blur-sm",
           controlsClassName
         )}
       >
@@ -366,7 +368,7 @@ export function SVGViewer({
     >
       {isMobile && (
         <Button
-          className="absolute top-4 right-4 z-50 bg-background/50"
+          className="bg-background/50 absolute top-4 right-4 z-50"
           onClick={handleToggleControls}
           size="icon"
           variant="ghost"
@@ -380,15 +382,15 @@ export function SVGViewer({
       <div
         className="relative h-full w-full flex-1 overflow-hidden"
         style={{
-          display: "flex",
           alignItems: "center",
+          display: "flex",
           justifyContent: "center",
         }}
       >
-        {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: div with role="application" is interactive */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- div with role=application is the interactive pan/zoom surface */}
         <div
           aria-label="Interactive SVG viewer - drag to pan, pinch to zoom"
-          className="cursor-move focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="focus-visible:ring-primary cursor-move focus:outline-none focus-visible:ring-2"
           onKeyDown={handleKeyDown}
           onMouseDown={handleMouseDown}
           onMouseLeave={handleMouseUp}
@@ -399,21 +401,26 @@ export function SVGViewer({
           onTouchStart={handleTouchStart}
           role="application"
           style={{
-            width: "100%",
-            height: "100%",
-            display: "flex",
             alignItems: "center",
+            display: "flex",
+            height: "100%",
             justifyContent: "center",
+            width: "100%",
           }}
         >
-          {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: iframe is interactive and needs load/error handlers */}
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- iframe needs load/error handlers */}
           <iframe
             className="h-full w-full"
             onError={handleFrameError}
             onLoad={handleFrameLoad}
             ref={iframeRef}
+            sandbox="allow-scripts"
             src={url}
             style={{
+              border: "none",
+              maxHeight: "100%",
+              maxWidth: "100%",
+              objectFit: "contain",
               transform: `
                 translate(${position.x}px, ${position.y}px)
                 scale(${scale})
@@ -423,10 +430,6 @@ export function SVGViewer({
               `,
               transformOrigin: "center center",
               transition: isDragging ? "none" : "transform 0.2s ease-in-out",
-              border: "none",
-              maxWidth: "100%",
-              maxHeight: "100%",
-              objectFit: "contain",
             }}
             title="SVG Viewer"
           />
@@ -434,14 +437,14 @@ export function SVGViewer({
       </div>
 
       {hasError ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+        <div className="bg-background/50 absolute inset-0 flex items-center justify-center">
           <p className="text-destructive">Failed to load SVG file</p>
         </div>
       ) : null}
 
-      <div className="absolute bottom-4 left-4 rounded-sm bg-background/80 px-2 py-1 text-sm">
+      <div className="bg-background/80 absolute bottom-4 left-4 rounded-sm px-2 py-1 text-sm">
         {(scale * 100).toFixed(0)}%
       </div>
     </div>
   );
-}
+};

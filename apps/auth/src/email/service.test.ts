@@ -7,7 +7,32 @@ import {
   mock,
   test,
 } from "bun:test";
+
 import type { EmailValidationResult } from "@asm/auth";
+
+import type { env } from "../../env";
+import type {
+  isDevelopmentMode,
+  isEmailServiceConfigured,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+  sendVerificationOTP,
+  validateEmailServiceConfig,
+} from "./service";
+
+interface EnvModule {
+  env: typeof env;
+}
+
+interface ServiceModule {
+  __resetResend?: () => void;
+  isDevelopmentMode: typeof isDevelopmentMode;
+  isEmailServiceConfigured: typeof isEmailServiceConfigured;
+  sendPasswordResetEmail: typeof sendPasswordResetEmail;
+  sendVerificationEmail: typeof sendVerificationEmail;
+  sendVerificationOTP: typeof sendVerificationOTP;
+  validateEmailServiceConfig: typeof validateEmailServiceConfig;
+}
 
 interface ResendSendResult {
   data: { id: string } | null;
@@ -17,14 +42,14 @@ interface ResendSendResult {
 let throwOnSend = false;
 let returnErrorOnSend = false;
 
-const mockValidateEmailAdvanced = mock(
-  async (): Promise<EmailValidationResult> => ({
-    isValid: true,
-    score: 100,
+const mockValidateEmailAdvanced = mock((): Promise<EmailValidationResult> =>
+  Promise.resolve({
     confidence: "high",
-    reasons: [],
     disposable: false,
+    isValid: true,
     mxRecords: true,
+    reasons: [],
+    score: 100,
   })
 ) as {
   mockClear: () => void;
@@ -49,8 +74,8 @@ const originalConsole = {
 };
 
 describe("email service", () => {
-  let envModule: typeof import("../../env");
-  let serviceModule: typeof import("./service");
+  let envModule: EnvModule;
+  let serviceModule: ServiceModule;
 
   beforeEach(async () => {
     mock.restore();
@@ -73,9 +98,9 @@ describe("email service", () => {
       },
     }));
 
-    console.error = mock(() => undefined) as typeof console.error;
-    console.log = mock(() => undefined) as typeof console.log;
-    console.warn = mock(() => undefined) as typeof console.warn;
+    console.error = mock(() => {}) as typeof console.error;
+    console.log = mock(() => {}) as typeof console.log;
+    console.warn = mock(() => {}) as typeof console.warn;
 
     throwOnSend = false;
     returnErrorOnSend = false;
@@ -211,12 +236,12 @@ describe("email service", () => {
 
   test("sendVerificationEmail catches validation error", async () => {
     mockValidateEmailAdvanced.mockResolvedValueOnce({
-      isValid: false,
-      score: 0,
       confidence: "low",
-      reasons: ["Invalid format"],
       disposable: false,
+      isValid: false,
       mxRecords: false,
+      reasons: ["Invalid format"],
+      score: 0,
     });
 
     const result = await serviceModule.sendVerificationEmail(
@@ -352,9 +377,9 @@ describe("email service", () => {
     await serviceModule.sendVerificationOTP("user@example.com", "123456");
     await serviceModule.sendPasswordResetEmail("user@example.com", "tok");
 
-    const sendCalls = mockResendSend.mock.calls as unknown as Array<
-      Array<{ from?: string }>
-    >;
+    const sendCalls = mockResendSend.mock.calls as unknown as {
+      from?: string;
+    }[][];
     expect(sendCalls.length).toBeGreaterThanOrEqual(3);
 
     for (const call of sendCalls) {

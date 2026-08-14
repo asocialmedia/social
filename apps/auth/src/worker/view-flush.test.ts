@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
 import { computeViewAura } from "./view-flush";
 
 describe("computeViewAura", () => {
@@ -40,18 +41,18 @@ describe("computeViewAura", () => {
 describe("flushViewDeltas", () => {
   const getdelCalls: string[] = [];
 
-  const mockExec = mock(async () => [
+  const mockExec = mock(() => [
     [null, "12"],
     [null, null],
   ]);
 
   const mockRedis = {
     pipeline: () => ({
+      exec: mockExec,
       getdel: (key: string) => {
         getdelCalls.push(key);
       },
-      srem: () => undefined,
-      exec: mockExec,
+      srem: () => {},
     }),
   };
 
@@ -59,7 +60,7 @@ describe("flushViewDeltas", () => {
 
   const mockTx = {
     $executeRaw: (query: TemplateStringsArray, ...args: unknown[]) => {
-      executed.push({ query: query[0], args });
+      executed.push({ args, query: query[0] });
     },
     auraLog: {
       createMany: mock(() => ({ count: 0 })),
@@ -67,27 +68,27 @@ describe("flushViewDeltas", () => {
   };
 
   const mockPrisma = {
+    $transaction: (
+      fn: (tx: typeof mockTx) => Promise<unknown>
+    ): Promise<unknown> => fn(mockTx),
     post: {
-      findMany: mock(async () => [
+      findMany: mock(() => [
         {
           id: "post-1",
+          lastAwardedViewCount: 0,
           userId: "user-1",
           viewCount: 40,
-          lastAwardedViewCount: 0,
         },
       ]),
     },
-    $transaction: async (
-      fn: (tx: typeof mockTx) => Promise<unknown>
-    ): Promise<unknown> => fn(mockTx),
   };
 
   mock.module("@asm/db", () => ({
-    prisma: mockPrisma,
-    redis: mockRedis,
-    getBlockingRedisClient: () => mockRedis,
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
+    getBlockingRedisClient: () => mockRedis,
+    prisma: mockPrisma,
+    redis: mockRedis,
   }));
 
   beforeEach(() => {

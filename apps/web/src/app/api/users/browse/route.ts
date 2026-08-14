@@ -1,5 +1,12 @@
 import { getUserDataSelect, prisma } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/session";
+
+type UserOrderBy =
+  | { createdAt: "asc" }
+  | { createdAt: "desc" }
+  | { followers: { _count: "desc" } }
+  | { posts: { _count: "desc" } };
 
 export async function GET(request: Request) {
   try {
@@ -13,43 +20,49 @@ export async function GET(request: Request) {
     const search = searchParams.get("search") || "";
     const sortBy = searchParams.get("sortBy") || "followers";
 
-    // biome-ignore lint/suspicious/noExplicitAny: This is safe because we validate the value above
-    let orderBy: any = {};
+    let orderBy: UserOrderBy = { followers: { _count: "desc" } };
 
     switch (sortBy) {
-      case "followers":
+      case "followers": {
         orderBy = {
           followers: {
             _count: "desc",
           },
         };
         break;
-      case "posts":
+      }
+      case "posts": {
         orderBy = {
           posts: {
             _count: "desc",
           },
         };
         break;
-      case "newest":
+      }
+      case "newest": {
         orderBy = {
           createdAt: "desc",
         };
         break;
-      case "oldest":
+      }
+      case "oldest": {
         orderBy = {
           createdAt: "asc",
         };
         break;
-      default:
+      }
+      default: {
         orderBy = {
           followers: {
             _count: "desc",
           },
         };
+      }
     }
 
     const users = await prisma.user.findMany({
+      orderBy,
+      select: getUserDataSelect(user.id),
       take: 20,
       where: {
         AND: [
@@ -76,8 +89,6 @@ export async function GET(request: Request) {
           },
         ],
       },
-      orderBy,
-      select: getUserDataSelect(user.id),
     });
 
     return Response.json(users);

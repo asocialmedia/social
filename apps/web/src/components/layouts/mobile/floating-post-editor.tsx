@@ -13,6 +13,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { useSession } from "@/app/(main)/session-provider";
 import { useSubmitCommentMutation } from "@/components/comments/mutations";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -46,7 +47,7 @@ const UploadButton: React.FC<{
   return (
     <button
       aria-label={label}
-      className="pill-3d-hover inline-flex h-8 items-center justify-center rounded-full px-2 text-muted-foreground active:translate-y-px"
+      className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full px-2 active:translate-y-px"
       onClick={handleClick}
       type="button"
     >
@@ -63,8 +64,8 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { data: userData } = useQuery({
-    queryKey: ["user", user.id],
     queryFn: () => kyInstance.get(`/api/users/${user.id}`).json<UserData>(),
+    queryKey: ["user", user.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -100,7 +101,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       return;
     }
     mutation.mutate(
-      { post, content: input.trim() },
+      { content: input.trim(), post },
       {
         onSuccess: () => {
           setInput("");
@@ -143,8 +144,8 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const handleUploadClick = useCallback(
     (label: string) => {
       toast({
-        title: "Coming soon",
         description: `Attachments for ${label.toLowerCase()} aren't supported on eddies yet.`,
+        title: "Coming soon",
       });
     },
     [toast]
@@ -158,7 +159,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: focus-boundary container needs a blur handler to detect focus leaving it */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: focus-boundary container needs a blur handler to detect focus leaving it */}
       <div
-        className="rounded-2xl border border-border/60 bg-[hsl(var(--background-alt))]/95 p-2 shadow-lg backdrop-blur-md"
+        className="border-border/60 rounded-2xl border bg-[hsl(var(--background-alt))]/95 p-2 shadow-lg backdrop-blur-md"
         onBlur={handleBarBlur}
       >
         <div className="flex items-center gap-2">
@@ -220,7 +221,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                 </div>
                 <button
                   className={cn(
-                    "flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 font-medium text-sm text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                    "flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-medium text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
                     SEND_BTN_SHADOW,
                     !canSubmit && "opacity-50"
                   )}

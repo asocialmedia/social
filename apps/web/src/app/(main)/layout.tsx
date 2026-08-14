@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import type React from "react";
+
 import { GooeyToaster } from "@/components/auth/gooey-toaster";
 import FloatingPostComposer from "@/components/layouts/floating-post-composer";
 import { SpotlightProvider } from "@/components/search/spotlight-provider";
 import { getSessionFromApi } from "@/lib/session";
+
 import SessionProvider from "./session-provider";
 
 export default async function Layout({
@@ -20,7 +22,7 @@ export default async function Layout({
   return (
     <SessionProvider value={session}>
       <SpotlightProvider>
-        <div className="flex flex-1 flex-col font-sofiaProSoft">{children}</div>
+        <div className="font-sofiaProSoft flex flex-1 flex-col">{children}</div>
       </SpotlightProvider>
       <FloatingPostComposer />
       <GooeyToaster />

@@ -35,14 +35,14 @@ export function useSignupUrlState() {
   };
 
   return {
-    showOTPPanel,
-    showEmailVerification,
-    currentEmail,
-    setShowOTPPanel,
-    setShowEmailVerification,
-    setCurrentEmail,
     clearSignupState,
-    setOTPState,
+    currentEmail,
+    setCurrentEmail,
     setEmailVerificationState,
+    setOTPState,
+    setShowEmailVerification,
+    setShowOTPPanel,
+    showEmailVerification,
+    showOTPPanel,
   };
 }

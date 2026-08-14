@@ -1,6 +1,7 @@
 import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
 import { cache } from "react";
+
 import { authInternalHeaders } from "@/lib/auth-internal";
 
 export type SessionResponse = { session: Session; user: User } | null;
@@ -49,10 +50,10 @@ async function fetchSession(cookie: string): Promise<SessionResponse> {
 
   try {
     const sessionRes = await fetch(sessionUrl, {
-      method: "GET",
-      headers: authInternalHeaders(cookie ? { cookie } : {}),
-      credentials: "include",
       cache: "no-store",
+      credentials: "include",
+      headers: authInternalHeaders(cookie ? { cookie } : {}),
+      method: "GET",
     });
 
     if (!sessionRes.ok) {

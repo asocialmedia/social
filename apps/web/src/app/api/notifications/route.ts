@@ -1,5 +1,7 @@
-import { type NotificationsPage, notificationsInclude, prisma } from "@asm/db";
+import { notificationsInclude, prisma } from "@asm/db";
+import type { NotificationsPage } from "@asm/db";
 import type { NextRequest } from "next/server";
+
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
@@ -13,22 +15,22 @@ export async function GET(req: NextRequest) {
     }
     const userId = session.user.id;
     const notifications = await prisma.notification.findMany({
+      cursor: cursor ? { id: cursor } : undefined,
+      include: notificationsInclude,
+      orderBy: { createdAt: "desc" },
+      take: pageSize + 1,
       where: {
         recipientId: userId,
         ...(type === "mentions" ? { type: "MENTION" } : {}),
       },
-      include: notificationsInclude,
-      orderBy: { createdAt: "desc" },
-      take: pageSize + 1,
-      cursor: cursor ? { id: cursor } : undefined,
     });
     const nextCursor =
       notifications.length > pageSize && notifications[pageSize]
         ? notifications[pageSize].id
         : null;
     const data: NotificationsPage = {
-      notifications: notifications.slice(0, pageSize),
       nextCursor,
+      notifications: notifications.slice(0, pageSize),
     };
     return Response.json(data);
   } catch (error) {
