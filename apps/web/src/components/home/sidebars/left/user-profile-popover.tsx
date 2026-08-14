@@ -28,26 +28,27 @@ import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
 import { useLogout } from "@/hooks/use-logout";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UserProfilePopoverProps {
+  compact?: boolean;
   userData: UserData;
 }
 
-interface PopoverStatProps {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-}
-
-const PopoverStat: React.FC<PopoverStatProps> = ({
+const PopoverStat = ({
   icon: Icon,
+  iconClassName,
   label,
   value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  iconClassName?: string;
+  label: string;
+  value: number;
 }) => (
   <div className="flex min-w-0 flex-col items-center gap-0.5">
-    <Icon className="text-muted-foreground h-4 w-4" />
+    <Icon className={cn("h-4 w-4", iconClassName ?? "text-muted-foreground")} />
     <span className="text-sm font-semibold tabular-nums">
       {formatNumber(value)}
     </span>
@@ -97,6 +98,7 @@ function getSocialLinks(user: UserData): PopoverSocialLink[] {
 }
 
 const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
+  compact = false,
   userData,
 }) => {
   const {
@@ -137,7 +139,9 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
       <div
         aria-hidden
         className="absolute inset-0 scale-110 bg-cover bg-center opacity-30 blur-md"
-        style={{ backgroundImage: `url(${userData.avatarUrl})` }}
+        style={{
+          backgroundImage: `url(${getSecureImageUrl(userData.avatarUrl)})`,
+        }}
       />
     );
   } else {
@@ -150,26 +154,40 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
     <>
       <Popover onOpenChange={handleOpenChange} open={open}>
         <PopoverTrigger asChild>
-          <button
-            aria-haspopup="dialog"
-            aria-label="Open your profile"
-            className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
-            type="button"
-          >
-            <UserAvatar
-              avatarUrl={userData.avatarUrl}
-              className="h-10 w-10"
-              priority
-            />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">
-                {userData.displayName || userData.username}
+          {compact ? (
+            <button
+              aria-haspopup="dialog"
+              aria-label={`Open profile menu for ${userData.username}`}
+              className="pill-3d-hover group flex size-10 shrink-0 items-center justify-center rounded-full border-0 p-0"
+              type="button"
+            >
+              <UserAvatar
+                avatarUrl={userData.avatarUrl}
+                className="size-9"
+                priority
+              />
+            </button>
+          ) : (
+            <button
+              aria-haspopup="dialog"
+              className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
+              type="button"
+            >
+              <UserAvatar
+                avatarUrl={userData.avatarUrl}
+                className="h-10 w-10"
+                priority
+              />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">
+                  {userData.displayName || userData.username}
+                </span>
+                <span className="text-muted-foreground block truncate text-xs">
+                  @{userData.username}
+                </span>
               </span>
-              <span className="text-muted-foreground block truncate text-xs">
-                @{userData.username}
-              </span>
-            </span>
-          </button>
+            </button>
+          )}
         </PopoverTrigger>
 
         <PopoverContent
@@ -255,7 +273,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
               label="Following"
               value={userData._count.following}
             />
-            <PopoverStat icon={Flame} label="Aura" value={userData.aura} />
+            <PopoverStat
+              icon={Flame}
+              iconClassName={
+                userData.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              }
+              label="Aura"
+              value={userData.aura}
+            />
           </div>
 
           {/* Actions */}

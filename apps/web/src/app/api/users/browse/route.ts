@@ -10,11 +10,9 @@ type UserOrderBy =
 
 export async function GET(request: Request) {
   try {
+    // Guests can browse users; per-user fields simply resolve to empty.
     const session = await getSessionFromApi();
-    const user = session?.user;
-    if (!user) {
-      return Response.json({ error: "Not authenticated" }, { status: 401 });
-    }
+    const viewerId = session?.user?.id ?? "";
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
@@ -62,13 +60,13 @@ export async function GET(request: Request) {
 
     const users = await prisma.user.findMany({
       orderBy,
-      select: getUserDataSelect(user.id),
+      select: getUserDataSelect(viewerId),
       take: 20,
       where: {
         AND: [
           {
             id: {
-              not: user.id,
+              not: viewerId,
             },
           },
           {

@@ -3,18 +3,21 @@ import { env } from "../../env";
 export const emailConfig = {
   assets: {
     backgroundImage: `${env.APP_URL}/assets/auth/signup-image.jpg`,
+    bannerUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-githubanner.jpg",
     colors: {
-      border: "#e5e7eb",
-      cardBg: "#f8fafc",
-      primary: "#f97316",
-      primaryHover: "#fb923c",
+      border: "rgba(255, 255, 255, 0.08)",
+      cardBg: "#232326",
+      panelBg: "#1a1a1c",
+      primary: "#ff9500",
+      primaryDeep: "#e65500",
+      primaryHover: "#ffa629",
       secondary: "#1f2937",
-      text: "#6b7280",
-      textDark: "#1f2937",
-      textLight: "#9ca3af",
-      warning: "#9a3412",
-      warningBg: "#fff7ed",
-      warningBorder: "#ffedd5",
+      text: "#a6a6ad",
+      textDark: "#f4f4f5",
+      textLight: "#7b7b82",
+      warning: "#c9a57f",
+      warningBg: "rgba(255, 149, 0, 0.06)",
+      warningBorder: "rgba(255, 149, 0, 0.18)",
     },
     features: [
       {
@@ -36,6 +39,7 @@ export const emailConfig = {
         title: "Open Source Freedom",
       },
     ],
+    logoUrl: "https://zr2.asocialmedia.cc/Assets/zephyr-logo.png",
   },
 
   company: {

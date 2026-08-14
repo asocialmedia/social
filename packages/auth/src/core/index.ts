@@ -1,5 +1,3 @@
-/** biome-ignore-all lint/performance/noBarrelFile: auth config */
-
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./client";
 export {

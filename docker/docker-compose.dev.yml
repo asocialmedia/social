@@ -167,11 +167,10 @@ services:
         aws --endpoint-url "$$ASMOB_ENDPOINT" s3api create-bucket --bucket temp || true
         aws --endpoint-url "$$ASMOB_ENDPOINT" s3api create-bucket --bucket backups || true
 
-        echo 'Setting bucket policies...'
-        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket uploads --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::uploads/*"}]}' || true
-        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket avatars --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::avatars/*"}]}' || true
-        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket temp --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::temp/*"}]}' || true
-        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-policy --bucket backups --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::backups/*"}]}' || true
+        # Buckets stay private: content is served exclusively through the app's
+        # /api/media, /api/users/avatar/[userId]/image and
+        # /api/users/banner/[userId]/image proxy routes, which use the S3
+        # client with credentials. Never apply public-read policies here.
 
         echo 'Enabling versioning...'
         aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket uploads --versioning-configuration Status=Enabled || true

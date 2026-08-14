@@ -18,6 +18,7 @@ interface PostInput {
     score: number;
     descendants: number;
   };
+  isGust?: boolean;
   mediaIds: string[];
   mentions: string[];
   tags: string[];
@@ -32,6 +33,7 @@ export function useSubmitPostMutation() {
       const payload = {
         content: input.content,
         hnStory: input.hnStory,
+        isGust: input.isGust ?? false,
         mediaIds: input.mediaIds,
         mentions: Array.isArray(input.mentions)
           ? input.mentions.filter(Boolean)
@@ -78,13 +80,30 @@ export function useSubmitPostMutation() {
       );
 
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });
+      if (newPost.isGust) {
+        queryClient.invalidateQueries({ queryKey: ["gusts-feed"] });
+        queryClient.invalidateQueries({ queryKey: ["explore-gusts-grid"] });
+        queryClient.invalidateQueries({ queryKey: ["explore-top-gusts"] });
+      }
       const isHnShare = !!newPost.hnStoryShare;
+
+      let description: string;
+      let title: string;
+      if (isHnShare) {
+        description = "Your thoughts on this story are live";
+        title = "Story Shared";
+      } else if (newPost.isGust) {
+        description = "Your gust is live, the feed's about to pop off!";
+        title = "Gust Published";
+      } else {
+        description = "Your post is live, nice one!";
+        title = "Post Published";
+      }
+
       toast({
-        description: isHnShare
-          ? "Your thoughts on this story are live"
-          : "Your post is live, nice one!",
+        description,
         duration: 5000,
-        title: isHnShare ? "Story Shared" : "Post Published",
+        title,
       });
     },
   });

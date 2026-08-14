@@ -14,10 +14,12 @@ describe("worker job processors", () => {
   };
 
   interface MediaRow {
+    commentId: string | null;
     createdAt: Date;
     id: string;
     key: string;
     postId: string | null;
+    thumbnailKey: string | null;
   }
 
   const mockPrisma = {
@@ -25,15 +27,21 @@ describe("worker job processors", () => {
       delete: mock(() => ({})),
       deleteMany: mock(() => ({ count: 2 })),
       findMany: mock(() => [
-        { id: "media-1", key: "uploads/a.jpg" },
-        { id: "media-2", key: "" },
+        { id: "media-1", key: "uploads/a.jpg", thumbnailKey: null },
+        {
+          id: "media-2",
+          key: "",
+          thumbnailKey: "uploads/video-thumb.jpg",
+        },
       ]),
       findUnique: mock((): Promise<MediaRow | null> =>
         Promise.resolve({
+          commentId: null,
           createdAt: new Date(),
           id: "media-1",
           key: "uploads/a.jpg",
           postId: null,
+          thumbnailKey: null,
         })
       ),
     },
@@ -79,11 +87,15 @@ describe("worker job processors", () => {
     await processPostDeleted({ postId: "post-1" });
 
     expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
-      select: { id: true, key: true },
+      select: { id: true, key: true, thumbnailKey: true },
       where: { postId: "post-1" },
     });
-    // Only the media with a non-empty key reaches the object store.
-    expect(deletedObjects).toEqual(["uploads/a.jpg"]);
+    // Only media with non-empty keys reaches the object store; video
+    // thumbnails are deleted alongside their clips.
+    expect(deletedObjects).toEqual([
+      "uploads/a.jpg",
+      "uploads/video-thumb.jpg",
+    ]);
     expect(mockPrisma.media.deleteMany).toHaveBeenCalled();
     expect(mockRedis.srem).toHaveBeenCalled();
     expect(mockRedis.del).toHaveBeenCalled();
@@ -95,7 +107,14 @@ describe("worker job processors", () => {
     await processMediaCleanup({ mediaId: "media-1" });
 
     expect(mockPrisma.media.findUnique).toHaveBeenCalledWith({
-      select: { createdAt: true, id: true, key: true, postId: true },
+      select: {
+        commentId: true,
+        createdAt: true,
+        id: true,
+        key: true,
+        postId: true,
+        thumbnailKey: true,
+      },
       where: { id: "media-1" },
     });
     expect(deletedObjects).toEqual(["uploads/a.jpg"]);
@@ -105,14 +124,31 @@ describe("worker job processors", () => {
 
     // Attached media should be left alone.
     mockPrisma.media.findUnique.mockResolvedValueOnce({
+      commentId: null,
       createdAt: new Date(),
       id: "media-2",
       key: "uploads/b.jpg",
       postId: "post-2",
+      thumbnailKey: null,
     });
     deletedObjects.length = 0;
     mockPrisma.media.delete.mockClear();
     await processMediaCleanup({ mediaId: "media-2" });
+    expect(deletedObjects).toEqual([]);
+    expect(mockPrisma.media.delete).not.toHaveBeenCalled();
+
+    // Media attached to a comment eddy is not orphaned either.
+    mockPrisma.media.findUnique.mockResolvedValueOnce({
+      commentId: "comment-1",
+      createdAt: new Date(),
+      id: "media-3",
+      key: "uploads/c.jpg",
+      postId: null,
+      thumbnailKey: null,
+    });
+    deletedObjects.length = 0;
+    mockPrisma.media.delete.mockClear();
+    await processMediaCleanup({ mediaId: "media-3" });
     expect(deletedObjects).toEqual([]);
     expect(mockPrisma.media.delete).not.toHaveBeenCalled();
   });

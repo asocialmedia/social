@@ -108,7 +108,7 @@ export const FeedScrollbar = ({ containerRef }: FeedScrollbarProps) => {
     }
     measure();
     el.addEventListener("scroll", scheduleMeasure, { passive: true });
-    el.addEventListener("pointerenter", show);
+    el.addEventListener("pointerenter", show, { passive: true });
     const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(el);
     return () => {

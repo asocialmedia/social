@@ -17,6 +17,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface PostAuthorSidebarProps {
   post: PostData;
@@ -68,6 +69,7 @@ const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
           muted
           onLoadedMetadata={seekToThumbnail}
           playsInline
+          poster={getMediaProxyUrl(media)}
           preload="metadata"
           src={getMediaUrl(media.id)}
         />
@@ -137,7 +139,12 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
             {getRelativeAgo(post.createdAt)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
-            <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
+            <Flame
+              className={cn(
+                "h-3 w-3 transition-colors group-hover:text-inherit",
+                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             {formatNumber(post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
@@ -238,7 +245,9 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
   return (
     <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
-        {/* Author profile card */}
+        {
+          // Author profile card
+        }
         <div className="sidebar-subcard rounded-2xl p-2">
           <Link
             className={cn(
@@ -277,7 +286,12 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                 Followers
               </span>
               <span className="flex items-center gap-1">
-                <Flame className="h-3.5 w-3.5 text-orange-500" />
+                <Flame
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    author.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+                  )}
+                />
                 <span className="text-foreground font-semibold">
                   {formatNumber(author.aura)}
                 </span>{" "}
@@ -296,7 +310,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               </Link>
             ) : (
               <FollowButton
-                className="follow-btn-3d h-8 w-full px-3 text-sm"
+                className="h-8 w-full px-3 text-sm"
                 initialState={followerInfo}
                 userId={author.id}
               />
@@ -304,7 +318,9 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
           </div>
         </div>
 
-        {/* More from the author */}
+        {
+          // More from the author
+        }
         <div className="sidebar-subcard rounded-2xl p-2">
           <div className="flex items-center gap-2 px-2 pt-0.5 pb-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
@@ -312,7 +328,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm leading-tight font-semibold">More from</p>
-              <p className="text-primary truncate text-xs leading-tight">
+              <p className="text-foreground/80 truncate text-xs leading-tight font-medium">
                 @{author.username}
               </p>
             </div>

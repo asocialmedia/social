@@ -1,0 +1,280 @@
+"use client";
+
+import type { PostData, PostsPage } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
+import noMediaImage from "@assets/general/nomedia.png";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { Clapperboard, Eye, Flame, Loader2, Play, Plus } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+
+import { useSession } from "@/app/(main)/session-provider";
+import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import UserAvatar from "@/components/layouts/user-avatar";
+import { useRequireAuth } from "@/hooks/use-require-auth";
+import kyInstance from "@/lib/ky";
+import { cn, formatNumber } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
+
+const VIDEO_HOVER_DELAY = 150;
+
+const ExploreGustTile = ({ post }: { post: PostData }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasStartedPlaying, setHasStartedPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+
+  const handleMouseEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    hoverTimeoutRef.current = setTimeout(() => {
+      const video = videoRef.current;
+      if (video) {
+        void (async () => {
+          try {
+            await video.play();
+            setIsPlaying(true);
+            setHasStartedPlaying(true);
+          } catch {
+            setIsPlaying(false);
+          }
+        })();
+      }
+    }, VIDEO_HOVER_DELAY);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    const video = videoRef.current;
+    if (video) {
+      try {
+        video.pause();
+        if (video.readyState >= 1 && video.duration > 2) {
+          video.currentTime = 2;
+        }
+      } catch {
+        // Ignore seek aborts
+      }
+      setIsPlaying(false);
+    }
+  }, []);
+
+  if (!videoMedia) {
+    return null;
+  }
+
+  const thumbUrl = getMediaProxyUrl(videoMedia);
+  const videoUrl = `/api/media/${videoMedia.id}`;
+
+  return (
+    <Link
+      className="group relative aspect-9/16 w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      href={`/gusts?id=${post.id}`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* Poster Thumbnail */}
+      <Image
+        alt={post.content || "Gust video"}
+        className={cn(
+          "h-full w-full object-cover transition-opacity duration-300",
+          isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+        src={thumbUrl}
+        unoptimized
+      />
+
+      {/* Hover Stream Preview */}
+      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
+      <video
+        className={cn(
+          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+          isPlaying && hasStartedPlaying ? "opacity-100" : "opacity-0"
+        )}
+        loop
+        muted
+        playsInline
+        preload="metadata"
+        ref={videoRef}
+        src={videoUrl}
+      />
+
+      {/* Top Clapperboard Badge */}
+      <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-white backdrop-blur-md">
+        <Clapperboard className="text-primary size-3" />
+        <span className="text-[10px] font-bold">Gust</span>
+      </div>
+
+      {/* Center Play indicator on hover */}
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200",
+          isPlaying ? "opacity-0" : "opacity-0 group-hover:opacity-100"
+        )}
+      >
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md">
+          <Play className="ml-0.5 size-6 fill-white text-white" />
+        </div>
+      </div>
+
+      {/* Bottom gradient overlay */}
+      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/40 to-transparent p-3 pt-8 text-white">
+        <div className="flex items-center gap-2">
+          <UserAvatar
+            avatarUrl={post.user.avatarUrl}
+            className="size-6 border border-white/40"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold text-white/95">
+              {post.user.displayName || post.user.username}
+            </p>
+            <p className="truncate text-[11px] text-white/70">
+              @{post.user.username}
+            </p>
+          </div>
+        </div>
+
+        {post.content ? (
+          <p className="mt-1.5 line-clamp-2 text-xs text-white/85">
+            {post.content}
+          </p>
+        ) : null}
+
+        <div className="mt-2 flex items-center justify-between text-xs text-white/70">
+          <span className="flex items-center gap-1 font-medium">
+            <Eye className="size-3.5" />
+            {formatNumber(post.viewCount)}
+          </span>
+          <span className="flex items-center gap-1 font-medium">
+            <Flame
+              className={cn(
+                "size-3.5",
+                post.aura > 0 && "fill-primary text-primary",
+                post.aura < 0 && "text-muted-foreground",
+                post.aura === 0 && "text-white/60"
+              )}
+            />
+            {formatNumber(post.aura)}
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+};
+
+export const ExploreGustsGrid: React.FC = () => {
+  const { user } = useSession();
+  const { goToLogin } = useRequireAuth();
+
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+    status,
+  } = useInfiniteQuery({
+    getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      kyInstance
+        .get(
+          "/api/gusts",
+          pageParam
+            ? { searchParams: { cursor: pageParam, take: "12" } }
+            : { searchParams: { take: "12" } }
+        )
+        .json<PostsPage>(),
+    queryKey: ["explore-gusts-grid"],
+    staleTime: 30 * 1000,
+  });
+
+  const posts = useMemo(
+    () => data?.pages.flatMap((page) => page.posts) || [],
+    [data?.pages]
+  );
+
+  const handleBottomReached = useCallback(() => {
+    if (hasNextPage && !isFetching) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetching]);
+
+  const handleCreateGust = useCallback(() => {
+    if (!user) {
+      goToLogin();
+      return;
+    }
+    window.location.href = "/gusts?create=true";
+  }, [goToLogin, user]);
+
+  if (status === "pending") {
+    return (
+      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            className="bg-muted/40 aspect-9/16 w-full animate-pulse rounded-2xl"
+            // eslint-disable-next-line react/no-array-index-key -- skeleton placeholders
+            key={i}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <p className="text-destructive px-4 py-12 text-center text-sm">
+        Couldn't load Gusts right now. Please try again.
+      </p>
+    );
+  }
+
+  if (posts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        <Image
+          alt="No Gusts"
+          className="size-32 rounded-full object-contain opacity-80"
+          draggable={false}
+          height={128}
+          src={noMediaImage}
+          width={128}
+        />
+        <h3 className="text-foreground text-lg font-bold">No Gusts yet</h3>
+        <p className="text-muted-foreground max-w-xs text-sm">
+          Explore short-form video clips or share your own high-energy video
+          with the community!
+        </p>
+        <Button className="mt-2" onClick={handleCreateGust} variant="premium">
+          <Plus className="mr-1.5 size-4" />
+          Create the First Gust
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
+        {posts.map((post) => (
+          <ExploreGustTile key={post.id} post={post} />
+        ))}
+      </div>
+      {isFetchingNextPage ? (
+        <div className="flex justify-center py-6">
+          <Loader2 className="text-primary animate-spin" />
+        </div>
+      ) : null}
+    </InfiniteScrollContainer>
+  );
+};

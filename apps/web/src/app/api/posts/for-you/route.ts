@@ -7,11 +7,9 @@ import { getSessionFromApi } from "@/lib/session";
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
 export async function GET(request: Request) {
+  // Guests can browse the public feed; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
-  if (!session?.user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = session.user.id;
+  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
@@ -24,7 +22,7 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
-  const where: Prisma.PostWhereInput = {};
+  const where: Prisma.PostWhereInput = { isGust: false };
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),

@@ -90,13 +90,14 @@ export default function UserButton({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const { data: avatarData } = useQuery({
+    enabled: Boolean(user),
     initialData: {
       key: null,
-      url: user.image ? getSecureImageUrl(user.image) : null,
+      url: user?.image ? getSecureImageUrl(user.image) : null,
     },
     queryFn: async () => {
       try {
-        const response = await fetch(`/api/users/avatar/${user.id}`);
+        const response = await fetch(`/api/users/avatar/${user?.id}`);
         if (!response.ok) {
           throw new Error("Failed to fetch avatar");
         }
@@ -108,11 +109,11 @@ export default function UserButton({
       } catch {
         return {
           key: null,
-          url: user.image ? getSecureImageUrl(user.image) : null,
+          url: user?.image ? getSecureImageUrl(user.image) : null,
         };
       }
     },
-    queryKey: ["avatar", user.id],
+    queryKey: ["avatar", user?.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -150,6 +151,10 @@ export default function UserButton({
   );
 
   if (!isMounted) {
+    return null;
+  }
+
+  if (!user) {
     return null;
   }
 

@@ -12,13 +12,14 @@ import { getSessionFromApi } from "@/lib/session";
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
   const user = session?.user;
-  if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
   const url = new URL(request.url);
   const type = url.searchParams.get("type");
 
   if (type === "history") {
+    // Search history is per-user; guests have none.
+    if (!user) {
+      return Response.json([]);
+    }
     const history = await searchSuggestionsCache.getHistory(user.id);
     return Response.json(history);
   }
@@ -36,9 +37,10 @@ export async function GET(request: Request) {
   const cursor = url.searchParams.get("cursor") || undefined;
   const pageSize = 10;
 
+  // Guests can search public posts; per-user fields simply resolve to empty.
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
-    include: getPostDataInclude(user.id),
+    include: getPostDataInclude(user?.id ?? ""),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
     where: {

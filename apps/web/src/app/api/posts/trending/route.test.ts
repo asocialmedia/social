@@ -53,12 +53,14 @@ describe("GET /api/posts/trending", () => {
     mockGetSession.mockClear();
   });
 
-  test("rejects unauthenticated requests", async () => {
+  test("allows guests to browse the trending feed", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 
     const res = await GET(new Request("http://localhost/api/posts/trending"));
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.posts.map((p: PostRow) => p.id)).toEqual(["p2", "p3", "p1"]);
   });
 
   test("orders posts by aura descending", async () => {

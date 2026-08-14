@@ -15,7 +15,14 @@ export async function GET(_req: Request) {
     const user = session?.user;
 
     if (!user) {
-      return Response.json({ error: "Not authenticated" }, { status: 401 });
+      // Guests get a generic set of popular users instead of the personalised
+      // (and per-user cached) suggestions.
+      const guestUsers = await prisma.user.findMany({
+        orderBy: { aura: Prisma.SortOrder.desc },
+        select: { ...getUserDataSelect(""), aura: true },
+        take: 6,
+      });
+      return Response.json(guestUsers);
     }
 
     const cachedData = await suggestedUsersCache.get(user.id);

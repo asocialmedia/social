@@ -1,7 +1,7 @@
 "use server";
 
 import type { CreatePostInput } from "@asm/auth/validation";
-import { createPostSchema } from "@asm/auth/validation";
+import { createGustSchema, createPostSchema } from "@asm/auth/validation";
 import {
   cancelMediaCleanup,
   enqueueNotificationCreated,
@@ -111,12 +111,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     }
     console.log("Session validated, proceeding with post submission");
 
-    const validatedInput = createPostSchema.parse({
+    const parsed = (input.isGust ? createGustSchema : createPostSchema).parse({
       content: input.content,
+      isGust: input.isGust ?? false,
       mediaIds: input.mediaIds || [],
       mentions: input.mentions || [],
       tags: input.tags || [],
     });
+    const validatedInput: CreatePostInput = parsed;
 
     const auraReward = await calculateAuraReward(
       validatedInput.mediaIds,
@@ -147,6 +149,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           },
           aura: 0,
           content: validatedInput.content,
+          isGust: validatedInput.isGust ?? false,
           mentions:
             validatedInput.mentions.length > 0
               ? {

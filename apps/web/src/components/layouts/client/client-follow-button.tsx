@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import {
   useFollowUserMutation,
   useUnfollowUserMutation,
@@ -37,7 +38,6 @@ const LoadingPulse = () => (
         }}
         className="h-1.5 w-1.5 rounded-full bg-current"
         initial={{ opacity: 0.6, scale: 0.8 }}
-        // biome-ignore lint/suspicious/noArrayIndexKey: skeleton loading animation uses index-based keys
         key={`loading-pulse-${i}`}
         transition={{
           delay: i * 0.2,
@@ -174,6 +174,7 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
   className,
   onFollowed,
 }) => {
+  const { isLoggedIn, goToLogin } = useRequireAuth();
   const [localState, updateState] = useFollowState(userId, initialState);
   const { handleFollow, handleUnfollow, isLoading } = useFollowMutations(
     userId,
@@ -183,6 +184,10 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
     useOptimisticUpdate(localState, updateState);
 
   const handleFollowToggle = async () => {
+    if (!isLoggedIn) {
+      goToLogin();
+      return;
+    }
     const previousState = { ...localState };
     const isFollowing = !localState.isFollowedByUser;
 
@@ -210,18 +215,13 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
       <Button
         className={cn(
           className,
-          "relative overflow-hidden transition-all duration-300",
-          {
-            "bg-linear-to-b from-orange-500/20 to-orange-600/10 text-orange-600 hover:from-orange-500/25 hover:to-orange-600/15 dark:text-orange-400":
-              isFollowing,
-            "bg-primary/90 hover:bg-primary": !isFollowing,
-            "cursor-not-allowed": isLoading,
-          }
+          "follow-btn-3d relative overflow-hidden transition-all duration-300",
+          isLoading && "cursor-not-allowed"
         )}
         disabled={isLoading}
         onClick={handleFollowToggle}
         size="sm"
-        variant={isFollowing ? "outline" : "default"}
+        variant="default"
       >
         <ButtonContent isFollowing={isFollowing} isLoading={isLoading} />
 

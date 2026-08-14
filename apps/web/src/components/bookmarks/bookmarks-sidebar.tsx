@@ -27,7 +27,7 @@ const StatTile: React.FC<{
 }> = ({ icon, label, value }) => (
   <div className="bg-background/60 flex flex-col items-center rounded-xl px-1 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04)]">
     {icon}
-    <span className="mt-1 bg-gradient-to-b from-[#ff9500] to-[#e65500] bg-clip-text text-lg font-bold text-transparent tabular-nums">
+    <span className="mt-1 bg-linear-to-b from-[#ff9500] to-[#e65500] bg-clip-text text-lg font-bold text-transparent tabular-nums">
       {formatNumber(value)}
     </span>
     <span className="text-muted-foreground mt-0.5 text-[11px]">{label}</span>

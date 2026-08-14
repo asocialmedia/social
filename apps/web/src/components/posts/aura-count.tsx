@@ -10,6 +10,7 @@ import { Flame } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import kyInstance from "@/lib/ky";
+import { cn } from "@/lib/utils";
 
 interface AuraCountProps {
   initialAura: number;
@@ -41,7 +42,12 @@ export default function AuraCount({ postId, initialAura }: AuraCountProps) {
       <Tooltip>
         <TooltipTrigger>
           <div className="text-foreground mb-2 flex items-center text-lg font-semibold">
-            <Flame className="mr-1 h-5 w-5 text-orange-500" />
+            <Flame
+              className={cn(
+                "mr-1 h-5 w-5",
+                localAura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             <span>{localAura}</span>
           </div>
         </TooltipTrigger>

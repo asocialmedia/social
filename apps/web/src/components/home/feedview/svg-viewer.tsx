@@ -325,7 +325,6 @@ export const SVGViewer = ({
             size={isMobile ? "sm" : "icon"}
             variant="secondary"
           >
-            {/* biome-ignore lint/a11y/noSvgWithoutTitle: Not needed */}
             <svg
               className={cn("h-4 w-4", isMobile && "mr-2")}
               fill="none"

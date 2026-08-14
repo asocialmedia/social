@@ -12,11 +12,13 @@ import { useCallback, useState } from "react";
 import DeleteCommentDialog from "./delete-comment-dialog";
 
 interface CommentMoreButtonProps {
+  applyDeleted: (comment: CommentData) => void;
   className?: string;
   comment: CommentData;
 }
 
 export default function CommentMoreButton({
+  applyDeleted,
   comment,
   className,
 }: CommentMoreButtonProps) {
@@ -34,7 +36,12 @@ export default function CommentMoreButton({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button className={className} size="icon" variant="ghost">
+          <Button
+            aria-label="Comment options"
+            className={className}
+            size="icon"
+            variant="ghost"
+          >
             <MoreHorizontal className="text-muted-foreground size-5" />
           </Button>
         </DropdownMenuTrigger>
@@ -48,6 +55,7 @@ export default function CommentMoreButton({
         </DropdownMenuContent>
       </DropdownMenu>
       <DeleteCommentDialog
+        applyDeleted={applyDeleted}
         comment={comment}
         onClose={handleCloseDialog}
         open={showDeleteDialog}

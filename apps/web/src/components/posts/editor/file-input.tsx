@@ -1,4 +1,10 @@
-import { FileAudioIcon, FileCode, FileIcon, ImageIcon } from "lucide-react";
+import {
+  FileAudioIcon,
+  FileCode,
+  FileIcon,
+  ImageIcon,
+  Video,
+} from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
@@ -7,6 +13,7 @@ import { cn } from "@/lib/utils";
 interface FileInputProps {
   disabled: boolean;
   onFilesSelected: (files: File[]) => void;
+  videoOnly?: boolean;
 }
 
 type FileButtonType = "image" | "audio" | "document" | "code";
@@ -27,6 +34,7 @@ interface FileButtonProps {
   label: string;
   setHoveredButton: (button: FileButtonType | null) => void;
   type: FileButtonType;
+  videoOnly?: boolean;
 }
 
 const FileButton = ({
@@ -41,6 +49,7 @@ const FileButton = ({
   setHoveredButton,
   disabled,
   handleFileSelect,
+  videoOnly = false,
 }: FileButtonProps) => {
   const [isFocused, setIsFocused] = useState(false);
   const innerRef = useRef<HTMLInputElement | null>(null);
@@ -102,19 +111,24 @@ const FileButton = ({
         type="button"
       >
         <span className="flex items-center gap-1.5">
-          <Icon className="size-5" size={20} />
+          {videoOnly ? (
+            <Video className="size-5" size={20} />
+          ) : (
+            <Icon className="size-5" size={20} />
+          )}
           <span
             className={cn(
               "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
               isHovered && "max-w-32"
             )}
           >
-            {label}
+            {videoOnly ? "Video" : label}
           </span>
         </span>
       </button>
       <input
         accept={accept}
+        aria-label={label}
         capture={capture}
         className="sr-only"
         multiple
@@ -133,6 +147,7 @@ const FILE_BUTTONS: Omit<
   | "setHoveredButton"
   | "disabled"
   | "handleFileSelect"
+  | "videoOnly"
 >[] = [
   {
     accept: "image/*,video/*,.png,.jpg,.jpeg,.gif,.mp4,.mov,.avi",
@@ -167,7 +182,11 @@ const FILE_BUTTONS: Omit<
   },
 ];
 
-export const FileInput = ({ onFilesSelected, disabled }: FileInputProps) => {
+export const FileInput = ({
+  onFilesSelected,
+  disabled,
+  videoOnly = false,
+}: FileInputProps) => {
   const inputRefs = useRef<Record<FileButtonType, HTMLInputElement | null>>({
     audio: null,
     code: null,
@@ -198,7 +217,9 @@ export const FileInput = ({ onFilesSelected, disabled }: FileInputProps) => {
 
   return (
     <div className="flex items-center gap-1.5">
-      {FILE_BUTTONS.map((config) => (
+      {FILE_BUTTONS.filter(
+        (config) => !videoOnly || config.buttonType === "image"
+      ).map((config) => (
         <FileButton
           {...config}
           disabled={disabled}
@@ -207,6 +228,7 @@ export const FileInput = ({ onFilesSelected, disabled }: FileInputProps) => {
           inputRef={setInputRef(config.buttonType)}
           key={config.buttonType}
           setHoveredButton={setHoveredButton}
+          videoOnly={videoOnly}
         />
       ))}
     </div>

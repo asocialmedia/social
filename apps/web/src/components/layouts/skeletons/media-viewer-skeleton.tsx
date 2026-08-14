@@ -48,7 +48,6 @@ export const MediaViewerSkeleton = ({
               {Array.from({ length: 8 }).map((_, i) => (
                 <div
                   className="bg-muted/50 h-4 w-full rounded-sm"
-                  // biome-ignore lint/suspicious/noArrayIndexKey: skeleton components use index keys as order never changes
                   key={i}
                   style={{ width: `${Math.random() * 40 + 60}%` }}
                 />

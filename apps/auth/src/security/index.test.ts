@@ -18,7 +18,6 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
     maxBodyBytes: 1024,
     maxConcurrentRequests: 4,
     requestTimeoutMs: 15_000,
-    // biome-ignore lint/performance/useTopLevelRegex: test-only pattern
     strictPaths: [/^\/api\/auth\/sign-in/],
     strictRateLimitMax: 2,
     strictRateLimitWindowMs: 60_000,

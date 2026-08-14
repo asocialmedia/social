@@ -10,6 +10,8 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import authImage from "@assets/general/auth.png";
+import noSearchImage from "@assets/general/nosearch.png";
 import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import {
   Check,
@@ -22,6 +24,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
+import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import type * as React from "react";
 import type { SyntheticEvent } from "react";
@@ -36,6 +39,7 @@ import {
   FaWhatsapp,
 } from "react-icons/fa";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -43,8 +47,11 @@ import { cn } from "@/lib/utils";
 const FALLBACK_THUMBNAIL = "/fallback.png";
 
 interface ShareButtonProps {
+  className?: string;
+  defaultTab?: "social" | "link" | "qr";
   description?: string;
   postId: string;
+  shareUrl?: string;
   thumbnail?: string;
   title?: string;
 }
@@ -56,21 +63,32 @@ interface ShareStats {
 }
 
 const ShareButton = ({
+  className,
+  defaultTab = "social",
   postId,
+  shareUrl,
   title,
   thumbnail,
   description,
 }: ShareButtonProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState("social");
+  const [activeTab, setActiveTab] = useState<"social" | "link" | "qr">(
+    defaultTab
+  );
   const [shareStats, setShareStats] = useState<ShareStats[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const baseUrl = typeof window === "undefined" ? "" : window.location.origin;
-  const postUrl = `${baseUrl}/posts/${postId}`;
+  const postUrl = shareUrl || `${baseUrl}/posts/${postId}`;
+  const { user } = useSession();
+  const isLoggedIn = Boolean(user);
 
   const fetchShareStats = useCallback(async () => {
+    if (!isLoggedIn) {
+      // Guests see the login prompt instead of share statistics.
+      return;
+    }
     try {
       setIsLoading(true);
       const response = await fetch(`/api/posts/${postId}/share/stats`, {
@@ -103,7 +121,7 @@ const ShareButton = ({
     } finally {
       setIsLoading(false);
     }
-  }, [postId]);
+  }, [isLoggedIn, postId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -386,6 +404,31 @@ const ShareButton = ({
   }, []);
 
   const renderStatsBody = () => {
+    if (!isLoggedIn) {
+      return (
+        <div className="flex flex-col items-center gap-2.5 py-2 text-center">
+          <Image
+            alt=""
+            aria-hidden
+            className="h-20 w-auto object-contain"
+            draggable={false}
+            height={256}
+            src={authImage}
+            width={256}
+          />
+          <p className="text-muted-foreground max-w-52 text-sm">
+            Log in to see share statistics
+          </p>
+          <Button
+            asChild
+            className="h-8 rounded-full px-4 text-xs"
+            variant="premium"
+          >
+            <Link href="/login">Log in</Link>
+          </Button>
+        </div>
+      );
+    }
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-4">
@@ -394,11 +437,13 @@ const ShareButton = ({
       );
     }
     if (shareStats.length > 0) {
-      return (
-        <div className="flex flex-col gap-1.5">
-          {shareStats
-            .filter((stat) => stat.shares > 0 || stat.clicks > 0)
-            .map((stat) => (
+      const visibleStats = shareStats.filter(
+        (stat) => stat.shares > 0 || stat.clicks > 0
+      );
+      if (visibleStats.length > 0) {
+        return (
+          <div className="flex flex-col gap-1.5">
+            {visibleStats.map((stat) => (
               <div
                 className="border-border/50 flex items-center justify-between rounded-lg border bg-[hsl(var(--background-alt))] px-3 py-2 text-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
                 key={stat.platform}
@@ -414,12 +459,22 @@ const ShareButton = ({
                 </div>
               </div>
             ))}
-        </div>
-      );
+          </div>
+        );
+      }
     }
     return (
-      <div className="text-muted-foreground py-2 text-center text-sm">
-        No shares yet
+      <div className="flex flex-col items-center gap-2.5 py-2 text-center">
+        <Image
+          alt=""
+          aria-hidden
+          className="h-24 w-24 object-contain opacity-80"
+          draggable={false}
+          height={96}
+          src={noSearchImage}
+          width={96}
+        />
+        <p className="text-muted-foreground max-w-52 text-sm">No shares yet</p>
       </div>
     );
   };
@@ -428,7 +483,10 @@ const ShareButton = ({
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
       <button
         aria-label="Share"
-        className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
+        className={cn(
+          "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+          className
+        )}
         onClick={handleOpen}
         type="button"
       >
@@ -453,7 +511,9 @@ const ShareButton = ({
         <div className="px-5 pb-5">
           <Tabs
             className="w-full"
-            onValueChange={setActiveTab}
+            onValueChange={(value) =>
+              setActiveTab(value as "social" | "link" | "qr")
+            }
             value={activeTab}
           >
             <TabsList className="border-border/60 mb-4 grid h-auto w-full grid-cols-3 items-stretch gap-1 rounded-xl border bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">

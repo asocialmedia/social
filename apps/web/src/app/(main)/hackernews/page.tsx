@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
@@ -15,11 +16,7 @@ export default async function HackerNewsPage() {
   const session = await getSessionFromApi();
 
   if (!session?.user) {
-    return (
-      <p className="text-destructive">
-        You&apos;re not authorized to view this page.
-      </p>
-    );
+    redirect("/login");
   }
 
   const userData = await getUserData(session.user.id);

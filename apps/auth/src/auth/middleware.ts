@@ -66,7 +66,6 @@ async function enforceBan(
   return null;
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ahh
 export async function getSessionFromRequest(
   req: Request
 ): Promise<AuthContext> {

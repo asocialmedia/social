@@ -12,6 +12,7 @@ import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton"
 import kyInstance from "@/lib/ky";
 
 import { FeedView } from "./feed-view";
+import FeedEnd from "./feedview/feed-end";
 
 interface HomeFeedProps {
   excludePostId?: string;
@@ -114,6 +115,7 @@ export default function HomeFeed({
         />
       )}
       {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
+      {posts.length > 0 && !hasNextPage ? <FeedEnd /> : null}
     </InfiniteScrollContainer>
   );
 }

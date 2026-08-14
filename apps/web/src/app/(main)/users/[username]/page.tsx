@@ -1,8 +1,12 @@
 import { getUserDataSelect, prisma } from "@asm/db";
-import { notFound, redirect } from "next/navigation";
+import { siteConfig } from "@asm/ui/meta/site";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { cache } from "react";
 
+import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
+import { absoluteUrl, excerpt } from "@/lib/seo";
 import { getSessionFromApi } from "@/lib/session";
 
 import ClientProfile from "./client-profile";
@@ -29,25 +33,96 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
   return user;
 });
 
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
+  const params = await props.params;
+  const { username } = params;
+  const session = await getSessionFromApi();
+  const user = await getUser(username, session?.user?.id ?? "");
+
+  const title = `${user.displayName} (@${user.username})`;
+  const bio = user.bio?.trim();
+  const description =
+    bio && bio.length >= 25
+      ? excerpt(bio, 160)
+      : `${user.displayName || user.username} (@${user.username}) on Asocialmedia — ${bio ? `${bio}. ` : ""}Join the conversation, read their eddies, and follow along.`;
+  const url = absoluteUrl(`/users/${user.username}`);
+  // Avatar is streamed through the app proxy (buckets are private).
+  const avatar = user.avatarUrl
+    ? absoluteUrl(`/api/users/avatar/${user.id}/image`)
+    : null;
+
+  return {
+    alternates: { canonical: `/users/${user.username}` },
+    description,
+    openGraph: {
+      description,
+      images: avatar
+        ? [{ alt: title, url: avatar }]
+        : [
+            {
+              alt: siteConfig.name,
+              height: 630,
+              url: siteConfig.ogImage,
+              width: 1200,
+            },
+          ],
+      locale: siteConfig.locale,
+      siteName: siteConfig.name,
+      title,
+      type: "profile",
+      url,
+      username: user.username,
+    },
+    title,
+    twitter: {
+      card: "summary",
+      description,
+      images: avatar ? [avatar] : [siteConfig.ogImage],
+      title,
+    },
+  };
+}
+
 export default async function Page(props: PageProps) {
   const params = await props.params;
   const { username } = params;
   const session = await getSessionFromApi();
 
-  if (!session?.user) {
-    redirect(`/login?next=/users/${encodeURIComponent(username)}`);
-  }
-
   const [userData, loggedInUserData] = await Promise.all([
-    getUser(username, session.user.id),
-    getUserData(session.user.id),
+    getUser(username, session?.user?.id ?? ""),
+    session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
 
-  if (!loggedInUserData) {
-    redirect(`/login?next=/users/${encodeURIComponent(username)}`);
+  if (session?.user && !loggedInUserData) {
+    notFound();
   }
 
+  const profileUrl = absoluteUrl(`/users/${userData.username}`);
+  // Avatar is streamed through the app proxy (buckets are private).
+  const avatar = userData.avatarUrl
+    ? absoluteUrl(`/api/users/avatar/${userData.id}/image`)
+    : null;
+
+  const profileJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    dateCreated: userData.createdAt.toISOString(),
+    inLanguage: "en",
+    mainEntity: {
+      "@type": "Person",
+      alternateName: `@${userData.username}`,
+      description: userData.bio ?? undefined,
+      image: avatar ?? undefined,
+      name: userData.displayName,
+      url: profileUrl,
+    },
+    url: profileUrl,
+  };
+
   return (
-    <ClientProfile loggedInUserData={loggedInUserData} userData={userData} />
+    <>
+      <JsonLd data={profileJsonLd} />
+      <ClientProfile loggedInUserData={loggedInUserData} userData={userData} />
+    </>
   );
 }

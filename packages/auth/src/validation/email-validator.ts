@@ -1,6 +1,4 @@
-/** biome-ignore-all lint/performance/useTopLevelRegex: simple check */
 import disposableEmailDomains from "disposable-email-domains";
-// biome-ignore lint/performance/noNamespaceImport: This library uses a namespace export
 import * as emailValidator from "email-validator";
 
 export interface EmailValidationResult {
@@ -43,7 +41,6 @@ function getConfidence(
   return "low";
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This function is complex due to multiple validation steps
 export async function validateEmailAdvanced(
   email: string,
   options: EmailValidationOptions = {}

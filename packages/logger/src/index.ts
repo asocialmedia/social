@@ -1,5 +1,3 @@
-// biome-ignore-all lint/performance/noBarrelFile: logger package is intentionally small
-
 export {
   createLogger,
   type Logger,

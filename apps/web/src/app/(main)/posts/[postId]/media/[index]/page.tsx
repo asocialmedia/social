@@ -1,8 +1,16 @@
 import { getPostDataInclude, prisma } from "@asm/db";
-import { notFound, redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { cache } from "react";
 
 import { getUserData } from "@/hooks/use-user-data";
+import {
+  absoluteUrl,
+  getMediaImage,
+  postDescription,
+  postTitle,
+  siteConfig,
+} from "@/lib/seo";
 import { getSessionFromApi } from "@/lib/session";
 
 import ClientPost from "../../client-post";
@@ -33,7 +41,58 @@ const getPost = cache(async (postId: string, loggedInUser: string) => {
 
 // Shareable media route: /posts/{postId}/media/{index} renders the post page
 // with the media viewer open at the given attachment index, so the exact state
-// can be shared by URL.
+// can be shared by URL. Guests can view it read-only.
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
+  const { postId, index } = params;
+  if (!INDEX_SEGMENT_PATTERN.test(index)) {
+    return {};
+  }
+  const parsedIndex = Math.trunc(Number(index));
+
+  const session = await getSessionFromApi();
+  const post = await getPost(postId, session?.user?.id ?? "");
+  if (parsedIndex >= post.attachments.length) {
+    return {};
+  }
+
+  let resolvedIndex = parsedIndex;
+  if (searchParams.mediaId) {
+    const mediaIndex = post.attachments.findIndex(
+      (m) => m.id === searchParams.mediaId
+    );
+    if (mediaIndex === -1) {
+      return {};
+    }
+    resolvedIndex = mediaIndex;
+  }
+
+  const title = postTitle(post);
+  const description = postDescription(post);
+  const mediaUrl = `/posts/${post.id}/media/${parsedIndex}`;
+  const mediaImage = getMediaImage(post, resolvedIndex);
+
+  return {
+    alternates: { canonical: mediaUrl },
+    description,
+    openGraph: {
+      description,
+      siteName: siteConfig.name,
+      title,
+      type: "article",
+      url: absoluteUrl(mediaUrl),
+      ...(mediaImage ? { images: [{ url: mediaImage }] } : {}),
+    },
+    title,
+    twitter: {
+      card: "summary_large_image",
+      description,
+      title,
+    },
+  };
+}
+
 export default async function Page(props: PageProps) {
   const params = await props.params;
   const searchParams = await props.searchParams;
@@ -45,26 +104,15 @@ export default async function Page(props: PageProps) {
 
   const session = await getSessionFromApi();
 
-  if (!session?.user) {
-    // Preserve the mediaId query param (used to resolve the true attachment
-    // index from the profile gallery) across the login round-trip.
-    const mediaIdQuery = searchParams.mediaId
-      ? `?mediaId=${encodeURIComponent(searchParams.mediaId)}`
-      : "";
-    const next = `/posts/${encodeURIComponent(postId)}/media/${parsedIndex}${mediaIdQuery}`;
-    redirect(`/login?next=${encodeURIComponent(next)}`);
-  }
-
   const [post, userData] = await Promise.all([
-    getPost(postId, session.user.id),
-    getUserData(session.user.id),
+    getPost(postId, session?.user?.id ?? ""),
+    session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
 
-  if (!userData) {
+  if (session?.user && !userData) {
     // The session is valid but the user record is missing (e.g. deleted or
     // suspended account) - surface a not-found instead of bouncing a logged-in
-    // session back to the login page. Unauthenticated sessions keep the
-    // redirect above.
+    // session back to the login page.
     notFound();
   }
 

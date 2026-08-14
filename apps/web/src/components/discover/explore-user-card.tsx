@@ -70,6 +70,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
   return (
     <div className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link
+        aria-label={`View ${user.displayName || user.username}'s profile`}
         className="relative block h-24 w-full overflow-hidden"
         href={`/users/${user.username}`}
       >
@@ -84,7 +85,11 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
 
       <div className="p-3">
         <div className="relative z-10 -mt-10 flex items-end justify-between">
-          <Link className="shrink-0" href={`/users/${user.username}`}>
+          <Link
+            aria-label={`View ${user.displayName || user.username}'s profile`}
+            className="shrink-0"
+            href={`/users/${user.username}`}
+          >
             <UserAvatar
               avatarUrl={user.avatarUrl}
               className="rounded-2xl ring-4 ring-[hsl(var(--background-alt))]"
@@ -120,7 +125,12 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
             followers
           </span>
           <span className="flex items-center gap-1">
-            <Flame className="h-3.5 w-3.5 text-orange-500" />
+            <Flame
+              className={cn(
+                "h-3.5 w-3.5",
+                user.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             <span className="text-foreground font-medium">
               {formatNumber(user.aura)}
             </span>{" "}
@@ -129,7 +139,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
         </div>
 
         <FollowButton
-          className={cn("follow-btn-3d mt-3 h-8 w-full px-3 text-xs")}
+          className={cn("mt-3 h-8 w-full px-3 text-xs")}
           initialState={{ followers, isFollowedByUser: isFollowed }}
           onFollowed={handleFollowed}
           userId={user.id}

@@ -97,8 +97,23 @@ export interface PostsPage {
 
 export function getCommentDataInclude(loggedInUserId: string) {
   return {
+    _count: {
+      select: {
+        votes: true,
+      },
+    },
+    attachments: true,
     user: {
       select: getUserDataSelect(loggedInUserId),
+    },
+    votes: {
+      select: {
+        userId: true,
+        value: true,
+      },
+      where: {
+        userId: loggedInUserId,
+      },
     },
   } satisfies Prisma.CommentInclude;
 }
@@ -107,12 +122,28 @@ export type CommentData = Prisma.CommentGetPayload<{
   include: ReturnType<typeof getCommentDataInclude>;
 }>;
 
+export interface CommentVoteInfo {
+  aura: number;
+  userVote: number;
+}
+
 export interface CommentsPage {
   comments: CommentData[];
   previousCursor: string | null;
 }
 
 export const notificationsInclude = {
+  comment: {
+    select: {
+      id: true,
+      parent: {
+        select: {
+          userId: true,
+        },
+      },
+      parentId: true,
+    },
+  },
   issuer: {
     select: {
       avatarUrl: true,
@@ -280,5 +311,4 @@ export interface UnfollowUserDialogProps {
   user: UserData;
 }
 
-// biome-ignore lint/performance/noBarrelFile: reexport
 export * from "../prisma/generated/prisma/client";

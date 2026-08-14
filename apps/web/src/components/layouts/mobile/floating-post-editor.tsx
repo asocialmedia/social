@@ -15,8 +15,12 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { useCommentsRealtimeValue } from "@/components/comments/comments-realtime-context";
 import { useSubmitCommentMutation } from "@/components/comments/mutations";
+import { useCommentsRealtime } from "@/components/comments/use-comments-realtime";
+import type { LiveCommentStore } from "@/components/comments/use-comments-realtime";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
@@ -58,14 +62,20 @@ const UploadButton: React.FC<{
 
 const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const { user } = useSession();
+  const { goToLogin } = useRequireAuth();
   const { toast } = useToast();
-  const mutation = useSubmitCommentMutation(post.id);
+  const shared = useCommentsRealtimeValue();
+  const ownStoreRef = useRef<LiveCommentStore>(new Map());
+  const ownRealtime = useCommentsRealtime(post.id, ownStoreRef, !shared);
+  const applyCreated = shared?.applyCreated ?? ownRealtime.applyCreated;
+  const mutation = useSubmitCommentMutation(post.id, applyCreated);
   const [input, setInput] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { data: userData } = useQuery({
-    queryFn: () => kyInstance.get(`/api/users/${user.id}`).json<UserData>(),
-    queryKey: ["user", user.id],
+    enabled: Boolean(user),
+    queryFn: () => kyInstance.get(`/api/users/${user?.id}`).json<UserData>(),
+    queryKey: ["user", user?.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -97,6 +107,10 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const canSubmit = input.trim().length > 0 && !mutation.isPending;
 
   const handleSubmit = useCallback(() => {
+    if (!user) {
+      goToLogin();
+      return;
+    }
     if (!canSubmit) {
       return;
     }
@@ -110,7 +124,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
         },
       }
     );
-  }, [canSubmit, input, mutation, post]);
+  }, [canSubmit, input, mutation, post, user, goToLogin]);
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -156,15 +170,13 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       className="fixed inset-x-0 z-50 px-3 pb-3 lg:hidden"
       style={{ bottom: keyboardOffset }}
     >
-      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: focus-boundary container needs a blur handler to detect focus leaving it */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: focus-boundary container needs a blur handler to detect focus leaving it */}
       <div
         className="border-border/60 rounded-2xl border bg-[hsl(var(--background-alt))]/95 p-2 shadow-lg backdrop-blur-md"
         onBlur={handleBarBlur}
       >
         <div className="flex items-center gap-2">
           <UserAvatar
-            avatarUrl={userData?.avatarUrl || user.image}
+            avatarUrl={userData?.avatarUrl || user?.image}
             className="h-9 w-9 shrink-0"
           />
           <input

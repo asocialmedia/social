@@ -1,4 +1,3 @@
-/** biome-ignore-all lint/performance/noNamespaceImport: ignore */
 "use client";
 
 import { cn } from "@asm/ui/lib/utils";

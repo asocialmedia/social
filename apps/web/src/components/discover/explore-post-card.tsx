@@ -1,14 +1,14 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Eye } from "lucide-react";
+import { Clapperboard } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
-import { formatNumber } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -22,17 +22,29 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   const media = post.attachments.find(
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
-  const aspectRatio =
-    media?.width && media?.height ? media.width / media.height : DEFAULT_ASPECT;
+  const isGustPost = Boolean(post.isGust);
+  let aspectRatio = DEFAULT_ASPECT;
+  if (isGustPost) {
+    aspectRatio = 9 / 16;
+  } else if (media?.width && media?.height) {
+    aspectRatio = media.width / media.height;
+  }
+  const href = isGustPost ? `/gusts?id=${post.id}` : `/posts/${post.id}`;
 
   return (
     <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
-      <Link className="block" href={`/posts/${post.id}`}>
+      <Link className="block" href={href}>
         {media ? (
           <div
             className="relative w-full overflow-hidden"
             style={{ aspectRatio }}
           >
+            {isGustPost ? (
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white backdrop-blur-md">
+                <Clapperboard className="text-primary size-3" />
+                <span className="text-[10px] font-semibold">Gust</span>
+              </div>
+            ) : null}
             {media.type === "IMAGE" ? (
               <Image
                 alt="Post media"
@@ -50,6 +62,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 loop
                 muted
                 playsInline
+                poster={getMediaProxyUrl(media)}
                 preload="metadata"
                 src={getMediaUrl(media.id)}
               />
@@ -79,13 +92,6 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           }}
           postId={post.id}
         />
-        <span
-          className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums"
-          title="Views"
-        >
-          <Eye aria-hidden="true" className="h-5 w-5" />
-          {formatNumber(post.viewCount)}
-        </span>
       </div>
     </article>
   );

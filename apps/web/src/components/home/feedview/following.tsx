@@ -3,13 +3,14 @@
 import type { PostsPage } from "@asm/db";
 import noFeedImage from "@assets/general/nofeed.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useCallback } from "react";
 
 import { FeedView } from "@/components/home/feed-view";
+import FeedEnd from "@/components/home/feedview/feed-end";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import PostsLoadingSkeleton from "@/components/posts/posts-loading-skeleton";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
 
 export default function FollowingFeed() {
@@ -42,7 +43,7 @@ export default function FollowingFeed() {
   }, [fetchNextPage, hasNextPage, isFetching]);
 
   if (status === "pending") {
-    return <PostsLoadingSkeleton />;
+    return <FeedViewSkeleton />;
   }
 
   if (status === "success" && !posts.length && !hasNextPage) {
@@ -74,9 +75,8 @@ export default function FollowingFeed() {
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       <FeedView posts={posts} />
-      {isFetchingNextPage ? (
-        <Loader2 className="bg-background mx-auto my-3 animate-spin" />
-      ) : null}
+      {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
+      {posts.length > 0 && !hasNextPage ? <FeedEnd /> : null}
     </InfiniteScrollContainer>
   );
 }

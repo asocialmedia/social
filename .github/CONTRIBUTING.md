@@ -18,7 +18,7 @@ Thank you for your interest in contributing to Asocialmedia! This guide will hel
 2. Clone the forked repository
 3. Create a new branch (git checkout -b feature/branch-name)
 4. Make changes
-5. Format changes (pnpm run biome:fix)
+5. Format changes (bun run check)
 6. Commit changes (git commit -am 'feat[SOME]: Some changes')
 7. Push changes (git push origin feature/branch-name)
 8. Create a pull request
@@ -47,7 +47,7 @@ bun run check-types
 ##### _<div align="left"><sub>// Style rules</sub></div>_
 
 - Use TypeScript
-- Follow Biome config
+- Follow Oxlint config
 - Keep files focused
 - Comment complex logic
 - Use meaningful names

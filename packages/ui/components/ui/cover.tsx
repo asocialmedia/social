@@ -44,8 +44,6 @@ export const Cover = ({
   }, []);
 
   return (
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Presentational hover effects only
-    // biome-ignore lint/a11y/noStaticElementInteractions: Presentational hover effects only
     <span
       className="group/cover relative inline-block rounded-xs bg-neutral-100 px-2 py-2 transition duration-200 hover:bg-neutral-900 dark:bg-neutral-900"
       onMouseEnter={handleMouseEnter}
@@ -151,10 +149,10 @@ export const Cover = ({
       >
         {children}
       </motion.span>
-      <CircleIcon className="absolute -top-[2px] -right-[2px]" />
-      <CircleIcon className="absolute -right-[2px] -bottom-[2px]" delay={0.4} />
-      <CircleIcon className="absolute -top-[2px] -left-[2px]" delay={0.8} />
-      <CircleIcon className="absolute -bottom-[2px] -left-[2px]" delay={1.6} />
+      <CircleIcon className="absolute -top-0.5 -right-0.5" />
+      <CircleIcon className="absolute -right-0.5 -bottom-0.5" delay={0.4} />
+      <CircleIcon className="absolute -top-0.5 -left-0.5" delay={0.8} />
+      <CircleIcon className="absolute -bottom-0.5 -left-0.5" delay={1.6} />
     </span>
   );
 };

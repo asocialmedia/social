@@ -104,6 +104,26 @@ export function getBlockingRedisClient(): IoRedis {
   return blockingClient;
 }
 
+// A long-lived pub/sub connection for SSE fan-out. Like the blocking client,
+// it drops the commandTimeout and maxRetriesPerRequest so a subscriber that
+// sits idle (or reconnects mid-subscription) is never killed by a timeout.
+// Created lazily per stream and `quit()` when the stream closes.
+export function createSubscriberConnection(): IoRedis {
+  const redisUrl = process.env.REDIS_URL ?? keys.REDIS_URL;
+
+  if (!redisUrl) {
+    throw new Error("REDIS_URL is not configured");
+  }
+
+  return new IoRedis(
+    createRedisConnectionOptions(redisUrl, {
+      ...createRedisConfig(),
+      commandTimeout: undefined,
+      maxRetriesPerRequest: null,
+    })
+  );
+}
+
 export interface TrendingTopic {
   count: number;
   hashtag: string;
@@ -214,6 +234,73 @@ export const JWKS_CACHE_KEY = "jwks:cache";
 export const SESSION_CACHE_KEY_PREFIX = "session:cache:";
 export const JWKS_CACHE_TTL = 3600;
 export const SESSION_CACHE_TTL = 300;
+
+// Real-time eddies: new comments and comment deletions are published to a
+// per-post Redis channel and fanned out to open SSE streams. Pub/sub is used
+// instead of a list/stream so the fan-out happens in Redis and every web
+// instance (not just the one that handled the write) sees the event.
+export const COMMENT_CHANNEL_PREFIX = "comments:";
+export const commentChannel = (postId: string): string =>
+  `${COMMENT_CHANNEL_PREFIX}${postId}`;
+
+export interface CommentStreamEvent {
+  kind: "comment.created" | "comment.deleted";
+  postId: string;
+  comment: unknown;
+}
+
+export function serializeCommentEvent(event: CommentStreamEvent): string {
+  return JSON.stringify(event);
+}
+
+export function parseCommentEvent(raw: string): CommentStreamEvent | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<CommentStreamEvent>;
+    if (
+      parsed.kind !== "comment.created" &&
+      parsed.kind !== "comment.deleted"
+    ) {
+      return null;
+    }
+    if (typeof parsed.postId !== "string" || parsed.comment === undefined) {
+      return null;
+    }
+    return {
+      comment: parsed.comment,
+      kind: parsed.kind,
+      postId: parsed.postId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function publishCommentEvent(
+  event: CommentStreamEvent
+): Promise<void> {
+  try {
+    await redis.publish(
+      commentChannel(event.postId),
+      serializeCommentEvent(event)
+    );
+  } catch (error) {
+    console.error("Error publishing comment event:", error);
+  }
+}
+
+export async function publishCommentCreated(
+  postId: string,
+  comment: unknown
+): Promise<void> {
+  await publishCommentEvent({ comment, kind: "comment.created", postId });
+}
+
+export async function publishCommentDeleted(
+  postId: string,
+  comment: unknown
+): Promise<void> {
+  await publishCommentEvent({ comment, kind: "comment.deleted", postId });
+}
 
 // Redis Streams that buffer high-frequency counter increments for the worker.
 // The web app XADDs a small event per increment; the worker drains them in

@@ -1,7 +1,6 @@
 "use client";
 
-import { debugLog } from "@asm/config/debug";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { useIncrementViewMutation } from "@/posts/view/mutations";
 
@@ -9,90 +8,64 @@ interface ViewTrackerProps {
   postId: string;
 }
 
+// Single shared observer instance for all view tracking across the application
+let sharedObserver: IntersectionObserver | null = null;
+const observerHandlers = new Map<Element, (target: Element) => void>();
+
+function getSharedObserver(): IntersectionObserver | null {
+  if (!sharedObserver && typeof window !== "undefined") {
+    sharedObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const handler = observerHandlers.get(entry.target);
+            if (handler) {
+              observerHandlers.delete(entry.target);
+              sharedObserver?.unobserve(entry.target);
+              handler(entry.target);
+            }
+          }
+        }
+      },
+      {
+        rootMargin: "0px",
+        threshold: 0.5,
+      }
+    );
+  }
+  return sharedObserver;
+}
+
 export default function ViewTracker({ postId }: ViewTrackerProps) {
   const incrementViewMutation = useIncrementViewMutation();
+  const markerRef = useRef<HTMLSpanElement>(null);
   const hasIncrementedRef = useRef(false);
 
-  const incrementView = useCallback(() => {
-    if (hasIncrementedRef.current) {
-      debugLog.views(`View already incremented for post: ${postId}`);
-    } else {
-      debugLog.views(`Attempting to increment view for post: ${postId}`);
-      hasIncrementedRef.current = true;
-      incrementViewMutation.mutate(postId);
-    }
-  }, [postId, incrementViewMutation]);
-
   useEffect(() => {
-    if (typeof window === "undefined") {
+    const el = markerRef.current;
+    if (!el || hasIncrementedRef.current) {
       return;
     }
 
-    let observer: IntersectionObserver;
-    let timeout: NodeJS.Timeout;
-
-    try {
-      debugLog.views(`Setting up IntersectionObserver for post: ${postId}`);
-      observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (entry.isIntersecting) {
-              debugLog.views(
-                `Post ${postId} is intersecting, triggering view increment`
-              );
-              incrementView();
-              setTimeout(() => {
-                observer?.disconnect();
-                debugLog.views(`Disconnected observer for post ${postId}`);
-              }, 1000);
-            }
-          }
-        },
-        {
-          rootMargin: "0px",
-          threshold: 0.5,
-        }
-      );
-
-      const element = document.querySelector(`#post-${postId}`);
-      if (element) {
-        debugLog.views(
-          `Found element for post: ${postId}, observing immediately`
-        );
-        observer.observe(element);
-      } else {
-        debugLog.views(
-          `Element not found for post: ${postId}, will retry in 100ms`
-        );
-        timeout = setTimeout(() => {
-          const delayedElement = document.querySelector(`#post-${postId}`);
-          if (delayedElement) {
-            debugLog.views(
-              `Found delayed element for post: ${postId}, observing`
-            );
-            observer.observe(delayedElement);
-          } else {
-            debugLog.views(
-              `Failed to find element for post: ${postId} after delay`
-            );
-          }
-        }, 100);
-      }
-
-      return () => {
-        debugLog.views(`Cleaning up observer and timeout for post: ${postId}`);
-        clearTimeout(timeout);
-        observer?.disconnect();
-      };
-    } catch (error) {
-      debugLog.views(
-        `Error setting up view tracking for post: ${postId}`,
-        error
-      );
-      timeout = setTimeout(incrementView, 2000);
-      return () => clearTimeout(timeout);
+    const observer = getSharedObserver();
+    if (!observer) {
+      return;
     }
-  }, [postId, incrementView]);
 
-  return null;
+    observerHandlers.set(el, () => {
+      if (!hasIncrementedRef.current) {
+        hasIncrementedRef.current = true;
+        incrementViewMutation.mutate(postId);
+      }
+    });
+
+    observer.observe(el);
+
+    return () => {
+      observerHandlers.delete(el);
+      observer.unobserve(el);
+    };
+  }, [postId, incrementViewMutation]);
+
+  return <span aria-hidden="true" className="sr-only" ref={markerRef} />;
 }

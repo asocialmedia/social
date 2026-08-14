@@ -4,11 +4,9 @@ import type { PostsPage } from "@asm/db";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(request: Request) {
+  // Guests can browse the public feed; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
-  if (!session?.user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = session.user.id;
+  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
@@ -19,6 +17,7 @@ export async function GET(request: Request) {
     include: getPostDataInclude(userId),
     orderBy: [{ aura: "desc" }, { id: "desc" }],
     take: pageSize + 1,
+    where: { isGust: false },
   });
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));

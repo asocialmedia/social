@@ -1,5 +1,6 @@
 import { prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
@@ -9,6 +10,28 @@ import {
 } from "@/lib/utils/mime-utils";
 
 export const dynamic = "force-dynamic";
+
+// Media rows are immutable (the stored key/mime never changes for a given id),
+// so the lookup is safe to cache for a long window. This keeps feed scrolls
+// that render many posters/images from hammering the database on every request;
+// the object itself is still streamed fresh from storage each time. A stale
+// row after deletion simply 404s like the DB row would.
+const getMediaRow = unstable_cache(
+  (mediaId: string) =>
+    prisma.media.findUnique({
+      select: {
+        id: true,
+        key: true,
+        mimeType: true,
+        size: true,
+        thumbnailKey: true,
+        type: true,
+      },
+      where: { id: mediaId },
+    }),
+  ["media-row"],
+  { revalidate: 3600 }
+);
 
 // Object storage rejects invalid or unsatisfiable byte ranges with the
 // InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can
@@ -50,16 +73,7 @@ export async function GET(
     return new NextResponse("Media ID is required", { status: 400 });
   }
 
-  const media = await prisma.media.findUnique({
-    select: {
-      id: true,
-      key: true,
-      mimeType: true,
-      size: true,
-      type: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await getMediaRow(mediaId);
 
   if (!media) {
     return new NextResponse("Media not found", { status: 404 });
@@ -68,14 +82,22 @@ export async function GET(
   try {
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
+    const isThumbnail = url.searchParams.get("thumb") === "1";
+    // Video thumbnails live under their own key; serving them through this
+    // route keeps the bucket private while giving every consumer one URL.
+    const objectKey =
+      isThumbnail && media.thumbnailKey ? media.thumbnailKey : media.key;
     // Browsers ask for a byte range when loading <video>/<audio> and when
     // seeking. Forward the request to storage so only the requested chunk is
-    // transferred instead of the whole file on every interaction.
-    const range = request.headers.get("range") || undefined;
+    // transferred instead of the whole file on every interaction. Thumbnails
+    // are small JPEGs and never need ranges.
+    const range = isThumbnail
+      ? undefined
+      : request.headers.get("range") || undefined;
 
     const command = new GetObjectCommand({
       Bucket: ASMOB_BUCKET,
-      Key: media.key,
+      Key: objectKey,
       ...(range ? { Range: range } : {}),
     });
 
@@ -88,13 +110,17 @@ export async function GET(
     const headers = new Headers();
     headers.set(
       "Content-Type",
-      media.mimeType || response.ContentType || "application/octet-stream"
+      isThumbnail
+        ? "image/jpeg"
+        : media.mimeType || response.ContentType || "application/octet-stream"
     );
 
     const filename = media.key.split("/").pop() || "file";
     const inline = !download && shouldDisplayInline(media.mimeType);
     headers.set("Content-Disposition", getContentDisposition(filename, inline));
-    headers.set("Cache-Control", "public, max-age=31536000");
+    // Content for a given media id is immutable (a new upload creates a new
+    // row), so browsers may cache without revalidating on refresh.
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("Accept-Ranges", "bytes");
 
     // If storage honored the Range, respond 206 with the partial content and

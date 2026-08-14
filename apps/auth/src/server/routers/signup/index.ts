@@ -752,7 +752,6 @@ export const signupRouter = router({
         }),
       ])
     )
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ignore
     .mutation(async ({ input, ctx }) => {
       debugLog.api("pendingSignupVerify:begin");
       const _ip = getClientIpFromHeaders(

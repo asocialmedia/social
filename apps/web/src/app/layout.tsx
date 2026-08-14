@@ -6,6 +6,8 @@ import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import JsonLd from "@/components/seo/json-ld";
+
 export const viewport: Viewport = {
   themeColor: [
     { color: colors.light.primary, media: "(prefers-color-scheme: light)" },
@@ -14,9 +16,18 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  alternates: {
+    canonical: "/",
+  },
+  applicationName: siteConfig.name,
   authors: [...siteConfig.authors],
+  category: "social",
+  classification: "Social Media",
   creator: siteConfig.creator,
   description: siteConfig.description,
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     apple: [
       {
@@ -51,12 +62,13 @@ export const metadata: Metadata = {
         width: 1200,
       },
     ],
-    locale: "en_US",
+    locale: siteConfig.locale,
     siteName: siteConfig.name,
     title: siteConfig.name,
     type: "website",
     url: siteConfig.url,
   },
+  publisher: siteConfig.creator,
   robots: {
     follow: true,
     googleBot: {
@@ -69,12 +81,12 @@ export const metadata: Metadata = {
     index: true,
   },
   title: {
-    default: siteConfig.name,
+    default: `${siteConfig.name} — Share what's crack-a-lackin'`,
     template: `%s | ${siteConfig.name}`,
   },
   twitter: {
     card: "summary_large_image",
-    creator: "Harsh Sahu | parazeeknova",
+    creator: siteConfig.twitterCreator,
     description: siteConfig.description,
     images: [siteConfig.ogImage],
     title: siteConfig.name,
@@ -87,6 +99,32 @@ export const metadata: Metadata = {
 interface RootLayoutProperties {
   readonly children: ReactNode;
 }
+
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  description: siteConfig.description,
+  inLanguage: "en",
+  name: siteConfig.name,
+  potentialAction: {
+    "@type": "SearchAction",
+    "query-input": "required name=search_term_string",
+    target: {
+      "@type": "EntryPoint",
+      urlTemplate: `${siteConfig.url}/search?q={search_term_string}`,
+    },
+  },
+  publisher: {
+    "@type": "Organization",
+    logo: {
+      "@type": "ImageObject",
+      url: `${siteConfig.url}/favicon/android-chrome-512x512.png`,
+    },
+    name: siteConfig.name,
+    url: siteConfig.url,
+  },
+  url: siteConfig.url,
+};
 
 const RootLayout = ({ children }: RootLayoutProperties) => (
   <html
@@ -136,6 +174,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
       <meta content="default" name="apple-mobile-web-app-status-bar-style" />
       <meta content="Asocialmedia" name="apple-mobile-web-app-title" />
       <link href="/site.webmanifest" rel="manifest" />
+      <link href="https://tracking.przknv.cc" rel="preconnect" />
       <script
         data-website-id="e9ee46c1-9c4a-4e03-a5e0-133af1b65fb9"
         defer
@@ -143,6 +182,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
       />
     </head>
     <body className="min-h-screen font-sans antialiased">
+      <JsonLd data={websiteJsonLd} />
       <DesignSystemProvider>{children}</DesignSystemProvider>
     </body>
   </html>

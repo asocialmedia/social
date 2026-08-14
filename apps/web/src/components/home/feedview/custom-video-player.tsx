@@ -29,6 +29,7 @@ interface CustomVideoPlayerProps {
   className?: string;
   onError: () => void;
   onLoadedData: () => void;
+  poster?: string;
   src: string;
 }
 
@@ -70,7 +71,6 @@ const GlassIconButton: React.FC<{
   </button>
 );
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Video player aggregates many independent control handlers
 export const CustomVideoPlayer = ({
   autoPlay = false,
   src,
@@ -78,6 +78,7 @@ export const CustomVideoPlayer = ({
   onError,
   className,
   captions = EMPTY_CAPTIONS,
+  poster,
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -154,11 +155,18 @@ export const CustomVideoPlayer = ({
   }, []);
 
   const handlePlayPause = useCallback(() => {
-    if (videoRef.current) {
+    const video = videoRef.current;
+    if (video) {
       if (isPlaying) {
-        videoRef.current.pause();
+        video.pause();
       } else {
-        videoRef.current.play();
+        void (async () => {
+          try {
+            await video.play();
+          } catch {
+            setIsPlaying(false);
+          }
+        })();
       }
       setIsPlaying(!isPlaying);
     }
@@ -351,8 +359,6 @@ export const CustomVideoPlayer = ({
   }, []);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: Video player container needs mouse interactions
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video player container needs mouse interactions
     <div
       className={cn(
         "group relative w-full overflow-hidden rounded-lg",
@@ -372,6 +378,7 @@ export const CustomVideoPlayer = ({
         onError={onError}
         onLoadedData={onLoadedData}
         playsInline
+        poster={poster}
         preload="metadata"
         ref={videoRef}
         src={src}
@@ -516,8 +523,6 @@ export const CustomVideoPlayer = ({
             </div>
 
             <div className="space-y-3 p-5">
-              {/** biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video progress controls need mouse interactions */}
-              {/** biome-ignore lint/a11y/useSemanticElements: Video progress controls should use semantic elements */}
               {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- keeps the control bar visible while interacting with the seek slider */}
               <section
                 aria-label="Video progress controls"

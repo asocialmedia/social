@@ -139,11 +139,9 @@ export async function GET(
   const { userId } = params;
 
   try {
+    // Guests can read public follower counts; they're never following anyone.
     const session = await getSessionFromApi();
     const loggedInUser = session?.user;
-    if (!loggedInUser) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const cachedData = await followerInfoCache.get(userId);
     if (cachedData) {
@@ -159,14 +157,16 @@ export async function GET(
         },
         where: { id: userId },
       }),
-      prisma.follow.findUnique({
-        where: {
-          followerId_followingId: {
-            followerId: loggedInUser.id,
-            followingId: userId,
-          },
-        },
-      }),
+      loggedInUser
+        ? prisma.follow.findUnique({
+            where: {
+              followerId_followingId: {
+                followerId: loggedInUser.id,
+                followingId: userId,
+              },
+            },
+          })
+        : Promise.resolve(null),
     ]);
 
     if (!user) {
@@ -175,7 +175,7 @@ export async function GET(
 
     const data: FollowerInfo = {
       followers: user._count.followers,
-      isFollowedByUser: !!isFollowing,
+      isFollowedByUser: Boolean(loggedInUser && isFollowing),
     };
 
     await followerInfoCache.set(userId, data);

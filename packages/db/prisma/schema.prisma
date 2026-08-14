@@ -50,6 +50,7 @@ model User {
   bookmarks             Bookmark[]
   comments              Comment[]
   vote                  Vote[]
+  commentVotes          CommentVote[]
   receivedNotifications Notification[]       @relation("Recipient")
   issuedNotifications   Notification[]       @relation("Issuer")
   hnbookmark            HNBookmark[]
@@ -92,6 +93,8 @@ enum AuraType {
   POST_VIEWS_MILESTONE
   COMMENT_CREATION
   COMMENT_RECEIVED
+  COMMENT_VOTE
+  COMMENT_VOTE_REMOVED
   FOLLOW_GAINED
   FOLLOW_GIVEN
   POST_BOOKMARKED
@@ -180,6 +183,7 @@ model Post {
   aura                 Int            @default(0)
   viewCount            Int            @default(0)
   lastAwardedViewCount Int            @default(0)
+  isGust               Boolean        @default(false)
   attachments          Media[]
   bookmarks            Bookmark[]
   comments             Comment[]
@@ -194,6 +198,8 @@ model Post {
 
   createdAt DateTime @default(now())
 
+  @@index([isGust, createdAt])
+  @@index([userId, isGust, createdAt])
   @@map("posts")
 }
 
@@ -223,15 +229,22 @@ model Media {
   id        String    @id @default(cuid())
   postId    String?
   post      Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
-  type      MediaType
-  url       String
-  key       String    @default("")
-  mimeType  String    @default("application/octet-stream")
-  size      Int       @default(0)
-  width     Int?
-  height    Int?
-  createdAt DateTime  @default(now())
+  commentId String?
+  comment   Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  type              MediaType
+  url               String
+  key               String    @default("")
+  mimeType          String    @default("application/octet-stream")
+  size              Int       @default(0)
+  width             Int?
+  height            Int?
+  // Frame extracted at ~2s for video uploads; served via /api/media/{id}?thumb=1
+  thumbnailKey      String?
+  thumbnailWidth    Int?
+  thumbnailHeight   Int?
+  createdAt         DateTime  @default(now())
 
+  @@index([commentId])
   @@map("post_media")
 }
 
@@ -254,6 +267,19 @@ model Vote {
   @@unique([userId, postId])
   @@index([userId, value, createdAt])
   @@map("votes")
+}
+
+model CommentVote {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  value     Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, commentId])
+  @@index([commentId, value])
+  @@map("comment_votes")
 }
 
 model Bookmark {
@@ -303,9 +329,23 @@ model Comment {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   postId    String
   post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-  createdAt DateTime  @default(now())
+  parentId  String?
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  rootId    String?
+  root      Comment?  @relation("CommentRoots", fields: [rootId], references: [id], onDelete: SetNull)
+  replies   Comment[] @relation("CommentReplies")
+  rootComments Comment[] @relation("CommentRoots")
+  aura      Int       @default(0)
+  deleted   Boolean   @default(false)
+  attachments Media[]
+  votes     CommentVote[]
   auraLogs  AuraLog[]
+  notifications Notification[]
+  createdAt DateTime  @default(now())
 
+  @@index([postId, createdAt])
+  @@index([postId, parentId])
+  @@index([postId, rootId, createdAt])
   @@map("comments")
 }
 
@@ -317,11 +357,14 @@ model Notification {
   issuer      User             @relation("Issuer", fields: [issuerId], references: [id], onDelete: Cascade)
   postId      String?
   post        Post?            @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId   String?
+  comment     Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
   type        NotificationType
   read        Boolean          @default(false)
 
   createdAt DateTime @default(now())
 
+  @@index([commentId])
   @@map("notifications")
 }
 

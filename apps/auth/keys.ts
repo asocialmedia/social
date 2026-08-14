@@ -1,4 +1,3 @@
-/** biome-ignore-all lint/style/useNamingConvention: ENV VARS */
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 

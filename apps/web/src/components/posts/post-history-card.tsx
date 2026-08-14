@@ -11,6 +11,7 @@ import type React from "react";
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
@@ -38,7 +39,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
         "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
         ROW_HOVER_CLASS
       )}
-      href={`/posts/${post.id}`}
+      href={post.isGust ? `/gusts?id=${post.id}` : `/posts/${post.id}`}
     >
       {firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO" ? (
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
@@ -57,6 +58,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
               className="absolute inset-0 h-full w-full object-cover"
               muted
               playsInline
+              poster={getMediaProxyUrl(firstMedia)}
               preload="metadata"
               src={getMediaUrl(firstMedia.id)}
             />
@@ -75,7 +77,12 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             {formatRelativeDate(post.createdAt)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
-            <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
+            <Flame
+              className={cn(
+                "h-3 w-3 transition-colors group-hover:text-inherit",
+                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             {formatNumber(post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
@@ -147,18 +154,18 @@ const PostHistoryCard: React.FC = () => {
 
   return (
     <div className="sidebar-subcard rounded-2xl p-2">
-      <div className="flex items-center gap-2 px-2 pt-0.5 pb-2">
+      <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.45),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
           <History className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm leading-tight font-semibold">Recents</p>
-          <p className="text-primary truncate text-xs leading-tight">
+          <p className="text-foreground/80 truncate text-xs leading-tight font-medium">
             Recently visited posts
           </p>
         </div>
       </div>
-      <div className="pt-2 pb-1">{body}</div>
+      <div className="pb-1">{body}</div>
     </div>
   );
 };

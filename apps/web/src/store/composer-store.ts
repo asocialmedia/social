@@ -1,13 +1,19 @@
 import { create } from "zustand";
 
+export type ComposerMode = "post" | "gust";
+
 interface ComposerState {
   closeComposer: () => void;
   isOpen: boolean;
-  openComposer: () => void;
+  mode: ComposerMode;
+  openComposer: (mode?: ComposerMode) => void;
+  setMode: (mode: ComposerMode) => void;
 }
 
 export const useComposerStore = create<ComposerState>()((set) => ({
   closeComposer: () => set({ isOpen: false }),
   isOpen: false,
-  openComposer: () => set({ isOpen: true }),
+  mode: "post",
+  openComposer: (mode = "post") => set({ isOpen: true, mode }),
+  setMode: (mode) => set({ mode }),
 }));

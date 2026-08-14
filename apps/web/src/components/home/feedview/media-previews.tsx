@@ -14,6 +14,7 @@ import { useMediaQuery } from "usehooks-ts";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
 import MediaViewer from "./media-viewer";
@@ -95,6 +96,7 @@ const VideoPreview = ({
   const isHoveredRef = useRef(false);
   const previewStartedRef = useRef(false);
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
+  const [isVideoActive, setIsVideoActive] = useState(false);
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -111,11 +113,13 @@ const VideoPreview = ({
     previewStartedRef.current = true;
     const video = containerRef.current?.querySelector("video");
     if (video) {
-      try {
-        void video.play();
-      } catch {
-        // Autoplay may be blocked; ignore
-      }
+      void (async () => {
+        try {
+          await video.play();
+        } catch {
+          // Autoplay may be blocked or aborted by user navigation; ignore safely
+        }
+      })();
     }
     const height = getExpandedHeight();
     if (height !== null) {
@@ -148,13 +152,24 @@ const VideoPreview = ({
     }
     const video = containerRef.current?.querySelector("video");
     if (video) {
-      video.pause();
-      if (video.duration > 2) {
-        video.currentTime = 2;
+      try {
+        video.pause();
+        if (video.readyState >= 1 && video.duration > 2) {
+          video.currentTime = 2;
+        }
+      } catch {
+        // Ignore pause/seek aborts
       }
     }
     setExpandedHeight(null);
+    setIsVideoActive(false);
   }, [autoPlay]);
+
+  // Fade the thumbnail overlay out only once playback actually starts so the
+  // poster-to-video switch is a smooth crossfade instead of an instant swap.
+  const handlePlaying = useCallback(() => {
+    setIsVideoActive(true);
+  }, []);
 
   // Seek past the first frame so the preview shows a meaningful thumbnail
   // (hover mode only - in autoplay mode the video starts from the beginning),
@@ -164,7 +179,11 @@ const VideoPreview = ({
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
       if (!autoPlay && video.duration > 2) {
-        video.currentTime = 2;
+        try {
+          video.currentTime = 2;
+        } catch {
+          // Ignore seek aborts
+        }
       }
       if (previewStartedRef.current) {
         const height = getExpandedHeight();
@@ -172,11 +191,13 @@ const VideoPreview = ({
           setExpandedHeight(height);
         }
         if (autoPlay) {
-          try {
-            void video.play();
-          } catch {
-            // Autoplay may be blocked; ignore
-          }
+          void (async () => {
+            try {
+              await video.play();
+            } catch {
+              // Autoplay may be blocked or aborted; ignore
+            }
+          })();
         }
       }
     },
@@ -202,8 +223,6 @@ const VideoPreview = ({
   }, [autoPlay, startPreview]);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: Video preview needs mouse interactions for hover autoplay
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video preview needs mouse interactions for hover autoplay
     <div
       className={cn(
         "group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
@@ -214,14 +233,29 @@ const VideoPreview = ({
       ref={containerRef}
       style={expandedHeight === null ? undefined : { height: expandedHeight }}
     >
-      {/* absolute fill crops the video to the preview box while collapsed, but matches the expanded height when hovering */}
+      {
+        // absolute fill crops the video to the preview box while collapsed, but matches the expanded height when hovering
+      }
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
         muted
         onLoadedMetadata={handleLoadedMetadata}
+        onPlaying={handlePlaying}
         playsInline
-        preload="metadata"
+        preload={autoPlay ? "metadata" : "none"}
         src={getMediaUrl(media.id)}
+      />
+      {/* Thumbnail overlay crossfades out once playback actually starts */}
+      <Image
+        alt="Video preview"
+        className={cn(
+          "absolute inset-0 h-full w-full rounded-lg object-cover transition-opacity duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+          isVideoActive ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        sizes="(max-width: 768px) 100vw, 640px"
+        src={getMediaProxyUrl(media)}
+        unoptimized
       />
       <div
         className={cn(
@@ -424,6 +458,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
               height={dims.h}
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
               width={dims.w}
@@ -435,6 +470,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="object-cover"
               fill
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
             />
@@ -450,6 +486,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="!relative !h-auto max-h-120 w-auto max-w-full rounded-lg object-cover"
               height={dims.h}
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
               width={dims.w}
@@ -461,6 +498,7 @@ export const MediaPreviews = ({
               alt="Attachment"
               className="object-cover"
               fill
+              sizes="(max-width: 768px) 100vw, 640px"
               src={getMediaUrl(media.id)}
               style={{ objectFit: "cover" }}
             />

@@ -16,10 +16,11 @@ import { useSession } from "@/app/(main)/session-provider";
 import LoadingButton from "@/components/auth/loading-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import kyInstance from "@/lib/ky";
+import { cn } from "@/lib/utils";
 
 import "./styles.css";
-import { cn } from "@/lib/utils";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
+import { useComposerStore } from "@/store/composer-store";
 
 import { AttachmentPreview } from "./attachment-preview";
 import { FileInput } from "./file-input";
@@ -27,6 +28,13 @@ import { HNStoryPreview } from "./hn-story-preview";
 import { InlineSuggestions } from "./inline-suggestions";
 import useMediaUpload from "./use-media-upload";
 import type { Attachment } from "./use-media-upload";
+
+export const GUST_CAPTION_MAX_WORDS = 150;
+export const GUST_CAPTION_MAX_CHARS = 900;
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
 const containerVariants = {
   hidden: { opacity: 0, y: 20 },
@@ -56,9 +64,13 @@ export default function PostEditor({
   const sharedHnStory = hnShareStore.story;
   const isHnSharing = hnShareStore.isSharing;
 
+  const composerMode = useComposerStore((state) => state.mode);
+  const isGust = composerMode === "gust";
+
   const { data: userData } = useQuery({
-    queryFn: () => kyInstance.get(`/api/users/${user.id}`).json<UserData>(),
-    queryKey: ["user", user.id],
+    enabled: Boolean(user),
+    queryFn: () => kyInstance.get(`/api/users/${user?.id}`).json<UserData>(),
+    queryKey: ["user", user?.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -73,16 +85,17 @@ export default function PostEditor({
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
-      "image/*": [],
+      "image/*": isGust ? [] : [],
       "video/*": [],
     },
     maxSize: 128 * 1024 * 1024,
     noClick: true,
     noKeyboard: true,
     onDrop: async (acceptedFiles: File[]) => {
-      const validFiles = acceptedFiles.filter(
-        (file: { type: string }) =>
-          file.type.startsWith("image/") || file.type.startsWith("video/")
+      const validFiles = acceptedFiles.filter((file: { type: string }) =>
+        isGust
+          ? file.type.startsWith("video/")
+          : file.type.startsWith("image/") || file.type.startsWith("video/")
       );
       if (validFiles.length) {
         await startUpload(validFiles);
@@ -119,7 +132,9 @@ export default function PostEditor({
         italic: false,
       }),
       Placeholder.configure({
-        placeholder: "What's crack-a-lackin'?",
+        placeholder: isGust
+          ? "Add a caption for your gust..."
+          : "What's crack-a-lackin'?",
       }),
     ],
     immediatelyRender: false,
@@ -129,6 +144,11 @@ export default function PostEditor({
   });
 
   const input = inputText || editor?.getText({ blockSeparator: "\n" }) || "";
+  const gustWordCount = countWords(input);
+  const gustCaptionExceeded =
+    isGust &&
+    (gustWordCount > GUST_CAPTION_MAX_WORDS ||
+      input.length > GUST_CAPTION_MAX_CHARS);
 
   const removeTag = useCallback((tagName: string) => {
     setSelectedTags((prev) => prev.filter((t) => t !== tagName));
@@ -161,15 +181,23 @@ export default function PostEditor({
   }, [isHnSharing, sharedHnStory, editor]);
 
   const onSubmit = useCallback(() => {
+    const gustMediaIds = attachments
+      .map((a) => a.mediaId)
+      .filter((id): id is string => Boolean(id));
+    const hasVideo = attachments.some((a) => a.file.type.startsWith("video/"));
+
+    if (isGust && gustMediaIds.length === 0) {
+      return;
+    }
+
     if (!(input.trim() || isHnSharing)) {
       return;
     }
 
     const payload = {
       content: input.trim(),
-      mediaIds: attachments
-        .map((a) => a.mediaId)
-        .filter((id): id is string => Boolean(id)),
+      isGust,
+      mediaIds: gustMediaIds,
       mentions: selectedMentions.map((mentionedUser) => mentionedUser.id),
       tags: selectedTags.map((tag) => tag.toLowerCase()),
       ...(isHnSharing && sharedHnStory
@@ -188,6 +216,12 @@ export default function PostEditor({
     };
 
     if (!(payload.content || isHnSharing)) {
+      return;
+    }
+    if (isGust && !hasVideo) {
+      return;
+    }
+    if (isGust && gustCaptionExceeded) {
       return;
     }
 
@@ -214,6 +248,8 @@ export default function PostEditor({
     isHnSharing,
     sharedHnStory,
     hnShareStore,
+    isGust,
+    gustCaptionExceeded,
   ]);
 
   useEffect(() => {
@@ -233,6 +269,11 @@ export default function PostEditor({
     },
     [startUpload]
   );
+
+  // The composer is account-gated; guests see login CTAs instead.
+  if (!user) {
+    return null;
+  }
 
   return (
     <div
@@ -256,7 +297,7 @@ export default function PostEditor({
             />
           </motion.div>
         </div>
-        <div className="w-full">
+        <div className="w-full min-w-0">
           {(selectedTags.length > 0 || selectedMentions.length > 0) && (
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
               {selectedTags.map((tag) => (
@@ -290,16 +331,31 @@ export default function PostEditor({
                 isDragActive && "ring-primary ring-2 ring-offset-2"
               )}
             >
-              <EditorContent
-                className={cn(
-                  "premium-input text-foreground max-h-80 w-full overflow-y-auto px-5 py-3",
-                  "transition-all duration-300 ease-in-out",
-                  "focus-within:ring-primary focus-within:ring-2",
-                  isDragActive && "outline-primary outline-dashed"
-                )}
-                editor={editor}
-                onPaste={onPaste}
-              />
+              {editor ? (
+                <EditorContent
+                  className={cn(
+                    "premium-input text-foreground max-h-80 w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto px-5 py-3 break-words",
+                    "transition-all duration-300 ease-in-out",
+                    "focus-within:ring-primary focus-within:ring-2",
+                    isDragActive && "outline-primary outline-dashed"
+                  )}
+                  editor={editor}
+                  onPaste={onPaste}
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "premium-input text-foreground max-h-80 w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto px-5 py-3 break-words",
+                    "transition-all duration-300 ease-in-out"
+                  )}
+                >
+                  <div className="tiptap">
+                    <p className="text-muted-foreground/70 select-none">
+                      What&apos;s crack-a-lackin&apos;?
+                    </p>
+                  </div>
+                </div>
+              )}
               <InlineSuggestions
                 editor={editor}
                 onSelectMention={addMention}
@@ -336,6 +392,31 @@ export default function PostEditor({
             </div>
           </div>
 
+          {isGust ? (
+            <div className="mt-2 flex items-center justify-between text-xs">
+              <span className="text-primary flex items-center gap-1.5 font-medium">
+                {attachments.some((a) => a.file.type.startsWith("video/")) ? (
+                  "Video attached, ready to gust!"
+                ) : (
+                  <span className="text-muted-foreground">
+                    Attach a video to publish a gust
+                  </span>
+                )}
+              </span>
+              <span
+                className={cn(
+                  "font-medium tabular-nums",
+                  gustCaptionExceeded
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+                )}
+              >
+                {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words · {input.length}/
+                {GUST_CAPTION_MAX_CHARS} chars
+              </span>
+            </div>
+          ) : null}
+
           <div className="mt-3 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <AnimatePresence>
@@ -360,21 +441,36 @@ export default function PostEditor({
                 <FileInput
                   disabled={isUploading || attachments.length >= 5}
                   onFilesSelected={startUpload}
+                  videoOnly={isGust}
                 />
               </motion.div>
             </div>
 
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-              <LoadingButton
-                className="min-w-20"
-                disabled={!(input.trim() || isHnSharing) || isUploading}
-                loading={mutation.isPending}
-                onClick={onSubmit}
-                variant="premium"
+            <div className="flex items-center gap-2">
+              <ModeToggle isGust={isGust} />
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
               >
-                Post
-              </LoadingButton>
-            </motion.div>
+                <LoadingButton
+                  className="min-w-20"
+                  disabled={
+                    !(input.trim() || isHnSharing) ||
+                    isUploading ||
+                    (isGust && gustCaptionExceeded) ||
+                    (isGust &&
+                      !attachments.some((a) =>
+                        a.file.type.startsWith("video/")
+                      ))
+                  }
+                  loading={mutation.isPending}
+                  onClick={onSubmit}
+                  variant="premium"
+                >
+                  {isGust ? "Gust" : "Post"}
+                </LoadingButton>
+              </motion.div>
+            </div>
           </div>
         </div>
       </div>
@@ -496,5 +592,42 @@ const RemoveChip = ({
         <X className="h-3.5 w-3.5" />
       </button>
     </span>
+  );
+};
+
+const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
+  const setMode = useComposerStore((state) => state.setMode);
+
+  const activeClasses =
+    "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+  const idleClasses = "text-muted-foreground hover:text-foreground";
+
+  return (
+    <div className="flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]">
+      <button
+        aria-label="Create a post"
+        aria-pressed={!isGust}
+        className={cn(
+          "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
+          isGust ? idleClasses : activeClasses
+        )}
+        onClick={() => setMode("post")}
+        type="button"
+      >
+        Post
+      </button>
+      <button
+        aria-label="Create a gust"
+        aria-pressed={isGust}
+        className={cn(
+          "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
+          isGust ? activeClasses : idleClasses
+        )}
+        onClick={() => setMode("gust")}
+        type="button"
+      >
+        Gust
+      </button>
+    </div>
   );
 };

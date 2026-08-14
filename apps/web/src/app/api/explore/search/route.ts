@@ -13,16 +13,19 @@ export const dynamic = "force-dynamic";
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
 export async function GET(request: Request) {
+  // Guests can explore; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
-  if (!session?.user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = session.user.id;
+  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   const q = url.searchParams.get("q")?.trim() ?? "";
-  const tab =
-    url.searchParams.get("tab") === "trending" ? "trending" : "for-you";
+  const tabParam = url.searchParams.get("tab");
+  let tab: "for-you" | "trending" | "gusts" = "for-you";
+  if (tabParam === "trending") {
+    tab = "trending";
+  } else if (tabParam === "gusts") {
+    tab = "gusts";
+  }
 
   const takeValue = url.searchParams.get("take");
   const requestedTake =
@@ -41,12 +44,18 @@ export async function GET(request: Request) {
     tab === "trending"
       ? [{ aura: "desc" }, { id: "desc" }]
       : { createdAt: "desc" };
+
+  const postWhere: Prisma.PostWhereInput =
+    tab === "gusts"
+      ? { content: { contains: q, mode: "insensitive" }, isGust: true }
+      : { content: { contains: q, mode: "insensitive" } };
+
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({
       include: getPostDataInclude(userId),
       orderBy: postOrderBy,
       take: pageSize,
-      where: { content: { contains: q, mode: "insensitive" } },
+      where: postWhere,
     }),
     prisma.user.findMany({
       orderBy: { aura: "desc" },

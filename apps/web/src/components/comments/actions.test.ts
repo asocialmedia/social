@@ -6,6 +6,8 @@ const POST_ID = "post1";
 const AUTHOR_ID = "author1";
 const COMMENTER_ID = "commenter1";
 const COMMENT_ID = "comment-1";
+const PARENT_ID = "parent-1";
+const PARENT_AUTHOR_ID = "parent-author-1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: COMMENTER_ID },
@@ -15,14 +17,22 @@ const state = {
   auraLogs: [] as Record<string, unknown>[],
   authorAura: 0,
   commenterAura: 0,
+  createdParentId: undefined as string | undefined,
+  createdRootId: undefined as string | null | undefined,
   notifications: [] as Record<string, unknown>[],
+  parentAuthorAura: 0,
+  published: [] as Record<string, unknown>[],
 };
 
 function resetState() {
   state.commenterAura = 0;
   state.authorAura = 0;
+  state.parentAuthorAura = 0;
   state.auraLogs = [];
   state.notifications = [];
+  state.published = [];
+  state.createdParentId = undefined;
+  state.createdRootId = undefined;
 }
 
 const mockTx = {
@@ -35,8 +45,18 @@ const mockTx = {
     findFirst: () => ({ id: "log-1" }),
   },
   comment: {
-    create: () => ({ id: COMMENT_ID, postId: POST_ID, userId: COMMENTER_ID }),
+    create: (args: { data: Record<string, unknown> }) => {
+      state.createdParentId = args.data.parentId as string | undefined;
+      state.createdRootId = args.data.rootId as string | null | undefined;
+      return { id: COMMENT_ID, postId: POST_ID, userId: COMMENTER_ID };
+    },
     delete: (args: { where: { id: string } }) => ({
+      id: args.where.id,
+      postId: POST_ID,
+      userId: COMMENTER_ID,
+    }),
+    update: (args: { where: { id: string } }) => ({
+      deleted: true,
       id: args.where.id,
       postId: POST_ID,
       userId: COMMENTER_ID,
@@ -48,23 +68,48 @@ const mockTx = {
     },
     deleteMany: (args: {
       where: {
-        issuerId: string;
-        postId: string;
-        recipientId: string;
-        type: string;
+        commentId?: string;
+        issuerId?: string;
+        postId?: string;
+        recipientId?: string;
+        type?: string | { in: string[] };
       };
     }) => {
-      const { issuerId, postId, recipientId, type } = args.where;
-      state.notifications = state.notifications.filter(
-        (notification) =>
-          !(
-            notification.type === type &&
-            notification.recipientId === recipientId &&
-            notification.issuerId === issuerId &&
-            notification.postId === postId
-          )
-      );
+      const { commentId, issuerId, postId, recipientId, type } = args.where;
+      state.notifications = state.notifications.filter((notification) => {
+        const typeMatches =
+          typeof type === "string"
+            ? notification.type === type
+            : (type?.in ?? []).includes(notification.type as string);
+        const commentIdMatches =
+          commentId === undefined ? true : notification.commentId === commentId;
+        return !(
+          typeMatches &&
+          commentIdMatches &&
+          (issuerId === undefined || notification.issuerId === issuerId) &&
+          (recipientId === undefined ||
+            notification.recipientId === recipientId) &&
+          (postId === undefined || notification.postId === postId)
+        );
+      });
     },
+    findMany: (args: {
+      select?: unknown;
+      where: {
+        commentId?: string;
+        type?: { in: string[] };
+      };
+    }) =>
+      state.notifications.filter((notification) => {
+        const typeMatches = (args.where.type?.in ?? []).includes(
+          notification.type as string
+        );
+        return (
+          (args.where.commentId === undefined ||
+            notification.commentId === args.where.commentId) &&
+          typeMatches
+        );
+      }),
   },
   user: {
     update: (args: {
@@ -79,6 +124,9 @@ const mockTx = {
       if (args.where.id === AUTHOR_ID) {
         state.authorAura += delta;
       }
+      if (args.where.id === PARENT_AUTHOR_ID) {
+        state.parentAuthorAura += delta;
+      }
     },
   },
 };
@@ -88,10 +136,26 @@ const mockPrisma = {
   comment: {
     create: mockTx.comment.create,
     delete: mockTx.comment.delete,
-    findUnique: (args: { where: { id: string } }) =>
-      args.where.id === COMMENT_ID
-        ? { id: COMMENT_ID, postId: POST_ID, userId: COMMENTER_ID }
-        : null,
+    findUnique: (args: { where: { id: string } } & { select?: unknown }) => {
+      if (args.where.id === COMMENT_ID) {
+        return {
+          id: COMMENT_ID,
+          parentId: null,
+          postId: POST_ID,
+          userId: COMMENTER_ID,
+        };
+      }
+      if (args.where.id === PARENT_ID) {
+        return {
+          id: PARENT_ID,
+          postId: POST_ID,
+          rootId: null,
+          userId: PARENT_AUTHOR_ID,
+        };
+      }
+      return null;
+    },
+    update: mockTx.comment.update,
   },
   post: {
     findUnique: (
@@ -103,9 +167,16 @@ const mockPrisma = {
   },
 };
 
+const mockPublish = mock(async () => {});
+
 mock.module("@asm/db", () => ({
+  cancelMediaCleanup: mockPublish,
+  enqueueNotificationCreated: mockPublish,
+  enqueueNotificationDeleted: mockPublish,
   getCommentDataInclude: () => ({ user: true }),
   prisma: mockPrisma,
+  publishCommentCreated: mockPublish,
+  publishCommentDeleted: mockPublish,
 }));
 
 mock.module("@/lib/session", () => ({
@@ -118,6 +189,28 @@ describe("submitComment", () => {
   beforeEach(() => {
     resetState();
     mockGetSession.mockClear();
+    mockPublish.mockClear();
+    mockPrisma.comment.findUnique = (
+      args: { where: { id: string } } & { select?: unknown }
+    ) => {
+      if (args.where.id === COMMENT_ID) {
+        return {
+          id: COMMENT_ID,
+          parentId: null,
+          postId: POST_ID,
+          userId: COMMENTER_ID,
+        };
+      }
+      if (args.where.id === PARENT_ID) {
+        return {
+          id: PARENT_ID,
+          postId: POST_ID,
+          rootId: null,
+          userId: PARENT_AUTHOR_ID,
+        };
+      }
+      return null;
+    };
   });
 
   test("rejects unauthenticated commenters", async () => {
@@ -155,6 +248,7 @@ describe("submitComment", () => {
     ]);
     expect(state.notifications).toEqual([
       {
+        commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
         recipientId: AUTHOR_ID,
@@ -185,6 +279,90 @@ describe("submitComment", () => {
     ]);
     expect(state.notifications).toEqual([]);
   });
+
+  test("a reply credits its own parent's author instead of the post author", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
+
+    await submitComment({
+      content: "nested reply",
+      parentId: PARENT_ID,
+      post,
+    });
+
+    expect(state.createdParentId).toBe(PARENT_ID);
+    // A reply to a top-level comment roots at the parent.
+    expect(state.createdRootId).toBe(PARENT_ID);
+    // The commenter earns creation aura.
+    expect(state.commenterAura).toBe(1);
+    // The parent's author (not the post author) earns the received aura.
+    expect(state.parentAuthorAura).toBe(1);
+    expect(state.authorAura).toBe(0);
+    // The parent's author is notified on a reply, and the post author is also
+    // notified when a thread on their post gets a reply (both differ here).
+    expect(state.notifications).toEqual([
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: PARENT_AUTHOR_ID,
+        type: "COMMENT",
+      },
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      },
+    ]);
+  });
+
+  test("a reply to your own comment awards no received aura", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: PARENT_AUTHOR_ID } });
+
+    await submitComment({
+      content: "replying to myself",
+      parentId: PARENT_ID,
+      post,
+    });
+
+    expect(state.commenterAura).toBe(0);
+    // The commenter (PARENT_AUTHOR_ID) earns creation aura in their own bucket.
+    expect(state.parentAuthorAura).toBe(1);
+    expect(state.authorAura).toBe(0);
+    expect(state.notifications).toEqual([]);
+  });
+
+  test("a reply to a comment on another post is rejected", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
+    mockPrisma.comment.findUnique = () =>
+      ({
+        id: PARENT_ID,
+        postId: "other-post",
+        rootId: null,
+        userId: PARENT_AUTHOR_ID,
+      }) as never;
+
+    await expect(
+      submitComment({
+        content: "cross-post reply",
+        parentId: PARENT_ID,
+        post,
+      })
+    ).rejects.toThrow("Parent comment does not belong to this post");
+    expect(state.commenterAura).toBe(0);
+    expect(state.auraLogs).toEqual([]);
+  });
+
+  test("realtime publish fires after a comment is created", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
+
+    await submitComment({ content: "broadcast me", post });
+
+    expect(mockPublish.mock.calls.length).toBeGreaterThan(0);
+    const published = mockPublish.mock.calls.map((call) => call[0] as string);
+    expect(published).toContain(POST_ID);
+  });
 });
 
 describe("deleteComment", () => {
@@ -196,12 +374,29 @@ describe("deleteComment", () => {
   test("revokes aura from the commenter and the post author", async () => {
     state.commenterAura = 1;
     state.authorAura = 1;
-    state.notifications.push({
-      issuerId: COMMENTER_ID,
-      postId: POST_ID,
-      recipientId: AUTHOR_ID,
-      type: "COMMENT",
-    });
+    state.notifications.push(
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      },
+      {
+        commentId: COMMENT_ID,
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: PARENT_AUTHOR_ID,
+        type: "AMPLIFY",
+      },
+      {
+        commentId: "other-comment",
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      }
+    );
 
     const deleted = await deleteComment(COMMENT_ID);
 
@@ -226,7 +421,17 @@ describe("deleteComment", () => {
         userId: AUTHOR_ID,
       },
     ]);
-    expect(state.notifications).toEqual([]);
+    // Notifications pointing at the deleted comment are cleaned up for every
+    // recipient, while unrelated notifications stay untouched.
+    expect(state.notifications).toEqual([
+      {
+        commentId: "other-comment",
+        issuerId: COMMENTER_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      },
+    ]);
   });
 
   test("deleting an unknown comment throws", async () => {

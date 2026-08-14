@@ -40,7 +40,6 @@ export default function PostsOnlyLoadingSkeleton() {
           <Skeleton className="mb-6 h-10 w-full max-w-md" />
           <div className="space-y-8">
             {Array.from({ length: 3 }).map((_, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: skeleton components use index keys as order never changes
               <PostCardSkeleton key={`post-skeleton-${index}`} />
             ))}
           </div>

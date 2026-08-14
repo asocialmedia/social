@@ -124,10 +124,6 @@ coverage/
 # Turbo
 .turbo
 
-# Biome
-biome.json
-biome.jsonc
-
 # TypeScript
 *.tsbuildinfo
 

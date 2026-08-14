@@ -50,7 +50,6 @@ export default function RedditSignInButton({
 }
 
 const RedditIcon = () => (
-  // biome-ignore lint/a11y/noSvgWithoutTitle: Reddit icon is purely decorative
   <svg
     height="16"
     viewBox="0 0 800 800"

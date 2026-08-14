@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       apply_public_policies:
-        description: "Apply public-read policy to uploads/avatars"
+        description: "Apply public-read policy to uploads/avatars (NOT recommended — content should be served through the app)"
         required: false
-        default: "true"
+        default: "false"
       enable_versioning:
         description: "Enable bucket versioning"
         required: false
@@ -60,7 +60,9 @@ jobs:
             echo "Applying public-read policy for avatars"
             aws --endpoint-url "$RUSTFS_ENDPOINT" s3api put-bucket-policy --bucket avatars --policy "$avatars_policy"
           else
-            echo "Skipping public bucket policy updates"
+            echo "Revoking public-read policies (buckets are private)"
+            aws --endpoint-url "$RUSTFS_ENDPOINT" s3api delete-bucket-policy --bucket uploads 2>/dev/null || true
+            aws --endpoint-url "$RUSTFS_ENDPOINT" s3api delete-bucket-policy --bucket avatars 2>/dev/null || true
           fi
 
           if [ "$ENABLE_VERSIONING" = "true" ]; then

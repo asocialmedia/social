@@ -7,23 +7,27 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MediaGallery, {
   MediaGalleryContent,
+  MediaGalleryLocked,
 } from "@/components/profile/media-gallery";
 import ProfileHeader from "@/components/profile/profile-header";
 import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
+import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
+import { useRequireAuth } from "@/hooks/use-require-auth";
 
 interface ProfilePageProps {
-  loggedInUserData: UserData;
+  loggedInUserData: UserData | null;
   userData: UserData;
 }
 
-type ProfileTab = "posts" | "replies" | "amplified" | "media";
+type ProfileTab = "posts" | "gusts" | "replies" | "amplified" | "media";
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
@@ -33,18 +37,40 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const isXl = useMediaQuery("(min-width: 1280px)");
   const router = useRouter();
+  const { user } = useSession();
+  const isLoggedIn = Boolean(user);
+  const { goToLogin } = useRequireAuth();
 
   const handleGoHome = useCallback(() => {
     router.push("/");
   }, [router]);
 
   const handleOpenSettings = useCallback(() => {
-    router.push("/settings");
-  }, [router]);
+    if (isLoggedIn) {
+      router.push("/settings");
+    } else {
+      goToLogin();
+    }
+  }, [goToLogin, isLoggedIn, router]);
 
-  const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value as ProfileTab);
-  }, []);
+  // Replies and Amplified need an account; guests see those tabs but a click
+  // bounces them to login. Media is also locked for guests, but the tab shows
+  // the same locked gallery as the desktop sidebar instead of redirecting.
+  const handleTabChange = useCallback(
+    (value: string) => {
+      if (
+        !isLoggedIn &&
+        value !== "posts" &&
+        value !== "gusts" &&
+        value !== "media"
+      ) {
+        goToLogin();
+        return;
+      }
+      setActiveTab(value as ProfileTab);
+    },
+    [goToLogin, isLoggedIn]
+  );
 
   // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
   useEffect(() => {
@@ -54,7 +80,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     }
   }, [activeTab, isXl]);
 
-  const isOwnProfile = userData.id === loggedInUserData.id;
+  const isOwnProfile = loggedInUserData
+    ? userData.id === loggedInUserData.id
+    : false;
 
   return (
     <div className="relative flex h-dvh overflow-hidden">
@@ -70,7 +98,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
             >
               <div className="relative min-h-0 flex-1">
                 <div
-                  className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
+                  className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+                    isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                  }`}
                   ref={feedScrollRef}
                 >
                   <div className="relative">
@@ -103,6 +133,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
                         Posts
                       </TabsTrigger>
+                      <TabsTrigger className={TAB_TRIGGER_CLASS} value="gusts">
+                        Gusts
+                      </TabsTrigger>
                       <TabsTrigger
                         className={TAB_TRIGGER_CLASS}
                         value="replies"
@@ -131,16 +164,31 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                     />
                   </TabsContent>
 
-                  <TabsContent className="mt-0 pb-12" value="replies">
-                    <UserRepliesFeed userId={userData.id} />
+                  <TabsContent className="mt-0 pb-12" value="gusts">
+                    <UserGustsFeed
+                      isOwnProfile={isOwnProfile}
+                      userId={userData.id}
+                    />
                   </TabsContent>
 
-                  <TabsContent className="mt-0 pb-12" value="amplified">
-                    <UserAmplifiedFeed userId={userData.id} />
-                  </TabsContent>
+                  {isLoggedIn ? (
+                    <>
+                      <TabsContent className="mt-0 pb-12" value="replies">
+                        <UserRepliesFeed userId={userData.id} />
+                      </TabsContent>
+
+                      <TabsContent className="mt-0 pb-12" value="amplified">
+                        <UserAmplifiedFeed userId={userData.id} />
+                      </TabsContent>
+                    </>
+                  ) : null}
 
                   <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                    <MediaGalleryContent userId={userData.id} />
+                    {isLoggedIn ? (
+                      <MediaGalleryContent userId={userData.id} />
+                    ) : (
+                      <MediaGalleryLocked />
+                    )}
                   </TabsContent>
                 </div>
                 <FeedScrollbar containerRef={feedScrollRef} />
@@ -148,7 +196,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
             </Tabs>
           </div>
 
-          <MediaGallery userId={userData.id} />
+          <MediaGallery locked={!isLoggedIn} userId={userData.id} />
         </div>
       </div>
     </div>

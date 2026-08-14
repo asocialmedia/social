@@ -1,21 +1,41 @@
+"use client";
+
 import type { CommentsPage, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noCommentsImage from "@assets/general/nocomments.png";
+import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import kyInstance from "@/lib/ky";
 
-import Comment from "./comment";
+import CommentItem from "./comment";
 import CommentInput from "./comment-input";
+import { buildCommentTree, mergeCommentsWithLive } from "./comment-tree";
+import { useCommentsRealtimeValue } from "./comments-realtime-context";
+import { useCommentsRealtime } from "./use-comments-realtime";
+import type { LiveCommentStore } from "./use-comments-realtime";
 
 interface CommentsProps {
   post: PostData;
+  reels?: boolean;
 }
 
-export default function Comments({ post }: CommentsProps) {
+export default function Comments({ post, reels = false }: CommentsProps) {
+  const shared = useCommentsRealtimeValue();
+
+  // Without a provider (e.g. the feed dialog), the list owns its own realtime
+  // store; inside a provider the shared store is used so every composer on the
+  // page folds into the same thread (and only one SSE connection is opened).
+  const ownStoreRef = useRef<LiveCommentStore>(new Map());
+  const ownRealtime = useCommentsRealtime(post.id, ownStoreRef, !shared);
+
+  const applyCreated = shared?.applyCreated ?? ownRealtime.applyCreated;
+  const applyDeleted = shared?.applyDeleted ?? ownRealtime.applyDeleted;
+  const liveStoreRef = shared?.liveStoreRef ?? ownStoreRef;
+
   const { data, fetchNextPage, hasNextPage, isFetching, status } =
     useInfiniteQuery({
       getNextPageParam: (firstPage) => firstPage.previousCursor,
@@ -28,13 +48,15 @@ export default function Comments({ post }: CommentsProps) {
           )
           .json<CommentsPage>(),
       queryKey: ["comments", post.id],
-      select: (commentsData) => ({
-        pageParams: [...commentsData.pageParams].toReversed(),
-        pages: [...commentsData.pages].toReversed(),
-      }),
+      select: (commentsData) => {
+        const pages = [...commentsData.pages].toReversed();
+        const serverComments = pages.flatMap((page) => page.comments);
+        return mergeCommentsWithLive(serverComments, liveStoreRef.current);
+      },
     });
 
-  const comments = data?.pages.flatMap((page) => page.comments) || [];
+  const comments = data ?? [];
+  const tree = buildCommentTree(comments);
 
   const handleLoadPrevious = useCallback(() => {
     fetchNextPage();
@@ -46,7 +68,7 @@ export default function Comments({ post }: CommentsProps) {
 
   return (
     <div className="space-y-3">
-      <CommentInput post={post} />
+      <CommentInput applyCreated={applyCreated} post={post} reels={reels} />
       {hasNextPage ? (
         <Button
           className="mx-auto block"
@@ -57,7 +79,7 @@ export default function Comments({ post }: CommentsProps) {
           Load previous eddies
         </Button>
       ) : null}
-      {status === "success" && !comments.length && (
+      {status === "success" && !tree.length && (
         <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
           <Image
             alt=""
@@ -71,13 +93,29 @@ export default function Comments({ post }: CommentsProps) {
         </div>
       )}
       {status === "error" && (
-        <p className="text-destructive text-center">
-          An error occurred while loading eddies.
-        </p>
+        <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+          <Image
+            alt=""
+            className="h-20 w-20 rounded-full object-contain opacity-70"
+            draggable={false}
+            height={80}
+            src={noMediaImage}
+            width={80}
+          />
+          <p className="text-muted-foreground text-sm">
+            Eddies hit a snag. Try reloading this post.
+          </p>
+        </div>
       )}
       <div className="divide-y">
-        {comments.map((comment) => (
-          <Comment comment={comment} key={comment.id} />
+        {tree.map((node) => (
+          <CommentItem
+            applyCreated={applyCreated}
+            applyDeleted={applyDeleted}
+            key={node.comment.id}
+            node={node}
+            post={post}
+          />
         ))}
       </div>
     </div>

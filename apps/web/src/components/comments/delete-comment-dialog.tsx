@@ -15,17 +15,19 @@ import LoadingButton from "@/components/auth/loading-button";
 import { useDeleteCommentMutation } from "./mutations";
 
 interface DeleteCommentDialogProps {
+  applyDeleted: (comment: CommentData) => void;
   comment: CommentData;
   onClose: () => void;
   open: boolean;
 }
 
 export default function DeleteCommentDialog({
+  applyDeleted,
   comment,
   open,
   onClose,
 }: DeleteCommentDialogProps) {
-  const mutation = useDeleteCommentMutation();
+  const mutation = useDeleteCommentMutation(applyDeleted);
 
   const handleDelete = useCallback(() => {
     mutation.mutate(comment.id, { onSuccess: onClose });

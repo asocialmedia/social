@@ -5,10 +5,12 @@ import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
 import { Clock3, Search } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { searchMutations } from "@/components/search/mutations";
 import kyInstance from "@/lib/ky";
@@ -54,6 +56,8 @@ const Spotlight: React.FC<SpotlightProps> = ({
   initialQuery,
 }) => {
   const router = useRouter();
+  const { user } = useSession();
+  const isLoggedIn = Boolean(user);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,7 +65,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const resultsRef = useRef<SpotlightResultItem[]>([]);
 
   const { data: history } = useQuery({
-    enabled: open,
+    enabled: open && isLoggedIn,
     queryFn: () =>
       kyInstance
         .get("/api/search", { searchParams: { type: "history" } })
@@ -360,6 +364,20 @@ const Spotlight: React.FC<SpotlightProps> = ({
             </div>
           )}
         </div>
+
+        {isLoggedIn ? null : (
+          <div className="border-border/60 flex items-center justify-between gap-2 border-t px-4 py-2.5">
+            <p className="text-muted-foreground text-xs">
+              Search is limited for guests. Log in for the full experience.
+            </p>
+            <Link
+              className="text-primary text-xs font-semibold hover:underline"
+              href="/login"
+            >
+              Log in
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

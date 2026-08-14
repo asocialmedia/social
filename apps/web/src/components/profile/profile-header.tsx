@@ -134,7 +134,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               <EditProfileButton user={liveUserData} />
             ) : (
               <FollowButton
-                className="follow-btn-3d h-9 px-4 text-sm"
+                className="h-9 px-4 text-sm"
                 initialState={followerInfo}
                 userId={liveUserData.id}
               />
@@ -209,7 +209,12 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               Followers
             </span>
           </Link>
-          <span className="inline-flex items-center gap-1 font-semibold text-orange-500">
+          <span
+            className="inline-flex items-center gap-1 font-semibold dark:text-orange-500"
+            style={{
+              color: liveUserData.aura < 0 ? "#7c5cff" : "#9a3412",
+            }}
+          >
             <Flame className="size-4" />
             {formatNumber(liveUserData.aura)} Aura
           </span>

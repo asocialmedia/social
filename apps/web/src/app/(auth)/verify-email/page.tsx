@@ -21,7 +21,6 @@ const VerificationAnimation = () => (
         className="border-primary/20 bg-primary/5 absolute top-0 left-0 h-20 w-20 rounded-xl border p-4"
         initial={{ opacity: 0, x: -100 }}
       >
-        {/* biome-ignore lint/a11y/noSvgWithoutTitle: SVG is purely decorative */}
         <svg
           className="text-primary/60 h-full w-full"
           fill="none"
@@ -51,7 +50,6 @@ const VerificationAnimation = () => (
         className="border-primary/20 bg-primary/5 absolute top-0 right-0 h-20 w-20 rounded-xl border p-4"
         initial={{ opacity: 0, x: 100 }}
       >
-        {/* biome-ignore lint/a11y/noSvgWithoutTitle: SVG is purely decorative */}
         <svg
           className="text-primary/60 h-full w-full"
           fill="none"
@@ -210,7 +208,6 @@ export default function VerifyEmailPage() {
       setStatus("error");
     } else if (token && !verificationAttempted.current) {
       verificationAttempted.current = true;
-      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ignore
       (async () => {
         try {
           const res = await fetch(
@@ -304,7 +301,6 @@ export default function VerifyEmailPage() {
                   className="bg-primary/10 rounded-full p-4"
                   transition={{ duration: 0.5 }}
                 >
-                  {/* biome-ignore lint/a11y/noSvgWithoutTitle: SVG is decorative */}
                   <svg
                     className="text-primary h-16 w-16"
                     fill="none"
