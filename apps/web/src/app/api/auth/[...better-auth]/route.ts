@@ -47,7 +47,9 @@ function buildUpstreamHeaders(request: NextRequest) {
   return headers;
 }
 
-function rewriteCookieDomain(cookieStr: string, host: string): string {
+// Exported for unit tests; the proxy rewrites cookie domains so OAuth state
+// cookies survive the round-trip to the auth subdomain.
+export function rewriteCookieDomain(cookieStr: string, host: string): string {
   const parts = cookieStr.split(/;\s*/);
   return parts
     .map((attr) => {
