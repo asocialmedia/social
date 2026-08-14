@@ -34,9 +34,15 @@ export function useUpdateUsername() {
         throw new Error(error.message || "Failed to update username");
       }
 
-      return response.json();
+      return response.json() as Promise<{ success: true }>;
     },
     onSuccess: () => {
+      // The session and profile caches key on ["user", id]; invalidating the
+      // generic ["userData"] key never matched, so the new username stayed
+      // stale until a full reload. Refetch the session (which carries the
+      // fresh username) and let the ["user", id] caches pick it up.
+      queryClient.invalidateQueries({ queryKey: ["session"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
       queryClient.invalidateQueries({ queryKey: ["userData"] });
     },
   });
@@ -63,6 +69,8 @@ export function useUpdateEmail() {
       return response.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["session"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
       queryClient.invalidateQueries({ queryKey: ["userData"] });
     },
   });

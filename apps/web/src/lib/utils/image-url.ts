@@ -2,8 +2,11 @@
 // or `{endpoint}/{bucket}/banners/{userId}/...` (sometimes with encoded `%2F` separators).
 // Object storage buckets are private — content is only reachable through the app proxy routes,
 // so rewrite these URLs to their app-relative proxy paths at render time.
+// The userId must be followed by another path segment (the object filename):
+// `avatars/{userId}/{file}`. Static default avatars (`/avatars/default-N.png`)
+// are plain public assets and must NOT be rewritten.
 const ASMOB_AVATAR_URL_RE =
-  /(?:^|\/)(?<kind>avatars|banners)\/(?<userId>[^/?#]+)/;
+  /(?:^|\/)(?<kind>avatars|banners)\/(?<userId>[^/?#]+)\/[^/?#]+/;
 
 function rewriteAsmobUrl(rawUrl: string): string {
   if (!rawUrl) {
