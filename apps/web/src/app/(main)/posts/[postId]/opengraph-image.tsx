@@ -68,8 +68,13 @@ function loadFont(file: string): Buffer {
     const candidate = path.join(dir, file);
     try {
       return readFileSync(candidate);
-    } catch {
-      // Try the next candidate location.
+    } catch (error) {
+      // Only a missing file means this candidate doesn't exist - keep probing
+      // the other directories. Anything else (permission, I/O, bad path) is a
+      // real failure that should surface instead of being swallowed.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
     }
   }
   throw new Error(
