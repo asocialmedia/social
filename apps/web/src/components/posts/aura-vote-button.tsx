@@ -266,7 +266,13 @@ export default function AuraVoteButton({
         className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-base font-semibold tabular-nums"
         title="Aura"
       >
-        <Flame aria-hidden="true" className="h-6 w-6 text-orange-500" />
+        <Flame
+          aria-hidden="true"
+          className={cn(
+            "h-6 w-6",
+            data.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+          )}
+        />
         {formatNumber(data.aura)}
       </span>
     </div>

@@ -89,7 +89,12 @@ export const PopularOnHackerNews = () => {
               </a>
             </div>
             <span className="text-muted-foreground flex items-center gap-1 pl-0 text-xs transition-colors group-hover:text-inherit">
-              <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
+              <Flame
+                className={cn(
+                  "h-3 w-3 transition-colors group-hover:text-inherit",
+                  story.score < 0 ? "text-[#7c5cff]" : "text-orange-500"
+                )}
+              />
               {formatNumber(story.score)} points
             </span>
           </div>

@@ -28,26 +28,26 @@ import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import Linkify from "@/helpers/global/linkify";
 import { useLogout } from "@/hooks/use-logout";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UserProfilePopoverProps {
   userData: UserData;
 }
 
-interface PopoverStatProps {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-}
-
-const PopoverStat: React.FC<PopoverStatProps> = ({
+const PopoverStat = ({
   icon: Icon,
+  iconClassName,
   label,
   value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  iconClassName?: string;
+  label: string;
+  value: number;
 }) => (
   <div className="flex min-w-0 flex-col items-center gap-0.5">
-    <Icon className="text-muted-foreground h-4 w-4" />
+    <Icon className={cn("h-4 w-4", iconClassName ?? "text-muted-foreground")} />
     <span className="text-sm font-semibold tabular-nums">
       {formatNumber(value)}
     </span>
@@ -255,7 +255,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
               label="Following"
               value={userData._count.following}
             />
-            <PopoverStat icon={Flame} label="Aura" value={userData.aura} />
+            <PopoverStat
+              icon={Flame}
+              iconClassName={
+                userData.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              }
+              label="Aura"
+              value={userData.aura}
+            />
           </div>
 
           {/* Actions */}

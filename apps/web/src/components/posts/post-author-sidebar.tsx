@@ -137,7 +137,12 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
             {getRelativeAgo(post.createdAt)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
-            <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
+            <Flame
+              className={cn(
+                "h-3 w-3 transition-colors group-hover:text-inherit",
+                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             {formatNumber(post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
@@ -277,7 +282,12 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                 Followers
               </span>
               <span className="flex items-center gap-1">
-                <Flame className="h-3.5 w-3.5 text-orange-500" />
+                <Flame
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    author.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+                  )}
+                />
                 <span className="text-foreground font-semibold">
                   {formatNumber(author.aura)}
                 </span>{" "}

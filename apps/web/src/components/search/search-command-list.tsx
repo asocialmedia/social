@@ -197,7 +197,12 @@ export const SearchCommandList = ({
                 </span>
                 <span className="text-muted-foreground mt-1 flex items-center gap-3 text-xs">
                   <span className="flex shrink-0 items-center gap-0.5">
-                    <Flame className="h-3 w-3 text-orange-500" />
+                    <Flame
+                      className={cn(
+                        "h-3 w-3",
+                        post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+                      )}
+                    />
                     {formatNumber(post.aura)}
                   </span>
                   <span className="flex shrink-0 items-center gap-0.5">

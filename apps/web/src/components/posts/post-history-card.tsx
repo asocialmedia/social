@@ -75,7 +75,12 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             {formatRelativeDate(post.createdAt)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
-            <Flame className="h-3 w-3 text-orange-500 transition-colors group-hover:text-inherit" />
+            <Flame
+              className={cn(
+                "h-3 w-3 transition-colors group-hover:text-inherit",
+                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             {formatNumber(post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">

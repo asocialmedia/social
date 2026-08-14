@@ -120,7 +120,12 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
             followers
           </span>
           <span className="flex items-center gap-1">
-            <Flame className="h-3.5 w-3.5 text-orange-500" />
+            <Flame
+              className={cn(
+                "h-3.5 w-3.5",
+                user.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+              )}
+            />
             <span className="text-foreground font-medium">
               {formatNumber(user.aura)}
             </span>{" "}
