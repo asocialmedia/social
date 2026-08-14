@@ -11,17 +11,24 @@ import { env } from "../../env";
 import { validateFile } from "./utils/file-validation";
 import { getContentType, getFileConfigFromMime } from "./utils/mime-utils";
 
-const asmobLocalEndpoint = env.ASMOB_ENDPOINT;
+const asmobEndpoint = env.ASMOB_ENDPOINT;
+
+// Ensures the object-storage endpoint carries a protocol. The endpoint may be
+// configured without one, which makes the AWS SDK fail with ERR_INVALID_URL
+// when it builds the request URL. Normalize to https so a bare hostname works.
+function normalizeEndpoint(endpoint: string | undefined): string {
+  if (!endpoint) {
+    return endpoint as string;
+  }
+  return /^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`;
+}
 
 export const asmobClient = new S3Client({
   credentials: {
     accessKeyId: env.ASMOB_ROOT_USER,
     secretAccessKey: env.ASMOB_ROOT_PASSWORD,
   },
-  endpoint:
-    env.NODE_ENV === "production"
-      ? env.ASMOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc"
-      : asmobLocalEndpoint,
+  endpoint: normalizeEndpoint(asmobEndpoint),
   forcePathStyle: true,
   maxAttempts: 3,
   region: "ap-south-1",
@@ -48,15 +55,9 @@ export const getPublicUrl = (key: string) => {
     throw new Error("File key is required");
   }
 
-  const endpoint = env.ASMOB_ENDPOINT ?? asmobLocalEndpoint;
-
-  const productionEndpoint =
-    env.ASMOB_PRODUCTION_ENDPOINT || "rustfs.asocialmedia.cc";
-
-  const finalEndpoint =
-    env.NODE_ENV === "production"
-      ? productionEndpoint
-      : endpoint || "http://localhost:9090";
+  const finalEndpoint = normalizeEndpoint(
+    asmobEndpoint || "http://localhost:9090"
+  );
 
   return `${finalEndpoint}/${ASMOB_BUCKET}/${encodeURIComponent(key)}`;
 };

@@ -11,21 +11,25 @@ function env(name: string, fallback: string): string {
   return process.env[name] ?? fallback;
 }
 
+// The object-storage endpoint may be configured without a protocol; the AWS
+// SDK fails with ERR_INVALID_URL unless the endpoint is an absolute URL, so
+// normalize a bare hostname to https.
+function normalizeEndpoint(endpoint: string): string {
+  return /^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`;
+}
+
 export const ASMOB_BUCKET = env("ASMOB_BUCKET_NAME", "uploads");
 
-const asmobEndpoint = () => {
-  if (process.env.NODE_ENV === "production") {
-    return env("ASMOB_PRODUCTION_ENDPOINT", "rustfs.asocialmedia.cc");
-  }
-  return env("ASMOB_ENDPOINT", "http://localhost:9090");
-};
+const asmobEndpoint = normalizeEndpoint(
+  env("ASMOB_ENDPOINT", "http://localhost:9090")
+);
 
 export const asmobClient = new S3Client({
   credentials: {
     accessKeyId: env("ASMOB_ROOT_USER", "asmob-admin"),
     secretAccessKey: env("ASMOB_ROOT_PASSWORD", "asmob-admin"),
   },
-  endpoint: asmobEndpoint(),
+  endpoint: asmobEndpoint,
   forcePathStyle: true,
   maxAttempts: 3,
   region: "ap-south-1",
