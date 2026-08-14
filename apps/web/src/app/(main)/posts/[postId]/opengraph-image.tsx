@@ -53,8 +53,28 @@ const getPostForCard = unstable_cache(
   { revalidate: 3600 }
 );
 
+// The Docker build runs `next build apps/web` from the monorepo root, so
+// process.cwd() is "/app" there but "apps/web" locally (and the app dir when
+// run from within it). Try every plausible font directory so the route builds
+// and runs in both local and container contexts.
+const FONT_CANDIDATES = [
+  path.join(process.cwd(), "public", "fonts"),
+  path.join(process.cwd(), "apps", "web", "public", "fonts"),
+  path.join(process.cwd(), "..", "apps", "web", "public", "fonts"),
+];
+
 function loadFont(file: string): Buffer {
-  return readFileSync(path.join(process.cwd(), "public", "fonts", file));
+  for (const dir of FONT_CANDIDATES) {
+    const candidate = path.join(dir, file);
+    try {
+      return readFileSync(candidate);
+    } catch {
+      // Try the next candidate location.
+    }
+  }
+  throw new Error(
+    `Could not locate font ${file}; searched: ${FONT_CANDIDATES.join(", ")}`
+  );
 }
 
 const fonts = {
