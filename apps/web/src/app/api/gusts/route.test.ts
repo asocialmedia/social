@@ -28,13 +28,15 @@ const sampleGusts = [
 let mockPostList = [...sampleGusts];
 let lastFindManyArgs: unknown = null;
 
-const mockFindMany = mock(async (args: { cursor?: { id: string }; take?: number; where?: unknown }) => {
-  lastFindManyArgs = args;
-  const take = args?.take ?? 11;
-  return mockPostList.slice(0, take);
-});
+const mockFindMany = mock(
+  (args: { cursor?: { id: string }; take?: number; where?: unknown }) => {
+    lastFindManyArgs = args;
+    const take = args?.take ?? 11;
+    return mockPostList.slice(0, take);
+  }
+);
 
-const mockHydrateViewCounts = mock(async (posts: unknown[]) =>
+const mockHydrateViewCounts = mock((posts: unknown[]) =>
   posts.map((p) => ({ ...(p as Record<string, unknown>), viewCount: 42 }))
 );
 
@@ -46,7 +48,7 @@ mock.module("@asm/db", () => ({
   },
   getPostDataInclude: (viewerId: string) => ({
     user: true,
-    vote: viewerId ? true : false,
+    vote: !!viewerId,
   }),
   hydrateViewCounts: mockHydrateViewCounts,
   prisma: {
@@ -77,7 +79,7 @@ describe("GET /api/gusts", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       nextCursor: string | null;
-      posts: Array<{ id: string; isGust: boolean; viewCount: number }>;
+      posts: { id: string; isGust: boolean; viewCount: number }[];
     };
 
     expect(json.posts).toHaveLength(2);
@@ -87,7 +89,10 @@ describe("GET /api/gusts", () => {
 
     const callArgs = lastFindManyArgs as {
       where?: {
-        OR?: Array<{ isGust?: boolean; attachments?: { some?: { type?: string } } }>;
+        OR?: {
+          isGust?: boolean;
+          attachments?: { some?: { type?: string } };
+        }[];
       };
     };
     expect(callArgs?.where?.OR).toBeDefined();

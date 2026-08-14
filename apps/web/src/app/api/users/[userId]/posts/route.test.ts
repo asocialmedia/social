@@ -8,7 +8,7 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 
 let lastFindManyArgs: unknown = null;
 
-const mockFindMany = mock(async (args: unknown) => {
+const mockFindMany = mock((args: unknown) => {
   lastFindManyArgs = args;
   return [
     {
@@ -22,7 +22,7 @@ const mockFindMany = mock(async (args: unknown) => {
   ];
 });
 
-const mockHydrateViewCounts = mock(async (posts: unknown[]) => posts);
+const mockHydrateViewCounts = mock((posts: unknown[]) => posts);
 
 mock.module("@asm/db", () => ({
   MediaType: {
@@ -32,7 +32,7 @@ mock.module("@asm/db", () => ({
   },
   getPostDataInclude: (viewerId: string) => ({
     user: true,
-    vote: viewerId ? true : false,
+    vote: !!viewerId,
   }),
   hydrateViewCounts: mockHydrateViewCounts,
   prisma: {
@@ -56,8 +56,12 @@ describe("GET /api/users/[userId]/posts", () => {
   });
 
   test("filters only gusts when filter=gusts", async () => {
-    const req = new Request("http://localhost:3000/api/users/targetUser/posts?filter=gusts");
-    const res = await GET(req, { params: Promise.resolve({ userId: "targetUser" }) });
+    const req = new Request(
+      "http://localhost:3000/api/users/targetUser/posts?filter=gusts"
+    );
+    const res = await GET(req, {
+      params: Promise.resolve({ userId: "targetUser" }),
+    });
 
     expect(res.status).toBe(200);
     const callArgs = lastFindManyArgs as {
@@ -69,7 +73,9 @@ describe("GET /api/users/[userId]/posts", () => {
 
   test("excludes gusts from standard user post feed (isGust: false)", async () => {
     const req = new Request("http://localhost:3000/api/users/targetUser/posts");
-    const res = await GET(req, { params: Promise.resolve({ userId: "targetUser" }) });
+    const res = await GET(req, {
+      params: Promise.resolve({ userId: "targetUser" }),
+    });
 
     expect(res.status).toBe(200);
     const callArgs = lastFindManyArgs as {
@@ -80,8 +86,12 @@ describe("GET /api/users/[userId]/posts", () => {
   });
 
   test("filters media posts when filter=media", async () => {
-    const req = new Request("http://localhost:3000/api/users/targetUser/posts?filter=media");
-    const res = await GET(req, { params: Promise.resolve({ userId: "targetUser" }) });
+    const req = new Request(
+      "http://localhost:3000/api/users/targetUser/posts?filter=media"
+    );
+    const res = await GET(req, {
+      params: Promise.resolve({ userId: "targetUser" }),
+    });
 
     expect(res.status).toBe(200);
     const callArgs = lastFindManyArgs as {
@@ -101,8 +111,12 @@ describe("GET /api/users/[userId]/posts", () => {
   test("allows guests to browse user posts safely", async () => {
     mockGetSession.mockImplementationOnce(() => null);
 
-    const req = new Request("http://localhost:3000/api/users/targetUser/posts?filter=gusts");
-    const res = await GET(req, { params: Promise.resolve({ userId: "targetUser" }) });
+    const req = new Request(
+      "http://localhost:3000/api/users/targetUser/posts?filter=gusts"
+    );
+    const res = await GET(req, {
+      params: Promise.resolve({ userId: "targetUser" }),
+    });
 
     expect(res.status).toBe(200);
     const json = (await res.json()) as { posts: unknown[] };
