@@ -44,7 +44,9 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
-  const [isUploadOpen, setIsUploadOpen] = useState(autoOpenCreate);
+  const [isUploadOpen, setIsUploadOpen] = useState(
+    Boolean(user && autoOpenCreate)
+  );
   const [activeCommentsPost, setActiveCommentsPost] = useState<PostData | null>(
     null
   );
