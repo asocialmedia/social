@@ -59,7 +59,13 @@ function rewriteCookieDomain(cookieStr: string, host: string): string {
         // scope the cookie to the web subdomain only, breaking OAuth callbacks
         // that return to the auth subdomain directly (state_mismatch).
         const baseDomain = domainValue.replace(/^\./, "");
-        if (baseDomain && host.endsWith(`.${baseDomain}`)) {
+        const hostLower = host.toLowerCase();
+        const domainLower = baseDomain.toLowerCase();
+        // Boundary-aware match so "social.asocialmedia.cc" matches
+        // ".asocialmedia.cc" but not a lookalike like "notasocialmedia.cc".
+        const hostIsDomain = hostLower === domainLower;
+        const hostIsSubdomain = hostLower.endsWith(`.${domainLower}`);
+        if (domainLower && (hostIsDomain || hostIsSubdomain)) {
           return attr;
         }
         return `Domain=${host}`;
