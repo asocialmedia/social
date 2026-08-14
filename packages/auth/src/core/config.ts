@@ -93,7 +93,12 @@ export interface AuthConfig {
 
 type SocialProviderName = "google" | "reddit";
 
-interface UsernameMapping {
+// Fields better-auth accepts from mapProfileToUser when creating/linking a
+// user via a social provider. username is required; the rest shape the new
+// account (Reddit exposes no email, so the derived name is what we can set).
+interface SocialUserMapping {
+  emailVerified?: boolean;
+  name?: string;
   username: string;
 }
 
@@ -102,13 +107,13 @@ export interface SocialProvidersConfig {
     clientId: string;
     clientSecret: string;
     redirectURI: string;
-    mapProfileToUser: (profile: GoogleProfile) => UsernameMapping;
+    mapProfileToUser: (profile: GoogleProfile) => SocialUserMapping;
   };
   reddit?: {
     clientId: string;
     clientSecret: string;
     redirectURI: string;
-    mapProfileToUser: (profile: RedditProfile) => UsernameMapping;
+    mapProfileToUser: (profile: RedditProfile) => SocialUserMapping;
   };
 }
 
@@ -123,9 +128,15 @@ function buildSocialProviderConfig(authBaseUrl: string): {
     socialProviders.google = {
       clientId: env.GOOGLE_CLIENT_ID,
       clientSecret: env.GOOGLE_CLIENT_SECRET,
-      mapProfileToUser(profile: GoogleProfile): UsernameMapping {
+      mapProfileToUser(profile: GoogleProfile): SocialUserMapping {
         const derivedUsername = deriveUsernameFromProfile(profile);
-        return { username: derivedUsername };
+        const email =
+          typeof profile.email === "string" ? profile.email : undefined;
+        return {
+          emailVerified: Boolean(email),
+          name: derivedUsername,
+          username: derivedUsername,
+        };
       },
       redirectURI: `${authBaseUrl}/api/auth/callback/google`,
     };
@@ -136,9 +147,17 @@ function buildSocialProviderConfig(authBaseUrl: string): {
     socialProviders.reddit = {
       clientId: env.REDDIT_CLIENT_ID,
       clientSecret: env.REDDIT_CLIENT_SECRET,
-      mapProfileToUser(profile: RedditProfile): UsernameMapping {
+      mapProfileToUser(profile: RedditProfile): SocialUserMapping {
         const derivedUsername = deriveUsernameFromProfile(profile);
-        return { username: derivedUsername };
+        return {
+          // Reddit's OAuth does not expose the user's email; better-auth
+          // synthesizes a placeholder. The OAuth handshake already proves
+          // identity, so mark it verified rather than forcing a re-verify of a
+          // fake address.
+          emailVerified: true,
+          name: derivedUsername,
+          username: derivedUsername,
+        };
       },
       redirectURI: `${authBaseUrl}/api/auth/callback/reddit`,
     };
@@ -289,6 +308,34 @@ export function createAuthConfig(config: AuthConfig = {}) {
     },
 
     databaseHooks: {
+      account: {
+        create: {
+          after: async (account) => {
+            // better-auth stores the OAuth linkage in the Account table, but
+            // the app reads googleId/redditId directly off the user. Mirror the
+            // provider linkage onto the user so the linked-accounts UI and any
+            // downstream lookups reflect the connection immediately.
+            try {
+              const providerToField: Record<string, string | undefined> = {
+                google: "googleId",
+                reddit: "redditId",
+              };
+              const field = providerToField[account.providerId];
+              if (field) {
+                await prisma.user.update({
+                  data: { [field]: account.accountId },
+                  where: { id: account.userId },
+                });
+              }
+            } catch (error) {
+              console.error(
+                "Failed to mirror social provider id onto user:",
+                error instanceof Error ? error.message : error
+              );
+            }
+          },
+        },
+      },
       session: {
         create: {
           before: async (session) => {
