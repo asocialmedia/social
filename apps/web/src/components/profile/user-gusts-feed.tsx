@@ -2,6 +2,7 @@
 
 import type { PostsPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Clapperboard, Eye, Flame, Loader2, Play } from "lucide-react";
 import Image from "next/image";
@@ -224,6 +225,7 @@ const UserGustsFeed: React.FC<UserGustsFeedProps> = ({
           ) : undefined
         }
         description="Short-form video content from this profile will appear here."
+        image={noMediaImage}
         title="No Gusts yet"
       />
     );

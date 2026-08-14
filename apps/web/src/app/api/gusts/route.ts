@@ -1,8 +1,4 @@
-import {
-  getPostDataInclude,
-  hydrateViewCounts,
-  prisma,
-} from "@asm/db";
+import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";

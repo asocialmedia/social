@@ -2,14 +2,10 @@
 
 import type { PostData, PostsPage, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import noMediaImage from "@assets/general/nomedia.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import {
-  ChevronDown,
-  ChevronUp,
-  Clapperboard,
-  Loader2,
-  Plus,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Plus } from "lucide-react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import React, {
   useCallback,
@@ -201,9 +197,14 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     if (posts.length === 0) {
       return (
         <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center">
-          <div className="bg-primary/10 text-primary mb-4 flex h-20 w-20 items-center justify-center rounded-3xl">
-            <Clapperboard className="size-10" />
-          </div>
+          <Image
+            alt="No Gusts"
+            className="mb-4 size-32 rounded-full object-contain opacity-80"
+            draggable={false}
+            height={128}
+            src={noMediaImage}
+            width={128}
+          />
           <h2 className="text-foreground text-xl font-bold">No Gusts yet</h2>
           <p className="text-muted-foreground mt-1 max-w-sm text-sm">
             Be the first to share a high-energy short-form video clip with the
