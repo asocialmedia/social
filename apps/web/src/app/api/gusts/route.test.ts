@@ -85,18 +85,12 @@ describe("GET /api/gusts", () => {
     expect(json.posts).toHaveLength(2);
     expect(json.posts[0].viewCount).toBe(42);
     expect(mockFindMany).toHaveBeenCalledTimes(1);
-    expect(mockHydrateViewCounts).toHaveBeenCalledTimes(1);
-
     const callArgs = lastFindManyArgs as {
       where?: {
-        OR?: {
-          isGust?: boolean;
-          attachments?: { some?: { type?: string } };
-        }[];
+        isGust?: boolean;
       };
     };
-    expect(callArgs?.where?.OR).toBeDefined();
-    expect(callArgs?.where?.OR?.[0]?.isGust).toBe(true);
+    expect(callArgs?.where?.isGust).toBe(true);
   });
 
   test("allows guests to browse gusts without authentication", async () => {

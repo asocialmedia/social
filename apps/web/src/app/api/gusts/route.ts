@@ -1,7 +1,6 @@
 import {
   getPostDataInclude,
   hydrateViewCounts,
-  MediaType,
   prisma,
 } from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
@@ -24,10 +23,7 @@ export async function GET(request: Request) {
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 10;
 
   const where: Prisma.PostWhereInput = {
-    OR: [
-      { isGust: true },
-      { attachments: { some: { type: MediaType.VIDEO } } },
-    ],
+    isGust: true,
   };
 
   const posts = await prisma.post.findMany({

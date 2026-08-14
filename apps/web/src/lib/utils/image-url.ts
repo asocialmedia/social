@@ -3,7 +3,7 @@
 // Object storage buckets are private — content is only reachable through the app proxy routes,
 // so rewrite these URLs to their app-relative proxy paths at render time.
 const ASMOB_AVATAR_URL_RE =
-  /^https?:\/\/[^/]+\/[^/]+\/(?<kind>avatars|banners)\/(?<userId>[^/]+)\//;
+  /(?:^|\/)(?<kind>avatars|banners)\/(?<userId>[^/?#]+)/;
 
 function rewriteAsmobUrl(rawUrl: string): string {
   if (!rawUrl) {
