@@ -51,6 +51,21 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     expect(getSecureImageUrl(externalUrl)).toBe(externalUrl);
   });
 
+  test("does not rewrite static default avatar assets", () => {
+    const defaultAvatar = "https://asocialmedia.cc/avatars/default-2.png";
+    expect(getSecureImageUrl(defaultAvatar)).toBe(defaultAvatar);
+    expect(toAppProxyUrl(defaultAvatar)).toBe(defaultAvatar);
+  });
+
+  test("does not rewrite relative default avatar paths", () => {
+    expect(getSecureImageUrl("/avatars/default-1.png")).toBe(
+      "/avatars/default-1.png"
+    );
+    expect(toAppProxyUrl("/avatars/default-1.png")).toBe(
+      "/avatars/default-1.png"
+    );
+  });
+
   test("builds media proxy URL with thumbnail parameter for videos with thumbnails", () => {
     expect(
       getMediaProxyUrl({
