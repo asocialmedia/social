@@ -14,6 +14,7 @@ describe("worker job processors", () => {
   };
 
   interface MediaRow {
+    commentId: string | null;
     createdAt: Date;
     id: string;
     key: string;
@@ -30,6 +31,7 @@ describe("worker job processors", () => {
       ]),
       findUnique: mock((): Promise<MediaRow | null> =>
         Promise.resolve({
+          commentId: null,
           createdAt: new Date(),
           id: "media-1",
           key: "uploads/a.jpg",
@@ -95,7 +97,13 @@ describe("worker job processors", () => {
     await processMediaCleanup({ mediaId: "media-1" });
 
     expect(mockPrisma.media.findUnique).toHaveBeenCalledWith({
-      select: { createdAt: true, id: true, key: true, postId: true },
+      select: {
+        commentId: true,
+        createdAt: true,
+        id: true,
+        key: true,
+        postId: true,
+      },
       where: { id: "media-1" },
     });
     expect(deletedObjects).toEqual(["uploads/a.jpg"]);
@@ -105,6 +113,7 @@ describe("worker job processors", () => {
 
     // Attached media should be left alone.
     mockPrisma.media.findUnique.mockResolvedValueOnce({
+      commentId: null,
       createdAt: new Date(),
       id: "media-2",
       key: "uploads/b.jpg",
@@ -113,6 +122,20 @@ describe("worker job processors", () => {
     deletedObjects.length = 0;
     mockPrisma.media.delete.mockClear();
     await processMediaCleanup({ mediaId: "media-2" });
+    expect(deletedObjects).toEqual([]);
+    expect(mockPrisma.media.delete).not.toHaveBeenCalled();
+
+    // Media attached to a comment eddy is not orphaned either.
+    mockPrisma.media.findUnique.mockResolvedValueOnce({
+      commentId: "comment-1",
+      createdAt: new Date(),
+      id: "media-3",
+      key: "uploads/c.jpg",
+      postId: null,
+    });
+    deletedObjects.length = 0;
+    mockPrisma.media.delete.mockClear();
+    await processMediaCleanup({ mediaId: "media-3" });
     expect(deletedObjects).toEqual([]);
     expect(mockPrisma.media.delete).not.toHaveBeenCalled();
   });

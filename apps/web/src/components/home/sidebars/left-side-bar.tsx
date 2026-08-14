@@ -36,7 +36,7 @@ import { useComposerStore } from "@/store/composer-store";
 import UserProfilePopover from "./left/user-profile-popover";
 
 interface LeftSidebarProps {
-  userData: UserData;
+  userData: UserData | null;
 }
 
 interface NavItem {
@@ -59,6 +59,20 @@ const SECONDARY_ITEMS: NavItem[] = [
   { href: "/soon?feature=messages", icon: MessagesSquare, label: "Messages" },
   { href: "/hackernews", icon: Compass, label: "HackerNews" },
 ];
+
+// Nav items that require an account; hidden for guests.
+const GUEST_GATED_HREFS = new Set([
+  "/bookmarks",
+  "/notifications",
+  "/hackernews",
+]);
+
+// Logged-in users get the live profile popover; guests never reach this
+// component because LeftSidebar only renders it when userData is present.
+const SidebarUserArea: React.FC<{ userData: UserData }> = ({ userData }) => {
+  const { data: liveUserData } = useUserDataQuery(userData);
+  return <UserProfilePopover userData={liveUserData} />;
+};
 
 const renderActionItem = ({
   label,
@@ -84,9 +98,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
+  const isLoggedIn = Boolean(user);
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { data: liveUserData } = useUserDataQuery(userData);
   const { data: bookmarkCount } = useBookmarkCount();
   const { data: unreadNotificationCount } = useUnreadNotificationCount();
   const { openSpotlight } = useSpotlight();
@@ -107,6 +121,14 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
   const queryString = searchParams.toString();
   const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
+
+  const primaryItems = isLoggedIn
+    ? PRIMARY_ITEMS
+    : PRIMARY_ITEMS.filter((item) => !GUEST_GATED_HREFS.has(item.href));
+
+  const secondaryItems = isLoggedIn
+    ? SECONDARY_ITEMS
+    : SECONDARY_ITEMS.filter((item) => !GUEST_GATED_HREFS.has(item.href));
 
   const renderItem = ({ count, href, label, icon: Icon }: NavItem) => (
     <Link
@@ -157,7 +179,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       </Link>
 
       <nav className="flex flex-col gap-1">
-        {PRIMARY_ITEMS.map((item) => {
+        {primaryItems.map((item) => {
           if (item.href === "/search") {
             return renderActionItem({
               icon: item.icon,
@@ -175,7 +197,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
         <Separator className="bg-border/60 my-3" />
 
-        {SECONDARY_ITEMS.map((item) =>
+        {secondaryItems.map((item) =>
           renderItem(
             item.href === "/notifications"
               ? {
@@ -188,21 +210,34 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
         {user ? renderItem(profileItem) : null}
 
-        {renderItem(settingsItem)}
+        {isLoggedIn ? renderItem(settingsItem) : null}
       </nav>
 
       <div className="mt-auto flex flex-col gap-3">
-        <Button
-          className="h-12 w-full rounded-full px-6 py-3"
-          onClick={handleOpenComposer}
-          variant="premium"
-        >
-          <PenSquare className="mr-1 h-5.5! w-5.5!" />
-          <span>Create Post</span>
-        </Button>
+        {isLoggedIn ? (
+          <Button
+            className="h-12 w-full rounded-full px-6 py-3"
+            onClick={handleOpenComposer}
+            variant="premium"
+          >
+            <PenSquare className="mr-1 h-5.5! w-5.5!" />
+            <span>Create Post</span>
+          </Button>
+        ) : (
+          <Button
+            asChild
+            className="h-12 w-full rounded-full px-6 py-3"
+            variant="premium"
+          >
+            <Link href="/login">
+              <PenSquare className="mr-1 h-5.5! w-5.5!" />
+              <span>Log in</span>
+            </Link>
+          </Button>
+        )}
 
         <div className="flex items-stretch gap-2">
-          <UserProfilePopover userData={liveUserData} />
+          {userData ? <SidebarUserArea userData={userData} /> : null}
 
           <button
             aria-label={

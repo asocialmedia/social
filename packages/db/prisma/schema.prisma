@@ -50,6 +50,7 @@ model User {
   bookmarks             Bookmark[]
   comments              Comment[]
   vote                  Vote[]
+  commentVotes          CommentVote[]
   receivedNotifications Notification[]       @relation("Recipient")
   issuedNotifications   Notification[]       @relation("Issuer")
   hnbookmark            HNBookmark[]
@@ -92,6 +93,8 @@ enum AuraType {
   POST_VIEWS_MILESTONE
   COMMENT_CREATION
   COMMENT_RECEIVED
+  COMMENT_VOTE
+  COMMENT_VOTE_REMOVED
   FOLLOW_GAINED
   FOLLOW_GIVEN
   POST_BOOKMARKED
@@ -223,6 +226,8 @@ model Media {
   id        String    @id @default(cuid())
   postId    String?
   post      Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
+  commentId String?
+  comment   Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
   type      MediaType
   url       String
   key       String    @default("")
@@ -232,6 +237,7 @@ model Media {
   height    Int?
   createdAt DateTime  @default(now())
 
+  @@index([commentId])
   @@map("post_media")
 }
 
@@ -254,6 +260,19 @@ model Vote {
   @@unique([userId, postId])
   @@index([userId, value, createdAt])
   @@map("votes")
+}
+
+model CommentVote {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  value     Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, commentId])
+  @@index([commentId, value])
+  @@map("comment_votes")
 }
 
 model Bookmark {
@@ -303,9 +322,22 @@ model Comment {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   postId    String
   post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-  createdAt DateTime  @default(now())
+  parentId  String?
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  rootId    String?
+  root      Comment?  @relation("CommentRoots", fields: [rootId], references: [id], onDelete: SetNull)
+  replies   Comment[] @relation("CommentReplies")
+  rootComments Comment[] @relation("CommentRoots")
+  aura      Int       @default(0)
+  deleted   Boolean   @default(false)
+  attachments Media[]
+  votes     CommentVote[]
   auraLogs  AuraLog[]
+  createdAt DateTime  @default(now())
 
+  @@index([postId, createdAt])
+  @@index([postId, parentId])
+  @@index([postId, rootId, createdAt])
   @@map("comments")
 }
 

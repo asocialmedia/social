@@ -12,11 +12,13 @@ import { useCallback, useState } from "react";
 import DeleteCommentDialog from "./delete-comment-dialog";
 
 interface CommentMoreButtonProps {
+  applyDeleted: (comment: CommentData) => void;
   className?: string;
   comment: CommentData;
 }
 
 export default function CommentMoreButton({
+  applyDeleted,
   comment,
   className,
 }: CommentMoreButtonProps) {
@@ -48,6 +50,7 @@ export default function CommentMoreButton({
         </DropdownMenuContent>
       </DropdownMenu>
       <DeleteCommentDialog
+        applyDeleted={applyDeleted}
         comment={comment}
         onClose={handleCloseDialog}
         open={showDeleteDialog}

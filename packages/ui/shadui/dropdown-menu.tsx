@@ -1,6 +1,5 @@
 "use client";
 
-// biome-ignore lint/performance/noNamespaceImport: This is a common pattern for Radix UI components, and it helps with tree-shaking and code organization.
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   CheckIcon,

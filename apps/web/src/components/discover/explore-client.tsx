@@ -271,7 +271,7 @@ const ExploreClient: React.FC = () => {
 
       <div className="relative min-h-0 flex-1">
         <div
-          className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
+          className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-16 lg:pb-0"
           ref={feedScrollRef}
         >
           {body}

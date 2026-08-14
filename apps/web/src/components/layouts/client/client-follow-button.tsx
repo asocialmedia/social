@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import {
   useFollowUserMutation,
   useUnfollowUserMutation,
@@ -37,7 +38,6 @@ const LoadingPulse = () => (
         }}
         className="h-1.5 w-1.5 rounded-full bg-current"
         initial={{ opacity: 0.6, scale: 0.8 }}
-        // biome-ignore lint/suspicious/noArrayIndexKey: skeleton loading animation uses index-based keys
         key={`loading-pulse-${i}`}
         transition={{
           delay: i * 0.2,
@@ -174,6 +174,7 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
   className,
   onFollowed,
 }) => {
+  const { isLoggedIn, goToLogin } = useRequireAuth();
   const [localState, updateState] = useFollowState(userId, initialState);
   const { handleFollow, handleUnfollow, isLoading } = useFollowMutations(
     userId,
@@ -183,6 +184,10 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
     useOptimisticUpdate(localState, updateState);
 
   const handleFollowToggle = async () => {
+    if (!isLoggedIn) {
+      goToLogin();
+      return;
+    }
     const previousState = { ...localState };
     const isFollowing = !localState.isFollowedByUser;
 

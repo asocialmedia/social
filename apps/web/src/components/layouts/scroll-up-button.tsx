@@ -45,7 +45,6 @@ const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
                 repeat: Number.POSITIVE_INFINITY,
               }}
             >
-              {/* biome-ignore lint/a11y/noSvgWithoutTitle: no need */}
               <svg className="h-full w-full" viewBox="0 0 100 100">
                 <defs>
                   <path

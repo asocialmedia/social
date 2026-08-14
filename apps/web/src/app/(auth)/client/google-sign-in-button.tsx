@@ -50,7 +50,6 @@ export default function GoogleSignInButton({
 }
 
 const GoogleIcon = () => (
-  // biome-ignore lint/a11y/noSvgWithoutTitle: Google logo is purely decorative
   <svg
     className="h-4 w-4"
     height="1em"

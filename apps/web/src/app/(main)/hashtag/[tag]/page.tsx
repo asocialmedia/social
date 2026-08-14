@@ -38,10 +38,6 @@ export default async function Page(props: PageProps) {
   const session = await getSessionFromApi();
   const userData = session?.user ? await getUserData(session.user.id) : null;
 
-  if (!userData) {
-    return null;
-  }
-
   return (
     <div className="relative flex h-dvh overflow-hidden">
       <LeftSidebar userData={userData} />

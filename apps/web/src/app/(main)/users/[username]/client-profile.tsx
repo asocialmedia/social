@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -19,7 +20,7 @@ import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
 
 interface ProfilePageProps {
-  loggedInUserData: UserData;
+  loggedInUserData: UserData | null;
   userData: UserData;
 }
 
@@ -33,6 +34,8 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const isXl = useMediaQuery("(min-width: 1280px)");
   const router = useRouter();
+  const { user } = useSession();
+  const isLoggedIn = Boolean(user);
 
   const handleGoHome = useCallback(() => {
     router.push("/");
@@ -54,7 +57,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     }
   }, [activeTab, isXl]);
 
-  const isOwnProfile = userData.id === loggedInUserData.id;
+  const isOwnProfile = loggedInUserData
+    ? userData.id === loggedInUserData.id
+    : false;
 
   return (
     <div className="relative flex h-dvh overflow-hidden">
@@ -70,7 +75,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
             >
               <div className="relative min-h-0 flex-1">
                 <div
-                  className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
+                  className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-16 lg:pb-0"
                   ref={feedScrollRef}
                 >
                   <div className="relative">
@@ -87,14 +92,16 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </button>
-                      <button
-                        aria-label="Settings"
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                        onClick={handleOpenSettings}
-                        type="button"
-                      >
-                        <Settings className="h-5 w-5" />
-                      </button>
+                      {isLoggedIn ? (
+                        <button
+                          aria-label="Settings"
+                          className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
+                          onClick={handleOpenSettings}
+                          type="button"
+                        >
+                          <Settings className="h-5 w-5" />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 
@@ -103,24 +110,28 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
                         Posts
                       </TabsTrigger>
-                      <TabsTrigger
-                        className={TAB_TRIGGER_CLASS}
-                        value="replies"
-                      >
-                        Replies
-                      </TabsTrigger>
-                      <TabsTrigger
-                        className={TAB_TRIGGER_CLASS}
-                        value="amplified"
-                      >
-                        Amplified
-                      </TabsTrigger>
-                      <TabsTrigger
-                        className={`${TAB_TRIGGER_CLASS} xl:hidden`}
-                        value="media"
-                      >
-                        Media
-                      </TabsTrigger>
+                      {isLoggedIn ? (
+                        <>
+                          <TabsTrigger
+                            className={TAB_TRIGGER_CLASS}
+                            value="replies"
+                          >
+                            Replies
+                          </TabsTrigger>
+                          <TabsTrigger
+                            className={TAB_TRIGGER_CLASS}
+                            value="amplified"
+                          >
+                            Amplified
+                          </TabsTrigger>
+                          <TabsTrigger
+                            className={`${TAB_TRIGGER_CLASS} xl:hidden`}
+                            value="media"
+                          >
+                            Media
+                          </TabsTrigger>
+                        </>
+                      ) : null}
                     </TabsList>
                   </div>
 
@@ -131,24 +142,31 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                     />
                   </TabsContent>
 
-                  <TabsContent className="mt-0 pb-12" value="replies">
-                    <UserRepliesFeed userId={userData.id} />
-                  </TabsContent>
+                  {isLoggedIn ? (
+                    <>
+                      <TabsContent className="mt-0 pb-12" value="replies">
+                        <UserRepliesFeed userId={userData.id} />
+                      </TabsContent>
 
-                  <TabsContent className="mt-0 pb-12" value="amplified">
-                    <UserAmplifiedFeed userId={userData.id} />
-                  </TabsContent>
+                      <TabsContent className="mt-0 pb-12" value="amplified">
+                        <UserAmplifiedFeed userId={userData.id} />
+                      </TabsContent>
 
-                  <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                    <MediaGalleryContent userId={userData.id} />
-                  </TabsContent>
+                      <TabsContent
+                        className="mt-0 pb-12 xl:hidden"
+                        value="media"
+                      >
+                        <MediaGalleryContent userId={userData.id} />
+                      </TabsContent>
+                    </>
+                  ) : null}
                 </div>
                 <FeedScrollbar containerRef={feedScrollRef} />
               </div>
             </Tabs>
           </div>
 
-          <MediaGallery userId={userData.id} />
+          {isLoggedIn ? <MediaGallery userId={userData.id} /> : null}
         </div>
       </div>
     </div>

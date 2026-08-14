@@ -5,8 +5,8 @@ import type React from "react";
 import { createContext, useContext } from "react";
 
 interface SessionContext {
-  session: Session;
-  user: User;
+  session: Session | null;
+  user: User | null;
 }
 
 const SessionContext = createContext<SessionContext | null>(null);
@@ -14,16 +14,17 @@ const SessionContext = createContext<SessionContext | null>(null);
 export default function SessionProvider({
   children,
   value,
-}: React.PropsWithChildren<{ value: SessionContext }>) {
+}: React.PropsWithChildren<{ value: SessionContext | null }>) {
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
   );
 }
 
-export function useSession() {
+export function useSession(): SessionContext {
   const context = useContext(SessionContext);
   if (!context) {
-    throw new Error("useSession must be used within a SessionProvider");
+    // Guests browse without a session; every consumer must handle a null user.
+    return { session: null, user: null };
   }
   return context;
 }

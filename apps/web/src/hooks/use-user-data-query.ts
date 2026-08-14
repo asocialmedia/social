@@ -4,7 +4,7 @@ import type { UserData } from "@asm/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-// Subscribes a server-fetched UserData to the ["user", id] query cache so that
+// Subscribes a server-fetched UserData to the [\"user\", id] query cache so that
 // avatar/profile mutations (which setQueryData into that key) re-render every
 // consumer in real time instead of showing stale server props.
 //

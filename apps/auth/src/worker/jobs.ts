@@ -94,13 +94,19 @@ export async function processMediaCleanup(
     "job.media-cleanup",
     async () => {
       const media = await prisma.media.findUnique({
-        select: { createdAt: true, id: true, key: true, postId: true },
+        select: {
+          commentId: true,
+          createdAt: true,
+          id: true,
+          key: true,
+          postId: true,
+        },
         where: { id: mediaId },
       });
 
-      // Still orphaned after the grace period (never attached to a post):
-      // delete.
-      if (media && !media.postId) {
+      // Still orphaned after the grace period (never attached to a post or a
+      // comment eddy): delete.
+      if (media && !media.postId && !media.commentId) {
         if (media.key) {
           await deleteObject(media.key);
         }

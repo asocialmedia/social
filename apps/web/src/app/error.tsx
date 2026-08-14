@@ -7,7 +7,6 @@ import { useEffect } from "react";
 
 import { StatusScreen } from "@/components/layouts/status-screen";
 
-// biome-ignore lint/suspicious/noShadowRestrictedNames: This is a custom error boundary component
 export default function Error({
   error,
   reset,

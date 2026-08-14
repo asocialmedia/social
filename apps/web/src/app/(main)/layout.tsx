@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
 import type React from "react";
 
 import { GooeyToaster } from "@/components/auth/gooey-toaster";
 import FloatingPostComposer from "@/components/layouts/floating-post-composer";
+import { GuestAuthBar } from "@/components/layouts/guest-auth-bar";
 import { SpotlightProvider } from "@/components/search/spotlight-provider";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -14,17 +14,14 @@ export default async function Layout({
   children: React.ReactNode;
 }) {
   const session = await getSessionFromApi();
-
-  if (!session?.user) {
-    redirect("/login");
-  }
+  const isLoggedIn = Boolean(session?.user);
 
   return (
     <SessionProvider value={session}>
       <SpotlightProvider>
         <div className="font-sofiaProSoft flex flex-1 flex-col">{children}</div>
       </SpotlightProvider>
-      <FloatingPostComposer />
+      {isLoggedIn ? <FloatingPostComposer /> : <GuestAuthBar />}
       <GooeyToaster />
     </SessionProvider>
   );

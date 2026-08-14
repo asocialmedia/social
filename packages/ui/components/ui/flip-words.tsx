@@ -91,7 +91,6 @@ export const FlipWords = ({
                 animate={{ filter: "blur(0px)", opacity: 1, y: 0 }}
                 className="inline-block"
                 initial={{ filter: "blur(8px)", opacity: 0, y: 10 }}
-                // biome-ignore lint/suspicious/noArrayIndexKey: Letters in a word maintain stable order for animation
                 key={`${segment.start}-${letterIndex}`}
                 transition={{
                   delay: segment.start * 0.03 + letterIndex * 0.05,

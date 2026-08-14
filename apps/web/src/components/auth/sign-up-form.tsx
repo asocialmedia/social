@@ -88,7 +88,6 @@ function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ignore
 export default function SignUpForm() {
   const { toast } = useToast();
   const { setIsVerifying } = useVerification();
@@ -339,7 +338,6 @@ export default function SignUpForm() {
     }
 
     setStarting(true);
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: signup flow requires comprehensive error handling
     startTransition(async () => {
       try {
         setIsLoading(true);
@@ -437,7 +435,6 @@ export default function SignUpForm() {
   };
 
   const handleOTPVerification = useCallback(
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: it's fine
     async (otpValue: string) => {
       try {
         setVerifying(true);

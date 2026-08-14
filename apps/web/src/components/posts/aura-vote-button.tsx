@@ -5,12 +5,17 @@ import type { QueryKey } from "@tanstack/react-query";
 import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
 
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
   authorName: string;
+  // When set, the vote targets a comment eddy instead of a post. The rest of
+  // the component (optimistic aura, endpoints, toasts) adapts automatically so
+  // posts and eddies share one implementation.
+  commentId?: string;
   expandable?: boolean;
   initialState: VoteInfo;
   postId: string;
@@ -27,19 +32,27 @@ function calculateVoteChange(oldVote: number, newVote: number): number {
 }
 
 export default function AuraVoteButton({
-  postId,
-  initialState,
   authorName,
+  commentId,
   expandable = true,
+  initialState,
+  postId,
 }: AuraVoteButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const queryKey: QueryKey = ["vote-info", postId];
+  const { isLoggedIn, goToLogin } = useRequireAuth();
+  const isComment = commentId !== undefined;
+  const noun = isComment ? "eddy" : "post";
+  const queryKey: QueryKey = isComment
+    ? ["comment-vote", commentId]
+    : ["vote-info", postId];
+  const voteEndpoint = isComment
+    ? `/api/comments/${commentId}/vote`
+    : `/api/posts/${postId}/votes`;
 
   const { data } = useQuery({
     initialData: initialState,
-    queryFn: () =>
-      kyInstance.get(`/api/posts/${postId}/votes`).json<VoteInfo>(),
+    queryFn: () => kyInstance.get(voteEndpoint).json<VoteInfo>(),
     queryKey,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
@@ -58,11 +71,9 @@ export default function AuraVoteButton({
     mutationFn: async (vote: number) => {
       const response =
         vote === data.userVote
-          ? await kyInstance
-              .delete(`/api/posts/${postId}/votes`)
-              .json<VoteInfo>()
+          ? await kyInstance.delete(voteEndpoint).json<VoteInfo>()
           : await kyInstance
-              .post(`/api/posts/${postId}/votes`, { json: { value: vote } })
+              .post(voteEndpoint, { json: { value: vote } })
               .json<VoteInfo>();
       return { serverResponse: response, voteAttempted: vote };
     },
@@ -88,25 +99,29 @@ export default function AuraVoteButton({
         };
       });
 
-      queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
-        if (!oldPost || typeof oldPost !== "object") {
-          return oldPost;
-        }
-        const currentPost = oldPost as {
-          aura: number;
-          vote: { userId: string; value: number }[];
-        };
-        const voteChange = calculateVoteChange(
-          currentPost.vote[0]?.value || 0,
-          newVote
-        );
-        return {
-          ...currentPost,
-          aura: currentPost.aura + voteChange,
-          vote:
-            newVote === 0 ? [] : [{ userId: "currentUser", value: newVote }],
-        };
-      });
+      // Comment votes don't change the post's aura, so only mirror the
+      // optimistic state into the single-post cache for actual post votes.
+      if (!isComment) {
+        queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
+          if (!oldPost || typeof oldPost !== "object") {
+            return oldPost;
+          }
+          const currentPost = oldPost as {
+            aura: number;
+            vote: { userId: string; value: number }[];
+          };
+          const voteChange = calculateVoteChange(
+            currentPost.vote[0]?.value || 0,
+            newVote
+          );
+          return {
+            ...currentPost,
+            aura: currentPost.aura + voteChange,
+            vote:
+              newVote === 0 ? [] : [{ userId: "currentUser", value: newVote }],
+          };
+        });
+      }
       return { previousState };
     },
     // oxlint-disable-next-line react/no-unstable-nested-components
@@ -117,36 +132,39 @@ export default function AuraVoteButton({
         userVote: serverResponse.userVote,
       });
 
-      // Keep the single-post cache in sync with the confirmed server state.
-      queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
-        if (!oldPost || typeof oldPost !== "object") {
-          return oldPost;
-        }
-        const currentPost = oldPost as {
-          aura: number;
-          vote: { userId: string; value: number }[];
-        };
-        return {
-          ...currentPost,
-          aura: serverResponse.aura,
-          vote:
-            serverResponse.userVote === 0
-              ? []
-              : [{ userId: "currentUser", value: serverResponse.userVote }],
-        };
-      });
+      // Keep the single-post cache in sync with the confirmed server state
+      // (comment votes don't touch the post's aura).
+      if (!isComment) {
+        queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
+          if (!oldPost || typeof oldPost !== "object") {
+            return oldPost;
+          }
+          const currentPost = oldPost as {
+            aura: number;
+            vote: { userId: string; value: number }[];
+          };
+          return {
+            ...currentPost,
+            aura: serverResponse.aura,
+            vote:
+              serverResponse.userVote === 0
+                ? []
+                : [{ userId: "currentUser", value: serverResponse.userVote }],
+          };
+        });
+      }
 
       const previousVote = data.userVote;
 
       if (serverResponse.userVote === 1) {
         toast({
-          description: `Amplified ${authorName}'s post, nice boost!`,
+          description: `Amplified ${authorName}'s ${noun}, nice boost!`,
           icon: <Flame />,
           title: "+1 Aura",
         });
       } else if (serverResponse.userVote === -1) {
         toast({
-          description: `You muted ${authorName}'s post, we'll show you fewer posts like this`,
+          description: `You muted ${authorName}'s ${noun}, we'll show you fewer like this`,
           icon: <ArrowBigDown />,
           title: "Muted",
         });
@@ -158,7 +176,7 @@ export default function AuraVoteButton({
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
-          description: "It'll show up in your feed normally again",
+          description: "It'll show up normally again",
           icon: <RotateCcw />,
           title: "Mute Removed",
         });
@@ -166,8 +184,20 @@ export default function AuraVoteButton({
     },
   });
 
-  const handleVoteUp = useCallback(() => mutate(1), [mutate]);
-  const handleVoteDown = useCallback(() => mutate(-1), [mutate]);
+  const handleVoteUp = useCallback(() => {
+    if (!isLoggedIn) {
+      goToLogin();
+      return;
+    }
+    mutate(1);
+  }, [goToLogin, isLoggedIn, mutate]);
+  const handleVoteDown = useCallback(() => {
+    if (!isLoggedIn) {
+      goToLogin();
+      return;
+    }
+    mutate(-1);
+  }, [goToLogin, isLoggedIn, mutate]);
 
   const baseButtonClasses =
     "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-sm text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
@@ -233,10 +263,10 @@ export default function AuraVoteButton({
         ) : null}
       </button>
       <span
-        className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-sm font-semibold tabular-nums"
+        className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-base font-semibold tabular-nums"
         title="Aura"
       >
-        <Flame aria-hidden="true" className="h-5 w-5 text-orange-500" />
+        <Flame aria-hidden="true" className="h-6 w-6 text-orange-500" />
         {formatNumber(data.aura)}
       </span>
     </div>

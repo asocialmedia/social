@@ -202,8 +202,6 @@ const VideoPreview = ({
   }, [autoPlay, startPreview]);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: Video preview needs mouse interactions for hover autoplay
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video preview needs mouse interactions for hover autoplay
     <div
       className={cn(
         "group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",

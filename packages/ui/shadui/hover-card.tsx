@@ -1,6 +1,5 @@
 "use client";
 
-// biome-ignore lint/performance/noNamespaceImport: This is a common pattern for Radix UI components, and it helps with tree-shaking and code organization.
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import type * as React from "react";
 

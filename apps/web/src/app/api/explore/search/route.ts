@@ -13,11 +13,9 @@ export const dynamic = "force-dynamic";
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
 export async function GET(request: Request) {
+  // Guests can explore; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
-  if (!session?.user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const userId = session.user.id;
+  const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   const q = url.searchParams.get("q")?.trim() ?? "";

@@ -1,4 +1,3 @@
-// biome-ignore lint/performance/noBarrelFile: This is the main database package interface
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./cache/avatar-cache";
 export * from "./cache/followbutton-cache";

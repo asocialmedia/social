@@ -12,11 +12,9 @@ export async function GET(
   req: Request,
   ctx: { params: Promise<{ userId: string }> }
 ) {
+  // Guests can browse public profiles; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
-  const user = session?.user;
-  if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const viewerId = session?.user?.id ?? "";
 
   const url = new URL(req.url);
   const cursor = url.searchParams.get("cursor") || undefined;
@@ -26,7 +24,7 @@ export async function GET(
 
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
-    include: getPostDataInclude(user.id),
+    include: getPostDataInclude(viewerId),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
     where: {

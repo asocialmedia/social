@@ -57,8 +57,9 @@ export default function PostEditor({
   const isHnSharing = hnShareStore.isSharing;
 
   const { data: userData } = useQuery({
-    queryFn: () => kyInstance.get(`/api/users/${user.id}`).json<UserData>(),
-    queryKey: ["user", user.id],
+    enabled: Boolean(user),
+    queryFn: () => kyInstance.get(`/api/users/${user?.id}`).json<UserData>(),
+    queryKey: ["user", user?.id],
     staleTime: 1000 * 60 * 5,
   });
 
@@ -233,6 +234,11 @@ export default function PostEditor({
     },
     [startUpload]
   );
+
+  // The composer is account-gated; guests see login CTAs instead.
+  if (!user) {
+    return null;
+  }
 
   return (
     <div

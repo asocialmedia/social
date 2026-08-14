@@ -1,6 +1,3 @@
-// biome-ignore-all lint/a11y/noNoninteractiveElementInteractions: The post card is a clickable region; nested interactive elements are excluded via the click guard.
-// biome-ignore-all lint/a11y/noStaticElementInteractions: The post card region navigates to the post page on click.
-// biome-ignore-all lint/a11y/useKeyWithClickEvents: Keyboard navigation is handled via the inner links and buttons; Enter/Space also trigger navigation.
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
@@ -99,7 +96,6 @@ const PostContent: React.FC<PostContentProps> = ({
     setIsOverflowing(el.scrollHeight > lineHeight * 6);
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: isExpanded must retrigger the overflow re-measure after collapse
   useLayoutEffect(() => {
     updateOverflow();
   }, [isExpanded, updateOverflow]);

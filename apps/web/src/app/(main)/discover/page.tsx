@@ -17,20 +17,8 @@ export const metadata: Metadata = {
 
 export default async function DiscoveryPage() {
   const session = await getSessionFromApi();
-
-  if (!session?.user) {
-    return (
-      <p className="text-destructive">
-        You&apos;re not authorized to view this page.
-      </p>
-    );
-  }
-
-  const userData = await getUserData(session.user.id);
-
-  if (!userData) {
-    return <p className="text-destructive">Unable to load user data.</p>;
-  }
+  const isLoggedIn = Boolean(session?.user);
+  const userData = session?.user ? await getUserData(session.user.id) : null;
 
   return (
     <div className="relative flex h-dvh overflow-hidden">
@@ -44,7 +32,7 @@ export default async function DiscoveryPage() {
 
       <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
         <div className="flex flex-col gap-4">
-          <PostHistoryCard />
+          {isLoggedIn ? <PostHistoryCard /> : null}
           <TrendingTopics />
         </div>
       </aside>

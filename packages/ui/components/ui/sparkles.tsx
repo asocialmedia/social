@@ -36,7 +36,6 @@ export const SparklesCore = (props: ParticlesProps) => {
   } = props;
   const controls = useAnimation();
 
-  // biome-ignore lint/suspicious/useAwait: start animation when particles are loaded
   const particlesLoaded = (container?: Container) => {
     if (container) {
       controls.start({

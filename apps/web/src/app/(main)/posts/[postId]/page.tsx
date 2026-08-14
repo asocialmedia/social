@@ -1,5 +1,5 @@
 import { getPostDataInclude, prisma } from "@asm/db";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { cache } from "react";
 
 import { getUserData } from "@/hooks/use-user-data";
@@ -30,10 +30,10 @@ export async function generateMetadata(props: PageProps) {
   const params = await props.params;
   const { postId } = params;
   const session = await getSessionFromApi();
-  if (!session?.user) {
+  const post = await getPost(postId, session?.user?.id ?? "");
+  if (!post) {
     return {};
   }
-  const post = await getPost(postId, session.user.id);
 
   return {
     title: `${post.user.displayName}: ${post.content.slice(0, 50)}...`,
@@ -45,18 +45,10 @@ export default async function Page(props: PageProps) {
   const { postId } = params;
   const session = await getSessionFromApi();
 
-  if (!session?.user) {
-    redirect(`/login?next=/posts/${encodeURIComponent(postId)}`);
-  }
-
   const [post, userData] = await Promise.all([
-    getPost(postId, session.user.id),
-    getUserData(session.user.id),
+    getPost(postId, session?.user?.id ?? ""),
+    session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
-
-  if (!userData) {
-    redirect(`/login?next=/posts/${encodeURIComponent(postId)}`);
-  }
 
   return <ClientPost post={post} userData={userData} />;
 }

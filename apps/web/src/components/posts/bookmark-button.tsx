@@ -5,6 +5,7 @@ import type { QueryKey } from "@tanstack/react-query";
 import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
 
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ export default function BookmarkButton({
 }: BookmarkButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isLoggedIn, goToLogin } = useRequireAuth();
   const queryKey: QueryKey = ["bookmark-info", postId];
   const { data } = useQuery({
     initialData: initialState,
@@ -67,7 +69,13 @@ export default function BookmarkButton({
     },
   });
 
-  const handleBookmark = useCallback(() => mutate(), [mutate]);
+  const handleBookmark = useCallback(() => {
+    if (!isLoggedIn) {
+      goToLogin();
+      return;
+    }
+    mutate();
+  }, [goToLogin, isLoggedIn, mutate]);
 
   return (
     <button

@@ -86,6 +86,11 @@ export const updateUserProfileSchema = z.object({
 
 export const createCommentSchema = z.object({
   content: requiredString,
+  mediaIds: z
+    .array(z.string())
+    .max(4, "Cannot have more than 4 attachments")
+    .default([]),
+  parentId: z.string().optional(),
 });
 
 export type SignUpValues = z.infer<typeof signUpSchema>;

@@ -1,4 +1,3 @@
-/** biome-ignore-all lint/suspicious/noUnknownAtRules: tailwind specific */
 @import "@asm/ui/styles/globals.css";
 @import "@asm/ui/styles/animations.css";
 @import "@asm/ui/styles/base.css";

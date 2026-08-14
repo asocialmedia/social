@@ -96,8 +96,6 @@ const VideoTile = ({
   );
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: Video thumbnail needs mouse interactions for hover autoplay
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Video thumbnail needs mouse interactions for hover autoplay
     <div
       className="group relative w-full overflow-hidden rounded-xl shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
       onMouseEnter={handleMouseEnter}

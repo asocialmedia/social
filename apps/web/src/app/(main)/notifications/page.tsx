@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
@@ -21,7 +22,7 @@ export default async function Page() {
   const userData = session?.user ? await getUserData(session.user.id) : null;
 
   if (!userData) {
-    return null;
+    redirect("/login");
   }
 
   return (
