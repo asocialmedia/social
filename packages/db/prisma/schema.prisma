@@ -183,6 +183,7 @@ model Post {
   aura                 Int            @default(0)
   viewCount            Int            @default(0)
   lastAwardedViewCount Int            @default(0)
+  isGust               Boolean        @default(false)
   attachments          Media[]
   bookmarks            Bookmark[]
   comments             Comment[]
@@ -197,6 +198,8 @@ model Post {
 
   createdAt DateTime @default(now())
 
+  @@index([isGust, createdAt])
+  @@index([userId, isGust, createdAt])
   @@map("posts")
 }
 

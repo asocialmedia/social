@@ -1,5 +1,6 @@
 import { prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
@@ -9,6 +10,28 @@ import {
 } from "@/lib/utils/mime-utils";
 
 export const dynamic = "force-dynamic";
+
+// Media rows are immutable (the stored key/mime never changes for a given id),
+// so the lookup is safe to cache for a long window. This keeps feed scrolls
+// that render many posters/images from hammering the database on every request;
+// the object itself is still streamed fresh from storage each time. A stale
+// row after deletion simply 404s like the DB row would.
+const getMediaRow = unstable_cache(
+  (mediaId: string) =>
+    prisma.media.findUnique({
+      select: {
+        id: true,
+        key: true,
+        mimeType: true,
+        size: true,
+        thumbnailKey: true,
+        type: true,
+      },
+      where: { id: mediaId },
+    }),
+  ["media-row"],
+  { revalidate: 3600 }
+);
 
 // Object storage rejects invalid or unsatisfiable byte ranges with the
 // InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can
@@ -50,17 +73,7 @@ export async function GET(
     return new NextResponse("Media ID is required", { status: 400 });
   }
 
-  const media = await prisma.media.findUnique({
-    select: {
-      id: true,
-      key: true,
-      mimeType: true,
-      size: true,
-      thumbnailKey: true,
-      type: true,
-    },
-    where: { id: mediaId },
-  });
+  const media = await getMediaRow(mediaId);
 
   if (!media) {
     return new NextResponse("Media not found", { status: 404 });
@@ -105,7 +118,9 @@ export async function GET(
     const filename = media.key.split("/").pop() || "file";
     const inline = !download && shouldDisplayInline(media.mimeType);
     headers.set("Content-Disposition", getContentDisposition(filename, inline));
-    headers.set("Cache-Control", "public, max-age=31536000");
+    // Content for a given media id is immutable (a new upload creates a new
+    // row), so browsers may cache without revalidating on refresh.
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("Accept-Ranges", "bytes");
 
     // If storage honored the Range, respond 206 with the partial content and

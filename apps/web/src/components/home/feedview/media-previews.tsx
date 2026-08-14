@@ -225,7 +225,9 @@ const VideoPreview = ({
       ref={containerRef}
       style={expandedHeight === null ? undefined : { height: expandedHeight }}
     >
-      {/* absolute fill crops the video to the preview box while collapsed, but matches the expanded height when hovering */}
+      {
+        // absolute fill crops the video to the preview box while collapsed, but matches the expanded height when hovering
+      }
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
         muted

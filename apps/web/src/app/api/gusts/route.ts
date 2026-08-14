@@ -1,27 +1,44 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
-import type { PostsPage } from "@asm/db";
+import {
+  getPostDataInclude,
+  hydrateViewCounts,
+  MediaType,
+  prisma,
+} from "@asm/db";
+import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
+const TAKE_PATTERN = /^[1-9]\d*$/;
+
 export async function GET(request: Request) {
-  // Guests can browse the public feed; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
   const userId = session?.user?.id ?? "";
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
-  const pageSize = 20;
+  const takeValue = url.searchParams.get("take");
+  const requestedTake =
+    takeValue && TAKE_PATTERN.test(takeValue)
+      ? Math.trunc(Number(takeValue))
+      : 0;
+  const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 10;
+
+  const where: Prisma.PostWhereInput = {
+    OR: [
+      { isGust: true },
+      { attachments: { some: { type: MediaType.VIDEO } } },
+    ],
+  };
 
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
-    orderBy: [{ aura: "desc" }, { id: "desc" }],
+    orderBy: { createdAt: "desc" },
     take: pageSize + 1,
-    where: { isGust: false },
+    where,
   });
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
-
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const data: PostsPage = {
     nextCursor,

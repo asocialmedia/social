@@ -11,6 +11,12 @@ import { imageSize } from "image-size";
 const THUMBNAIL_SEEK_SECONDS = 2;
 const FFMPEG_TIMEOUT_MS = 30_000;
 
+// Each extraction spawns a real ffmpeg process. Cap concurrency so an upload
+// burst can't fork unbounded processes and exhaust the container's memory.
+const MAX_CONCURRENT_EXTRACTIONS = 4;
+let activeExtractions = 0;
+const extractionWaiters: ((value: boolean) => void)[] = [];
+
 interface VideoThumbnail {
   buffer: Buffer;
   height: number | null;
@@ -18,6 +24,21 @@ interface VideoThumbnail {
 }
 
 const execFileAsync = promisify(execFile);
+
+async function withExtractionLimit<T>(task: () => Promise<T>): Promise<T> {
+  if (activeExtractions >= MAX_CONCURRENT_EXTRACTIONS) {
+    const { promise, resolve } = Promise.withResolvers<boolean>();
+    extractionWaiters.push(resolve);
+    await promise;
+  }
+  activeExtractions += 1;
+  try {
+    return await task();
+  } finally {
+    activeExtractions -= 1;
+    extractionWaiters.shift()?.(true);
+  }
+}
 
 async function runCommand(command: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(command, args, {
@@ -37,7 +58,10 @@ async function probeDuration(inputPath: string): Promise<number | null> {
       "default=noprint_wrappers=1:nokey=1",
       inputPath,
     ]);
-    const duration = Number(stdout.trim());
+    const raw = stdout.trim();
+    // Number("") coerces to 0, which would look like a valid short clip;
+    // treat empty output as unknown instead.
+    const duration = raw ? Number(raw) : Number.NaN;
     return Number.isFinite(duration) ? duration : null;
   } catch {
     // ffprobe may be missing or the container odd; extraction below will fall
@@ -46,13 +70,20 @@ async function probeDuration(inputPath: string): Promise<number | null> {
   }
 }
 
-/**
- * Extracts a JPEG thumbnail from a video buffer. Returns null when ffmpeg is
- * not installed or extraction fails, so uploads never break on missing tooling.
- */
+// Extracts a JPEG thumbnail from a video buffer. Returns null when ffmpeg is
+// not installed or extraction fails, so uploads never break on missing tooling.
 export async function extractVideoThumbnail(
   buffer: Buffer,
   fileExtension = "mp4"
+): Promise<VideoThumbnail | null> {
+  return await withExtractionLimit(() =>
+    extractVideoThumbnailInner(buffer, fileExtension)
+  );
+}
+
+async function extractVideoThumbnailInner(
+  buffer: Buffer,
+  fileExtension: string
 ): Promise<VideoThumbnail | null> {
   const dir = await mkdtemp(path.join(tmpdir(), "asm-thumb-"));
   const inputPath = path.join(dir, `input.${fileExtension || "mp4"}`);
@@ -97,6 +128,7 @@ export async function extractVideoThumbnail(
     console.error("Video thumbnail extraction failed:", error);
     return null;
   } finally {
+    // Best-effort temp-dir cleanup; a leftover dir is harmless on next boot.
     await rm(dir, { force: true, recursive: true }).catch(() => {
       /* empty */
     });

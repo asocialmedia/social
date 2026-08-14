@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { prisma } from "@asm/db";
+import { unstable_cache } from "next/cache";
 import { ImageResponse } from "next/og";
 
 import { excerpt, toAbsoluteUrl } from "@/lib/seo";
@@ -21,6 +22,36 @@ const CONTENT_MAX = 190;
 const CONTENT_MAX_WITH_MEDIA = 130;
 
 const INDEX_SEGMENT_PATTERN = /^\d+$/;
+
+// Post content is immutable while stats (aura/votes/eddies) drift, so the card
+// data is cached for an hour and re-rendered on cache expiry. Social crawlers
+// hammer these URLs when a post goes viral; caching turns a DB query + full
+// render into a pure cache hit. The response itself already ships
+// `Cache-Control: public, immutable, max-age=31536000` in production.
+const getPostForCard = unstable_cache(
+  (postId: string) =>
+    prisma.post.findUnique({
+      select: {
+        _count: { select: { comments: true, vote: true } },
+        attachments: true,
+        aura: true,
+        content: true,
+        createdAt: true,
+        id: true,
+        tags: { select: { name: true } },
+        user: {
+          select: {
+            displayName: true,
+            id: true,
+            username: true,
+          },
+        },
+      },
+      where: { id: postId },
+    }),
+  ["og-post-card"],
+  { revalidate: 3600 }
+);
 
 function loadFont(file: string): Buffer {
   return readFileSync(path.join(process.cwd(), "public", "fonts", file));
@@ -102,25 +133,7 @@ export default async function Image({
 }) {
   const { index, postId } = await params;
 
-  const post = await prisma.post.findUnique({
-    select: {
-      _count: { select: { comments: true, vote: true } },
-      attachments: true,
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      tags: { select: { name: true } },
-      user: {
-        select: {
-          displayName: true,
-          id: true,
-          username: true,
-        },
-      },
-    },
-    where: { id: postId },
-  });
+  const post = await getPostForCard(postId);
 
   if (!post) {
     return new ImageResponse(
@@ -189,7 +202,9 @@ export default async function Image({
         width: "100%",
       }}
     >
-      {/* Content column */}
+      {
+        // Content column
+      }
       <div
         style={{
           display: "flex",
@@ -200,7 +215,9 @@ export default async function Image({
           padding: "48px 52px",
         }}
       >
-        {/* Brand row */}
+        {
+          // Brand row
+        }
         <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
           <div
             style={{
@@ -232,7 +249,9 @@ export default async function Image({
           </div>
         </div>
 
-        {/* Author row */}
+        {
+          // Author row
+        }
         <div style={{ alignItems: "center", display: "flex", gap: 16 }}>
           {avatarUrl ? (
             <img
@@ -253,7 +272,9 @@ export default async function Image({
           </div>
         </div>
 
-        {/* Post content */}
+        {
+          // Post content
+        }
         <div
           style={{
             color: "#f4f4f5",
@@ -280,7 +301,9 @@ export default async function Image({
           ) : null}
         </div>
 
-        {/* Footer stats */}
+        {
+          // Footer stats
+        }
         <div
           style={{
             alignItems: "center",
@@ -300,7 +323,9 @@ export default async function Image({
         </div>
       </div>
 
-      {/* Media column */}
+      {
+        // Media column
+      }
       {mediaBlock ? (
         <div
           style={{

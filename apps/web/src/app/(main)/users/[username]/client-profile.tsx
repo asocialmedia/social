@@ -17,6 +17,7 @@ import MediaGallery, {
 } from "@/components/profile/media-gallery";
 import ProfileHeader from "@/components/profile/profile-header";
 import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
+import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
 import { useRequireAuth } from "@/hooks/use-require-auth";
@@ -26,7 +27,7 @@ interface ProfilePageProps {
   userData: UserData;
 }
 
-type ProfileTab = "posts" | "replies" | "amplified" | "media";
+type ProfileTab = "posts" | "gusts" | "replies" | "amplified" | "media";
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
@@ -57,7 +58,12 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   // the same locked gallery as the desktop sidebar instead of redirecting.
   const handleTabChange = useCallback(
     (value: string) => {
-      if (!isLoggedIn && value !== "posts" && value !== "media") {
+      if (
+        !isLoggedIn &&
+        value !== "posts" &&
+        value !== "gusts" &&
+        value !== "media"
+      ) {
         goToLogin();
         return;
       }
@@ -125,6 +131,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
                         Posts
                       </TabsTrigger>
+                      <TabsTrigger className={TAB_TRIGGER_CLASS} value="gusts">
+                        Gusts
+                      </TabsTrigger>
                       <TabsTrigger
                         className={TAB_TRIGGER_CLASS}
                         value="replies"
@@ -148,6 +157,13 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
 
                   <TabsContent className="mt-0 pb-12" value="posts">
                     <UserPostsFeed
+                      isOwnProfile={isOwnProfile}
+                      userId={userData.id}
+                    />
+                  </TabsContent>
+
+                  <TabsContent className="mt-0 pb-12" value="gusts">
+                    <UserGustsFeed
                       isOwnProfile={isOwnProfile}
                       userId={userData.id}
                     />

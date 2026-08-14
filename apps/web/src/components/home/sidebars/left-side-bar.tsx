@@ -7,6 +7,7 @@ import asmLogo from "@assets/asm.png";
 import {
   Bell,
   Bookmark,
+  Clapperboard,
   Compass,
   Home,
   MessagesSquare,
@@ -52,6 +53,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/search", icon: Search, label: "Search" },
   { href: "/discover", icon: Compass, label: "Explore" },
+  { href: "/gusts", icon: Clapperboard, label: "Gusts" },
   { href: "/soon?feature=communities", icon: Users, label: "Communities" },
   {
     href: "/bookmarks",

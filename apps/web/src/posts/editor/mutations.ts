@@ -32,6 +32,9 @@ export function useSubmitPostMutation() {
       const payload = {
         content: input.content,
         hnStory: input.hnStory,
+        // The editor is only reachable by logged-in users, so posts created
+        // here are never guest posts.
+        isGust: false,
         mediaIds: input.mediaIds,
         mentions: Array.isArray(input.mentions)
           ? input.mentions.filter(Boolean)

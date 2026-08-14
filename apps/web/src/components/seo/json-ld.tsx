@@ -2,10 +2,8 @@ interface JsonLdProps {
   data: Record<string, unknown> | Record<string, unknown>[];
 }
 
-/**
- * Renders schema.org JSON-LD structured data. Server component: the script is
- * emitted into the initial HTML for crawlers to parse.
- */
+// Renders schema.org JSON-LD structured data. Server component: the script is
+// emitted into the initial HTML for crawlers to parse.
 export default function JsonLd({ data }: JsonLdProps) {
   const payload = Array.isArray(data) ? data : [data];
   return (

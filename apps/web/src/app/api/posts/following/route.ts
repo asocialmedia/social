@@ -20,8 +20,8 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
     where: {
-      // Never surface the current user's own posts in their following feed.
       NOT: { userId },
+      isGust: false,
       user: { followers: { some: { followerId: userId } } },
     },
   });

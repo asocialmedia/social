@@ -4,7 +4,7 @@ import {
   MediaType,
   prisma,
 } from "@asm/db";
-import type { PostsPage } from "@asm/db";
+import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -22,25 +22,30 @@ export async function GET(
   const pageSize = 20;
   const { userId } = await ctx.params;
 
+  let where: Prisma.PostWhereInput;
+  if (filter === "gusts") {
+    where = { isGust: true, userId };
+  } else if (filter === "media") {
+    where = {
+      attachments: {
+        some: {
+          type: {
+            in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
+          },
+        },
+      },
+      userId,
+    };
+  } else {
+    where = { isGust: false, userId };
+  }
+
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(viewerId),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
-    where: {
-      userId,
-      ...(filter === "media"
-        ? {
-            attachments: {
-              some: {
-                type: {
-                  in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
-                },
-              },
-            },
-          }
-        : {}),
-    },
+    where,
   });
 
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;

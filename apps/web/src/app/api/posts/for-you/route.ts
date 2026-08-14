@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
-  const where: Prisma.PostWhereInput = {};
+  const where: Prisma.PostWhereInput = { isGust: false };
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),

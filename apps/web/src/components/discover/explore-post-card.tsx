@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import { Clapperboard } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -21,17 +22,29 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   const media = post.attachments.find(
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
-  const aspectRatio =
-    media?.width && media?.height ? media.width / media.height : DEFAULT_ASPECT;
+  const isGustPost = post.isGust || media?.type === "VIDEO";
+  let aspectRatio = DEFAULT_ASPECT;
+  if (isGustPost) {
+    aspectRatio = 9 / 16;
+  } else if (media?.width && media?.height) {
+    aspectRatio = media.width / media.height;
+  }
+  const href = isGustPost ? `/gusts?id=${post.id}` : `/posts/${post.id}`;
 
   return (
     <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
-      <Link className="block" href={`/posts/${post.id}`}>
+      <Link className="block" href={href}>
         {media ? (
           <div
             className="relative w-full overflow-hidden"
             style={{ aspectRatio }}
           >
+            {isGustPost ? (
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white backdrop-blur-md">
+                <Clapperboard className="text-primary size-3" />
+                <span className="text-[10px] font-semibold">Gust</span>
+              </div>
+            ) : null}
             {media.type === "IMAGE" ? (
               <Image
                 alt="Post media"

@@ -30,7 +30,11 @@ export async function POST(request: Request) {
     type: file.type,
   });
 
-  const upload = await uploadToAsmob(file, user.id);
+  // Read the bytes once and share them: the storage upload and the video
+  // thumbnail extraction both consume the same buffer, so a large clip never
+  // occupies two copies in memory at once.
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  const upload = await uploadToAsmob(file, user.id, fileBuffer);
 
   let width: number | null = null;
   let height: number | null = null;
@@ -53,9 +57,8 @@ export async function POST(request: Request) {
   let thumbnailHeight: number | null = null;
   if (file.type.startsWith("video/")) {
     try {
-      const videoBuffer = Buffer.from(await file.arrayBuffer());
       const thumbnail = await extractVideoThumbnail(
-        videoBuffer,
+        fileBuffer,
         upload.extension
       );
       if (thumbnail) {

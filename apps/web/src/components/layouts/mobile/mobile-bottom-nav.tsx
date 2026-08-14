@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bookmark, Compass, Home, Search } from "lucide-react";
+import { Bell, Bookmark, Clapperboard, Compass, Home } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type React from "react";
@@ -21,8 +21,8 @@ interface MobileNavItem {
 
 const NAV_ITEMS: MobileNavItem[] = [
   { href: "/", icon: Home, label: "Home" },
-  { href: "/search", icon: Search, label: "Search" },
   { href: "/discover", icon: Compass, label: "Explore" },
+  { href: "/gusts", icon: Clapperboard, label: "Gusts" },
   {
     href: "/notifications",
     icon: Bell,

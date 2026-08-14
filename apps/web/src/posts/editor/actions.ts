@@ -113,6 +113,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
     const validatedInput = createPostSchema.parse({
       content: input.content,
+      isGust: input.isGust ?? false,
       mediaIds: input.mediaIds || [],
       mentions: input.mentions || [],
       tags: input.tags || [],
@@ -147,6 +148,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           },
           aura: 0,
           content: validatedInput.content,
+          isGust: validatedInput.isGust ?? false,
           mentions:
             validatedInput.mentions.length > 0
               ? {

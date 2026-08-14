@@ -13,10 +13,8 @@ export function absoluteUrl(path: string): string {
   ).toString();
 }
 
-/**
- * Makes a stored media/avatar URL absolute. Object-storage URLs are already
- * absolute; defaults (e.g. "/avatars/default-1.png") are relative.
- */
+// Makes a stored media/avatar URL absolute. Object-storage URLs are already
+// absolute; defaults (e.g. "/avatars/default-1.png") are relative.
 export function toAbsoluteUrl(url: string | null | undefined): string | null {
   if (!url) {
     return null;
@@ -24,12 +22,10 @@ export function toAbsoluteUrl(url: string | null | undefined): string | null {
   return absoluteUrl(url);
 }
 
-/**
- * Normalizes post content into clean, meta-tag-safe text:
- * - collapses line breaks and repeated whitespace into single spaces
- * - trims markdown formatting characters that Tiptap plain text can retain
- * - keeps mentions (@user) and hashtags (#tag), which are useful keywords
- */
+// Normalizes post content into clean, meta-tag-safe text:
+// - collapses line breaks and repeated whitespace into single spaces
+// - trims markdown formatting characters that Tiptap plain text can retain
+// - keeps mentions (@user) and hashtags (#tag), which are useful keywords
 export function normalizeText(content: string): string {
   return content
     .replaceAll(/```[\s\S]*?```/g, " ") // code fences
@@ -39,10 +35,8 @@ export function normalizeText(content: string): string {
     .trim();
 }
 
-/**
- * Truncates text to a maximum length on a word boundary, appending an
- * ellipsis when truncated.
- */
+// Truncates text to a maximum length on a word boundary, appending an
+// ellipsis when truncated.
 export function excerpt(content: string, maxLength = 160): string {
   const normalized = normalizeText(content);
   if (normalized.length <= maxLength) {
@@ -54,17 +48,13 @@ export function excerpt(content: string, maxLength = 160): string {
   return `${trimmed.replace(/[,;:\s]+$/, "")}…`;
 }
 
-/**
- * SEO title for a post, Reddit-style: author + opening snippet.
- */
+// SEO title for a post, Reddit-style: author + opening snippet.
 export function postTitle(post: PostData, maxLength = 60): string {
   const snippet = excerpt(post.content, maxLength);
   return `${post.user.displayName} (@${post.user.username}): ${snippet}`;
 }
 
-/**
- * SEO description for a post: the content excerpt plus the tags as keywords.
- */
+// SEO description for a post: the content excerpt plus the tags as keywords.
 export function postDescription(post: PostData): string {
   const content = post.content?.trim();
   const base =
@@ -101,10 +91,8 @@ function isPreviewable(media: {
   );
 }
 
-/**
- * First previewable attachment of a post, absolute, or null when the post has
- * none (videos without a stored thumbnail are skipped).
- */
+// First previewable attachment of a post, absolute, or null when the post has
+// none (videos without a stored thumbnail are skipped).
 export function getPostImage(post: PostData): string | null {
   const media = post.attachments.find((attachment) =>
     isPreviewable(attachment)
@@ -112,9 +100,7 @@ export function getPostImage(post: PostData): string | null {
   return media ? absoluteUrl(toMediaProxyUrl(media)) : null;
 }
 
-/**
- * The image for a given media index (used by the shareable media route).
- */
+// The image for a given media index (used by the shareable media route).
 export function getMediaImage(post: PostData, index: number): string | null {
   const media = post.attachments[index];
   if (!media || !isPreviewable(media)) {

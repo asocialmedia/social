@@ -29,7 +29,12 @@ export const asmobClient = new S3Client({
     typeof window === "undefined"
       ? new NodeHttpHandler({
           connectionTimeout: 5000,
-          socketTimeout: 5000,
+          // Generous so long-lived streams survive slow consumers: the media
+          // proxy pipes object bodies straight to clients, and when a client
+          // on a slow network backpressures the stream the storage socket can
+          // sit idle for a while. A tight timeout would abort the download
+          // mid-stream. Buffered requests are unaffected.
+          socketTimeout: 30_000,
         })
       : new FetchHttpHandler({
           requestTimeout: 5000,
@@ -92,7 +97,14 @@ export const generatePresignedUrl = async (key: string) => {
   return await getSignedUrl(asmobClient, command, { expiresIn: 3600 });
 };
 
-export const uploadToAsmob = async (file: File, userId: string) => {
+// buffer lets callers read the file bytes once and reuse them (e.g. the upload
+// route also feeds the same buffer to video thumbnail extraction), halving peak
+// memory for large uploads instead of reading the whole file twice.
+export const uploadToAsmob = async (
+  file: File,
+  userId: string,
+  buffer?: Buffer
+) => {
   if (!(file && userId)) {
     throw new Error("File and userId are required");
   }
@@ -117,10 +129,14 @@ export const uploadToAsmob = async (file: File, userId: string) => {
     const key = `${userId}/${uniquePrefix}-${cleanFileName}`;
     const extension = file.name.split(".").pop()?.toLowerCase() || "";
 
-    let buffer: Buffer;
+    let fileBuffer: Buffer;
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      buffer = Buffer.from(arrayBuffer);
+      if (buffer) {
+        fileBuffer = buffer;
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        fileBuffer = Buffer.from(arrayBuffer);
+      }
     } catch (error) {
       console.error("Buffer conversion error:", error);
       throw new Error("Failed to process file data", { cause: error });
@@ -128,7 +144,7 @@ export const uploadToAsmob = async (file: File, userId: string) => {
 
     await asmobClient.send(
       new PutObjectCommand({
-        Body: buffer,
+        Body: fileBuffer,
         Bucket: ASMOB_BUCKET,
         ContentType: getContentType(file.name),
         Key: key,
