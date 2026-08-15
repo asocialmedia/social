@@ -5,8 +5,14 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 
 import kyInstance from "@/lib/ky";
 
+// The media API includes each row's owning post so the gallery can tell a
+// gust from a regular post (gust media opens /gusts, not /posts).
+export type UserMediaItem = Media & {
+  post: { isGust: boolean } | null;
+};
+
 export interface UserMediaPage {
-  media: Media[];
+  media: UserMediaItem[];
   nextCursor: string | null;
 }
 

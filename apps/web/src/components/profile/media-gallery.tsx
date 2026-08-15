@@ -15,6 +15,7 @@ import { useMediaQuery } from "usehooks-ts";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
+import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,37 @@ import { getMediaProxyUrl } from "@/lib/utils/image-url";
 // desktop locked sidebar and the mobile media tab so guests see the same look.
 // Two explicit columns with alternating aspect ratios guarantee a Pinterest
 // style masonry arrangement on every screen width.
-export const MediaGalleryLocked: React.FC = () => {
+export const MediaGalleryLocked: React.FC = () => (
+  <div className="relative">
+    <MediaSkeletonGrid />
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[hsl(var(--background-alt))]/75 p-4 text-center backdrop-blur-sm">
+      <Image
+        alt=""
+        className="h-28 w-auto object-contain"
+        draggable={false}
+        height={1024}
+        src={noMediaImage}
+        width={1536}
+      />
+      <p className="text-sm font-medium">Media</p>
+      <p className="text-muted-foreground max-w-44 text-xs">
+        Log in to see this profile's media
+      </p>
+      <Button
+        asChild
+        className="mt-1 h-8 rounded-full px-4 text-xs"
+        variant="premium"
+      >
+        <Link href="/login">Log in</Link>
+      </Button>
+    </div>
+  </div>
+);
+
+// Two explicit columns with alternating aspect ratios guarantee a Pinterest
+// style masonry arrangement on every screen width. Shared by the locked and
+// empty sidebar states so both show skeleton tiles behind their overlay.
+const MediaSkeletonGrid: React.FC = () => {
   const tileIndexes = Array.from({ length: 4 }, (_, index) => index);
   const leftTiles = tileIndexes.filter((index) => index % 2 === 0);
   const rightTiles = tileIndexes.filter((index) => index % 2 === 1);
@@ -32,7 +63,7 @@ export const MediaGalleryLocked: React.FC = () => {
   const renderTile = (index: number) => (
     <div
       className="bg-border/60 rounded-xl"
-      key={`locked-skeleton-${index}`}
+      key={`media-skeleton-${index}`}
       style={{
         aspectRatio: SKELETON_ASPECTS[index % SKELETON_ASPECTS.length],
       }}
@@ -40,35 +71,12 @@ export const MediaGalleryLocked: React.FC = () => {
   );
 
   return (
-    <div className="relative">
-      <div className="flex gap-2 p-3">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {leftTiles.map(renderTile)}
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {rightTiles.map(renderTile)}
-        </div>
+    <div className="flex gap-2 p-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {leftTiles.map(renderTile)}
       </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[hsl(var(--background-alt))]/75 p-4 text-center backdrop-blur-sm">
-        <Image
-          alt=""
-          className="h-28 w-auto object-contain"
-          draggable={false}
-          height={1024}
-          src={noMediaImage}
-          width={1536}
-        />
-        <p className="text-sm font-medium">Media</p>
-        <p className="text-muted-foreground max-w-44 text-xs">
-          Log in to see this profile's media
-        </p>
-        <Button
-          asChild
-          className="mt-1 h-8 rounded-full px-4 text-xs"
-          variant="premium"
-        >
-          <Link href="/login">Log in</Link>
-        </Button>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {rightTiles.map(renderTile)}
       </div>
     </div>
   );
@@ -290,10 +298,20 @@ const renderGenericFileTile = (item: Media) => (
   </div>
 );
 
+// Gust media links to the gust page; regular post media to the post page.
+function postHrefFor(item: UserMediaItem): string | null {
+  if (!item.postId) {
+    return null;
+  }
+  return item.post?.isGust
+    ? `/gusts?id=${item.postId}`
+    : `/posts/${item.postId}`;
+}
+
 interface MediaTileProps {
   index: number;
-  item: Media;
-  onSelect: (item: Media, index: number) => void;
+  item: UserMediaItem;
+  onSelect: (item: UserMediaItem, index: number) => void;
 }
 
 const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
@@ -301,7 +319,7 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
     () => onSelect(item, index),
     [item, index, onSelect]
   );
-  const postHref = item.postId ? `/posts/${item.postId}` : null;
+  const postHref = postHrefFor(item);
 
   return (
     <div className="mb-2 break-inside-avoid">
@@ -318,7 +336,7 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
           className="text-muted-foreground hover:text-primary mt-1 block truncate text-[11px] transition-colors duration-200"
           href={postHref}
         >
-          View post
+          View {item.post?.isGust ? "gust" : "post"}
         </Link>
       ) : null}
     </div>
@@ -359,13 +377,18 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
   }, [hasNextPage, isFetching, fetchNextPage]);
 
   const handleSelect = useCallback(
-    (item: Media, index: number) => {
+    (item: UserMediaItem, index: number) => {
       if (item.postId) {
-        // Open the shareable post media detail page instead of the inline
-        // viewer. The gallery lists media newest-first while the destination
-        // indexes post.attachments, so pass the media ID and let the route
-        // resolve the true index server-side.
-        router.push(`/posts/${item.postId}/media/0?mediaId=${item.id}`);
+        // Gust media opens the gust page; regular post media opens the
+        // shareable post media detail page instead of the inline viewer. The
+        // gallery lists media newest-first while the destination indexes
+        // post.attachments, so pass the media ID and let the route resolve
+        // the true index server-side.
+        router.push(
+          item.post?.isGust
+            ? `/gusts?id=${item.postId}`
+            : `/posts/${item.postId}/media/0?mediaId=${item.id}`
+        );
         return;
       }
       setSelectedMedia(item);
@@ -399,20 +422,25 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
       </p>
     );
   } else if (media.length === 0) {
+    // Same skeleton-behind-overlay treatment as the desktop sidebar so the
+    // mobile media tab and the xl sidebar look consistent.
     body = (
-      <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-        <Image
-          alt=""
-          className="h-28 w-auto object-contain opacity-90"
-          draggable={false}
-          height={1024}
-          src={noMediaImage}
-          width={1536}
-        />
-        <p className="text-sm font-medium">No media yet</p>
-        <p className="text-muted-foreground max-w-44 text-xs">
-          Media from this profile's posts will show up here
-        </p>
+      <div className="relative">
+        <MediaSkeletonGrid />
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[hsl(var(--background-alt))]/75 px-6 py-16 text-center backdrop-blur-sm">
+          <Image
+            alt=""
+            className="h-28 w-auto object-contain opacity-90"
+            draggable={false}
+            height={1024}
+            src={noMediaImage}
+            width={1536}
+          />
+          <p className="text-sm font-medium">No media yet</p>
+          <p className="text-muted-foreground max-w-44 text-xs">
+            Media from this profile's posts will show up here
+          </p>
+        </div>
       </div>
     );
   } else {
@@ -477,12 +505,13 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
     );
   }
 
-  // Profiles with no media still keep the sidebar, showing a centered empty
-  // state (with the app's nomedia avatar) instead of vanishing entirely.
+  // Profiles with no media still keep the sidebar: skeleton tiles behind a
+  // centered empty state (with the app's nomedia avatar) instead of vanishing.
   if (status === "success" && media.length === 0) {
     return (
-      <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col items-center justify-center overflow-y-auto xl:flex">
-        <div className="flex flex-col items-center gap-2 px-6 text-center">
+      <aside className="hide-native-scrollbar relative hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-hidden xl:flex">
+        <MediaSkeletonGrid />
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[hsl(var(--background-alt))]/75 px-6 text-center backdrop-blur-sm">
           <Image
             alt=""
             className="h-28 w-auto object-contain opacity-90"

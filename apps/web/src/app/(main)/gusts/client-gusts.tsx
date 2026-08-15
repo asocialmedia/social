@@ -73,6 +73,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const endSentinelRef = useRef<HTMLDivElement>(null);
 
   // Infinite query for gusts
   const {
@@ -225,10 +226,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
             const index = Number((entry.target as HTMLElement).dataset.index);
             if (!Number.isNaN(index)) {
               setActiveIndex(index);
-              // Prefetch next page when nearing end
-              if (index >= posts.length - 2 && hasNextPage) {
-                fetchNextPage();
-              }
             }
           }
         }
@@ -249,7 +246,29 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     return () => {
       observer.disconnect();
     };
-  }, [fetchNextPage, hasNextPage, posts.length]);
+  }, [posts.length]);
+
+  // A bottom sentinel drives pagination instead of watching the last card, so
+  // the feed keeps loading even when a page holds very few gusts - the
+  // sentinel is already visible at the bottom of short content, so the next
+  // page is fetched immediately (and every page after that until the API runs
+  // out).
+  useEffect(() => {
+    const sentinel = endSentinelRef.current;
+    if (!sentinel) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          void fetchNextPage();
+        }
+      },
+      { root: containerRef.current, rootMargin: "200px 0px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   // Keyboard navigation
   const handleToggleMute = useCallback(() => {
@@ -399,6 +418,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
               <Loader2 className="text-primary size-6 animate-spin" />
             </div>
           ) : null}
+
+          {/* Pagination sentinel: triggers the next page even when the feed
+              is short, keeping the stream effectively infinite. */}
+          <div ref={endSentinelRef} />
         </div>
 
         {isCommentsOpen && posts[activeIndex] ? (

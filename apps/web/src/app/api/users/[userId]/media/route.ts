@@ -18,6 +18,10 @@ export async function GET(
 
   const media = await prisma.media.findMany({
     cursor: cursor ? { id: cursor } : undefined,
+    include: {
+      // Lets the gallery route gust media to /gusts instead of /posts.
+      post: { select: { isGust: true } },
+    },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: pageSize + 1,
     where: {

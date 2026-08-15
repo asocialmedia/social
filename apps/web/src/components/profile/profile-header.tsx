@@ -141,7 +141,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
       {/* Avatar + actions */}
       <div className="px-4">
         <div className="-mt-14 flex items-end justify-between sm:-mt-16">
-          <div className="relative">
+          <div className="relative mb-8">
             <UserAvatar
               avatarUrl={avatarUrl}
               className="ring-4 ring-[hsl(var(--background-alt))]"
@@ -149,42 +149,25 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             />
           </div>
           <div className="mb-2 flex items-center gap-2">
-            <ShareButton
-              className="h-9 w-9 rounded-full border border-black/10 bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]"
-              defaultTab="link"
-              description={
-                liveUserData.bio ||
-                `Check out @${liveUserData.username}'s profile on asocialmedia`
-              }
-              dialogDescription="Share this profile with your network"
-              dialogTitle="Share Profile"
-              shareUrl={
-                typeof window === "undefined"
-                  ? undefined
-                  : `${window.location.origin}/users/${liveUserData.username}`
-              }
-              thumbnail={avatarUrl || undefined}
-              title={`${liveUserData.displayName || liveUserData.username} (@${liveUserData.username}) on asocialmedia`}
-            />
             {isOwnProfile ? (
               <EditProfileButton user={liveUserData} />
             ) : (
-              <>
+              <div className="flex flex-col items-end gap-2">
+                <FollowButton
+                  className="h-9 px-4 text-sm"
+                  initialState={followerInfo}
+                  userId={liveUserData.id}
+                />
                 <Link
                   aria-label={`Message ${liveUserData.displayName || liveUserData.username}`}
-                  className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm"
+                  className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm!"
                   href={`/messages?dm=${liveUserData.id}`}
                   onClick={handleMessageClick}
                 >
                   <MessageCircle className="h-4 w-4" />
                   Message
                 </Link>
-                <FollowButton
-                  className="h-9 px-4 text-sm"
-                  initialState={followerInfo}
-                  userId={liveUserData.id}
-                />
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -232,7 +215,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           </div>
         ) : null}
 
-        {/* Stats */}
+        {/* Stats + share, on the same row with the share pinned right */}
         <div className="mt-2.5 flex items-center gap-4 pb-4 text-sm">
           <Link
             className="group hover:bg-accent/50 rounded-md px-1 py-0.5 transition-colors"
@@ -267,6 +250,26 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             <span className="text-muted-foreground text-sm font-semibold">
               Aura
             </span>
+          </span>
+
+          <span className="ml-auto">
+            <ShareButton
+              className="icon-btn-3d flex h-9! w-9! shrink-0 -translate-y-0.5 items-center justify-center rounded-full px-0!"
+              defaultTab="link"
+              description={
+                liveUserData.bio ||
+                `Check out @${liveUserData.username}'s profile on asocialmedia`
+              }
+              dialogDescription="Share this profile with your network"
+              dialogTitle="Share Profile"
+              shareUrl={
+                typeof window === "undefined"
+                  ? undefined
+                  : `${window.location.origin}/users/${liveUserData.username}`
+              }
+              thumbnail={avatarUrl || undefined}
+              title={`${liveUserData.displayName || liveUserData.username} (@${liveUserData.username}) on asocialmedia`}
+            />
           </span>
         </div>
       </div>

@@ -505,7 +505,7 @@ const ShareButton = ({
         <Share2 className="h-5 w-5" />
       </button>
       <DialogContent
-        className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        className="apple-panel w-full max-w-120 gap-4 overflow-hidden rounded-2xl p-0"
         onClick={handleContentClick}
       >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
