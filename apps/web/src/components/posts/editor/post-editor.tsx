@@ -151,6 +151,11 @@ export default function PostEditor({
     isGust &&
     (gustWordCount > GUST_CAPTION_MAX_WORDS ||
       input.length > GUST_CAPTION_MAX_CHARS);
+  // Show the counter once the caption reaches 80% of either limit (or is over).
+  const gustCaptionNearLimit =
+    isGust &&
+    (gustWordCount >= GUST_CAPTION_MAX_WORDS * 0.8 ||
+      input.length >= GUST_CAPTION_MAX_CHARS * 0.8);
 
   const removeTag = useCallback((tagName: string) => {
     setSelectedTags((prev) => prev.filter((t) => t !== tagName));
@@ -416,17 +421,22 @@ export default function PostEditor({
                   </span>
                 )}
               </span>
-              <span
-                className={cn(
-                  "font-medium tabular-nums",
-                  gustCaptionExceeded
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-                )}
-              >
-                {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words · {input.length}/
-                {GUST_CAPTION_MAX_CHARS} chars
-              </span>
+              {/* Only surface the word/char counter once the caption gets close
+                  to (or over) the limits, so it doesn't clutter an empty or
+                  short composer. */}
+              {gustCaptionNearLimit ? (
+                <span
+                  className={cn(
+                    "font-medium tabular-nums",
+                    gustCaptionExceeded
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words ·{" "}
+                  {input.length}/{GUST_CAPTION_MAX_CHARS} chars
+                </span>
+              ) : null}
             </div>
           ) : null}
 

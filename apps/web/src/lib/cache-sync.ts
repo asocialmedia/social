@@ -20,6 +20,62 @@ export function applyAuraToCaches(
   });
 }
 
+// Mirrors a comment's aura into every cached shape that carries a comment
+// object (the ["comments", postId] list). Voting on an eddy updates the aura
+// shown in the thread immediately; the comment vote buttons read live state
+// from ["comment-vote", commentId] but the rendered number comes from the
+// cached comment.
+export function applyCommentAuraToCaches(
+  queryClient: QueryClient,
+  commentId: string,
+  aura: number
+): void {
+  queryClient.setQueriesData({ queryKey: [] }, (oldData) => {
+    if (!oldData || typeof oldData !== "object") {
+      return oldData;
+    }
+    return updateCommentDeep(oldData, commentId, aura);
+  });
+}
+
+function updateCommentDeep(
+  node: unknown,
+  commentId: string,
+  aura: number
+): unknown {
+  if (Array.isArray(node)) {
+    let changed = false;
+    const next = node.map((item) => {
+      const updated = updateCommentDeep(item, commentId, aura);
+      if (updated !== item) {
+        changed = true;
+      }
+      return updated;
+    });
+    return changed ? next : node;
+  }
+  if (node && typeof node === "object") {
+    const record = node as Record<string, unknown>;
+    if (record.id === commentId && typeof record.aura === "number") {
+      if (record.aura === aura) {
+        return node;
+      }
+      return { ...record, aura };
+    }
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      const updated = updateCommentDeep(value, commentId, aura);
+      next[key] = updated;
+      if (updated !== value) {
+        changed = true;
+      }
+    }
+    return changed ? next : node;
+  }
+  return node;
+}
+
 function updatePostDeep(
   node: unknown,
   postId: string,

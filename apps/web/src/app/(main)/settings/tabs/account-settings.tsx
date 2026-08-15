@@ -18,6 +18,7 @@ import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
 import LoadingButton from "@/components/auth/loading-button";
+import AddEmailBanner from "@/components/settings/add-email-banner";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
 import {
@@ -59,6 +60,8 @@ type EmailFormValues = z.infer<typeof emailSchema>;
 type EmailVerifyFormValues = z.infer<typeof emailVerifySchema>;
 
 function handleSocialLink(provider: string) {
+  // Navigate to the link route which starts the OAuth flow with the user's
+  // session and redirects back to the provider's authorization page.
   window.location.href = `/api/auth/link/${provider}`;
 }
 
@@ -235,6 +238,10 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       />
 
       <LinkAccountAlert />
+
+      {/* Reddit never shares an email; accounts created through it have no
+          recovery address, so prompt them to add one. */}
+      {user.redditId && !user.email ? <AddEmailBanner /> : null}
 
       <SettingsCard className="scroll-mt-24" id="settings-username">
         <div className="flex items-center gap-2">

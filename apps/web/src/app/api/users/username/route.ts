@@ -33,9 +33,12 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { username } = usernameSchema.parse(body);
 
-    // Check if username is already taken
-    const existingUser = await prisma.user.findUnique({
-      where: { username },
+    // Check if username is already taken (case-insensitive, matching the
+    // signup check so "John" can't take "john"'s handle).
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        username: { equals: username, mode: "insensitive" },
+      },
     });
 
     if (existingUser && existingUser.id !== user.id) {

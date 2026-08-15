@@ -6,7 +6,7 @@ import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
-import { applyAuraToCaches } from "@/lib/cache-sync";
+import { applyAuraToCaches, applyCommentAuraToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
@@ -100,7 +100,9 @@ export default function AuraVoteButton({
 
       // Comment votes don't change the post's aura, so only mirror the
       // optimistic state into the cached post data for actual post votes.
-      if (!isComment) {
+      if (isComment && commentId) {
+        applyCommentAuraToCaches(queryClient, commentId, optimisticAura);
+      } else if (!isComment) {
         applyAuraToCaches(
           queryClient,
           postId,
@@ -118,9 +120,12 @@ export default function AuraVoteButton({
         userVote: serverResponse.userVote,
       });
 
-      // Keep every cached shape of this post in sync with the confirmed
-      // server state (comment votes don't touch the post's aura).
-      if (!isComment) {
+      // Keep every cached shape in sync with the confirmed server state.
+      // Comment votes only touch the comment's aura; post votes also update
+      // the post's cached vote state.
+      if (isComment && commentId) {
+        applyCommentAuraToCaches(queryClient, commentId, serverResponse.aura);
+      } else if (!isComment) {
         applyAuraToCaches(
           queryClient,
           postId,
