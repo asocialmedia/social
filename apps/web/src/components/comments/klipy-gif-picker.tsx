@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -90,14 +90,15 @@ export default function KlipyGifPicker({
 
   let gridContent: React.ReactNode;
   if (isLoading) {
-    gridContent = (
-      <div className="col-span-3 flex items-center justify-center">
-        <Loader2 className="text-primary size-5 animate-spin" />
-      </div>
-    );
+    gridContent = Array.from({ length: 8 }, (_, i) => (
+      <div
+        className="bg-muted/60 aspect-square w-[calc((100%-24px)/4)] shrink-0 animate-pulse rounded-lg"
+        key={`gif-skeleton-${i}`}
+      />
+    ));
   } else if (gifs.length === 0) {
     gridContent = (
-      <p className="text-muted-foreground col-span-3 py-8 text-center text-sm">
+      <p className="text-muted-foreground w-full py-12 text-center text-sm">
         No GIFs found for &ldquo;{query}&rdquo;
       </p>
     );
@@ -105,7 +106,7 @@ export default function KlipyGifPicker({
     gridContent = gifs.map((gif) => (
       <button
         aria-label={`Select GIF: ${gif.title || "untitled"}`}
-        className="group bg-muted/40 relative aspect-square w-full overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
+        className="group bg-muted/40 focus-visible:ring-primary relative aspect-square w-[calc((100%-24px)/4)] shrink-0 cursor-pointer overflow-hidden rounded-lg transition-all duration-200 hover:scale-[1.03] hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35),inset_0_1px_2px_rgba(255,255,255,0.3),0_0_0_1px_rgba(170,60,0,0.55),0_2px_6px_rgba(0,0,0,0.3)] focus-visible:ring-2 focus-visible:outline-none"
         disabled={disabled}
         key={String(gif.id)}
         onClick={() => onSelect(gif)}
@@ -115,7 +116,7 @@ export default function KlipyGifPicker({
           alt={gif.title || "GIF"}
           className="h-full w-full object-cover"
           fill
-          sizes="128px"
+          sizes="(max-width: 640px) 25vw, 120px"
           src={gif.preview}
           unoptimized
         />
@@ -124,7 +125,7 @@ export default function KlipyGifPicker({
   }
 
   return (
-    <div className="flex w-80 flex-col gap-2 sm:w-96">
+    <div className="flex w-full flex-col gap-2">
       {/* Search bar */}
       <div className="flex items-center gap-2">
         <div className="reels-input flex h-9 min-w-0 flex-1 items-center gap-2 px-3">
@@ -151,7 +152,7 @@ export default function KlipyGifPicker({
       </div>
 
       {/* Grid */}
-      <div className="grid h-64 grid-cols-3 gap-1.5 overflow-y-auto pr-1">
+      <div className="hide-native-scrollbar flex max-h-64 flex-wrap gap-2 overflow-y-auto">
         {gridContent}
       </div>
     </div>

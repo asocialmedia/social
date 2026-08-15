@@ -55,6 +55,17 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
 
+  // Restore the saved video mute preference after hydration so a gust the user
+  // muted stays muted (or unmuted) across page loads. The lazy default stays
+  // true to avoid an SSR/hydration mismatch; this effect reconciles it once.
+  useEffect(() => {
+    const stored = localStorage.getItem("gust-video-muted");
+    if (stored !== null) {
+      // Deferred so the preference applies right after the first paint.
+      queueMicrotask(() => setIsMuted(stored === "true"));
+    }
+  }, []);
+
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [newGustCount, setNewGustCount] = useState(0);
@@ -174,13 +185,34 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     };
   }, [isRefreshing, pullDistance, refreshFeed]);
 
-  // If initialPostId was provided, scroll to it once posts are loaded
+  // If ?id= was provided, jump straight to that gust once the feed is loaded:
+  // mark it active (so its video plays) and center it in the stream container
+  // instantly. scrollIntoView would smooth-scroll every scrollable ancestor,
+  // dragging the whole page through the list; scrolling the container directly
+  // lands on the gust immediately. A ref keeps this a one-time jump instead of
+  // re-scrolling every time the feed grows or refetches.
+  const didJumpToInitialRef = useRef(false);
   useEffect(() => {
-    if (initialPostId && posts.length > 0) {
-      const idx = posts.findIndex((p) => p.id === initialPostId);
-      if (idx !== -1) {
-        itemRefs.current[idx]?.scrollIntoView({ behavior: "smooth" });
-      }
+    if (!initialPostId || posts.length === 0 || didJumpToInitialRef.current) {
+      return;
+    }
+    const idx = posts.findIndex((post) => post.id === initialPostId);
+    if (idx === -1) {
+      return;
+    }
+    didJumpToInitialRef.current = true;
+    // The IntersectionObserver picks up the now-centered item and marks it
+    // active, so no manual setState is needed here.
+    const container = containerRef.current;
+    const el = itemRefs.current[idx];
+    if (container && el) {
+      const containerTop = container.getBoundingClientRect().top;
+      const elTop = el.getBoundingClientRect().top;
+      const target =
+        container.scrollTop +
+        (elTop - containerTop) -
+        (container.clientHeight - el.clientHeight) / 2;
+      container.scrollTo({ top: Math.max(0, target) });
     }
   }, [initialPostId, posts]);
 
@@ -220,6 +252,14 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   }, [fetchNextPage, hasNextPage, posts.length]);
 
   // Keyboard navigation
+  const handleToggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      localStorage.setItem("gust-video-muted", String(next));
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in input/textarea
@@ -240,17 +280,13 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
         itemRefs.current[prevIdx]?.scrollIntoView({ behavior: "smooth" });
       } else if (e.key === "m") {
         e.preventDefault();
-        setIsMuted((prev) => !prev);
+        handleToggleMute();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeIndex, posts.length]);
-
-  const handleToggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
-  }, []);
+  }, [activeIndex, posts.length, handleToggleMute]);
 
   // Record a visit for the active gust so the recents card surfaces it and
   // keeps the "recently viewed" order fresh. Guests don't have history.

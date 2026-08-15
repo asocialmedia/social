@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.0.72",
+  "version": "1.0.73",
   "private": true,
   "description": "Asocialmedia Auth Service",
   "scripts": {
@@ -28,7 +28,7 @@
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "jose": "^6.2.8",
-    "pg": "^8.23.0",
+    "pg": "8.18.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "resend": "^6.18.1",

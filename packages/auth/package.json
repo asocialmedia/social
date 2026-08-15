@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth",
-  "version": "1.0.70",
+  "version": "1.0.71",
   "private": true,
   "description": "Asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
@@ -31,7 +31,7 @@
     "disposable-email-domains": "^1.0.62",
     "email-validator": "^2.0.4",
     "jose": "^6.2.8",
-    "pg": "^8.23.0",
+    "pg": "8.18.0",
     "react": "^19.2.8",
     "zod": "^4.4.3"
   },

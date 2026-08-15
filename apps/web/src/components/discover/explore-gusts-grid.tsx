@@ -146,7 +146,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
         <div className="flex items-center gap-2">
           <UserAvatar
             avatarUrl={post.user.avatarUrl}
-            className="size-6 border border-white/40"
+            className="size-7 rounded-lg border border-white/40"
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1">

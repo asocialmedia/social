@@ -9,6 +9,8 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: USER_ID },
 }));
 
+let lastPostFindManyArgs: { where?: { isGust?: boolean } } | null = null;
+
 const mockPrisma = {
   bookmark: {
     findMany: () => [
@@ -22,14 +24,17 @@ const mockPrisma = {
     ],
   },
   post: {
-    findMany: () => [
-      {
-        content: "hello world",
-        id: POST_ID,
-        user: { id: "author1", username: "author1" },
-        userId: "author1",
-      },
-    ],
+    findMany: (args: { where?: { isGust?: boolean } }) => {
+      lastPostFindManyArgs = args;
+      return [
+        {
+          content: "hello world",
+          id: POST_ID,
+          user: { id: "author1", username: "author1" },
+          userId: "author1",
+        },
+      ];
+    },
   },
 };
 
@@ -49,18 +54,19 @@ describe("GET /api/posts/bookmarked", () => {
   beforeEach(() => {
     mockGetSession.mockClear();
     mockHydrate.mockClear();
+    lastPostFindManyArgs = null;
   });
 
   test("rejects unauthenticated requests", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/posts/bookmarked"));
 
     expect(res.status).toBe(401);
   });
 
   test("returns the bookmarked posts in the paginated page shape", async () => {
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/posts/bookmarked"));
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -76,6 +82,21 @@ describe("GET /api/posts/bookmarked", () => {
       ],
     });
     expect(mockHydrate).toHaveBeenCalled();
+  });
+
+  test("defaults the posts tab to regular (non-gust) posts", async () => {
+    await GET(new Request("http://localhost/api/posts/bookmarked"));
+
+    expect(lastPostFindManyArgs?.where?.isGust).toBe(false);
+  });
+
+  test("filters to gusts when filter=gusts", async () => {
+    const res = await GET(
+      new Request("http://localhost/api/posts/bookmarked?filter=gusts")
+    );
+
+    expect(res.status).toBe(200);
+    expect(lastPostFindManyArgs?.where?.isGust).toBe(true);
   });
 
   test("preserves bookmark order (most recently bookmarked first)", async () => {
@@ -110,7 +131,7 @@ describe("GET /api/posts/bookmarked", () => {
       },
     ];
 
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/posts/bookmarked"));
 
     expect(res.status).toBe(200);
     const body = await res.json();

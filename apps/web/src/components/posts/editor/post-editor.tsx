@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
-import { Hash, Loader2, X } from "lucide-react";
+import { Clapperboard, Hash, Loader2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,7 +15,10 @@ import { useDropzone } from "react-dropzone";
 
 import { useSession } from "@/app/(main)/session-provider";
 import LoadingButton from "@/components/auth/loading-button";
+import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
+import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
@@ -107,10 +110,37 @@ export default function PostEditor({
 
   const rootProps = getRootProps();
 
+  const { toast } = useToast();
   const [inputText, setInputText] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const onSubmitRef = useRef<(() => void) | null>(null);
+
+  const handleGifSelect = useCallback(
+    async (gif: KlipyGif) => {
+      setGifPickerOpen(false);
+      try {
+        const blob = await fetch(gif.url).then((r) => {
+          if (!r.ok) {
+            throw new Error("Failed to fetch GIF");
+          }
+          return r.blob();
+        });
+        const file = new File([blob], `${gif.slug || "gif"}.gif`, {
+          type: "image/gif",
+        });
+        await startUpload([file]);
+      } catch {
+        toast({
+          description: "Couldn't add that GIF, try another?",
+          title: "GIF Failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [startUpload, toast]
+  );
 
   const editor = useEditor({
     editorProps: {
@@ -243,6 +273,7 @@ export default function PostEditor({
         resetMediaUploads();
         setSelectedTags([]);
         setSelectedMentions([]);
+        setGifPickerOpen(false);
         if (isHnSharing) {
           hnShareStore.clearState();
         }
@@ -414,6 +445,26 @@ export default function PostEditor({
             </div>
           </div>
 
+          {/* Inline GIF picker */}
+          <AnimatePresence>
+            {isGust || !gifPickerOpen ? null : (
+              <motion.div
+                animate={{ height: "auto", opacity: 1 }}
+                className="mt-3 overflow-hidden"
+                exit={{ height: 0, opacity: 0 }}
+                initial={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeInOut" }}
+              >
+                <div className="reels-panel w-full rounded-2xl p-2.5">
+                  <KlipyGifPicker
+                    disabled={isUploading}
+                    onSelect={handleGifSelect}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {isGust ? (
             <div className="mt-2 flex items-center justify-between text-xs">
               {hasGustVideo ? null : (
@@ -465,6 +516,34 @@ export default function PostEditor({
                   videoOnly={isGust}
                 />
               </motion.div>
+              {isGust ? null : (
+                <motion.button
+                  aria-label="Search and add a GIF"
+                  className={cn(
+                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                    gifPickerOpen && "text-primary",
+                    (isUploading || attachments.length >= 5) &&
+                      "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                  )}
+                  disabled={isUploading || attachments.length >= 5}
+                  onClick={() => setGifPickerOpen((prev) => !prev)}
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Clapperboard className="size-5" size={20} />
+                    <span
+                      className={cn(
+                        "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                        gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                      )}
+                    >
+                      GIFs
+                    </span>
+                  </span>
+                </motion.button>
+              )}
             </div>
 
             <div className="flex items-center gap-2">

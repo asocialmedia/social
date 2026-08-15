@@ -2,11 +2,6 @@
 
 import type { CommentData, PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@asm/ui/shadui/popover";
 import { useQuery } from "@tanstack/react-query";
 import {
   Clapperboard,
@@ -39,6 +34,9 @@ interface CommentInputProps {
   applyCreated: (comment: CommentData) => void;
   autoFocus?: boolean;
   className?: string;
+  // Hides the top-level composer on small screens when a floating mobile
+  // editor is already pinned to the bottom (e.g. the post detail page).
+  hideOnMobile?: boolean;
   onSubmitted?: () => void;
   parentId?: string;
   placeholder?: string;
@@ -52,6 +50,7 @@ export default function CommentInput({
   applyCreated,
   autoFocus = false,
   className,
+  hideOnMobile = false,
   onSubmitted,
   parentId,
   placeholder = "Add your Eddie to the flow...",
@@ -191,132 +190,153 @@ export default function CommentInput({
   return (
     <form
       className={cn(
-        "my-3 flex w-full gap-2",
-        reels ? "items-center" : "items-start",
+        "my-3 w-full",
+        hideOnMobile && "hidden lg:block",
         className
       )}
       onSubmit={onSubmit}
     >
-      <UserAvatar
-        avatarUrl={userData?.avatarUrl || user?.image}
-        className={cn("shrink-0", reels ? "size-10" : "h-10 w-10")}
-      />
-      <div className="min-w-0 flex-1">
-        {replyingTo && (
-          <p className="text-muted-foreground mb-1 text-xs">
-            Replying to{" "}
-            <span className="text-primary font-medium">
-              @{replyingTo.username}
-            </span>
-          </p>
-        )}
-        <div
-          className={cn(
-            "flex min-w-0 items-center gap-2 px-3 py-2 transition-all",
-            reels
-              ? "reels-input rounded-full focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
-              : "bg-muted/30 focus-within:border-primary/40 rounded-xl border border-transparent focus-within:bg-transparent"
-          )}
-        >
-          <textarea
-            autoFocus={autoFocus}
-            className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent text-sm leading-relaxed outline-none"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            rows={1}
-            value={input}
-          />
-          <input
-            accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
-            aria-label="Add image or GIF attachment"
-            className="sr-only"
-            multiple
-            onChange={handleFileInputChange}
-            ref={fileInputRef}
-            type="file"
-          />
-          <button
-            aria-label="Add image or GIF"
-            className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1.5 transition-colors"
-            disabled={isUploading || mutation.isPending}
-            onClick={() => fileInputRef.current?.click()}
-            type="button"
-          >
-            <ImagePlus className="size-5" />
-          </button>
-          <Popover onOpenChange={setGifPickerOpen} open={gifPickerOpen}>
-            <PopoverTrigger asChild>
-              <button
-                aria-label="Search and add a GIF"
-                className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1.5 transition-colors"
-                disabled={isUploading || mutation.isPending}
-                type="button"
-              >
-                <Clapperboard className="size-5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className="reels-panel w-auto border-0 p-2 shadow-none"
-              side="top"
-            >
-              <KlipyGifPicker
-                disabled={isUploading}
-                onSelect={handleGifSelect}
-              />
-            </PopoverContent>
-          </Popover>
-          <button
-            aria-label={submitLabel ?? "Send eddy"}
+      {replyingTo && (
+        <p className="text-muted-foreground mb-1 pl-12 text-xs">
+          Replying to{" "}
+          <span className="text-primary font-medium">
+            @{replyingTo.username}
+          </span>
+        </p>
+      )}
+      <div className="flex w-full items-center gap-2">
+        <UserAvatar
+          avatarUrl={userData?.avatarUrl || user?.image}
+          className={cn("shrink-0", reels ? "size-10" : "h-10 w-10")}
+        />
+        <div className="min-w-0 flex-1">
+          <div
             className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
-              SEND_BTN_SHADOW,
-              (!canSubmit || mutation.isPending || isUploading) && "opacity-50"
+              "flex min-w-0 items-center gap-2 transition-all",
+              reels
+                ? "reels-input rounded-full px-3 py-2 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
+                : "premium-input px-3 py-1.5"
             )}
-            disabled={!canSubmit || mutation.isPending || isUploading}
-            type="submit"
           >
-            {mutation.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <SendHorizonal className="size-4" />
-            )}
-          </button>
-        </div>
-
-        {attachments.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {attachments.map((attachment) => (
-              <div
-                className="bg-muted/30 group relative h-20 w-20 overflow-hidden rounded-lg"
-                key={attachment.objectUrl}
-              >
-                <Image
-                  alt="Attachment preview"
-                  className="h-full w-full object-cover"
-                  fill
-                  src={attachment.objectUrl}
-                />
-                {attachment.isUploading ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                    <Loader2 className="size-5 animate-spin text-white" />
-                  </div>
-                ) : (
-                  <button
-                    aria-label="Remove attachment"
-                    className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                    onClick={() => removeAttachment(attachment.objectUrl)}
-                    type="button"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
+            <textarea
+              autoFocus={autoFocus}
+              className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent text-sm leading-relaxed outline-none"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              rows={1}
+              value={input}
+            />
+            <input
+              accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
+              aria-label="Add image or GIF attachment"
+              className="sr-only"
+              multiple
+              onChange={handleFileInputChange}
+              ref={fileInputRef}
+              type="file"
+            />
+            <button
+              aria-label="Add image or GIF"
+              className={cn(
+                "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
+                "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
+                (isUploading || mutation.isPending) && "opacity-50"
+              )}
+              disabled={isUploading || mutation.isPending}
+              onClick={() => fileInputRef.current?.click()}
+              type="button"
+            >
+              <ImagePlus className="size-4" />
+            </button>
+            <button
+              aria-label="Search and add a GIF"
+              className={cn(
+                "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
+                gifPickerOpen
+                  ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                  : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
+                (isUploading || mutation.isPending) && "opacity-50"
+              )}
+              disabled={isUploading || mutation.isPending}
+              onClick={() => setGifPickerOpen((prev) => !prev)}
+              type="button"
+            >
+              <Clapperboard className="size-4" />
+            </button>
+            <button
+              aria-label={submitLabel ?? "Send eddy"}
+              className={cn(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                SEND_BTN_SHADOW,
+                (!canSubmit || mutation.isPending || isUploading) &&
+                  "opacity-50"
+              )}
+              disabled={!canSubmit || mutation.isPending || isUploading}
+              type="submit"
+            >
+              {mutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <SendHorizonal className="size-4" />
+              )}
+            </button>
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Inline GIF picker: expands as part of the eddie bar instead of an
+          external popup, so the composer stays in context. */}
+      {gifPickerOpen ? (
+        <div className="apple-panel mt-2 w-full rounded-2xl p-2">
+          <KlipyGifPicker disabled={isUploading} onSelect={handleGifSelect} />
+        </div>
+      ) : null}
+
+      {attachments.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {attachments.map((attachment) => (
+            <div
+              className={cn(
+                "bg-muted/30 group relative overflow-hidden rounded-lg",
+                // GIFs render at their final eddy size even while uploading so
+                // the preview matches what the post will look like; regular
+                // image attachments stay as small tiles.
+                attachment.file?.type === "image/gif"
+                  ? "flex h-48 w-72 items-center justify-center"
+                  : "h-20 w-20"
+              )}
+              key={attachment.objectUrl}
+            >
+              <Image
+                alt="Attachment preview"
+                className={cn(
+                  "h-full w-full",
+                  attachment.file?.type === "image/gif"
+                    ? "object-contain"
+                    : "object-cover"
+                )}
+                fill
+                src={attachment.objectUrl}
+              />
+              {attachment.isUploading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <Loader2 className="size-5 animate-spin text-white" />
+                </div>
+              ) : (
+                <button
+                  aria-label="Remove attachment"
+                  className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={() => removeAttachment(attachment.objectUrl)}
+                  type="button"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </form>
   );
 }

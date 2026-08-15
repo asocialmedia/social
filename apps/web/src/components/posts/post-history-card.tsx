@@ -69,7 +69,9 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
         <span className="block truncate text-sm font-semibold">
           {post.user.displayName || post.user.username}
         </span>
-        <span className="text-muted-foreground mt-0.5 line-clamp-2 block text-sm leading-snug font-medium">
+        {/* Hard cap on the row: clamp the content to two lines so a long post
+            never stretches the recents card (max-h-10 = 2 lines at leading-snug). */}
+        <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
           {post.content || "View post"}
         </span>
         <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">

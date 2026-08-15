@@ -63,16 +63,6 @@ const RightSideBar: React.FC = () => {
       <div className="flex flex-col gap-4">
         <TrendingTopics />
 
-        {isLoggedIn ? (
-          <PostHistoryCard />
-        ) : (
-          <AuthPromptCard
-            description="Create an account to unlock the full Asocialmedia experience."
-            imageSize={72}
-            title="Get your account"
-          />
-        )}
-
         <SubCard
           icon={
             <UserRound className="text-muted-foreground h-4 w-4 shrink-0" />
@@ -137,6 +127,16 @@ const RightSideBar: React.FC = () => {
             </p>
           )}
         </SubCard>
+
+        {isLoggedIn ? (
+          <PostHistoryCard />
+        ) : (
+          <AuthPromptCard
+            description="Create an account to unlock the full Asocialmedia experience."
+            imageSize={72}
+            title="Get your account"
+          />
+        )}
 
         <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
           <span>© {new Date().getFullYear()} Asocialmedia</span>

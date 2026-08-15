@@ -148,19 +148,27 @@ function uploadMedia(file: File, onProgress: (percent: number) => void) {
 
 export default function useMediaUpload() {
   const { toast } = useToast();
-  // Restore any previously completed (not yet submitted) attachments so a
-  // refresh/navigation doesn't discard the user's work.
-  const [attachments, setAttachments] = useState<Attachment[]>(() =>
-    loadStoredAttachments()
-  );
+  // Start empty so the server-rendered HTML matches the first client render;
+  // the saved draft is restored in an effect after hydration instead of in the
+  // state initializer (sessionStorage is client-only, and reading it during
+  // the initial render caused a hydration mismatch once images were persisted).
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const initialisedRef = useRef(false);
 
   // Keep sessionStorage in step with the current draft. After a manual remove
-  // (or a successful submit via reset) the storage is cleared/updated too.
+  // (or a successful submit via reset) the storage is cleared/updated too. The
+  // first run restores any previously completed (not yet submitted)
+  // attachments so a refresh/navigation doesn't discard the user's work.
   useEffect(() => {
     if (!initialisedRef.current) {
       initialisedRef.current = true;
+      const stored = loadStoredAttachments();
+      if (stored.length > 0) {
+        // Deferred so the restored draft pops in right after the first paint
+        // (hydration already matched on the empty state).
+        queueMicrotask(() => setAttachments(stored));
+      }
       return;
     }
     persistAttachments(attachments);

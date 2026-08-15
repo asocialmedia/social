@@ -17,6 +17,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import FollowButton from "./follow-button";
 import FollowerCount from "./follower-count";
 import UserAvatar from "./user-avatar";
+import UserBadge from "./user-badge";
 
 interface UserTooltipProps extends PropsWithChildren {
   user: UserData;
@@ -97,8 +98,9 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
             </div>
             <div>
               <Link href={`/users/${user.username}`}>
-                <div className="text-card-foreground text-lg font-semibold hover:underline">
+                <div className="text-card-foreground flex items-center gap-1.5 text-lg font-semibold hover:underline">
                   {user.displayName}
+                  <UserBadge badge={user.badge} />
                 </div>
                 <div className="text-muted-foreground">@{user.username}</div>
               </Link>

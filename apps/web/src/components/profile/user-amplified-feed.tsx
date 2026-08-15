@@ -6,6 +6,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
+import GustRowCard from "@/components/gusts/gust-row-card";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
@@ -77,7 +78,11 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
       {posts.map((post, index) => (
         <React.Fragment key={post.id}>
           {index > 0 && <Separator className="bg-border/60" />}
-          <PostCard isJoined post={post} />
+          {post.isGust ? (
+            <GustRowCard post={post} />
+          ) : (
+            <PostCard isJoined post={post} />
+          )}
         </React.Fragment>
       ))}
       {isFetchingNextPage ? (
