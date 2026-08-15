@@ -2,8 +2,13 @@
 
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { FileAudioIcon, FileCode, FileIcon, VolumeX } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import {
+  FileAudioIcon,
+  FileCode,
+  FileIcon,
+  ImageOff,
+  VolumeX,
+} from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -38,6 +43,62 @@ const getCommonClasses = (isSmall: boolean) =>
     "mx-auto w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105",
     isSmall ? "h-20" : "h-56"
   );
+
+const GridImagePreview = ({
+  isSmall,
+  media,
+}: {
+  isSmall: boolean;
+  media: Media;
+}) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFailed, setIsFailed] = useState(false);
+
+  if (isFailed) {
+    return (
+      <div
+        className={cn(
+          "group border-border/60 bg-muted/20 text-muted-foreground relative flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed p-2 text-center text-xs",
+          isSmall ? "h-20" : "h-56"
+        )}
+      >
+        <ImageOff className="h-5 w-5 opacity-60" />
+        <span className="text-[10px]">Failed to load</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "group bg-muted/20 relative w-full overflow-hidden rounded-lg",
+        isSmall ? "h-20" : "h-56"
+      )}
+    >
+      {isLoading ? (
+        <div className="bg-muted/40 absolute inset-0 animate-pulse" />
+      ) : null}
+      <Image
+        alt="Attachment"
+        className={cn(
+          getCommonClasses(isSmall),
+          "transition-opacity duration-300",
+          isLoading ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        onError={() => {
+          setIsFailed(true);
+          setIsLoading(false);
+        }}
+        onLoad={() => setIsLoading(false)}
+        sizes="(max-width: 768px) 100vw, 640px"
+        src={getMediaUrl(media.id)}
+        style={{ objectFit: "cover" }}
+      />
+      <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+    </div>
+  );
+};
 
 const renderFilePreview = (
   m: Media,
@@ -364,18 +425,7 @@ export const MediaPreviews = ({
       );
     }
 
-    return (
-      <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
-        <Image
-          alt="Attachment"
-          className={getCommonClasses(isSmall)}
-          fill
-          src={getMediaUrl(m.id)}
-          style={{ objectFit: "cover" }}
-        />
-        <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
-      </div>
-    );
+    return <GridImagePreview isSmall={isSmall} media={m} />;
   };
 
   const renderPreview = (m: Media, _index: number, isSmall = false) => {
@@ -416,12 +466,18 @@ export const MediaPreviews = ({
     media: Media;
     onSelect: () => void;
   }) => {
-    const storedW = typeof media.width === "number" ? media.width : null;
-    const storedH = typeof media.height === "number" ? media.height : null;
+    const storedW =
+      typeof media.width === "number" && media.width > 0 ? media.width : null;
+    const storedH =
+      typeof media.height === "number" && media.height > 0
+        ? media.height
+        : null;
     const hasStoredDims = storedW !== null && storedH !== null;
     const [natural, setNatural] = useState<{ w: number; h: number } | null>(
       hasStoredDims ? { h: storedH, w: storedW } : null
     );
+    const [isLoading, setIsLoading] = useState(true);
+    const [isFailed, setIsFailed] = useState(false);
 
     useEffect(() => {
       if (hasStoredDims) {
@@ -445,6 +501,47 @@ export const MediaPreviews = ({
 
     const dims = natural;
 
+    if (isFailed) {
+      return (
+        <div className="border-border/60 bg-muted/20 text-muted-foreground flex max-h-[500px] w-full items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm">
+          <ImageOff className="h-5 w-5 opacity-60" />
+          <span>Attachment failed to load</span>
+        </div>
+      );
+    }
+
+    const previewContent = (
+      <div className="bg-muted/20 relative inline-block max-w-full overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md">
+        {isLoading ? (
+          <div className="bg-muted/40 absolute inset-0 animate-pulse" />
+        ) : null}
+        <Image
+          alt="Attachment"
+          className={cn(
+            "h-auto max-h-[500px] w-auto max-w-full rounded-xl object-contain transition-opacity duration-300",
+            isLoading ? "opacity-0" : "opacity-100"
+          )}
+          height={dims?.h ?? 480}
+          onError={() => {
+            setIsFailed(true);
+            setIsLoading(false);
+          }}
+          onLoad={() => setIsLoading(false)}
+          sizes="(max-width: 768px) 100vw, 640px"
+          src={getMediaUrl(media.id)}
+          style={
+            dims
+              ? {
+                  aspectRatio: `${dims.w} / ${dims.h}`,
+                  maxHeight: "500px",
+                }
+              : { maxHeight: "500px" }
+          }
+          width={dims?.w ?? 640}
+        />
+      </div>
+    );
+
     return interactive ? (
       <button
         aria-label="View attachment"
@@ -452,59 +549,10 @@ export const MediaPreviews = ({
         onClick={onSelect}
         type="button"
       >
-        {dims ? (
-          <div className="relative inline-block max-w-full overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md">
-            <Image
-              alt="Attachment"
-              className="!relative !h-auto max-h-[480px] w-auto max-w-full rounded-lg object-cover"
-              height={dims.h}
-              sizes="(max-width: 768px) 100vw, 640px"
-              src={getMediaUrl(media.id)}
-              style={{ objectFit: "cover" }}
-              width={dims.w}
-            />
-          </div>
-        ) : (
-          <div className="relative aspect-video w-full overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md">
-            <Image
-              alt="Attachment"
-              className="object-cover"
-              fill
-              sizes="(max-width: 768px) 100vw, 640px"
-              src={getMediaUrl(media.id)}
-              style={{ objectFit: "cover" }}
-            />
-            <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
-          </div>
-        )}
+        {previewContent}
       </button>
     ) : (
-      <div>
-        {dims ? (
-          <div className="relative inline-block max-w-full overflow-hidden rounded-lg shadow-xs">
-            <Image
-              alt="Attachment"
-              className="!relative !h-auto max-h-120 w-auto max-w-full rounded-lg object-cover"
-              height={dims.h}
-              sizes="(max-width: 768px) 100vw, 640px"
-              src={getMediaUrl(media.id)}
-              style={{ objectFit: "cover" }}
-              width={dims.w}
-            />
-          </div>
-        ) : (
-          <div className="relative aspect-video w-full overflow-hidden rounded-lg shadow-xs">
-            <Image
-              alt="Attachment"
-              className="object-cover"
-              fill
-              sizes="(max-width: 768px) 100vw, 640px"
-              src={getMediaUrl(media.id)}
-              style={{ objectFit: "cover" }}
-            />
-          </div>
-        )}
-      </div>
+      <div>{previewContent}</div>
     );
   };
 
@@ -535,24 +583,18 @@ export const MediaPreviews = ({
     }, [index]);
 
     return interactive ? (
-      <motion.div
-        animate={{ opacity: 1, y: 0 }}
+      <button
         aria-label="View attachment"
         className={cn(
-          "relative cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
+          "relative block w-full cursor-pointer overflow-hidden rounded-lg p-0 text-left shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
           wrapperHeightClass
         )}
         data-card-interactive
-        exit={{ opacity: 0, y: -20 }}
-        initial={{ opacity: 0, y: 20 }}
-        layout
         onClick={handleSelect}
-        role="button" // eslint-disable-line jsx-a11y/prefer-tag-over-role -- motion.div needs role=button for keyboard access
-        tabIndex={0}
-        transition={{ delay: index * 0.05, duration: 0.2 }}
+        type="button"
       >
         {renderPreview(media, index, isSmall)}
-      </motion.div>
+      </button>
     ) : (
       <div
         className={cn(
@@ -569,13 +611,7 @@ export const MediaPreviews = ({
   const ShowMoreSection = () => {
     if (isMobile) {
       return (
-        <motion.div
-          animate={{ opacity: 1 }}
-          className="px-4 pb-4"
-          exit={{ opacity: 0 }}
-          initial={{ opacity: 0 }}
-          layout
-        >
+        <div className="px-4 pb-4">
           <div className="bg-primary/5 relative w-full overflow-hidden rounded-lg p-4 shadow-xs transition-all duration-300">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -599,18 +635,12 @@ export const MediaPreviews = ({
               </div>
             </div>
           </div>
-        </motion.div>
+        </div>
       );
     }
 
     return (
-      <motion.div
-        animate={{ opacity: 1 }}
-        className="px-4 pb-4"
-        exit={{ opacity: 0 }}
-        initial={{ opacity: 0 }}
-        layout
-      >
+      <div className="px-4 pb-4">
         <button
           aria-label="Show all media"
           className="bg-primary/5 hover:bg-primary/10 relative w-full cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
@@ -620,35 +650,28 @@ export const MediaPreviews = ({
           <div className="flex h-32 items-center justify-between p-4">
             <div className="flex items-center gap-4">
               {remainingAttachments.slice(0, 2).map((m, index) => (
-                <motion.div
-                  animate={{ opacity: 1, x: 0 }}
+                <div
                   className="relative h-24 w-24 overflow-hidden rounded-lg"
-                  initial={{ opacity: 0, x: -20 }}
                   key={m.id}
-                  transition={{ delay: index * 0.1 }}
                 >
                   {renderPreview(m, index + initialCount)}
                   <div className="absolute inset-0 bg-black/10" />
-                </motion.div>
+                </div>
               ))}
             </div>
 
-            <motion.div
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-end gap-2 pr-4"
-              initial={{ opacity: 0 }}
-            >
+            <div className="flex flex-col items-end gap-2 pr-4">
               <p className="text-lg font-medium">Show {remainingCount} more</p>
               <Button variant="secondary">Expand</Button>
-            </motion.div>
+            </div>
           </div>
         </button>
-      </motion.div>
+      </div>
     );
   };
 
   return (
-    <motion.div className="w-full" layout>
+    <div className="w-full">
       <div
         className={cn(
           "grid gap-4",
@@ -666,45 +689,36 @@ export const MediaPreviews = ({
           })()
         )}
       >
-        <AnimatePresence mode="wait">
-          {visibleAttachments.map((m, index) =>
-            visibleAttachments.length === 1 &&
-            m.type === "IMAGE" &&
-            m.mimeType !== "image/svg+xml" ? (
-              <SingleImagePreview
-                key={m.id}
-                media={m}
-                onSelect={handleSelectImage(index)}
-              />
-            ) : (
-              <GridPreview index={index} key={m.id} media={m} />
-            )
-          )}
-        </AnimatePresence>
+        {visibleAttachments.map((m, index) =>
+          visibleAttachments.length === 1 &&
+          m.type === "IMAGE" &&
+          m.mimeType !== "image/svg+xml" ? (
+            <SingleImagePreview
+              key={m.id}
+              media={m}
+              onSelect={handleSelectImage(index)}
+            />
+          ) : (
+            <GridPreview index={index} key={m.id} media={m} />
+          )
+        )}
       </div>
 
       {interactive && !showAll && attachments.length > initialCount && (
         <ShowMoreSection />
       )}
 
-      <AnimatePresence>
-        {interactive && showAll ? (
-          <motion.div
-            animate={{ opacity: 1 }}
-            className="flex justify-center pb-4"
-            exit={{ opacity: 0 }}
-            initial={{ opacity: 0 }}
+      {interactive && showAll ? (
+        <div className="flex justify-center pb-4">
+          <Button
+            onClick={handleShowLess}
+            size={isMobile ? "sm" : "default"}
+            variant="ghost"
           >
-            <Button
-              onClick={handleShowLess}
-              size={isMobile ? "sm" : "default"}
-              variant="ghost"
-            >
-              Show Less
-            </Button>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+            Show Less
+          </Button>
+        </div>
+      ) : null}
 
       {interactive && selectedIndex !== null && (
         <MediaViewer
@@ -716,6 +730,6 @@ export const MediaPreviews = ({
           post={post}
         />
       )}
-    </motion.div>
+    </div>
   );
 };

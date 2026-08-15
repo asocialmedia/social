@@ -89,13 +89,34 @@ export const validateBucket = async () => {
   }
 };
 
+const presignedUrlCache = new Map<string, { expiresAt: number; url: string }>();
+
 export const generatePresignedUrl = async (key: string) => {
+  const now = Date.now();
+  const cached = presignedUrlCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.url;
+  }
+
   const command = new GetObjectCommand({
     Bucket: ASMOB_BUCKET,
     Key: key,
   });
 
-  return await getSignedUrl(asmobClient, command, { expiresIn: 3600 });
+  const url = await getSignedUrl(asmobClient, command, { expiresIn: 3600 });
+  // Cache for 50 minutes (well before the 60m expiry window)
+  presignedUrlCache.set(key, { expiresAt: now + 50 * 60 * 1000, url });
+
+  // Opportunistic cleanup of expired keys if cache grows large
+  if (presignedUrlCache.size > 200) {
+    for (const [k, v] of presignedUrlCache) {
+      if (v.expiresAt <= now) {
+        presignedUrlCache.delete(k);
+      }
+    }
+  }
+
+  return url;
 };
 
 // buffer lets callers read the file bytes once and reuse them (e.g. the upload

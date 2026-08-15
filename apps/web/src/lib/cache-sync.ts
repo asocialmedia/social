@@ -132,3 +132,39 @@ export function applyViewCountToCaches(
     }
   );
 }
+
+// Mirrors a comment count change (delta) into every cached shape that carries a post
+// (_count.comments on feeds, bookmarks, search, profiles, single post).
+export function applyCommentCountDeltaToCaches(
+  queryClient: QueryClient,
+  postId: string,
+  delta: number
+): void {
+  updateCacheByPredicate(
+    queryClient,
+    (record) =>
+      record.id === postId &&
+      typeof record._count === "object" &&
+      record._count !== null,
+    (record) => {
+      const countObj = record._count as {
+        comments?: number;
+        [key: string]: unknown;
+      };
+      if (typeof countObj.comments !== "number") {
+        return record;
+      }
+      const newCount = Math.max(0, countObj.comments + delta);
+      if (newCount === countObj.comments) {
+        return record;
+      }
+      return {
+        ...record,
+        _count: {
+          ...countObj,
+          comments: newCount,
+        },
+      };
+    }
+  );
+}

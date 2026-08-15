@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.0.74",
+  "version": "1.0.75",
   "private": true,
   "description": "asocialmedia Auth Service",
   "scripts": {
@@ -20,7 +20,6 @@
     "@asm/logger": "workspace:*",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "7.9.1",
-    "@react-email/components": "^1.0.12",
     "@t3-oss/env-core": "^0.13.11",
     "@trpc/server": "^11.18.0",
     "better-auth": "^1.6.26",

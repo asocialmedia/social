@@ -11,6 +11,7 @@ import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageThread } from "@/components/messages/message-thread";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
+import { cn } from "@/lib/utils";
 
 export default function ClientMessages() {
   const { status } = useMessagesIdentity();
@@ -80,14 +81,33 @@ export default function ClientMessages() {
   }
 
   return (
-    <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] pb-14 sm:border-x lg:pb-0">
+    <div
+      className={cn(
+        "border-border/60 flex h-full min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x",
+        pendingConversation ? "pb-0" : "pb-14 lg:pb-0"
+      )}
+    >
       <div className="hide-native-scrollbar flex min-h-0 flex-1 flex-row overflow-hidden">
-        <ConversationList
-          activeConversationId={pendingConversation ?? null}
-          onSelect={selectConversation}
-        />
+        <div
+          className={cn(
+            "h-full flex-col border-r border-[hsl(var(--border))]",
+            pendingConversation
+              ? "hidden shrink-0 md:flex md:w-16"
+              : "flex w-full shrink-0 md:w-16"
+          )}
+        >
+          <ConversationList
+            activeConversationId={pendingConversation ?? null}
+            onSelect={selectConversation}
+          />
+        </div>
 
-        <div className="flex min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]">
+        <div
+          className={cn(
+            "min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
+            pendingConversation ? "flex w-full" : "hidden md:flex"
+          )}
+        >
           {pendingConversation ? (
             <MessageThread
               conversationId={pendingConversation}

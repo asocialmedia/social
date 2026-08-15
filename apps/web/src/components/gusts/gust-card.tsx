@@ -36,6 +36,7 @@ interface GustCardProps {
   onOpenComments: () => void;
   onToggleMute: () => void;
   post: PostData;
+  shouldMountVideo?: boolean;
 }
 
 export const GustCard: React.FC<GustCardProps> = ({
@@ -44,6 +45,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   isMuted,
   onToggleMute,
   onOpenComments,
+  shouldMountVideo = true,
 }) => {
   const { user } = useSession();
 
@@ -63,6 +65,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   >([]);
   const burstIdRef = useRef(0);
   const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
   const authorName = post.user.displayName || post.user.username;
@@ -77,6 +80,13 @@ export const GustCard: React.FC<GustCardProps> = ({
     },
     postId: post.id,
   });
+
+  // Ensure DOM video.muted matches React state across browsers
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -97,8 +107,25 @@ export const GustCard: React.FC<GustCardProps> = ({
       // Reset the clip to the start so it never resumes mid-way when it
       // becomes active again.
       video.currentTime = 0;
+      // eslint-disable-next-line react-compiler -- reset progress bar when video is inactive
+      setProgress(0);
     }
   }, [isActive]);
+
+  useEffect(
+    () => () => {
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+      }
+      if (burstTimerRef.current) {
+        clearTimeout(burstTimerRef.current);
+      }
+      if (iconTimerRef.current) {
+        clearTimeout(iconTimerRef.current);
+      }
+    },
+    []
+  );
 
   const handleTimeUpdate = useCallback(() => {
     const video = videoRef.current;
@@ -168,20 +195,28 @@ export const GustCard: React.FC<GustCardProps> = ({
   const handleCardClick = useCallback(
     (e: React.MouseEvent) => {
       const now = Date.now();
-      const DOUBLE_TAP_DELAY = 300;
+      const DOUBLE_TAP_DELAY = 280;
 
       if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-        // Double tap -> amplify and spawn a floating flame burst at the tap
-        // point. Repeated double-taps keep amplifying (TikTok-style hearts).
+        // Double tap -> cancel pending single tap togglePlay and amplify
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current);
+          singleTapTimerRef.current = null;
+        }
         amplify();
-        // Position the burst relative to the tapped surface so it lands where
-        // the finger hit, not at a viewport-fixed offset.
         const rect = e.currentTarget.getBoundingClientRect();
         spawnAuraBurst(e.clientX - rect.left, e.clientY - rect.top);
+        lastTapRef.current = 0;
       } else {
-        togglePlay();
+        lastTapRef.current = now;
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current);
+        }
+        singleTapTimerRef.current = setTimeout(() => {
+          togglePlay();
+          singleTapTimerRef.current = null;
+        }, DOUBLE_TAP_DELAY);
       }
-      lastTapRef.current = now;
     },
     [amplify, spawnAuraBurst, togglePlay]
   );
@@ -202,6 +237,13 @@ export const GustCard: React.FC<GustCardProps> = ({
   );
   const isBookmarked = Boolean(post.bookmarks?.length);
 
+  let preloadMode: "auto" | "metadata" | "none" = "none";
+  if (isActive) {
+    preloadMode = "auto";
+  } else if (shouldMountVideo) {
+    preloadMode = "metadata";
+  }
+
   return (
     <div className="relative flex h-full w-full items-center justify-center">
       <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-[9/16] sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
@@ -213,9 +255,9 @@ export const GustCard: React.FC<GustCardProps> = ({
           onTimeUpdate={handleTimeUpdate}
           playsInline
           poster={thumbUrl}
-          preload={isActive ? "auto" : "metadata"}
+          preload={preloadMode}
           ref={videoRef}
-          src={videoUrl}
+          src={shouldMountVideo ? videoUrl : undefined}
         />
 
         {/* Clickable transparent backdrop for play/pause & double tap */}

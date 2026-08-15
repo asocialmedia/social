@@ -283,8 +283,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
       // freshAge can protect sensitive actions; keep default or tune as needed
     },
 
+    // eslint-disable-next-line sort-keys
     advanced: {
       useSecureCookies: environment === "production",
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for", "x-real-ip"],
+      },
       ...(environment === "production"
         ? {
             crossSubDomainCookies: {
@@ -381,8 +385,9 @@ export function createAuthConfig(config: AuthConfig = {}) {
           before: async (user) => {
             // Assign a random default avatar at creation time (not in `after`,
             // which would miss the session returned to the client on signup).
-            const authBase = env.APP_URL ?? "https://social.localhost";
-            const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
+            // Stored as relative path (e.g. "/avatars/default-1.png") so it works
+            // consistently across all environments.
+            const avatarUrl = pickRandomDefaultAvatar();
 
             // Email signup validates username availability before creating the
             // user, but OAuth accounts derive a username from the profile and

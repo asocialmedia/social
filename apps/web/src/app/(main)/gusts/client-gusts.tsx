@@ -540,10 +540,21 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
             // Second copy renders the same gust again - only the first copy
             // drives the navigation refs and the active-gust observer.
             const inDuplicate = idx >= posts.length;
+            const itemIndex = idx % posts.length;
+            const isCurrentActive = activeIndex === itemIndex;
+            // Only mount <video src> for the active clip and its immediate next/prev
+            // neighbours. Offscreen clips remain lightweight poster placeholders so
+            // the browser does not flood the network with 20 parallel Range reads.
+            const rawDist = Math.abs(itemIndex - activeIndex);
+            const wrapDist =
+              posts.length > 0 ? posts.length - rawDist : rawDist;
+            const distance = Math.min(rawDist, wrapDist);
+            const shouldMount = isCurrentActive || distance <= 1;
+
             return (
               <div
                 className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-                data-index={idx % posts.length}
+                data-index={itemIndex}
                 key={inDuplicate ? `${post.id}-copy2` : post.id}
                 ref={(el) => {
                   if (!inDuplicate) {
@@ -552,11 +563,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
                 }}
               >
                 <GustCard
-                  isActive={activeIndex === idx % posts.length}
+                  isActive={isCurrentActive}
                   isMuted={isMuted}
                   onOpenComments={() => setIsCommentsOpen(true)}
                   onToggleMute={handleToggleMute}
                   post={post}
+                  shouldMountVideo={shouldMount}
                 />
               </div>
             );

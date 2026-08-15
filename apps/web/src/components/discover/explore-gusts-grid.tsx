@@ -41,14 +41,21 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+  const videoUrl = videoMedia ? `/api/media/${videoMedia.id}` : "";
 
   const handleMouseEnter = useCallback(() => {
+    if (!videoUrl) {
+      return;
+    }
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
     }
     hoverTimeoutRef.current = setTimeout(() => {
       const video = videoRef.current;
       if (video) {
+        if (!video.src) {
+          video.src = videoUrl;
+        }
         void (async () => {
           try {
             await video.play();
@@ -60,7 +67,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
         })();
       }
     }, VIDEO_HOVER_DELAY);
-  }, []);
+  }, [videoUrl]);
 
   const handleMouseLeave = useCallback(() => {
     if (hoverTimeoutRef.current) {
@@ -78,6 +85,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
         // Ignore seek aborts
       }
       setIsPlaying(false);
+      setHasStartedPlaying(false);
     }
   }, []);
 
@@ -86,7 +94,6 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
   }
 
   const thumbUrl = getMediaProxyUrl(videoMedia);
-  const videoUrl = `/api/media/${videoMedia.id}`;
 
   return (
     <Link
@@ -118,9 +125,8 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
         loop
         muted
         playsInline
-        preload="metadata"
+        preload="none"
         ref={videoRef}
-        src={videoUrl}
       />
 
       {/* Top Clapperboard Badge */}

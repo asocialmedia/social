@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type React from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
@@ -60,7 +60,22 @@ export function MessageComposer({
   const [sendingMedia, setSendingMedia] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastTypingRef = useRef(0);
+
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 24), 140);
+    textarea.style.height = `${nextHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [text, adjustTextareaHeight]);
 
   const peer = useMemo(
     () =>
@@ -380,6 +395,7 @@ export function MessageComposer({
           }}
           onKeyDown={handleKeyDown}
           placeholder={`Message ${peer?.user.displayName ?? "them"}…`}
+          ref={textareaRef}
           rows={1}
           value={text}
         />

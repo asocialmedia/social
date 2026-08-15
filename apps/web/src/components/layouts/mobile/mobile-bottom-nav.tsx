@@ -8,7 +8,7 @@ import {
   MessagesSquare,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -60,6 +60,7 @@ const formatCount = (count: number) =>
 
 const MobileBottomNav: React.FC = () => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
@@ -67,6 +68,13 @@ const MobileBottomNav: React.FC = () => {
   const unreadMessageCount = useUnreadMessageCount();
   const { openSpotlight } = useSpotlight();
   const handleOpenSpotlight = () => openSpotlight();
+
+  const isInsideActiveChat =
+    pathname.startsWith("/messages") && Boolean(searchParams?.get("c"));
+
+  if (isInsideActiveChat) {
+    return null;
+  }
 
   const counts = {
     bookmarkCount: bookmarkData?.totalCount ?? 0,

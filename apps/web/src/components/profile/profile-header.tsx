@@ -5,7 +5,7 @@ import { formatDate } from "date-fns";
 import { CalendarDays, Flame, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
@@ -94,16 +94,18 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
     isFollowedByUser,
   };
 
+  const [bannerFailed, setBannerFailed] = useState(false);
   const joinedDate = formatDate(new Date(liveUserData.createdAt), "MMMM yyyy");
   const socialLinks = getSocialLinks(liveUserData);
 
   let bannerContent: React.ReactNode;
-  if (liveUserData.bannerUrl) {
+  if (liveUserData.bannerUrl && !bannerFailed) {
     bannerContent = (
       <Image
         alt={`${liveUserData.displayName || liveUserData.username}'s header`}
         className="object-cover"
         fill
+        onError={() => setBannerFailed(true)}
         sizes="(max-width: 768px) 100vw, 600px"
         src={getSecureImageUrl(liveUserData.bannerUrl)}
         unoptimized
@@ -133,7 +135,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   return (
     <div className="border-border/60 border-b">
       {/* Banner */}
-      <div className="relative h-32 overflow-hidden sm:h-44">
+      <div className="bg-muted/20 relative h-32 overflow-hidden sm:h-44">
         {bannerContent}
         <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background-alt))] to-transparent" />
       </div>
@@ -146,6 +148,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               avatarUrl={avatarUrl}
               className="ring-4 ring-[hsl(var(--background-alt))]"
               size={112}
+              user={liveUserData}
             />
           </div>
           <div className="mb-2 flex items-center gap-2">

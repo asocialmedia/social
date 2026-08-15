@@ -1,10 +1,27 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_AVATARS,
+  getDefaultAvatar,
   getMediaProxyUrl,
   getSecureImageUrl,
   toAppProxyUrl,
 } from "./image-url";
+
+describe("getDefaultAvatar", () => {
+  test("returns a valid default avatar URL", () => {
+    expect(DEFAULT_AVATARS).toContain(getDefaultAvatar());
+    expect(DEFAULT_AVATARS).toContain(getDefaultAvatar("user-123"));
+    expect(DEFAULT_AVATARS).toContain(getDefaultAvatar("user-456"));
+  });
+
+  test("returns deterministic result for the same seed", () => {
+    expect(getDefaultAvatar("user-123")).toBe(getDefaultAvatar("user-123"));
+    expect(getDefaultAvatar("arya_yadawwww")).toBe(
+      getDefaultAvatar("arya_yadawwww")
+    );
+  });
+});
 
 describe("getSecureImageUrl & toAppProxyUrl", () => {
   test("rewrites raw object storage avatar URLs to app proxy paths", () => {
@@ -51,13 +68,17 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     expect(getSecureImageUrl(externalUrl)).toBe(externalUrl);
   });
 
-  test("does not rewrite static default avatar assets", () => {
+  test("normalizes absolute default avatar URLs to relative static asset paths", () => {
     const defaultAvatar = "https://asocialmedia.cc/avatars/default-2.png";
-    expect(getSecureImageUrl(defaultAvatar)).toBe(defaultAvatar);
-    expect(toAppProxyUrl(defaultAvatar)).toBe(defaultAvatar);
+    expect(getSecureImageUrl(defaultAvatar)).toBe("/avatars/default-2.png");
+    expect(toAppProxyUrl(defaultAvatar)).toBe("/avatars/default-2.png");
+
+    const localhostAvatar = "https://social.localhost/avatars/default-1.png";
+    expect(getSecureImageUrl(localhostAvatar)).toBe("/avatars/default-1.png");
+    expect(toAppProxyUrl(localhostAvatar)).toBe("/avatars/default-1.png");
   });
 
-  test("does not rewrite relative default avatar paths", () => {
+  test("does not modify relative default avatar paths", () => {
     expect(getSecureImageUrl("/avatars/default-1.png")).toBe(
       "/avatars/default-1.png"
     );
