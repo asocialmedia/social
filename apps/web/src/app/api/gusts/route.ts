@@ -37,8 +37,11 @@ export async function GET(request: Request) {
     posts: hydrated,
   };
   const responseHeaders = userId
-    ? undefined
-    : { "cache-control": "public, s-maxage=10, stale-while-revalidate=30" };
+    ? { "cache-control": "private, no-cache", vary: "Cookie" }
+    : {
+        "cache-control": "public, s-maxage=10, stale-while-revalidate=30",
+        vary: "Cookie",
+      };
 
   return Response.json(data, { headers: responseHeaders });
 }

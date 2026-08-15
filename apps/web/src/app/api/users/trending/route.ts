@@ -18,6 +18,7 @@ export async function GET() {
           return Response.json(JSON.parse(cached), {
             headers: {
               "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+              vary: "Cookie",
             },
           });
         }
@@ -60,11 +61,19 @@ export async function GET() {
       return Response.json(trendingUsers, {
         headers: {
           "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+          vary: "Cookie",
         },
       });
     }
 
-    return Response.json(trendingUsers);
+    const responseHeaders = userId
+      ? { "cache-control": "private, no-cache", vary: "Cookie" }
+      : {
+          "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+          vary: "Cookie",
+        };
+
+    return Response.json(trendingUsers, { headers: responseHeaders });
   } catch {
     return Response.json(
       { error: "Failed to fetch trending users" },

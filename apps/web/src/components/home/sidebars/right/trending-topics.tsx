@@ -57,7 +57,7 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
           <Hash className="h-3.5 w-3.5" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">
+          <span className="block min-w-0 flex-1 truncate text-sm font-medium">
             {item.hashtag}
           </span>
           <span className="text-muted-foreground block text-xs transition-colors group-hover:text-inherit">
@@ -79,10 +79,10 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
       <UserAvatar avatarUrl={item.avatarUrl} className="h-8 w-8 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1">
-          <span className="block truncate text-sm font-medium">
+          <span className="block min-w-0 flex-1 truncate text-sm font-medium">
             {item.displayName || `@${item.username}`}
           </span>
-          <UserBadge badge={item.badge} />
+          <UserBadge badge={item.badge} className="shrink-0" />
         </span>
         <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
           @{item.username} · {formatNumber(item.count)}{" "}
@@ -196,10 +196,10 @@ const TrendingTopics: React.FC = () => {
                 />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1">
-                    <span className="block truncate text-sm font-medium">
+                    <span className="block min-w-0 flex-1 truncate text-sm font-medium">
                       {auraUser.displayName || `@${auraUser.username}`}
                     </span>
-                    <UserBadge badge={auraUser.badge} />
+                    <UserBadge badge={auraUser.badge} className="shrink-0" />
                   </span>
                   <span className="text-muted-foreground flex items-center gap-1 truncate text-xs transition-colors group-hover:text-inherit">
                     @{auraUser.username}

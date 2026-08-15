@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
 import { cache } from "react";
@@ -13,11 +15,16 @@ function hasSessionCookie(cookie: string): boolean {
   return cookie.includes("session_token=");
 }
 
+function hashCookie(cookie: string): string {
+  return createHash("sha256").update(cookie).digest("hex");
+}
+
 // A single page render fans out to many API route handlers, each of which
 // calls getSessionFromApi(). React's cache() dedupes within one render but not
 // across parallel route handlers, so without this the burst of parallel routes
-// would each hit the auth service. Memoize the lookup for 30s keyed by the
-// request cookie so parallel and subsequent routes share round trips.
+// would each hit the auth service. Memoize the lookup for 30s keyed by a
+// cryptographic digest of the cookie so parallel and subsequent routes share
+// round trips without storing raw tokens in memory.
 const SESSION_CACHE_TTL_MS = 30_000;
 const SESSION_CACHE_MAX_ENTRIES = 500;
 
@@ -35,21 +42,34 @@ export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
     return null;
   }
 
+  const cacheKey = hashCookie(cookie);
   const now = Date.now();
 
-  const existing = sessionCache.get(cookie);
+  const existing = sessionCache.get(cacheKey);
   if (existing && existing.expiresAt > now) {
     return existing.promise;
   }
 
   const promise = fetchSession(cookie);
-  sessionCache.set(cookie, { expiresAt: now + SESSION_CACHE_TTL_MS, promise });
+  sessionCache.set(cacheKey, {
+    expiresAt: now + SESSION_CACHE_TTL_MS,
+    promise,
+  });
 
-  // Opportunistically prune expired entries so the map cannot grow unbounded.
+  // Prune expired entries first, then evict the oldest live entries until
+  // the cache is within configured capacity.
   if (sessionCache.size > SESSION_CACHE_MAX_ENTRIES) {
     for (const [key, entry] of sessionCache) {
-      if (entry.expiresAt <= Date.now()) {
+      if (entry.expiresAt <= now) {
         sessionCache.delete(key);
+      }
+    }
+    while (sessionCache.size > SESSION_CACHE_MAX_ENTRIES) {
+      const oldestKey = sessionCache.keys().next().value;
+      if (typeof oldestKey === "string") {
+        sessionCache.delete(oldestKey);
+      } else {
+        break;
       }
     }
   }
