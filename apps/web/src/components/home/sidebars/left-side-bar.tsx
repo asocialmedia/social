@@ -406,36 +406,35 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
                 {isLoggedIn ? renderCollapsedItem(profileItem) : null}
               </nav>
 
-              {isLoggedIn ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      aria-label="Create Post"
-                      className="follow-btn-3d mt-3 flex size-10 items-center justify-center"
-                      onClick={handleOpenComposer}
-                      type="button"
-                    >
-                      <PenSquare className="size-5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    className="tooltip-3d"
-                    side="right"
-                    sideOffset={12}
-                  >
-                    Create Post
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-
               {userData ? (
                 <SidebarUserArea compact userData={userData} />
               ) : null}
             </div>
           </div>
 
-          {/* Bottom-pinned: theme toggle */}
-          <div className="mt-2 flex shrink-0 flex-col items-center">
+          {/* Bottom-pinned: Create Post above the theme toggle */}
+          <div className="mt-2 flex shrink-0 flex-col items-center gap-2">
+            {isLoggedIn ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    aria-label="Create Post"
+                    className="follow-btn-3d flex size-10 items-center justify-center"
+                    onClick={handleOpenComposer}
+                    type="button"
+                  >
+                    <PenSquare className="size-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  className="tooltip-3d"
+                  side="right"
+                  sideOffset={12}
+                >
+                  Create Post
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
             {themeToggleButton}
           </div>
         </TooltipProvider>
