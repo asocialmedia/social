@@ -3,7 +3,13 @@
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { FileAudioIcon, FileCode, FileIcon, Loader2 } from "lucide-react";
+import {
+  FileAudioIcon,
+  FileCode,
+  FileIcon,
+  ImageOff,
+  Loader2,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -271,15 +277,51 @@ const renderMediaTile = (item: Media) => {
     return renderGenericFileTile(item);
   }
 
+  return <ImageTile aspectRatio={aspectRatio} item={item} />;
+};
+
+const ImageTile = ({
+  aspectRatio,
+  item,
+}: {
+  aspectRatio: number;
+  item: Media;
+}) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFailed, setIsFailed] = useState(false);
+
+  if (isFailed) {
+    return (
+      <div
+        className="group text-muted-foreground border-border/60 bg-muted/20 relative flex w-full flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl border border-dashed p-4 text-center shadow-xs"
+        style={{ aspectRatio }}
+      >
+        <ImageOff className="h-5 w-5 opacity-60" />
+        <span className="text-[10px]">Failed to load</span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="group relative w-full overflow-hidden rounded-xl bg-[hsl(var(--background))] shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
+      className="group bg-muted/20 relative w-full overflow-hidden rounded-xl shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
       style={{ aspectRatio }}
     >
+      {isLoading ? (
+        <div className="bg-muted/40 absolute inset-0 animate-pulse" />
+      ) : null}
       <Image
         alt="User media"
-        className="object-cover transition-transform duration-300 group-hover:scale-105"
+        className={cn(
+          "object-cover transition-all duration-300 group-hover:scale-105",
+          isLoading ? "opacity-0" : "opacity-100"
+        )}
         fill
+        onError={() => {
+          setIsFailed(true);
+          setIsLoading(false);
+        }}
+        onLoad={() => setIsLoading(false)}
         sizes="176px"
         src={getMediaUrl(item.id)}
         unoptimized

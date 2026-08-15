@@ -1,19 +1,59 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Clapperboard } from "lucide-react";
+import { Clapperboard, ImageOff } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
+import { useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
+import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
 const DEFAULT_ASPECT = 4 / 5;
+
+const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
+  const [isImageLoading, setIsImageLoading] = useState(true);
+  const [isImageFailed, setIsImageFailed] = useState(false);
+
+  if (isImageFailed) {
+    return (
+      <div className="border-border/60 bg-muted/20 text-muted-foreground flex h-full w-full flex-col items-center justify-center gap-1.5 border border-dashed p-4 text-center text-xs">
+        <ImageOff className="h-6 w-6 opacity-60" />
+        <span className="text-[11px]">Failed to load</span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {isImageLoading ? (
+        <div className="bg-muted/40 absolute inset-0 animate-pulse" />
+      ) : null}
+      <Image
+        alt="Post media"
+        className={cn(
+          "object-cover transition-all duration-300 group-hover:scale-105",
+          isImageLoading ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        onError={() => {
+          setIsImageFailed(true);
+          setIsImageLoading(false);
+        }}
+        onLoad={() => setIsImageLoading(false)}
+        sizes="(max-width: 768px) 50vw, 300px"
+        src={getMediaUrl(mediaId)}
+        unoptimized
+      />
+    </>
+  );
+};
 
 interface ExplorePostCardProps {
   post: PostData;
@@ -32,12 +72,31 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   }
   const href = isGustPost ? `/gusts?id=${post.id}` : `/posts/${post.id}`;
 
+  let mediaContent: React.ReactNode = null;
+  if (media?.type === "IMAGE") {
+    mediaContent = <ExplorePostImage mediaId={media.id} />;
+  } else if (media) {
+    mediaContent = (
+      <video
+        aria-label="Post video"
+        autoPlay
+        className="absolute inset-0 h-full w-full object-cover"
+        loop
+        muted
+        playsInline
+        poster={getMediaProxyUrl(media)}
+        preload="metadata"
+        src={getMediaUrl(media.id)}
+      />
+    );
+  }
+
   return (
     <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link className="block" href={href}>
         {media ? (
           <div
-            className="relative w-full overflow-hidden"
+            className="bg-muted/20 relative w-full overflow-hidden"
             style={{ aspectRatio }}
           >
             {isGustPost ? (
@@ -46,28 +105,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 <span className="text-[10px] font-semibold">Gust</span>
               </div>
             ) : null}
-            {media.type === "IMAGE" ? (
-              <Image
-                alt="Post media"
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
-                fill
-                sizes="(max-width: 768px) 50vw, 300px"
-                src={getMediaUrl(media.id)}
-                unoptimized
-              />
-            ) : (
-              <video
-                aria-label="Post video"
-                autoPlay
-                className="absolute inset-0 h-full w-full object-cover"
-                loop
-                muted
-                playsInline
-                poster={getMediaProxyUrl(media)}
-                preload="metadata"
-                src={getMediaUrl(media.id)}
-              />
-            )}
+            {mediaContent}
           </div>
         ) : null}
 
@@ -75,7 +113,11 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           <p className="line-clamp-4 text-sm leading-snug">{post.content}</p>
 
           <div className="flex items-center gap-2">
-            <UserAvatar avatarUrl={post.user.avatarUrl} className="h-8 w-8" />
+            <UserAvatar
+              avatarUrl={post.user.avatarUrl}
+              className="h-8 w-8"
+              user={post.user}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1">
                 <span className="truncate text-xs font-medium">

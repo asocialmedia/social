@@ -1,4 +1,4 @@
-import { Img } from "@react-email/components";
+// oxlint-disable next/no-img-element
 import type { CSSProperties } from "react";
 
 import { emailConfig } from "../config";
@@ -58,7 +58,8 @@ export const code: CSSProperties = {
 };
 
 export const EmailBanner = () => (
-  <Img
+  // oxlint-disable-next-line jsx-a11y/alt-text
+  <img
     alt={`${emailConfig.company.name} banner`}
     height={252}
     src={bannerUrl}

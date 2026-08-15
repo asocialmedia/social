@@ -31,19 +31,45 @@ function rewriteAsmobUrl(rawUrl: string): string {
     : `/api/users/banner/${userId}/image`;
 }
 
+export const DEFAULT_AVATARS = [
+  "/avatars/default-1.png",
+  "/avatars/default-2.png",
+] as const;
+
+export function getDefaultAvatar(seed?: string | null): string {
+  if (!seed) {
+    return DEFAULT_AVATARS[0];
+  }
+  let sum = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    sum += (seed.codePointAt(i) ?? 0) * (i + 1);
+  }
+  const index = sum % DEFAULT_AVATARS.length;
+  return DEFAULT_AVATARS[index];
+}
+
+const DEFAULT_AVATAR_RE = /\/avatars\/(?<file>default-[12]\.png)(?:[?#]|$)/i;
+
 export function getSecureImageUrl(rawUrl: string): string {
   if (!rawUrl) {
     return "";
   }
 
-  // 1. Route object-storage avatar/banner URLs through the app proxy so content
+  // 1. Normalize any default avatar path or absolute URL (e.g. https://social.localhost/avatars/default-1.png,
+  // http://localhost:3000/avatars/default-2.png, /avatars/default-1.png) to a clean relative static asset path.
+  const defaultAvatarMatch = rawUrl.match(DEFAULT_AVATAR_RE);
+  if (defaultAvatarMatch?.groups?.file) {
+    return `/avatars/${defaultAvatarMatch.groups.file}`;
+  }
+
+  // 2. Route object-storage avatar/banner URLs through the app proxy so content
   // is never fetched directly from the (private) buckets.
   const rewritten = rewriteAsmobUrl(rawUrl);
   if (rewritten !== rawUrl || rewritten.startsWith("/")) {
     return rewritten;
   }
 
-  // 2. For external images, ensure HTTPS in production.
+  // 3. For external images, ensure HTTPS in production.
   // Avoid client/server branches (e.g. window.location checks) during render to prevent SSR hydration mismatches.
   if (process.env.NODE_ENV === "production" && rawUrl.startsWith("http://")) {
     return rawUrl.replace("http://", "https://");
@@ -57,6 +83,10 @@ export function getSecureImageUrl(rawUrl: string): string {
 export function toAppProxyUrl(url: string | null | undefined): string {
   if (!url) {
     return "";
+  }
+  const defaultAvatarMatch = url.match(DEFAULT_AVATAR_RE);
+  if (defaultAvatarMatch?.groups?.file) {
+    return `/avatars/${defaultAvatarMatch.groups.file}`;
   }
   return rewriteAsmobUrl(url);
 }

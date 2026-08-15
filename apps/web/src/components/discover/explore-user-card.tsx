@@ -5,6 +5,7 @@ import { Flame, Users } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
+import { useState } from "react";
 
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -34,17 +35,20 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
   const followers = followState?.followers ?? user._count.followers;
   const isFollowed = followState?.isFollowedByUser ?? false;
 
+  const [bannerFailed, setBannerFailed] = useState(false);
+
   const handleFollowed = () => onFollowed?.(user.id);
   const avatarUrl = user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null;
-  const hasBanner = Boolean(user.bannerUrl);
+  const hasBanner = Boolean(user.bannerUrl) && !bannerFailed;
 
   let headerMedia: React.ReactNode;
-  if (user.bannerUrl) {
+  if (user.bannerUrl && !bannerFailed) {
     headerMedia = (
       <Image
         alt=""
         className="object-cover transition-transform duration-300 group-hover:scale-105"
         fill
+        onError={() => setBannerFailed(true)}
         sizes="280px"
         src={getSecureImageUrl(user.bannerUrl)}
         unoptimized
@@ -72,7 +76,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
     <div className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link
         aria-label={`View ${user.displayName || user.username}'s profile`}
-        className="relative block h-24 w-full overflow-hidden"
+        className="bg-muted/20 relative block h-24 w-full overflow-hidden"
         href={`/users/${user.username}`}
       >
         {headerMedia}
@@ -95,6 +99,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
               avatarUrl={user.avatarUrl}
               className="rounded-2xl ring-4 ring-[hsl(var(--background-alt))]"
               size={64}
+              user={user}
             />
           </Link>
         </div>

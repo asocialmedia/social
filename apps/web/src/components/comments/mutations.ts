@@ -7,6 +7,7 @@ import type { QueryKey } from "@tanstack/react-query";
 import { MessageCirclePlus, MessageCircleX } from "lucide-react";
 import { createElement } from "react";
 
+import { applyCommentCountDeltaToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
 
 import { deleteComment, submitComment } from "./actions";
@@ -18,31 +19,15 @@ interface SubmitCommentInput {
   post: PostData;
 }
 
-// Keeps the post's comment count on the detail page in sync without refetching
-// the whole feed. Soft-deleting a comment with replies still removes it from
-// the count because a removed eddy is no longer a comment.
+// Keeps the post's comment count across all cached feeds, grids, and detail pages
+// in sync without refetching. Soft-deleting a comment with replies still removes
+// it from the count because a removed eddy is no longer a comment.
 function bumpCommentCount(
   queryClient: ReturnType<typeof useQueryClient>,
   postId: string,
   delta: number
 ) {
-  const queryKey: QueryKey = ["post", postId];
-  queryClient.setQueryData(queryKey, (oldPost: unknown) => {
-    if (!oldPost || typeof oldPost !== "object") {
-      return oldPost;
-    }
-    const current = oldPost as { _count?: { comments?: number } };
-    if (!current._count) {
-      return oldPost;
-    }
-    return {
-      ...current,
-      _count: {
-        ...current._count,
-        comments: Math.max(0, (current._count.comments ?? 0) + delta),
-      },
-    };
-  });
+  applyCommentCountDeltaToCaches(queryClient, postId, delta);
 }
 
 export function useSubmitCommentMutation(
