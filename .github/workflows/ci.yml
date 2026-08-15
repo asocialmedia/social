@@ -24,6 +24,8 @@ concurrency:
 jobs:
   quality:
     name: Lint and Typecheck
+    needs: detect-pr-merge
+    if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.quality-already-passed == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -97,12 +99,12 @@ jobs:
 
   detect-pr-merge:
     name: Detect merged PR push
-    needs: quality
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       should-build: ${{ steps.pr-check.outputs.should-build }}
       merge-pr-number: ${{ steps.pr-check.outputs.pr-number }}
+      quality-already-passed: ${{ steps.pr-check.outputs.quality-already-passed }}
     steps:
       - name: Check whether commit came from merged PR
         id: pr-check
@@ -122,18 +124,48 @@ jobs:
 
             core.setOutput("should-build", mergedPr ? "true" : "false")
             core.setOutput("pr-number", mergedPr ? String(mergedPr.number) : "")
+            core.setOutput("quality-already-passed", "false")
 
-            if (mergedPr) {
-              core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
-            } else {
+            if (!mergedPr) {
               core.info(`No merged PR associated with ${commit_sha}; skipping build.`)
+              return
+            }
+
+            core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
+
+            // The merge push re-triggers the whole workflow, which would re-run
+            // the Lint/Typecheck job that already passed on the PR. Find the
+            // latest completed CI run for this PR and, if it succeeded, let the
+            // quality job skip itself on the merge push.
+            try {
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                event: "pull_request",
+                per_page: 100,
+              })
+
+              const prRuns = runs.data.workflow_runs
+                .filter((run) =>
+                  (run.pull_requests || []).some((pr) => pr.number === mergedPr.number)
+                )
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+              const latest = prRuns.find((run) => run.conclusion !== null) || prRuns[0]
+              const alreadyPassed = Boolean(latest && latest.conclusion === "success")
+              core.setOutput("quality-already-passed", alreadyPassed ? "true" : "false")
+              core.info(
+                alreadyPassed
+                  ? `PR #${mergedPr.number} already passed CI (run ${latest.id}); skipping quality on merge.`
+                  : `PR #${mergedPr.number} has no successful CI run (latest=${latest?.conclusion ?? "none"}); quality will re-run.`
+              )
+            } catch (error) {
+              core.warning(`Failed to check PR CI status: ${error.message}; quality will re-run.`)
             }
 
   determine-build-matrix:
     name: Determine changed app images
-    needs:
-      - quality
-      - detect-pr-merge
+    needs: detect-pr-merge
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true'
     runs-on: ubuntu-latest
     outputs:
@@ -209,7 +241,7 @@ jobs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true'
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -428,7 +460,7 @@ jobs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true'
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
