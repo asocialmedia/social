@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma, redis } from "@asm/db";
+import { createLogger } from "@asm/logger";
 import { env } from "@root/env";
 import { z } from "zod";
 
@@ -11,6 +12,8 @@ import { sendVerificationOTP } from "@/email/service";
 
 import { procedure, router } from "../../trpc";
 import { emailRouter } from "../email";
+
+const logger = createLogger({ serviceName: "auth-signup" });
 
 const PENDING_PREFIX = "pending-signup:";
 const PENDING_TTL_SECONDS = 60 * 60 * 2;
@@ -118,6 +121,10 @@ async function sendSignupVerificationOTP(email: string): Promise<boolean> {
       error: result.error,
       success: result.success,
     });
+    logger.info(
+      { email, error: result.error, success: result.success },
+      "signup verification otp"
+    );
 
     return result.success;
   } catch (otpError) {
@@ -125,6 +132,13 @@ async function sendSignupVerificationOTP(email: string): Promise<boolean> {
       email,
       error: otpError instanceof Error ? otpError.message : String(otpError),
     });
+    logger.error(
+      {
+        email,
+        error: otpError instanceof Error ? otpError.message : String(otpError),
+      },
+      "signup verification otp failed"
+    );
     return false;
   }
 }

@@ -1,4 +1,5 @@
 import { validateEmailAdvanced } from "@asm/auth";
+import { createLogger } from "@asm/logger";
 import { Resend } from "resend";
 
 import { env } from "../../env";
@@ -8,6 +9,10 @@ import {
   getOTPVerificationEmailHtml,
   getVerificationEmailHtml,
 } from "./templates/verification-email";
+
+// Structured pino logger (also shipped to OpenObserve over OTLP when enabled)
+// so email send attempts, successes and failures are observable in one place.
+const logger = createLogger({ serviceName: "auth-email" });
 
 let resend: Resend | null = null;
 
@@ -33,7 +38,7 @@ function initializeResend(): void {
     try {
       resend = new Resend(env.RESEND_API_KEY);
     } catch (error) {
-      console.error("Failed to initialize Resend:", error);
+      logger.error({ error }, "Failed to initialize Resend");
       throw new Error("Email service initialization failed", {
         cause: error,
       });
@@ -90,8 +95,11 @@ export async function sendVerificationEmail(
   email: string,
   token: string
 ): Promise<EmailResult> {
+  // Skip the DNS MX lookup on the send path: it adds latency and a failure
+  // point in containerized environments (the recipient proves ownership by
+  // using the emailed link). Basic format + disposable-domain checks remain.
   const validationOptions = {
-    skipMxCheck: false,
+    skipMxCheck: true,
     skipSmtpCheck: true,
     timeout: 5000,
   };
@@ -99,12 +107,16 @@ export async function sendVerificationEmail(
   const validation = await validateEmailAdvanced(email, validationOptions);
 
   if (!validation.isValid) {
-    console.warn(`Email validation failed for ${email}:`, {
-      confidence: validation.confidence,
-      disposable: validation.disposable,
-      reasons: validation.reasons,
-      score: validation.score,
-    });
+    logger.warn(
+      {
+        confidence: validation.confidence,
+        disposable: validation.disposable,
+        email,
+        reasons: validation.reasons,
+        score: validation.score,
+      },
+      "email validation failed"
+    );
 
     return getVerificationResult({
       error: `Email validation failed: ${validation.reasons.join(", ")}`,
@@ -112,16 +124,9 @@ export async function sendVerificationEmail(
     });
   }
 
-  if (isDevelopmentMode()) {
-    console.log(`Email validation passed for ${email}:`, {
-      confidence: validation.confidence,
-      reasons: validation.reasons,
-      score: validation.score,
-    });
-  }
-
   const initResult = initializeEmailService();
   if (initResult) {
+    logger.error({ email }, "email service initialization failed");
     return initResult;
   }
 
@@ -134,10 +139,6 @@ export async function sendVerificationEmail(
 
   const verificationUrl = getVerificationUrl(token);
 
-  if (isDevelopmentMode()) {
-    console.log("Development Mode - Verification URL:", verificationUrl);
-  }
-
   try {
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
@@ -147,7 +148,10 @@ export async function sendVerificationEmail(
     });
 
     if (error) {
-      console.error("Resend error:", error);
+      logger.error(
+        { email, error: error.message },
+        "verification email send failed"
+      );
       return getVerificationResult({
         error: error.message || "Failed to send verification email",
         success: false,
@@ -155,6 +159,7 @@ export async function sendVerificationEmail(
       });
     }
 
+    logger.info({ email }, "verification email sent");
     return getVerificationResult({
       success: true,
       verificationUrl,
@@ -165,8 +170,7 @@ export async function sendVerificationEmail(
         ? error.message
         : "Unknown error occurred while sending verification email";
 
-    console.error("Error sending verification email:", error);
-
+    logger.error({ email, error: errorMessage }, "verification email threw");
     return getVerificationResult({
       error: errorMessage,
       success: false,
@@ -179,8 +183,9 @@ export async function sendVerificationOTP(
   email: string,
   otp: string
 ): Promise<EmailResult> {
+  // Skip the DNS MX lookup on the send path (see sendVerificationEmail).
   const validationOptions = {
-    skipMxCheck: false,
+    skipMxCheck: true,
     skipSmtpCheck: true,
     timeout: 5000,
   };
@@ -188,12 +193,16 @@ export async function sendVerificationOTP(
   const validation = await validateEmailAdvanced(email, validationOptions);
 
   if (!validation.isValid) {
-    console.warn(`Email validation failed for ${email}:`, {
-      confidence: validation.confidence,
-      disposable: validation.disposable,
-      reasons: validation.reasons,
-      score: validation.score,
-    });
+    logger.warn(
+      {
+        confidence: validation.confidence,
+        disposable: validation.disposable,
+        email,
+        reasons: validation.reasons,
+        score: validation.score,
+      },
+      "email validation failed (otp)"
+    );
 
     return getVerificationResult({
       error: `Email validation failed: ${validation.reasons.join(", ")}`,
@@ -201,16 +210,9 @@ export async function sendVerificationOTP(
     });
   }
 
-  if (isDevelopmentMode()) {
-    console.log(`Email validation passed for ${email}:`, {
-      confidence: validation.confidence,
-      reasons: validation.reasons,
-      score: validation.score,
-    });
-  }
-
   const initResult = initializeEmailService();
   if (initResult) {
+    logger.error({ email }, "email service initialization failed (otp)");
     return initResult;
   }
 
@@ -219,10 +221,6 @@ export async function sendVerificationOTP(
       error: "Email service not initialized",
       success: false,
     });
-  }
-
-  if (isDevelopmentMode()) {
-    console.log(`Development Mode - OTP for ${email}: ${otp}`);
   }
 
   try {
@@ -234,13 +232,17 @@ export async function sendVerificationOTP(
     });
 
     if (error) {
-      console.error("Resend error:", error);
+      logger.error(
+        { email, error: error.message },
+        "verification otp send failed"
+      );
       return getVerificationResult({
         error: error.message || "Failed to send verification OTP",
         success: false,
       });
     }
 
+    logger.info({ email }, "verification otp sent");
     return getVerificationResult({
       success: true,
     });
@@ -250,8 +252,7 @@ export async function sendVerificationOTP(
         ? error.message
         : "Unknown error occurred while sending verification OTP";
 
-    console.error("Error sending verification OTP:", error);
-
+    logger.error({ email, error: errorMessage }, "verification otp threw");
     return getVerificationResult({
       error: errorMessage,
       success: false,
@@ -273,10 +274,6 @@ export async function sendPasswordResetEmail(
     const baseUrl = getBaseUrl().replace(TRAILING_SLASH_REGEX, "");
     const resetUrl = `${baseUrl}/reset-password/confirm?token=${token}`;
 
-    if (isDevelopmentMode()) {
-      console.log("Reset URL:", resetUrl);
-    }
-
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
       html: await getPasswordResetEmailHtml(resetUrl),
@@ -285,7 +282,10 @@ export async function sendPasswordResetEmail(
     });
 
     if (error) {
-      console.error("Resend error:", error);
+      logger.error(
+        { email, error: error.message },
+        "password reset email send failed"
+      );
       return {
         error: error.message || "Failed to send password reset email",
         resetUrl: isDevelopmentMode() ? resetUrl : undefined,
@@ -293,6 +293,7 @@ export async function sendPasswordResetEmail(
       };
     }
 
+    logger.info({ email }, "password reset email sent");
     return {
       resetUrl: isDevelopmentMode() ? resetUrl : undefined,
       success: true,
@@ -303,7 +304,7 @@ export async function sendPasswordResetEmail(
         ? error.message
         : "Unknown error occurred while sending password reset email";
 
-    console.error("Error sending password reset email:", error);
+    logger.error({ email, error: errorMessage }, "password reset email threw");
     return {
       error: errorMessage,
       success: false,

@@ -1,10 +1,13 @@
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
+import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
 import { procedure, router } from "../../trpc";
 import { auditResetPassword, checkResetPasswordRateLimit } from "../security";
+
+const logger = createLogger({ serviceName: "auth-reset-password" });
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
@@ -72,6 +75,10 @@ export const resetPasswordRouter = router({
             });
 
         if (!user) {
+          logger.info(
+            { identifier },
+            "reset password requested for unknown account"
+          );
           await auditResetPassword({
             identifier,
             ip,
@@ -84,6 +91,11 @@ export const resetPasswordRouter = router({
 
           return { success: true };
         }
+
+        logger.info(
+          { identifier, userId: user.id },
+          "reset password request accepted; email sent by auth service"
+        );
 
         await auditResetPassword({
           identifier,
@@ -137,6 +149,10 @@ export const resetPasswordRouter = router({
         });
 
         if (!verification?.userId) {
+          logger.warn(
+            { token: token.slice(0, 8) },
+            "reset password rejected: invalid or expired token"
+          );
           return {
             error: "Invalid or expired reset token",
             success: false,
@@ -160,6 +176,11 @@ export const resetPasswordRouter = router({
             where: { userId },
           });
         });
+
+        logger.info(
+          { userId: verification.userId },
+          "password reset completed; sessions revoked"
+        );
 
         return { success: true };
       } catch (error) {
