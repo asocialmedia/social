@@ -134,30 +134,31 @@ jobs:
             core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
 
             // The merge push re-triggers the whole workflow, which would re-run
-            // the Lint/Typecheck job that already passed on the PR. Find the
-            // latest completed CI run for this PR and, if it succeeded, let the
-            // quality job skip itself on the merge push.
+            // the Lint/Typecheck job that already passed on the PR. Check the
+            // status of the "Lint and Typecheck" check run on the PR's head
+            // commit and, if it succeeded, let the quality job skip itself.
+            // (Workflow-run pull_requests arrays are frequently empty, so query
+            // check runs by the PR head SHA instead of filtering runs by PR.)
             try {
-              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+              const headSha = mergedPr.head?.sha || mergedPr.merge_commit_sha
+              const checks = await github.rest.checks.listForRef({
                 owner,
                 repo,
-                event: "pull_request",
+                ref: headSha,
                 per_page: 100,
               })
 
-              const prRuns = runs.data.workflow_runs
-                .filter((run) =>
-                  (run.pull_requests || []).some((pr) => pr.number === mergedPr.number)
-                )
-                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-
-              const latest = prRuns.find((run) => run.conclusion !== null) || prRuns[0]
-              const alreadyPassed = Boolean(latest && latest.conclusion === "success")
+              const qualityCheck = checks.data.check_runs.find(
+                (check) => check.name === "Lint and Typecheck"
+              )
+              const alreadyPassed = Boolean(
+                qualityCheck && qualityCheck.conclusion === "success"
+              )
               core.setOutput("quality-already-passed", alreadyPassed ? "true" : "false")
               core.info(
                 alreadyPassed
-                  ? `PR #${mergedPr.number} already passed CI (run ${latest.id}); skipping quality on merge.`
-                  : `PR #${mergedPr.number} has no successful CI run (latest=${latest?.conclusion ?? "none"}); quality will re-run.`
+                  ? `PR #${mergedPr.number} "Lint and Typecheck" already passed (status ${qualityCheck.status}, conclusion ${qualityCheck.conclusion}); skipping quality on merge.`
+                  : `PR #${mergedPr.number} "Lint and Typecheck" did not pass (${qualityCheck?.conclusion ?? "no check run"}); quality will re-run.`
               )
             } catch (error) {
               core.warning(`Failed to check PR CI status: ${error.message}; quality will re-run.`)
