@@ -34,21 +34,35 @@ export async function GET() {
   // the online set is read exactly once per poll instead of once here and once
   // inside getIdleUsers.
   const onlineIds = await getOnlineUsers();
-  const [idleIds, followed] = await Promise.all([
+  const [idleIds, follows] = await Promise.all([
     getIdleUsers(onlineIds),
+    // Presence is mutual: a user is visible to anyone they follow AND anyone
+    // who follows them. DM creation only requires the sender to follow the
+    // recipient (one direction), so gating presence on a single direction
+    // would leave one side seeing "offline" while the other sees "online".
     prisma.follow.findMany({
-      select: { followingId: true },
-      where: { followerId: user.id },
+      select: { followerId: true, followingId: true },
+      where: {
+        OR: [{ followerId: user.id }, { followingId: user.id }],
+      },
     }),
   ]);
-  const followedIds = new Set(followed.map((follow) => follow.followingId));
+  const connectedIds = new Set<string>();
+  for (const follow of follows) {
+    if (follow.followerId !== user.id) {
+      connectedIds.add(follow.followerId);
+    }
+    if (follow.followingId !== user.id) {
+      connectedIds.add(follow.followingId);
+    }
+  }
   const onlineSet = new Set(onlineIds);
   // Online takes precedence over idle; a user is never both. Deriving the
   // visible list from the two (already disjoint) sets avoids the duplicated
   // concatenation the raw arrays would produce.
   const idleSet = new Set(idleIds.filter((id) => !onlineSet.has(id)));
   const visibleIds = [...onlineSet, ...idleSet].filter((id) =>
-    followedIds.has(id)
+    connectedIds.has(id)
   );
 
   if (visibleIds.length === 0) {
