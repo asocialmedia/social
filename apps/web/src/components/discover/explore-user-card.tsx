@@ -8,6 +8,7 @@ import type React from "react";
 
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import { useFollowStates } from "@/hooks/use-follow-states";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -99,12 +100,15 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
         </div>
 
         <div className="mt-2 min-w-0">
-          <Link
-            className="block truncate font-semibold hover:underline"
-            href={`/users/${user.username}`}
-          >
-            {user.displayName}
-          </Link>
+          <div className="flex items-center gap-1">
+            <Link
+              className="block truncate font-semibold hover:underline"
+              href={`/users/${user.username}`}
+            >
+              {user.displayName}
+            </Link>
+            <UserBadge badge={user.badge} />
+          </div>
           <p className="text-muted-foreground truncate text-xs">
             @{user.username}
           </p>

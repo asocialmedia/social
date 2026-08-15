@@ -18,6 +18,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import PostMoreButton from "@/components/posts/post-more-button";
@@ -27,6 +28,7 @@ import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 import GustVoteButton from "./gust-vote-button";
+import { useGustVote } from "./use-gust-vote";
 
 interface GustCardProps {
   isActive: boolean;
@@ -50,12 +52,31 @@ export const GustCard: React.FC<GustCardProps> = ({
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<
     "play" | "pause" | null
   >(null);
-  const [showHeartAnim, setShowHeartAnim] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
+  // flame that drifts up and fades; ids keep them unique so many can be on
+  // screen at once.
+  const [auraBursts, setAuraBursts] = useState<
+    { id: number; x: number; y: number }[]
+  >([]);
+  const burstIdRef = useRef(0);
+  const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+  const authorName = post.user.displayName || post.user.username;
+
+  // Shared vote state so the rail button and the double-tap gesture stay in
+  // sync (same ["vote-info", postId] cache entry).
+  const { amplify } = useGustVote({
+    authorName,
+    initialState: {
+      aura: post.aura,
+      userVote: post.vote?.[0]?.value ?? 0,
+    },
+    postId: post.id,
+  });
 
   useEffect(() => {
     const video = videoRef.current;
@@ -130,19 +151,40 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
   }, [triggerPlayPauseIcon]);
 
-  const handleCardClick = useCallback(() => {
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300;
-
-    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      // Double tap -> trigger flame animation
-      setShowHeartAnim(true);
-      setTimeout(() => setShowHeartAnim(false), 900);
-    } else {
-      togglePlay();
+  const spawnAuraBurst = useCallback((clientX: number, clientY: number) => {
+    const id = (burstIdRef.current += 1);
+    setAuraBursts((prev) => [
+      ...prev.slice(-6),
+      { id, x: clientX, y: clientY },
+    ]);
+    if (burstTimerRef.current) {
+      clearTimeout(burstTimerRef.current);
     }
-    lastTapRef.current = now;
-  }, [togglePlay]);
+    burstTimerRef.current = setTimeout(() => {
+      setAuraBursts([]);
+    }, 900);
+  }, []);
+
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent) => {
+      const now = Date.now();
+      const DOUBLE_TAP_DELAY = 300;
+
+      if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+        // Double tap -> amplify and spawn a floating flame burst at the tap
+        // point. Repeated double-taps keep amplifying (TikTok-style hearts).
+        amplify();
+        // Position the burst relative to the tapped surface so it lands where
+        // the finger hit, not at a viewport-fixed offset.
+        const rect = e.currentTarget.getBoundingClientRect();
+        spawnAuraBurst(e.clientX - rect.left, e.clientY - rect.top);
+      } else {
+        togglePlay();
+      }
+      lastTapRef.current = now;
+    },
+    [amplify, spawnAuraBurst, togglePlay]
+  );
 
   if (!videoMedia) {
     return null;
@@ -150,7 +192,6 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   const thumbUrl = getMediaProxyUrl(videoMedia);
   const videoUrl = `/api/media/${videoMedia.id}`;
-  const authorName = post.user.displayName || post.user.username;
   const canFollow =
     user &&
     user.id !== post.user.id &&
@@ -206,28 +247,37 @@ export const GustCard: React.FC<GustCardProps> = ({
           ) : null}
         </AnimatePresence>
 
-        {/* Double-tap Amplify Burst Animation */}
+        {/* Repeated-tap Aura Bursts: TikTok-style floating flames that tilt by sequence id */}
         <AnimatePresence>
-          {showHeartAnim ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          {auraBursts.map((burst) => {
+            // Each burst tilts slightly based on its sequence id so repeated
+            // taps feel connected rather than identical stamps.
+            const rotation = ((burst.id % 5) - 2) * 8;
+            return (
               <motion.div
                 animate={{
                   opacity: [0, 1, 1, 0],
-                  scale: [0.5, 1.2, 1, 1.4],
-                  y: [0, -30],
+                  rotate: rotation,
+                  scale: [0.4, 1.1, 0.9],
+                  y: [0, -90],
                 }}
-                className="text-primary flex flex-col items-center justify-center drop-shadow-[0_0_25px_rgba(255,149,0,0.8)]"
+                className="pointer-events-none absolute z-10 flex flex-col items-center"
                 exit={{ opacity: 0 }}
-                initial={{ opacity: 0, scale: 0.5 }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
+                initial={{ opacity: 0, rotate: rotation - 4, scale: 0.4 }}
+                key={burst.id}
+                style={{ left: burst.x, top: burst.y }}
+                transition={{ duration: 0.85, ease: "easeOut" }}
               >
-                <Flame className="fill-primary size-24" />
-                <span className="mt-1 text-xl font-black text-white drop-shadow-md">
-                  +AURA
+                <Flame
+                  className="text-primary fill-primary drop-shadow-[0_0_18px_rgba(255,149,0,0.9)]"
+                  size={44}
+                />
+                <span className="text-sm font-black text-white drop-shadow-md">
+                  +1
                 </span>
               </motion.div>
-            </div>
-          ) : null}
+            );
+          })}
         </AnimatePresence>
 
         {/* Bottom scrim so the overlay text stays readable */}
@@ -244,13 +294,26 @@ export const GustCard: React.FC<GustCardProps> = ({
                 />
               </Link>
             </UserTooltip>
-            <div className="min-w-0 flex-1">
-              <Link
-                className="block truncate text-sm font-bold text-white drop-shadow-md hover:underline"
-                href={`/users/${post.user.username}`}
-              >
-                {authorName}
-              </Link>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Link
+                  className="truncate text-sm font-bold text-white drop-shadow-md hover:underline"
+                  href={`/users/${post.user.username}`}
+                >
+                  {authorName}
+                </Link>
+                <UserBadge badge={post.user.badge} />
+                {canFollow ? (
+                  <FollowButton
+                    className="h-7 shrink-0 rounded-full px-3 text-xs"
+                    initialState={{
+                      followers: post.user._count?.followers ?? 0,
+                      isFollowedByUser,
+                    }}
+                    userId={post.user.id}
+                  />
+                ) : null}
+              </div>
               <Link
                 className="block truncate text-xs text-white/80 drop-shadow-md hover:underline"
                 href={`/users/${post.user.username}`}
@@ -258,16 +321,6 @@ export const GustCard: React.FC<GustCardProps> = ({
                 @{post.user.username}
               </Link>
             </div>
-            {canFollow ? (
-              <FollowButton
-                className="h-8 shrink-0 rounded-full px-4 text-xs"
-                initialState={{
-                  followers: post.user._count?.followers ?? 0,
-                  isFollowedByUser,
-                }}
-                userId={post.user.id}
-              />
-            ) : null}
           </div>
 
           {post.content ? (

@@ -12,6 +12,7 @@ export function getUserDataSelect(loggedInUserId: string) {
     aura: true,
     avatarKey: true,
     avatarUrl: true,
+    badge: true,
     bannerKey: true,
     bannerUrl: true,
     bio: true,

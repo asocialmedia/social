@@ -7,11 +7,6 @@ export interface ServiceSnapshot {
   State?: string;
 }
 
-export interface OneShotStatus {
-  exists: boolean;
-  status: string;
-}
-
 export interface CacheShape {
   checks: Record<
     string,
@@ -30,7 +25,6 @@ export interface PreflightConfig {
 
 export type PreflightCheckKey =
   | "services"
-  | "init-jobs"
   | "postgres"
   | "redis"
   | "asmob"
@@ -49,7 +43,6 @@ export const PREFLIGHT_CHECK_ORDER: {
   label: string;
 }[] = [
   { key: "services", label: "svc" },
-  { key: "init-jobs", label: "init" },
   { key: "postgres", label: "pg" },
   { key: "redis", label: "rd" },
   { key: "asmob", label: "obj" },
@@ -192,20 +185,6 @@ export function getMissingBuckets(
   requiredBuckets: string[]
 ) {
   return requiredBuckets.filter((bucket) => !buckets.includes(bucket));
-}
-
-export function areInitJobsComplete(
-  schemaInit: OneShotStatus,
-  objectInit: OneShotStatus
-) {
-  if (!(schemaInit.exists && objectInit.exists)) {
-    return false;
-  }
-
-  return (
-    schemaInit.status.startsWith("Exited (0)") &&
-    objectInit.status.startsWith("Exited (0)")
-  );
 }
 
 export function buildRuntimeFingerprint(snapshots: ServiceSnapshot[]) {

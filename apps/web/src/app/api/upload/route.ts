@@ -99,6 +99,7 @@ export async function POST(request: Request) {
       thumbnailWidth,
       type: upload.type as MediaType,
       url: upload.url,
+      userId: user.id,
       width,
     },
   });

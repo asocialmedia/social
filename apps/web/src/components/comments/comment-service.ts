@@ -100,6 +100,32 @@ export async function createComment(
   }
 
   const comment = await prisma.$transaction(async (tx) => {
+    // Eddies carry images and GIFs only, uploaded by the commenter. A crafted
+    // request could attach another user's media, a video, or a stale id, so
+    // verify every requested id is owned by the caller and is a raster image,
+    // and that the returned set exactly matches what was asked for.
+    if (mediaIdsValidated.length > 0) {
+      const attachedMedia = await tx.media.findMany({
+        select: { id: true, mimeType: true, type: true, userId: true },
+        where: { id: { in: mediaIdsValidated } },
+      });
+      const foundIds = new Set(attachedMedia.map((m) => m.id));
+      const allFound = mediaIdsValidated.every((id) => foundIds.has(id));
+      if (!allFound || attachedMedia.length !== mediaIdsValidated.length) {
+        throw new Error("Eddies support images and GIFs only");
+      }
+      const disallowed = attachedMedia.some(
+        (media) =>
+          media.type === "VIDEO" ||
+          !media.mimeType.startsWith("image/") ||
+          media.mimeType === "image/svg+xml" ||
+          (media.userId !== null && media.userId !== params.userId)
+      );
+      if (disallowed) {
+        throw new Error("Eddies support images and GIFs only");
+      }
+    }
+
     const created = await tx.comment.create({
       data: {
         attachments: mediaIdsValidated.length

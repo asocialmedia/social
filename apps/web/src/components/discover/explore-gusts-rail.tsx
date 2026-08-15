@@ -2,12 +2,13 @@
 
 import type { PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { ChevronRight, Clapperboard, Eye, Flame, Play } from "lucide-react";
+import { ChevronRight, Clapperboard, Eye, Flame } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useRef, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -74,7 +75,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
 
   return (
     <Link
-      className="group relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl bg-neutral-900 shadow-sm transition-all duration-300 hover:scale-[1.03] hover:shadow-xl sm:w-44"
+      className="group relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl bg-neutral-900 shadow-sm sm:w-44"
       href={`/gusts?id=${gust.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -113,18 +114,6 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
         <span className="text-[10px] font-bold">Gust</span>
       </div>
 
-      {/* Center Play indicator on hover */}
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200",
-          isPlaying ? "opacity-0" : "opacity-0 group-hover:opacity-100"
-        )}
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md">
-          <Play className="ml-0.5 size-5 fill-white text-white" />
-        </div>
-      </div>
-
       {/* Bottom gradient overlay */}
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/40 to-transparent p-2.5 pt-6 text-white">
         <div className="flex items-center gap-1.5">
@@ -135,6 +124,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
           <span className="truncate text-xs font-semibold text-white/95">
             @{gust.user.username}
           </span>
+          <UserBadge badge={gust.user.badge} />
         </div>
 
         {gust.content ? (

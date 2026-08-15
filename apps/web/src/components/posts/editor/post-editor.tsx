@@ -8,6 +8,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import { Hash, Loader2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import { useDropzone } from "react-dropzone";
@@ -59,6 +60,7 @@ export default function PostEditor({
   variant?: "feed" | "modal";
 }) {
   const { user } = useSession();
+  const router = useRouter();
   const mutation = useSubmitPostMutation();
   const hnShareStore = useHnShareStore();
   const sharedHnStory = hnShareStore.story;
@@ -149,6 +151,16 @@ export default function PostEditor({
     isGust &&
     (gustWordCount > GUST_CAPTION_MAX_WORDS ||
       input.length > GUST_CAPTION_MAX_CHARS);
+  // Show the counter once the caption reaches 80% of either limit (or is over).
+  const gustCaptionNearLimit =
+    isGust &&
+    (gustWordCount >= GUST_CAPTION_MAX_WORDS * 0.8 ||
+      input.length >= GUST_CAPTION_MAX_CHARS * 0.8);
+  // A gust is not publishable until a video is attached (fresh blob or a
+  // restored upload with a stored video type).
+  const hasGustVideo = attachments.some((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("video/")
+  );
 
   const removeTag = useCallback((tagName: string) => {
     setSelectedTags((prev) => prev.filter((t) => t !== tagName));
@@ -184,7 +196,6 @@ export default function PostEditor({
     const gustMediaIds = attachments
       .map((a) => a.mediaId)
       .filter((id): id is string => Boolean(id));
-    const hasVideo = attachments.some((a) => a.file.type.startsWith("video/"));
 
     if (isGust && gustMediaIds.length === 0) {
       return;
@@ -218,7 +229,7 @@ export default function PostEditor({
     if (!(payload.content || isHnSharing)) {
       return;
     }
-    if (isGust && !hasVideo) {
+    if (isGust && !hasGustVideo) {
       return;
     }
     if (isGust && gustCaptionExceeded) {
@@ -226,7 +237,7 @@ export default function PostEditor({
     }
 
     mutation.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (newPost) => {
         editor?.commands.clearContent();
         setInputText("");
         resetMediaUploads();
@@ -234,6 +245,11 @@ export default function PostEditor({
         setSelectedMentions([]);
         if (isHnSharing) {
           hnShareStore.clearState();
+        }
+        // A gust is not a home-feed post; take the user to the reels feed
+        // where their new clip is the active one.
+        if (newPost?.isGust) {
+          router.push(`/gusts?id=${newPost.id}`);
         }
       },
     });
@@ -250,6 +266,8 @@ export default function PostEditor({
     hnShareStore,
     isGust,
     gustCaptionExceeded,
+    hasGustVideo,
+    router,
   ]);
 
   useEffect(() => {
@@ -298,6 +316,10 @@ export default function PostEditor({
           </motion.div>
         </div>
         <div className="w-full min-w-0">
+          {/* Mobile-only mode switcher above the editor so the Post button stays on screen */}
+          <div className="mb-3 flex md:hidden">
+            <ModeToggle isGust={isGust} />
+          </div>
           {(selectedTags.length > 0 || selectedMentions.length > 0) && (
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
               {selectedTags.map((tag) => (
@@ -394,26 +416,25 @@ export default function PostEditor({
 
           {isGust ? (
             <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-primary flex items-center gap-1.5 font-medium">
-                {attachments.some((a) => a.file.type.startsWith("video/")) ? (
-                  "Video attached, ready to gust!"
-                ) : (
-                  <span className="text-muted-foreground">
-                    Attach a video to publish a gust
-                  </span>
-                )}
-              </span>
-              <span
-                className={cn(
-                  "font-medium tabular-nums",
-                  gustCaptionExceeded
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-                )}
-              >
-                {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words · {input.length}/
-                {GUST_CAPTION_MAX_CHARS} chars
-              </span>
+              {hasGustVideo ? null : (
+                <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                  Attach a video to publish a gust
+                </span>
+              )}
+              {/* Counter appears only near/over the word or char limit */}
+              {gustCaptionNearLimit ? (
+                <span
+                  className={cn(
+                    "font-medium tabular-nums",
+                    gustCaptionExceeded
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words ·{" "}
+                  {input.length}/{GUST_CAPTION_MAX_CHARS} chars
+                </span>
+              ) : null}
             </div>
           ) : null}
 
@@ -447,7 +468,9 @@ export default function PostEditor({
             </div>
 
             <div className="flex items-center gap-2">
-              <ModeToggle isGust={isGust} />
+              <div className="hidden md:flex">
+                <ModeToggle isGust={isGust} />
+              </div>
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -458,10 +481,7 @@ export default function PostEditor({
                     !(input.trim() || isHnSharing) ||
                     isUploading ||
                     (isGust && gustCaptionExceeded) ||
-                    (isGust &&
-                      !attachments.some((a) =>
-                        a.file.type.startsWith("video/")
-                      ))
+                    (isGust && !hasGustVideo)
                   }
                   loading={mutation.isPending}
                   onClick={onSubmit}
@@ -486,6 +506,7 @@ export default function PostEditor({
           >
             <AttachmentPreviews
               attachments={attachments}
+              isGust={isGust}
               removeAttachment={removeAttachment}
             />
           </motion.div>
@@ -497,50 +518,70 @@ export default function PostEditor({
 
 interface AttachmentPreviewsProps {
   attachments: Attachment[];
+  isGust: boolean;
   removeAttachment: (fileName: string) => void;
 }
 
 const AttachmentPreviews = ({
   attachments,
+  isGust,
   removeAttachment,
 }: AttachmentPreviewsProps) => {
   const handleRemoveClick = useCallback(
     (attachment: Attachment) => () => {
-      removeAttachment(attachment.file.name);
+      removeAttachment(attachment.file?.name ?? attachment.name ?? "");
     },
     [removeAttachment]
   );
+
+  // Image-only batches group into a tighter grid once there are enough of
+  // them; videos (gusts) stay as single full-width tiles.
+  const imageCount = attachments.filter((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("image/")
+  ).length;
+  const showTightGrid =
+    attachments.length >= 3 && imageCount === attachments.length;
 
   return (
     <motion.div
       animate="visible"
       className={cn(
         "flex flex-col gap-3",
-        attachments.length > 1 && "sm:grid sm:grid-cols-2"
+        showTightGrid
+          ? "grid grid-cols-3 gap-2"
+          : attachments.length > 1 && "sm:grid sm:grid-cols-2"
       )}
       initial="hidden"
       variants={containerVariants}
     >
-      {attachments.map((attachment, index) => (
-        <motion.div
-          animate={{ opacity: 1, scale: 1 }}
-          custom={index}
-          exit={{ opacity: 0, scale: 0.8 }}
-          initial={{ opacity: 0, scale: 0.8 }}
-          key={attachment.file.name}
-          layoutId={attachment.file.name}
-          transition={{
-            duration: 0.2,
-            layout: { duration: 0.2 },
-          }}
-          variants={itemVariants}
-        >
-          <AttachmentPreview
-            attachment={attachment}
-            onRemoveClick={handleRemoveClick(attachment)}
-          />
-        </motion.div>
-      ))}
+      {attachments.map((attachment, index) => {
+        const attachmentKey =
+          attachment.file?.name ??
+          attachment.mediaId ??
+          attachment.name ??
+          `attachment-${index}`;
+        return (
+          <motion.div
+            animate={{ opacity: 1, scale: 1 }}
+            custom={index}
+            exit={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: 0.8 }}
+            key={attachmentKey}
+            layoutId={attachmentKey}
+            transition={{
+              duration: 0.2,
+              layout: { duration: 0.2 },
+            }}
+            variants={itemVariants}
+          >
+            <AttachmentPreview
+              attachment={attachment}
+              isGust={isGust}
+              onRemoveClick={handleRemoveClick(attachment)}
+            />
+          </motion.div>
+        );
+      })}
     </motion.div>
   );
 };
@@ -605,7 +646,7 @@ const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
   return (
     <div className="flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]">
       <button
-        aria-label="Create a post"
+        aria-label="Create a fleet post"
         aria-pressed={!isGust}
         className={cn(
           "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
@@ -614,7 +655,7 @@ const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
         onClick={() => setMode("post")}
         type="button"
       >
-        Post
+        Fleets
       </button>
       <button
         aria-label="Create a gust"

@@ -6,6 +6,7 @@ import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
+import { applyAuraToCaches, applyCommentAuraToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
@@ -88,39 +89,29 @@ export default function AuraVoteButton({
     onMutate: async (newVote) => {
       await queryClient.cancelQueries({ queryKey });
       const previousState = queryClient.getQueryData<VoteInfo>(queryKey);
-      queryClient.setQueryData<VoteInfo>(queryKey, (old) => {
-        if (!old) {
-          return old;
-        }
-        const voteChange = calculateVoteChange(old.userVote, newVote);
-        return {
-          aura: old.aura + voteChange,
-          userVote: newVote === old.userVote ? 0 : newVote,
-        };
+      const voteChange = calculateVoteChange(
+        previousState?.userVote ?? 0,
+        newVote
+      );
+      const optimisticAura = (previousState?.aura ?? 0) + voteChange;
+      const optimisticUserVote =
+        newVote === previousState?.userVote ? 0 : newVote;
+      queryClient.setQueryData<VoteInfo>(queryKey, {
+        aura: optimisticAura,
+        userVote: optimisticUserVote,
       });
 
-      // Comment votes don't change the post's aura, so only mirror the
-      // optimistic state into the single-post cache for actual post votes.
-      if (!isComment) {
-        queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
-          if (!oldPost || typeof oldPost !== "object") {
-            return oldPost;
-          }
-          const currentPost = oldPost as {
-            aura: number;
-            vote: { userId: string; value: number }[];
-          };
-          const voteChange = calculateVoteChange(
-            currentPost.vote[0]?.value || 0,
-            newVote
-          );
-          return {
-            ...currentPost,
-            aura: currentPost.aura + voteChange,
-            vote:
-              newVote === 0 ? [] : [{ userId: "currentUser", value: newVote }],
-          };
-        });
+      // Comment votes only touch the comment's aura; post votes update the
+      // post's cached vote state too.
+      if (commentId) {
+        applyCommentAuraToCaches(queryClient, commentId, optimisticAura);
+      } else {
+        applyAuraToCaches(
+          queryClient,
+          postId,
+          optimisticAura,
+          optimisticUserVote
+        );
       }
       return { previousState };
     },
@@ -132,26 +123,16 @@ export default function AuraVoteButton({
         userVote: serverResponse.userVote,
       });
 
-      // Keep the single-post cache in sync with the confirmed server state
-      // (comment votes don't touch the post's aura).
-      if (!isComment) {
-        queryClient.setQueryData(["post", postId], (oldPost: unknown) => {
-          if (!oldPost || typeof oldPost !== "object") {
-            return oldPost;
-          }
-          const currentPost = oldPost as {
-            aura: number;
-            vote: { userId: string; value: number }[];
-          };
-          return {
-            ...currentPost,
-            aura: serverResponse.aura,
-            vote:
-              serverResponse.userVote === 0
-                ? []
-                : [{ userId: "currentUser", value: serverResponse.userVote }],
-          };
-        });
+      // Keep every cached shape in sync with the confirmed server state.
+      if (commentId) {
+        applyCommentAuraToCaches(queryClient, commentId, serverResponse.aura);
+      } else {
+        applyAuraToCaches(
+          queryClient,
+          postId,
+          serverResponse.aura,
+          serverResponse.userVote
+        );
       }
 
       const previousVote = data.userVote;

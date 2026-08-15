@@ -8,6 +8,7 @@ import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 
 const QUERY_KEYS = {
+  followStates: ["follow-states"],
   followerInfo: (userId: string) => ["follower-info", userId],
   suggestedUsers: ["suggested-users"],
   user: (userId: string) => ["user", userId],
@@ -149,6 +150,7 @@ export function useFollowUserMutation() {
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.userProfile(userId),
         }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followStates }),
       ]);
     },
 
@@ -263,6 +265,7 @@ export function useUnfollowUserMutation() {
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.userProfile(userId),
         }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followStates }),
       ]);
     },
 

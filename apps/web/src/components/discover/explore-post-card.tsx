@@ -7,6 +7,7 @@ import Link from "next/link";
 import type React from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -78,6 +79,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
             <span className="truncate text-xs font-medium">
               {post.user.displayName || post.user.username}
             </span>
+            <UserBadge badge={post.user.badge} />
           </div>
         </div>
       </Link>

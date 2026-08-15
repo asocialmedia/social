@@ -90,6 +90,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         fill
         sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 280px"
         src={thumbUrl}
+        unoptimized
       />
 
       {/* Video Preview on Hover */}

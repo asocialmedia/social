@@ -1,6 +1,13 @@
-import { FileAudioIcon, FileCode, FileIcon, X } from "lucide-react";
+import {
+  FileAudioIcon,
+  FileCode,
+  FileIcon,
+  Pause,
+  Play,
+  X,
+} from "lucide-react";
 import Image from "next/image";
-import { memo, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
@@ -8,35 +15,76 @@ import { cn } from "@/lib/utils";
 
 interface AttachmentPreviewProps {
   attachment: {
-    file: File;
+    file?: File;
     isUploading: boolean;
+    mediaUrl?: string;
+    name?: string;
     previewUrl?: string;
+    progress?: number;
+    type?: string;
   };
+  isGust?: boolean;
   onRemoveClick: () => void;
 }
 
+const PROGRESS_BAR_3D =
+  "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.5),0_1px_2px_rgba(0,0,0,0.25)]";
+
 const AttachmentPreviewInner = ({
-  attachment: { file, isUploading, previewUrl: existingPreviewUrl },
+  attachment: {
+    file,
+    isUploading,
+    mediaUrl,
+    name,
+    progress,
+    previewUrl: existingPreviewUrl,
+    type: fileType,
+  },
+  isGust = false,
   onRemoveClick,
 }: AttachmentPreviewProps) => {
-  const [objectUrl, setObjectUrl] = useState<string>(existingPreviewUrl || "");
-  const fileName = file.name;
+  const [objectUrl, setObjectUrl] = useState<string>(
+    existingPreviewUrl || mediaUrl || ""
+  );
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // Restored attachments carry a name but no File; fresh ones use file.name.
+  const fileName = name || file?.name || "attachment";
+  const mimeType = fileType || file?.type || "";
 
   useEffect(() => {
-    if (!existingPreviewUrl) {
+    // Fresh uploads preview from a blob; restored ones already have a media
+    // URL so there is nothing to create.
+    if (file && !existingPreviewUrl && !mediaUrl) {
       const url = URL.createObjectURL(file);
       // eslint-disable-next-line react-compiler -- object URLs must be created after mount
       setObjectUrl(url);
       return () => URL.revokeObjectURL(url);
     }
-  }, [file, existingPreviewUrl]);
+  }, [file, existingPreviewUrl, mediaUrl]);
+
+  const handleTogglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    if (video.paused) {
+      void video.play();
+    } else {
+      video.pause();
+    }
+  }, []);
+
+  // Gust clips are 9:16 portrait; regular video attachments follow the
+  // standard post aspect.
+  const videoAspect = isGust ? "aspect-[9/16]" : "aspect-[16/9]";
 
   const renderPreview = () => {
     if (!objectUrl) {
       return null;
     }
 
-    if (file.type.startsWith("image")) {
+    if (mimeType.startsWith("image")) {
       return (
         <div className="bg-primary/5 relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden rounded-2xl">
           <Image
@@ -51,9 +99,9 @@ const AttachmentPreviewInner = ({
     }
 
     if (
-      file.type.startsWith("text/") ||
-      file.type === "application/json" ||
-      file.type === "application/xml"
+      mimeType.startsWith("text/") ||
+      mimeType === "application/json" ||
+      mimeType === "application/xml"
     ) {
       const language = getLanguageFromFileName(fileName);
       return (
@@ -75,23 +123,63 @@ const AttachmentPreviewInner = ({
       );
     }
 
-    if (file.type.startsWith("video")) {
+    if (mimeType.startsWith("video")) {
+      // Custom preview player: a poster-style frame with a bespoke play/pause
+      // overlay instead of the browser's default controls. The icon flips to a
+      // pause mark while the clip is playing.
       return (
-        <div className="bg-primary/5 relative aspect-[16/9] w-full overflow-hidden rounded-2xl">
+        <div
+          className={cn(
+            "bg-primary/5 group/video relative w-full max-w-md overflow-hidden rounded-2xl",
+            videoAspect
+          )}
+        >
           {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded preview, no caption source available */}
           <video
-            className="h-full w-full object-cover"
-            controls
+            className="absolute inset-0 h-full w-full object-cover"
+            loop
+            onPause={() => setIsPlaying(false)}
+            onPlay={() => setIsPlaying(true)}
+            playsInline
             preload="metadata"
+            ref={videoRef}
           >
-            <source src={objectUrl} type={file.type} />
+            <source src={objectUrl} type={mimeType} />
             Your browser does not support the video tag.
           </video>
+
+          {/* Bespoke play/pause control */}
+          <button
+            aria-label={isPlaying ? "Pause video" : "Play video"}
+            className="absolute inset-0 z-10 flex h-full w-full items-center justify-center border-0 bg-transparent"
+            onClick={handleTogglePlay}
+            type="button"
+          >
+            <span
+              className={cn(
+                "flex h-14 w-14 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md transition-all duration-200",
+                isPlaying
+                  ? "scale-90 opacity-0 group-hover/video:opacity-100"
+                  : "opacity-100"
+              )}
+            >
+              {isPlaying ? (
+                <Pause className="size-6 fill-white text-white" />
+              ) : (
+                <Play className="ml-0.5 size-6 fill-white text-white" />
+              )}
+            </span>
+          </button>
+
+          {/* File name chip for context */}
+          <span className="absolute bottom-2 left-2 z-10 max-w-[80%] truncate rounded-full bg-black/50 px-2.5 py-0.5 text-xs text-white/90 backdrop-blur-md">
+            {formatFileName(fileName)}
+          </span>
         </div>
       );
     }
 
-    if (file.type.startsWith("audio")) {
+    if (mimeType.startsWith("audio")) {
       return (
         <div className="bg-primary/5 w-full rounded-2xl p-6">
           <div className="flex flex-col items-center gap-4">
@@ -105,7 +193,7 @@ const AttachmentPreviewInner = ({
             </div>
             {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded preview, no caption source available */}
             <audio className="w-full max-w-md" controls preload="metadata">
-              <source src={objectUrl} type={file.type} />
+              <source src={objectUrl} type={mimeType} />
               Your browser does not support the audio element.
             </audio>
           </div>
@@ -124,7 +212,7 @@ const AttachmentPreviewInner = ({
               {formatFileName(fileName)}
             </p>
             <p className="text-muted-foreground text-center text-xs">
-              {file.type || "Document"}
+              {mimeType || "Document"}
             </p>
           </div>
         </div>
@@ -133,17 +221,39 @@ const AttachmentPreviewInner = ({
   };
 
   return (
-    <div
-      className={cn(
-        "relative w-full transition-opacity duration-200",
-        isUploading && "opacity-50"
-      )}
-    >
-      {renderPreview()}
-      {!isUploading && (
+    <div className="relative w-full">
+      {/* Dim the asset while it is still uploading */}
+      <div
+        className={cn(
+          "transition-opacity duration-200",
+          isUploading && "opacity-50"
+        )}
+      >
+        {renderPreview()}
+      </div>
+
+      {/* 3D progress bar below the asset while uploading */}
+      {isUploading ? (
+        <div className="mt-2 flex items-center gap-3">
+          <div
+            className={cn(
+              "relative h-2 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10",
+              PROGRESS_BAR_3D
+            )}
+          >
+            <div
+              className="h-full rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500] transition-[width] duration-150 ease-linear"
+              style={{ width: `${progress ?? 0}%` }}
+            />
+          </div>
+          <span className="text-muted-foreground w-9 text-right text-xs font-semibold tabular-nums">
+            {progress ?? 0}%
+          </span>
+        </div>
+      ) : (
         <button
           aria-label="Remove attachment"
-          className="bg-foreground text-background hover:bg-foreground/60 focus:ring-primary absolute top-3 right-3 rounded-full p-1.5 transition-colors focus:ring-2 focus:outline-hidden"
+          className="bg-foreground text-background hover:bg-foreground/60 focus:ring-primary absolute top-3 right-3 z-20 rounded-full p-1.5 transition-colors focus:ring-2 focus:outline-hidden"
           onClick={onRemoveClick}
           type="button"
         >

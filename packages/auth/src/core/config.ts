@@ -223,6 +223,16 @@ export function createAuthConfig(config: AuthConfig = {}) {
         ? [
             emailOTP({
               allowedAttempts: 3,
+              changeEmail: {
+                enabled: true,
+                // The web route verifies the *current* email itself (sending an
+                // OTP to the user's existing address and confirming it) before
+                // starting the change. Keeping this false lets accounts without
+                // an email (Reddit signups) use the same flow to add a recovery
+                // address, while accounts that have an email are still forced
+                // through current-email verification by the route.
+                verifyCurrentEmail: false,
+              },
               expiresIn: 300,
               otpLength: 6,
               overrideDefaultEmailVerification: true,
@@ -368,13 +378,49 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       user: {
         create: {
-          // oxlint-disable-next-line unicorn/require-await
           before: async (user) => {
             // Assign a random default avatar at creation time (not in `after`,
             // which would miss the session returned to the client on signup).
             const authBase = env.APP_URL ?? "https://social.localhost";
             const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
-            return { data: { ...user, avatarUrl } };
+
+            // Email signup validates username availability before creating the
+            // user, but OAuth accounts derive a username from the profile and
+            // could collide with an existing one (the column is UNIQUE). Append
+            // a numeric suffix until the name is free so a Google/Reddit signup
+            // never fails on a taken handle.
+            let data: Record<string, unknown> = { ...user, avatarUrl };
+            const requestedUsername =
+              typeof data.username === "string" && data.username.trim()
+                ? data.username.trim()
+                : null;
+            if (requestedUsername) {
+              const base = requestedUsername;
+              let candidate = base;
+              let attempt = 2;
+              const MAX_ATTEMPTS = 50;
+              for (;;) {
+                // oxlint-disable-next-line no-await-in-loop -- uniqueness is probed one candidate at a time
+                const existing = await prisma.user.findFirst({
+                  select: { id: true },
+                  where: {
+                    username: { equals: candidate, mode: "insensitive" },
+                  },
+                });
+                if (!existing) {
+                  break;
+                }
+                candidate = `${base}${attempt}`;
+                attempt += 1;
+                if (attempt > MAX_ATTEMPTS) {
+                  candidate = `${base}-${Date.now().toString(36)}`;
+                  break;
+                }
+              }
+              data = { ...data, username: candidate };
+            }
+
+            return { data };
           },
         },
       },

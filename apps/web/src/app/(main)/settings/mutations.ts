@@ -16,6 +16,11 @@ const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
 });
 
+const verifyEmailSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  otp: z.string().min(4, "Please enter the verification code"),
+});
+
 export function useUpdateUsername() {
   const queryClient = useQueryClient();
 
@@ -72,6 +77,54 @@ export function useUpdateEmail() {
       queryClient.invalidateQueries({ queryKey: ["session"] });
       queryClient.invalidateQueries({ queryKey: ["user"] });
       queryClient.invalidateQueries({ queryKey: ["userData"] });
+    },
+  });
+}
+
+export function useVerifyEmailChange() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (values: z.infer<typeof verifyEmailSchema>) => {
+      const response = await fetch("/api/users/email/verify", {
+        body: JSON.stringify(values),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Verification failed");
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["session"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
+      queryClient.invalidateQueries({ queryKey: ["userData"] });
+    },
+  });
+}
+
+export function useSendCurrentEmailCode() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/users/email/send-code", {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to send code");
+      }
+
+      return response.json();
     },
   });
 }

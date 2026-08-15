@@ -414,17 +414,19 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
             height: pullDistance > 0 || isRefreshing ? pullDistance : 0,
             opacity: pullDistance > 0 || isRefreshing ? 1 : 0,
           }}
-          className="absolute top-2 right-0 left-0 z-20 flex items-center justify-center overflow-hidden"
+          className="absolute top-2 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
           style={{ height: pullDistance || 0 }}
         >
-          {isRefreshing ? (
-            <Loader2 className="text-primary size-6 animate-spin" />
-          ) : (
-            <Loader2
-              className="text-primary size-6"
-              style={{ transform: `rotate(${pullDistance * 2}deg)` }}
-            />
-          )}
+          <div className="rail-3d-btn mt-1 flex h-10 w-10 items-center justify-center rounded-full">
+            {isRefreshing ? (
+              <Loader2 className="text-primary size-5 animate-spin" />
+            ) : (
+              <Loader2
+                className="text-primary size-5"
+                style={{ transform: `rotate(${pullDistance * 2}deg)` }}
+              />
+            )}
+          </div>
         </motion.div>
 
         {/* New gust pill */}

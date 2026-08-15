@@ -2,7 +2,7 @@
 
 import type { UserData } from "@asm/db";
 import { formatDate } from "date-fns";
-import { BadgeCheck, CalendarDays, Flame } from "lucide-react";
+import { CalendarDays, Flame } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { IconType } from "react-icons";
@@ -11,6 +11,7 @@ import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { formatNumber } from "@/lib/utils";
@@ -146,7 +147,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         <div className="mt-3">
           <h1 className="flex items-center gap-1.5 text-xl font-bold sm:text-2xl">
             {liveUserData.displayName || liveUserData.username}
-            <BadgeCheck className="text-primary size-5 shrink-0" />
+            <UserBadge badge={liveUserData.badge} />
           </h1>
           <p className="text-muted-foreground">@{liveUserData.username}</p>
         </div>

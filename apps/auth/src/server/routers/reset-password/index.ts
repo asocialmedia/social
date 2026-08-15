@@ -1,10 +1,35 @@
+import { createHash } from "node:crypto";
+
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
+import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
 import { procedure, router } from "../../trpc";
 import { auditResetPassword, checkResetPasswordRateLimit } from "../security";
+
+const logger = createLogger({ serviceName: "auth-reset-password" });
+
+// Non-reversible correlation value for a reset token (never log the token or
+// a readable fragment of it).
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
+// Redact PII from logs: email identifiers keep only their first char + domain;
+// usernames are hashed so they are still correlatable without being stored raw.
+function redactIdentifier(value: string): string {
+  if (EMAIL_REGEX.test(value)) {
+    const [local, domain] = value.split("@");
+    if (!domain) {
+      return "***";
+    }
+    const head = local.length > 1 ? local.slice(0, 1) : local;
+    return `${head}***@${domain}`;
+  }
+  return `${value.slice(0, 2)}***`;
+}
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
@@ -72,6 +97,10 @@ export const resetPasswordRouter = router({
             });
 
         if (!user) {
+          logger.info(
+            { identifier: redactIdentifier(identifier) },
+            "reset password requested for unknown account"
+          );
           await auditResetPassword({
             identifier,
             ip,
@@ -84,6 +113,11 @@ export const resetPasswordRouter = router({
 
           return { success: true };
         }
+
+        logger.info(
+          { identifier: redactIdentifier(identifier), userId: user.id },
+          "reset password request accepted; email sent by auth service"
+        );
 
         await auditResetPassword({
           identifier,
@@ -137,6 +171,10 @@ export const resetPasswordRouter = router({
         });
 
         if (!verification?.userId) {
+          logger.warn(
+            { tokenHash: hashToken(token) },
+            "reset password rejected: invalid or expired token"
+          );
           return {
             error: "Invalid or expired reset token",
             success: false,
@@ -160,6 +198,11 @@ export const resetPasswordRouter = router({
             where: { userId },
           });
         });
+
+        logger.info(
+          { userId: verification.userId },
+          "password reset completed; sessions revoked"
+        );
 
         return { success: true };
       } catch (error) {

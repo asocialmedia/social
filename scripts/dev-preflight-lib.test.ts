@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  areInitJobsComplete,
   buildPreflightProgressLine,
   buildRuntimeFingerprint,
   computeCacheDigest,
@@ -178,22 +177,6 @@ describe("output validators", () => {
 
     expect(missing).toEqual(["temp", "backups"]);
   });
-
-  test("checks one-shot init completion", () => {
-    expect(
-      areInitJobsComplete(
-        { exists: true, status: "Exited (0) 2 minutes ago" },
-        { exists: true, status: "Exited (0) 1 minute ago" }
-      )
-    ).toBe(true);
-
-    expect(
-      areInitJobsComplete(
-        { exists: false, status: "" },
-        { exists: true, status: "Exited (0) 1 minute ago" }
-      )
-    ).toBe(false);
-  });
 });
 
 describe("cache and fingerprint helpers", () => {
@@ -244,7 +227,7 @@ describe("preflight ui helpers", () => {
     ]);
 
     expect(buildPreflightProgressLine(states)).toBe(
-      "preflight svc:ok init:wait pg:... rd:wait obj:wait ozo:wait ptl:cache"
+      "preflight svc:ok pg:... rd:wait obj:wait ozo:wait ptl:cache"
     );
   });
 });

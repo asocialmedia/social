@@ -6,7 +6,6 @@ import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { authClient } from "@/lib/auth";
 import { authInternalHeaders } from "@/lib/auth-internal";
 
 async function makePasswordResetRequest(
@@ -139,21 +138,34 @@ export async function requestPasswordReset(
       return { success: true };
     }
 
-    // @ts-expect-error: TODO: Fix types
-    await authClient.forgetPassword({
-      email,
-      fetchOptions: {
-        onError: (error: unknown) => {
-          debugLog.api("Password reset request error", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          throw new Error("Failed to process password reset request");
-        },
-        onSuccess: () => {
-          // Password reset email sent successfully
-        },
-      },
-    });
+    // The auth service is the only party that can hand out a password reset
+    // token and mail the reset link. Send the request to the better-auth
+    // endpoint directly (authClient.forgetPassword targets a deprecated path
+    // that 404s), with the shared internal secret for the server-to-server hop.
+    const authBase = process.env.NEXT_PUBLIC_AUTH_URL;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const response = await fetch(
+        `${authBase}/api/auth/request-password-reset`,
+        {
+          body: JSON.stringify({ email }),
+          headers: authInternalHeaders({ "Content-Type": "application/json" }),
+          method: "POST",
+          signal: controller.signal,
+        }
+      );
+
+      if (!response.ok) {
+        debugLog.api("Password reset request error", {
+          status: response.status,
+        });
+        throw new Error("Failed to process password reset request");
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     return { success: true };
   } catch (error) {
@@ -173,21 +185,25 @@ export async function resetPassword(
   try {
     const { token, password } = resetPasswordSchema.parse(data);
 
-    await authClient.resetPassword({
-      fetchOptions: {
-        onError: (error) => {
-          debugLog.api("Password reset error", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          throw new Error("Failed to reset password");
-        },
-        onSuccess: () => {
-          // Password reset successfully
-        },
-      },
-      newPassword: password,
-      token,
-    });
+    const authBase = process.env.NEXT_PUBLIC_AUTH_URL;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const response = await fetch(`${authBase}/api/auth/reset-password`, {
+        body: JSON.stringify({ newPassword: password, token }),
+        headers: authInternalHeaders({ "Content-Type": "application/json" }),
+        method: "POST",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        debugLog.api("Password reset error", { status: response.status });
+        throw new Error("Failed to reset password");
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     return { success: true };
   } catch (error) {

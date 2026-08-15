@@ -18,6 +18,7 @@ import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
 import LoadingButton from "@/components/auth/loading-button";
+import AddEmailBanner from "@/components/settings/add-email-banner";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
 import {
@@ -28,7 +29,12 @@ import {
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
-import { useUpdateEmail, useUpdateUsername } from "../mutations";
+import {
+  useSendCurrentEmailCode,
+  useUpdateEmail,
+  useUpdateUsername,
+  useVerifyEmailChange,
+} from "../mutations";
 
 const usernameSchema = z.object({
   username: z
@@ -43,12 +49,23 @@ const usernameSchema = z.object({
 
 const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
+  // Code sent to the current email; required to change it (Reddit accounts
+  // without an email skip this).
+  otp: z.string().optional(),
+});
+
+const emailVerifySchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  otp: z.string().min(4, "Please enter the verification code"),
 });
 
 type UsernameFormValues = z.infer<typeof usernameSchema>;
 type EmailFormValues = z.infer<typeof emailSchema>;
+type EmailVerifyFormValues = z.infer<typeof emailVerifySchema>;
 
 function handleSocialLink(provider: string) {
+  // Navigate to the link route which starts the OAuth flow with the user's
+  // session and redirects back to the provider's authorization page.
   window.location.href = `/api/auth/link/${provider}`;
 }
 
@@ -90,6 +107,7 @@ const EmailFieldRenderer = ({
     <FormControl>
       <Input
         className="premium-input h-10 rounded-xl text-sm"
+        disabled={field.disabled}
         type="email"
         {...field}
       />
@@ -104,7 +122,12 @@ interface AccountSettingsProps {
 
 export default function AccountSettings({ user }: AccountSettingsProps) {
   const { toast } = useToast();
-  const [verificationEmailSent, setVerificationEmailSent] = useState(false);
+  // When true, the current-email verification code has been sent and the new
+  // email + current code are ready to submit.
+  const [currentEmailCodeSent, setCurrentEmailCodeSent] = useState(false);
+  // When true, the OTP step for confirming the new email is shown.
+  const [emailChangeRequested, setEmailChangeRequested] = useState(false);
+  const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
 
   const usernameForm = useForm<UsernameFormValues>({
     defaultValues: {
@@ -116,12 +139,23 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   const emailForm = useForm<EmailFormValues>({
     defaultValues: {
       email: user.email || "",
+      otp: "",
     },
     resolver: zodResolver(emailSchema),
   });
 
+  const emailVerifyForm = useForm<EmailVerifyFormValues>({
+    defaultValues: {
+      email: user.email || "",
+      otp: "",
+    },
+    resolver: zodResolver(emailVerifySchema),
+  });
+
   const usernameMutation = useUpdateUsername();
   const emailMutation = useUpdateEmail();
+  const emailVerifyMutation = useVerifyEmailChange();
+  const sendCurrentEmailCodeMutation = useSendCurrentEmailCode();
 
   function onUsernameSubmit(values: UsernameFormValues) {
     if (values.username === user.username) {
@@ -149,6 +183,25 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
     });
   }
 
+  function handleSendCurrentEmailCode() {
+    sendCurrentEmailCodeMutation.mutate(undefined, {
+      onError: (error) => {
+        toast({
+          description: error.message || "Couldn't send the code, try again?",
+          title: "Couldn't Send Code",
+          variant: "destructive",
+        });
+      },
+      onSuccess: () => {
+        setCurrentEmailCodeSent(true);
+        toast({
+          description: "Check your current email for the verification code",
+          title: "Code Sent",
+        });
+      },
+    });
+  }
+
   function onEmailSubmit(values: EmailFormValues) {
     if (values.email === user.email) {
       toast({
@@ -158,7 +211,11 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       return;
     }
 
-    emailMutation.mutate(values, {
+    // Accounts with an existing email must include the code that was sent to
+    // it before the change can start.
+    const payload = { email: values.email, otp: values.otp };
+
+    emailMutation.mutate(payload, {
       onError: () => {
         toast({
           description: "That email didn't work, try another?",
@@ -167,13 +224,42 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
         });
       },
       onSuccess: () => {
-        setVerificationEmailSent(true);
+        setEmailChangeRequested(true);
+        setPendingNewEmail(values.email);
+        emailVerifyForm.setValue("email", values.email);
         toast({
-          description: "We sent a verification link to your new email",
+          description:
+            "We sent a code to your new email - enter it to confirm the change",
           title: "Check Your Inbox",
         });
       },
     });
+  }
+
+  function onEmailVerifySubmit(values: EmailVerifyFormValues) {
+    emailVerifyMutation.mutate(values, {
+      onError: (error) => {
+        toast({
+          description: error.message || "That code didn't work, try again?",
+          title: "Couldn't Verify",
+          variant: "destructive",
+        });
+      },
+      onSuccess: () => {
+        setEmailChangeRequested(false);
+        setPendingNewEmail(null);
+        toast({
+          description: "Your email is updated and verified!",
+          title: "Email Updated",
+        });
+      },
+    });
+  }
+
+  function onCancelEmailChange() {
+    setEmailChangeRequested(false);
+    setPendingNewEmail(null);
+    emailForm.setValue("email", user.email || "");
   }
 
   return (
@@ -185,6 +271,10 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       />
 
       <LinkAccountAlert />
+
+      {/* Reddit never shares an email; accounts created through it have no
+          recovery address, so prompt them to add one. */}
+      {user.redditId && !user.email ? <AddEmailBanner /> : null}
 
       <SettingsCard className="scroll-mt-24" id="settings-username">
         <div className="flex items-center gap-2">
@@ -253,24 +343,108 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
           >
             <FormField
               control={emailForm.control}
+              disabled={emailChangeRequested}
               name="email"
               render={EmailFieldRenderer}
             />
 
+            {user.email && !emailChangeRequested ? (
+              <div className="flex items-end gap-2">
+                <FormField
+                  control={emailForm.control}
+                  disabled={emailChangeRequested}
+                  name="otp"
+                  render={({ field }) => (
+                    <FormItem className="flex-1">
+                      <FormLabel>Current email code</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="one-time-code"
+                          className="premium-input h-10 rounded-xl text-sm"
+                          inputMode="numeric"
+                          placeholder="123456"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <LoadingButton
+                  className="h-10 shrink-0 rounded-xl px-4 text-xs"
+                  loading={sendCurrentEmailCodeMutation.isPending}
+                  onClick={handleSendCurrentEmailCode}
+                  type="button"
+                  variant="outline"
+                >
+                  {currentEmailCodeSent ? "Resend code" : "Send code"}
+                </LoadingButton>
+              </div>
+            ) : null}
+
             <div className="flex justify-end">
               <LoadingButton
                 className={BUTTON_CLASS}
-                disabled={verificationEmailSent}
+                disabled={emailChangeRequested}
                 loading={emailMutation.isPending}
                 type="submit"
               >
-                {verificationEmailSent
-                  ? "Verification Email Sent"
-                  : "Update Email"}
+                {emailChangeRequested ? "Code Sent" : "Update Email"}
               </LoadingButton>
             </div>
           </form>
         </Form>
+
+        {emailChangeRequested && (
+          <div className="border-border/60 mt-4 rounded-xl border p-4">
+            <p className="mb-3 text-sm">
+              Enter the verification code we sent to{" "}
+              <span className="font-medium">{pendingNewEmail}</span> to confirm
+              the change.
+            </p>
+            <Form {...emailVerifyForm}>
+              <form
+                className="space-y-3"
+                onSubmit={emailVerifyForm.handleSubmit(onEmailVerifySubmit)}
+              >
+                <FormField
+                  control={emailVerifyForm.control}
+                  name="otp"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Verification code</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="one-time-code"
+                          inputMode="numeric"
+                          placeholder="123456"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                    onClick={onCancelEmailChange}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <LoadingButton
+                    className={BUTTON_CLASS}
+                    loading={emailVerifyMutation.isPending}
+                    type="submit"
+                  >
+                    Verify & Change
+                  </LoadingButton>
+                </div>
+              </form>
+            </Form>
+          </div>
+        )}
       </SettingsCard>
 
       <SettingsCard className="scroll-mt-24" id="settings-linked-accounts">

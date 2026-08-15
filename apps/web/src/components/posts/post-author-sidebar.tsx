@@ -14,6 +14,7 @@ import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles
 import FollowButton from "@/components/layouts/follow-button";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -259,8 +260,11 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             <div className="flex items-start gap-3">
               <UserAvatar avatarUrl={author.avatarUrl} className="h-11 w-11" />
               <div className="-mt-0.5 min-w-0 flex-1">
-                <span className="block truncate font-bold group-hover:underline">
-                  {author.displayName || author.username}
+                <span className="flex items-center gap-1.5">
+                  <span className="block truncate font-bold group-hover:underline">
+                    {author.displayName || author.username}
+                  </span>
+                  <UserBadge badge={author.badge} />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                   @{author.username}
