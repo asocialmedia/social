@@ -2,7 +2,7 @@
 
 import type { PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { ChevronRight, Clapperboard, Eye, Flame, Play } from "lucide-react";
+import { ChevronRight, Clapperboard, Eye, Flame } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useRef, useState } from "react";
@@ -111,14 +111,6 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
       <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-white backdrop-blur-md">
         <Clapperboard className="text-primary size-3" />
         <span className="text-[10px] font-bold">Gust</span>
-      </div>
-
-      {/* Center Play indicator - always faint so the tile reads as a video
-          without a loud hover dance */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm">
-          <Play className="ml-0.5 size-5 fill-white text-white" />
-        </div>
       </div>
 
       {/* Bottom gradient overlay */}
