@@ -18,6 +18,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import PostMoreButton from "@/components/posts/post-more-button";
@@ -301,6 +302,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                 >
                   {authorName}
                 </Link>
+                <UserBadge badge={post.user.badge} />
                 {canFollow ? (
                   <FollowButton
                     className="h-7 shrink-0 rounded-full px-3 text-xs"

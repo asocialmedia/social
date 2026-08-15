@@ -13,7 +13,7 @@ model User {
   aura            Int       @default(0)
   username        String    @unique
   displayName     String
-  displayUsername String?  mentions        Mention[]
+  displayUsername String?
   email           String?   @unique
   passwordHash    String?
   googleId        String?   @unique
@@ -35,6 +35,9 @@ model User {
   image           String?
   name            String?
   role            String    @default("user")
+  // Visual badge shown next to the username across the app (author/dev/early).
+  // Nullable so admins can toggle it per account without a migration.
+  badge           String?
   banned          Boolean   @default(false)
   banReason       String?
   banExpires      DateTime?
@@ -43,6 +46,7 @@ model User {
   accounts              Account[]
   verifications         Verification[]
   passwordResetTokens   PasswordResetToken[]
+  mentions              Mention[]
   posts                 Post[]
   following             Follow[]             @relation("Following")
   followers             Follow[]             @relation("Followers")

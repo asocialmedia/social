@@ -20,6 +20,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
@@ -129,6 +130,7 @@ const PostContent: React.FC<PostContentProps> = ({
                     {post.user.displayName}
                   </Link>
                 </UserTooltip>
+                <UserBadge badge={post.user.badge} />
                 <Link
                   className="text-muted-foreground shrink-0 hover:underline"
                   href={`/posts/${post.id}`}
@@ -168,6 +170,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   {post.user.displayName}
                 </Link>
               </UserTooltip>
+              <UserBadge badge={post.user.badge} />
               <UserTooltip user={post.user}>
                 <Link
                   className="text-muted-foreground truncate hover:underline"

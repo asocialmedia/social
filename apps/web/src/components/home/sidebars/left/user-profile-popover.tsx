@@ -26,6 +26,7 @@ import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
 import { useLogout } from "@/hooks/use-logout";
 import { cn, formatNumber } from "@/lib/utils";
@@ -179,8 +180,11 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                 priority
               />
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">
-                  {userData.displayName || userData.username}
+                <span className="flex items-center gap-1.5">
+                  <span className="block truncate text-sm font-medium">
+                    {userData.displayName || userData.username}
+                  </span>
+                  <UserBadge badge={userData.badge} />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs">
                   @{userData.username}
@@ -222,8 +226,9 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             </div>
 
             <div className="mt-2.5">
-              <h3 className="truncate text-lg leading-tight font-semibold">
+              <h3 className="flex items-center gap-1.5 text-lg leading-tight font-semibold">
                 {userData.displayName || userData.username}
+                <UserBadge badge={userData.badge} />
               </h3>
               <p className="text-muted-foreground text-sm">
                 @{userData.username}

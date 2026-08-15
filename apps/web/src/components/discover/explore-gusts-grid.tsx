@@ -26,6 +26,7 @@ import React, {
 import { useSession } from "@/app/(main)/session-provider";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
@@ -148,9 +149,12 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
             className="size-6 border border-white/40"
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-white/95">
-              {post.user.displayName || post.user.username}
-            </p>
+            <div className="flex items-center gap-1">
+              <p className="truncate text-xs font-semibold text-white/95">
+                {post.user.displayName || post.user.username}
+              </p>
+              <UserBadge badge={post.user.badge} />
+            </div>
             <p className="truncate text-[11px] text-white/70">
               @{post.user.username}
             </p>

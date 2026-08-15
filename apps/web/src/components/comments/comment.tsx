@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import Linkify from "@/helpers/global/linkify";
@@ -178,6 +179,7 @@ export default function CommentItem({
                       {comment.user.displayName}
                     </Link>
                   </UserTooltip>
+                  <UserBadge badge={comment.user.badge} />
                   <Link
                     className="text-muted-foreground truncate hover:underline"
                     href={`/users/${comment.user.username}`}

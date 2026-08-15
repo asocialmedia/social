@@ -11,6 +11,7 @@ import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { useFollowStates } from "@/hooks/use-follow-states";
 import kyInstance from "@/lib/ky";
@@ -99,8 +100,11 @@ const RightSideBar: React.FC = () => {
                     className="min-w-0 flex-1"
                     href={`/users/${suggestedUser.username}`}
                   >
-                    <span className="block truncate text-sm font-medium">
-                      {suggestedUser.displayName || suggestedUser.username}
+                    <span className="flex items-center gap-1.5">
+                      <span className="block truncate text-sm font-medium">
+                        {suggestedUser.displayName || suggestedUser.username}
+                      </span>
+                      <UserBadge badge={suggestedUser.badge} />
                     </span>
                     <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                       @{suggestedUser.username}

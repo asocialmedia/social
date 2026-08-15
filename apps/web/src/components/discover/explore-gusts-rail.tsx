@@ -8,6 +8,7 @@ import Link from "next/link";
 import React, { useCallback, useRef, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -123,6 +124,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
           <span className="truncate text-xs font-semibold text-white/95">
             @{gust.user.username}
           </span>
+          <UserBadge badge={gust.user.badge} />
         </div>
 
         {gust.content ? (
