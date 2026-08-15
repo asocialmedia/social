@@ -4,10 +4,6 @@ import { z } from "zod";
 export const keys = createEnv({
   client: {
     NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
-    NEXT_PUBLIC_PORT: z
-      .string()
-      .transform((val) => Math.trunc(Number(val)))
-      .default(3000),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
   },
   runtimeEnv: {
@@ -20,7 +16,6 @@ export const keys = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     KLIPY_APP_KEY: process.env.KLIPY_APP_KEY,
     NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
-    NEXT_PUBLIC_PORT: process.env.NEXT_PUBLIC_PORT,
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
     NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
     NODE_ENV: process.env.NODE_ENV,
