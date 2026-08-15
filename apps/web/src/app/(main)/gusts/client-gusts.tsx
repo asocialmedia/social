@@ -270,6 +270,15 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     return () => observer.disconnect();
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
+  // When the visible list is empty (e.g. the first page held no video gusts)
+  // but more pages exist, keep loading until something appears or the feed is
+  // exhausted instead of showing the empty state prematurely.
+  useEffect(() => {
+    if (posts.length === 0 && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, posts.length]);
+
   // Keyboard navigation
   const handleToggleMute = useCallback(() => {
     setIsMuted((prev) => {
