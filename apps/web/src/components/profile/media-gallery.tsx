@@ -3,13 +3,7 @@
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import {
-  FileAudioIcon,
-  FileCode,
-  FileIcon,
-  ImageIcon,
-  Loader2,
-} from "lucide-react";
+import { FileAudioIcon, FileCode, FileIcon, Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -406,10 +400,17 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
     );
   } else if (media.length === 0) {
     body = (
-      <div className="flex flex-col items-center gap-1.5 px-2 py-6 text-center">
-        <ImageIcon className="text-muted-foreground/60 h-5 w-5" />
-        <p className="text-muted-foreground text-sm">No media yet</p>
-        <p className="text-muted-foreground/70 text-xs">
+      <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
+        <Image
+          alt=""
+          className="h-28 w-auto object-contain opacity-90"
+          draggable={false}
+          height={1024}
+          src={noMediaImage}
+          width={1536}
+        />
+        <p className="text-sm font-medium">No media yet</p>
+        <p className="text-muted-foreground max-w-44 text-xs">
           Media from this profile's posts will show up here
         </p>
       </div>
@@ -476,9 +477,27 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
     );
   }
 
-  // Hide the sidebar entirely for profiles with no media so the feed takes the space.
+  // Profiles with no media still keep the sidebar, showing a centered empty
+  // state (with the app's nomedia avatar) instead of vanishing entirely.
   if (status === "success" && media.length === 0) {
-    return null;
+    return (
+      <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col items-center justify-center overflow-y-auto xl:flex">
+        <div className="flex flex-col items-center gap-2 px-6 text-center">
+          <Image
+            alt=""
+            className="h-28 w-auto object-contain opacity-90"
+            draggable={false}
+            height={1024}
+            src={noMediaImage}
+            width={1536}
+          />
+          <p className="text-sm font-medium">No media yet</p>
+          <p className="text-muted-foreground max-w-44 text-xs">
+            Media from this profile's posts will show up here
+          </p>
+        </div>
+      </aside>
+    );
   }
 
   return (

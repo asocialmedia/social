@@ -110,6 +110,15 @@ export function MessageThread({
     [messagesQuery.data]
   );
 
+  // Messages whose payload hasn't finished decrypting yet. Shown as one
+  // aggregate line at the bottom instead of a spinner on every bubble.
+  const pendingCount = useMemo(
+    () =>
+      allMessages.filter((message) => decrypted[message.id] === "pending")
+        .length,
+    [allMessages, decrypted]
+  );
+
   const peer = detail?.conversation.members.find(
     (member) => member.userId !== user?.id
   )?.user;
@@ -393,6 +402,15 @@ export function MessageThread({
             </div>
           </div>
         ) : null}
+
+        {pendingCount > 0 ? (
+          <div className="text-muted-foreground flex items-center justify-center gap-1.5 py-2 text-xs">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            {pendingCount === 1
+              ? "Decrypting a message…"
+              : `Decrypting ${pendingCount} messages…`}
+          </div>
+        ) : null}
       </div>
 
       <MessageComposer
@@ -578,15 +596,23 @@ function truncateQuote(text: string, max = 90): string {
   return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 }
 
+// Short label for a non-text message, used in quote blocks and reply previews.
+function mediaLabel(payload: MessagePayload): string {
+  if (payload.type === "post") {
+    return "Shared a post";
+  }
+  if (payload.type === "media") {
+    return payload.kind === "gif" ? "Shared a GIF" : "Shared an image";
+  }
+  return truncateQuote(payload.content);
+}
+
 // Resolve the reply-quote body for a decrypted parent message.
 function quoteContent(parent: MessageData, payload: MessagePayload): string {
   if (parent.deletedAt) {
     return "This message was deleted";
   }
-  if (payload.type === "post") {
-    return "Shared a post";
-  }
-  return truncateQuote(payload.content);
+  return mediaLabel(payload);
 }
 
 // Short preview of a message shown in the composer's "Replying to" bar.
@@ -596,10 +622,10 @@ function replyPreview(
   if (!payload || payload === "error" || payload === "pending") {
     return undefined;
   }
-  if (payload.type === "post") {
-    return "Shared a post";
+  if (payload.type === "text") {
+    return truncateQuote(payload.content, 60);
   }
-  return truncateQuote(payload.content, 60);
+  return mediaLabel(payload);
 }
 
 function presenceLabel(

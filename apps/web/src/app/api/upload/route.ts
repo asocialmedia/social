@@ -18,6 +18,7 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
   const postId = formData.get("postId") as string | null;
+  const purpose = formData.get("purpose") as string | null;
 
   if (!file) {
     return new NextResponse("No file provided", { status: 400 });
@@ -106,10 +107,14 @@ export async function POST(request: Request) {
 
   // Schedule a delayed cleanup in case the upload is never attached to a post
   // (abandoned draft). If the post is created first, submitPost cancels it.
-  try {
-    await scheduleMediaCleanup(media.id);
-  } catch (error) {
-    console.error("Failed to schedule media cleanup:", error);
+  // Message attachments live inside E2EE ciphertext, so the server can't link
+  // them to a post or comment; they're never scheduled for cleanup.
+  if (purpose !== "message") {
+    try {
+      await scheduleMediaCleanup(media.id);
+    } catch (error) {
+      console.error("Failed to schedule media cleanup:", error);
+    }
   }
 
   return NextResponse.json({

@@ -221,11 +221,35 @@ describe("message ratchet", () => {
     expect(decrypted).toEqual({ postId: "post-42", type: "post" });
   });
 
+  test("media payload round-trips with the url inside the ciphertext", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      height: 240,
+      kind: "gif",
+      type: "media",
+      url: "https://cdn.example.com/hi.gif",
+      width: 320,
+    });
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual({
+      height: 240,
+      kind: "gif",
+      type: "media",
+      url: "https://cdn.example.com/hi.gif",
+      width: 320,
+    });
+  });
+
   test("invalid payloads are rejected", async () => {
     const rootKey = generateRootKey();
     const messageKey = await deriveMessageKey(rootKey, SENDER_ID, 0);
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    // Encrypt a payload that is neither text nor post.
+    // Encrypt a payload that is neither text, post, nor media.
     const ciphertext = await crypto.subtle.encrypt(
       { iv, name: "AES-GCM" },
       messageKey,

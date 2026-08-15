@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy, MessageSquareQuote, Trash2 } from "lucide-react";
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -67,14 +68,6 @@ export function MessageBubble({
   }, [message.id]);
 
   function renderContent() {
-    if (isDecrypting) {
-      return (
-        <span className="flex items-center gap-1.5 opacity-70">
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          decrypting…
-        </span>
-      );
-    }
     if (content === null) {
       return <span className="italic opacity-70">Unreadable message</span>;
     }
@@ -91,6 +84,25 @@ export function MessageBubble({
             {formatRelativeDate(message.createdAt)}
           </span>
         </p>
+      );
+    }
+    if (content.type === "media") {
+      return (
+        <div
+          className={cn(
+            "overflow-hidden rounded-lg",
+            mine ? "bg-black/15" : "bg-muted/40"
+          )}
+        >
+          <Image
+            alt={content.kind === "gif" ? "GIF" : "Shared image"}
+            className="h-auto max-h-72 w-auto max-w-[280px] object-contain"
+            height={content.height ?? 200}
+            src={content.url}
+            unoptimized={content.kind === "gif"}
+            width={content.width ?? 280}
+          />
+        </div>
       );
     }
     return <PostEmbed postId={content.postId} mine={mine} />;
@@ -112,6 +124,13 @@ export function MessageBubble({
         </div>
       </div>
     );
+  }
+
+  // While the payload is being decrypted the bubble is hidden entirely; the
+  // thread shows one aggregate "decrypting" line instead of a spinner on
+  // every message, which gets noisy on long chats.
+  if (isDecrypting) {
+    return null;
   }
 
   return (

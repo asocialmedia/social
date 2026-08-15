@@ -1,9 +1,10 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { Lock, Search, Send } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { History, Lock, Search, Send } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -14,6 +15,7 @@ import {
   createConversation,
   ensureConversationKeys,
   fetchConversationDetail,
+  fetchConversationList,
   searchMessageUsers,
   sendEncryptedMessage,
 } from "@/lib/messages/client";
@@ -23,6 +25,13 @@ interface MessageSharePickerProps {
   postId?: string;
 }
 
+interface ShareRecipient {
+  avatarUrl: string | null;
+  displayName: string;
+  id: string;
+  username: string;
+}
+
 export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   const { user } = useSession();
   const { privateKey, status } = useMessagesIdentity();
@@ -30,6 +39,36 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   const [results, setResults] = useState<SearchUserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
+
+  // People you already chat with, so sharing again doesn't need a search.
+  const { data: conversations } = useQuery({
+    enabled: Boolean(user),
+    queryFn: () => fetchConversationList(),
+    queryKey: ["message-share-recents", user?.id],
+  });
+
+  const recentRecipients = useMemo((): ShareRecipient[] => {
+    if (!user || !conversations) {
+      return [];
+    }
+    return conversations.items
+      .map((item) => {
+        const peer = item.conversation.members.find(
+          (member) => member.userId !== user.id
+        )?.user;
+        if (!peer) {
+          return null;
+        }
+        return {
+          avatarUrl: peer.avatarUrl,
+          displayName: peer.displayName,
+          id: peer.id,
+          username: peer.username,
+        };
+      })
+      .filter((recipient): recipient is ShareRecipient => recipient !== null)
+      .slice(0, 5);
+  }, [conversations, user]);
 
   useEffect(() => {
     if (query.trim().length === 0) {
@@ -49,7 +88,7 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   }, [query]);
 
   const handleShare = useCallback(
-    async (recipient: SearchUserResult) => {
+    async (recipient: ShareRecipient) => {
       if (!user || !privateKey || !postId) {
         return;
       }
@@ -140,6 +179,8 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
     );
   }
 
+  const isSearching = query.trim().length > 0;
+
   return (
     <div className="flex flex-col gap-2.5">
       <div className="reels-input flex h-9 items-center gap-2 px-3">
@@ -153,19 +194,19 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
         />
       </div>
 
-      <div className="flex max-h-56 flex-col overflow-y-auto">
-        {renderResults()}
+      <div className="flex max-h-64 flex-col overflow-y-auto">
+        {isSearching ? renderSearchResults() : renderRecentRecipients()}
       </div>
     </div>
   );
 
-  function renderResults() {
+  function renderSearchResults() {
     if (searching) {
       return (
         <p className="text-muted-foreground px-2 py-2 text-xs">Searching…</p>
       );
     }
-    if (results.length === 0 && query.trim().length > 0) {
+    if (results.length === 0) {
       return (
         <p className="text-muted-foreground px-2 py-2 text-xs">
           No one found. You can only message people you follow.
@@ -173,30 +214,94 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       );
     }
     return results.map((result) => (
-      <button
-        className="pill-3d-hover flex items-center gap-2.5 rounded-xl px-2 py-2 text-left"
+      <RecipientRow
         disabled={sendingTo === result.id}
         key={result.id}
-        onClick={() => {
-          void handleShare(result);
+        onSelect={() => {
+          void handleShare({
+            avatarUrl: result.avatarUrl,
+            displayName: result.displayName,
+            id: result.id,
+            username: result.username,
+          });
         }}
-        type="button"
-      >
-        <UserAvatar avatarUrl={result.avatarUrl} size={34} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">
-            {result.displayName}
-          </span>
-          <span className="text-muted-foreground block truncate text-xs">
-            @{result.username}
-          </span>
-        </span>
-        {sendingTo === result.id ? (
-          <span className="border-primary h-3.5 w-3.5 animate-spin rounded-full border-2 border-t-transparent" />
-        ) : (
-          <Send className="text-muted-foreground h-4 w-4 shrink-0" />
-        )}
-      </button>
+        recipient={{
+          avatarUrl: result.avatarUrl,
+          displayName: result.displayName,
+          id: result.id,
+          username: result.username,
+        }}
+        sending={sendingTo === result.id}
+      />
     ));
   }
+
+  function renderRecentRecipients() {
+    if (recentRecipients.length === 0) {
+      return (
+        <div className="flex flex-col items-center gap-1 py-6 text-center">
+          <History className="text-muted-foreground/50 h-6 w-6" />
+          <p className="text-muted-foreground max-w-56 px-2 text-xs">
+            No conversations yet. Search for someone you follow to send your
+            first message.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <>
+        <p className="text-muted-foreground flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold tracking-wide uppercase">
+          <History className="h-3 w-3" />
+          Recent
+        </p>
+        {recentRecipients.map((recipient) => (
+          <RecipientRow
+            disabled={sendingTo === recipient.id}
+            key={recipient.id}
+            onSelect={() => {
+              void handleShare(recipient);
+            }}
+            recipient={recipient}
+            sending={sendingTo === recipient.id}
+          />
+        ))}
+      </>
+    );
+  }
+}
+
+function RecipientRow({
+  disabled,
+  onSelect,
+  recipient,
+  sending,
+}: {
+  disabled: boolean;
+  onSelect: () => void;
+  recipient: ShareRecipient;
+  sending: boolean;
+}) {
+  return (
+    <button
+      className="pill-3d-hover flex items-center gap-2.5 rounded-xl px-2 py-2 text-left"
+      disabled={disabled}
+      onClick={onSelect}
+      type="button"
+    >
+      <UserAvatar avatarUrl={recipient.avatarUrl} size={34} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">
+          {recipient.displayName}
+        </span>
+        <span className="text-muted-foreground block truncate text-xs">
+          @{recipient.username}
+        </span>
+      </span>
+      {sending ? (
+        <span className="border-primary h-3.5 w-3.5 animate-spin rounded-full border-2 border-t-transparent" />
+      ) : (
+        <Send className="text-muted-foreground h-4 w-4 shrink-0" />
+      )}
+    </button>
+  );
 }

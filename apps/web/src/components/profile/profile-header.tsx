@@ -2,18 +2,21 @@
 
 import type { UserData } from "@asm/db";
 import { formatDate } from "date-fns";
-import { CalendarDays, Flame } from "lucide-react";
+import { CalendarDays, Flame, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useCallback } from "react";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
+import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
+import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -67,6 +70,20 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   isOwnProfile,
 }) => {
   const { data: liveUserData } = useUserDataQuery(userData);
+  const { user } = useSession();
+  const { goToLogin } = useRequireAuth();
+  const isLoggedIn = Boolean(user);
+
+  // Guests get bounced to login; logged-in users deep-link into a DM thread.
+  const handleMessageClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (!isLoggedIn) {
+        event.preventDefault();
+        goToLogin();
+      }
+    },
+    [goToLogin, isLoggedIn]
+  );
   const avatarUrl = liveUserData.avatarUrl
     ? getSecureImageUrl(liveUserData.avatarUrl)
     : null;
@@ -152,11 +169,22 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             {isOwnProfile ? (
               <EditProfileButton user={liveUserData} />
             ) : (
-              <FollowButton
-                className="h-9 px-4 text-sm"
-                initialState={followerInfo}
-                userId={liveUserData.id}
-              />
+              <>
+                <Link
+                  aria-label={`Message ${liveUserData.displayName || liveUserData.username}`}
+                  className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm"
+                  href={`/messages?dm=${liveUserData.id}`}
+                  onClick={handleMessageClick}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Message
+                </Link>
+                <FollowButton
+                  className="h-9 px-4 text-sm"
+                  initialState={followerInfo}
+                  userId={liveUserData.id}
+                />
+              </>
             )}
           </div>
         </div>

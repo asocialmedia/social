@@ -302,6 +302,15 @@ export type MessagePayload =
       postId: string;
       replyToId?: string;
       replyToSenderId?: string;
+    }
+  | {
+      type: "media";
+      kind: "gif" | "image";
+      url: string;
+      width?: number;
+      height?: number;
+      replyToId?: string;
+      replyToSenderId?: string;
     };
 
 export interface EncryptedMessage {
@@ -352,7 +361,11 @@ export async function decryptMessage(
     base64ToBytes(message.ciphertext)
   );
   const payload = JSON.parse(DEC.decode(plaintext)) as Partial<MessagePayload>;
-  if (payload.type !== "text" && payload.type !== "post") {
+  if (
+    payload.type !== "text" &&
+    payload.type !== "post" &&
+    payload.type !== "media"
+  ) {
     throw new Error("Invalid message payload");
   }
   if (payload.type === "text" && typeof payload.content !== "string") {
@@ -360,6 +373,9 @@ export async function decryptMessage(
   }
   if (payload.type === "post" && typeof payload.postId !== "string") {
     throw new Error("Invalid post payload");
+  }
+  if (payload.type === "media" && typeof payload.url !== "string") {
+    throw new Error("Invalid media payload");
   }
   return payload as MessagePayload;
 }

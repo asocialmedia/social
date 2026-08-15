@@ -221,6 +221,43 @@ export async function fetchMessages(
   return (await response.json()) as MessagePage;
 }
 
+export interface MessageMediaUpload {
+  height: number | null;
+  kind: "gif" | "image";
+  url: string;
+  width: number | null;
+}
+
+export async function uploadMessageMedia(
+  file: File,
+  kind: "gif" | "image"
+): Promise<MessageMediaUpload> {
+  const formData = new FormData();
+  formData.append("file", file);
+  // Message attachments live inside E2EE ciphertext and can't be linked to a
+  // post, so the upload route must not schedule the orphaned-media cleanup.
+  formData.append("purpose", "message");
+  const response = await fetch("/api/upload", {
+    body: formData,
+    credentials: "same-origin",
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error("Upload failed");
+  }
+  const json = (await response.json()) as {
+    height: number | null;
+    url: string;
+    width: number | null;
+  };
+  return {
+    height: json.height,
+    kind,
+    url: json.url,
+    width: json.width,
+  };
+}
+
 export async function sendEncryptedMessage(
   conversationId: string,
   rootKey: Uint8Array,

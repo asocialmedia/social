@@ -33,9 +33,13 @@ export async function GET(
   const cursor = url.searchParams.get("cursor");
 
   // Newest first from the cursor, then reversed so the client gets oldest-first.
+  // The cursor is a message id, so ordering by id keeps the cursor and the sort
+  // in the same total order - sorting by createdAt with an id cursor would skip
+  // or duplicate messages on long threads where many share a timestamp.
+  // (Prisma cuids are time-ordered, so id desc is still newest-first.)
   const messages = await prisma.message.findMany({
     include: messageSenderSelect(),
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: [{ id: "desc" }],
     take: PAGE_SIZE + 1,
     where: { conversationId: id, ...(cursor ? { id: { lt: cursor } } : {}) },
   });

@@ -3,11 +3,20 @@
 import type { MessagePage } from "@asm/db";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, MessageSquareQuote, X } from "lucide-react";
+import {
+  ArrowUp,
+  Clapperboard,
+  ImagePlus,
+  Loader2,
+  MessageSquareQuote,
+  X,
+} from "lucide-react";
 import type React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
+import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { toast } from "@/lib/gooey-toast";
 import {
@@ -16,8 +25,14 @@ import {
   ensureConversationKeys,
   sendEncryptedMessage,
   sendTypingIndicator,
+  uploadMessageMedia,
 } from "@/lib/messages/client";
-import type { ConversationDetailResponse } from "@/lib/messages/client";
+import type {
+  ConversationDetailResponse,
+  MessageMediaUpload,
+} from "@/lib/messages/client";
+import type { MessagePayload } from "@/lib/messages/crypto";
+import { cn } from "@/lib/utils";
 
 interface MessageComposerProps {
   conversation: ConversationDetailResponse;
@@ -42,6 +57,9 @@ export function MessageComposer({
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendingMedia, setSendingMedia] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTypingRef = useRef(0);
 
   const peer = useMemo(
@@ -52,6 +70,113 @@ export function MessageComposer({
     [conversation.conversation.members, user?.id]
   );
 
+  // Unwrap the root key, encrypt, post, and fold the sent message into the
+  // cache. Shared by text, image, and GIF sends so every message type uses the
+  // same ratchet-index and dedupe rules.
+  const sendPayload = useCallback(
+    async (
+      payload: MessagePayload,
+      options?: { preserveInput?: boolean }
+    ): Promise<boolean> => {
+      if (!user || !privateKey || !peer) {
+        return false;
+      }
+      try {
+        // Unwrap the root key (cached per conversation). This also heals any
+        // missing wrapped key rows from a conversation created before this
+        // device had keys.
+        const rootKey = await ensureConversationKeys(
+          conversation.conversation,
+          privateKey,
+          user.id
+        );
+        if (!rootKey) {
+          toast({
+            description: "Message keys aren't ready yet",
+            title: "Can't send",
+            variant: "destructive",
+          });
+          return false;
+        }
+
+        // Next ratchet index = max(server count at fetch, own messages loaded).
+        const ownCacheCount = (
+          queryClient.getQueryData<{
+            pages: { messages: { senderId: string }[] }[];
+          }>(["messages", conversation.conversation.id])?.pages ?? []
+        )
+          .flatMap((page) => page.messages)
+          .filter((message) => message.senderId === user.id).length;
+
+        const ratchetIndex = Math.max(conversation.mySentCount, ownCacheCount);
+
+        const sent = await sendEncryptedMessage(
+          conversation.conversation.id,
+          rootKey,
+          user.id,
+          ratchetIndex,
+          payload
+        );
+
+        // Fold the sent message into the cache (deduped against the SSE echo
+        // of the same message) and clear the input.
+        queryClient.setQueryData(
+          ["messages", conversation.conversation.id],
+          (old: unknown) => {
+            if (!old) {
+              return old;
+            }
+            const data = old as InfiniteData<MessagePage, string | undefined>;
+            const nextPages = appendMessageToLastPage(data.pages, sent);
+            return nextPages ? { ...data, pages: nextPages } : old;
+          }
+        );
+        if (!options?.preserveInput) {
+          setText("");
+          onReplyCancel();
+        }
+        onSent();
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversations", user.id],
+        });
+        // ensureConversationKeys may have just created the wrapped keys (first
+        // message in a new conversation). Refetch the detail so the thread can
+        // unwrap and decrypt this message instead of showing it unreadable.
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversation", conversation.conversation.id],
+        });
+        return true;
+      } catch (error) {
+        if (error instanceof MessagesApiError && error.status === 409) {
+          toast({
+            description:
+              "Your message count changed, refresh the thread and try again",
+            title: "Message not sent",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            description:
+              error instanceof Error ? error.message : "Couldn't send message",
+            title: "Message not sent",
+            variant: "destructive",
+          });
+        }
+        return false;
+      }
+    },
+    [
+      conversation.conversation,
+      conversation.mySentCount,
+      onReplyCancel,
+      onSent,
+      peer,
+      privateKey,
+      queryClient,
+      user,
+    ]
+  );
+
   const handleSend = useCallback(async () => {
     const content = text.trim();
     if (!content || sending || !user || !privateKey || !peer) {
@@ -60,34 +185,6 @@ export function MessageComposer({
 
     setSending(true);
     try {
-      // Unwrap the root key (cached per conversation). This also heals any
-      // missing wrapped key rows from a conversation created before this
-      // device had keys.
-      const rootKey = await ensureConversationKeys(
-        conversation.conversation,
-        privateKey,
-        user.id
-      );
-      if (!rootKey) {
-        toast({
-          description: "Message keys aren't ready yet",
-          title: "Can't send",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Next ratchet index = max(server count at fetch, own messages loaded).
-      const ownCacheCount = (
-        queryClient.getQueryData<{
-          pages: { messages: { senderId: string }[] }[];
-        }>(["messages", conversation.conversation.id])?.pages ?? []
-      )
-        .flatMap((page) => page.messages)
-        .filter((message) => message.senderId === user.id).length;
-
-      const ratchetIndex = Math.max(conversation.mySentCount, ownCacheCount);
-
       const payload = replyTarget
         ? {
             content,
@@ -96,72 +193,91 @@ export function MessageComposer({
             type: "text" as const,
           }
         : { content, type: "text" as const };
-
-      const sent = await sendEncryptedMessage(
-        conversation.conversation.id,
-        rootKey,
-        user.id,
-        ratchetIndex,
-        payload
-      );
-
-      // Fold the sent message into the cache (deduped against the SSE echo
-      // of the same message) and clear the input.
-      queryClient.setQueryData(
-        ["messages", conversation.conversation.id],
-        (old: unknown) => {
-          if (!old) {
-            return old;
-          }
-          const data = old as InfiniteData<MessagePage, string | undefined>;
-          const nextPages = appendMessageToLastPage(data.pages, sent);
-          return nextPages ? { ...data, pages: nextPages } : old;
-        }
-      );
-      setText("");
-      onReplyCancel();
-      onSent();
-      void queryClient.invalidateQueries({
-        queryKey: ["message-conversations", user.id],
-      });
-      // ensureConversationKeys may have just created the wrapped keys (first
-      // message in a new conversation). Refetch the detail so the thread can
-      // unwrap and decrypt this message instead of showing it unreadable.
-      void queryClient.invalidateQueries({
-        queryKey: ["message-conversation", conversation.conversation.id],
-      });
-    } catch (error) {
-      if (error instanceof MessagesApiError && error.status === 409) {
-        toast({
-          description:
-            "Your message count changed, refresh the thread and try again",
-          title: "Message not sent",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          description:
-            error instanceof Error ? error.message : "Couldn't send message",
-          title: "Message not sent",
-          variant: "destructive",
-        });
-      }
+      await sendPayload(payload);
     } finally {
       setSending(false);
     }
-  }, [
-    conversation.conversation,
-    conversation.mySentCount,
-    onReplyCancel,
-    onSent,
-    peer,
-    privateKey,
-    queryClient,
-    replyTarget,
-    sending,
-    text,
-    user,
-  ]);
+  }, [peer, privateKey, replyTarget, sendPayload, sending, text, user]);
+
+  const handleSendMedia = useCallback(
+    async (media: MessageMediaUpload) => {
+      if (sendingMedia || sending) {
+        return;
+      }
+      setSendingMedia(true);
+      try {
+        await sendPayload(
+          {
+            height: media.height ?? undefined,
+            kind: media.kind,
+            type: "media",
+            url: media.url,
+            width: media.width ?? undefined,
+          },
+          // Media is its own message; keep any typed draft and active reply.
+          { preserveInput: true }
+        );
+      } finally {
+        setSendingMedia(false);
+      }
+    },
+    [sendPayload, sending, sendingMedia]
+  );
+
+  const handleFileSelected = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) {
+        return;
+      }
+      if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
+        toast({
+          description: "Messages support images and GIFs only.",
+          title: "Unsupported File",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        const media = await uploadMessageMedia(file, "image");
+        await handleSendMedia(media);
+      } catch {
+        toast({
+          description: "Couldn't upload that image, try again?",
+          title: "Upload Failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [handleSendMedia]
+  );
+
+  const handleGifSelect = useCallback(
+    async (gif: KlipyGif) => {
+      setGifPickerOpen(false);
+      try {
+        const blob = await fetch(gif.url).then((response) => {
+          if (!response.ok) {
+            throw new Error("Failed to fetch GIF");
+          }
+          return response.blob();
+        });
+        const file = new File([blob], `${gif.slug || "gif"}.gif`, {
+          type: "image/gif",
+        });
+        const media = await uploadMessageMedia(file, "gif");
+        await handleSendMedia(media);
+      } catch {
+        toast({
+          description: "Couldn't add that GIF, try another?",
+          title: "GIF Failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [handleSendMedia]
+  );
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -172,6 +288,8 @@ export function MessageComposer({
     },
     [handleSend]
   );
+
+  const busy = sending || sendingMedia;
 
   return (
     <div className="border-border/60 border-t px-4 py-3">
@@ -203,11 +321,31 @@ export function MessageComposer({
         </div>
       ) : null}
 
+      {gifPickerOpen ? (
+        <div className="apple-panel mb-2 w-full rounded-2xl p-2">
+          <KlipyGifPicker
+            disabled={busy}
+            onSelect={(gif) => {
+              void handleGifSelect(gif);
+            }}
+          />
+        </div>
+      ) : null}
+
       <div className="reels-input flex items-center gap-2 rounded-2xl! px-3 py-2">
+        <input
+          accept="image/*"
+          className="hidden"
+          onChange={(event) => {
+            void handleFileSelected(event);
+          }}
+          ref={fileInputRef}
+          type="file"
+        />
         <textarea
           aria-label="Message"
           className="placeholder:text-muted-foreground max-h-32 min-h-10 flex-1 resize-none bg-transparent py-1.5 text-sm outline-none"
-          disabled={sending}
+          disabled={busy}
           onChange={(event) => {
             const { value } = event.target;
             setText(value);
@@ -227,15 +365,47 @@ export function MessageComposer({
           value={text}
         />
         <button
+          aria-label="Send image"
+          className={cn(
+            "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
+            "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
+            busy && "opacity-50"
+          )}
+          disabled={busy}
+          onClick={() => fileInputRef.current?.click()}
+          type="button"
+        >
+          <ImagePlus className="size-4" />
+        </button>
+        <button
+          aria-label="Search and add a GIF"
+          className={cn(
+            "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px",
+            gifPickerOpen
+              ? "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+              : "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110",
+            busy && "opacity-50"
+          )}
+          disabled={busy}
+          onClick={() => setGifPickerOpen((prev) => !prev)}
+          type="button"
+        >
+          <Clapperboard className="size-4" />
+        </button>
+        <button
           aria-label="Send message"
           className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-          disabled={sending || text.trim().length === 0}
+          disabled={busy || text.trim().length === 0}
           onClick={() => {
             void handleSend();
           }}
           type="button"
         >
-          <ArrowUp className="h-4 w-4" />
+          {sending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowUp className="h-4 w-4" />
+          )}
         </button>
       </div>
     </div>

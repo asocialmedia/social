@@ -4,7 +4,7 @@ import noMessageImage from "@assets/general/nomessage.png";
 import { Users } from "lucide-react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ActiveFriendsRail } from "@/components/messages/active-friends-rail";
 import { ConversationList } from "@/components/messages/conversation-list";
@@ -17,11 +17,34 @@ export default function ClientMessages() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const conversationId = searchParams.get("c");
+  const dmUserId = searchParams.get("dm");
   const [railOpen, setRailOpen] = useState(false);
 
   // The identity is provisioned automatically by the provider, so the
   // conversation the user was trying to reach just works once ready.
   const pendingConversation = conversationId;
+
+  // Deep-link from a profile's Message button: ?dm=<userId> starts a
+  // create-or-find conversation with that user. The ConversationList owns that
+  // flow (it listens for the same event the online-friends rail uses), so it's
+  // only fired once the list is mounted and identity is ready, then the param
+  // is cleared to avoid re-triggering.
+  useEffect(() => {
+    if (!dmUserId || status !== "ready") {
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("dm");
+    const query = params.toString();
+    router.replace(query ? `/messages?${query}` : "/messages", {
+      scroll: false,
+    });
+    window.dispatchEvent(
+      new CustomEvent("messages:new-conversation", {
+        detail: { userId: dmUserId },
+      })
+    );
+  }, [dmUserId, router, searchParams, status]);
 
   const selectConversation = useCallback(
     (id: string | null) => {
