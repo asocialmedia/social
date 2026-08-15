@@ -1,8 +1,8 @@
 import {
-  createSubscriberConnection,
   messageChannel,
   parseMessageEvent,
   serializeMessageEvent,
+  subscribeToChannel,
 } from "@asm/db";
 
 import { getConversationForUser } from "@/lib/messages/server";
@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 // Every message write is published to the conversation's Redis channel; each
 // open stream here subscribes and forwards events to the browser. Ciphertext
 // is safe to broadcast over pub/sub — the plaintext never leaves the client.
+// All streams share one Redis subscriber connection per process via
+// subscribeToChannel, so open threads do not each hold a connection.
 export async function GET(
   request: Request,
   ctx: { params: Promise<{ id: string }> }
@@ -42,7 +44,8 @@ export async function GET(
     },
     async start(controller) {
       let closed = false;
-      const subscriber = createSubscriberConnection();
+      let subscription: Awaited<ReturnType<typeof subscribeToChannel>> | null =
+        null;
 
       const close = async () => {
         if (closed) {
@@ -50,16 +53,12 @@ export async function GET(
         }
         closed = true;
         clearInterval(heartbeat);
-        subscriber.removeListener("message", onMessage);
-        try {
-          await subscriber.unsubscribe(channel);
-        } catch {
-          // Non-fatal.
-        }
-        try {
-          await subscriber.quit();
-        } catch {
-          // Already gone.
+        if (subscription) {
+          try {
+            await subscription.unsubscribe();
+          } catch {
+            // Non-fatal.
+          }
         }
         try {
           controller.close();
@@ -68,10 +67,7 @@ export async function GET(
         }
       };
 
-      const onMessage = (chan: string, raw: string) => {
-        if (chan !== channel) {
-          return;
-        }
+      const onMessage = (_chan: string, raw: string) => {
         const event = parseMessageEvent(raw);
         if (!event) {
           return;
@@ -98,8 +94,8 @@ export async function GET(
         }
       };
 
-      // Keep-alive through proxies and detect dead sockets so the subscriber
-      // connection is not leaked.
+      // Keep-alive through proxies and detect dead sockets so the shared
+      // subscriber slot is released.
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": keep-alive\n\n"));
@@ -107,8 +103,6 @@ export async function GET(
           void close();
         }
       }, 20_000);
-
-      subscriber.on("message", onMessage);
 
       cleanup = () => {
         void close();
@@ -122,7 +116,7 @@ export async function GET(
       );
 
       try {
-        await subscriber.subscribe(channel);
+        subscription = await subscribeToChannel(channel, onMessage);
         controller.enqueue(
           encoder.encode(
             `event: connected\ndata: {"conversationId":"${id}"}\n\n`

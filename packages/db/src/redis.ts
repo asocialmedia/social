@@ -124,6 +124,148 @@ export function createSubscriberConnection(): IoRedis {
   );
 }
 
+// ---- shared pub/sub hub ----------------------------------------------------
+// One long-lived subscriber connection is shared by every SSE stream in the
+// process instead of a separate connection per open stream (which, with many
+// viewers, burns a Redis connection and its file descriptor each). Streams
+// subscribe to a channel and get back an unsubscribe function; the hub
+// reference-counts channels so a channel is only unsubscribed (and its slots
+// freed) when the last stream leaves it. ioredis re-subscribes automatically
+// across reconnects, so only the in-memory listener map needs managing here.
+export type ChannelListener = (channel: string, message: string) => void;
+
+export interface ChannelSubscription {
+  unsubscribe: () => Promise<void>;
+}
+
+let hubClient: IoRedis | null = null;
+const hubListeners = new Map<string, Set<ChannelListener>>();
+let hubOpenStreams = 0;
+
+// Gauges for observability: how many streams are open and how many distinct
+// channels/listeners the shared connection is carrying right now.
+export function getSubscriberGauges(): {
+  activeChannels: number;
+  activeListeners: number;
+  openStreams: number;
+} {
+  let activeListeners = 0;
+  for (const listeners of hubListeners.values()) {
+    activeListeners += listeners.size;
+  }
+  return {
+    activeChannels: hubListeners.size,
+    activeListeners,
+    openStreams: hubOpenStreams,
+  };
+}
+
+// A quiet periodic log of the hub gauges so connection usage is observable in
+// the web app's logs without a dedicated metrics endpoint. Only logs while
+// streams are actually open; goes silent when the last stream closes.
+let gaugeTimer: ReturnType<typeof setInterval> | null = null;
+
+function ensureGaugeLogging(): void {
+  if (gaugeTimer) {
+    return;
+  }
+  gaugeTimer = setInterval(() => {
+    const gauges = getSubscriberGauges();
+    if (gauges.openStreams > 0) {
+      console.log(
+        `[pubsub-hub] openStreams=${gauges.openStreams} ` +
+          `activeChannels=${gauges.activeChannels} ` +
+          `activeListeners=${gauges.activeListeners}`
+      );
+    }
+  }, 60_000);
+}
+
+function stopGaugeLoggingWhenIdle(): void {
+  if (gaugeTimer && hubOpenStreams === 0 && hubListeners.size === 0) {
+    clearInterval(gaugeTimer);
+    gaugeTimer = null;
+  }
+}
+
+function getHubClient(): IoRedis {
+  if (!hubClient || hubClient.status === "end") {
+    if (hubClient?.status === "end") {
+      hubClient = null;
+    }
+    hubClient = createSubscriberConnection();
+    hubClient.on("message", (channel, message) => {
+      const listeners = hubListeners.get(channel);
+      if (!listeners) {
+        return;
+      }
+      for (const listener of listeners) {
+        try {
+          listener(channel, message);
+        } catch (error) {
+          console.error("Subscriber listener threw:", error);
+        }
+      }
+    });
+  }
+  return hubClient;
+}
+
+// Subscribes `listener` to `channel`. The first stream on a channel triggers
+// the real Redis SUBSCRIBE; subsequent streams on the same channel reuse it.
+export async function subscribeToChannel(
+  channel: string,
+  listener: ChannelListener
+): Promise<ChannelSubscription> {
+  const client = getHubClient();
+  const listeners = hubListeners.get(channel) ?? new Set<ChannelListener>();
+  const isFirst = listeners.size === 0;
+  listeners.add(listener);
+  hubListeners.set(channel, listeners);
+  hubOpenStreams += 1;
+  ensureGaugeLogging();
+
+  if (isFirst) {
+    try {
+      await client.subscribe(channel);
+    } catch (error) {
+      // Roll back so a failed subscribe does not strand a phantom listener.
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        hubListeners.delete(channel);
+      }
+      hubOpenStreams -= 1;
+      throw error;
+    }
+  }
+
+  let unsubscribed = false;
+  return {
+    unsubscribe: async () => {
+      if (unsubscribed) {
+        return;
+      }
+      unsubscribed = true;
+      hubOpenStreams -= 1;
+      const current = hubListeners.get(channel);
+      if (!current) {
+        return;
+      }
+      current.delete(listener);
+      if (current.size === 0) {
+        hubListeners.delete(channel);
+        try {
+          await client.unsubscribe(channel);
+        } catch {
+          // Non-fatal: the connection may be gone, and ioredis re-syncs
+          // subscriptions on reconnect anyway.
+        }
+      }
+      stopGaugeLoggingWhenIdle();
+    },
+  };
+}
+
 export interface TrendingTopic {
   count: number;
   hashtag: string;
