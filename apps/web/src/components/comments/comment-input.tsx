@@ -2,8 +2,19 @@
 
 import type { CommentData, PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@asm/ui/shadui/popover";
 import { useQuery } from "@tanstack/react-query";
-import { ImagePlus, Loader2, SendHorizonal, X } from "lucide-react";
+import {
+  Clapperboard,
+  ImagePlus,
+  Loader2,
+  SendHorizonal,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -12,9 +23,12 @@ import { useCallback, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
+import KlipyGifPicker from "./klipy-gif-picker";
+import type { KlipyGif } from "./klipy-gif-picker";
 import { useSubmitCommentMutation } from "./mutations";
 import { useCommentAttachments } from "./use-comment-attachments";
 
@@ -50,6 +64,8 @@ export default function CommentInput({
   const { goToLogin } = useRequireAuth();
   const [input, setInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { toast } = useToast();
 
   const mutation = useSubmitCommentMutation(post.id, applyCreated);
 
@@ -116,6 +132,33 @@ export default function CommentInput({
       e.target.value = "";
     },
     [handleFilesSelected]
+  );
+
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+
+  const handleGifSelect = useCallback(
+    async (gif: KlipyGif) => {
+      setGifPickerOpen(false);
+      try {
+        const blob = await fetch(gif.url).then((r) => {
+          if (!r.ok) {
+            throw new Error("Failed to fetch GIF");
+          }
+          return r.blob();
+        });
+        const file = new File([blob], `${gif.slug || "gif"}.gif`, {
+          type: "image/gif",
+        });
+        await startUpload([file]);
+      } catch {
+        toast({
+          description: "Couldn't add that GIF, try another?",
+          title: "GIF Failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [startUpload, toast]
   );
 
   if (!user) {
@@ -202,6 +245,28 @@ export default function CommentInput({
           >
             <ImagePlus className="size-5" />
           </button>
+          <Popover onOpenChange={setGifPickerOpen} open={gifPickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                aria-label="Search and add a GIF"
+                className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1.5 transition-colors"
+                disabled={isUploading || mutation.isPending}
+                type="button"
+              >
+                <Clapperboard className="size-5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className="reels-panel w-auto border-0 p-2 shadow-none"
+              side="top"
+            >
+              <KlipyGifPicker
+                disabled={isUploading}
+                onSelect={handleGifSelect}
+              />
+            </PopoverContent>
+          </Popover>
           <button
             aria-label={submitLabel ?? "Send eddy"}
             className={cn(
