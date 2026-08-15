@@ -6,6 +6,7 @@ import type { TrendingAuraUser, TrendingMention } from "./trending-utils";
 const auraUser = (id: string, aura: number): TrendingAuraUser => ({
   aura,
   avatarUrl: null,
+  badge: null,
   displayName: `User ${id}`,
   type: "aura",
   userId: id,
@@ -14,6 +15,7 @@ const auraUser = (id: string, aura: number): TrendingAuraUser => ({
 
 const mention = (userId: string): TrendingMention => ({
   avatarUrl: null,
+  badge: null,
   count: 5,
   displayName: `User ${userId}`,
   type: "mention",

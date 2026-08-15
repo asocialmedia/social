@@ -36,5 +36,9 @@ export async function GET(request: Request) {
     nextCursor,
     posts: hydrated,
   };
-  return Response.json(data);
+  const responseHeaders = userId
+    ? undefined
+    : { "cache-control": "public, s-maxage=10, stale-while-revalidate=30" };
+
+  return Response.json(data, { headers: responseHeaders });
 }

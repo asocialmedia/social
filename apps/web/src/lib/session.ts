@@ -6,13 +6,20 @@ import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 export type SessionResponse = { session: Session; user: User } | null;
 
+// Better Auth session cookies always contain "session_token=". Unauthenticated
+// requests (guests, bots, static navigations) have no session cookie and can
+// immediately return null without an expensive HTTP round trip to the auth service.
+function hasSessionCookie(cookie: string): boolean {
+  return cookie.includes("session_token=");
+}
+
 // A single page render fans out to many API route handlers, each of which
 // calls getSessionFromApi(). React's cache() dedupes within one render but not
 // across parallel route handlers, so without this the burst of parallel routes
-// would each hit the auth service. Memoize the lookup for a short window
-// keyed by the request cookie so the whole burst shares ONE round trip.
-const SESSION_CACHE_TTL_MS = 2000;
-const SESSION_CACHE_MAX_ENTRIES = 50;
+// would each hit the auth service. Memoize the lookup for 30s keyed by the
+// request cookie so parallel and subsequent routes share round trips.
+const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_CACHE_MAX_ENTRIES = 500;
 
 const sessionCache = new Map<
   string,
@@ -22,6 +29,12 @@ const sessionCache = new Map<
 export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
   const hdrs = await nextHeaders();
   const cookie = hdrs.get("cookie") || "";
+
+  // Fast-path: Skip network request entirely if no session cookie exists.
+  if (!cookie || !hasSessionCookie(cookie)) {
+    return null;
+  }
+
   const now = Date.now();
 
   const existing = sessionCache.get(cookie);
