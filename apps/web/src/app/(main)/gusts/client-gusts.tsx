@@ -32,6 +32,7 @@ import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import kyInstance from "@/lib/ky";
+import { useInView } from "react-intersection-observer";
 import { useComposerStore } from "@/store/composer-store";
 
 interface ClientGustsProps {
@@ -73,7 +74,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const endSentinelRef = useRef<HTMLDivElement>(null);
+  // The app-wide infinite-scroll pattern (same hook the feeds use): a bottom
+  // sentinel flips inView when it enters the viewport, which paginates even
+  // when the list is too short to scroll.
+  const { inView: isEndVisible, ref: endSentinelRef } = useInView({
+    rootMargin: "200px",
+  });
 
   // Infinite query for gusts
   const {
@@ -104,6 +110,19 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
       ),
     [data?.pages]
   );
+
+  // When the feed is exhausted, render a second pixel-identical copy of the
+  // stream right after the first. The scroll listener below snaps scrollTop
+  // back from the duplicate to the same spot in the first copy, so scrolling
+  // past the last gust flows straight into the first again - no reverse-scroll
+  // animation, no bottom wall, the wrap is invisible because both copies look
+  // exactly the same.
+  const displayPosts = useMemo(() => {
+    if (hasNextPage || posts.length === 0) {
+      return posts;
+    }
+    return [...posts, ...posts];
+  }, [hasNextPage, posts]);
 
   // Refetch the feed and surface a pill when brand-new gusts (not already in
   // the current list) appeared at the top since the last load.
@@ -140,8 +159,55 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     setNewGustCount(0);
   }, []);
 
-  // Pull-to-refresh: track a downward drag from the top of the stream and
-  // trigger a refetch once the gesture crosses the threshold.
+  // Kept in sync so the wheel/touch listeners (attached once) can consult the
+  // current value without re-binding on every fetch state change.
+  const hasNextPageRef = useRef(hasNextPage);
+  useEffect(() => {
+    hasNextPageRef.current = hasNextPage;
+  }, [hasNextPage]);
+
+  // Locks input while a wrap-around jump is in flight so momentum can't fight
+  // the animation, and temporarily lifts CSS scroll-snap so the browser can't
+  // snap back to the old position (which made loops look like they "bounced"
+  // in place instead of landing at the top/bottom).
+  const isWrappingRef = useRef(false);
+  const wrapTo = useCallback((target: number, smooth = true) => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+    isWrappingRef.current = true;
+    container.style.scrollSnapType = "none";
+    container.scrollTo({ behavior: smooth ? "smooth" : "auto", top: target });
+    window.setTimeout(() => {
+      container.style.scrollSnapType = "";
+      isWrappingRef.current = false;
+    }, smooth ? 900 : 80);
+  }, []);
+
+  // Scrolls the stream so the gust at `idx` is in view, computing the target
+  // directly on the scroll container. scrollIntoView would also scroll every
+  // scrollable ancestor (fighting the snap container and the page layout),
+  // which is what made the buttons/keyboard jump to a wrong-looking spot.
+  const scrollToItem = useCallback(
+    (idx: number) => {
+      const container = containerRef.current;
+      const el = itemRefs.current[idx];
+      if (!container || !el) {
+        return;
+      }
+      const target = Math.min(
+        Math.max(el.offsetTop - container.offsetTop, 0),
+        container.scrollHeight - container.clientHeight
+      );
+      wrapTo(target);
+    },
+    [wrapTo]
+  );
+
+  // Touch handling: pull-to-refresh from the top. Swiping past the last gust
+  // needs no handling here - the doubled stream's scroll listener wraps it
+  // back to the first copy seamlessly.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -149,8 +215,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     }
 
     const handleTouchStart = (event: TouchEvent) => {
-      touchStartYRef.current =
-        container.scrollTop <= 0 ? (event.touches[0]?.clientY ?? null) : null;
+      touchStartYRef.current = event.touches[0]?.clientY ?? null;
     };
 
     const handleTouchMove = (event: TouchEvent) => {
@@ -184,7 +249,67 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [isRefreshing, pullDistance, refreshFeed]);
+    // posts.length gates this: the scroll container only exists once content
+    // renders, and the effect must (re)attach after it mounts.
+  }, [isRefreshing, posts.length, pullDistance, refreshFeed]);
+
+  // Scrolling down needs no boundary handling: the doubled stream lets the
+  // browser scroll straight past the last gust into the duplicate, and the
+  // listener below invisibly wraps scrollTop back to the identical spot in the
+  // first copy. Only scrolling up past the very first gust needs a nudge to
+  // land on the last one.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      // Let a nav animation settle before handling more input.
+      if (isWrappingRef.current) {
+        return;
+      }
+      // While more pages exist the bottom sentinel keeps loading; the loop
+      // only kicks in once the feed is exhausted (and the stream is doubled).
+      if (hasNextPageRef.current) {
+        return;
+      }
+      if (event.deltaY < 0 && container.scrollTop <= 2) {
+        event.preventDefault();
+        scrollToItem(posts.length - 1);
+      }
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+    // posts.length gates this: the scroll container only exists once content
+    // renders, so the listener attaches on first content and re-attaches as
+    // the feed grows.
+  }, [posts.length, scrollToItem]);
+
+  // The invisible loop: with the stream doubled, this listener keeps scrollTop
+  // inside the first copy. The moment scrolling enters the duplicate it snaps
+  // back by exactly one copy height - both copies render identical content, so
+  // the jump is imperceptible and 1 -> 2 -> 3 -> 1 -> 2 -> 3 feels continuous.
+  useEffect(() => {
+    if (hasNextPage || posts.length === 0) {
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleScroll = () => {
+      const copyHeight = container.scrollHeight / 2;
+      if (container.scrollTop >= copyHeight) {
+        container.scrollTop -= copyHeight;
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [hasNextPage, posts.length]);
 
   // If ?id= was provided, jump straight to that gust once the feed is loaded:
   // mark it active (so its video plays) and center it in the stream container
@@ -254,21 +379,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   // page is fetched immediately (and every page after that until the API runs
   // out).
   useEffect(() => {
-    const sentinel = endSentinelRef.current;
-    if (!sentinel) {
-      return;
+    if (isEndVisible && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
     }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
-          void fetchNextPage();
-        }
-      },
-      { root: containerRef.current, rootMargin: "200px 0px" }
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+  }, [fetchNextPage, hasNextPage, isEndVisible, isFetchingNextPage]);
 
   // When the visible list is empty (e.g. the first page held no video gusts)
   // but more pages exist, keep loading until something appears or the feed is
@@ -300,12 +414,14 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
-        const nextIdx = Math.min(activeIndex + 1, posts.length - 1);
-        itemRefs.current[nextIdx]?.scrollIntoView({ behavior: "smooth" });
+        // Wrap around: next past the last gust loops back to the first.
+        const nextIdx = activeIndex >= posts.length - 1 ? 0 : activeIndex + 1;
+        scrollToItem(nextIdx);
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
-        const prevIdx = Math.max(activeIndex - 1, 0);
-        itemRefs.current[prevIdx]?.scrollIntoView({ behavior: "smooth" });
+        // Wrap around: previous before the first gust loops to the last.
+        const prevIdx = activeIndex <= 0 ? posts.length - 1 : activeIndex - 1;
+        scrollToItem(prevIdx);
       } else if (e.key === "m") {
         e.preventDefault();
         handleToggleMute();
@@ -314,7 +430,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeIndex, posts.length, handleToggleMute]);
+  }, [activeIndex, posts.length, handleToggleMute, scrollToItem]);
 
   // Record a visit for the active gust so the recents card surfaces it and
   // keeps the "recently viewed" order fresh. Guests don't have history.
@@ -354,14 +470,16 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   }, [autoOpenCreate, openComposer, user]);
 
   const scrollToPrev = useCallback(() => {
-    const prevIdx = Math.max(activeIndex - 1, 0);
-    itemRefs.current[prevIdx]?.scrollIntoView({ behavior: "smooth" });
-  }, [activeIndex]);
+    // Wrap around: previous before the first gust loops to the last.
+    const prevIdx = activeIndex <= 0 ? posts.length - 1 : activeIndex - 1;
+    scrollToItem(prevIdx);
+  }, [activeIndex, posts.length, scrollToItem]);
 
   const scrollToNext = useCallback(() => {
-    const nextIdx = Math.min(activeIndex + 1, posts.length - 1);
-    itemRefs.current[nextIdx]?.scrollIntoView({ behavior: "smooth" });
-  }, [activeIndex, posts.length]);
+    // Wrap around: next past the last gust loops back to the first.
+    const nextIdx = activeIndex >= posts.length - 1 ? 0 : activeIndex + 1;
+    scrollToItem(nextIdx);
+  }, [activeIndex, posts.length, scrollToItem]);
 
   const renderContent = () => {
     if (status === "pending") {
@@ -403,24 +521,31 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           className="hide-native-scrollbar h-full w-full max-w-4xl snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
           ref={containerRef}
         >
-          {posts.map((post, idx) => (
-            <div
-              className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-              data-index={idx}
-              key={post.id}
-              ref={(el) => {
-                itemRefs.current[idx] = el;
-              }}
-            >
-              <GustCard
-                isActive={activeIndex === idx}
-                isMuted={isMuted}
-                onOpenComments={() => setIsCommentsOpen(true)}
-                onToggleMute={handleToggleMute}
-                post={post}
-              />
-            </div>
-          ))}
+          {displayPosts.map((post, idx) => {
+            // Second copy renders the same gust again - only the first copy
+            // drives the navigation refs and the active-gust observer.
+            const inDuplicate = idx >= posts.length;
+            return (
+              <div
+                className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
+                data-index={idx % posts.length}
+                key={inDuplicate ? `${post.id}-copy2` : post.id}
+                ref={(el) => {
+                  if (!inDuplicate) {
+                    itemRefs.current[idx] = el;
+                  }
+                }}
+              >
+                <GustCard
+                  isActive={activeIndex === idx % posts.length}
+                  isMuted={isMuted}
+                  onOpenComments={() => setIsCommentsOpen(true)}
+                  onToggleMute={handleToggleMute}
+                  post={post}
+                />
+              </div>
+            );
+          })}
 
           {isFetchingNextPage ? (
             <div className="flex h-24 items-center justify-center">
@@ -430,7 +555,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
           {/* Pagination sentinel: triggers the next page even when the feed
               is short, keeping the stream effectively infinite. */}
-          <div ref={endSentinelRef} />
+          {hasNextPage ? <div ref={endSentinelRef} /> : null}
         </div>
 
         {isCommentsOpen && posts[activeIndex] ? (
@@ -454,10 +579,20 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
       {/* Main Gusts Container */}
       <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden">
-        {/* Floating back button (mobile) */}
+        {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"
           className="rail-3d-btn absolute top-4 left-4 z-30 flex h-10 w-10 items-center justify-center rounded-full md:hidden"
+          onClick={() => router.back()}
+          type="button"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+
+        {/* Floating back button (desktop, outside the gust container) */}
+        <button
+          aria-label="Go back"
+          className="icon-btn-3d absolute top-4 left-4 z-30 hidden h-10 w-10 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 md:flex"
           onClick={() => router.back()}
           type="button"
         >
@@ -523,8 +658,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           <div className="fixed top-1/2 right-3 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
             <button
               aria-label="Previous Gust"
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
-              disabled={activeIndex === 0}
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
               onClick={scrollToPrev}
               type="button"
             >
@@ -532,8 +666,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
             </button>
             <button
               aria-label="Next Gust"
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:opacity-40"
-              disabled={activeIndex >= posts.length - 1}
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
               onClick={scrollToNext}
               type="button"
             >
