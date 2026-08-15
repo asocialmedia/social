@@ -44,6 +44,8 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const title = postTitle(post);
   const description = postDescription(post);
   const url = absoluteUrl(`/posts/${post.id}`);
+  const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
+  const postImage = getPostImage(post);
 
   return {
     alternates: { canonical: `/posts/${post.id}` },
@@ -53,6 +55,15 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     openGraph: {
       authors: [absoluteUrl(`/users/${post.user.username}`)],
       description,
+      images: [
+        {
+          alt: title,
+          height: 630,
+          url: ogImageUrl,
+          width: 1200,
+        },
+        ...(postImage ? [{ alt: title, url: postImage }] : []),
+      ],
       locale: siteConfig.locale,
       publishedTime: post.createdAt.toISOString(),
       siteName: siteConfig.name,
@@ -68,7 +79,9 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     title,
     twitter: {
       card: "summary_large_image",
+      creator: post.user.username ? `@${post.user.username}` : undefined,
       description,
+      images: [ogImageUrl],
       title,
     },
   };

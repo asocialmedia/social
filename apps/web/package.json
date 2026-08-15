@@ -1,8 +1,8 @@
 {
   "name": "@asm/web",
-  "version": "1.1.51",
+  "version": "1.1.57",
   "private": true,
-  "description": "Asocialmedia Web App",
+  "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
   "scripts": {
     "build": "next build",
@@ -48,7 +48,7 @@
     "next": "^16.3.0",
     "next-themes": "^0.4.6",
     "nuqs": "^2.9.5",
-    "pg": "^8.23.0",
+    "pg": "8.18.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.8",
     "react-cropper": "^2.3.3",

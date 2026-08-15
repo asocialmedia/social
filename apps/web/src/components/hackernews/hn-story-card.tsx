@@ -209,7 +209,7 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
               >
                 <span className="flex items-center gap-3">
                   <Share2 className="size-4 rotate-90" />
-                  Share to Asocialmedia
+                  Share to asocialmedia
                 </span>
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -312,7 +312,7 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
           type="button"
         >
           <Share2 className="h-3.5 w-3.5 rotate-90" />
-          <span>Share to Asocialmedia</span>
+          <span>Share to asocialmedia</span>
         </button>
 
         <button

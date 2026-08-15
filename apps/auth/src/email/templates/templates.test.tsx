@@ -35,7 +35,7 @@ describe("email templates", () => {
 
     expect(html).toContain("Your verification code");
     expect(html).toContain("123456");
-    expect(html).toContain("Asocialmedia");
+    expect(html).toContain("asocialmedia");
   });
 
   test("otp verification component returns JSX", () => {

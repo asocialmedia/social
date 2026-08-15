@@ -26,10 +26,10 @@ const UserButtonWrapper: React.FC<UserButtonWrapperProps> = ({ className }) => {
         <div className="flex items-center gap-2">
           <div className="hidden items-center gap-2 pr-2 md:flex">
             <div className="flex min-w-0 flex-col justify-center leading-tight">
-              <span className="text-foreground max-w-[180px] truncate text-sm font-medium">
+              <span className="text-foreground max-w-45 truncate text-sm font-medium">
                 {user?.name}
               </span>
-              <span className="text-muted-foreground max-w-[180px] truncate text-xs">
+              <span className="text-muted-foreground max-w-45 truncate text-xs">
                 @{user?.username}
               </span>
             </div>

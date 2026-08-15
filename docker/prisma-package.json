@@ -6,7 +6,7 @@
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@t3-oss/env-nextjs": "^0.13.11",
-    "pg": "^8.20.0",
+    "pg": "8.18.0",
     "prisma": "^7.9.1",
     "tsx": "^4.20.6",
     "typescript": "^7.0.2",

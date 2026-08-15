@@ -68,10 +68,10 @@ export default function TermsPage() {
             </h2>
             <div className="space-y-4">
               <p>
-                By accessing or using Asocialmedia ("the Platform"), you
+                By accessing or using asocialmedia ("the Platform"), you
                 acknowledge and agree to be bound by these Terms and Conditions
                 ("Terms"). These Terms constitute a legally binding agreement
-                between you ("User", "you", or "your") and Asocialmedia ("we",
+                between you ("User", "you", or "your") and asocialmedia ("we",
                 "us", or "our") governing your access to and use of our
                 services, including any associated applications, features,
                 content, and functionality.
@@ -999,7 +999,7 @@ export default function TermsPage() {
                 For your security and to prevent fraud, we exclusively
                 communicate through our official email domains:
                 "asocialmedia.cc" (e.g., hello@asocialmedia.cc). Any
-                communication claiming to be from Asocialmedia that originates
+                communication claiming to be from asocialmedia that originates
                 from other email addresses should be treated as potentially
                 fraudulent. We strongly encourage users to verify email
                 authenticity and report any suspicious communications to our
@@ -1061,12 +1061,12 @@ export default function TermsPage() {
               <p>
                 To protect yourself from potential phishing attempts and
                 fraudulent communications, always verify that emails from
-                Asocialmedia originate from our official domains. Our legitimate
+                asocialmedia originate from our official domains. Our legitimate
                 email communications will only come from addresses ending in
                 "@asocialmedia.cc". We employ industry-standard email
                 authentication protocols (SPF, DKIM, and DMARC) to prevent email
                 spoofing. If you receive any suspicious communications claiming
-                to be from Asocialmedia from other email addresses, please
+                to be from asocialmedia from other email addresses, please
                 forward them to our security team (me) at hello@asocialmedia.cc
                 and do not click on any links or download any attachments from
                 these suspicious sources.
@@ -1130,10 +1130,10 @@ export default function TermsPage() {
           <section className="bg-muted mt-8 rounded-lg p-6">
             <div className="space-y-4">
               <p className="text-muted-foreground">
-                By accessing or using the Asocialmedia platform, you acknowledge
+                By accessing or using the asocialmedia platform, you acknowledge
                 that you have read, understood, and agreed to these Terms and
                 Conditions in their entirety. These Terms represent the complete
-                agreement between you and Asocialmedia regarding your use of our
+                agreement between you and asocialmedia regarding your use of our
                 services and supersede any prior agreements or understandings,
                 whether written or oral. We encourage you to regularly review
                 these Terms as they may be updated from time to time to reflect
@@ -1155,17 +1155,17 @@ export default function TermsPage() {
 
               <p className="text-muted-foreground">
                 These Terms were last updated on March 19, 2024, and are
-                effective immediately for all users of the Asocialmedia
+                effective immediately for all users of the asocialmedia
                 platform. We maintain archived versions of previous Terms for
                 reference purposes, which can be requested through our official
-                support channels. Thank you for choosing Asocialmedia as your
+                support channels. Thank you for choosing asocialmedia as your
                 trusted platform.
               </p>
 
               <p className="border-border text-muted-foreground mt-4 border-t pt-4 italic">
                 In the spirit of transparency, we should mention that these
                 Terms were crafted with the assistance of Mr. Chad Gee Pey T
-                while Asocialmedia was in development. While we've done our best
+                while asocialmedia was in development. While we've done our best
                 to make them comprehensive and accurate, we're committed to
                 evolving these Terms as our platform grows. Think of this as our
                 "beta version" of legalese - we promise to keep improving it,

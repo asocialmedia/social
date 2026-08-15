@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Newspaper, Terminal } from "lucide-react";
+import { Bookmark, Clapperboard, Newspaper, Terminal } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
@@ -16,6 +16,7 @@ const FOOTER_LINKS = [
 ];
 
 interface BookmarksSidebarProps {
+  gustBookmarkCount: number;
   hnBookmarkCount: number;
   postBookmarkCount: number;
 }
@@ -35,10 +36,12 @@ const StatTile: React.FC<{
 );
 
 const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
+  gustBookmarkCount,
   hnBookmarkCount,
   postBookmarkCount,
 }) => {
-  const totalBookmarks = postBookmarkCount + hnBookmarkCount;
+  const totalBookmarks =
+    postBookmarkCount + gustBookmarkCount + hnBookmarkCount;
 
   return (
     <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
@@ -48,11 +51,16 @@ const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
             <Bookmark className="text-muted-foreground h-4 w-4 shrink-0" />
             <h2 className="text-sm font-semibold">Your Bookmarks</h2>
           </div>
-          <div className="grid grid-cols-3 gap-2 px-1 pt-1">
+          <div className="grid grid-cols-2 gap-2 px-1 pt-1">
             <StatTile
               icon={<Newspaper className="text-muted-foreground h-4 w-4" />}
               label="Posts"
               value={postBookmarkCount}
+            />
+            <StatTile
+              icon={<Clapperboard className="text-muted-foreground h-4 w-4" />}
+              label="Gusts"
+              value={gustBookmarkCount}
             />
             <StatTile
               icon={<Terminal className="text-muted-foreground h-4 w-4" />}
@@ -70,7 +78,7 @@ const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
         <PostHistoryCard />
 
         <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
-          <span>© {new Date().getFullYear()} Asocialmedia</span>
+          <span>© {new Date().getFullYear()} asocialmedia</span>
           {FOOTER_LINKS.map(({ href, label }) => (
             <Link
               className="hover:text-foreground transition-colors"

@@ -3,12 +3,17 @@ import type { PostsPage } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSessionFromApi();
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Mirrors the profile tabs: "posts" (default) returns regular posts, while
+  // "gusts" returns only short-form video posts.
+  const url = new URL(request.url);
+  const isGustFilter = url.searchParams.get("filter") === "gusts";
 
   const bookmarks = await prisma.bookmark.findMany({
     include: { post: true },
@@ -22,7 +27,7 @@ export async function GET() {
 
   const posts = await prisma.post.findMany({
     include: getPostDataInclude(user.id),
-    where: { id: { in: postIds } },
+    where: { id: { in: postIds }, isGust: isGustFilter },
   });
 
   // Preserve the bookmark order (most recently bookmarked first).

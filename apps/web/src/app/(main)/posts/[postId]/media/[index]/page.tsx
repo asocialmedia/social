@@ -73,21 +73,33 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const mediaUrl = `/posts/${post.id}/media/${parsedIndex}`;
   const mediaImage = getMediaImage(post, resolvedIndex);
 
+  const ogImageUrl =
+    mediaImage || absoluteUrl(`/posts/${post.id}/opengraph-image`);
+
   return {
     alternates: { canonical: mediaUrl },
     description,
     openGraph: {
       description,
+      images: [
+        {
+          alt: title,
+          height: 630,
+          url: ogImageUrl,
+          width: 1200,
+        },
+      ],
       siteName: siteConfig.name,
       title,
       type: "article",
       url: absoluteUrl(mediaUrl),
-      ...(mediaImage ? { images: [{ url: mediaImage }] } : {}),
     },
     title,
     twitter: {
       card: "summary_large_image",
+      creator: post.user.username ? `@${post.user.username}` : undefined,
       description,
+      images: [ogImageUrl],
       title,
     },
   };

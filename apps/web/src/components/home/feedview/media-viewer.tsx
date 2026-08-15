@@ -49,6 +49,22 @@ interface MediaViewerProps {
   post?: PostData;
 }
 
+function getShareThumbnail(
+  post: PostData | null | undefined,
+  currentMedia: Media | undefined
+): string | undefined {
+  if (currentMedia) {
+    return getMediaProxyUrl(currentMedia);
+  }
+  if (post?.attachments[0]) {
+    return getMediaProxyUrl(post.attachments[0]);
+  }
+  if (post) {
+    return `/posts/${post.id}/opengraph-image`;
+  }
+  return undefined;
+}
+
 const MediaViewer = ({
   media,
   initialIndex = 0,
@@ -391,13 +407,12 @@ const MediaViewer = ({
           />
           <ShareButton
             description={post.content}
+            dialogDescription="Share this media with your network"
+            dialogTitle="Share Media"
             postId={post.id}
-            thumbnail={
-              post.attachments[0]
-                ? getMediaProxyUrl(post.attachments[0])
-                : undefined
-            }
-            title={post.content}
+            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+            thumbnail={getShareThumbnail(post, currentMedia)}
+            title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
           />
         </div>
         <span className="text-muted-foreground pr-2 text-sm lg:hidden">
@@ -602,13 +617,12 @@ const MediaViewer = ({
                 />
                 <ShareButton
                   description={post.content}
+                  dialogDescription="Share this media with your network"
+                  dialogTitle="Share Media"
                   postId={post.id}
-                  thumbnail={
-                    post.attachments[0]
-                      ? getMediaProxyUrl(post.attachments[0])
-                      : undefined
-                  }
-                  title={post.content}
+                  shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+                  thumbnail={getShareThumbnail(post, currentMedia)}
+                  title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
                 />
               </div>
 

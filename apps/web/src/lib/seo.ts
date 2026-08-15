@@ -60,7 +60,7 @@ export function postDescription(post: PostData): string {
   const base =
     content && content.length >= 20
       ? content
-      : `${content || "Eddie"} on Asocialmedia by ${post.user.displayName || post.user.username} (@${post.user.username})`;
+      : `${content || "Eddie"} on asocialmedia by ${post.user.displayName || post.user.username} (@${post.user.username})`;
   const contentExcerpt = excerpt(base, 140);
   const tags = post.tags.map((tag) => `#${tag.name}`).join(" ");
   return [contentExcerpt, tags].filter(Boolean).join(" · ");

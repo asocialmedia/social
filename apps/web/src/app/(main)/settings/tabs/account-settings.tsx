@@ -289,7 +289,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
           <div>
             <h3 className="font-medium">Username</h3>
             <p className="text-muted-foreground text-sm">
-              How people find you on Asocialmedia
+              How people find you on asocialmedia
             </p>
           </div>
         </div>

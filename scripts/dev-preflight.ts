@@ -469,7 +469,7 @@ async function run() {
 
   await setCache(cache);
   finishProgressLine();
-  log.success("Asocialmedia goes brr");
+  log.success("asocialmedia goes brr");
   outro("Preflight checks passed");
 }
 

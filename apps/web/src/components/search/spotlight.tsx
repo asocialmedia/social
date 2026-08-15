@@ -357,7 +357,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                 src={noSearchImage}
                 width={144}
               />
-              <p className="text-sm font-medium">Search Asocialmedia</p>
+              <p className="text-sm font-medium">Search asocialmedia</p>
               <p className="text-muted-foreground text-xs">
                 Start typing to find people and posts
               </p>

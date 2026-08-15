@@ -22,7 +22,7 @@ export const emailConfig = {
     features: [
       {
         description:
-          "Experience all your social media in one place. Asocialmedia seamlessly aggregates content from Twitter, Reddit, 4chan, and more into a single, customizable feed. No more platform hopping!",
+          "Experience all your social media in one place. asocialmedia seamlessly aggregates content from Twitter, Reddit, 4chan, and more into a single, customizable feed. No more platform hopping!",
         emoji: "🌐 ",
         title: "Unified Social Feed",
       },
@@ -34,7 +34,7 @@ export const emailConfig = {
       },
       {
         description:
-          "Asocialmedia is proudly Free and Open Source Software (FOSS). Inspect the code, suggest features, contribute improvements, and help build a more connected social media experience for everyone. More eyes make for better software!",
+          "asocialmedia is proudly Free and Open Source Software (FOSS). Inspect the code, suggest features, contribute improvements, and help build a more connected social media experience for everyone. More eyes make for better software!",
         emoji: "🐙 ",
         title: "Open Source Freedom",
       },
@@ -43,7 +43,7 @@ export const emailConfig = {
   },
 
   company: {
-    name: "Asocialmedia",
+    name: "asocialmedia",
     supportEmail: env.SUPPORT_EMAIL,
     website: env.APP_URL,
   },
@@ -65,7 +65,7 @@ export const emailConfig = {
 
   project: {
     description:
-      "Asocialmedia is a social media aggregator that aggregates content from various social media platforms and displays them in a single feed. Completely FOSS and open to contributions.",
+      "asocialmedia is a social media aggregator that aggregates content from various social media platforms and displays them in a single feed. Completely FOSS and open to contributions.",
     links: {
       contribute: "https://github.com/asocialmedia/social/contribute",
       discord: "https://discordapp.com/users/parazeeknova",
@@ -98,7 +98,7 @@ export const emailConfig = {
     verification: {
       buttonText: "Verify Email Address",
       expiryTime: "1 hour",
-      subject: "🎉 One Last Step to Join the Asocialmedia!",
+      subject: "🎉 One Last Step to Join the asocialmedia!",
     },
   },
 };

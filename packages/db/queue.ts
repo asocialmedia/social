@@ -107,6 +107,64 @@ export const unreadNotificationCache = {
   },
 };
 
+// Unread DMs counter, mirrored off the notification badge: incremented when a
+// message is created, decremented when the user reads a conversation, and
+// polled every 60s by the nav badge (plus an instant bump over the SSE stream).
+const UNREAD_MESSAGE_PREFIX = "unread:messages:";
+
+export const unreadMessageCache = {
+  async decrement(userId: string, amount = 1): Promise<number> {
+    try {
+      const script = `
+        local current = tonumber(redis.call('get', KEYS[1]) or '0')
+        local next = math.max(0, current - tonumber(ARGV[1]))
+        if next > 0 then
+          redis.call('set', KEYS[1], next)
+        else
+          redis.call('del', KEYS[1])
+        end
+        return next
+      `;
+      return (await redis.eval(
+        script,
+        1,
+        `${UNREAD_MESSAGE_PREFIX}${userId}`,
+        amount
+      )) as number;
+    } catch (error) {
+      console.error("Error decrementing unread message count:", error);
+      return 0;
+    }
+  },
+
+  async get(userId: string): Promise<number | null> {
+    try {
+      const value = await redis.get(`${UNREAD_MESSAGE_PREFIX}${userId}`);
+      return value === null ? null : Math.trunc(Number(value));
+    } catch (error) {
+      console.error("Error getting unread message count:", error);
+      return null;
+    }
+  },
+
+  async increment(userId: string, amount = 1): Promise<number> {
+    try {
+      return await redis.incrby(`${UNREAD_MESSAGE_PREFIX}${userId}`, amount);
+    } catch (error) {
+      console.error("Error incrementing unread message count:", error);
+      return 0;
+    }
+  },
+
+  async reset(userId: string): Promise<void> {
+    try {
+      await redis.del(`${UNREAD_MESSAGE_PREFIX}${userId}`);
+    } catch (error) {
+      console.error("Error resetting unread message count:", error);
+    }
+  },
+};
+
 export async function enqueuePostDeleted(postId: string): Promise<void> {
   await getQueue(CONTENT_EVENTS_QUEUE).add("post-deleted", { postId });
 }

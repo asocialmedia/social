@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   description:
-    "Browse the global feed on Asocialmedia — a cozy, open source social platform. See what's trending, explore hashtags, and read the conversation without an account.",
+    "Browse the global feed on asocialmedia — a cozy, open source social platform. See what's trending, explore hashtags, and read the conversation without an account.",
   keywords: [
     "asocialmedia",
     "global feed",
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     description:
-      "Browse the global feed on Asocialmedia — a cozy, open source social platform. See what's trending and join the conversation.",
+      "Browse the global feed on asocialmedia — a cozy, open source social platform. See what's trending and join the conversation.",
     siteName: siteConfig.name,
     title: siteConfig.name,
     type: "website",

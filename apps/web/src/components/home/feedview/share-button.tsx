@@ -50,7 +50,9 @@ interface ShareButtonProps {
   className?: string;
   defaultTab?: "social" | "link" | "qr";
   description?: string;
-  postId: string;
+  dialogDescription?: string;
+  dialogTitle?: string;
+  postId?: string;
   shareUrl?: string;
   thumbnail?: string;
   title?: string;
@@ -70,6 +72,8 @@ const ShareButton = ({
   title,
   thumbnail,
   description,
+  dialogTitle = "Share",
+  dialogDescription = "Share with your network",
 }: ShareButtonProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -80,13 +84,13 @@ const ShareButton = ({
   const [isLoading, setIsLoading] = useState(false);
 
   const baseUrl = typeof window === "undefined" ? "" : window.location.origin;
-  const postUrl = shareUrl || `${baseUrl}/posts/${postId}`;
+  const postUrl = shareUrl || (postId ? `${baseUrl}/posts/${postId}` : baseUrl);
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
 
   const fetchShareStats = useCallback(async () => {
-    if (!isLoggedIn) {
-      // Guests see the login prompt instead of share statistics.
+    if (!isLoggedIn || !postId) {
+      // Guests or non-post shares skip database statistics.
       return;
     }
     try {
@@ -138,6 +142,9 @@ const ShareButton = ({
   }, [copied]);
 
   const trackShare = async (platform: string) => {
+    if (!postId) {
+      return;
+    }
     try {
       const response = await fetch(`/api/posts/${postId}/share`, {
         body: JSON.stringify({ platform }),
@@ -168,6 +175,9 @@ const ShareButton = ({
   };
 
   const trackClick = async (platform: string) => {
+    if (!postId) {
+      return;
+    }
     try {
       const response = await fetch(`/api/posts/${postId}/share/click`, {
         body: JSON.stringify({ platform }),
@@ -501,10 +511,10 @@ const ShareButton = ({
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
               <Share2 className="h-3.5 w-3.5" />
             </div>
-            Share Post
+            {dialogTitle}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground mt-1 text-xs">
-            Share this post with your network
+            {dialogDescription}
           </DialogDescription>
         </div>
 

@@ -8,7 +8,7 @@ import { ImageResponse } from "next/og";
 
 import { excerpt, toAbsoluteUrl } from "@/lib/seo";
 
-export const alt = "Asocialmedia post";
+export const alt = "asocialmedia post";
 export const size = {
   height: 630,
   width: 1200,
@@ -270,7 +270,7 @@ export default async function Image({
               textTransform: "uppercase",
             }}
           >
-            Asocialmedia
+            asocialmedia
           </div>
         </div>
 

@@ -11,7 +11,7 @@ import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
 export const metadata: Metadata = {
-  description: "Discover and connect with amazing people on Asocialmedia",
+  description: "Discover and connect with amazing people on asocialmedia",
   title: "Explore",
 };
 

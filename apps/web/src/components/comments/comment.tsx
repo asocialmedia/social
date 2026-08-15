@@ -22,6 +22,7 @@ import CommentInput from "./comment-input";
 import CommentMoreButton from "./comment-more-button";
 import { MAX_COMMENT_DEPTH } from "./comment-tree";
 import type { CommentNode } from "./comment-tree";
+import { useCommentsRealtimeValue } from "./comments-realtime-context";
 
 // Indent per nesting level (pl-8). The reply's avatar sits at this offset,
 // giving replies room to the right of the parent's rail column.
@@ -56,6 +57,7 @@ export default function CommentItem({
   const { comment, children, depth } = node;
   const { user } = useSession();
   const { goToLogin, isLoggedIn } = useRequireAuth();
+  const shared = useCommentsRealtimeValue();
   const [showReply, setShowReply] = useState(false);
 
   const isOwnComment = Boolean(user) && comment.user.id === user?.id;
@@ -63,13 +65,19 @@ export default function CommentItem({
   const clampedDepth = Math.min(depth, MAX_COMMENT_DEPTH);
   const hasRail = clampedDepth > 0;
 
+  // Tell the page-level context when this reply composer is open so the mobile
+  // floating bar hides while the user is typing a reply inline.
   const handleReplyOpen = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
-    setShowReply((prev) => !prev);
-  }, [goToLogin, isLoggedIn]);
+    setShowReply((prev) => {
+      const next = !prev;
+      shared?.setReplyOpen(next);
+      return next;
+    });
+  }, [goToLogin, isLoggedIn, shared]);
 
   return (
     <div
@@ -247,7 +255,10 @@ export default function CommentItem({
                 autoFocus
                 className="mt-1"
                 key={`reply-${comment.id}`}
-                onSubmitted={() => setShowReply(false)}
+                onSubmitted={() => {
+                  setShowReply(false);
+                  shared?.setReplyOpen(false);
+                }}
                 parentId={comment.id}
                 placeholder={`Reply to @${comment.user.username}...`}
                 post={post}

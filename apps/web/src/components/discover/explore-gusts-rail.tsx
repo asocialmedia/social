@@ -119,7 +119,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
         <div className="flex items-center gap-1.5">
           <UserAvatar
             avatarUrl={gust.user.avatarUrl}
-            className="size-5 border border-white/40"
+            className="size-6 rounded-lg border border-white/40"
           />
           <span className="truncate text-xs font-semibold text-white/95">
             @{gust.user.username}

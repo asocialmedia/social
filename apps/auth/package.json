@@ -1,8 +1,8 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.0.71",
+  "version": "1.0.74",
   "private": true,
-  "description": "Asocialmedia Auth Service",
+  "description": "asocialmedia Auth Service",
   "scripts": {
     "build": "target=$(bash scripts/resolve-build-target.sh); bun build --compile --minify --target=$target --external msgpackr-extract ./src/server.ts --outfile ./dist/auth-server",
     "build:worker": "target=$(bash scripts/resolve-build-target.sh); bun build --compile --minify --target=$target --external msgpackr-extract ./src/worker.ts --outfile ./dist/asm-worker",
@@ -28,7 +28,7 @@
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "jose": "^6.2.8",
-    "pg": "^8.23.0",
+    "pg": "8.18.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "resend": "^6.18.1",

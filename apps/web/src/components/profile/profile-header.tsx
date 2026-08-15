@@ -8,6 +8,7 @@ import Link from "next/link";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
+import ShareButton from "@/components/home/feedview/share-button";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -130,7 +131,24 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               size={112}
             />
           </div>
-          <div className="mb-2">
+          <div className="mb-2 flex items-center gap-2">
+            <ShareButton
+              className="h-9 w-9 rounded-full border border-black/10 bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]"
+              defaultTab="link"
+              description={
+                liveUserData.bio ||
+                `Check out @${liveUserData.username}'s profile on asocialmedia`
+              }
+              dialogDescription="Share this profile with your network"
+              dialogTitle="Share Profile"
+              shareUrl={
+                typeof window === "undefined"
+                  ? undefined
+                  : `${window.location.origin}/users/${liveUserData.username}`
+              }
+              thumbnail={avatarUrl || undefined}
+              title={`${liveUserData.displayName || liveUserData.username} (@${liveUserData.username}) on asocialmedia`}
+            />
             {isOwnProfile ? (
               <EditProfileButton user={liveUserData} />
             ) : (
@@ -147,7 +165,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         <div className="mt-3">
           <h1 className="flex items-center gap-1.5 text-xl font-bold sm:text-2xl">
             {liveUserData.displayName || liveUserData.username}
-            <UserBadge badge={liveUserData.badge} />
+            <UserBadge badge={liveUserData.badge} className="h-8 w-24" />
           </h1>
           <p className="text-muted-foreground">@{liveUserData.username}</p>
         </div>
@@ -211,13 +229,16 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             </span>
           </Link>
           <span
-            className="inline-flex items-center gap-1 font-semibold dark:text-orange-500"
-            style={{
-              color: liveUserData.aura < 0 ? "#7c5cff" : "#9a3412",
-            }}
+            className={`inline-flex items-center gap-1.5 font-bold ${liveUserData.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"}`}
+            title="Aura"
           >
-            <Flame className="size-4" />
-            {formatNumber(liveUserData.aura)} Aura
+            <Flame className="size-5" />
+            <span className="text-base tabular-nums">
+              {formatNumber(liveUserData.aura)}
+            </span>
+            <span className="text-muted-foreground text-sm font-semibold">
+              Aura
+            </span>
           </span>
         </div>
       </div>

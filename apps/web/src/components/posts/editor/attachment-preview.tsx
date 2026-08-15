@@ -90,8 +90,8 @@ const AttachmentPreviewInner = ({
           <Image
             alt={fileName}
             className="h-full w-full rounded-2xl object-cover"
-            layout="fill"
-            objectFit="cover"
+            fill
+            sizes="(max-width: 768px) 100vw, 512px"
             src={objectUrl}
           />
         </div>

@@ -333,13 +333,13 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
-                    aria-label="Asocialmedia home"
+                    aria-label="asocialmedia home"
                     className="mb-3 block"
                     href="/"
                   >
                     <div className="relative h-9 w-12">
                       <Image
-                        alt="Asocialmedia"
+                        alt="asocialmedia"
                         className="object-contain"
                         fill
                         loading="eager"
@@ -436,7 +436,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         <Link href="/">
           <div className="relative h-11 w-[58px]">
             <Image
-              alt="Asocialmedia"
+              alt="asocialmedia"
               className="object-contain"
               fill
               loading="eager"

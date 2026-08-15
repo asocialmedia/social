@@ -117,6 +117,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
               <div>
                 <PostCard
                   detail
+                  hideComposerOnMobile
                   initialMediaIndex={initialMediaIndex}
                   post={post}
                 />

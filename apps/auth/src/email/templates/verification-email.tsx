@@ -31,7 +31,7 @@ export const VerificationEmail = ({
     {/* eslint-disable-next-line no-duplicate-head -- each email template owns its own Head */}
     <Head />
     <Preview>
-      Welcome to Asocialmedia! Verify your email to complete your registration.
+      Welcome to asocialmedia! Verify your email to complete your registration.
     </Preview>
     <Body style={main}>
       <Container style={container}>
@@ -61,7 +61,7 @@ export const OTPVerificationEmail = ({ otp }: OTPVerificationEmailProps) => (
   <Html lang="en">
     {/* eslint-disable-next-line no-duplicate-head -- each email template owns its own Head */}
     <Head />
-    <Preview>Your verification code for Asocialmedia</Preview>
+    <Preview>Your verification code for asocialmedia</Preview>
     <Body style={main}>
       <Container style={container}>
         <EmailBanner />

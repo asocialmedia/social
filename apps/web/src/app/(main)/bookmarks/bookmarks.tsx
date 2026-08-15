@@ -6,7 +6,7 @@ import { Separator } from "@asm/ui/shadui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import noBookmarksImage from "@assets/general/nonotibook.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Heart, Newspaper, Terminal } from "lucide-react";
+import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
 import { useCallback, useRef } from "react";
@@ -25,6 +25,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
 
+import BookmarkedGusts from "./bookmarked-gusts";
 import LikedPosts from "./liked-posts";
 
 interface HnBookmarksResponse {
@@ -33,12 +34,14 @@ interface HnBookmarksResponse {
 }
 
 interface BookmarksProps {
+  gustBookmarkCount: number;
   hnBookmarkCount: number;
   postBookmarkCount: number;
   userData: UserData;
 }
 
 const Bookmarks: React.FC<BookmarksProps> = ({
+  gustBookmarkCount,
   hnBookmarkCount,
   postBookmarkCount,
   userData,
@@ -161,6 +164,10 @@ const Bookmarks: React.FC<BookmarksProps> = ({
           </InfiniteScrollContainer>
         </TabsContent>
 
+        <TabsContent className="mt-0 pb-12" value="gusts">
+          <BookmarkedGusts />
+        </TabsContent>
+
         <TabsContent className="mt-0 pb-12" value="hackernews">
           <InfiniteScrollContainer onBottomReached={handleBottomReachedHn}>
             <div className="flex flex-col">
@@ -201,6 +208,15 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                     </span>
                   ) : null}
                 </TabsTrigger>
+                <TabsTrigger className={TAB_TRIGGER_CLASS} value="gusts">
+                  <Clapperboard className="mr-2 h-4 w-4" />
+                  Gusts
+                  {gustBookmarkCount > 0 ? (
+                    <span className="border-border/60 bg-muted/50 text-muted-foreground ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
+                      {gustBookmarkCount}
+                    </span>
+                  ) : null}
+                </TabsTrigger>
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="hackernews">
                   <Terminal className="mr-2 h-4 w-4" />
                   HackerNews
@@ -236,6 +252,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
       </div>
 
       <BookmarksSidebar
+        gustBookmarkCount={gustBookmarkCount}
         hnBookmarkCount={hnBookmarkCount}
         postBookmarkCount={postBookmarkCount}
       />

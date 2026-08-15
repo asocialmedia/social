@@ -150,13 +150,14 @@ export default function GifCenteringDialog({
             >
               <Image
                 alt="GIF preview"
-                className="max-w-none"
+                className="size-full"
                 draggable={false}
-                layout="fill"
-                objectFit="contain"
+                fill
                 ref={gifRef}
+                sizes="256px"
                 src={URL.createObjectURL(gifFile)}
                 style={{
+                  objectFit: "contain",
                   transformOrigin: "center",
                 }}
               />

@@ -51,6 +51,9 @@ type ExtendedPostData = PostData & {
 
 interface PostCardProps {
   detail?: boolean;
+  // Hides the below-post composer on mobile for detail views that already
+  // surface a floating mobile editor (post page).
+  hideComposerOnMobile?: boolean;
   initialMediaIndex?: number;
   isJoined?: boolean;
   post: ExtendedPostData;
@@ -273,14 +276,17 @@ const PostContent: React.FC<PostContentProps> = ({
               <span className="text-sm tabular-nums">{post.viewCount}</span>
             </span>
             <ShareButton
+              defaultTab="link"
               description={post.content}
+              dialogDescription="Share this post with your network"
+              dialogTitle="Share Post"
               postId={post.id}
               thumbnail={
                 post.attachments[0]
                   ? getMediaProxyUrl(post.attachments[0])
-                  : undefined
+                  : `/posts/${post.id}/opengraph-image`
               }
-              title={post.content}
+              title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
             />
           </div>
         </div>
@@ -371,6 +377,7 @@ const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
   isJoined = false,
   detail = false,
+  hideComposerOnMobile = false,
   initialMediaIndex,
 }) => {
   const { user } = useSession();
@@ -447,7 +454,7 @@ const PostCard: React.FC<PostCardProps> = ({
   if (showComments) {
     commentsSection = detail ? (
       <div className="border-border/60 border-t px-4 pt-2 pb-4">
-        <Comments post={post} />
+        <Comments hideComposerOnMobile={hideComposerOnMobile} post={post} />
       </div>
     ) : (
       <FeedComments post={post} />

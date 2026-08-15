@@ -361,7 +361,7 @@ export default function SignUpForm() {
               setRateLimit("start", { isLimited: false });
               toast({
                 description: "Account created and signed in, welcome!",
-                title: "Welcome to Asocialmedia!",
+                title: "Welcome to asocialmedia!",
               });
               window.location.href = "/";
               return;
@@ -548,7 +548,7 @@ export default function SignUpForm() {
               toast({
                 description:
                   "Your account has been created and you're now logged in.",
-                title: "Welcome to Asocialmedia!",
+                title: "Welcome to asocialmedia!",
               });
 
               // eslint-disable-next-line promise/avoid-new -- intentional sleep before redirect
@@ -578,7 +578,7 @@ export default function SignUpForm() {
         toast({
           description:
             "Your account has been created successfully. Please log in.",
-          title: "Welcome to Asocialmedia!",
+          title: "Welcome to asocialmedia!",
         });
         verificationChannel.current?.postMessage("verification-success");
         setTimeout(() => {

@@ -75,11 +75,18 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           <p className="line-clamp-4 text-sm leading-snug">{post.content}</p>
 
           <div className="flex items-center gap-2">
-            <UserAvatar avatarUrl={post.user.avatarUrl} className="h-6 w-6" />
-            <span className="truncate text-xs font-medium">
-              {post.user.displayName || post.user.username}
-            </span>
-            <UserBadge badge={post.user.badge} />
+            <UserAvatar avatarUrl={post.user.avatarUrl} className="h-8 w-8" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <span className="truncate text-xs font-medium">
+                  {post.user.displayName || post.user.username}
+                </span>
+                <UserBadge badge={post.user.badge} />
+              </div>
+              <p className="text-muted-foreground truncate text-[11px]">
+                @{post.user.username}
+              </p>
+            </div>
           </div>
         </div>
       </Link>

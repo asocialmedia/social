@@ -57,10 +57,10 @@ export const GuestAuthBar: React.FC = () => {
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-3 text-white sm:flex-row sm:gap-4">
           <div className="min-w-0 text-center sm:text-left">
             <p className="text-sm font-semibold sm:text-base">
-              Log in to start posting on Asocialmedia
+              Log in to start posting on asocialmedia
             </p>
             <p className="text-xs text-white/85 sm:text-sm">
-              Sign in with an account to start posting on Asocialmedia
+              Sign in with an account to start posting on asocialmedia
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

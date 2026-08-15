@@ -247,6 +247,55 @@ export interface NotificationCountInfo {
   unreadCount: number;
 }
 
+// E2EE message shapes. The server only ever sees ciphertext; the include below
+// is intentionally lean (no plaintext fields to leak).
+export const messageConversationInclude = {
+  keys: true,
+  members: {
+    include: {
+      user: {
+        select: {
+          avatarUrl: true,
+          badge: true,
+          displayName: true,
+          id: true,
+          username: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.MessageConversationInclude;
+
+export type MessageConversationData = Prisma.MessageConversationGetPayload<{
+  include: typeof messageConversationInclude;
+}>;
+
+export const messageInclude = {
+  sender: {
+    select: {
+      avatarUrl: true,
+      badge: true,
+      displayName: true,
+      id: true,
+      username: true,
+    },
+  },
+} satisfies Prisma.MessageInclude;
+
+export type MessageData = Prisma.MessageGetPayload<{
+  include: typeof messageInclude;
+}>;
+
+export interface MessagePage {
+  messages: MessageData[];
+  previousCursor: string | null;
+}
+
+export interface ConversationListPage {
+  conversations: MessageConversationData[];
+  hasMore: boolean;
+}
+
 export interface BookmarkCountInfo {
   totalCount: number;
 }

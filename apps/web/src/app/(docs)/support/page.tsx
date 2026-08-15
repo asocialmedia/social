@@ -8,7 +8,7 @@ import SupportForm from "./support-form";
 
 export const metadata: Metadata = {
   description:
-    "Get help, report bugs, or share your suggestions with the Asocialmedia team",
+    "Get help, report bugs, or share your suggestions with the asocialmedia team",
   title: "Support",
 };
 
@@ -44,7 +44,7 @@ export default function SupportPage() {
                   <h3 className="font-semibold">Open Source Project</h3>
                 </div>
                 <p className="text-muted-foreground text-sm">
-                  Asocialmedia is a Free and Open Source Software (FOSS)
+                  asocialmedia is a Free and Open Source Software (FOSS)
                   project. We welcome contributions and suggestions to improve
                   our platform. Visit our{" "}
                   <Link

@@ -43,7 +43,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   });
 
   const title = `#${tagRecord.name} posts`;
-  const description = `${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tagRecord.name} on Asocialmedia. Explore the latest eddies and join the conversation.`;
+  const description = `${count.toLocaleString()} post${count === 1 ? "" : "s"} tagged #${tagRecord.name} on asocialmedia. Explore the latest eddies and join the conversation.`;
   const url = absoluteUrl(`/hashtag/${encodeURIComponent(tagRecord.name)}`);
 
   return {

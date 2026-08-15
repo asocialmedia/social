@@ -1,6 +1,6 @@
-#### _<div align="left"><sub>// Contribution in Asocialmedia</sub></div>_
+#### _<div align="left"><sub>// Contribution in asocialmedia</sub></div>_
 
-Thank you for your interest in contributing to Asocialmedia! This guide will help you start contributing to our community-driven platform.
+Thank you for your interest in contributing to asocialmedia! This guide will help you start contributing to our community-driven platform.
 
 ## TABLE OF CONTENTS
 
@@ -96,4 +96,4 @@ example: `feat[MODULE]: Add new module`
 - Describe changes
 - Update docs
 
-Thank you for contributing to Asocialmedia!
+Thank you for contributing to asocialmedia!

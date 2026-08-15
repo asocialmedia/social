@@ -26,18 +26,24 @@ export default async function Page() {
     return <p className="text-destructive">Unable to load user data.</p>;
   }
 
-  const [postBookmarkCount, hnBookmarkCount] = await Promise.all([
-    prisma.bookmark.count({
-      where: { userId: session.user.id },
-    }),
-    prisma.hNBookmark.count({
-      where: { userId: session.user.id },
-    }),
-  ]);
+  const [postBookmarkCount, gustBookmarkCount, hnBookmarkCount] =
+    await Promise.all([
+      // Posts excludes gusts since they have their own tab/count.
+      prisma.bookmark.count({
+        where: { post: { isGust: false }, userId: session.user.id },
+      }),
+      prisma.bookmark.count({
+        where: { post: { isGust: true }, userId: session.user.id },
+      }),
+      prisma.hNBookmark.count({
+        where: { userId: session.user.id },
+      }),
+    ]);
 
   return (
     <Suspense fallback={<CenteredLogoLoader size={64} />}>
       <Bookmarks
+        gustBookmarkCount={gustBookmarkCount}
         hnBookmarkCount={hnBookmarkCount}
         postBookmarkCount={postBookmarkCount}
         userData={userData}

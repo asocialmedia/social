@@ -44,28 +44,29 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const description =
     bio && bio.length >= 25
       ? excerpt(bio, 160)
-      : `${user.displayName || user.username} (@${user.username}) on Asocialmedia — ${bio ? `${bio}. ` : ""}Join the conversation, read their eddies, and follow along.`;
+      : `${user.displayName || user.username} (@${user.username}) on asocialmedia — ${bio ? `${bio}. ` : ""}Join the conversation, read their eddies, and follow along.`;
   const url = absoluteUrl(`/users/${user.username}`);
   // Avatar is streamed through the app proxy (buckets are private).
   const avatar = user.avatarUrl
     ? absoluteUrl(`/api/users/avatar/${user.id}/image`)
     : null;
 
+  const ogImageUrl = absoluteUrl(`/users/${user.username}/opengraph-image`);
+
   return {
     alternates: { canonical: `/users/${user.username}` },
     description,
     openGraph: {
       description,
-      images: avatar
-        ? [{ alt: title, url: avatar }]
-        : [
-            {
-              alt: siteConfig.name,
-              height: 630,
-              url: siteConfig.ogImage,
-              width: 1200,
-            },
-          ],
+      images: [
+        {
+          alt: title,
+          height: 630,
+          url: ogImageUrl,
+          width: 1200,
+        },
+        ...(avatar ? [{ alt: title, url: avatar }] : []),
+      ],
       locale: siteConfig.locale,
       siteName: siteConfig.name,
       title,
@@ -75,9 +76,10 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     },
     title,
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
+      creator: `@${user.username}`,
       description,
-      images: avatar ? [avatar] : [siteConfig.ogImage],
+      images: [ogImageUrl],
       title,
     },
   };

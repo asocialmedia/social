@@ -67,16 +67,25 @@ export default function HomeFeed({
   const [newPostsCount, setNewPostsCount] = useState(0);
   const feedRootRef = useRef<HTMLDivElement>(null);
 
+  // Baseline to the newest post currently showing. Re-running whenever posts
+  // change (tab switches, refetches, re-orders) keeps the ref aligned with
+  // what the user is actually seeing, so a re-ordered or refetched feed never
+  // false-triggers the "new posts" pill.
   useEffect(() => {
-    if (posts.length > 0 && !newestIdRef.current) {
+    if (posts.length > 0) {
       newestIdRef.current = posts[0].id;
     }
   }, [posts]);
 
   // Poll quietly every 45s for the newest post id only. When a brand-new post
   // appears, reveal the pill; the feed itself is left alone so the user's
-  // scroll position never jumps out from under them.
+  // scroll position never jumps out from under them. Only the main home feed
+  // polls - the related-posts feed on a post page (excludePostId) shouldn't
+  // surface a pill over content it is not the active view for.
   useEffect(() => {
+    if (excludePostId) {
+      return;
+    }
     const interval = window.setInterval(() => {
       void (async () => {
         try {
@@ -102,7 +111,7 @@ export default function HomeFeed({
       })();
     }, 45 * 1000);
     return () => window.clearInterval(interval);
-  }, [endpoint, posts]);
+  }, [endpoint, posts, excludePostId]);
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
@@ -167,7 +176,7 @@ export default function HomeFeed({
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {newPostsCount > 0 ? (
+      {!excludePostId && newPostsCount > 0 ? (
         <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
           <button
             className="rail-3d-btn pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"

@@ -81,7 +81,7 @@ export const metadata: Metadata = {
     index: true,
   },
   title: {
-    default: `${siteConfig.name} — Share what's crack-a-lackin'`,
+    default: siteConfig.name,
     template: `%s | ${siteConfig.name}`,
   },
   twitter: {
@@ -172,7 +172,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
       <meta content="yes" name="mobile-web-app-capable" />
       <meta content="yes" name="apple-mobile-web-app-capable" />
       <meta content="default" name="apple-mobile-web-app-status-bar-style" />
-      <meta content="Asocialmedia" name="apple-mobile-web-app-title" />
+      <meta content="asocialmedia" name="apple-mobile-web-app-title" />
       <link href="/site.webmanifest" rel="manifest" />
       <link href="https://tracking.przknv.cc" rel="preconnect" />
       <script

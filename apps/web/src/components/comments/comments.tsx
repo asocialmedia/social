@@ -19,11 +19,18 @@ import { useCommentsRealtime } from "./use-comments-realtime";
 import type { LiveCommentStore } from "./use-comments-realtime";
 
 interface CommentsProps {
+  // Hides the top-level composer on mobile when a floating editor already
+  // handles it (post detail page); reply composers stay available.
+  hideComposerOnMobile?: boolean;
   post: PostData;
   reels?: boolean;
 }
 
-export default function Comments({ post, reels = false }: CommentsProps) {
+export default function Comments({
+  hideComposerOnMobile = false,
+  post,
+  reels = false,
+}: CommentsProps) {
   const shared = useCommentsRealtimeValue();
 
   // Without a provider (e.g. the feed dialog), the list owns its own realtime
@@ -68,7 +75,12 @@ export default function Comments({ post, reels = false }: CommentsProps) {
 
   return (
     <div className="space-y-3">
-      <CommentInput applyCreated={applyCreated} post={post} reels={reels} />
+      <CommentInput
+        applyCreated={applyCreated}
+        hideOnMobile={hideComposerOnMobile}
+        post={post}
+        reels={reels}
+      />
       {hasNextPage ? (
         <Button
           className="mx-auto block"

@@ -122,7 +122,7 @@ const AuthHeading = ({ text }: { text: string }) => (
     <div className="mb-4 flex items-center justify-center gap-2.5">
       <div className="relative h-8 w-11 shrink-0 md:hidden">
         <Image
-          alt="Asocialmedia"
+          alt="asocialmedia"
           className="object-contain"
           fill
           sizes="44px"
