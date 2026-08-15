@@ -306,6 +306,11 @@ export default function PostEditor({
           </motion.div>
         </div>
         <div className="w-full min-w-0">
+          {/* Mobile-only mode switcher, placed above the editor so the Post
+              button in the bottom row stays fully on screen. */}
+          <div className="mb-3 flex md:hidden">
+            <ModeToggle isGust={isGust} />
+          </div>
           {(selectedTags.length > 0 || selectedMentions.length > 0) && (
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
               {selectedTags.map((tag) => (
@@ -455,7 +460,9 @@ export default function PostEditor({
             </div>
 
             <div className="flex items-center gap-2">
-              <ModeToggle isGust={isGust} />
+              <div className="hidden md:flex">
+                <ModeToggle isGust={isGust} />
+              </div>
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -494,6 +501,7 @@ export default function PostEditor({
           >
             <AttachmentPreviews
               attachments={attachments}
+              isGust={isGust}
               removeAttachment={removeAttachment}
             />
           </motion.div>
@@ -505,11 +513,13 @@ export default function PostEditor({
 
 interface AttachmentPreviewsProps {
   attachments: Attachment[];
+  isGust: boolean;
   removeAttachment: (fileName: string) => void;
 }
 
 const AttachmentPreviews = ({
   attachments,
+  isGust,
   removeAttachment,
 }: AttachmentPreviewsProps) => {
   const handleRemoveClick = useCallback(
@@ -545,6 +555,7 @@ const AttachmentPreviews = ({
         >
           <AttachmentPreview
             attachment={attachment}
+            isGust={isGust}
             onRemoveClick={handleRemoveClick(attachment)}
           />
         </motion.div>
