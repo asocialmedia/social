@@ -11,6 +11,7 @@ import {
   Loader2,
   Plus,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -54,24 +55,35 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
 
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [newGustCount, setNewGustCount] = useState(0);
+  const touchStartYRef = useRef<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Infinite query for gusts
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } =
-    useInfiniteQuery({
-      getNextPageParam: (lastPage) => lastPage.nextCursor,
-      initialPageParam: null as string | null,
-      queryFn: ({ pageParam }: { pageParam: string | null }) =>
-        kyInstance
-          .get(
-            "/api/gusts",
-            pageParam ? { searchParams: { cursor: pageParam } } : {}
-          )
-          .json<PostsPage>(),
-      queryKey: ["gusts-feed"],
-      staleTime: 1000 * 60,
-    });
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+    status,
+  } = useInfiniteQuery({
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
+      kyInstance
+        .get(
+          "/api/gusts",
+          pageParam ? { searchParams: { cursor: pageParam } } : {}
+        )
+        .json<PostsPage>(),
+    queryKey: ["gusts-feed"],
+    staleTime: 1000 * 60,
+  });
 
   const posts = useMemo(
     () =>
@@ -80,6 +92,87 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
       ),
     [data?.pages]
   );
+
+  // Refetch the feed and surface a pill when brand-new gusts (not already in
+  // the current list) appeared at the top since the last load.
+  const refreshFeed = useCallback(async () => {
+    if (isRefreshing) {
+      return;
+    }
+    setIsRefreshing(true);
+    const knownIds = new Set(posts.map((post) => post.id));
+    try {
+      const result = await refetch();
+      const fresh = result.data?.pages.flatMap((page) => page.posts) ?? [];
+      let count = 0;
+      for (const post of fresh) {
+        if (
+          post.attachments.some((m) => m.type === "VIDEO") &&
+          !knownIds.has(post.id)
+        ) {
+          count += 1;
+        } else {
+          break;
+        }
+      }
+      setNewGustCount((previous) => Math.max(previous, count));
+    } finally {
+      setIsRefreshing(false);
+      setPullDistance(0);
+    }
+  }, [isRefreshing, posts, refetch]);
+
+  // Jump to the very first gust and clear the new-gust pill.
+  const showNewGusts = useCallback(() => {
+    containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
+    setNewGustCount(0);
+  }, []);
+
+  // Pull-to-refresh: track a downward drag from the top of the stream and
+  // trigger a refetch once the gesture crosses the threshold.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleTouchStart = (event: TouchEvent) => {
+      touchStartYRef.current =
+        container.scrollTop <= 0 ? (event.touches[0]?.clientY ?? null) : null;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const startY = touchStartYRef.current;
+      if (startY === null || isRefreshing) {
+        return;
+      }
+      const delta = (event.touches[0]?.clientY ?? startY) - startY;
+      if (delta > 0 && container.scrollTop <= 0) {
+        // Pull the indicator down with a little resistance.
+        setPullDistance(Math.min(delta * 0.45, 96));
+      }
+    };
+
+    const handleTouchEnd = () => {
+      touchStartYRef.current = null;
+      if (pullDistance >= 56) {
+        void refreshFeed();
+      } else {
+        setPullDistance(0);
+      }
+    };
+
+    container.addEventListener("touchstart", handleTouchStart, {
+      passive: true,
+    });
+    container.addEventListener("touchmove", handleTouchMove, { passive: true });
+    container.addEventListener("touchend", handleTouchEnd, { passive: true });
+    return () => {
+      container.removeEventListener("touchstart", handleTouchStart);
+      container.removeEventListener("touchmove", handleTouchMove);
+      container.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isRefreshing, pullDistance, refreshFeed]);
 
   // If initialPostId was provided, scroll to it once posts are loaded
   useEffect(() => {
@@ -314,6 +407,46 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
         </button>
 
         {renderContent()}
+
+        {/* Pull-to-refresh indicator (mobile) */}
+        <motion.div
+          animate={{
+            height: pullDistance > 0 || isRefreshing ? pullDistance : 0,
+            opacity: pullDistance > 0 || isRefreshing ? 1 : 0,
+          }}
+          className="absolute top-2 right-0 left-0 z-20 flex items-center justify-center overflow-hidden"
+          style={{ height: pullDistance || 0 }}
+        >
+          {isRefreshing ? (
+            <Loader2 className="text-primary size-6 animate-spin" />
+          ) : (
+            <Loader2
+              className="text-primary size-6"
+              style={{ transform: `rotate(${pullDistance * 2}deg)` }}
+            />
+          )}
+        </motion.div>
+
+        {/* New gust pill */}
+        <AnimatePresence>
+          {newGustCount > 0 ? (
+            <motion.div
+              animate={{ opacity: 1, y: 0 }}
+              className="absolute top-4 left-1/2 z-30 -translate-x-1/2"
+              exit={{ opacity: 0, y: -12 }}
+              initial={{ opacity: 0, y: -12 }}
+            >
+              <button
+                className="rail-3d-btn flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"
+                onClick={showNewGusts}
+                type="button"
+              >
+                <Sparkles className="size-4" />
+                {newGustCount} new gust{newGustCount === 1 ? "" : "s"}
+              </button>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {/* Scroll Up / Down Navigation pinned to the rightmost edge (desktop) */}
         {status === "success" && posts.length > 0 ? (

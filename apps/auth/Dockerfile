@@ -37,10 +37,12 @@ RUN apk add --no-cache \
 WORKDIR /app
 COPY --from=build --chown=auth:auth /app/apps/auth/dist/auth-server ./auth-server
 COPY --from=build --chown=auth:auth /app/apps/auth/dist/asm-worker ./asm-worker
+COPY --from=build --chown=auth:auth /app/apps/auth/scripts/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 USER auth
 EXPOSE 3001
 ENV PORT=3001
 ENV NODE_ENV=production
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3001/api/health || exit 1
-CMD ["./auth-server"]
+CMD ["./docker-entrypoint.sh"]
