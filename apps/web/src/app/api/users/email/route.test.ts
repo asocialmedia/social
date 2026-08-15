@@ -8,29 +8,39 @@ const USER = {
 };
 
 const state = {
-  authRequest: null as { body: unknown; path: string } | null,
-  authResponseBody: { success: true },
-  authResponseStatus: 200,
+  authCalls: [] as { body: unknown; path: string }[],
+  changeResponseBody: { success: true },
+  changeResponseStatus: 200,
   session: { user: USER },
+  verifyResponseStatus: 200,
 };
 
 function resetState() {
-  state.authRequest = null;
-  state.authResponseStatus = 200;
-  state.authResponseBody = { success: true };
+  state.authCalls = [];
+  state.changeResponseBody = { success: true };
+  state.changeResponseStatus = 200;
   state.session = { user: USER };
+  state.verifyResponseStatus = 200;
 }
 
 const mockGetSession = mock(() => state.session);
 
 const mockFetch = mock((url: string, init: RequestInit) => {
-  state.authRequest = {
+  const parsed = {
     body: JSON.parse(String(init.body)),
     path: url,
   };
-  return Response.json(state.authResponseBody, {
+  state.authCalls.push(parsed);
+  // The current-email verification call must succeed for the change to proceed.
+  if (url.includes("/verify-email")) {
+    return Response.json(
+      { success: true },
+      { status: state.verifyResponseStatus }
+    );
+  }
+  return Response.json(state.changeResponseBody, {
     headers: { "Content-Type": "application/json" },
-    status: state.authResponseStatus,
+    status: state.changeResponseStatus,
   });
 });
 
@@ -48,16 +58,20 @@ mock.module("next/headers", () => ({
 
 mock.module("next/navigation", () => ({}));
 
-// The route calls the global fetch to reach the auth service; substitute the
-// mock so no real network request is made.
 globalThis.fetch = mockFetch as typeof fetch;
 
-function patchRequest(email: string): Request {
+function patchRequest(email: string, otp = "123456"): Request {
   return new Request("http://localhost/api/users/email", {
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, otp }),
     headers: { "Content-Type": "application/json" },
     method: "PATCH",
   });
+}
+
+function lastChangeCall() {
+  return (
+    state.authCalls.find((c) => c.path.includes("request-email-change")) ?? null
+  );
 }
 
 describe("PATCH /api/users/email", () => {
@@ -71,32 +85,85 @@ describe("PATCH /api/users/email", () => {
     state.session = null;
     const res = await PATCH(patchRequest("new@example.com"));
     expect(res.status).toBe(401);
-    expect(state.authRequest).toBeNull();
+    expect(state.authCalls.length).toBe(0);
   });
 
-  test("forwards the new email to the auth request-email-change endpoint", async () => {
+  test("verifies the current email then forwards the new email to request-email-change", async () => {
     const res = await PATCH(patchRequest("new@example.com"));
     expect(res.status).toBe(200);
-    expect(state.authRequest?.path).toContain(
-      "/api/auth/email-otp/request-email-change"
+    const verifyCall = state.authCalls.find((c) =>
+      c.path.includes("/verify-email")
     );
-    expect(state.authRequest?.body).toEqual({ newEmail: "new@example.com" });
+    expect(verifyCall).toBeTruthy();
+    expect(verifyCall?.body).toEqual({
+      email: "old@example.com",
+      otp: "123456",
+    });
+    const changeCall = lastChangeCall();
+    expect(changeCall?.path).toContain("request-email-change");
+    expect(changeCall?.body).toEqual({ newEmail: "new@example.com" });
+  });
+
+  test("requires a current-email code when the account has an email", async () => {
+    const res = await PATCH(patchRequest("new@example.com", ""));
+    expect(res.status).toBe(400);
+    expect(state.authCalls.length).toBe(0);
+  });
+
+  test("skips current-email verification for accounts without an email", async () => {
+    state.session = { user: { email: null, id: "user-1" } };
+    const res = await PATCH(patchRequest("new@example.com"));
+    expect(res.status).toBe(200);
+    expect(state.authCalls.some((c) => c.path.includes("/verify-email"))).toBe(
+      false
+    );
+    expect(lastChangeCall()?.body).toEqual({ newEmail: "new@example.com" });
   });
 
   test("does NOT directly change the email (verification required)", async () => {
-    // The route must only *request* an email change; it must never call a
-    // database update that swaps the address immediately. Assert the outgoing
-    // request is the OTP request and nothing writes to the user's email here.
     await PATCH(patchRequest("new@example.com"));
-    expect(state.authRequest?.path).toContain("request-email-change");
+    expect(lastChangeCall()?.path).toContain("request-email-change");
   });
 
   test("surfaces an auth-service failure", async () => {
-    state.authResponseStatus = 400;
-    state.authResponseBody = { message: "Email is the same" };
+    state.changeResponseStatus = 400;
+    state.changeResponseBody = { message: "Email is the same" };
     const res = await PATCH(patchRequest("old@example.com"));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("Email is the same");
+  });
+
+  test("rejects malformed JSON with 400 and does not call auth", async () => {
+    const req = new Request("http://localhost/api/users/email", {
+      body: "{not-json",
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    const res = await PATCH(req);
+    expect(res.status).toBe(400);
+    expect(state.authCalls.length).toBe(0);
+  });
+
+  test("rejects an invalid email with 400 and does not call auth", async () => {
+    const req = new Request("http://localhost/api/users/email", {
+      body: JSON.stringify({ email: "not-an-email", otp: "123456" }),
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    const res = await PATCH(req);
+    expect(res.status).toBe(400);
+    expect(state.authCalls.length).toBe(0);
+  });
+
+  test("rejects a missing email field with 400 and does not call auth", async () => {
+    const req = new Request("http://localhost/api/users/email", {
+      body: JSON.stringify({ otp: "123456" }),
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    const res = await PATCH(req);
+    expect(res.status).toBe(400);
+    expect(state.authCalls.length).toBe(0);
   });
 });

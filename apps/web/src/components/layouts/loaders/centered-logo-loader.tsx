@@ -19,7 +19,7 @@ export const CenteredLogoLoader = ({ size = 56 }: { size?: number }) => (
         className="object-contain"
         fill
         priority
-        sizes={`${size}px`}
+        sizes={`${Math.ceil(size * (1448 / 1086))}px`}
         src={asmLogo}
       />
     </div>

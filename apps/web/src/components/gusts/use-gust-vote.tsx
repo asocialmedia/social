@@ -61,11 +61,16 @@ export function useGustVote({
     { previousState: VoteInfo | undefined }
   >({
     mutationFn: async ({ vote, force }) => {
+      // Read the latest vote from the cache rather than the useQuery closure
+      // so rapid sequential mutations (double-tap then rail tap) don't act on
+      // a stale snapshot.
+      const latest = queryClient.getQueryData<VoteInfo>(queryKey);
+      const currentUserVote = latest?.userVote ?? 0;
       // The double-tap gesture forces +1 (TikTok-style): even when already
       // amplified we still re-issue the upvote so the aura stays credited and
       // the optimistic cache stays consistent. The rail button toggles (vote
       // equal to current clears it via DELETE).
-      const shouldClear = !force && vote === data.userVote;
+      const shouldClear = !force && vote === currentUserVote;
       const response = shouldClear
         ? await kyInstance.delete(voteEndpoint).json<VoteInfo>()
         : await kyInstance
@@ -89,14 +94,22 @@ export function useGustVote({
           return old;
         }
         // Forced amplify is a no-op when already amplified (aura unchanged);
-        // the visual heart burst carries the feedback instead.
+        // the visual heart burst carries the feedback instead. A non-forced
+        // vote equal to the current one clears the vote (toggle off).
         const nextVote = force ? Math.max(old.userVote, vote) : vote;
+        let newUserVote: number;
+        if (!force && vote === old.userVote) {
+          newUserVote = 0;
+        } else if (force && vote === old.userVote) {
+          newUserVote = old.userVote;
+        } else {
+          newUserVote = nextVote;
+        }
         const voteChange =
           force && old.userVote === vote
             ? 0
-            : calculateVoteChange(old.userVote, nextVote);
+            : calculateVoteChange(old.userVote, newUserVote);
         const newAura = old.aura + voteChange;
-        const newUserVote = nextVote === old.userVote ? old.userVote : nextVote;
         // Mirror into every cached shape of this post (feed grids, profile
         // tiles, single-post cache) so aura stays consistent everywhere.
         applyAuraToCaches(queryClient, postId, newAura, newUserVote);
@@ -110,6 +123,10 @@ export function useGustVote({
     // oxlint-disable-next-line react/no-unstable-nested-components
     onSuccess: (result, variables) => {
       const { serverResponse } = result;
+      // Capture the pre-mutation vote for toast decisions before overwriting
+      // the cache (reads the latest cached value, not a stale closure).
+      const previousVote =
+        queryClient.getQueryData<VoteInfo>(queryKey)?.userVote ?? 0;
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: serverResponse.aura,
         userVote: serverResponse.userVote,
@@ -121,7 +138,6 @@ export function useGustVote({
         serverResponse.userVote
       );
 
-      const previousVote = data.userVote;
       // Double-tap amplifies are silent (the floating flame burst on the video
       // is the feedback); only the rail button shows the toast, so rapid taps
       // don't spam "+1 Aura".

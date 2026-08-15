@@ -16,6 +16,16 @@ import { emailRouter } from "../email";
 const logger = createLogger({ serviceName: "auth-signup" });
 
 const PENDING_PREFIX = "pending-signup:";
+
+// Redact the local part of an email in logs (keep the domain for correlation).
+function redactEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!domain) {
+    return email.length > 2 ? `${email.slice(0, 1)}***` : "***";
+  }
+  const head = local.length > 1 ? local.slice(0, 1) : local;
+  return `${head}***@${domain}`;
+}
 const PENDING_TTL_SECONDS = 60 * 60 * 2;
 const RATE_PREFIX = "rate:signup:";
 const RATE_GLOBAL_WINDOW_SECONDS = 60 * 15;
@@ -117,24 +127,28 @@ async function sendSignupVerificationOTP(email: string): Promise<boolean> {
 
     const result = await sendVerificationOTP(email, otp);
     debugLog.api("sendSignupVerificationOTP:result", {
-      email,
+      email: redactEmail(email),
       error: result.error,
       success: result.success,
     });
     logger.info(
-      { email, error: result.error, success: result.success },
+      {
+        email: redactEmail(email),
+        error: result.error,
+        success: result.success,
+      },
       "signup verification otp"
     );
 
     return result.success;
   } catch (otpError) {
     debugLog.api("sendSignupVerificationOTP:error", {
-      email,
+      email: redactEmail(email),
       error: otpError instanceof Error ? otpError.message : String(otpError),
     });
     logger.error(
       {
-        email,
+        email: redactEmail(email),
         error: otpError instanceof Error ? otpError.message : String(otpError),
       },
       "signup verification otp failed"
@@ -560,7 +574,9 @@ export const signupRouter = router({
   pendingSignupResend: procedure
     .input(z.object({ email: z.string().email() }))
     .mutation(async ({ input, ctx }) => {
-      debugLog.api("pendingSignupResend:begin", { email: input.email });
+      debugLog.api("pendingSignupResend:begin", {
+        email: redactEmail(input.email),
+      });
       const reqHeaders = ctx?.req?.headers as Headers | undefined;
       const ip = reqHeaders?.get?.("x-forwarded-for") || "unknown";
       const rateCheck = await checkRateLimit(
@@ -609,7 +625,9 @@ export const signupRouter = router({
   pendingSignupSendLink: procedure
     .input(z.object({ email: z.string().email() }))
     .mutation(async ({ input, ctx }) => {
-      debugLog.api("pendingSignupSendLink:begin", { email: input.email });
+      debugLog.api("pendingSignupSendLink:begin", {
+        email: redactEmail(input.email),
+      });
       const emailLower = input.email.toLowerCase();
 
       const reqHeaders = ctx?.req?.headers as Headers | undefined;

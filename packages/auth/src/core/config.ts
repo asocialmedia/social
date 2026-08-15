@@ -225,9 +225,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
               allowedAttempts: 3,
               changeEmail: {
                 enabled: true,
-                // Require an OTP sent to the *current* email before the change
-                // is allowed, then a second OTP verifies the new address.
-                verifyCurrentEmail: true,
+                // The web route verifies the *current* email itself (sending an
+                // OTP to the user's existing address and confirming it) before
+                // starting the change. Keeping this false lets accounts without
+                // an email (Reddit signups) use the same flow to add a recovery
+                // address, while accounts that have an email are still forced
+                // through current-email verification by the route.
+                verifyCurrentEmail: false,
               },
               expiresIn: 300,
               otpLength: 6,
@@ -394,6 +398,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
               const base = requestedUsername;
               let candidate = base;
               let attempt = 2;
+              const MAX_ATTEMPTS = 50;
               for (;;) {
                 // oxlint-disable-next-line no-await-in-loop -- uniqueness is probed one candidate at a time
                 const existing = await prisma.user.findFirst({
@@ -407,6 +412,10 @@ export function createAuthConfig(config: AuthConfig = {}) {
                 }
                 candidate = `${base}${attempt}`;
                 attempt += 1;
+                if (attempt > MAX_ATTEMPTS) {
+                  candidate = `${base}-${Date.now().toString(36)}`;
+                  break;
+                }
               }
               data = { ...data, username: candidate };
             }

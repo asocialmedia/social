@@ -19,12 +19,14 @@ const state = {
   deletedId: null as string | null,
   expiresAt: new Date(Date.now() + 60_000),
   found: true as boolean,
+  requestedIdentifier: null as string | null,
 };
 
 function resetState() {
   state.deletedId = null;
   state.expiresAt = new Date(Date.now() + 60_000);
   state.found = true;
+  state.requestedIdentifier = null;
 }
 
 const mockPrisma = {
@@ -34,6 +36,7 @@ const mockPrisma = {
       return Promise.resolve({});
     },
     findFirst: (args: { where: { identifier: string } }) => {
+      state.requestedIdentifier = args.where.identifier;
       if (!state.found) {
         return Promise.resolve(null);
       }
@@ -84,6 +87,8 @@ describe("GET /api/reset-password", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ valid: true });
+    // The route must look up the better-auth identifier exactly as constructed.
+    expect(state.requestedIdentifier).toBe(`reset-password:${TOKEN}`);
   });
 
   test("rejects an expired token and purges it", async () => {

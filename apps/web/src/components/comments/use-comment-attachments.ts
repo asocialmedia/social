@@ -42,15 +42,6 @@ export function useCommentAttachments() {
         return;
       }
 
-      if (attachments.length + files.length > MAX_COMMENT_ATTACHMENTS) {
-        toast({
-          description: `An eddy can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
-          title: "Attachment Limit",
-          variant: "destructive",
-        });
-        return;
-      }
-
       // Eddies carry images and GIFs only. Filter anything else (videos, audio,
       // documents) so a picker that bypasses the accept attribute never slips a
       // disallowed file into the thread.
@@ -63,6 +54,17 @@ export function useCommentAttachments() {
         toast({
           description: "Eddies support images and GIFs only.",
           title: "Unsupported File",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // The limit applies to the images that actually made it through the
+      // filter, not the raw selection (which may include ignored files).
+      if (attachments.length + imageFiles.length > MAX_COMMENT_ATTACHMENTS) {
+        toast({
+          description: `An eddy can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
+          title: "Attachment Limit",
           variant: "destructive",
         });
         return;

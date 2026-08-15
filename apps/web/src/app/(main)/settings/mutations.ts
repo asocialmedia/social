@@ -108,3 +108,23 @@ export function useVerifyEmailChange() {
     },
   });
 }
+
+export function useSendCurrentEmailCode() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/users/email/send-code", {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to send code");
+      }
+
+      return response.json();
+    },
+  });
+}

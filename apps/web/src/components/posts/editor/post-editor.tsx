@@ -316,8 +316,7 @@ export default function PostEditor({
           </motion.div>
         </div>
         <div className="w-full min-w-0">
-          {/* Mobile-only mode switcher, placed above the editor so the Post
-              button in the bottom row stays fully on screen. */}
+          {/* Mobile-only mode switcher above the editor so the Post button stays on screen */}
           <div className="mb-3 flex md:hidden">
             <ModeToggle isGust={isGust} />
           </div>
@@ -422,9 +421,7 @@ export default function PostEditor({
                   Attach a video to publish a gust
                 </span>
               )}
-              {/* Only surface the word/char counter once the caption gets close
-                  to (or over) the limits, so it doesn't clutter an empty or
-                  short composer. */}
+              {/* Counter appears only near/over the word or char limit */}
               {gustCaptionNearLimit ? (
                 <span
                   className={cn(

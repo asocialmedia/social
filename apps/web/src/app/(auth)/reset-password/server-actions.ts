@@ -138,22 +138,6 @@ export async function requestPasswordReset(
       return { success: true };
     }
 
-    // @ts-expect-error: TODO: Fix types
-    await authClient.forgetPassword({
-      email,
-      fetchOptions: {
-        onError: (error: unknown) => {
-          debugLog.api("Password reset request error", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          throw new Error("Failed to process password reset request");
-        },
-        onSuccess: () => {
-          // Password reset email sent successfully
-        },
-      },
-    });
-
     // The auth service is the only party that can hand out a password reset
     // token and mail the reset link. Send the request to the better-auth
     // endpoint directly (authClient.forgetPassword targets a deprecated path

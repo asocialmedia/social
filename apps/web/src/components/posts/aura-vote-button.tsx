@@ -89,20 +89,23 @@ export default function AuraVoteButton({
     onMutate: async (newVote) => {
       await queryClient.cancelQueries({ queryKey });
       const previousState = queryClient.getQueryData<VoteInfo>(queryKey);
-      const current = queryClient.getQueryData<VoteInfo>(queryKey);
-      const voteChange = calculateVoteChange(current?.userVote ?? 0, newVote);
-      const optimisticAura = (current?.aura ?? 0) + voteChange;
-      const optimisticUserVote = newVote === current?.userVote ? 0 : newVote;
+      const voteChange = calculateVoteChange(
+        previousState?.userVote ?? 0,
+        newVote
+      );
+      const optimisticAura = (previousState?.aura ?? 0) + voteChange;
+      const optimisticUserVote =
+        newVote === previousState?.userVote ? 0 : newVote;
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: optimisticAura,
         userVote: optimisticUserVote,
       });
 
-      // Comment votes don't change the post's aura, so only mirror the
-      // optimistic state into the cached post data for actual post votes.
-      if (isComment && commentId) {
+      // Comment votes only touch the comment's aura; post votes update the
+      // post's cached vote state too.
+      if (commentId) {
         applyCommentAuraToCaches(queryClient, commentId, optimisticAura);
-      } else if (!isComment) {
+      } else {
         applyAuraToCaches(
           queryClient,
           postId,
@@ -121,11 +124,9 @@ export default function AuraVoteButton({
       });
 
       // Keep every cached shape in sync with the confirmed server state.
-      // Comment votes only touch the comment's aura; post votes also update
-      // the post's cached vote state.
-      if (isComment && commentId) {
+      if (commentId) {
         applyCommentAuraToCaches(queryClient, commentId, serverResponse.aura);
-      } else if (!isComment) {
+      } else {
         applyAuraToCaches(
           queryClient,
           postId,

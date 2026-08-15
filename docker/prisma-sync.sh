@@ -50,4 +50,11 @@ fi
 echo "Schema drift detected. Pushing Prisma schema..."
 bunx prisma db push --config "$PRISMA_CONFIG_PATH"
 
+echo "Ensuring case-insensitive username uniqueness index..."
+cat > /tmp/username-unique.sql <<'SQL'
+CREATE UNIQUE INDEX IF NOT EXISTS "users_username_lower_unique"
+ON "users" (LOWER("username"));
+SQL
+bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/username-unique.sql
+
 echo "PRISMA_SYNC_OK: Prisma schema sync complete."

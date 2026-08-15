@@ -229,6 +229,8 @@ export const ExploreGustsGrid: React.FC = () => {
 
   // Poll quietly for the newest gust id. When a brand-new one appears, show a
   // pill; the grid and the user's scroll position stay untouched until tapped.
+  // If the grid is currently empty, refetch right away so new Gusts actually
+  // become visible instead of waiting for a manual refresh.
   useEffect(() => {
     const interval = window.setInterval(() => {
       void (async () => {
@@ -237,27 +239,34 @@ export const ExploreGustsGrid: React.FC = () => {
             .get("/api/gusts", { searchParams: { take: "12" } })
             .json<PostsPage>();
           const newest = fresh.posts[0]?.id;
-          if (newest && newest !== newestIdRef.current) {
-            newestIdRef.current = newest;
-            const knownIds = new Set(posts.map((p) => p.id));
-            let count = 0;
-            for (const post of fresh.posts) {
-              if (knownIds.has(post.id)) {
-                break;
-              }
-              count += 1;
-            }
-            if (count > 0) {
-              setNewGustsCount(count);
-            }
+          if (!newest || newest === newestIdRef.current) {
+            return;
           }
+          newestIdRef.current = newest;
+          const knownIds = new Set(posts.map((p) => p.id));
+          let count = 0;
+          for (const post of fresh.posts) {
+            if (knownIds.has(post.id)) {
+              break;
+            }
+            count += 1;
+          }
+          if (count === 0) {
+            return;
+          }
+          if (posts.length === 0) {
+            await refetch();
+            setNewGustsCount(0);
+            return;
+          }
+          setNewGustsCount(count);
         } catch {
           // Best-effort polling; ignore transient failures
         }
       })();
     }, 45 * 1000);
     return () => window.clearInterval(interval);
-  }, [posts]);
+  }, [posts, refetch]);
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {

@@ -246,7 +246,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           ) : null}
         </AnimatePresence>
 
-        {/* Repeated-tap Aura Bursts (TikTok-style floating flames) */}
+        {/* Repeated-tap Aura Bursts: TikTok-style floating flames that tilt by sequence id */}
         <AnimatePresence>
           {auraBursts.map((burst) => {
             // Each burst tilts slightly based on its sequence id so repeated

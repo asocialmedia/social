@@ -30,6 +30,7 @@ import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
 import {
+  useSendCurrentEmailCode,
   useUpdateEmail,
   useUpdateUsername,
   useVerifyEmailChange,
@@ -48,6 +49,9 @@ const usernameSchema = z.object({
 
 const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
+  // Code sent to the current email; required to change it (Reddit accounts
+  // without an email skip this).
+  otp: z.string().optional(),
 });
 
 const emailVerifySchema = z.object({
@@ -103,6 +107,7 @@ const EmailFieldRenderer = ({
     <FormControl>
       <Input
         className="premium-input h-10 rounded-xl text-sm"
+        disabled={field.disabled}
         type="email"
         {...field}
       />
@@ -117,6 +122,9 @@ interface AccountSettingsProps {
 
 export default function AccountSettings({ user }: AccountSettingsProps) {
   const { toast } = useToast();
+  // When true, the current-email verification code has been sent and the new
+  // email + current code are ready to submit.
+  const [currentEmailCodeSent, setCurrentEmailCodeSent] = useState(false);
   // When true, the OTP step for confirming the new email is shown.
   const [emailChangeRequested, setEmailChangeRequested] = useState(false);
   const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
@@ -131,6 +139,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   const emailForm = useForm<EmailFormValues>({
     defaultValues: {
       email: user.email || "",
+      otp: "",
     },
     resolver: zodResolver(emailSchema),
   });
@@ -146,6 +155,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
   const usernameMutation = useUpdateUsername();
   const emailMutation = useUpdateEmail();
   const emailVerifyMutation = useVerifyEmailChange();
+  const sendCurrentEmailCodeMutation = useSendCurrentEmailCode();
 
   function onUsernameSubmit(values: UsernameFormValues) {
     if (values.username === user.username) {
@@ -173,6 +183,25 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
     });
   }
 
+  function handleSendCurrentEmailCode() {
+    sendCurrentEmailCodeMutation.mutate(undefined, {
+      onError: (error) => {
+        toast({
+          description: error.message || "Couldn't send the code, try again?",
+          title: "Couldn't Send Code",
+          variant: "destructive",
+        });
+      },
+      onSuccess: () => {
+        setCurrentEmailCodeSent(true);
+        toast({
+          description: "Check your current email for the verification code",
+          title: "Code Sent",
+        });
+      },
+    });
+  }
+
   function onEmailSubmit(values: EmailFormValues) {
     if (values.email === user.email) {
       toast({
@@ -182,7 +211,11 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       return;
     }
 
-    emailMutation.mutate(values, {
+    // Accounts with an existing email must include the code that was sent to
+    // it before the change can start.
+    const payload = { email: values.email, otp: values.otp };
+
+    emailMutation.mutate(payload, {
       onError: () => {
         toast({
           description: "That email didn't work, try another?",
@@ -310,9 +343,44 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
           >
             <FormField
               control={emailForm.control}
+              disabled={emailChangeRequested}
               name="email"
               render={EmailFieldRenderer}
             />
+
+            {user.email && !emailChangeRequested ? (
+              <div className="flex items-end gap-2">
+                <FormField
+                  control={emailForm.control}
+                  disabled={emailChangeRequested}
+                  name="otp"
+                  render={({ field }) => (
+                    <FormItem className="flex-1">
+                      <FormLabel>Current email code</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="one-time-code"
+                          className="premium-input h-10 rounded-xl text-sm"
+                          inputMode="numeric"
+                          placeholder="123456"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <LoadingButton
+                  className="h-10 shrink-0 rounded-xl px-4 text-xs"
+                  loading={sendCurrentEmailCodeMutation.isPending}
+                  onClick={handleSendCurrentEmailCode}
+                  type="button"
+                  variant="outline"
+                >
+                  {currentEmailCodeSent ? "Resend code" : "Send code"}
+                </LoadingButton>
+              </div>
+            ) : null}
 
             <div className="flex justify-end">
               <LoadingButton

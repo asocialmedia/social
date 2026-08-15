@@ -107,4 +107,37 @@ describe("POST /api/users/email/verify", () => {
     const body = await res.json();
     expect(body.success).toBe(true);
   });
+
+  test("rejects malformed JSON with 400 and does not call auth", async () => {
+    const req = new Request("http://localhost/api/users/email/verify", {
+      body: "{not-json",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(state.authPath).toBeNull();
+  });
+
+  test("rejects an invalid email with 400 and does not call auth", async () => {
+    const req = new Request("http://localhost/api/users/email/verify", {
+      body: JSON.stringify({ email: "bad", otp: "123456" }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(state.authPath).toBeNull();
+  });
+
+  test("rejects a short OTP with 400 and does not call auth", async () => {
+    const req = new Request("http://localhost/api/users/email/verify", {
+      body: JSON.stringify({ email: "new@example.com", otp: "12" }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(state.authPath).toBeNull();
+  });
 });

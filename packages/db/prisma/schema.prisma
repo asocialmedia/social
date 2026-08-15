@@ -13,8 +13,7 @@ model User {
   aura            Int       @default(0)
   username        String    @unique
   displayName     String
-  displayUsername String?
-  mentions        Mention[]
+  displayUsername String?  mentions        Mention[]
   email           String?   @unique
   passwordHash    String?
   googleId        String?   @unique
@@ -231,6 +230,9 @@ model Media {
   post      Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
   commentId String?
   comment   Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  // Uploader of this media object; used to verify the media is claimable when
+  // it is attached to a post or eddy later.
+  userId    String?
   type              MediaType
   url               String
   key               String    @default("")

@@ -50,6 +50,18 @@ const SENDER = "asocialmedia.cc";
 const FROM_EMAIL = `Zeph <noreply@${SENDER}>`;
 const TRAILING_SLASH_REGEX = /\/$/;
 
+// PII handling for logs: never ship full email addresses to OpenObserve.
+// `foo@bar.com` -> `f***@bar.com` keeps the domain for correlation while
+// redacting the local part.
+function redactEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!domain) {
+    return email.length > 2 ? `${email.slice(0, 1)}***` : "***";
+  }
+  const head = local.length > 1 ? local.slice(0, 1) : local;
+  return `${head}***@${domain}`;
+}
+
 function getBaseUrl(): string {
   return env.APP_URL.replace(TRAILING_SLASH_REGEX, "");
 }
@@ -111,7 +123,7 @@ export async function sendVerificationEmail(
       {
         confidence: validation.confidence,
         disposable: validation.disposable,
-        email,
+        email: redactEmail(email),
         reasons: validation.reasons,
         score: validation.score,
       },
@@ -126,7 +138,10 @@ export async function sendVerificationEmail(
 
   const initResult = initializeEmailService();
   if (initResult) {
-    logger.error({ email }, "email service initialization failed");
+    logger.error(
+      { email: redactEmail(email) },
+      "email service initialization failed"
+    );
     return initResult;
   }
 
@@ -149,7 +164,7 @@ export async function sendVerificationEmail(
 
     if (error) {
       logger.error(
-        { email, error: error.message },
+        { email: redactEmail(email), error: error.message },
         "verification email send failed"
       );
       return getVerificationResult({
@@ -159,7 +174,7 @@ export async function sendVerificationEmail(
       });
     }
 
-    logger.info({ email }, "verification email sent");
+    logger.info({ email: redactEmail(email) }, "verification email sent");
     return getVerificationResult({
       success: true,
       verificationUrl,
@@ -170,7 +185,10 @@ export async function sendVerificationEmail(
         ? error.message
         : "Unknown error occurred while sending verification email";
 
-    logger.error({ email, error: errorMessage }, "verification email threw");
+    logger.error(
+      { email: redactEmail(email), error: errorMessage },
+      "verification email threw"
+    );
     return getVerificationResult({
       error: errorMessage,
       success: false,
@@ -197,7 +215,7 @@ export async function sendVerificationOTP(
       {
         confidence: validation.confidence,
         disposable: validation.disposable,
-        email,
+        email: redactEmail(email),
         reasons: validation.reasons,
         score: validation.score,
       },
@@ -212,7 +230,10 @@ export async function sendVerificationOTP(
 
   const initResult = initializeEmailService();
   if (initResult) {
-    logger.error({ email }, "email service initialization failed (otp)");
+    logger.error(
+      { email: redactEmail(email) },
+      "email service initialization failed (otp)"
+    );
     return initResult;
   }
 
@@ -233,7 +254,7 @@ export async function sendVerificationOTP(
 
     if (error) {
       logger.error(
-        { email, error: error.message },
+        { email: redactEmail(email), error: error.message },
         "verification otp send failed"
       );
       return getVerificationResult({
@@ -242,7 +263,7 @@ export async function sendVerificationOTP(
       });
     }
 
-    logger.info({ email }, "verification otp sent");
+    logger.info({ email: redactEmail(email) }, "verification otp sent");
     return getVerificationResult({
       success: true,
     });
@@ -252,7 +273,10 @@ export async function sendVerificationOTP(
         ? error.message
         : "Unknown error occurred while sending verification OTP";
 
-    logger.error({ email, error: errorMessage }, "verification otp threw");
+    logger.error(
+      { email: redactEmail(email), error: errorMessage },
+      "verification otp threw"
+    );
     return getVerificationResult({
       error: errorMessage,
       success: false,
@@ -283,7 +307,7 @@ export async function sendPasswordResetEmail(
 
     if (error) {
       logger.error(
-        { email, error: error.message },
+        { email: redactEmail(email), error: error.message },
         "password reset email send failed"
       );
       return {
@@ -293,7 +317,7 @@ export async function sendPasswordResetEmail(
       };
     }
 
-    logger.info({ email }, "password reset email sent");
+    logger.info({ email: redactEmail(email) }, "password reset email sent");
     return {
       resetUrl: isDevelopmentMode() ? resetUrl : undefined,
       success: true,
@@ -304,7 +328,10 @@ export async function sendPasswordResetEmail(
         ? error.message
         : "Unknown error occurred while sending password reset email";
 
-    logger.error({ email, error: errorMessage }, "password reset email threw");
+    logger.error(
+      { email: redactEmail(email), error: errorMessage },
+      "password reset email threw"
+    );
     return {
       error: errorMessage,
       success: false,

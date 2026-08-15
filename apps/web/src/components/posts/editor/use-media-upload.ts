@@ -70,12 +70,12 @@ function persistAttachments(attachments: Attachment[]): void {
     return;
   }
   const items: StoredAttachment[] = attachments
-    .filter((a) => a.mediaId && a.mediaUrl)
-    .map((a) => ({
-      mediaId: a.mediaId as string,
-      mediaUrl: a.mediaUrl as string,
-      name: a.name ?? a.file?.name ?? "attachment",
-      type: a.type ?? a.file?.type ?? "",
+    .filter((attachment) => attachment.mediaId && attachment.mediaUrl)
+    .map((attachment) => ({
+      mediaId: attachment.mediaId as string,
+      mediaUrl: attachment.mediaUrl as string,
+      name: attachment.name ?? attachment.file?.name ?? "attachment",
+      type: attachment.type ?? attachment.file?.type ?? "",
     }));
   try {
     sessionStorage.setItem(
@@ -207,21 +207,23 @@ export default function useMediaUpload() {
           try {
             const result = await uploadMedia(file, (percent) => {
               setAttachments((prev) =>
-                prev.map((a) =>
-                  a.file === file ? { ...a, progress: percent } : a
+                prev.map((attachment) =>
+                  attachment.file === file
+                    ? { ...attachment, progress: percent }
+                    : attachment
                 )
               );
             });
             setAttachments((prev) =>
-              prev.map((a) =>
-                a.file === file
+              prev.map((attachment) =>
+                attachment.file === file
                   ? {
-                      ...a,
+                      ...attachment,
                       isUploading: false,
                       mediaId: result.mediaId,
                       mediaUrl: result.url,
                     }
-                  : a
+                  : attachment
               )
             );
           } catch (error: unknown) {
@@ -231,7 +233,9 @@ export default function useMediaUpload() {
               title: "Upload Failed",
               variant: "destructive",
             });
-            setAttachments((prev) => prev.filter((a) => a.file !== file));
+            setAttachments((prev) =>
+              prev.filter((attachment) => attachment.file !== file)
+            );
           }
         })
       );
