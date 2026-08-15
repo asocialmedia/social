@@ -40,7 +40,23 @@ const getMediaRow = unstable_cache(
 // Object storage rejects invalid or unsatisfiable byte ranges with the
 // InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can
 // retry or resume instead of surfacing a server error. Preserve the
-// storage-reported Content-Range when the SDK attached it.
+// storage-reported Content-Range when it is available.
+function buildRangeNotSatisfiableResponse(
+  totalSize: number | null,
+  contentRangeHeader?: string | null
+): NextResponse {
+  const headers = new Headers();
+  headers.set("Accept-Ranges", "bytes");
+  // Only emit a Content-Range when we actually know the total size; a
+  // `bytes */null` header is invalid and worse than omitting it.
+  const contentRange =
+    contentRangeHeader || (totalSize ? `bytes */${totalSize}` : "");
+  if (contentRange) {
+    headers.set("Content-Range", contentRange);
+  }
+  return new NextResponse("Range Not Satisfiable", { headers, status: 416 });
+}
+
 function rangeNotSatisfiable(
   error: unknown,
   totalSize: number | null
@@ -53,19 +69,10 @@ function rangeNotSatisfiable(
   if (!invalidRange) {
     return null;
   }
-  const headers = new Headers();
-  headers.set("Accept-Ranges", "bytes");
   const storageContentRange = (
     error as S3ServiceException & { ContentRange?: string }
   ).ContentRange;
-  // Only emit a Content-Range when we actually know the total size; a
-  // `bytes */null` header is invalid and worse than omitting it.
-  const contentRange =
-    storageContentRange || (totalSize ? `bytes */${totalSize}` : "");
-  if (contentRange) {
-    headers.set("Content-Range", contentRange);
-  }
-  return new NextResponse("Range Not Satisfiable", { headers, status: 416 });
+  return buildRangeNotSatisfiableResponse(totalSize, storageContentRange);
 }
 
 export async function GET(
@@ -115,14 +122,31 @@ export async function GET(
       const upstream = await fetch(presignedUrl, {
         headers: { Range: range },
       });
-      if (!upstream.ok && upstream.status !== 206) {
-        throw new Error(`Storage range request failed: ${upstream.status}`);
+
+      // Storage signals an unsatisfiable range with 416; surface that to the
+      // client instead of treating it as a generic server error.
+      if (upstream.status === 416) {
+        return buildRangeNotSatisfiableResponse(
+          media.size,
+          upstream.headers.get("content-range")
+        );
       }
+
+      // A valid partial response must be 206 with a Content-Range. Reject a
+      // 200 (storage ignored the range and returned the whole object) and any
+      // 206 missing the Content-Range header, which would confuse the client.
+      const contentRange = upstream.headers.get("content-range");
+      if (!upstream.ok || upstream.status !== 206 || !contentRange) {
+        throw new Error(
+          `Storage range request failed: status=${upstream.status}`
+        );
+      }
+
       response = {
         Body: upstream.body as ReadableStream | null,
         ContentLength:
           Number(upstream.headers.get("content-length") || 0) || null,
-        ContentRange: upstream.headers.get("content-range"),
+        ContentRange: contentRange,
         ContentType: upstream.headers.get("content-type") || media.mimeType,
         statusCode: upstream.status,
       };
