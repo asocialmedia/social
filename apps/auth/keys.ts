@@ -24,8 +24,6 @@ export const keys = createEnv({
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     LOG_LEVEL: process.env.LOG_LEVEL,
-    MEILISEARCH_MASTER_KEY: process.env.MEILISEARCH_MASTER_KEY,
-    MEILISEARCH_URL: process.env.MEILISEARCH_URL,
     NODE_ENV: process.env.NODE_ENV,
     OPENOBSERVE_LOG_STREAM: process.env.OPENOBSERVE_LOG_STREAM,
     OPENOBSERVE_METRIC_STREAM: process.env.OPENOBSERVE_METRIC_STREAM,
@@ -70,8 +68,6 @@ export const keys = createEnv({
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
-    MEILISEARCH_MASTER_KEY: z.string().default("masterKey123"),
-    MEILISEARCH_URL: z.url().default("http://localhost:7700"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
