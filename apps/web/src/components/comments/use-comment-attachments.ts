@@ -44,21 +44,24 @@ export function useCommentAttachments() {
 
       if (attachments.length + files.length > MAX_COMMENT_ATTACHMENTS) {
         toast({
-          description: `An eddy can hold up to ${MAX_COMMENT_ATTACHMENTS} images or videos.`,
+          description: `An eddy can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
           title: "Attachment Limit",
           variant: "destructive",
         });
         return;
       }
 
-      const imageOrVideoFiles = files.filter(
+      // Eddies carry images and GIFs only. Filter anything else (videos, audio,
+      // documents) so a picker that bypasses the accept attribute never slips a
+      // disallowed file into the thread.
+      const imageFiles = files.filter(
         (file) =>
-          file.type.startsWith("image/") || file.type.startsWith("video/")
+          file.type.startsWith("image/") && file.type !== "image/svg+xml"
       );
 
-      if (imageOrVideoFiles.length === 0) {
+      if (imageFiles.length === 0) {
         toast({
-          description: "Eddies support images and videos only.",
+          description: "Eddies support images and GIFs only.",
           title: "Unsupported File",
           variant: "destructive",
         });
@@ -68,7 +71,7 @@ export function useCommentAttachments() {
       setIsUploading(true);
       setAttachments((prev) => [
         ...prev,
-        ...imageOrVideoFiles.map((file) => ({
+        ...imageFiles.map((file) => ({
           file,
           isUploading: true,
           objectUrl: URL.createObjectURL(file),
@@ -77,7 +80,7 @@ export function useCommentAttachments() {
 
       try {
         await Promise.all(
-          imageOrVideoFiles.map(async (file) => {
+          imageFiles.map(async (file) => {
             try {
               const result = await uploadCommentMedia(file);
               setAttachments((prev) =>

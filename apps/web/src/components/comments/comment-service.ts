@@ -50,6 +50,25 @@ export async function createComment(
     throw new Error("Post not found");
   }
 
+  // Eddies carry images and GIFs only. A crafted request could attach a video
+  // or SVG even though the composer filters them, so reject any media whose
+  // stored type is not a raster image.
+  if (mediaIdsValidated.length > 0) {
+    const attachedMedia = await prisma.media.findMany({
+      select: { id: true, mimeType: true, type: true },
+      where: { id: { in: mediaIdsValidated } },
+    });
+    const disallowed = attachedMedia.some(
+      (media) =>
+        media.type === "VIDEO" ||
+        !media.mimeType.startsWith("image/") ||
+        media.mimeType === "image/svg+xml"
+    );
+    if (disallowed) {
+      throw new Error("Eddies support images and GIFs only");
+    }
+  }
+
   let parent: {
     id: string;
     postId: string;

@@ -55,29 +55,35 @@ export function useSubmitPostMutation() {
       });
     },
     onSuccess: async (newPost) => {
-      const queryFilter = { queryKey: ["post-feed", "for-you"] };
+      // Gusts live on the dedicated /gusts feed, not the home "for-you" feed
+      // (which filters isGust=false server-side). Only prepend regular posts
+      // to the home feed cache; gusts are invalidated separately below so the
+      // user is redirected to /gusts and sees the new clip there.
+      if (!newPost.isGust) {
+        const queryFilter = { queryKey: ["post-feed", "for-you"] };
 
-      await queryClient.cancelQueries(queryFilter);
+        await queryClient.cancelQueries(queryFilter);
 
-      queryClient.setQueriesData<InfiniteData<PostsPage, string | null>>(
-        queryFilter,
-        (oldData) => {
-          if (!oldData?.pages[0]) {
-            return oldData;
+        queryClient.setQueriesData<InfiniteData<PostsPage, string | null>>(
+          queryFilter,
+          (oldData) => {
+            if (!oldData?.pages[0]) {
+              return oldData;
+            }
+
+            return {
+              pageParams: oldData.pageParams,
+              pages: [
+                {
+                  nextCursor: oldData.pages[0].nextCursor,
+                  posts: [newPost, ...oldData.pages[0].posts],
+                },
+                ...oldData.pages.slice(1),
+              ],
+            };
           }
-
-          return {
-            pageParams: oldData.pageParams,
-            pages: [
-              {
-                nextCursor: oldData.pages[0].nextCursor,
-                posts: [newPost, ...oldData.pages[0].posts],
-              },
-              ...oldData.pages.slice(1),
-            ],
-          };
-        }
-      );
+        );
+      }
 
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });
       if (newPost.isGust) {

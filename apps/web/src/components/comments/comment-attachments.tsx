@@ -19,9 +19,15 @@ interface CommentMediaProps {
 // message so a broken attachment never leaves an empty hole in the thread.
 export function CommentMedia({ media }: CommentMediaProps) {
   const [failed, setFailed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const handleError = useCallback(() => {
     setFailed(true);
+    setIsLoading(false);
+  }, []);
+
+  const handleLoad = useCallback(() => {
+    setIsLoading(false);
   }, []);
 
   if (failed) {
@@ -40,6 +46,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
   }
 
   if (media.type === "VIDEO" || media.mimeType.startsWith("video/")) {
+    // Legacy videos attached before the images-only rule still render inline.
     return (
       <div className="mt-2 max-w-sm">
         {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded videos may not carry captions */}
@@ -57,13 +64,20 @@ export function CommentMedia({ media }: CommentMediaProps) {
   }
 
   return (
-    <div className="mt-2 max-w-sm">
+    <div className="relative mt-2 max-w-sm">
+      {isLoading ? (
+        <div className="animate-shimmer from-muted/50 via-muted to-muted/50 h-72 w-full rounded-lg bg-gradient-to-r bg-[length:200%_100%]" />
+      ) : null}
       <div className="relative overflow-hidden rounded-lg">
         <Image
           alt="Attachment"
-          className="max-h-72 w-auto rounded-lg object-contain"
+          className={cn(
+            "max-h-72 w-auto rounded-lg object-contain",
+            isLoading && "invisible"
+          )}
           height={0}
           onError={handleError}
+          onLoad={handleLoad}
           sizes="(max-width: 640px) 100vw, 384px"
           src={getMediaUrl(media.id)}
           style={{ height: "auto" }}

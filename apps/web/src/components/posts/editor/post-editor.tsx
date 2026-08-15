@@ -8,6 +8,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import { Hash, Loader2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import { useDropzone } from "react-dropzone";
@@ -59,6 +60,7 @@ export default function PostEditor({
   variant?: "feed" | "modal";
 }) {
   const { user } = useSession();
+  const router = useRouter();
   const mutation = useSubmitPostMutation();
   const hnShareStore = useHnShareStore();
   const sharedHnStory = hnShareStore.story;
@@ -226,7 +228,7 @@ export default function PostEditor({
     }
 
     mutation.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (newPost) => {
         editor?.commands.clearContent();
         setInputText("");
         resetMediaUploads();
@@ -234,6 +236,11 @@ export default function PostEditor({
         setSelectedMentions([]);
         if (isHnSharing) {
           hnShareStore.clearState();
+        }
+        // A gust is not a home-feed post; take the user to the reels feed
+        // where their new clip is the active one.
+        if (newPost?.isGust) {
+          router.push(`/gusts?id=${newPost.id}`);
         }
       },
     });
@@ -250,6 +257,7 @@ export default function PostEditor({
     hnShareStore,
     isGust,
     gustCaptionExceeded,
+    router,
   ]);
 
   useEffect(() => {

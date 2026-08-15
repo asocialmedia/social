@@ -185,8 +185,8 @@ export default function CommentInput({
             value={input}
           />
           <input
-            accept="image/*,video/*,.png,.jpg,.jpeg,.gif,.mp4,.mov,.webm"
-            aria-label="Add image or video attachment"
+            accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
+            aria-label="Add image or GIF attachment"
             className="sr-only"
             multiple
             onChange={handleFileInputChange}
@@ -194,7 +194,7 @@ export default function CommentInput({
             type="file"
           />
           <button
-            aria-label="Add image or video"
+            aria-label="Add image or GIF"
             className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1.5 transition-colors"
             disabled={isUploading || mutation.isPending}
             onClick={() => fileInputRef.current?.click()}
@@ -227,20 +227,12 @@ export default function CommentInput({
                 className="bg-muted/30 group relative h-20 w-20 overflow-hidden rounded-lg"
                 key={attachment.objectUrl}
               >
-                {attachment.file.type.startsWith("video/") ? (
-                  // oxlint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded previews don't carry captions yet
-                  <video
-                    className="h-full w-full object-cover"
-                    src={attachment.objectUrl}
-                  />
-                ) : (
-                  <Image
-                    alt="Attachment preview"
-                    className="h-full w-full object-cover"
-                    fill
-                    src={attachment.objectUrl}
-                  />
-                )}
+                <Image
+                  alt="Attachment preview"
+                  className="h-full w-full object-cover"
+                  fill
+                  src={attachment.objectUrl}
+                />
                 {attachment.isUploading ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                     <Loader2 className="size-5 animate-spin text-white" />
