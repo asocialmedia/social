@@ -3,7 +3,11 @@ import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 
-import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
+import {
+  ASMOB_BUCKET,
+  asmobClient,
+  generatePresignedUrl,
+} from "@/lib/object-storage";
 import {
   getContentDisposition,
   shouldDisplayInline,
@@ -101,7 +105,30 @@ export async function GET(
       ...(range ? { Range: range } : {}),
     });
 
-    const response = await asmobClient.send(command);
+    // rustfs (the object-storage backend) rejects SigV4 requests that sign a
+    // Range header with SignatureDoesNotMatch, breaking video streaming/seeking
+    // (browsers always request ranges for <video>). Presigned URLs only sign
+    // the query string, so Range reads through them work reliably.
+    let response;
+    if (range) {
+      const presignedUrl = await generatePresignedUrl(objectKey);
+      const upstream = await fetch(presignedUrl, {
+        headers: { Range: range },
+      });
+      if (!upstream.ok && upstream.status !== 206) {
+        throw new Error(`Storage range request failed: ${upstream.status}`);
+      }
+      response = {
+        Body: upstream.body as ReadableStream | null,
+        ContentLength:
+          Number(upstream.headers.get("content-length") || 0) || null,
+        ContentRange: upstream.headers.get("content-range"),
+        ContentType: upstream.headers.get("content-type") || media.mimeType,
+        statusCode: upstream.status,
+      };
+    } else {
+      response = await asmobClient.send(command);
+    }
 
     if (!response.Body) {
       return new NextResponse("Media content not found", { status: 404 });
@@ -123,6 +150,18 @@ export async function GET(
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("Accept-Ranges", "bytes");
 
+    // Normalize the body to a Web ReadableStream: the SDK returns a WebStream
+    // (has transformToWebStream), while the presigned-URL fetch returns a
+    // WHATWG ReadableStream that can be piped directly.
+    const body =
+      "transformToWebStream" in (response.Body as object)
+        ? (
+            response.Body as unknown as {
+              transformToWebStream: () => ReadableStream;
+            }
+          ).transformToWebStream()
+        : (response.Body as ReadableStream);
+
     // If storage honored the Range, respond 206 with the partial content and
     // the Content-Range header so the browser can resume/seek correctly.
     const isPartial = range !== undefined && response.ContentRange;
@@ -131,7 +170,7 @@ export async function GET(
       if (response.ContentLength) {
         headers.set("Content-Length", response.ContentLength.toString());
       }
-      return new NextResponse(response.Body.transformToWebStream(), {
+      return new NextResponse(body, {
         headers,
         status: 206,
       });
@@ -141,7 +180,7 @@ export async function GET(
       headers.set("Content-Length", response.ContentLength.toString());
     }
 
-    return new NextResponse(response.Body.transformToWebStream(), { headers });
+    return new NextResponse(body, { headers });
   } catch (error) {
     const rangeResponse = rangeNotSatisfiable(error, media.size);
     if (rangeResponse) {
