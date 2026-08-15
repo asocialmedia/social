@@ -1,6 +1,11 @@
 import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
+// Better-auth stores password reset tokens in the verification table under a
+// `reset-password:{token}` identifier. Validate the token against that row so
+// the confirm form accepts links issued by the auth service's
+// /request-password-reset flow (the legacy PasswordResetToken model is unused
+// and would reject every valid link).
 export async function GET(req: NextRequest) {
   try {
     const token = req.nextUrl.searchParams.get("token");
@@ -15,9 +20,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const resetToken = await prisma.passwordResetToken.findUnique({
-      include: { user: true },
-      where: { token },
+    const resetToken = await prisma.verification.findFirst({
+      where: { identifier: `reset-password:${token}` },
     });
 
     if (!resetToken) {
@@ -31,7 +35,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (resetToken.expiresAt < new Date()) {
-      await prisma.passwordResetToken.delete({
+      await prisma.verification.delete({
         where: { id: resetToken.id },
       });
 

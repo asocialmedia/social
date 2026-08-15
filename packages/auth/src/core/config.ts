@@ -223,6 +223,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
         ? [
             emailOTP({
               allowedAttempts: 3,
+              changeEmail: {
+                enabled: true,
+                // Require an OTP sent to the *current* email before the change
+                // is allowed, then a second OTP verifies the new address.
+                verifyCurrentEmail: true,
+              },
               expiresIn: 300,
               otpLength: 6,
               overrideDefaultEmailVerification: true,

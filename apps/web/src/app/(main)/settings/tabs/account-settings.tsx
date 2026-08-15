@@ -28,7 +28,11 @@ import {
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
-import { useUpdateEmail, useUpdateUsername } from "../mutations";
+import {
+  useUpdateEmail,
+  useUpdateUsername,
+  useVerifyEmailChange,
+} from "../mutations";
 
 const usernameSchema = z.object({
   username: z
@@ -45,8 +49,14 @@ const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
 });
 
+const emailVerifySchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  otp: z.string().min(4, "Please enter the verification code"),
+});
+
 type UsernameFormValues = z.infer<typeof usernameSchema>;
 type EmailFormValues = z.infer<typeof emailSchema>;
+type EmailVerifyFormValues = z.infer<typeof emailVerifySchema>;
 
 function handleSocialLink(provider: string) {
   window.location.href = `/api/auth/link/${provider}`;
@@ -104,7 +114,9 @@ interface AccountSettingsProps {
 
 export default function AccountSettings({ user }: AccountSettingsProps) {
   const { toast } = useToast();
-  const [verificationEmailSent, setVerificationEmailSent] = useState(false);
+  // When true, the OTP step for confirming the new email is shown.
+  const [emailChangeRequested, setEmailChangeRequested] = useState(false);
+  const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
 
   const usernameForm = useForm<UsernameFormValues>({
     defaultValues: {
@@ -120,8 +132,17 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
     resolver: zodResolver(emailSchema),
   });
 
+  const emailVerifyForm = useForm<EmailVerifyFormValues>({
+    defaultValues: {
+      email: user.email || "",
+      otp: "",
+    },
+    resolver: zodResolver(emailVerifySchema),
+  });
+
   const usernameMutation = useUpdateUsername();
   const emailMutation = useUpdateEmail();
+  const emailVerifyMutation = useVerifyEmailChange();
 
   function onUsernameSubmit(values: UsernameFormValues) {
     if (values.username === user.username) {
@@ -167,13 +188,42 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
         });
       },
       onSuccess: () => {
-        setVerificationEmailSent(true);
+        setEmailChangeRequested(true);
+        setPendingNewEmail(values.email);
+        emailVerifyForm.setValue("email", values.email);
         toast({
-          description: "We sent a verification link to your new email",
+          description:
+            "We sent a code to your new email - enter it to confirm the change",
           title: "Check Your Inbox",
         });
       },
     });
+  }
+
+  function onEmailVerifySubmit(values: EmailVerifyFormValues) {
+    emailVerifyMutation.mutate(values, {
+      onError: (error) => {
+        toast({
+          description: error.message || "That code didn't work, try again?",
+          title: "Couldn't Verify",
+          variant: "destructive",
+        });
+      },
+      onSuccess: () => {
+        setEmailChangeRequested(false);
+        setPendingNewEmail(null);
+        toast({
+          description: "Your email is updated and verified!",
+          title: "Email Updated",
+        });
+      },
+    });
+  }
+
+  function onCancelEmailChange() {
+    setEmailChangeRequested(false);
+    setPendingNewEmail(null);
+    emailForm.setValue("email", user.email || "");
   }
 
   return (
@@ -260,17 +310,66 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
             <div className="flex justify-end">
               <LoadingButton
                 className={BUTTON_CLASS}
-                disabled={verificationEmailSent}
+                disabled={emailChangeRequested}
                 loading={emailMutation.isPending}
                 type="submit"
               >
-                {verificationEmailSent
-                  ? "Verification Email Sent"
-                  : "Update Email"}
+                {emailChangeRequested ? "Code Sent" : "Update Email"}
               </LoadingButton>
             </div>
           </form>
         </Form>
+
+        {emailChangeRequested && (
+          <div className="border-border/60 mt-4 rounded-xl border p-4">
+            <p className="mb-3 text-sm">
+              Enter the verification code we sent to{" "}
+              <span className="font-medium">{pendingNewEmail}</span> to confirm
+              the change.
+            </p>
+            <Form {...emailVerifyForm}>
+              <form
+                className="space-y-3"
+                onSubmit={emailVerifyForm.handleSubmit(onEmailVerifySubmit)}
+              >
+                <FormField
+                  control={emailVerifyForm.control}
+                  name="otp"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Verification code</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="one-time-code"
+                          inputMode="numeric"
+                          placeholder="123456"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                    onClick={onCancelEmailChange}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <LoadingButton
+                    className={BUTTON_CLASS}
+                    loading={emailVerifyMutation.isPending}
+                    type="submit"
+                  >
+                    Verify & Change
+                  </LoadingButton>
+                </div>
+              </form>
+            </Form>
+          </div>
+        )}
       </SettingsCard>
 
       <SettingsCard className="scroll-mt-24" id="settings-linked-accounts">
