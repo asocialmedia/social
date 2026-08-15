@@ -3,17 +3,26 @@ import { describe, expect, test } from "bun:test";
 import { selectTopAuraUsers } from "./trending-utils";
 import type { TrendingAuraUser, TrendingMention } from "./trending-utils";
 
-const auraUser = (id: string, aura: number): TrendingAuraUser => ({
+const auraUser = (
+  id: string,
+  aura: number,
+  badge: string | null = null
+): TrendingAuraUser => ({
   aura,
   avatarUrl: null,
+  badge,
   displayName: `User ${id}`,
   type: "aura",
   userId: id,
   username: id,
 });
 
-const mention = (userId: string): TrendingMention => ({
+const mention = (
+  userId: string,
+  badge: string | null = null
+): TrendingMention => ({
   avatarUrl: null,
+  badge,
   count: 5,
   displayName: `User ${userId}`,
   type: "mention",
@@ -32,6 +41,18 @@ describe("selectTopAuraUsers", () => {
     const result = selectTopAuraUsers(topAura, []);
 
     expect(result.map((user) => user.userId)).toEqual(["a", "b", "c"]);
+  });
+
+  test("preserves non-null badges like dev and author on selected users", () => {
+    const topAura = [
+      auraUser("a", 300, "dev"),
+      auraUser("b", 200, "author"),
+      auraUser("c", 100, null),
+    ];
+
+    const result = selectTopAuraUsers(topAura, []);
+
+    expect(result.map((user) => user.badge)).toEqual(["dev", "author", null]);
   });
 
   test("skips users already shown as mentions and backfills to three", () => {

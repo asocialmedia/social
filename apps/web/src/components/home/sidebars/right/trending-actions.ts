@@ -7,6 +7,7 @@ import { selectTopAuraUsers } from "./trending-utils";
 
 export interface TrendingMention {
   avatarUrl: string | null;
+  badge: string | null;
   count: number;
   displayName: string;
   type: "mention";
@@ -23,6 +24,7 @@ export interface TrendingHashtag {
 export interface TrendingAuraUser {
   aura: number;
   avatarUrl: string | null;
+  badge: string | null;
   displayName: string | null;
   type: "aura";
   userId: string;
@@ -52,6 +54,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
     const users = await prisma.user.findMany({
       select: {
         avatarUrl: true,
+        badge: true,
         displayName: true,
         id: true,
         username: true,
@@ -69,6 +72,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
         }
         return {
           avatarUrl: user.avatarUrl,
+          badge: user.badge,
           count: group._count._all,
           displayName: user.displayName,
           type: "mention" as const,
@@ -95,6 +99,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
       select: {
         aura: true,
         avatarUrl: true,
+        badge: true,
         displayName: true,
         id: true,
         username: true,
@@ -105,6 +110,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
     return users.map((user) => ({
       aura: user.aura,
       avatarUrl: user.avatarUrl,
+      badge: user.badge,
       displayName: user.displayName,
       type: "aura" as const,
       userId: user.id,

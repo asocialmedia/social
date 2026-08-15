@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
 import { cache } from "react";
@@ -6,13 +8,25 @@ import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 export type SessionResponse = { session: Session; user: User } | null;
 
+// Better Auth session cookies always contain "session_token=". Unauthenticated
+// requests (guests, bots, static navigations) have no session cookie and can
+// immediately return null without an expensive HTTP round trip to the auth service.
+function hasSessionCookie(cookie: string): boolean {
+  return cookie.includes("session_token=");
+}
+
+function hashCookie(cookie: string): string {
+  return createHash("sha256").update(cookie).digest("hex");
+}
+
 // A single page render fans out to many API route handlers, each of which
 // calls getSessionFromApi(). React's cache() dedupes within one render but not
 // across parallel route handlers, so without this the burst of parallel routes
-// would each hit the auth service. Memoize the lookup for a short window
-// keyed by the request cookie so the whole burst shares ONE round trip.
-const SESSION_CACHE_TTL_MS = 2000;
-const SESSION_CACHE_MAX_ENTRIES = 50;
+// would each hit the auth service. Memoize the lookup for 30s keyed by a
+// cryptographic digest of the cookie so parallel and subsequent routes share
+// round trips without storing raw tokens in memory.
+const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_CACHE_MAX_ENTRIES = 500;
 
 const sessionCache = new Map<
   string,
@@ -22,21 +36,40 @@ const sessionCache = new Map<
 export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
   const hdrs = await nextHeaders();
   const cookie = hdrs.get("cookie") || "";
+
+  // Fast-path: Skip network request entirely if no session cookie exists.
+  if (!cookie || !hasSessionCookie(cookie)) {
+    return null;
+  }
+
+  const cacheKey = hashCookie(cookie);
   const now = Date.now();
 
-  const existing = sessionCache.get(cookie);
+  const existing = sessionCache.get(cacheKey);
   if (existing && existing.expiresAt > now) {
     return existing.promise;
   }
 
   const promise = fetchSession(cookie);
-  sessionCache.set(cookie, { expiresAt: now + SESSION_CACHE_TTL_MS, promise });
+  sessionCache.set(cacheKey, {
+    expiresAt: now + SESSION_CACHE_TTL_MS,
+    promise,
+  });
 
-  // Opportunistically prune expired entries so the map cannot grow unbounded.
+  // Prune expired entries first, then evict the oldest live entries until
+  // the cache is within configured capacity.
   if (sessionCache.size > SESSION_CACHE_MAX_ENTRIES) {
     for (const [key, entry] of sessionCache) {
-      if (entry.expiresAt <= Date.now()) {
+      if (entry.expiresAt <= now) {
         sessionCache.delete(key);
+      }
+    }
+    while (sessionCache.size > SESSION_CACHE_MAX_ENTRIES) {
+      const oldestKey = sessionCache.keys().next().value;
+      if (typeof oldestKey === "string") {
+        sessionCache.delete(oldestKey);
+      } else {
+        break;
       }
     }
   }

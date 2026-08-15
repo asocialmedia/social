@@ -69,6 +69,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([aura])
   @@index([banned])
   @@index([banExpires])
   @@map("users")
@@ -292,6 +293,7 @@ model Follow {
   following   User   @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
 
   @@unique([followerId, followingId])
+  @@index([followingId])
   @@map("follows")
 }
 
@@ -319,6 +321,7 @@ model Post {
   createdAt DateTime @default(now())
 
   @@index([isGust, createdAt])
+  @@index([isGust, aura, id])
   @@index([userId, isGust, createdAt])
   @@map("posts")
 }
@@ -386,6 +389,7 @@ model Vote {
   createdAt DateTime @default(now())
 
   @@unique([userId, postId])
+  @@index([postId])
   @@index([userId, value, createdAt])
   @@map("votes")
 }
@@ -413,6 +417,8 @@ model Bookmark {
   createdAt DateTime @default(now())
 
   @@unique([userId, postId])
+  @@index([postId])
+  @@index([userId, createdAt])
   @@map("bookmarks")
 }
 
@@ -424,6 +430,7 @@ model HNBookmark {
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, storyId])
+  @@index([userId, createdAt])
   @@index([userId])
 }
 
@@ -486,6 +493,8 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([commentId])
+  @@index([recipientId, read])
+  @@index([recipientId, createdAt])
   @@map("notifications")
 }
 
@@ -505,6 +514,7 @@ model Mention {
   createdAt DateTime @default(now())
 
   @@unique([postId, userId])
+  @@index([userId])
   @@map("mentions")
 }
 

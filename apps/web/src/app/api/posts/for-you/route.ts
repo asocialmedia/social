@@ -32,11 +32,18 @@ export async function GET(request: Request) {
   });
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
-
   const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
   const data: PostsPage = {
     nextCursor,
     posts: hydrated,
   };
-  return Response.json(data);
+
+  const responseHeaders = userId
+    ? { "cache-control": "private, no-cache", vary: "Cookie" }
+    : {
+        "cache-control": "public, s-maxage=10, stale-while-revalidate=30",
+        vary: "Cookie",
+      };
+
+  return Response.json(data, { headers: responseHeaders });
 }

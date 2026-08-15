@@ -36,5 +36,12 @@ export async function GET(request: Request) {
     nextCursor,
     posts: hydrated,
   };
-  return Response.json(data);
+  const responseHeaders = userId
+    ? { "cache-control": "private, no-cache", vary: "Cookie" }
+    : {
+        "cache-control": "public, s-maxage=10, stale-while-revalidate=30",
+        vary: "Cookie",
+      };
+
+  return Response.json(data, { headers: responseHeaders });
 }

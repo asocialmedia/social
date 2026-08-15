@@ -23,7 +23,11 @@ export async function GET(request: Request) {
       type,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      headers: {
+        "cache-control": "public, s-maxage=60, stale-while-revalidate=120",
+      },
+    });
   } catch (error) {
     console.error("Error fetching HN stories:", error);
 
