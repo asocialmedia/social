@@ -1,5 +1,3 @@
-import { keys } from "@root/keys";
-
 export const KLIPY_API_BASE = "https://api.klipy.com/api/v1";
 
 // Formats a KLIPY media object (e.g. file.xs.gif) into a normalized preview.
@@ -69,7 +67,10 @@ export function normalizeKlipyGifs(payload: KlipyResponse): KlipyGif[] {
 }
 
 async function fetchKlipy(endpoint: string, search: URLSearchParams) {
-  const appKey = keys.KLIPY_APP_KEY;
+  // Read the key at request time rather than through the @t3-oss/env binding
+  // (which is captured at module import, before instrumentation loads the root
+  // .env in dev). This keeps a server-only key out of the client bundle too.
+  const appKey = process.env.KLIPY_APP_KEY;
   if (!appKey) {
     return Response.json({ error: "KLIPY is not configured" }, { status: 503 });
   }
