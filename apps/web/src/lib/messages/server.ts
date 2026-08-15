@@ -94,27 +94,27 @@ export function unreadMessageWhere(params: {
   };
 }
 
-// The sender's current ratchet index: the atomic per-owner counter on the
-// conversation key row. Falls back to a dense count when the row is missing
-// (a conversation created before keys were introduced) so legacy threads keep
-// working; the unique (conversationId, senderId, ratchetIndex) constraint
-// still guards the race in that fallback.
+// The sender's current ratchet index. The authoritative source is the message
+// count for that (conversation, sender) pair - indexes are dense (0, 1, 2, ...)
+// so the count IS the next index. The atomic per-owner counter on the key row
+// is kept in step with the count, but may lag behind rows created before the
+// counter existed, so take the max of the two. The unique
+// (conversationId, senderId, ratchetIndex) constraint still guards concurrent
+// sends that race between the read and the create.
 export async function nextRatchetIndex(
   conversationId: string,
   senderId: string
 ): Promise<number> {
-  try {
-    const key = await prisma.messageConversationKey.findUnique({
+  const [key, sentCount] = await Promise.all([
+    prisma.messageConversationKey.findUnique({
       select: { ratchetCounter: true },
       where: {
         conversationId_ownerUserId: { conversationId, ownerUserId: senderId },
       },
-    });
-    return key?.ratchetCounter ?? 0;
-  } catch {
-    // Legacy conversation without a counter row: fall back to the dense count.
-    return prisma.message.count({ where: { conversationId, senderId } });
-  }
+    }),
+    prisma.message.count({ where: { conversationId, senderId } }),
+  ]);
+  return Math.max(key?.ratchetCounter ?? 0, sentCount);
 }
 
 // Safely parses a request body. A malformed JSON body returns null so the
