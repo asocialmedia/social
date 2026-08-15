@@ -80,20 +80,33 @@ model User {
 // PBKDF2-derived master key so the owner can recover old chats on a new
 // device, while the server never learns the secret.
 model MessageIdentity {
-  userId               String   @id
-  publicKey            String
-  encryptedPrivateKey  String
-  salt                 String
-  kdfIterations        Int
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  userId              String   @id
+  publicKey           String
+  encryptedPrivateKey String
+  // SHA-256 hex hash of the account's random 64-char backup secret. The hash
+  // IS the PBKDF2 secret used to derive the master key, so the server (or any
+  // database reader) holding this row can recompute the decryption key from
+  // hash + salt + kdfIterations. Recovery on a new device is automatic and
+  // requires no user input by design; the raw secret is never stored, but the
+  // encrypted backup is recoverable from the stored row alone. Optional only
+  // to tolerate legacy rows.
+  masterKeyHash       String?
+  salt                String
+  kdfIterations       Int
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@map("message_identities")
 }
 
 model MessageConversation {
   id        String                    @id @default(cuid())
+  // Deterministic key for a two-member thread: the two user ids joined in
+  // sorted order. Unique so concurrent "start a chat" requests for the same
+  // pair resolve to one conversation instead of racing into two. Nullable so
+  // rows created before this column existed keep their place until rewritten.
+  pairKey   String?                   @unique
   members   MessageConversationMember[]
   keys      MessageConversationKey[]
   messages  Message[]
@@ -126,6 +139,7 @@ model MessageConversationKey {
   ownerUserId    String
   ownerUser      User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   encryptedKey   String
+  iv             String
   ratchetCounter Int                @default(0)
   createdAt      DateTime           @default(now())
 
@@ -140,6 +154,7 @@ model Message {
   senderId       String
   sender         User               @relation(fields: [senderId], references: [id], onDelete: Cascade)
   ciphertext     String
+  iv             String
   // Position of this message within the sender's chain in this conversation.
   // The receiver derives the same message key from the root convo key plus
   // (senderId, ratchetIndex), so decryption works deterministically on any
@@ -148,6 +163,10 @@ model Message {
   createdAt      DateTime           @default(now())
   deletedAt      DateTime?
 
+  // A sender may never emit two messages at the same ratchet position. The
+  // server hands out indexes from an atomic counter, so this is the last line
+  // of defense against a concurrent duplicate send racing the counter read.
+  @@unique([conversationId, senderId, ratchetIndex])
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@map("messages")

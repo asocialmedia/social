@@ -39,6 +39,7 @@ import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
+import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { cn, isRouteActive } from "@/lib/utils";
 import { useComposerStore } from "@/store/composer-store";
 import { useSidebarStore } from "@/store/sidebar-store";
@@ -78,7 +79,12 @@ const SECONDARY_ITEMS: NavItem[] = [
     label: "Notifications",
     requiresAuth: true,
   },
-  { href: "/soon?feature=messages", icon: MessagesSquare, label: "Messages" },
+  {
+    href: "/messages",
+    icon: MessagesSquare,
+    label: "Messages",
+    requiresAuth: true,
+  },
   {
     href: "/hackernews",
     icon: Compass,
@@ -153,6 +159,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const [mounted, setMounted] = useState(false);
   const { data: bookmarkCount } = useBookmarkCount();
   const { data: unreadNotificationCount } = useUnreadNotificationCount();
+  const unreadMessageCount = useUnreadMessageCount();
   const { openSpotlight } = useSpotlight();
   const openComposer = useComposerStore((state) => state.openComposer);
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
@@ -169,6 +176,19 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const handleOpenComposer = useCallback(() => {
     openComposer();
   }, [openComposer]);
+
+  const withSecondaryCount = useCallback(
+    (item: NavItem): NavItem => {
+      if (item.href === "/notifications") {
+        return { ...item, count: unreadNotificationCount?.unreadCount ?? 0 };
+      }
+      if (item.href === "/messages") {
+        return { ...item, count: unreadMessageCount };
+      }
+      return item;
+    },
+    [unreadMessageCount, unreadNotificationCount]
+  );
 
   const queryString = searchParams.toString();
   const currentHref = queryString ? `${pathname}?${queryString}` : pathname;
@@ -380,40 +400,11 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
               <nav className="flex flex-col items-center gap-1.5">
                 {secondaryItems.map((item) =>
-                  renderCollapsedItem(
-                    item.href === "/notifications"
-                      ? {
-                          ...item,
-                          count: unreadNotificationCount?.unreadCount ?? 0,
-                        }
-                      : item
-                  )
+                  renderCollapsedItem(withSecondaryCount(item))
                 )}
 
                 {isLoggedIn ? renderCollapsedItem(profileItem) : null}
               </nav>
-
-              {isLoggedIn ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      aria-label="Create Post"
-                      className="follow-btn-3d mt-3 flex size-10 items-center justify-center"
-                      onClick={handleOpenComposer}
-                      type="button"
-                    >
-                      <PenSquare className="size-5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    className="tooltip-3d"
-                    side="right"
-                    sideOffset={12}
-                  >
-                    Create Post
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
 
               {userData ? (
                 <SidebarUserArea compact userData={userData} />
@@ -421,8 +412,29 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
             </div>
           </div>
 
-          {/* Bottom-pinned: theme toggle */}
-          <div className="mt-2 flex shrink-0 flex-col items-center">
+          {/* Bottom-pinned: Create Post above the theme toggle */}
+          <div className="mt-2 flex shrink-0 flex-col items-center gap-2">
+            {isLoggedIn ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    aria-label="Create Post"
+                    className="follow-btn-3d flex size-10 items-center justify-center"
+                    onClick={handleOpenComposer}
+                    type="button"
+                  >
+                    <PenSquare className="size-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  className="tooltip-3d"
+                  side="right"
+                  sideOffset={12}
+                >
+                  Create Post
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
             {themeToggleButton}
           </div>
         </TooltipProvider>
@@ -434,7 +446,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     <aside className="border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
       <div className="mb-8 flex items-center justify-between gap-2 px-2">
         <Link href="/">
-          <div className="relative h-11 w-[58px]">
+          <div className="relative h-11 w-14.5">
             <Image
               alt="asocialmedia"
               className="object-contain"
@@ -474,16 +486,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
         <Separator className="bg-border/60 my-3" />
 
-        {secondaryItems.map((item) =>
-          renderItem(
-            item.href === "/notifications"
-              ? {
-                  ...item,
-                  count: unreadNotificationCount?.unreadCount ?? 0,
-                }
-              : item
-          )
-        )}
+        {secondaryItems.map((item) => renderItem(withSecondaryCount(item)))}
 
         {renderItem(profileItem)}
       </nav>

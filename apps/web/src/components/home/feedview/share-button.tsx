@@ -40,6 +40,8 @@ import {
 } from "react-icons/fa";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { MessageIdentityProvider } from "@/components/messages/message-identity-provider";
+import { MessageSharePicker } from "@/components/messages/message-share-picker";
 import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -48,7 +50,7 @@ const FALLBACK_THUMBNAIL = "/fallback.png";
 
 interface ShareButtonProps {
   className?: string;
-  defaultTab?: "social" | "link" | "qr";
+  defaultTab?: "social" | "link" | "qr" | "messages";
   description?: string;
   dialogDescription?: string;
   dialogTitle?: string;
@@ -77,9 +79,9 @@ const ShareButton = ({
 }: ShareButtonProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<"social" | "link" | "qr">(
-    defaultTab
-  );
+  const [activeTab, setActiveTab] = useState<
+    "social" | "link" | "qr" | "messages"
+  >(defaultTab);
   const [shareStats, setShareStats] = useState<ShareStats[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -87,6 +89,18 @@ const ShareButton = ({
   const postUrl = shareUrl || (postId ? `${baseUrl}/posts/${postId}` : baseUrl);
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  // Sharing to DMs needs a post id; without one the Messages tab is hidden.
+  const messagesAvailable = Boolean(postId);
+
+  // If Messages becomes unavailable (post id absent) or the selected tab is no
+  // longer rendered, fall back to a tab that is. Deferred so the effect body
+  // never calls setState synchronously.
+  useEffect(() => {
+    if (!messagesAvailable && activeTab === "messages") {
+      const timer = setTimeout(() => setActiveTab("social"), 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, messagesAvailable]);
 
   const fetchShareStats = useCallback(async () => {
     if (!isLoggedIn || !postId) {
@@ -503,7 +517,7 @@ const ShareButton = ({
         <Share2 className="h-5 w-5" />
       </button>
       <DialogContent
-        className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        className="apple-panel w-full max-w-120 gap-4 overflow-hidden rounded-2xl p-0"
         onClick={handleContentClick}
       >
         <div className="border-border/60 border-b px-5 pt-5 pb-3">
@@ -522,11 +536,16 @@ const ShareButton = ({
           <Tabs
             className="w-full"
             onValueChange={(value) =>
-              setActiveTab(value as "social" | "link" | "qr")
+              setActiveTab(value as "social" | "link" | "qr" | "messages")
             }
             value={activeTab}
           >
-            <TabsList className="border-border/60 mb-4 grid h-auto w-full grid-cols-3 items-stretch gap-1 rounded-xl border bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]">
+            <TabsList
+              className={cn(
+                "border-border/60 mb-4 grid h-auto w-full items-stretch gap-1 rounded-xl border bg-[hsl(var(--background-alt))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]",
+                messagesAvailable ? "grid-cols-4" : "grid-cols-3"
+              )}
+            >
               <TabsTrigger
                 className="rounded-lg py-1.5 text-sm font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                 value="social"
@@ -540,11 +559,19 @@ const ShareButton = ({
                 Link
               </TabsTrigger>
               <TabsTrigger
-                className="rounded-lg py-1.5 text-sm font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                className="rounded-lg py-1.5 text-xs font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
                 value="qr"
               >
                 QR Code
               </TabsTrigger>
+              {messagesAvailable ? (
+                <TabsTrigger
+                  className="rounded-lg py-1.5 text-xs font-medium transition-all duration-200 data-[state=active]:bg-linear-to-b data-[state=active]:from-[#ff9500] data-[state=active]:to-[#e65500] data-[state=active]:text-white data-[state=active]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                  value="messages"
+                >
+                  Messages
+                </TabsTrigger>
+              ) : null}
             </TabsList>
 
             <TabsContent className="mt-0" value="social">
@@ -637,6 +664,20 @@ const ShareButton = ({
                 </div>
               </motion.div>
             </TabsContent>
+
+            {messagesAvailable ? (
+              <TabsContent className="mt-0" value="messages">
+                <motion.div
+                  animate={{ opacity: 1, y: 0 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                >
+                  <MessageIdentityProvider>
+                    <MessageSharePicker postId={postId} />
+                  </MessageIdentityProvider>
+                </motion.div>
+              </TabsContent>
+            ) : null}
 
             <TabsContent className="mt-0" value="qr">
               <motion.div

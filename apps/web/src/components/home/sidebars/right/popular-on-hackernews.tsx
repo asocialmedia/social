@@ -15,7 +15,7 @@ export const HackerNewsLogo: React.FC<{ className?: string }> = ({
   <span
     aria-hidden="true"
     className={cn(
-      "flex shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]",
+      "flex shrink-0 items-center justify-center rounded-md bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.35),0_1px_2px_rgba(154,52,18,0.3)]",
       className
     )}
   >

@@ -1,8 +1,7 @@
 import { debugLog } from "@asm/config/debug";
-import { keys } from "@root/keys";
 import type { NextRequest } from "next/server";
 
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 export const dynamic = "force-dynamic";
 
@@ -84,10 +83,10 @@ async function attemptAutoLogin(
         password,
       }),
       credentials: "include",
-      headers: {
+      headers: authInternalHeaders({
         "content-type": "application/json",
         "user-agent": req.headers.get("user-agent") ?? "",
-      },
+      }),
       method: "POST",
     });
 
@@ -126,9 +125,9 @@ async function handleVerificationFallback(
 
   const res = await fetch(url, {
     cache: "no-store",
-    headers: {
+    headers: authInternalHeaders({
       "user-agent": req.headers.get("user-agent") ?? "",
-    },
+    }),
     method: "GET",
   });
 
@@ -148,14 +147,14 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const authBase = keys.NEXT_PUBLIC_AUTH_URL;
+  const authBase = getAuthBaseUrl();
 
   try {
     try {
       const sessionRes = await fetch(`${authBase}/api/auth/get-session`, {
-        headers: {
+        headers: authInternalHeaders({
           cookie: req.headers.get("cookie") ?? "",
-        },
+        }),
       });
 
       if (sessionRes.ok) {

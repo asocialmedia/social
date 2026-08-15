@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 import { getSessionFromApi } from "@/lib/session";
 
 const emailSchema = z.object({
@@ -12,14 +12,12 @@ const emailChangeRequestSchema = emailSchema.extend({
   otp: z.string().min(4).optional(),
 });
 
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
-
 async function forwardWithUserCookie(path: string, body: unknown) {
   const { headers } = await import("next/headers");
   const hdrs = await headers();
   const cookie = hdrs.get("cookie") || "";
 
-  const response = await fetch(`${AUTH_BASE}${path}`, {
+  const response = await fetch(`${getAuthBaseUrl()}${path}`, {
     body: JSON.stringify(body),
     headers: authInternalHeaders({
       "Content-Type": "application/json",

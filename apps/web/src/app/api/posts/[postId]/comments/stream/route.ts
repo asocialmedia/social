@@ -1,8 +1,4 @@
-import {
-  commentChannel,
-  createSubscriberConnection,
-  parseCommentEvent,
-} from "@asm/db";
+import { commentChannel, parseCommentEvent, subscribeToChannel } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -12,7 +8,8 @@ export const dynamic = "force-dynamic";
 // published to the post's Redis channel; each open stream here subscribes to
 // that channel and forwards events to the browser. Pub/sub (rather than a
 // poll or a list) means a single write reaches every subscriber on every web
-// instance, and the subscription is cheap: one ioredis subscriber per viewer.
+// instance. All streams share one Redis subscriber connection per process via
+// subscribeToChannel, so viewers do not each hold a connection.
 export async function GET(
   request: Request,
   ctx: { params: Promise<{ postId: string }> }
@@ -37,7 +34,8 @@ export async function GET(
     },
     async start(controller) {
       let closed = false;
-      const subscriber = createSubscriberConnection();
+      let subscription: Awaited<ReturnType<typeof subscribeToChannel>> | null =
+        null;
 
       const close = async () => {
         if (closed) {
@@ -45,16 +43,12 @@ export async function GET(
         }
         closed = true;
         clearInterval(heartbeat);
-        subscriber.removeListener("message", onMessage);
-        try {
-          await subscriber.unsubscribe(channel);
-        } catch {
-          // Unsubscribe failures are non-fatal; proceed to quit.
-        }
-        try {
-          await subscriber.quit();
-        } catch {
-          // The connection may already be gone.
+        if (subscription) {
+          try {
+            await subscription.unsubscribe();
+          } catch {
+            // Non-fatal.
+          }
         }
         try {
           controller.close();
@@ -63,17 +57,14 @@ export async function GET(
         }
       };
 
-      const onMessage = (chan: string, message: string) => {
-        if (chan !== channel) {
-          return;
-        }
-        const event = parseCommentEvent(message);
+      const onMessage = (_chan: string, raw: string) => {
+        const event = parseCommentEvent(raw);
         if (!event) {
           return;
         }
         try {
           controller.enqueue(
-            encoder.encode(`event: comment\ndata: ${message}\n\n`)
+            encoder.encode(`event: comment\ndata: ${raw}\n\n`)
           );
         } catch {
           void close();
@@ -81,7 +72,7 @@ export async function GET(
       };
 
       // Keep the connection alive through proxies and detect dead sockets so
-      // the subscriber connection is not leaked.
+      // the shared subscriber slot is released.
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": keep-alive\n\n"));
@@ -89,8 +80,6 @@ export async function GET(
           void close();
         }
       }, 20_000);
-
-      subscriber.on("message", onMessage);
 
       cleanup = () => {
         void close();
@@ -104,7 +93,7 @@ export async function GET(
       );
 
       try {
-        await subscriber.subscribe(channel);
+        subscription = await subscribeToChannel(channel, onMessage);
         controller.enqueue(
           encoder.encode(`event: connected\ndata: {"postId":"${postId}"}\n\n`)
         );

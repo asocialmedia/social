@@ -124,6 +124,148 @@ export function createSubscriberConnection(): IoRedis {
   );
 }
 
+// ---- shared pub/sub hub ----------------------------------------------------
+// One long-lived subscriber connection is shared by every SSE stream in the
+// process instead of a separate connection per open stream (which, with many
+// viewers, burns a Redis connection and its file descriptor each). Streams
+// subscribe to a channel and get back an unsubscribe function; the hub
+// reference-counts channels so a channel is only unsubscribed (and its slots
+// freed) when the last stream leaves it. ioredis re-subscribes automatically
+// across reconnects, so only the in-memory listener map needs managing here.
+export type ChannelListener = (channel: string, message: string) => void;
+
+export interface ChannelSubscription {
+  unsubscribe: () => Promise<void>;
+}
+
+let hubClient: IoRedis | null = null;
+const hubListeners = new Map<string, Set<ChannelListener>>();
+let hubOpenStreams = 0;
+
+// Gauges for observability: how many streams are open and how many distinct
+// channels/listeners the shared connection is carrying right now.
+export function getSubscriberGauges(): {
+  activeChannels: number;
+  activeListeners: number;
+  openStreams: number;
+} {
+  let activeListeners = 0;
+  for (const listeners of hubListeners.values()) {
+    activeListeners += listeners.size;
+  }
+  return {
+    activeChannels: hubListeners.size,
+    activeListeners,
+    openStreams: hubOpenStreams,
+  };
+}
+
+// A quiet periodic log of the hub gauges so connection usage is observable in
+// the web app's logs without a dedicated metrics endpoint. Only logs while
+// streams are actually open; goes silent when the last stream closes.
+let gaugeTimer: ReturnType<typeof setInterval> | null = null;
+
+function ensureGaugeLogging(): void {
+  if (gaugeTimer) {
+    return;
+  }
+  gaugeTimer = setInterval(() => {
+    const gauges = getSubscriberGauges();
+    if (gauges.openStreams > 0) {
+      console.log(
+        `[pubsub-hub] openStreams=${gauges.openStreams} ` +
+          `activeChannels=${gauges.activeChannels} ` +
+          `activeListeners=${gauges.activeListeners}`
+      );
+    }
+  }, 60_000);
+}
+
+function stopGaugeLoggingWhenIdle(): void {
+  if (gaugeTimer && hubOpenStreams === 0 && hubListeners.size === 0) {
+    clearInterval(gaugeTimer);
+    gaugeTimer = null;
+  }
+}
+
+function getHubClient(): IoRedis {
+  if (!hubClient || hubClient.status === "end") {
+    if (hubClient?.status === "end") {
+      hubClient = null;
+    }
+    hubClient = createSubscriberConnection();
+    hubClient.on("message", (channel, message) => {
+      const listeners = hubListeners.get(channel);
+      if (!listeners) {
+        return;
+      }
+      for (const listener of listeners) {
+        try {
+          listener(channel, message);
+        } catch (error) {
+          console.error("Subscriber listener threw:", error);
+        }
+      }
+    });
+  }
+  return hubClient;
+}
+
+// Subscribes `listener` to `channel`. The first stream on a channel triggers
+// the real Redis SUBSCRIBE; subsequent streams on the same channel reuse it.
+export async function subscribeToChannel(
+  channel: string,
+  listener: ChannelListener
+): Promise<ChannelSubscription> {
+  const client = getHubClient();
+  const listeners = hubListeners.get(channel) ?? new Set<ChannelListener>();
+  const isFirst = listeners.size === 0;
+  listeners.add(listener);
+  hubListeners.set(channel, listeners);
+  hubOpenStreams += 1;
+  ensureGaugeLogging();
+
+  if (isFirst) {
+    try {
+      await client.subscribe(channel);
+    } catch (error) {
+      // Roll back so a failed subscribe does not strand a phantom listener.
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        hubListeners.delete(channel);
+      }
+      hubOpenStreams -= 1;
+      throw error;
+    }
+  }
+
+  let unsubscribed = false;
+  return {
+    unsubscribe: async () => {
+      if (unsubscribed) {
+        return;
+      }
+      unsubscribed = true;
+      hubOpenStreams -= 1;
+      const current = hubListeners.get(channel);
+      if (!current) {
+        return;
+      }
+      current.delete(listener);
+      if (current.size === 0) {
+        hubListeners.delete(channel);
+        try {
+          await client.unsubscribe(channel);
+        } catch {
+          // Non-fatal: the connection may be gone, and ioredis re-syncs
+          // subscriptions on reconnect anyway.
+        }
+      }
+      stopGaugeLoggingWhenIdle();
+    },
+  };
+}
+
 export interface TrendingTopic {
   count: number;
   hashtag: string;
@@ -315,7 +457,8 @@ export interface MessageStreamEvent {
     | "message.created"
     | "message.deleted"
     | "conversation.created"
-    | "conversation.read";
+    | "conversation.read"
+    | "typing.started";
   conversationId: string;
   message?: unknown;
   conversation?: unknown;
@@ -333,7 +476,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
       parsed.kind !== "conversation.created" &&
-      parsed.kind !== "conversation.read"
+      parsed.kind !== "conversation.read" &&
+      parsed.kind !== "typing.started"
     ) {
       return null;
     }
@@ -351,6 +495,9 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind === "conversation.created" &&
       parsed.conversation === undefined
     ) {
+      return null;
+    }
+    if (parsed.kind === "typing.started" && typeof parsed.userId !== "string") {
       return null;
     }
     return {
@@ -378,14 +525,65 @@ export async function publishMessageEvent(
   }
 }
 
+export async function publishMessageCreated(
+  conversationId: string,
+  message: unknown
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.created",
+    message,
+  });
+}
+
+export async function publishMessageDeleted(
+  conversationId: string,
+  message: unknown
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.deleted",
+    message,
+  });
+}
+
+export async function publishConversationRead(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "conversation.read",
+    userId,
+  });
+}
+
+export async function publishTypingStarted(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "typing.started",
+    userId,
+  });
+}
+
 // ---- presence ---------------------------------------------------------------
 // Users on the Messages page heartbeat their online status every 30s. The
-// presence set holds the ids of currently-online users for the active-friends
-// rail; the per-user key carries the TTL so a stale heartbeat expires on its
-// own. Both are keyed under a shared prefix for easy debugging.
+// per-user key carries the TTL so a stale heartbeat expires on its own, and
+// the sets are only indexes over those keys (stale members are pruned on
+// read). Two tiers:
+//   - online: heartbeat received within PRESENCE_TTL_SECONDS (green dot)
+//   - idle:   seen within PRESENCE_SEEN_TTL_SECONDS but no recent heartbeat
+//             (amber dot) — e.g. the tab is open but the user stepped away
+//             past the heartbeat window, or they closed it moments ago.
 export const PRESENCE_PREFIX = "presence:";
+export const PRESENCE_SEEN_PREFIX = "presence:seen:";
 export const PRESENCE_ONLINE_SET = "presence:online";
+export const PRESENCE_SEEN_SET = "presence:seen";
 export const PRESENCE_TTL_SECONDS = 70;
+export const PRESENCE_SEEN_TTL_SECONDS = 900;
 
 export async function markUserOnline(userId: string): Promise<void> {
   try {
@@ -395,18 +593,92 @@ export async function markUserOnline(userId: string): Promise<void> {
       PRESENCE_TTL_SECONDS,
       String(Date.now())
     );
+    pipeline.setex(
+      `${PRESENCE_SEEN_PREFIX}${userId}`,
+      PRESENCE_SEEN_TTL_SECONDS,
+      String(Date.now())
+    );
     pipeline.sadd(PRESENCE_ONLINE_SET, userId);
+    pipeline.sadd(PRESENCE_SEEN_SET, userId);
     await pipeline.exec();
   } catch (error) {
     console.error("Error marking user online:", error);
   }
 }
 
+// Returns members whose per-user online key is still alive, pruning (srem)
+// members whose key expired. The key is the source of truth; without this
+// prune the set would keep everyone online forever.
 export async function getOnlineUsers(): Promise<string[]> {
   try {
-    return await redis.smembers(PRESENCE_ONLINE_SET);
+    const members = await redis.smembers(PRESENCE_ONLINE_SET);
+    if (members.length === 0) {
+      return [];
+    }
+    const pipeline = redis.pipeline();
+    for (const id of members) {
+      pipeline.get(`${PRESENCE_PREFIX}${id}`);
+    }
+    const results = await pipeline.exec();
+
+    const online: string[] = [];
+    const stale: string[] = [];
+    for (let index = 0; index < members.length; index += 1) {
+      const value = results?.[index]?.[1];
+      if (typeof value === "string") {
+        online.push(members[index]);
+      } else {
+        stale.push(members[index]);
+      }
+    }
+    if (stale.length > 0) {
+      await redis.srem(PRESENCE_ONLINE_SET, ...stale);
+    }
+    return online;
   } catch (error) {
     console.error("Error getting online users:", error);
+    return [];
+  }
+}
+
+// Users seen recently but not currently online (heartbeat expired within the
+// seen window). Prunes seen members whose seen key expired. Accepts the
+// already-computed online list so the caller (the presence route) does not
+// query the online set twice per poll.
+export async function getIdleUsers(onlineList: string[]): Promise<string[]> {
+  try {
+    const seen = await redis.smembers(PRESENCE_SEEN_SET);
+    if (seen.length === 0) {
+      return [];
+    }
+    const online = new Set(onlineList);
+    const candidates = seen.filter((id) => !online.has(id));
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const pipeline = redis.pipeline();
+    for (const id of candidates) {
+      pipeline.get(`${PRESENCE_SEEN_PREFIX}${id}`);
+    }
+    const results = await pipeline.exec();
+
+    const idle: string[] = [];
+    const stale: string[] = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const value = results?.[index]?.[1];
+      if (typeof value === "string") {
+        idle.push(candidates[index]);
+      } else {
+        stale.push(candidates[index]);
+      }
+    }
+    if (stale.length > 0) {
+      await redis.srem(PRESENCE_SEEN_SET, ...stale);
+    }
+    return idle;
+  } catch (error) {
+    console.error("Error getting idle users:", error);
     return [];
   }
 }

@@ -1,7 +1,5 @@
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 import { getSessionFromApi } from "@/lib/session";
-
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
 
 // Sends a verification OTP to the user's current email address so they can
 // prove ownership before changing it. Only meaningful for accounts that
@@ -24,7 +22,7 @@ export async function POST() {
   const cookie = hdrs.get("cookie") || "";
 
   const response = await fetch(
-    `${AUTH_BASE}/api/auth/email-otp/send-verification-otp`,
+    `${getAuthBaseUrl()}/api/auth/email-otp/send-verification-otp`,
     {
       body: JSON.stringify({ email: currentEmail, type: "email-verification" }),
       headers: authInternalHeaders({
