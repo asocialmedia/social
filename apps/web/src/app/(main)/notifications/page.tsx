@@ -38,7 +38,7 @@ export default async function Page() {
           <PostHistoryCard />
           <TrendingTopics />
           <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
-            <span>© {new Date().getFullYear()} Asocialmedia</span>
+            <span>© {new Date().getFullYear()} asocialmedia</span>
             {[
               { href: "/toc", label: "Terms" },
               { href: "/privacy", label: "Privacy" },

@@ -27,7 +27,7 @@ export const PasswordResetEmail = ({ resetUrl }: PasswordResetEmailProps) => (
   <Html>
     <Head />
     <Preview>
-      We received a request to reset your Asocialmedia password. Click the link
+      We received a request to reset your asocialmedia password. Click the link
       to reset it now.
     </Preview>
     <Body style={main}>
@@ -35,7 +35,7 @@ export const PasswordResetEmail = ({ resetUrl }: PasswordResetEmailProps) => (
         <EmailBanner />
         <Text style={heading}>Password Reset Request</Text>
         <Text style={paragraph}>
-          We received a request to reset your password for your Asocialmedia
+          We received a request to reset your password for your asocialmedia
           account.
         </Text>
         <Text style={paragraph}>

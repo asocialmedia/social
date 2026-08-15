@@ -8,6 +8,7 @@ import Link from "next/link";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
+import ShareButton from "@/components/home/feedview/share-button";
 import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -130,7 +131,24 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               size={112}
             />
           </div>
-          <div className="mb-2">
+          <div className="mb-2 flex items-center gap-2">
+            <ShareButton
+              className="h-9 w-9 rounded-full border border-black/10 bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]"
+              defaultTab="link"
+              description={
+                liveUserData.bio ||
+                `Check out @${liveUserData.username}'s profile on asocialmedia`
+              }
+              dialogDescription="Share this profile with your network"
+              dialogTitle="Share Profile"
+              shareUrl={
+                typeof window === "undefined"
+                  ? undefined
+                  : `${window.location.origin}/users/${liveUserData.username}`
+              }
+              thumbnail={avatarUrl || undefined}
+              title={`${liveUserData.displayName || liveUserData.username} (@${liveUserData.username}) on asocialmedia`}
+            />
             {isOwnProfile ? (
               <EditProfileButton user={liveUserData} />
             ) : (

@@ -38,11 +38,11 @@ export default function ContributeCard({ isCollapsed }: ContributeCardProps) {
       <div className="space-y-4 p-4">
         <div className="text-primary flex items-center gap-2">
           <GitPullRequest className="h-5 w-5" />
-          <h3 className="font-semibold">Contribute to Asocialmedia</h3>
+          <h3 className="font-semibold">Contribute to asocialmedia</h3>
         </div>
 
         <p className="text-muted-foreground text-sm">
-          Help us make Asocialmedia better! We welcome all contributions.
+          Help us make asocialmedia better! We welcome all contributions.
         </p>
 
         <div className="space-y-2">

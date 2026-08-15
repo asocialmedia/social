@@ -302,6 +302,115 @@ export async function publishCommentDeleted(
   await publishCommentEvent({ comment, kind: "comment.deleted", postId });
 }
 
+// ---- E2EE messages ---------------------------------------------------------
+// Real-time DMs: message writes are published to a per-conversation Redis
+// channel and fanned out to open SSE streams, mirroring the comments stack.
+// Ciphertext is safe to broadcast; the plaintext never leaves the client.
+export const MESSAGE_CHANNEL_PREFIX = "messages:";
+export const messageChannel = (conversationId: string): string =>
+  `${MESSAGE_CHANNEL_PREFIX}${conversationId}`;
+
+export interface MessageStreamEvent {
+  kind:
+    | "message.created"
+    | "message.deleted"
+    | "conversation.created"
+    | "conversation.read";
+  conversationId: string;
+  message?: unknown;
+  conversation?: unknown;
+  userId?: string;
+}
+
+export function serializeMessageEvent(event: MessageStreamEvent): string {
+  return JSON.stringify(event);
+}
+
+export function parseMessageEvent(raw: string): MessageStreamEvent | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<MessageStreamEvent>;
+    if (
+      parsed.kind !== "message.created" &&
+      parsed.kind !== "message.deleted" &&
+      parsed.kind !== "conversation.created" &&
+      parsed.kind !== "conversation.read"
+    ) {
+      return null;
+    }
+    if (typeof parsed.conversationId !== "string") {
+      return null;
+    }
+    if (
+      (parsed.kind === "message.created" ||
+        parsed.kind === "message.deleted") &&
+      parsed.message === undefined
+    ) {
+      return null;
+    }
+    if (
+      parsed.kind === "conversation.created" &&
+      parsed.conversation === undefined
+    ) {
+      return null;
+    }
+    return {
+      conversation: parsed.conversation,
+      conversationId: parsed.conversationId,
+      kind: parsed.kind,
+      message: parsed.message,
+      userId: parsed.userId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function publishMessageEvent(
+  event: MessageStreamEvent
+): Promise<void> {
+  try {
+    await redis.publish(
+      messageChannel(event.conversationId),
+      serializeMessageEvent(event)
+    );
+  } catch (error) {
+    console.error("Error publishing message event:", error);
+  }
+}
+
+// ---- presence ---------------------------------------------------------------
+// Users on the Messages page heartbeat their online status every 30s. The
+// presence set holds the ids of currently-online users for the active-friends
+// rail; the per-user key carries the TTL so a stale heartbeat expires on its
+// own. Both are keyed under a shared prefix for easy debugging.
+export const PRESENCE_PREFIX = "presence:";
+export const PRESENCE_ONLINE_SET = "presence:online";
+export const PRESENCE_TTL_SECONDS = 70;
+
+export async function markUserOnline(userId: string): Promise<void> {
+  try {
+    const pipeline = redis.pipeline();
+    pipeline.setex(
+      `${PRESENCE_PREFIX}${userId}`,
+      PRESENCE_TTL_SECONDS,
+      String(Date.now())
+    );
+    pipeline.sadd(PRESENCE_ONLINE_SET, userId);
+    await pipeline.exec();
+  } catch (error) {
+    console.error("Error marking user online:", error);
+  }
+}
+
+export async function getOnlineUsers(): Promise<string[]> {
+  try {
+    return await redis.smembers(PRESENCE_ONLINE_SET);
+  } catch (error) {
+    console.error("Error getting online users:", error);
+    return [];
+  }
+}
+
 // Redis Streams that buffer high-frequency counter increments for the worker.
 // The web app XADDs a small event per increment; the worker drains them in
 // batches (XREADGROUP) and flushes the aggregate deltas to Postgres.

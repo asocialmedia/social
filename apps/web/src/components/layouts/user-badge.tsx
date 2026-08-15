@@ -30,7 +30,7 @@ const BADGE_TOOLTIPS: Record<
   { title: string; description: string }
 > = {
   author: {
-    description: "Creator of Asocialmedia, the one who started it all",
+    description: "Creator of asocialmedia, the one who started it all",
     title: "Author",
   },
   dev: {
@@ -104,7 +104,7 @@ const UserBadge: React.FC<{
         >
           <div className="flex items-center gap-2.5">
             <Image
-              alt="Asocialmedia logo"
+              alt="asocialmedia logo"
               className="size-8 shrink-0 rounded-md object-contain"
               height={36}
               src={asmLogo}

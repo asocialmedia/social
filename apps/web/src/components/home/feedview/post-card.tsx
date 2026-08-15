@@ -278,13 +278,15 @@ const PostContent: React.FC<PostContentProps> = ({
             <ShareButton
               defaultTab="link"
               description={post.content}
+              dialogDescription="Share this post with your network"
+              dialogTitle="Share Post"
               postId={post.id}
               thumbnail={
                 post.attachments[0]
                   ? getMediaProxyUrl(post.attachments[0])
-                  : undefined
+                  : `/posts/${post.id}/opengraph-image`
               }
-              title={post.content}
+              title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
             />
           </div>
         </div>

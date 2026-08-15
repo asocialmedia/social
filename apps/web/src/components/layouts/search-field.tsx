@@ -178,12 +178,12 @@ export default function SearchField({
       <form className="relative" onSubmit={handleSubmit}>
         <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
         <Input
-          aria-label="Search on Asocialmedia"
+          aria-label="Search on asocialmedia"
           autoComplete="off"
           className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
           onChange={handleChange}
           onFocus={handleFocus}
-          placeholder="Search on Asocialmedia"
+          placeholder="Search on asocialmedia"
           ref={inputRef}
           type="text"
           value={input}

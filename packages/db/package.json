@@ -1,8 +1,8 @@
 {
   "name": "@asm/db",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "private": true,
-  "description": "Asocialmedia database & cache package",
+  "description": "asocialmedia database & cache package",
   "license": "AGPL-3.0",
   "main": "./index.ts",
   "types": "./index.ts",

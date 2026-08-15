@@ -1,8 +1,8 @@
 {
   "name": "@asm/next",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
-  "description": "Asocialmedia Next.js package contains shared configs for Next.js",
+  "description": "asocialmedia Next.js package contains shared configs for Next.js",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

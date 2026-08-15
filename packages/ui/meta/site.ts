@@ -27,11 +27,11 @@ export const siteConfig = {
     twitter: "https://twitter.com/parazeeknova",
   },
   locale: "en_US",
-  name: "Asocialmedia",
+  name: "asocialmedia",
   // Resolved against metadataBase, so this must be a root-absolute path or a
   // full URL. Used for the default social share card.
   ogImage: "/favicon/og-image.png",
-  siteName: "Asocialmedia",
+  siteName: "asocialmedia",
   twitterCreator: "Harsh Sahu | parazeeknova",
   twitterHandle: "@asocialmedia",
   url: "https://asocialmedia.cc",

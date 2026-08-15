@@ -35,8 +35,6 @@ model User {
   image           String?
   name            String?
   role            String    @default("user")
-  // Visual badge shown next to the username across the app (author/dev/early).
-  // Nullable so admins can toggle it per account without a migration.
   badge           String?
   banned          Boolean   @default(false)
   banReason       String?
@@ -61,6 +59,12 @@ model User {
   auraReceived          AuraLog[]            @relation("AuraReceived")
   auraIssued            AuraLog[]            @relation("AuraIssued")
   impersonatedSessions  Session[]            @relation("ImpersonatedSessions")
+  messageIdentity       MessageIdentity?
+  messageMemberships    MessageConversationMember[]
+  messageKeys           MessageConversationKey[]
+  messagesSent          Message[]
+  blocksIssued          Block[]              @relation("BlocksIssued")
+  blocksReceived        Block[]              @relation("BlocksReceived")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -68,6 +72,100 @@ model User {
   @@index([banned])
   @@index([banExpires])
   @@map("users")
+}
+
+// E2EE messages. The server only ever stores ciphertext plus routing metadata;
+// the plaintext (and any referenced post id) lives inside the AES-GCM payload.
+// The private identity key is backed up on the server encrypted under a
+// PBKDF2-derived master key so the owner can recover old chats on a new
+// device, while the server never learns the secret.
+model MessageIdentity {
+  userId               String   @id
+  publicKey            String
+  encryptedPrivateKey  String
+  salt                 String
+  kdfIterations        Int
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("message_identities")
+}
+
+model MessageConversation {
+  id        String                    @id @default(cuid())
+  members   MessageConversationMember[]
+  keys      MessageConversationKey[]
+  messages  Message[]
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+
+  @@map("message_conversations")
+}
+
+model MessageConversationMember {
+  conversationId String
+  conversation   MessageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("message_conversation_members")
+}
+
+// The per-conversation symmetric key, wrapped separately for each participant
+// via ECDH + HKDF so nobody but the two members can unwrap it. The counter
+// tracks the symmetric ratchet for this participant's decryption chain.
+model MessageConversationKey {
+  id             String             @id @default(cuid())
+  conversationId String
+  conversation   MessageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  ownerUserId    String
+  ownerUser      User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  encryptedKey   String
+  ratchetCounter Int                @default(0)
+  createdAt      DateTime           @default(now())
+
+  @@unique([conversationId, ownerUserId])
+  @@map("message_conversation_keys")
+}
+
+model Message {
+  id             String             @id @default(cuid())
+  conversationId String
+  conversation   MessageConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User               @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  ciphertext     String
+  // Position of this message within the sender's chain in this conversation.
+  // The receiver derives the same message key from the root convo key plus
+  // (senderId, ratchetIndex), so decryption works deterministically on any
+  // device without any client-side chain state.
+  ratchetIndex   Int                @default(0)
+  createdAt      DateTime           @default(now())
+  deletedAt      DateTime?
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+// A block is bidirectional in practice: either party can block, and the pair
+// can never message again until both unblock. Messaging is the only consumer
+// of Block in v1.
+model Block {
+  blockerId String
+  blocker   User   @relation("BlocksIssued", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User   @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocks")
 }
 
 model AuraLog {
@@ -234,8 +332,6 @@ model Media {
   post      Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
   commentId String?
   comment   Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  // Uploader of this media object; used to verify the media is claimable when
-  // it is attached to a post or eddy later.
   userId    String?
   type              MediaType
   url               String

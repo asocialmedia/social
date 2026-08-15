@@ -248,7 +248,7 @@ export async function sendVerificationOTP(
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
       html: await getOTPVerificationEmailHtml(otp),
-      subject: "Your Verification Code - Asocialmedia",
+      subject: "Your Verification Code - asocialmedia",
       to: email,
     });
 

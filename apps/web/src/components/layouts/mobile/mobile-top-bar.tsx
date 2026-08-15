@@ -52,7 +52,7 @@ const MobileTopBar: React.FC = () => {
         <Link className="shrink-0" href="/">
           <div className="relative h-9 w-12">
             <Image
-              alt="Asocialmedia"
+              alt="asocialmedia"
               className="object-contain"
               fill
               loading="eager"

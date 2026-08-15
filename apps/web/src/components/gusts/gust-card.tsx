@@ -395,11 +395,15 @@ export const GustCard: React.FC<GustCardProps> = ({
           <ShareButton
             className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
             defaultTab="link"
-            description={post.content}
+            description={
+              post.content || `Watch ${authorName}'s gust on asocialmedia`
+            }
+            dialogDescription="Share this gust with your network"
+            dialogTitle="Share Gust"
             postId={post.id}
             shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/gusts?id=${post.id}`}
             thumbnail={thumbUrl}
-            title={authorName}
+            title={`${authorName} (@${post.user.username})'s Gust on asocialmedia`}
           />
 
           {/* Bookmark */}

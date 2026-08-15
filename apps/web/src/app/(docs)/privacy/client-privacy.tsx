@@ -64,7 +64,7 @@ export default function PrivacyPolicyPage() {
 
           <section className="mt-8">
             <p className="text-muted-foreground text-lg">
-              At Asocialmedia, we take your privacy seriously. This Privacy
+              At asocialmedia, we take your privacy seriously. This Privacy
               Policy explains how we collect, use, disclose, and safeguard your
               information when you use our platform. Our commitment to privacy
               forms the foundation of our relationship with users, and we strive
@@ -354,7 +354,7 @@ export default function PrivacyPolicyPage() {
               </p>
 
               <div className="bg-muted rounded-lg p-4">
-                <p>Asocialmedia FOSS</p>
+                <p>asocialmedia FOSS</p>
                 <p>
                   Email:{" "}
                   <Link
@@ -372,12 +372,12 @@ export default function PrivacyPolicyPage() {
 
           <section className="bg-muted mt-8 rounded-lg p-4">
             <p className="text-muted-foreground text-sm">
-              By using Asocialmedia, you acknowledge that you have read and
+              By using asocialmedia, you acknowledge that you have read and
               understood this Privacy Policy in its entirety. Your continued use
               of our platform indicates your agreement with our data collection,
               processing, and protection practices as described in this policy.
               We remain committed to protecting your privacy and maintaining the
-              trust you place in us by choosing Asocialmedia as your platform
+              trust you place in us by choosing asocialmedia as your platform
               provider.
             </p>
           </section>
