@@ -8,7 +8,6 @@ import process from "node:process";
 import { intro, log, outro, spinner } from "@clack/prompts";
 
 import {
-  areInitJobsComplete,
   buildPreflightProgressLine,
   buildRuntimeFingerprint,
   computeCacheDigest,
@@ -26,7 +25,6 @@ import {
 } from "./dev-preflight-lib";
 import type {
   CacheShape,
-  OneShotStatus,
   PreflightCheckKey,
   PreflightCheckState,
   ServiceSnapshot,
@@ -186,33 +184,6 @@ async function getServiceSnapshot() {
   return parseServiceSnapshots(result.stdout);
 }
 
-async function getOneShotStatus(containerName: string): Promise<OneShotStatus> {
-  const result = await runCmd([
-    "docker",
-    "ps",
-    "-a",
-    "--filter",
-    `name=${containerName}`,
-    "--format",
-    "{{.Status}}",
-  ]);
-
-  if (result.exitCode !== 0) {
-    fatal(
-      `Failed to inspect ${containerName} state: ${result.stderr || result.stdout}`
-    );
-  }
-
-  if (!result.stdout) {
-    return { exists: false, status: "" };
-  }
-
-  return {
-    exists: true,
-    status: result.stdout.split("\n")[0]?.trim() || "",
-  };
-}
-
 function assertServicesHealthy(snapshots: ServiceSnapshot[]) {
   const missing = getMissingServices(
     snapshots,
@@ -320,32 +291,6 @@ async function assertBucketsReady() {
 
   if (missing.length > 0) {
     fatal(`Missing object storage buckets: ${missing.join(", ")}`);
-  }
-}
-
-async function assertInitJobsCompleted() {
-  const [schemaInit, objectInit] = await Promise.all([
-    getOneShotStatus("asmdev-schema-init"),
-    getOneShotStatus("asmdev-asmob-init"),
-  ]);
-
-  if (!areInitJobsComplete(schemaInit, objectInit)) {
-    if (!schemaInit.exists) {
-      fatal("Schema init job has not been created yet (asmdev-schema-init)");
-    }
-    if (!objectInit.exists) {
-      fatal(
-        "Object storage init job has not been created yet (asmdev-asmob-init)"
-      );
-    }
-    if (!schemaInit.status.startsWith("Exited (0)")) {
-      fatal(
-        `Schema init job is not complete: ${schemaInit.status || "unknown"}`
-      );
-    }
-    fatal(
-      `Object storage init job is not complete: ${objectInit.status || "unknown"}`
-    );
   }
 }
 
@@ -470,17 +415,6 @@ async function run() {
     }
   );
   setCheckState("services", servicesStatus);
-  activeCheck = null;
-
-  activeCheck = "init-jobs";
-  setCheckState("init-jobs", "running");
-  const initJobsStatus = await withCache(
-    cache,
-    "init-jobs",
-    `${composeFingerprint}:${runtimeFingerprint}`,
-    () => assertInitJobsCompleted()
-  );
-  setCheckState("init-jobs", initJobsStatus);
   activeCheck = null;
 
   activeCheck = "postgres";

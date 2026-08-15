@@ -149,6 +149,7 @@ export function useFollowUserMutation() {
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.userProfile(userId),
         }),
+        queryClient.invalidateQueries({ queryKey: ["follow-states"] }),
       ]);
     },
 
@@ -263,6 +264,7 @@ export function useUnfollowUserMutation() {
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.userProfile(userId),
         }),
+        queryClient.invalidateQueries({ queryKey: ["follow-states"] }),
       ]);
     },
 

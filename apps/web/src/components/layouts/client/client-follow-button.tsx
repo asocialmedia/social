@@ -115,6 +115,9 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
       queryClient.invalidateQueries({ queryKey: ["suggested-connections"] });
       queryClient.invalidateQueries({ queryKey: ["trending-users"] });
       queryClient.invalidateQueries({ queryKey: ["user", userId] });
+      // Explore user cards and the right sidebar read follow state through the
+      // ["follow-states", userIds] batch query; keep it fresh too.
+      queryClient.invalidateQueries({ queryKey: ["follow-states"] });
     },
     [userId, setUserFollowState, queryClient]
   );

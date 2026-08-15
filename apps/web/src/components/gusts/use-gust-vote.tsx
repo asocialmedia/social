@@ -8,6 +8,7 @@ import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
+import { applyAuraToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 
@@ -94,9 +95,14 @@ export function useGustVote({
           force && old.userVote === vote
             ? 0
             : calculateVoteChange(old.userVote, nextVote);
+        const newAura = old.aura + voteChange;
+        const newUserVote = nextVote === old.userVote ? old.userVote : nextVote;
+        // Mirror into every cached shape of this post (feed grids, profile
+        // tiles, single-post cache) so aura stays consistent everywhere.
+        applyAuraToCaches(queryClient, postId, newAura, newUserVote);
         return {
-          aura: old.aura + voteChange,
-          userVote: nextVote === old.userVote ? old.userVote : nextVote,
+          aura: newAura,
+          userVote: newUserVote,
         };
       });
       return { previousState };
@@ -108,6 +114,12 @@ export function useGustVote({
         aura: serverResponse.aura,
         userVote: serverResponse.userVote,
       });
+      applyAuraToCaches(
+        queryClient,
+        postId,
+        serverResponse.aura,
+        serverResponse.userVote
+      );
 
       const previousVote = data.userVote;
       if (serverResponse.userVote === 1) {
