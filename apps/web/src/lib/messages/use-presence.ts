@@ -42,13 +42,16 @@ function startHeartbeat(): () => void {
 export function usePresence(enabled = true): PresenceUser[] {
   const { user } = useSession();
   const queryClient = useQueryClient();
+  // A stable id prevents unnecessary teardown, stream reconnects, and presence
+  // refcount cycling when the user object identity changes.
+  const userId = user?.id;
 
   useEffect(() => {
-    if (!enabled || !user) {
+    if (!enabled || !userId) {
       return;
     }
     return startHeartbeat();
-  }, [enabled, user]);
+  }, [enabled, userId]);
 
   const { data } = useQuery({
     enabled: enabled && Boolean(user),
@@ -56,24 +59,24 @@ export function usePresence(enabled = true): PresenceUser[] {
       const users = await fetchPresenceUsers();
       return users;
     },
-    queryKey: ["messages-presence", user?.id],
+    queryKey: ["messages-presence", userId],
     refetchInterval: POLL_MS,
     refetchIntervalInBackground: true,
   });
 
   useEffect(() => {
-    if (!enabled || !user) {
+    if (!enabled || !userId) {
       return;
     }
     // Refresh the online rail whenever the tab regains focus.
     const onFocus = () => {
       void queryClient.invalidateQueries({
-        queryKey: ["messages-presence", user.id],
+        queryKey: ["messages-presence", userId],
       });
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [enabled, queryClient, user]);
+  }, [enabled, queryClient, userId]);
 
   return data ?? [];
 }

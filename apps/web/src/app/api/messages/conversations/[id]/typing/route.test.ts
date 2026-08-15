@@ -2,8 +2,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { POST } from "./route";
 
-const mockGetSession = mock(() => ({ user: { id: "user1" } }));
-const mockGetConversationForUser = mock(() => ({ id: "convo-1", members: [] }));
+type Session = { user: { id: string } } | null;
+const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
+type Conversation = { id: string; members: unknown[] } | null;
+const mockGetConversationForUser = mock((): Conversation => ({
+  id: "convo-1",
+  members: [],
+}));
 const mockPublishTyping = mock(async () => {});
 
 mock.module("@/lib/session", () => ({

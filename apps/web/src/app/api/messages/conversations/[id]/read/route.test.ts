@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { POST } from "./route";
 
-const mockGetSession = mock(() => ({ user: { id: "user1" } }));
+type Session = { user: { id: string } } | null;
+const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 const mockCount = mock(() => 4);
 const mockDecrement = mock(() => 0);
 const mockUpdate = mock(() => ({}));
@@ -23,6 +24,18 @@ mock.module("@/lib/messages/server", () => ({
           ],
         }
       : null,
+  // The shared predicate: an unread message is one the user received (not
+  // sent), not deleted, and newer than the conversation's read watermark.
+  unreadMessageWhere: (params: {
+    conversationId: string;
+    lastReadAt: Date | null;
+    userId: string;
+  }) => ({
+    conversationId: params.conversationId,
+    createdAt: { gt: params.lastReadAt ?? new Date(0) },
+    deletedAt: null,
+    senderId: { not: params.userId },
+  }),
 }));
 
 mock.module("@asm/db", () => ({
@@ -59,6 +72,22 @@ describe("POST /api/messages/conversations/:id/read", () => {
     );
     expect(res.status).toBe(200);
     expect(mockCount).toHaveBeenCalledTimes(1);
+    const countArgs = mockCount.mock.calls[0]?.[0] as {
+      where: {
+        conversationId: string;
+        createdAt: { gt: Date };
+        deletedAt: null;
+        senderId: { not: string };
+      };
+    };
+    // Own messages are excluded and the count is scoped to this conversation
+    // after its read watermark.
+    expect(countArgs.where.conversationId).toBe("convo-1");
+    expect(countArgs.where.senderId).toEqual({ not: "user1" });
+    expect(countArgs.where.deletedAt).toBeNull();
+    expect(countArgs.where.createdAt.gt).toEqual(
+      new Date("2026-01-01T00:00:00Z")
+    );
     expect(mockDecrement).toHaveBeenCalledWith("user1", 4);
     const updateArgs = mockUpdate.mock.calls[0]?.[0] as {
       data: { lastReadAt: Date };

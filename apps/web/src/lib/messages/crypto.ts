@@ -8,10 +8,10 @@
 // the server encrypted under a master key derived (PBKDF2) from a hash of the
 // account's random backup secret. Enabling is fully automatic: the client
 // generates a 64-character random secret, stores only its SHA-256 hash with
-// the account on the server, and derives the master key from that hash. Any
-// device of the account can fetch the hash and decrypt the backup with zero
-// user input, so there are no unlock/onboarding prompts. The raw secret is
-// never persisted anywhere.
+// the account on the server, and derives the master key from that hash. The
+// raw secret is never persisted, but the hash IS the KDF input, so a server
+// or database reader holding the row can re-derive the master key and decrypt
+// the backup; recovery on a new device needs no user input by design.
 //
 // Per-conversation, a fresh random 256-bit root key is wrapped for each
 // participant via ECDH(myPrivate, theirPublic) + HKDF + AES-GCM. Message
@@ -374,10 +374,41 @@ export async function decryptMessage(
   if (payload.type === "post" && typeof payload.postId !== "string") {
     throw new Error("Invalid post payload");
   }
-  if (payload.type === "media" && typeof payload.url !== "string") {
+  if (payload.type === "media" && !isValidMediaPayload(payload)) {
     throw new Error("Invalid media payload");
   }
   return payload as MessagePayload;
+}
+
+// A media payload must carry a supported kind and a URL that resolves to an
+// external scheme. Only https is accepted in production; http is tolerated for
+// localhost/loopback so local development against a local object store works.
+function isValidMediaPayload(
+  payload: Partial<Extract<MessagePayload, { type: "media" }>>
+): boolean {
+  if (payload.kind !== "gif" && payload.kind !== "image") {
+    return false;
+  }
+  if (typeof payload.url !== "string") {
+    return false;
+  }
+  let url: URL;
+  try {
+    url = new URL(payload.url);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") {
+    return true;
+  }
+  if (url.protocol === "http:") {
+    return (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "::1"
+    );
+  }
+  return false;
 }
 
 // ---- fingerprints ------------------------------------------------------------
@@ -410,12 +441,15 @@ export async function generateFingerprint(
 // side, with the identity), and that hash is the actual secret used for the
 // PBKDF2 master key, so no user input is needed to enable or unlock.
 export function generateAccountSecret(length = ACCOUNT_SECRET_LENGTH): string {
-  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(48));
+  // base64url encodes 3 bytes as 4 characters, so derive the random-byte count
+  // from the requested length. That keeps the returned secret exactly `length`
+  // characters for any length, not just the 64-character default.
+  const byteCount = Math.floor((length * 3) / 4);
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(byteCount));
   let binary = "";
   for (const byte of bytes) {
     binary += String.fromCodePoint(byte);
   }
-  // 48 bytes base64-encoded is exactly 64 characters (url-safe variant).
   return btoa(binary)
     .replaceAll("+", "-")
     .replaceAll("/", "_")

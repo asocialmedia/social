@@ -26,5 +26,13 @@ describe("ViewTracker", () => {
     expect(html).toContain("aria-hidden");
     expect(html).not.toContain("sr-only");
     expect(html).not.toContain("clip");
+    // The marker must keep a real (unclipped) 1px footprint so the
+    // IntersectionObserver can report it intersecting; `sr-only` collapses it
+    // to zero area via clip-path, which would break view tracking.
+    expect(html).toContain("h-px");
+    expect(html).toContain("w-px");
+    expect(html).toContain("block");
+    expect(html).toContain("opacity-0");
+    expect(html).toContain("pointer-events-none");
   });
 });

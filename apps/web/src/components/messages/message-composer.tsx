@@ -108,15 +108,37 @@ export function MessageComposer({
           .flatMap((page) => page.messages)
           .filter((message) => message.senderId === user.id).length;
 
-        const ratchetIndex = Math.max(conversation.mySentCount, ownCacheCount);
+        const computedIndex = Math.max(conversation.mySentCount, ownCacheCount);
 
-        const sent = await sendEncryptedMessage(
-          conversation.conversation.id,
-          rootKey,
-          user.id,
-          ratchetIndex,
-          payload
-        );
+        let sent: Awaited<ReturnType<typeof sendEncryptedMessage>>;
+        try {
+          sent = await sendEncryptedMessage(
+            conversation.conversation.id,
+            rootKey,
+            user.id,
+            computedIndex,
+            payload
+          );
+        } catch (error) {
+          // A concurrent send can still race us. When the server reports the
+          // mismatch it hands back its authoritative counter, so retry once at
+          // that position instead of re-guessing from the local cache.
+          if (
+            error instanceof MessagesApiError &&
+            error.status === 409 &&
+            typeof error.expectedIndex === "number"
+          ) {
+            sent = await sendEncryptedMessage(
+              conversation.conversation.id,
+              rootKey,
+              user.id,
+              error.expectedIndex,
+              payload
+            );
+          } else {
+            throw error;
+          }
+        }
 
         // Fold the sent message into the cache (deduped against the SSE echo
         // of the same message) and clear the input.
@@ -147,21 +169,12 @@ export function MessageComposer({
         });
         return true;
       } catch (error) {
-        if (error instanceof MessagesApiError && error.status === 409) {
-          toast({
-            description:
-              "Your message count changed, refresh the thread and try again",
-            title: "Message not sent",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            description:
-              error instanceof Error ? error.message : "Couldn't send message",
-            title: "Message not sent",
-            variant: "destructive",
-          });
-        }
+        toast({
+          description:
+            error instanceof Error ? error.message : "Couldn't send message",
+          title: "Message not sent",
+          variant: "destructive",
+        });
         return false;
       }
     },
@@ -281,7 +294,13 @@ export function MessageComposer({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+      // While an IME composition is in flight the Enter key confirms the
+      // candidate, not the message; only send on a bare Enter.
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.nativeEvent.isComposing
+      ) {
         event.preventDefault();
         void handleSend();
       }

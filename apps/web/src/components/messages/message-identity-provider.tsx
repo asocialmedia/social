@@ -123,7 +123,13 @@ export function MessageIdentityProvider({
   );
 
   const bootstrap = useCallback(async () => {
-    if (!user || typeof window === "undefined") {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!user) {
+      // Guests have no identity to load; settle into a terminal ready state so
+      // consumers (e.g. the share picker) do not hang on "loading" forever.
+      setStatus("ready");
       return;
     }
     try {

@@ -500,14 +500,16 @@ export async function getOnlineUsers(): Promise<string[]> {
 }
 
 // Users seen recently but not currently online (heartbeat expired within the
-// seen window). Prunes seen members whose seen key expired.
-export async function getIdleUsers(): Promise<string[]> {
+// seen window). Prunes seen members whose seen key expired. Accepts the
+// already-computed online list so the caller (the presence route) does not
+// query the online set twice per poll.
+export async function getIdleUsers(onlineList: string[]): Promise<string[]> {
   try {
     const seen = await redis.smembers(PRESENCE_SEEN_SET);
     if (seen.length === 0) {
       return [];
     }
-    const online = new Set(await getOnlineUsers());
+    const online = new Set(onlineList);
     const candidates = seen.filter((id) => !online.has(id));
     if (candidates.length === 0) {
       return [];

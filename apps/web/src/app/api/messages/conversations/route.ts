@@ -5,6 +5,8 @@ import {
   areBlocked,
   getConversationMembersInclude,
   hasMessageIdentity,
+  isUniqueConstraintViolation,
+  parseJsonBody,
 } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -102,24 +104,54 @@ export async function GET(request: Request) {
   const hasMore = memberships.length > PAGE_SIZE;
   const page = hasMore ? memberships.slice(0, PAGE_SIZE) : memberships;
 
-  const items: ConversationListItem[] = await Promise.all(
-    page.map(async (membership) => {
-      const { conversation } = membership;
-      const [lastMessage] = conversation.messages;
-      const myMember = conversation.members.find(
-        (member) => member.userId === user.id
-      );
-      const unreadCount = lastMessage
-        ? await prisma.message.count({
-            where: {
-              conversationId: conversation.id,
-              createdAt: { gt: myMember?.lastReadAt ?? new Date(0) },
-            },
-          })
-        : 0;
-      return toListItem(conversation, lastMessage, unreadCount);
-    })
-  );
+  // One grouped query for the whole page instead of a count round-trip per
+  // conversation. The coarse bound is the earliest lastReadAt in the page; the
+  // per-conversation read watermark is applied precisely below so a recent
+  // thread is not credited with messages the user already read elsewhere.
+  const pageIds = page.map((membership) => membership.conversationId);
+  let earliestReadAt: number | null = null;
+  for (const membership of page) {
+    const myMember = membership.conversation.members.find(
+      (member) => member.userId === user.id
+    );
+    const readAt = myMember?.lastReadAt?.getTime() ?? 0;
+    if (earliestReadAt === null || readAt < earliestReadAt) {
+      earliestReadAt = readAt;
+    }
+  }
+  const unreadRows =
+    pageIds.length === 0
+      ? []
+      : await prisma.message.findMany({
+          select: { conversationId: true, createdAt: true },
+          where: {
+            conversationId: { in: pageIds },
+            createdAt: { gt: new Date(earliestReadAt ?? 0) },
+            deletedAt: null,
+            senderId: { not: user.id },
+          },
+        });
+
+  const items: ConversationListItem[] = page.map((membership) => {
+    const { conversation } = membership;
+    const [lastMessage] = conversation.messages;
+    const myMember = conversation.members.find(
+      (member) => member.userId === user.id
+    );
+    const lastReadAt = myMember?.lastReadAt ?? new Date(0);
+    let unreadCount = 0;
+    if (lastMessage) {
+      for (const row of unreadRows) {
+        if (
+          row.conversationId === conversation.id &&
+          row.createdAt > lastReadAt
+        ) {
+          unreadCount += 1;
+        }
+      }
+    }
+    return toListItem(conversation, lastMessage, unreadCount);
+  });
 
   const last = page.at(-1);
   const response: ConversationListPage & {
@@ -142,8 +174,9 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as { recipientId?: string };
-  const { recipientId } = body;
+  const parsed = await parseJsonBody(request);
+  const body = parsed as { recipientId?: string } | null;
+  const { recipientId } = body ?? {};
   if (typeof recipientId !== "string" || recipientId.length === 0) {
     return Response.json({ error: "recipientId is required" }, { status: 400 });
   }
@@ -202,33 +235,61 @@ export async function POST(request: Request) {
     );
   }
 
-  // create-or-find: a conversation between exactly these two users.
+  // create-or-find: a conversation between exactly these two users. The lookup
+  // requires membership by BOTH ids and rejects any thread with a third
+  // member, with a deterministic order so the result is stable.
   const existing = await prisma.messageConversation.findFirst({
     include: {
       ...getConversationMembersInclude(),
       keys: true,
     },
+    orderBy: { id: "desc" },
     where: {
-      members: {
-        every: { userId: { in: [user.id, recipientId] } },
-      },
+      AND: [
+        { members: { some: { userId: user.id } } },
+        { members: { some: { userId: recipientId } } },
+        { members: { none: { userId: { notIn: [user.id, recipientId] } } } },
+      ],
     },
   });
   if (existing) {
     return Response.json({ conversation: existing, isNew: false });
   }
 
-  const conversation = await prisma.messageConversation.create({
-    data: {
-      members: {
-        create: [{ userId: recipientId }, { userId: user.id }],
+  // Deterministic key for the pair so two concurrent "start a chat" requests
+  // for the same two users resolve to one conversation instead of racing into
+  // two threads. The unique constraint turns the losing request into P2002,
+  // which then returns the winner's conversation.
+  const pairKey = [user.id, recipientId].toSorted().join(":");
+  const conversation = await prisma.messageConversation
+    .create({
+      data: {
+        members: {
+          create: [{ userId: recipientId }, { userId: user.id }],
+        },
+        pairKey,
       },
-    },
-    include: {
-      ...getConversationMembersInclude(),
-      keys: true,
-    },
-  });
+      include: {
+        ...getConversationMembersInclude(),
+        keys: true,
+      },
+    })
+    .catch(async (error: unknown) => {
+      if (!isUniqueConstraintViolation(error)) {
+        throw error;
+      }
+      const winner = await prisma.messageConversation.findUnique({
+        include: {
+          ...getConversationMembersInclude(),
+          keys: true,
+        },
+        where: { pairKey },
+      });
+      if (winner) {
+        return winner;
+      }
+      throw error;
+    });
 
   return Response.json({ conversation, isNew: true }, { status: 201 });
 }

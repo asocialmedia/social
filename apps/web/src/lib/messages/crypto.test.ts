@@ -25,6 +25,35 @@ import {
 const CONVO_ID = "convo-123";
 const SENDER_ID = "user-alice";
 
+function bytesToBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCodePoint(...bytes));
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (char) => char.codePointAt(0));
+}
+
+// Encrypts an arbitrary JSON payload under the message ratchet key for the
+// given IV, so tests can feed tampered-but-authentic ciphertext into
+// decryptMessage and assert the payload validation boundary.
+async function encryptRaw(
+  payload: unknown,
+  rootKey: Uint8Array,
+  ratchetIndex: number,
+  ivBase64: string
+): Promise<string> {
+  const messageKey = await deriveMessageKey(rootKey, SENDER_ID, ratchetIndex);
+  const aad = new TextEncoder().encode(
+    `${CONVO_ID}:${SENDER_ID}:${ratchetIndex}`
+  );
+  const ciphertext = await crypto.subtle.encrypt(
+    { additionalData: aad, iv: base64ToBytes(ivBase64), name: "AES-GCM" },
+    messageKey,
+    new TextEncoder().encode(JSON.stringify(payload))
+  );
+  return bytesToBase64(new Uint8Array(ciphertext));
+}
+
 function identityPair(): Promise<CryptoKeyPair> {
   return generateIdentityKeyPair();
 }
@@ -156,6 +185,19 @@ describe("message ratchet", () => {
     const keyB = await deriveMessageKey(rootKey, SENDER_ID, 0);
     expect(keyA.algorithm.name).toBe("AES-GCM");
     expect(keyB.algorithm.name).toBe("AES-GCM");
+    // Behavioral equality, not just the algorithm label: a message encrypted
+    // with one key must decrypt with the other.
+    const ciphertext = await crypto.subtle.encrypt(
+      { iv: new Uint8Array(12), name: "AES-GCM" },
+      keyA,
+      new TextEncoder().encode("shared secret")
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      { iv: new Uint8Array(12), name: "AES-GCM" },
+      keyB,
+      ciphertext
+    );
+    expect(new TextDecoder().decode(decrypted)).toBe("shared secret");
   });
 
   test("encrypt/decrypt round-trip", async () => {
@@ -243,6 +285,92 @@ describe("message ratchet", () => {
       url: "https://cdn.example.com/hi.gif",
       width: 320,
     });
+  });
+
+  test("rejects a media payload with a non-string url", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "https://cdn.example.com/a.png",
+      width: 320,
+    });
+    const tampered = {
+      ...encrypted,
+      ciphertext: await encryptRaw(
+        { height: 240, kind: "image", type: "media", url: 123, width: 320 },
+        rootKey,
+        0,
+        encrypted.iv
+      ),
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects a media payload with an unsupported kind", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          height: 240,
+          kind: "svg",
+          type: "media",
+          url: "https://cdn.example.com/a.svg",
+          width: 320,
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects a media payload with a non-https url", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          height: 240,
+          kind: "image",
+          type: "media",
+          url: "ftp://cdn.example.com/a.png",
+          width: 320,
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("media round-trips through an offset Uint8Array view of the root key", async () => {
+    const full = generateRootKey();
+    // A subarray view exercises toBufferSource's copy path.
+    const rootKey = full.subarray(0, 32);
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      content: "hey bob",
+      type: "text",
+    });
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual({ content: "hey bob", type: "text" });
   });
 
   test("invalid payloads are rejected", async () => {

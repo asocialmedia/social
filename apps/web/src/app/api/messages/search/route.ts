@@ -18,15 +18,6 @@ export async function GET(request: Request) {
     return Response.json({ users: [] });
   }
 
-  const followed = await prisma.follow.findMany({
-    select: { followingId: true },
-    where: { followerId: user.id },
-  });
-  const followedIds = followed.map((follow) => follow.followingId);
-  if (followedIds.length === 0) {
-    return Response.json({ users: [] });
-  }
-
   const users = await prisma.user.findMany({
     select: {
       avatarUrl: true,
@@ -39,7 +30,9 @@ export async function GET(request: Request) {
     take: 10,
     where: {
       AND: [
-        { id: { in: followedIds } },
+        // Only people the caller follows are messageable; filter through the
+        // relation instead of a separate follow query + id list.
+        { followers: { some: { followerId: user.id } } },
         {
           OR: [
             { displayName: { contains: query, mode: "insensitive" } },

@@ -23,6 +23,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { GustCard } from "@/components/gusts/gust-card";
@@ -32,7 +33,6 @@ import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import kyInstance from "@/lib/ky";
-import { useInView } from "react-intersection-observer";
 import { useComposerStore } from "@/store/composer-store";
 
 interface ClientGustsProps {
@@ -179,10 +179,13 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     isWrappingRef.current = true;
     container.style.scrollSnapType = "none";
     container.scrollTo({ behavior: smooth ? "smooth" : "auto", top: target });
-    window.setTimeout(() => {
-      container.style.scrollSnapType = "";
-      isWrappingRef.current = false;
-    }, smooth ? 900 : 80);
+    window.setTimeout(
+      () => {
+        container.style.scrollSnapType = "";
+        isWrappingRef.current = false;
+      },
+      smooth ? 900 : 80
+    );
   }, []);
 
   // Scrolls the stream so the gust at `idx` is in view, computing the target
@@ -483,6 +486,18 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
   const renderContent = () => {
     if (status === "pending") {
+      return (
+        <div className="flex h-full w-full items-center justify-center">
+          <GustCardSkeleton />
+        </div>
+      );
+    }
+
+    // An empty-but-loading feed: the auto-fetch keeps pulling pages while more
+    // exist (and the first page may simply not have had video gusts). Show the
+    // skeleton instead of the "No Gusts yet" panel so the empty state only
+    // appears once the feed is genuinely exhausted.
+    if (posts.length === 0 && hasNextPage) {
       return (
         <div className="flex h-full w-full items-center justify-center">
           <GustCardSkeleton />

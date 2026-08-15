@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const published = mock((_channel: string, _message: string) => 1);
 
@@ -32,6 +32,10 @@ describe("message channel naming", () => {
 });
 
 describe("publishMessageCreated / publishMessageDeleted", () => {
+  beforeEach(() => {
+    published.mockClear();
+  });
+
   test("publishes a serialized event to the conversation channel", async () => {
     await publishMessageCreated("convo-1", { id: "m1", senderId: "u1" });
 

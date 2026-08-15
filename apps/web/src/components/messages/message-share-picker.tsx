@@ -76,15 +76,30 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       const timer = setTimeout(() => setResults([]), 0);
       return () => clearTimeout(timer);
     }
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        setResults(await searchMessageUsers(query.trim()));
+        const found = await searchMessageUsers(query.trim());
+        if (!cancelled) {
+          setResults(found);
+        }
+      } catch (error) {
+        // A failed search should not leave stale results behind.
+        console.error("Message user search failed:", error);
+        if (!cancelled) {
+          setResults([]);
+        }
       } finally {
-        setSearching(false);
+        if (!cancelled) {
+          setSearching(false);
+        }
       }
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query]);
 
   const handleShare = useCallback(

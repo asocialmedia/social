@@ -243,7 +243,9 @@ export async function uploadMessageMedia(
     method: "POST",
   });
   if (!response.ok) {
-    throw new Error("Upload failed");
+    // Surface the server's real error instead of a fixed message so the user
+    // can act on rate limits, size limits, and the like.
+    throw await parseError(response);
   }
   const json = (await response.json()) as {
     height: number | null;
@@ -416,6 +418,18 @@ export function createRootKeyStore(privateKey: CryptoKey) {
       return unwrapRootKey(privateKey, peerKey, conversationId, myWrappedKey);
     })();
     cache.set(conversationId, promise);
+    // A rejected derivation must not poison the cache forever: drop the entry
+    // so a later call can retry, but only if this exact promise is still the
+    // cached one (a newer retry may already have replaced it).
+    void (async () => {
+      try {
+        await promise;
+      } catch {
+        if (cache.get(conversationId) === promise) {
+          cache.delete(conversationId);
+        }
+      }
+    })();
     return promise;
   }
 
@@ -494,13 +508,17 @@ export async function ensureConversationKeys(
   }
 
   const rootKey = generateRootKey();
-  const [forMe, forPeer] = await Promise.all([
-    wrapRootKey(privateKey, peerKey, conversation.id, rootKey),
-    wrapRootKey(privateKey, peerKey, conversation.id, rootKey),
-  ]);
+  // The wrap is symmetric (both members derive the same shared secret), so one
+  // encrypted blob serves both entries - no need to derive and wrap twice.
+  const wrapped = await wrapRootKey(
+    privateKey,
+    peerKey,
+    conversation.id,
+    rootKey
+  );
   await postConversationKeys(conversation.id, [
-    { encryptedKey: forMe, ownerUserId: myUserId },
-    { encryptedKey: forPeer, ownerUserId: peer.userId },
+    { encryptedKey: wrapped, ownerUserId: myUserId },
+    { encryptedKey: wrapped, ownerUserId: peer.userId },
   ]);
   return rootKey;
 }

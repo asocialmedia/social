@@ -48,13 +48,14 @@ export function ConversationList({
     });
   }, [queryClient, user?.id]);
 
-  // "New message" requests arrive via a custom event (from the active friends
-  // rail on the right).
-  const handleNewConversationRequest = useCallback(
-    async (userId: string) => {
+  // Shared create-conversation flow used by both entry points (the custom
+  // "new conversation" event and the search result row): creating state,
+  // createConversation, list refresh, selection, error toast, and cleanup.
+  const startConversation = useCallback(
+    async (recipientId: string) => {
       try {
-        setCreating(userId);
-        const { conversation } = await createConversation(userId);
+        setCreating(recipientId);
+        const { conversation } = await createConversation(recipientId);
         refetchList();
         onSelect(conversation.id);
       } catch (error) {
@@ -71,6 +72,15 @@ export function ConversationList({
     [onSelect, refetchList]
   );
 
+  // "New message" requests arrive via a custom event (from the active friends
+  // rail on the right).
+  const handleNewConversationRequest = useCallback(
+    async (userId: string) => {
+      await startConversation(userId);
+    },
+    [startConversation]
+  );
+
   useEffect(() => {
     const handler = (event: Event) => {
       const { detail } = event as CustomEvent<{ userId?: string }>;
@@ -85,21 +95,37 @@ export function ConversationList({
   }, [handleNewConversationRequest]);
 
   // Debounced user search for starting a new conversation. Deferred so the
-  // effect body never calls setState synchronously.
+  // effect body never calls setState synchronously; stale or cleaned-up
+  // requests are ignored so an out-of-order response cannot overwrite newer
+  // results.
   useEffect(() => {
     if (!searchOpen || query.trim().length === 0) {
       const clearTimer = setTimeout(() => setResults([]), 0);
       return () => clearTimeout(clearTimer);
     }
+    let cancelled = false;
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        setResults(await searchMessageUsers(query.trim()));
+        const found = await searchMessageUsers(query.trim());
+        if (!cancelled) {
+          setResults(found);
+        }
+      } catch (error) {
+        console.error("Message user search failed:", error);
+        if (!cancelled) {
+          setResults([]);
+        }
       } finally {
-        setSearching(false);
+        if (!cancelled) {
+          setSearching(false);
+        }
       }
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, searchOpen]);
 
   const handleStartConversation = useCallback(
@@ -112,25 +138,11 @@ export function ConversationList({
         });
         return;
       }
-      try {
-        setCreating(recipient.id);
-        const { conversation } = await createConversation(recipient.id);
-        refetchList();
-        setSearchOpen(false);
-        setQuery("");
-        onSelect(conversation.id);
-      } catch (error) {
-        toast({
-          description:
-            error instanceof Error ? error.message : "Couldn't start chat",
-          title: "Can't message",
-          variant: "destructive",
-        });
-      } finally {
-        setCreating(null);
-      }
+      await startConversation(recipient.id);
+      setSearchOpen(false);
+      setQuery("");
     },
-    [onSelect, refetchList]
+    [startConversation]
   );
 
   return (

@@ -2,10 +2,21 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { GET, POST } from "./route";
 
-const mockGetSession = mock(() => ({ user: { id: "user1" } }));
+type Session = { user: { id: string } } | null;
+const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 
-const mockFindUnique = mock(() => null);
-const mockUpsert = mock(() => ({}));
+type IdentityRow = {
+  createdAt: Date;
+  encryptedPrivateKey: string;
+  kdfIterations: number;
+  masterKeyHash: string | null;
+  publicKey: string;
+  salt: string;
+  updatedAt: Date;
+  userId: string;
+} | null;
+const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
+const mockCreate = mock(() => ({}));
 
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
@@ -14,8 +25,8 @@ mock.module("@/lib/session", () => ({
 mock.module("@asm/db", () => ({
   prisma: {
     messageIdentity: {
+      create: mockCreate,
       findUnique: mockFindUnique,
-      upsert: mockUpsert,
     },
   },
 }));
@@ -23,7 +34,7 @@ mock.module("@asm/db", () => ({
 describe("GET /api/messages/identity", () => {
   beforeEach(() => {
     mockFindUnique.mockClear();
-    mockUpsert.mockClear();
+    mockCreate.mockClear();
     mockGetSession.mockClear();
   });
 
@@ -85,6 +96,22 @@ describe("GET /api/messages/identity", () => {
 });
 
 describe("POST /api/messages/identity", () => {
+  const validBody = {
+    encryptedPrivateKey: "enc-enc",
+    kdfIterations: 600_000,
+    masterKeyHash:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    publicKey: "pub-key",
+    salt: "salty",
+  };
+
+  beforeEach(() => {
+    mockFindUnique.mockClear();
+    mockCreate.mockClear();
+    mockGetSession.mockClear();
+    mockFindUnique.mockReturnValue(null);
+  });
+
   test("rejects malformed payloads", async () => {
     mockGetSession.mockReturnValueOnce({ user: { id: "user1" } });
     const res = await POST(
@@ -95,7 +122,7 @@ describe("POST /api/messages/identity", () => {
       })
     );
     expect(res.status).toBe(400);
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   test("rejects payloads without a backup-secret hash", async () => {
@@ -113,35 +140,54 @@ describe("POST /api/messages/identity", () => {
       })
     );
     expect(res.status).toBe(400);
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  test("upserts a valid identity backup", async () => {
-    const body = {
-      encryptedPrivateKey: "enc-enc",
-      kdfIterations: 600_000,
-      masterKeyHash:
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      publicKey: "pub-key",
-      salt: "salty",
-    };
+  test("creates the identity backup when none exists", async () => {
     const res = await POST(
       new Request("http://localhost:3000/api/messages/identity", {
-        body: JSON.stringify(body),
+        body: JSON.stringify(validBody),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       })
     );
     expect(res.status).toBe(200);
-    expect(mockUpsert).toHaveBeenCalledTimes(1);
-    const args = mockUpsert.mock.calls[0]?.[0] as {
-      create: { masterKeyHash: string; userId: string };
-      where: { userId: string };
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const args = mockCreate.mock.calls[0]?.[0] as {
+      data: { masterKeyHash: string; publicKey: string; userId: string };
     };
-    expect(args.create.userId).toBe("user1");
-    expect(args.create.masterKeyHash).toBe(
-      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    expect(args.data.userId).toBe("user1");
+    expect(args.data.publicKey).toBe("pub-key");
+    expect(args.data.masterKeyHash).toBe(validBody.masterKeyHash);
+  });
+
+  test("is a no-op when re-provisioning with the same public key", async () => {
+    mockFindUnique.mockReturnValueOnce({
+      publicKey: "pub-key",
+    } as never);
+    const res = await POST(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
     );
-    expect(args.where.userId).toBe("user1");
+    expect(res.status).toBe(200);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  test("rejects replacing an existing identity's public key", async () => {
+    mockFindUnique.mockReturnValueOnce({
+      publicKey: "a-different-key",
+    } as never);
+    const res = await POST(
+      new Request("http://localhost:3000/api/messages/identity", {
+        body: JSON.stringify(validBody),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    );
+    expect(res.status).toBe(409);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

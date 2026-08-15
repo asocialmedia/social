@@ -85,6 +85,9 @@ export function useMessagesRealtime(
 ): { connected: boolean } {
   const queryClient = useQueryClient();
   const { user } = useSession();
+  // A stable id keeps the stream effect from tearing down and reconnecting
+  // whenever the user object identity changes.
+  const userId = user?.id;
 
   // Keep the latest handler without reconnecting on every render; the SSE
   // effect below only depends on auth state, the convo id, and enabled.
@@ -94,7 +97,7 @@ export function useMessagesRealtime(
   }, [onEvent]);
 
   useEffect(() => {
-    if (!enabled || !user || typeof window === "undefined") {
+    if (!enabled || !userId || typeof window === "undefined") {
       return;
     }
 
@@ -141,10 +144,17 @@ export function useMessagesRealtime(
         message,
         userId: event.userId,
       });
-      // A live message invalidates the query so refetching picks it up too.
-      queryClient.invalidateQueries({
-        queryKey: ["messages", conversationId],
-      });
+      // Only events that actually change the message list (create/delete)
+      // invalidate the query; typing and read receipts are handled purely by
+      // the event callback and would cause a wasteful refetch.
+      if (
+        event.kind === "message.created" ||
+        event.kind === "message.deleted"
+      ) {
+        queryClient.invalidateQueries({
+          queryKey: ["messages", conversationId],
+        });
+      }
     };
 
     const connect = async () => {
@@ -214,7 +224,7 @@ export function useMessagesRealtime(
         clearTimeout(retryTimer);
       }
     };
-  }, [conversationId, enabled, queryClient, user]);
+  }, [conversationId, enabled, queryClient, userId]);
 
   return { connected: enabled && Boolean(user) };
 }

@@ -30,9 +30,12 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [onlineIds, idleIds, followed] = await Promise.all([
-    getOnlineUsers(),
-    getIdleUsers(),
+  // Resolve the online list first so it can be shared with the idle lookup -
+  // the online set is read exactly once per poll instead of once here and once
+  // inside getIdleUsers.
+  const onlineIds = await getOnlineUsers();
+  const [idleIds, followed] = await Promise.all([
+    getIdleUsers(onlineIds),
     prisma.follow.findMany({
       select: { followingId: true },
       where: { followerId: user.id },
@@ -40,10 +43,12 @@ export async function GET() {
   ]);
   const followedIds = new Set(followed.map((follow) => follow.followingId));
   const onlineSet = new Set(onlineIds);
-  // Online takes precedence over idle; a user is never both.
+  // Online takes precedence over idle; a user is never both. Deriving the
+  // visible list from the two (already disjoint) sets avoids the duplicated
+  // concatenation the raw arrays would produce.
   const idleSet = new Set(idleIds.filter((id) => !onlineSet.has(id)));
-  const visibleIds = [...onlineIds, ...idleIds].filter(
-    (id) => followedIds.has(id) && (onlineSet.has(id) || idleSet.has(id))
+  const visibleIds = [...onlineSet, ...idleSet].filter((id) =>
+    followedIds.has(id)
   );
 
   if (visibleIds.length === 0) {
@@ -51,7 +56,7 @@ export async function GET() {
   }
 
   const blocked = await prisma.block.findMany({
-    select: { blockedId: true },
+    select: { blockedId: true, blockerId: true },
     where: {
       OR: [
         { blockedId: { in: visibleIds }, blockerId: user.id },
@@ -59,7 +64,15 @@ export async function GET() {
       ],
     },
   });
-  const blockedIds = new Set(blocked.map((block) => block.blockedId));
+  const blockedIds = new Set<string>();
+  for (const block of blocked) {
+    // Both block directions remove the other party: when I blocked someone
+    // the row names them as blockedId; when someone blocked ME the row names
+    // them as blockerId. Either way they must not appear in my results.
+    blockedIds.add(
+      block.blockedId === user.id ? block.blockerId : block.blockedId
+    );
+  }
 
   const visible = visibleIds.filter((id) => !blockedIds.has(id));
   if (visible.length === 0) {

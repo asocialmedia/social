@@ -84,9 +84,12 @@ model MessageIdentity {
   publicKey           String
   encryptedPrivateKey String
   // SHA-256 hex hash of the account's random 64-char backup secret. The hash
-  // is the usable secret itself (the raw value is never stored), so any device
-  // of this account can derive the master key and decrypt the backup
-  // automatically, with no user prompt. Optional only to tolerate legacy rows.
+  // IS the PBKDF2 secret used to derive the master key, so the server (or any
+  // database reader) holding this row can recompute the decryption key from
+  // hash + salt + kdfIterations. Recovery on a new device is automatic and
+  // requires no user input by design; the raw secret is never stored, but the
+  // encrypted backup is recoverable from the stored row alone. Optional only
+  // to tolerate legacy rows.
   masterKeyHash       String?
   salt                String
   kdfIterations       Int
@@ -99,6 +102,11 @@ model MessageIdentity {
 
 model MessageConversation {
   id        String                    @id @default(cuid())
+  // Deterministic key for a two-member thread: the two user ids joined in
+  // sorted order. Unique so concurrent "start a chat" requests for the same
+  // pair resolve to one conversation instead of racing into two. Nullable so
+  // rows created before this column existed keep their place until rewritten.
+  pairKey   String?                   @unique
   members   MessageConversationMember[]
   keys      MessageConversationKey[]
   messages  Message[]
@@ -155,6 +163,10 @@ model Message {
   createdAt      DateTime           @default(now())
   deletedAt      DateTime?
 
+  // A sender may never emit two messages at the same ratchet position. The
+  // server hands out indexes from an atomic counter, so this is the last line
+  // of defense against a concurrent duplicate send racing the counter read.
+  @@unique([conversationId, senderId, ratchetIndex])
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@map("messages")

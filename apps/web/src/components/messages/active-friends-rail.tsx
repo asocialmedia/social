@@ -3,6 +3,7 @@
 import notFoundImage from "@assets/general/notfound.png";
 import { Users, X } from "lucide-react";
 import Image from "next/image";
+import { useEffect, useRef } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import type { PresenceUser } from "@/lib/messages/client";
@@ -23,6 +24,30 @@ export function ActiveFriendsRail({
   const users = usePresence(true);
   const online = users.filter((user) => user.status === "online");
   const idle = users.filter((user) => user.status === "idle");
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  // Modal semantics for the mobile drawer: focus moves into it on open,
+  // Escape closes it, and focus returns to the trigger on close.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    drawerCloseRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
+    };
+  }, [open, onClose]);
 
   const body =
     users.length === 0 ? (
@@ -90,8 +115,20 @@ export function ActiveFriendsRail({
             className="absolute inset-0 bg-black/40"
             onClick={onClose}
           />
-          <aside className="absolute inset-y-0 right-0 flex w-72 max-w-[85vw] flex-col border-l border-[hsl(var(--border))] bg-[hsl(var(--background-alt))] shadow-2xl">
-            <RailHeader onClose={onClose} onlineCount={online.length} />
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled drawer, not a native dialog; role + aria-modal give it dialog semantics without UA dialog positioning */}
+          {/* oxlint-disable jsx-a11y/prefer-tag-over-role */}
+          <aside
+            aria-label="Online friends"
+            aria-modal="true"
+            className="absolute inset-y-0 right-0 flex w-72 max-w-[85vw] flex-col border-l border-[hsl(var(--border))] bg-[hsl(var(--background-alt))] shadow-2xl"
+            role="dialog"
+          >
+            {/* oxlint-enable jsx-a11y/prefer-tag-over-role */}
+            <RailHeader
+              closeRef={drawerCloseRef}
+              onClose={onClose}
+              onlineCount={online.length}
+            />
             <div className="hide-native-scrollbar flex flex-1 flex-col overflow-y-auto px-4 py-4">
               {body}
             </div>
@@ -103,9 +140,11 @@ export function ActiveFriendsRail({
 }
 
 function RailHeader({
+  closeRef,
   onlineCount,
   onClose,
 }: {
+  closeRef?: React.Ref<HTMLButtonElement>;
   onlineCount: number;
   onClose?: () => void;
 }) {
@@ -121,6 +160,7 @@ function RailHeader({
           aria-label="Close online friends"
           className="icon-btn-3d ml-1 flex h-8 w-8 items-center justify-center rounded-full"
           onClick={onClose}
+          ref={closeRef}
           type="button"
         >
           <X className="h-4 w-4" />

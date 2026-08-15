@@ -1,6 +1,7 @@
 import type { MessageCountInfo } from "@asm/db";
 import { prisma, unreadMessageCache } from "@asm/db";
 
+import { unreadMessageWhere } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -18,31 +19,28 @@ export async function GET() {
   }
 
   // Seed the Redis counter from the DB baseline so subsequent increments
-  // build on the correct number (mirrors the notification badge flow).
+  // build on the correct number (mirrors the notification badge flow). Each
+  // conversation is bounded by its OWN read watermark - the global earliest
+  // read would over-count threads the user has already read.
   const memberships = await prisma.messageConversationMember.findMany({
-    select: { lastReadAt: true },
+    select: { conversationId: true, lastReadAt: true },
     where: { userId: user.id },
   });
 
-  // No memberships means no conversations yet, so nothing can be unread.
-  // Math.min(...[]) is Infinity, which would produce an Invalid Date below.
   let unreadCount = 0;
   if (memberships.length > 0) {
-    const oldestReadAt = Math.min(
-      ...memberships.map((member) => member.lastReadAt?.getTime() ?? 0)
+    const counts = await Promise.all(
+      memberships.map((membership) =>
+        prisma.message.count({
+          where: unreadMessageWhere({
+            conversationId: membership.conversationId,
+            lastReadAt: membership.lastReadAt,
+            userId: user.id,
+          }),
+        })
+      )
     );
-    unreadCount = await prisma.message.count({
-      where: {
-        conversation: {
-          members: {
-            some: { userId: user.id },
-          },
-        },
-        createdAt: {
-          gt: new Date(oldestReadAt),
-        },
-      },
-    });
+    unreadCount = counts.reduce((sum, count) => sum + count, 0);
   }
 
   if (unreadCount > 0) {

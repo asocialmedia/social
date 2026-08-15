@@ -143,7 +143,8 @@ describe("presence", () => {
     seenSet.add("u2");
     seenSet.add("u3"); // stale seen member, key missing
 
-    const idle = await getIdleUsers();
+    // The online list is provided by the caller so the online set is read once.
+    const idle = await getIdleUsers(["u1"]);
     expect(idle).toEqual(["u2"]);
     expect(seenSet.has("u3")).toBe(false);
     expect(PRESENCE_ONLINE_SET).toBe("presence:online");

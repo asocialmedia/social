@@ -78,6 +78,8 @@ export function MessageThread({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const decryptedRef = useRef(decrypted);
+  const pinnedToBottomRef = useRef(true);
+  const prevScrollHeightRef = useRef(0);
 
   // Keep the decrypt cache ref in sync without touching refs during render.
   useEffect(() => {
@@ -110,6 +112,13 @@ export function MessageThread({
     [messagesQuery.data]
   );
 
+  // Resolve a replyToId to its parent without scanning the whole list for
+  // every rendered bubble.
+  const messagesById = useMemo(
+    () => new Map(allMessages.map((message) => [message.id, message])),
+    [allMessages]
+  );
+
   // Messages whose payload hasn't finished decrypting yet. Shown as one
   // aggregate line at the bottom instead of a spinner on every bubble.
   const pendingCount = useMemo(
@@ -139,7 +148,7 @@ export function MessageThread({
       if (!replyToId) {
         return null;
       }
-      const parent = allMessages.find((m) => m.id === replyToId);
+      const parent = messagesById.get(replyToId);
       if (!parent) {
         return null;
       }
@@ -160,7 +169,7 @@ export function MessageThread({
         senderName,
       };
     },
-    [allMessages, decrypted, peer?.displayName, user?.id]
+    [decrypted, messagesById, peer?.displayName, user?.id]
   );
 
   const decrypt = useCallback(
@@ -201,20 +210,29 @@ export function MessageThread({
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
+  // Mark the conversation read when it opens and when the peer sends while
+  // the thread is open (debounced so burst sends only fire one request).
+  const myUserId = user?.id;
   const scheduleRead = useCallback(() => {
     if (readDebounceRef.current) {
       clearTimeout(readDebounceRef.current);
     }
     readDebounceRef.current = setTimeout(async () => {
-      await markConversationRead(conversationId);
-      void queryClient.invalidateQueries({
-        queryKey: ["unread-message-count"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["message-conversations", user?.id],
-      });
+      try {
+        await markConversationRead(conversationId);
+        void queryClient.invalidateQueries({
+          queryKey: ["unread-message-count"],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["message-conversations", myUserId],
+        });
+      } catch {
+        // Best-effort read marking; the next open, send, or peer message
+        // re-runs it, so a failed request must not become an unhandled
+        // rejection.
+      }
     }, 800);
-  }, [conversationId, queryClient, user?.id]);
+  }, [conversationId, myUserId, queryClient]);
 
   useEffect(() => {
     scheduleRead();
@@ -306,14 +324,50 @@ export function MessageThread({
     []
   );
 
-  // Keep the scroll pinned to the bottom for new messages and the typing
-  // indicator.
+  // Track whether the user is reading near the bottom, so a new message pins
+  // the scroll but a prepended older page does not yank the viewport.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
+    if (!el) {
+      return;
     }
-  }, [allMessages.length, decrypted, peerTyping]);
+    const measure = () => {
+      pinnedToBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    return () => el.removeEventListener("scroll", measure);
+  }, []);
+
+  // Keep the scroll pinned to the bottom for new messages and the typing
+  // indicator. When the user has scrolled up, or an older page is being
+  // fetched, preserve the viewport instead: offset by the height that grew
+  // above (prepended history / decrypted bubbles resizing) so the same
+  // messages stay in view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      prevScrollHeightRef.current = 0;
+      return;
+    }
+    const previousHeight = prevScrollHeightRef.current;
+    prevScrollHeightRef.current = el.scrollHeight;
+    const fetchingOlder = messagesQuery.isFetchingPreviousPage;
+
+    if (pinnedToBottomRef.current && !fetchingOlder) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (previousHeight > 0 && !fetchingOlder) {
+      el.scrollTop += el.scrollHeight - previousHeight;
+    }
+  }, [
+    allMessages.length,
+    decrypted,
+    messagesQuery.isFetchingPreviousPage,
+    peerTyping,
+  ]);
 
   if (!detail) {
     return <MessageThreadSkeleton />;
@@ -461,9 +515,17 @@ function ThreadHeader({
       }
       try {
         // Export the private key's JWK and re-import it as the public key to
-        // feed the fingerprint derivation.
+        // feed the fingerprint derivation. Only the public point (crv/kty/x/y)
+        // is needed, so strip the private material before it touches the
+        // import.
         const myJwk = await exportPublicKeyJwk(privateKey);
-        const myPublicKey = await importPublicKeyJwk(myJwk);
+        const myPublicJwk = {
+          crv: myJwk.crv,
+          kty: myJwk.kty,
+          x: myJwk.x,
+          y: myJwk.y,
+        };
+        const myPublicKey = await importPublicKeyJwk(myPublicJwk);
         const peerPublicKeyObj = await publicKeyBase64ToJwk(peerPublicKey);
         const peerKey = await importPublicKeyJwk(peerPublicKeyObj);
         const fp = await generateFingerprint(

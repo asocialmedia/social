@@ -9,11 +9,17 @@ export async function GET(
   ctx: { params: Promise<{ postId: string }> }
 ) {
   const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
+  const user = session?.user;
+  // The embed path (message threads) is only reachable by signed-in users, so
+  // a guest hitting this route has nothing to see. Require auth instead of
+  // falling back to an empty user id.
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { postId } = await ctx.params;
   const post = await prisma.post.findUnique({
-    include: getPostDataInclude(userId),
+    include: getPostDataInclude(user.id),
     where: { id: postId },
   });
   if (!post) {

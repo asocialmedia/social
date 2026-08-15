@@ -20,6 +20,26 @@ export function loadRootEnv(): void {
   }
 }
 
+// Message media (and any other uploads) are served from the object-store
+// endpoint. next/image needs the hostname allow-listed or image messages
+// error out at runtime. Resolved at config load so the built image pins the
+// host it was deployed with.
+function asmobRemotePatterns(): { hostname: string; protocol: "https" }[] {
+  try {
+    const endpoint = process.env.ASMOB_ENDPOINT;
+    if (!endpoint) {
+      return [];
+    }
+    const { hostname, protocol } = new URL(endpoint);
+    if (protocol !== "https:") {
+      return [];
+    }
+    return [{ hostname, protocol: "https" }];
+  } catch {
+    return [];
+  }
+}
+
 export const config: NextConfig = {
   allowedDevOrigins: ["*.localhost", "localhost", "127.0.0.1"],
   experimental: {
@@ -34,6 +54,7 @@ export const config: NextConfig = {
       { hostname: "cdn.discordapp.com", protocol: "https" },
       { hostname: "pbs.twimg.com", protocol: "https" },
       { hostname: "styles.redditmedia.com", protocol: "https" },
+      ...asmobRemotePatterns(),
     ],
     unoptimized: process.env.NODE_ENV === "development",
   },

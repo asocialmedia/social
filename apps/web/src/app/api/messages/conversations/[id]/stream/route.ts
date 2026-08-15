@@ -2,6 +2,7 @@ import {
   createSubscriberConnection,
   messageChannel,
   parseMessageEvent,
+  serializeMessageEvent,
 } from "@asm/db";
 
 import { getConversationForUser } from "@/lib/messages/server";
@@ -67,17 +68,30 @@ export async function GET(
         }
       };
 
-      const onMessage = (chan: string, message: string) => {
+      const onMessage = (chan: string, raw: string) => {
         if (chan !== channel) {
           return;
         }
-        const event = parseMessageEvent(message);
+        const event = parseMessageEvent(raw);
         if (!event) {
           return;
         }
+        // A user's own typing/read echoes carry no information on their own
+        // stream; drop them before the fan-out so every open tab on this
+        // conversation skips the redundant work.
+        if (
+          (event.kind === "typing.started" ||
+            event.kind === "conversation.read") &&
+          event.userId === user.id
+        ) {
+          return;
+        }
         try {
+          // Re-serialize the validated event so the wire shape is the
+          // canonical normalized one, never whatever bytes arrived.
+          const normalized = serializeMessageEvent(event);
           controller.enqueue(
-            encoder.encode(`event: message\ndata: ${message}\n\n`)
+            encoder.encode(`event: message\ndata: ${normalized}\n\n`)
           );
         } catch {
           void close();

@@ -384,11 +384,14 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
         // gallery lists media newest-first while the destination indexes
         // post.attachments, so pass the media ID and let the route resolve
         // the true index server-side.
-        router.push(
-          item.post?.isGust
-            ? `/gusts?id=${item.postId}`
-            : `/posts/${item.postId}/media/0?mediaId=${item.id}`
-        );
+        if (item.post?.isGust) {
+          const href = postHrefFor(item);
+          if (href) {
+            router.push(href);
+          }
+          return;
+        }
+        router.push(`/posts/${item.postId}/media/0?mediaId=${item.id}`);
         return;
       }
       setSelectedMedia(item);

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   appendMessageToLastPage,
@@ -84,7 +84,9 @@ describe("createRootKeyStore", () => {
       bob.publicKeyBase64
     );
     expect(Buffer.from(unwrapped1).equals(Buffer.from(rootKey))).toBe(true);
-    // Memoized: the same unwrapped bytes are returned on the second call.
+    // Memoized: the second call returns the exact same Uint8Array reference
+    // as the first (the cached promise resolves to one instance).
+    expect(unwrapped2).toBe(unwrapped1);
     expect(Buffer.from(unwrapped2).equals(Buffer.from(rootKey))).toBe(true);
   });
 });
@@ -92,6 +94,7 @@ describe("createRootKeyStore", () => {
 describe("ensureConversationKeys", () => {
   // Stub the network: the real postConversationKeys runs, but fetch is
   // redirected to a fake that captures the posted wrapped keys.
+  const originalFetch = globalThis.fetch;
   const fetchMock = mock((input: string | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/keys")) {
@@ -108,6 +111,10 @@ describe("ensureConversationKeys", () => {
     postedKeys.length = 0;
     fetchMock.mockClear();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
   });
 
   test("generates keys for both members when none exist", async () => {

@@ -2,9 +2,10 @@
 
 import { Check, Copy, MessageSquareQuote, Trash2 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import { toast } from "@/lib/gooey-toast";
 import { deleteMessage } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import { cn, formatRelativeDate } from "@/lib/utils";
@@ -45,8 +46,20 @@ export function MessageBubble({
   quote,
 }: MessageBubbleProps) {
   const mine = message.senderId === myUserId;
-  const [showActions, setShowActions] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const handleDelete = useCallback(async () => {
+    try {
+      await deleteMessage(message.id);
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't delete message",
+        title: "Delete failed",
+        variant: "destructive",
+      });
+    }
+  }, [message.id]);
 
   const copyText = useCallback(async () => {
     if (!content || content.type !== "text") {
@@ -60,12 +73,6 @@ export function MessageBubble({
       // best-effort
     }
   }, [content]);
-
-  useEffect(() => {
-    // Deferred so the effect body never calls setState synchronously.
-    const timer = setTimeout(() => setShowActions(false), 0);
-    return () => clearTimeout(timer);
-  }, [message.id]);
 
   function renderContent() {
     if (content === null) {
@@ -139,8 +146,6 @@ export function MessageBubble({
         "group flex items-end gap-2",
         mine ? "justify-end" : "justify-start"
       )}
-      onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
     >
       {mine ? null : (
         <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
@@ -160,41 +165,45 @@ export function MessageBubble({
         )}
 
         <div className="flex items-end gap-1.5">
-          {showActions ? (
-            <div
-              className={cn(
-                "flex items-center gap-0.5",
-                mine ? "order-first" : "order-last"
-              )}
-            >
-              <BubbleAction
-                ariaLabel="Copy message"
-                icon={
-                  copied ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )
-                }
-                onClick={() => {
-                  void copyText();
-                }}
-              />
-              <BubbleAction
-                ariaLabel="Reply"
-                icon={<MessageSquareQuote className="h-3.5 w-3.5" />}
-                onClick={onReply}
-              />
+          <div
+            className={cn(
+              "flex items-center gap-0.5 transition-opacity duration-150",
+              // Always in the DOM so the actions stay keyboard- and
+              // touch-reachable: revealed on hover, on focus, and by default on
+              // small (touch) screens where hover never fires.
+              "opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:opacity-100",
+              mine ? "order-first" : "order-last"
+            )}
+          >
+            <BubbleAction
+              ariaLabel="Copy message"
+              icon={
+                copied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )
+              }
+              onClick={() => {
+                void copyText();
+              }}
+            />
+            <BubbleAction
+              ariaLabel="Reply"
+              icon={<MessageSquareQuote className="h-3.5 w-3.5" />}
+              onClick={onReply}
+            />
+            {mine ? (
               <BubbleAction
                 ariaLabel="Delete"
                 className="hover:text-red-500"
                 icon={<Trash2 className="h-3.5 w-3.5" />}
                 onClick={() => {
-                  void deleteMessage(message.id);
+                  void handleDelete();
                 }}
               />
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
           <div
             className={cn(

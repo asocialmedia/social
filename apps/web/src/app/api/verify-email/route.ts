@@ -83,10 +83,10 @@ async function attemptAutoLogin(
         password,
       }),
       credentials: "include",
-      headers: {
+      headers: authInternalHeaders({
         "content-type": "application/json",
         "user-agent": req.headers.get("user-agent") ?? "",
-      },
+      }),
       method: "POST",
     });
 
@@ -125,9 +125,9 @@ async function handleVerificationFallback(
 
   const res = await fetch(url, {
     cache: "no-store",
-    headers: {
+    headers: authInternalHeaders({
       "user-agent": req.headers.get("user-agent") ?? "",
-    },
+    }),
     method: "GET",
   });
 
@@ -152,9 +152,9 @@ export async function GET(req: NextRequest) {
   try {
     try {
       const sessionRes = await fetch(`${authBase}/api/auth/get-session`, {
-        headers: {
+        headers: authInternalHeaders({
           cookie: req.headers.get("cookie") ?? "",
-        },
+        }),
       });
 
       if (sessionRes.ok) {
