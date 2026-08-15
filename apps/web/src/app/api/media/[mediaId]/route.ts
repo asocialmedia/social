@@ -119,8 +119,12 @@ export async function GET(
     let response;
     if (range) {
       const presignedUrl = await generatePresignedUrl(objectKey);
+      // Abort the upstream fetch when the client disconnects (seek, scroll
+      // away, close). Otherwise the piped body keeps writing into a closed
+      // destination and Next.js surfaces "The destination stream closed early".
       const upstream = await fetch(presignedUrl, {
         headers: { Range: range },
+        signal: request.signal,
       });
 
       // Storage signals an unsatisfiable range with 416; surface that to the
@@ -209,6 +213,13 @@ export async function GET(
     const rangeResponse = rangeNotSatisfiable(error, media.size);
     if (rangeResponse) {
       return rangeResponse;
+    }
+    // The client disconnected (seek, scroll away, close tab) before the stream
+    // finished; the request is already gone so there is nothing meaningful to
+    // send back. Return a bare 499 (client closed request) instead of logging
+    // a scary 500 or re-throwing into the framework.
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return new Response(null, { status: 499 });
     }
     console.error("Media proxy error:", error);
     return new NextResponse(

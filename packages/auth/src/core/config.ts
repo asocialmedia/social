@@ -368,20 +368,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       user: {
         create: {
-          after: async (user) => {
-            try {
-              const authBase = env.APP_URL ?? "https://social.localhost";
-              const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
-              await prisma.user.update({
-                data: { avatarUrl },
-                where: { id: user.id },
-              });
-            } catch (error) {
-              console.error(
-                "Failed to assign random default avatar:",
-                error instanceof Error ? error.message : error
-              );
-            }
+          // oxlint-disable-next-line unicorn/require-await
+          before: async (user) => {
+            // Assign a random default avatar at creation time (not in `after`,
+            // which would miss the session returned to the client on signup).
+            const authBase = env.APP_URL ?? "https://social.localhost";
+            const avatarUrl = `${authBase}${pickRandomDefaultAvatar()}`;
+            return { data: { ...user, avatarUrl } };
           },
         },
       },
