@@ -259,6 +259,9 @@ export const messageConversationInclude = {
           badge: true,
           displayName: true,
           id: true,
+          messageIdentity: {
+            select: { publicKey: true },
+          },
           username: true,
         },
       },

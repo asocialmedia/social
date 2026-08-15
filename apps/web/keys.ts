@@ -11,6 +11,7 @@ export const keys = createEnv({
     ASMOB_ENDPOINT: process.env.ASMOB_ENDPOINT,
     ASMOB_ROOT_PASSWORD: process.env.ASMOB_ROOT_PASSWORD,
     ASMOB_ROOT_USER: process.env.ASMOB_ROOT_USER,
+    AUTH_INTERNAL_URL: process.env.AUTH_INTERNAL_URL,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,
     DATABASE_URL: process.env.DATABASE_URL,
@@ -24,10 +25,15 @@ export const keys = createEnv({
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
   },
   server: {
+    // Server-to-server auth calls should hit the auth service over the
+    // private swarm/docker network instead of the public HTTPS URL. The
+    // public round-trip (TLS + Cloudflare) on every page render is the main
+    // driver of slow navigation. Falls back to NEXT_PUBLIC_AUTH_URL when unset.
     ASMOB_BUCKET_NAME: z.string().min(1).default("uploads"),
     ASMOB_ENDPOINT: z.url(),
     ASMOB_ROOT_PASSWORD: z.string().min(1).default("asmob-admin"),
     ASMOB_ROOT_USER: z.string().min(1).default("asmob-admin"),
+    AUTH_INTERNAL_URL: z.url().optional(),
     BETTER_AUTH_SECRET: z.string().optional(),
     BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
     DATABASE_URL: z.url(),

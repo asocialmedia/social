@@ -68,7 +68,7 @@ export const ErrorFallback = ({
   error,
   onResetErrorBoundary,
 }: ErrorFallbackProps) => (
-  <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 p-4 text-center">
+  <div className="flex min-h-100 flex-col items-center justify-center gap-4 p-4 text-center">
     <Image
       alt=""
       className="size-32 object-contain"

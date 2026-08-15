@@ -1,14 +1,12 @@
 import { z } from "zod";
 
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 import { getSessionFromApi } from "@/lib/session";
 
 const verifyEmailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   otp: z.string().min(4, "Please enter the verification code"),
 });
-
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
 
 // Step 2: confirm an email change with the OTP sent to the new address. The
 // auth service verifies the OTP and only then commits the new email, so a
@@ -39,14 +37,17 @@ export async function POST(request: Request) {
   const hdrs = await headers();
   const cookie = hdrs.get("cookie") || "";
 
-  const response = await fetch(`${AUTH_BASE}/api/auth/email-otp/change-email`, {
-    body: JSON.stringify({ newEmail: email, otp }),
-    headers: authInternalHeaders({
-      "Content-Type": "application/json",
-      ...(cookie ? { cookie } : {}),
-    }),
-    method: "POST",
-  });
+  const response = await fetch(
+    `${getAuthBaseUrl()}/api/auth/email-otp/change-email`,
+    {
+      body: JSON.stringify({ newEmail: email, otp }),
+      headers: authInternalHeaders({
+        "Content-Type": "application/json",
+        ...(cookie ? { cookie } : {}),
+      }),
+      method: "POST",
+    }
+  );
 
   const data = (await response.json().catch(() => ({}))) as {
     message?: string;

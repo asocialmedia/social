@@ -6,7 +6,7 @@ import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 async function makePasswordResetRequest(
   identifier: string,
@@ -18,7 +18,7 @@ async function makePasswordResetRequest(
 
   try {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_AUTH_URL}/api/trpc/resetPassword.requestReset`,
+      `${getAuthBaseUrl()}/api/trpc/resetPassword.requestReset`,
       {
         body: JSON.stringify({
           json: { identifier, ip, userAgent },
@@ -142,7 +142,7 @@ export async function requestPasswordReset(
     // token and mail the reset link. Send the request to the better-auth
     // endpoint directly (authClient.forgetPassword targets a deprecated path
     // that 404s), with the shared internal secret for the server-to-server hop.
-    const authBase = process.env.NEXT_PUBLIC_AUTH_URL;
+    const authBase = getAuthBaseUrl();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
@@ -185,7 +185,7 @@ export async function resetPassword(
   try {
     const { token, password } = resetPasswordSchema.parse(data);
 
-    const authBase = process.env.NEXT_PUBLIC_AUTH_URL;
+    const authBase = getAuthBaseUrl();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10_000);
 

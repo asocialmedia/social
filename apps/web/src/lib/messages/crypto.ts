@@ -5,10 +5,13 @@
 // Trust model: each user owns an ECDH P-256 identity keypair. The public half
 // is stored in plaintext on the server so anyone can derive a shared secret
 // to wrap conversation keys for that user. The private half is backed up on
-// the server encrypted under a master key derived (PBKDF2) from a secret only
-// the owner knows (their account password, or a generated passphrase for
-// OAuth-only accounts), so a new device can recover old chats while the
-// server still cannot read anything.
+// the server encrypted under a master key derived (PBKDF2) from a hash of the
+// account's random backup secret. Enabling is fully automatic: the client
+// generates a 64-character random secret, stores only its SHA-256 hash with
+// the account on the server, and derives the master key from that hash. Any
+// device of the account can fetch the hash and decrypt the backup with zero
+// user input, so there are no unlock/onboarding prompts. The raw secret is
+// never persisted anywhere.
 //
 // Per-conversation, a fresh random 256-bit root key is wrapped for each
 // participant via ECDH(myPrivate, theirPublic) + HKDF + AES-GCM. Message
@@ -18,7 +21,7 @@
 
 export const KDF_ITERATIONS = 600_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
-export const PASSPHRASE_WORDS = 6;
+export const ACCOUNT_SECRET_LENGTH = 64;
 
 const ENC = new TextEncoder();
 const DEC = new TextDecoder();
@@ -39,6 +42,19 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
     bytes[index] = binary.codePointAt(index) ?? 0;
   }
   return bytes;
+}
+
+// WebCrypto's BufferSource requires an ArrayBuffer-backed view; copies the
+// input into one when it is not already (e.g. a slice of another buffer).
+function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  if (
+    bytes.buffer instanceof ArrayBuffer &&
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === bytes.buffer.byteLength
+  ) {
+    return bytes as Uint8Array<ArrayBuffer>;
+  }
+  return new Uint8Array(bytes);
 }
 
 // ---- identity keypair ------------------------------------------------------
@@ -105,7 +121,7 @@ export function publicKeyBase64ToJwk(encoded: string): JsonWebKey {
 
 export async function deriveMasterKey(
   secret: string,
-  salt: Uint8Array<ArrayBuffer>,
+  salt: Uint8Array,
   iterations = KDF_ITERATIONS
 ): Promise<CryptoKey> {
   const baseKey = await globalThis.crypto.subtle.importKey(
@@ -116,7 +132,7 @@ export async function deriveMasterKey(
     ["deriveKey"]
   );
   return globalThis.crypto.subtle.deriveKey(
-    { hash: "SHA-256", iterations, name: "PBKDF2", salt },
+    { hash: "SHA-256", iterations, name: "PBKDF2", salt: toBufferSource(salt) },
     baseKey,
     { length: 256, name: "AES-GCM" },
     false,
@@ -176,12 +192,12 @@ export async function deriveSharedSecret(
 // HKDF-derived AES-GCM wrap key from the shared secret, bound to the
 // conversation id so one shared secret can never wrap keys for another convo.
 export async function deriveWrapKey(
-  sharedSecret: Uint8Array<ArrayBuffer>,
+  sharedSecret: Uint8Array,
   conversationId: string
 ): Promise<CryptoKey> {
   const baseKey = await globalThis.crypto.subtle.importKey(
     "raw",
-    sharedSecret,
+    toBufferSource(sharedSecret),
     "HKDF",
     false,
     ["deriveKey"]
@@ -204,7 +220,7 @@ export async function wrapRootKey(
   myPrivateKey: CryptoKey,
   theirPublicKey: CryptoKey,
   conversationId: string,
-  rootKey: Uint8Array<ArrayBuffer>
+  rootKey: Uint8Array
 ): Promise<EncryptedBlob> {
   const sharedSecret = await deriveSharedSecret(myPrivateKey, theirPublicKey);
   const wrapKey = await deriveWrapKey(sharedSecret, conversationId);
@@ -212,7 +228,7 @@ export async function wrapRootKey(
   const ciphertext = await globalThis.crypto.subtle.encrypt(
     { iv, name: "AES-GCM" },
     wrapKey,
-    rootKey
+    toBufferSource(rootKey)
   );
   return {
     ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
@@ -225,7 +241,7 @@ export async function unwrapRootKey(
   theirPublicKey: CryptoKey,
   conversationId: string,
   blob: EncryptedBlob
-): Promise<Uint8Array<ArrayBuffer>> {
+): Promise<Uint8Array> {
   const sharedSecret = await deriveSharedSecret(myPrivateKey, theirPublicKey);
   const wrapKey = await deriveWrapKey(sharedSecret, conversationId);
   const rootKey = await globalThis.crypto.subtle.decrypt(
@@ -248,13 +264,13 @@ export function generateRootKey(): Uint8Array<ArrayBuffer> {
 // Deterministic per-message key: both the sender and the receiver derive the
 // same key from the root key, the sender's id, and the message's chain index.
 export async function deriveMessageKey(
-  rootKey: Uint8Array<ArrayBuffer>,
+  rootKey: Uint8Array,
   senderId: string,
   index: number
 ): Promise<CryptoKey> {
   const baseKey = await globalThis.crypto.subtle.importKey(
     "raw",
-    rootKey,
+    toBufferSource(rootKey),
     "HKDF",
     false,
     ["deriveKey"]
@@ -295,7 +311,7 @@ export interface EncryptedMessage {
 }
 
 export async function encryptMessage(
-  rootKey: Uint8Array<ArrayBuffer>,
+  rootKey: Uint8Array,
   senderId: string,
   ratchetIndex: number,
   conversationId: string,
@@ -317,7 +333,7 @@ export async function encryptMessage(
 }
 
 export async function decryptMessage(
-  rootKey: Uint8Array<ArrayBuffer>,
+  rootKey: Uint8Array,
   senderId: string,
   conversationId: string,
   message: Pick<EncryptedMessage, "ciphertext" | "iv" | "ratchetIndex">
@@ -371,133 +387,33 @@ export async function generateFingerprint(
   return groups.join("-");
 }
 
-// ---- recovery passphrase (OAuth-only accounts) --------------------------------
+// ---- account backup secret -----------------------------------------------------
 
-const WORDS = [
-  "acorn",
-  "amber",
-  "arcade",
-  "aspen",
-  "atlas",
-  "aurora",
-  "bacon",
-  "badger",
-  "bamboo",
-  "beacon",
-  "blossom",
-  "breeze",
-  "brick",
-  "canyon",
-  "cedar",
-  "cinder",
-  "cobalt",
-  "comet",
-  "cosmos",
-  "cricket",
-  "daisy",
-  "dandelion",
-  "delta",
-  "drift",
-  "echo",
-  "ember",
-  "falcon",
-  "ferret",
-  "fjord",
-  "flame",
-  "forest",
-  "fossil",
-  "foxglove",
-  "galaxy",
-  "geyser",
-  "glimmer",
-  "granite",
-  "grove",
-  "harbor",
-  "hazel",
-  "heron",
-  "honey",
-  "horizon",
-  "icicle",
-  "indigo",
-  "iris",
-  "island",
-  "ivory",
-  "jaguar",
-  "jasmine",
-  "juniper",
-  "kestrel",
-  "kite",
-  "lagoon",
-  "lantern",
-  "lark",
-  "lattice",
-  "lilac",
-  "lotus",
-  "lynx",
-  "magnolia",
-  "maple",
-  "marble",
-  "meadow",
-  "meteor",
-  "mint",
-  "mirage",
-  "mosaic",
-  "moss",
-  "nebula",
-  "nightjar",
-  "nova",
-  "oak",
-  "onyx",
-  "orchid",
-  "oriole",
-  "otter",
-  "pebble",
-  "petal",
-  "pixel",
-  "plum",
-  "prairie",
-  "quartz",
-  "quill",
-  "raven",
-  "reef",
-  "ridge",
-  "rivulet",
-  "robin",
-  "sage",
-  "salmon",
-  "sapphire",
-  "sequoia",
-  "shard",
-  "sierra",
-  "sparrow",
-  "spruce",
-  "summit",
-  "swan",
-  "taiga",
-  "thistle",
-  "tide",
-  "topaz",
-  "trout",
-  "tulip",
-  "tundra",
-  "valley",
-  "verdigris",
-  "violet",
-  "wander",
-  "willow",
-  "wren",
-  "zephyr",
-];
-
-export function generateRecoveryPassphrase(
-  wordCount = PASSPHRASE_WORDS
-): string {
-  const words: string[] = [];
-  for (let index = 0; index < wordCount; index += 1) {
-    const [random] = globalThis.crypto.getRandomValues(new Uint32Array(1));
-    words.push(WORDS[random % WORDS.length]);
+// Fully automatic, account-scoped backup secret: a random 64-character value
+// generated once per account. Only its SHA-256 hash is ever stored (server
+// side, with the identity), and that hash is the actual secret used for the
+// PBKDF2 master key, so no user input is needed to enable or unlock.
+export function generateAccountSecret(length = ACCOUNT_SECRET_LENGTH): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(48));
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCodePoint(byte);
   }
-  return words.join(" ");
+  // 48 bytes base64-encoded is exactly 64 characters (url-safe variant).
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .slice(0, length);
+}
+
+export async function hashAccountSecret(secret: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    ENC.encode(secret)
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // ---- device-scoped key storage (IndexedDB) -----------------------------------

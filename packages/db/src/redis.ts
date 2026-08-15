@@ -315,7 +315,8 @@ export interface MessageStreamEvent {
     | "message.created"
     | "message.deleted"
     | "conversation.created"
-    | "conversation.read";
+    | "conversation.read"
+    | "typing.started";
   conversationId: string;
   message?: unknown;
   conversation?: unknown;
@@ -333,7 +334,8 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind !== "message.created" &&
       parsed.kind !== "message.deleted" &&
       parsed.kind !== "conversation.created" &&
-      parsed.kind !== "conversation.read"
+      parsed.kind !== "conversation.read" &&
+      parsed.kind !== "typing.started"
     ) {
       return null;
     }
@@ -351,6 +353,9 @@ export function parseMessageEvent(raw: string): MessageStreamEvent | null {
       parsed.kind === "conversation.created" &&
       parsed.conversation === undefined
     ) {
+      return null;
+    }
+    if (parsed.kind === "typing.started" && typeof parsed.userId !== "string") {
       return null;
     }
     return {
@@ -378,14 +383,65 @@ export async function publishMessageEvent(
   }
 }
 
+export async function publishMessageCreated(
+  conversationId: string,
+  message: unknown
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.created",
+    message,
+  });
+}
+
+export async function publishMessageDeleted(
+  conversationId: string,
+  message: unknown
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "message.deleted",
+    message,
+  });
+}
+
+export async function publishConversationRead(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "conversation.read",
+    userId,
+  });
+}
+
+export async function publishTypingStarted(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  await publishMessageEvent({
+    conversationId,
+    kind: "typing.started",
+    userId,
+  });
+}
+
 // ---- presence ---------------------------------------------------------------
 // Users on the Messages page heartbeat their online status every 30s. The
-// presence set holds the ids of currently-online users for the active-friends
-// rail; the per-user key carries the TTL so a stale heartbeat expires on its
-// own. Both are keyed under a shared prefix for easy debugging.
+// per-user key carries the TTL so a stale heartbeat expires on its own, and
+// the sets are only indexes over those keys (stale members are pruned on
+// read). Two tiers:
+//   - online: heartbeat received within PRESENCE_TTL_SECONDS (green dot)
+//   - idle:   seen within PRESENCE_SEEN_TTL_SECONDS but no recent heartbeat
+//             (amber dot) — e.g. the tab is open but the user stepped away
+//             past the heartbeat window, or they closed it moments ago.
 export const PRESENCE_PREFIX = "presence:";
+export const PRESENCE_SEEN_PREFIX = "presence:seen:";
 export const PRESENCE_ONLINE_SET = "presence:online";
+export const PRESENCE_SEEN_SET = "presence:seen";
 export const PRESENCE_TTL_SECONDS = 70;
+export const PRESENCE_SEEN_TTL_SECONDS = 900;
 
 export async function markUserOnline(userId: string): Promise<void> {
   try {
@@ -395,18 +451,90 @@ export async function markUserOnline(userId: string): Promise<void> {
       PRESENCE_TTL_SECONDS,
       String(Date.now())
     );
+    pipeline.setex(
+      `${PRESENCE_SEEN_PREFIX}${userId}`,
+      PRESENCE_SEEN_TTL_SECONDS,
+      String(Date.now())
+    );
     pipeline.sadd(PRESENCE_ONLINE_SET, userId);
+    pipeline.sadd(PRESENCE_SEEN_SET, userId);
     await pipeline.exec();
   } catch (error) {
     console.error("Error marking user online:", error);
   }
 }
 
+// Returns members whose per-user online key is still alive, pruning (srem)
+// members whose key expired. The key is the source of truth; without this
+// prune the set would keep everyone online forever.
 export async function getOnlineUsers(): Promise<string[]> {
   try {
-    return await redis.smembers(PRESENCE_ONLINE_SET);
+    const members = await redis.smembers(PRESENCE_ONLINE_SET);
+    if (members.length === 0) {
+      return [];
+    }
+    const pipeline = redis.pipeline();
+    for (const id of members) {
+      pipeline.get(`${PRESENCE_PREFIX}${id}`);
+    }
+    const results = await pipeline.exec();
+
+    const online: string[] = [];
+    const stale: string[] = [];
+    for (let index = 0; index < members.length; index += 1) {
+      const value = results?.[index]?.[1];
+      if (typeof value === "string") {
+        online.push(members[index]);
+      } else {
+        stale.push(members[index]);
+      }
+    }
+    if (stale.length > 0) {
+      await redis.srem(PRESENCE_ONLINE_SET, ...stale);
+    }
+    return online;
   } catch (error) {
     console.error("Error getting online users:", error);
+    return [];
+  }
+}
+
+// Users seen recently but not currently online (heartbeat expired within the
+// seen window). Prunes seen members whose seen key expired.
+export async function getIdleUsers(): Promise<string[]> {
+  try {
+    const seen = await redis.smembers(PRESENCE_SEEN_SET);
+    if (seen.length === 0) {
+      return [];
+    }
+    const online = new Set(await getOnlineUsers());
+    const candidates = seen.filter((id) => !online.has(id));
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const pipeline = redis.pipeline();
+    for (const id of candidates) {
+      pipeline.get(`${PRESENCE_SEEN_PREFIX}${id}`);
+    }
+    const results = await pipeline.exec();
+
+    const idle: string[] = [];
+    const stale: string[] = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const value = results?.[index]?.[1];
+      if (typeof value === "string") {
+        idle.push(candidates[index]);
+      } else {
+        stale.push(candidates[index]);
+      }
+    }
+    if (stale.length > 0) {
+      await redis.srem(PRESENCE_SEEN_SET, ...stale);
+    }
+    return idle;
+  } catch (error) {
+    console.error("Error getting idle users:", error);
     return [];
   }
 }

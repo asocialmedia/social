@@ -1,0 +1,136 @@
+import {
+  createSubscriberConnection,
+  messageChannel,
+  parseMessageEvent,
+} from "@asm/db";
+
+import { getConversationForUser } from "@/lib/messages/server";
+import { getSessionFromApi } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
+
+// Server-Sent Events fan-out for real-time DMs, mirroring the comments stack.
+// Every message write is published to the conversation's Redis channel; each
+// open stream here subscribes and forwards events to the browser. Ciphertext
+// is safe to broadcast over pub/sub — the plaintext never leaves the client.
+export async function GET(
+  request: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const session = await getSessionFromApi();
+  const user = session?.user;
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await ctx.params;
+  // Guard membership before opening the stream so non-members cannot listen.
+  const conversation = await getConversationForUser(id, user.id);
+  if (!conversation) {
+    return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  const channel = messageChannel(id);
+  const encoder = new TextEncoder();
+
+  let cleanup: () => void = noopCleanup;
+
+  const stream = new ReadableStream({
+    cancel() {
+      cleanup();
+    },
+    async start(controller) {
+      let closed = false;
+      const subscriber = createSubscriberConnection();
+
+      const close = async () => {
+        if (closed) {
+          return;
+        }
+        closed = true;
+        clearInterval(heartbeat);
+        subscriber.removeListener("message", onMessage);
+        try {
+          await subscriber.unsubscribe(channel);
+        } catch {
+          // Non-fatal.
+        }
+        try {
+          await subscriber.quit();
+        } catch {
+          // Already gone.
+        }
+        try {
+          controller.close();
+        } catch {
+          // Already closed.
+        }
+      };
+
+      const onMessage = (chan: string, message: string) => {
+        if (chan !== channel) {
+          return;
+        }
+        const event = parseMessageEvent(message);
+        if (!event) {
+          return;
+        }
+        try {
+          controller.enqueue(
+            encoder.encode(`event: message\ndata: ${message}\n\n`)
+          );
+        } catch {
+          void close();
+        }
+      };
+
+      // Keep-alive through proxies and detect dead sockets so the subscriber
+      // connection is not leaked.
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(": keep-alive\n\n"));
+        } catch {
+          void close();
+        }
+      }, 20_000);
+
+      subscriber.on("message", onMessage);
+
+      cleanup = () => {
+        void close();
+      };
+      request.signal.addEventListener(
+        "abort",
+        () => {
+          void close();
+        },
+        { once: true }
+      );
+
+      try {
+        await subscriber.subscribe(channel);
+        controller.enqueue(
+          encoder.encode(
+            `event: connected\ndata: {"conversationId":"${id}"}\n\n`
+          )
+        );
+      } catch (error) {
+        console.error("Failed to subscribe to message channel:", error);
+        await close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "Content-Type": "text/event-stream",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+function noopCleanup() {
+  // placeholder replaced by the stream start handler
+}

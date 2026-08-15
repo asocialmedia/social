@@ -1,8 +1,7 @@
 import { debugLog } from "@asm/config/debug";
-import { keys } from "@root/keys";
 import type { NextRequest } from "next/server";
 
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 export const dynamic = "force-dynamic";
 
@@ -148,7 +147,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const authBase = keys.NEXT_PUBLIC_AUTH_URL;
+  const authBase = getAuthBaseUrl();
 
   try {
     try {

@@ -8,6 +8,12 @@ interface ViewTrackerProps {
   postId: string;
 }
 
+// The marker element must stay geometrically visible to IntersectionObserver:
+// a visually-hidden-but-unclipped 1x1px marker is detected the moment it
+// enters the viewport, whereas `sr-only` clips the element (clip-path) down
+// to zero area, so the observer can never report it as intersecting.
+const MARKER_CLASS = "pointer-events-none block h-px w-px opacity-0";
+
 // Single shared observer instance for all view tracking across the application
 let sharedObserver: IntersectionObserver | null = null;
 const observerHandlers = new Map<Element, (target: Element) => void>();
@@ -67,5 +73,5 @@ export default function ViewTracker({ postId }: ViewTrackerProps) {
     };
   }, [postId, incrementViewMutation]);
 
-  return <span aria-hidden="true" className="sr-only" ref={markerRef} />;
+  return <span aria-hidden="true" className={MARKER_CLASS} ref={markerRef} />;
 }

@@ -2,7 +2,7 @@ import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
 import { cache } from "react";
 
-import { authInternalHeaders } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 export type SessionResponse = { session: Session; user: User } | null;
 
@@ -45,8 +45,7 @@ export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
 });
 
 async function fetchSession(cookie: string): Promise<SessionResponse> {
-  const authBase = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
-  const sessionUrl = `${authBase}/api/auth/get-session`;
+  const sessionUrl = `${getAuthBaseUrl()}/api/auth/get-session`;
 
   try {
     const sessionRes = await fetch(sessionUrl, {

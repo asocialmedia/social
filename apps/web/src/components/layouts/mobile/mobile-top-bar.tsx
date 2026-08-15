@@ -4,7 +4,7 @@ import type { UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import asmLogo from "@assets/asm.png";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -13,11 +13,16 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserProfilePopover from "@/components/home/sidebars/left/user-profile-popover";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
 import kyInstance from "@/lib/ky";
+import { cn } from "@/lib/utils";
 
 const MobileTopBar: React.FC = () => {
   const { user } = useSession();
   const { openSpotlight } = useSpotlight();
+  const { data: notificationData } = useUnreadNotificationCount();
+
+  const unreadCount = notificationData?.unreadCount ?? 0;
 
   const { data: userData } = useQuery({
     enabled: Boolean(user),
@@ -63,16 +68,37 @@ const MobileTopBar: React.FC = () => {
         </Link>
       </div>
 
-      <div className="flex w-10 shrink-0 items-center justify-end">
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-end gap-2",
+          user ? "w-22" : "w-10"
+        )}
+      >
         {user ? (
-          <button
-            aria-label="Search"
-            className="rail-3d-btn flex h-10 w-10 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
-            onClick={() => openSpotlight()}
-            type="button"
-          >
-            <Search className="size-5" />
-          </button>
+          <>
+            <Link
+              aria-label="Notifications"
+              className="icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
+              href="/notifications"
+            >
+              <span className="relative">
+                <Bell className="size-5" />
+                {unreadCount > 0 ? (
+                  <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-[hsl(var(--background-alt))] bg-gradient-to-b from-[#ff9500] to-[#e65500] px-1 text-[9px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),0_1px_2px_rgba(0,0,0,0.2)]">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : null}
+              </span>
+            </Link>
+            <button
+              aria-label="Search"
+              className="icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full transition-all! duration-300! ease-out! hover:scale-105 active:scale-95"
+              onClick={() => openSpotlight()}
+              type="button"
+            >
+              <Search className="size-5" />
+            </button>
+          </>
         ) : (
           <Button
             asChild

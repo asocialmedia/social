@@ -1,6 +1,12 @@
 "use client";
 
-import { Bell, Bookmark, Clapperboard, Compass, Home } from "lucide-react";
+import {
+  Bookmark,
+  Clapperboard,
+  Compass,
+  Home,
+  MessagesSquare,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type React from "react";
@@ -9,7 +15,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useRequireAuth } from "@/hooks/use-require-auth";
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
+import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { cn, formatNumber, isRouteActive } from "@/lib/utils";
 
 interface MobileNavItem {
@@ -24,9 +30,9 @@ const NAV_ITEMS: MobileNavItem[] = [
   { href: "/discover", icon: Compass, label: "Explore" },
   { href: "/gusts", icon: Clapperboard, label: "Gusts" },
   {
-    href: "/notifications",
-    icon: Bell,
-    label: "Notifications",
+    href: "/messages",
+    icon: MessagesSquare,
+    label: "Messages",
     requiresAuth: true,
   },
   {
@@ -39,13 +45,13 @@ const NAV_ITEMS: MobileNavItem[] = [
 
 const countFor = (
   href: string,
-  counts: { bookmarkCount?: number; unreadCount?: number }
+  counts: { bookmarkCount?: number; unreadMessageCount?: number }
 ) => {
   if (href === "/bookmarks") {
     return counts.bookmarkCount;
   }
-  if (href === "/notifications") {
-    return counts.unreadCount;
+  if (href === "/messages") {
+    return counts.unreadMessageCount;
   }
 };
 
@@ -58,13 +64,13 @@ const MobileBottomNav: React.FC = () => {
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
   const { data: bookmarkData } = useBookmarkCount();
-  const { data: notificationData } = useUnreadNotificationCount();
+  const unreadMessageCount = useUnreadMessageCount();
   const { openSpotlight } = useSpotlight();
   const handleOpenSpotlight = () => openSpotlight();
 
   const counts = {
     bookmarkCount: bookmarkData?.totalCount ?? 0,
-    unreadCount: notificationData?.unreadCount ?? 0,
+    unreadMessageCount,
   };
 
   const renderNavItem = (
