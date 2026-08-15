@@ -1,15 +1,101 @@
 import { clientLog } from "@asm/config/debug";
 import { Upload } from "lucide-react";
-import { createElement, useMemo, useState } from "react";
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useToast } from "@/lib/gooey-toast";
 import { validateFile } from "@/lib/utils/file-validation";
 
+// A completed upload is persisted to sessionStorage so a refresh or a quick
+// navigation (e.g. scrolling the gusts feed) doesn't wipe the composer draft.
+// Only the server media row + display metadata are stored - never the File
+// object (it is not serializable).
+const STORAGE_KEY = "asm-composer-attachments";
+const STORAGE_VERSION = 1;
+
 export interface Attachment {
-  file: File;
+  file?: File;
   isUploading: boolean;
   mediaId?: string;
+  mediaUrl?: string;
+  name?: string;
   progress: number;
+  type?: string;
+}
+
+interface StoredAttachment {
+  mediaId: string;
+  mediaUrl: string;
+  name: string;
+  type: string;
+}
+
+function loadStoredAttachments(): Attachment[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      items?: StoredAttachment[];
+    };
+    if (parsed.version !== STORAGE_VERSION) {
+      return [];
+    }
+    return (parsed.items ?? []).map((item) => ({
+      isUploading: false,
+      mediaId: item.mediaId,
+      mediaUrl: item.mediaUrl,
+      name: item.name,
+      progress: 100,
+      type: item.type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function persistAttachments(attachments: Attachment[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const items: StoredAttachment[] = attachments
+    .filter((a) => a.mediaId && a.mediaUrl)
+    .map((a) => ({
+      mediaId: a.mediaId as string,
+      mediaUrl: a.mediaUrl as string,
+      name: a.name ?? a.file?.name ?? "attachment",
+      type: a.type ?? a.file?.type ?? "",
+    }));
+  try {
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ items, version: STORAGE_VERSION })
+    );
+  } catch {
+    // Storage may be unavailable; the draft is simply not persisted.
+  }
+}
+
+function clearStoredAttachments(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore
+  }
 }
 
 // Uploads a single file via XHR so the caller receives real byte-level
@@ -62,8 +148,23 @@ function uploadMedia(file: File, onProgress: (percent: number) => void) {
 
 export default function useMediaUpload() {
   const { toast } = useToast();
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Restore any previously completed (not yet submitted) attachments so a
+  // refresh/navigation doesn't discard the user's work.
+  const [attachments, setAttachments] = useState<Attachment[]>(() =>
+    loadStoredAttachments()
+  );
   const [isUploading, setIsUploading] = useState(false);
+  const initialisedRef = useRef(false);
+
+  // Keep sessionStorage in step with the current draft. After a manual remove
+  // (or a successful submit via reset) the storage is cleared/updated too.
+  useEffect(() => {
+    if (!initialisedRef.current) {
+      initialisedRef.current = true;
+      return;
+    }
+    persistAttachments(attachments);
+  }, [attachments]);
 
   const uploadProgress = useMemo(() => {
     const uploading = attachments.filter((a) => a.isUploading);
@@ -114,7 +215,12 @@ export default function useMediaUpload() {
             setAttachments((prev) =>
               prev.map((a) =>
                 a.file === file
-                  ? { ...a, isUploading: false, mediaId: result.mediaId }
+                  ? {
+                      ...a,
+                      isUploading: false,
+                      mediaId: result.mediaId,
+                      mediaUrl: result.url,
+                    }
                   : a
               )
             );
@@ -134,12 +240,17 @@ export default function useMediaUpload() {
     }
   }
 
-  function removeAttachment(fileName: string) {
-    setAttachments((prev) => prev.filter((a) => a.file.name !== fileName));
-  }
+  const removeAttachment = useCallback((fileName: string) => {
+    setAttachments((prev) => {
+      const next = prev.filter((a) => (a.file?.name ?? a.name) !== fileName);
+      persistAttachments(next);
+      return next;
+    });
+  }, []);
 
   function reset() {
     setAttachments([]);
+    clearStoredAttachments();
   }
 
   return {

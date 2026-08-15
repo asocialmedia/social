@@ -248,29 +248,35 @@ export const GustCard: React.FC<GustCardProps> = ({
 
         {/* Repeated-tap Aura Bursts (TikTok-style floating flames) */}
         <AnimatePresence>
-          {auraBursts.map((burst) => (
-            <motion.div
-              animate={{
-                opacity: [0, 1, 1, 0],
-                scale: [0.4, 1.1, 0.9],
-                y: [0, -90],
-              }}
-              className="pointer-events-none absolute z-10 flex flex-col items-center"
-              exit={{ opacity: 0 }}
-              initial={{ opacity: 0, scale: 0.4 }}
-              key={burst.id}
-              style={{ left: burst.x, top: burst.y }}
-              transition={{ duration: 0.85, ease: "easeOut" }}
-            >
-              <Flame
-                className="text-primary fill-primary drop-shadow-[0_0_18px_rgba(255,149,0,0.9)]"
-                size={44}
-              />
-              <span className="text-sm font-black text-white drop-shadow-md">
-                +1
-              </span>
-            </motion.div>
-          ))}
+          {auraBursts.map((burst) => {
+            // Each burst tilts slightly based on its sequence id so repeated
+            // taps feel connected rather than identical stamps.
+            const rotation = ((burst.id % 5) - 2) * 8;
+            return (
+              <motion.div
+                animate={{
+                  opacity: [0, 1, 1, 0],
+                  rotate: rotation,
+                  scale: [0.4, 1.1, 0.9],
+                  y: [0, -90],
+                }}
+                className="pointer-events-none absolute z-10 flex flex-col items-center"
+                exit={{ opacity: 0 }}
+                initial={{ opacity: 0, rotate: rotation - 4, scale: 0.4 }}
+                key={burst.id}
+                style={{ left: burst.x, top: burst.y }}
+                transition={{ duration: 0.85, ease: "easeOut" }}
+              >
+                <Flame
+                  className="text-primary fill-primary drop-shadow-[0_0_18px_rgba(255,149,0,0.9)]"
+                  size={44}
+                />
+                <span className="text-sm font-black text-white drop-shadow-md">
+                  +1
+                </span>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
 
         {/* Bottom scrim so the overlay text stays readable */}

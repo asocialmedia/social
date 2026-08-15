@@ -74,7 +74,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
 
   return (
     <Link
-      className="group relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl bg-neutral-900 shadow-sm transition-all duration-300 hover:scale-[1.03] hover:shadow-xl sm:w-44"
+      className="group relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl bg-neutral-900 shadow-sm sm:w-44"
       href={`/gusts?id=${gust.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -113,14 +113,10 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
         <span className="text-[10px] font-bold">Gust</span>
       </div>
 
-      {/* Center Play indicator on hover */}
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200",
-          isPlaying ? "opacity-0" : "opacity-0 group-hover:opacity-100"
-        )}
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md">
+      {/* Center Play indicator - always faint so the tile reads as a video
+          without a loud hover dance */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm">
           <Play className="ml-0.5 size-5 fill-white text-white" />
         </div>
       </div>

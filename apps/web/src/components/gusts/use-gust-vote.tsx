@@ -108,7 +108,7 @@ export function useGustVote({
       return { previousState };
     },
     // oxlint-disable-next-line react/no-unstable-nested-components
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       const { serverResponse } = result;
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: serverResponse.aura,
@@ -122,6 +122,12 @@ export function useGustVote({
       );
 
       const previousVote = data.userVote;
+      // Double-tap amplifies are silent (the floating flame burst on the video
+      // is the feedback); only the rail button shows the toast, so rapid taps
+      // don't spam "+1 Aura".
+      if (variables.force) {
+        return;
+      }
       if (serverResponse.userVote === 1) {
         toast({
           description: `Amplified ${authorName}'s gust, nice boost!`,

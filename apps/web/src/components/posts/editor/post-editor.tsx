@@ -156,6 +156,11 @@ export default function PostEditor({
     isGust &&
     (gustWordCount >= GUST_CAPTION_MAX_WORDS * 0.8 ||
       input.length >= GUST_CAPTION_MAX_CHARS * 0.8);
+  // A gust is not publishable until a video is attached (fresh blob or a
+  // restored upload with a stored video type).
+  const hasGustVideo = attachments.some((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("video/")
+  );
 
   const removeTag = useCallback((tagName: string) => {
     setSelectedTags((prev) => prev.filter((t) => t !== tagName));
@@ -191,7 +196,6 @@ export default function PostEditor({
     const gustMediaIds = attachments
       .map((a) => a.mediaId)
       .filter((id): id is string => Boolean(id));
-    const hasVideo = attachments.some((a) => a.file.type.startsWith("video/"));
 
     if (isGust && gustMediaIds.length === 0) {
       return;
@@ -225,7 +229,7 @@ export default function PostEditor({
     if (!(payload.content || isHnSharing)) {
       return;
     }
-    if (isGust && !hasVideo) {
+    if (isGust && !hasGustVideo) {
       return;
     }
     if (isGust && gustCaptionExceeded) {
@@ -262,6 +266,7 @@ export default function PostEditor({
     hnShareStore,
     isGust,
     gustCaptionExceeded,
+    hasGustVideo,
     router,
   ]);
 
@@ -412,15 +417,11 @@ export default function PostEditor({
 
           {isGust ? (
             <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-primary flex items-center gap-1.5 font-medium">
-                {attachments.some((a) => a.file.type.startsWith("video/")) ? (
-                  "Video attached, ready to gust!"
-                ) : (
-                  <span className="text-muted-foreground">
-                    Attach a video to publish a gust
-                  </span>
-                )}
-              </span>
+              {hasGustVideo ? null : (
+                <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                  Attach a video to publish a gust
+                </span>
+              )}
               {/* Only surface the word/char counter once the caption gets close
                   to (or over) the limits, so it doesn't clutter an empty or
                   short composer. */}
@@ -483,10 +484,7 @@ export default function PostEditor({
                     !(input.trim() || isHnSharing) ||
                     isUploading ||
                     (isGust && gustCaptionExceeded) ||
-                    (isGust &&
-                      !attachments.some((a) =>
-                        a.file.type.startsWith("video/")
-                      ))
+                    (isGust && !hasGustVideo)
                   }
                   loading={mutation.isPending}
                   onClick={onSubmit}
@@ -534,42 +532,59 @@ const AttachmentPreviews = ({
 }: AttachmentPreviewsProps) => {
   const handleRemoveClick = useCallback(
     (attachment: Attachment) => () => {
-      removeAttachment(attachment.file.name);
+      removeAttachment(attachment.file?.name ?? attachment.name ?? "");
     },
     [removeAttachment]
   );
+
+  // Image-only batches group into a tighter grid once there are enough of
+  // them; videos (gusts) stay as single full-width tiles.
+  const imageCount = attachments.filter((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("image/")
+  ).length;
+  const showTightGrid =
+    attachments.length >= 3 && imageCount === attachments.length;
 
   return (
     <motion.div
       animate="visible"
       className={cn(
         "flex flex-col gap-3",
-        attachments.length > 1 && "sm:grid sm:grid-cols-2"
+        showTightGrid
+          ? "grid grid-cols-3 gap-2"
+          : attachments.length > 1 && "sm:grid sm:grid-cols-2"
       )}
       initial="hidden"
       variants={containerVariants}
     >
-      {attachments.map((attachment, index) => (
-        <motion.div
-          animate={{ opacity: 1, scale: 1 }}
-          custom={index}
-          exit={{ opacity: 0, scale: 0.8 }}
-          initial={{ opacity: 0, scale: 0.8 }}
-          key={attachment.file.name}
-          layoutId={attachment.file.name}
-          transition={{
-            duration: 0.2,
-            layout: { duration: 0.2 },
-          }}
-          variants={itemVariants}
-        >
-          <AttachmentPreview
-            attachment={attachment}
-            isGust={isGust}
-            onRemoveClick={handleRemoveClick(attachment)}
-          />
-        </motion.div>
-      ))}
+      {attachments.map((attachment, index) => {
+        const attachmentKey =
+          attachment.file?.name ??
+          attachment.mediaId ??
+          attachment.name ??
+          `attachment-${index}`;
+        return (
+          <motion.div
+            animate={{ opacity: 1, scale: 1 }}
+            custom={index}
+            exit={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: 0.8 }}
+            key={attachmentKey}
+            layoutId={attachmentKey}
+            transition={{
+              duration: 0.2,
+              layout: { duration: 0.2 },
+            }}
+            variants={itemVariants}
+          >
+            <AttachmentPreview
+              attachment={attachment}
+              isGust={isGust}
+              onRemoveClick={handleRemoveClick(attachment)}
+            />
+          </motion.div>
+        );
+      })}
     </motion.div>
   );
 };
@@ -634,7 +649,7 @@ const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
   return (
     <div className="flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]">
       <button
-        aria-label="Create a post"
+        aria-label="Create a fleet post"
         aria-pressed={!isGust}
         className={cn(
           "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
@@ -643,7 +658,7 @@ const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
         onClick={() => setMode("post")}
         type="button"
       >
-        Post
+        Fleets
       </button>
       <button
         aria-label="Create a gust"
