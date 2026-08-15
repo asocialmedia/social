@@ -14,6 +14,7 @@ env:
   REGISTRY: ghcr.io
 
 permissions:
+  checks: read
   contents: read
   pull-requests: read
 
@@ -142,15 +143,15 @@ jobs:
             try {
               const headSha = mergedPr.head?.sha || mergedPr.merge_commit_sha
               const checks = await github.rest.checks.listForRef({
+                check_name: "Lint and Typecheck",
+                filter: "latest",
                 owner,
-                repo,
+                per_page: 1,
                 ref: headSha,
-                per_page: 100,
+                repo,
               })
 
-              const qualityCheck = checks.data.check_runs.find(
-                (check) => check.name === "Lint and Typecheck"
-              )
+              const qualityCheck = checks.data.check_runs[0]
               const alreadyPassed = Boolean(
                 qualityCheck && qualityCheck.conclusion === "success"
               )
