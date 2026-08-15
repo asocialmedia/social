@@ -10,8 +10,10 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { toast } from "@/lib/gooey-toast";
 import {
+  MessagesApiError,
   createConversation,
   ensureConversationKeys,
+  fetchConversationDetail,
   searchMessageUsers,
   sendEncryptedMessage,
 } from "@/lib/messages/client";
@@ -62,10 +64,37 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
         if (!rootKey) {
           throw new Error("Couldn't prepare conversation keys");
         }
-        await sendEncryptedMessage(conversation.id, rootKey, user.id, 0, {
-          postId,
-          type: "post",
-        });
+        // The ratchet index must equal the number of messages this sender
+        // already has in the conversation (the server rejects mismatches with
+        // 409). Fetch the current count instead of assuming a fresh thread.
+        const { mySentCount } = await fetchConversationDetail(conversation.id);
+        try {
+          await sendEncryptedMessage(
+            conversation.id,
+            rootKey,
+            user.id,
+            mySentCount,
+            { postId, type: "post" }
+          );
+        } catch (error) {
+          // A concurrent send can still race us; retry with the server's
+          // authoritative index when it reports the mismatch.
+          if (
+            error instanceof MessagesApiError &&
+            error.status === 409 &&
+            typeof error.expectedIndex === "number"
+          ) {
+            await sendEncryptedMessage(
+              conversation.id,
+              rootKey,
+              user.id,
+              error.expectedIndex,
+              { postId, type: "post" }
+            );
+          } else {
+            throw error;
+          }
+        }
         toast({
           description: `Sent to ${recipient.displayName}`,
           title: "Message sent",
