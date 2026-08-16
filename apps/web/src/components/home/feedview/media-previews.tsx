@@ -160,6 +160,7 @@ const VideoPreview = ({
   const previewStartedRef = useRef(false);
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
   const [isVideoActive, setIsVideoActive] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -194,6 +195,7 @@ const VideoPreview = ({
     if (autoPlay) {
       return;
     }
+    setIsHovered(true);
     isHoveredRef.current = true;
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
@@ -207,6 +209,7 @@ const VideoPreview = ({
     if (autoPlay) {
       return;
     }
+    setIsHovered(false);
     isHoveredRef.current = false;
     previewStartedRef.current = false;
     if (hoverTimeoutRef.current) {
@@ -306,7 +309,7 @@ const VideoPreview = ({
         onPlaying={handlePlaying}
         playsInline
         preload={autoPlay ? "metadata" : "none"}
-        src={getMediaUrl(media.id)}
+        src={isHovered || autoPlay ? getMediaUrl(media.id) : undefined}
       />
       {/* Thumbnail overlay crossfades out once playback actually starts */}
       <Image

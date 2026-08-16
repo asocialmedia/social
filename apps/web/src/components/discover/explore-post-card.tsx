@@ -1,7 +1,7 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Clapperboard, ImageOff } from "lucide-react";
+import { Clapperboard, ImageOff, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -55,6 +55,51 @@ const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
   );
 };
 
+const ExplorePostVideo: React.FC<{
+  media: NonNullable<PostData["attachments"][number]>;
+}> = ({ media }) => {
+  const [isImageLoading, setIsImageLoading] = useState(true);
+  const [isImageFailed, setIsImageFailed] = useState(false);
+
+  if (isImageFailed) {
+    return (
+      <div className="border-border/60 bg-muted/20 text-muted-foreground flex h-full w-full flex-col items-center justify-center gap-1.5 border border-dashed p-4 text-center text-xs">
+        <ImageOff className="h-6 w-6 opacity-60" />
+        <span className="text-[11px]">Failed to load</span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {isImageLoading ? (
+        <div className="bg-muted/40 absolute inset-0 animate-pulse" />
+      ) : null}
+      <Image
+        alt="Post video preview"
+        className={cn(
+          "object-cover transition-all duration-300 group-hover:scale-105",
+          isImageLoading ? "opacity-0" : "opacity-100"
+        )}
+        fill
+        onError={() => {
+          setIsImageFailed(true);
+          setIsImageLoading(false);
+        }}
+        onLoad={() => setIsImageLoading(false)}
+        sizes="(max-width: 768px) 50vw, 300px"
+        src={getMediaProxyUrl(media)}
+        unoptimized
+      />
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/30">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-md transition-transform group-hover:scale-110">
+          <Play className="ml-0.5 h-5 w-5 fill-white text-white" />
+        </div>
+      </div>
+    </>
+  );
+};
+
 interface ExplorePostCardProps {
   post: PostData;
 }
@@ -76,19 +121,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   if (media?.type === "IMAGE") {
     mediaContent = <ExplorePostImage mediaId={media.id} />;
   } else if (media) {
-    mediaContent = (
-      <video
-        aria-label="Post video"
-        autoPlay
-        className="absolute inset-0 h-full w-full object-cover"
-        loop
-        muted
-        playsInline
-        poster={getMediaProxyUrl(media)}
-        preload="metadata"
-        src={getMediaUrl(media.id)}
-      />
-    );
+    mediaContent = <ExplorePostVideo media={media} />;
   }
 
   return (

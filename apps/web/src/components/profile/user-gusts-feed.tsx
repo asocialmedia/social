@@ -104,7 +104,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         playsInline
         preload="none"
         ref={videoRef}
-        src={videoUrl}
+        src={isHovered ? videoUrl : undefined}
       />
 
       {/* Top Overlay Badge */}

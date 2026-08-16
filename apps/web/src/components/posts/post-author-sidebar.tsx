@@ -37,14 +37,6 @@ const PostRowSkeleton: React.FC = () => (
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
-// Seek past the first frame so the thumbnail shows a meaningful frame
-const seekToThumbnail = (event: React.SyntheticEvent<HTMLVideoElement>) => {
-  const video = event.currentTarget;
-  if (video.duration > 2) {
-    video.currentTime = 2;
-  }
-};
-
 const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
   if (media.type === "IMAGE") {
     return (
@@ -64,15 +56,13 @@ const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
   if (media.type === "VIDEO") {
     return (
       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
-        <video
-          aria-label="Post video"
-          className="absolute inset-0 h-full w-full object-cover"
-          muted
-          onLoadedMetadata={seekToThumbnail}
-          playsInline
-          poster={getMediaProxyUrl(media)}
-          preload="metadata"
-          src={getMediaUrl(media.id)}
+        <Image
+          alt="Post video thumbnail"
+          className="object-cover"
+          fill
+          sizes="48px"
+          src={getMediaProxyUrl(media)}
+          unoptimized
         />
         <span className="absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
           <MdPlayArrow className="h-4 w-4 text-white" />
