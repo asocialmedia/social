@@ -111,8 +111,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     [data?.pages]
   );
 
-  
-
   // Refetch the feed and surface a pill when brand-new gusts (not already in
   // the current list) appeared at the top since the last load.
   const refreshFeed = useCallback(async () => {
@@ -245,40 +243,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     // renders, and the effect must (re)attach after it mounts.
   }, [isRefreshing, posts.length, pullDistance, refreshFeed]);
 
-  // Scrolling down needs no boundary handling: the doubled stream lets the
-  // browser scroll straight past the last gust into the duplicate, and the
-  // listener below invisibly wraps scrollTop back to the identical spot in the
-  // first copy. Only scrolling up past the very first gust needs a nudge to
-  // land on the last one.
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    const handleWheel = (event: WheelEvent) => {
-      // Let a nav animation settle before handling more input.
-      if (isWrappingRef.current) {
-        return;
-      }
-      // While more pages exist the bottom sentinel keeps loading; the loop
-      // only kicks in once the feed is exhausted (and the stream is doubled).
-      if (hasNextPageRef.current) {
-        return;
-      }
-      if (event.deltaY < 0 && container.scrollTop <= 2) {
-        event.preventDefault();
-        scrollToItem(posts.length - 1);
-      }
-    };
-
-    container.addEventListener("wheel", handleWheel, { passive: false });
-    return () => container.removeEventListener("wheel", handleWheel);
-    // posts.length gates this: the scroll container only exists once content
-    // renders, so the listener attaches on first content and re-attaches as
-    // the feed grows.
-  }, [posts.length, scrollToItem]);
-
   // If ?id= was provided, jump straight to that gust once the feed is loaded:
   // mark it active (so its video plays) and center it in the stream container
   // instantly. scrollIntoView would smooth-scroll every scrollable ancestor,
@@ -382,14 +346,14 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
-        // Wrap around: next past the last gust loops back to the first.
-        const nextIdx = activeIndex >= posts.length - 1 ? 0 : activeIndex + 1;
-        scrollToItem(nextIdx);
+        if (activeIndex < posts.length - 1) {
+          scrollToItem(activeIndex + 1);
+        }
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
-        // Wrap around: previous before the first gust loops to the last.
-        const prevIdx = activeIndex <= 0 ? posts.length - 1 : activeIndex - 1;
-        scrollToItem(prevIdx);
+        if (activeIndex > 0) {
+          scrollToItem(activeIndex - 1);
+        }
       } else if (e.key === "m") {
         e.preventDefault();
         handleToggleMute();
@@ -438,15 +402,15 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   }, [autoOpenCreate, openComposer, user]);
 
   const scrollToPrev = useCallback(() => {
-    // Wrap around: previous before the first gust loops to the last.
-    const prevIdx = activeIndex <= 0 ? posts.length - 1 : activeIndex - 1;
-    scrollToItem(prevIdx);
-  }, [activeIndex, posts.length, scrollToItem]);
+    if (activeIndex > 0) {
+      scrollToItem(activeIndex - 1);
+    }
+  }, [activeIndex, scrollToItem]);
 
   const scrollToNext = useCallback(() => {
-    // Wrap around: next past the last gust loops back to the first.
-    const nextIdx = activeIndex >= posts.length - 1 ? 0 : activeIndex + 1;
-    scrollToItem(nextIdx);
+    if (activeIndex < posts.length - 1) {
+      scrollToItem(activeIndex + 1);
+    }
   }, [activeIndex, posts.length, scrollToItem]);
 
   const renderContent = () => {
@@ -639,7 +603,8 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           <div className="fixed top-1/2 right-3 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
             <button
               aria-label="Previous Gust"
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-30"
+              disabled={activeIndex <= 0}
               onClick={scrollToPrev}
               type="button"
             >
@@ -647,7 +612,8 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
             </button>
             <button
               aria-label="Next Gust"
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-30"
+              disabled={activeIndex >= posts.length - 1}
               onClick={scrollToNext}
               type="button"
             >
