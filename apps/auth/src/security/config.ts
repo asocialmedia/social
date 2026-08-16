@@ -45,8 +45,12 @@ function buildAllowedOrigins(env: NodeJS.ProcessEnv): string[] {
   };
   add(env.APP_URL);
   add(env.AUTH_URL);
-  // Local development origins. In production APP_URL and AUTH_URL point at
-  // the real domains, so these localhost entries are unused.
+  add(env.NEXT_PUBLIC_URL);
+  add(env.NEXT_PUBLIC_AUTH_URL);
+  // Production origins
+  add("https://asocialmedia.cc");
+  add("https://auth.asocialmedia.cc");
+  // Local development origins
   add("http://localhost:3000");
   add("http://localhost:3001");
   add("https://social.localhost");
