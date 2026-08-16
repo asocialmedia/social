@@ -111,18 +111,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     [data?.pages]
   );
 
-  // When the feed is exhausted, render a second pixel-identical copy of the
-  // stream right after the first. The scroll listener below snaps scrollTop
-  // back from the duplicate to the same spot in the first copy, so scrolling
-  // past the last gust flows straight into the first again - no reverse-scroll
-  // animation, no bottom wall, the wrap is invisible because both copies look
-  // exactly the same.
-  const displayPosts = useMemo(() => {
-    if (hasNextPage || posts.length === 0) {
-      return posts;
-    }
-    return [...posts, ...posts];
-  }, [hasNextPage, posts]);
+  
 
   // Refetch the feed and surface a pill when brand-new gusts (not already in
   // the current list) appeared at the top since the last load.
@@ -289,30 +278,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     // renders, so the listener attaches on first content and re-attaches as
     // the feed grows.
   }, [posts.length, scrollToItem]);
-
-  // The invisible loop: with the stream doubled, this listener keeps scrollTop
-  // inside the first copy. The moment scrolling enters the duplicate it snaps
-  // back by exactly one copy height - both copies render identical content, so
-  // the jump is imperceptible and 1 -> 2 -> 3 -> 1 -> 2 -> 3 feels continuous.
-  useEffect(() => {
-    if (hasNextPage || posts.length === 0) {
-      return;
-    }
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    const handleScroll = () => {
-      const copyHeight = container.scrollHeight / 2;
-      if (container.scrollTop >= copyHeight) {
-        container.scrollTop -= copyHeight;
-      }
-    };
-
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, [hasNextPage, posts.length]);
 
   // If ?id= was provided, jump straight to that gust once the feed is loaded:
   // mark it active (so its video plays) and center it in the stream container
@@ -536,34 +501,22 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           className="hide-native-scrollbar h-full w-full max-w-4xl snap-y snap-mandatory overflow-y-auto overscroll-y-contain"
           ref={containerRef}
         >
-          {displayPosts.map((post, idx) => {
-            // Second copy renders the same gust again - only the first copy
-            // drives the navigation refs and the active-gust observer.
-            const inDuplicate = idx >= posts.length;
-            const itemIndex = idx % posts.length;
-            const isCurrentActive = activeIndex === itemIndex;
-            // Only mount <video src> for the active clip and its immediate next/prev
-            // neighbours. Offscreen clips remain lightweight poster placeholders so
-            // the browser does not flood the network with 20 parallel Range reads.
-            const rawDist = Math.abs(itemIndex - activeIndex);
-            const wrapDist =
-              posts.length > 0 ? posts.length - rawDist : rawDist;
-            const distance = Math.min(rawDist, wrapDist);
+          {posts.map((post, idx) => {
+            const isCurrentActive = activeIndex === idx;
+            const distance = Math.abs(idx - activeIndex);
             const shouldMount = isCurrentActive || distance <= 1;
 
             return (
               <div
                 className="flex h-full w-full snap-start snap-always items-center justify-center py-0 sm:h-[98%] sm:py-2"
-                data-index={itemIndex}
-                key={inDuplicate ? `${post.id}-copy2` : post.id}
+                data-index={idx}
+                key={post.id}
                 ref={(el) => {
-                  if (!inDuplicate) {
-                    itemRefs.current[idx] = el;
-                  }
+                  itemRefs.current[idx] = el;
                 }}
               >
                 <GustCard
-                  interactive={!inDuplicate}
+                  interactive
                   isActive={isCurrentActive}
                   isMuted={isMuted}
                   onOpenComments={() => setIsCommentsOpen(true)}
