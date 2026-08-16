@@ -19,7 +19,7 @@
 // uses HKDF(root, "asm:ratchet:" + S + ":" + i), giving backward secrecy if a
 // root key is ever compromised.
 
-export const KDF_ITERATIONS = 600_000;
+export const KDF_ITERATIONS = 100_000;
 export const FINGERPRINT_GROUP_COUNT = 4;
 export const ACCOUNT_SECRET_LENGTH = 64;
 
@@ -472,6 +472,7 @@ export async function hashAccountSecret(secret: string): Promise<string> {
 // have to re-enter their secret every session. It never leaves this origin.
 const IDB_NAME = "asm-messages";
 const IDB_STORE = "identity-keys";
+const LS_KEY_PREFIX = "asm_msg_key_";
 
 function openStore(): Promise<IDBDatabase> {
   // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
@@ -490,60 +491,97 @@ function openStore(): Promise<IDBDatabase> {
 export async function getStoredPrivateKey(
   userId: string
 ): Promise<JsonWebKey | null> {
-  if (typeof indexedDB === "undefined") {
+  if (typeof window === "undefined") {
     return null;
   }
+  // Try localStorage first for instant 0ms key retrieval
   try {
-    const db = await openStore();
-    // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
-    return await new Promise<JsonWebKey | null>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readonly");
-      const request = tx.objectStore(IDB_STORE).get(userId);
-      request.addEventListener("success", () => {
-        resolve((request.result as JsonWebKey) ?? null);
-      });
-      request.addEventListener("error", () => reject(request.error));
-    });
+    const raw = localStorage.getItem(`${LS_KEY_PREFIX}${userId}`);
+    if (raw) {
+      return JSON.parse(raw) as JsonWebKey;
+    }
   } catch {
-    return null;
+    // localStorage might be unavailable in restricted webviews
   }
+
+  // Fallback to IndexedDB
+  if (typeof indexedDB !== "undefined") {
+    try {
+      const db = await openStore();
+      // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
+      const jwk = await new Promise<JsonWebKey | null>((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const request = tx.objectStore(IDB_STORE).get(userId);
+        request.addEventListener("success", () => {
+          resolve((request.result as JsonWebKey) ?? null);
+        });
+        request.addEventListener("error", () => reject(request.error));
+      });
+      if (jwk) {
+        try {
+          localStorage.setItem(
+            `${LS_KEY_PREFIX}${userId}`,
+            JSON.stringify(jwk)
+          );
+        } catch {
+          // ignore
+        }
+        return jwk;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function setStoredPrivateKey(
   userId: string,
   jwk: JsonWebKey
 ): Promise<void> {
-  if (typeof indexedDB === "undefined") {
-    return;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(`${LS_KEY_PREFIX}${userId}`, JSON.stringify(jwk));
+    } catch {
+      // ignore
+    }
   }
-  try {
-    const db = await openStore();
-    // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).put(jwk, userId);
-      tx.addEventListener("complete", () => resolve());
-      tx.addEventListener("error", () => reject(tx.error));
-    });
-  } catch (error) {
-    console.error("Failed to store identity key:", error);
+  if (typeof indexedDB !== "undefined") {
+    try {
+      const db = await openStore();
+      // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(jwk, userId);
+        tx.addEventListener("complete", () => resolve());
+        tx.addEventListener("error", () => reject(tx.error));
+      });
+    } catch (error) {
+      console.error("Failed to store identity key in IDB:", error);
+    }
   }
 }
 
 export async function clearStoredPrivateKey(userId: string): Promise<void> {
-  if (typeof indexedDB === "undefined") {
-    return;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(`${LS_KEY_PREFIX}${userId}`);
+    } catch {
+      // ignore
+    }
   }
-  try {
-    const db = await openStore();
-    // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).delete(userId);
-      tx.addEventListener("complete", () => resolve());
-      tx.addEventListener("error", () => reject(tx.error));
-    });
-  } catch (error) {
-    console.error("Failed to clear identity key:", error);
+  if (typeof indexedDB !== "undefined") {
+    try {
+      const db = await openStore();
+      // eslint-disable-next-line promise/avoid-new -- IndexedDB callback API must be wrapped in Promise
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).delete(userId);
+        tx.addEventListener("complete", () => resolve());
+        tx.addEventListener("error", () => reject(tx.error));
+      });
+    } catch (error) {
+      console.error("Failed to clear identity key from IDB:", error);
+    }
   }
 }

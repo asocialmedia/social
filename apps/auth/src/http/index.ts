@@ -156,7 +156,25 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       if (isTrpcPath(pathname)) {
         return handleTrpc(request, "/api/auth");
       }
-      return addCorsHeaders(await authInstance.handler(request));
+      let authRequest = request;
+      const origin = request.headers.get("origin");
+      const hasSecret = Boolean(request.headers.get("x-internal-secret"));
+
+      // Server-to-server calls carrying the internal secret may lack an Origin
+      // header. Better Auth requires an Origin for CSRF checks on mutating requests;
+      // synthesize the trusted origin so internal calls succeed without triggering
+      // a "Missing or null Origin" rejection.
+      if (!origin && hasSecret) {
+        const allowedOrigin = getAllowedOrigin();
+        const nextHeaders = new Headers(request.headers);
+        nextHeaders.set("origin", allowedOrigin);
+        if (!nextHeaders.has("referer")) {
+          nextHeaders.set("referer", `${allowedOrigin}/`);
+        }
+        authRequest = new Request(request, { headers: nextHeaders });
+      }
+
+      return addCorsHeaders(await authInstance.handler(authRequest));
     }
     return new Response("Not Found", { status: 404 });
   }

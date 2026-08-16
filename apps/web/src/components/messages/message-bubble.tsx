@@ -94,6 +94,13 @@ export function MessageBubble({
   }, [content]);
 
   function renderContent() {
+    if (isDecrypting) {
+      return (
+        <div className="flex items-center gap-1.5 py-0.5">
+          <span className="inline-block h-3.5 w-24 animate-pulse rounded bg-current opacity-30" />
+        </div>
+      );
+    }
     if (content === null) {
       return <span className="italic opacity-70">Unreadable message</span>;
     }

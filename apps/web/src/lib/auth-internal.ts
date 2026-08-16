@@ -29,15 +29,34 @@ export function getAuthBaseUrl(): string {
   );
 }
 
-// Merges the shared Better Auth secret into server-to-server requests to the
-// auth service. Requests without a browser Origin are rejected by auth unless
-// they carry this header, so every server-side call to auth must include it.
+// Pure selector for the app's canonical origin, shared by internal headers and allowlists.
+export function resolveAppOrigin(): string {
+  return (
+    process.env.APP_URL ??
+    keys.NEXT_PUBLIC_URL ??
+    process.env.NEXT_PUBLIC_URL ??
+    (process.env.NODE_ENV === "production"
+      ? "https://asocialmedia.cc"
+      : "https://social.localhost")
+  );
+}
+
+// Merges the shared Better Auth secret and trusted origin into server-to-server
+// requests to the auth service. Requests without a browser Origin are rejected
+// by Better Auth's CSRF check, so every server-side call must include them.
 export function authInternalHeaders(
   headers: Record<string, string> = {}
 ): Record<string, string> {
   const secret = keys.BETTER_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
-  if (!secret) {
-    return headers;
+  const origin = resolveAppOrigin();
+
+  const baseHeaders: Record<string, string> = {
+    origin,
+    referer: `${origin}/`,
+  };
+
+  if (secret) {
+    baseHeaders[INTERNAL_SECRET_HEADER] = secret;
   }
-  return { ...headers, [INTERNAL_SECRET_HEADER]: secret };
+  return { ...baseHeaders, ...headers };
 }

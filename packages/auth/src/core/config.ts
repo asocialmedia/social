@@ -315,7 +315,8 @@ export function createAuthConfig(config: AuthConfig = {}) {
       "http://localhost:3000",
       "http://localhost:3001",
       "https://asocialmedia.cc",
-    ],
+      "https://auth.asocialmedia.cc",
+    ].filter(Boolean),
 
     telemetry: {
       enabled: false,
