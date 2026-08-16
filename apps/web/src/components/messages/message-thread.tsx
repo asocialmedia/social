@@ -7,7 +7,14 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { KeyRound, ShieldAlert, ShieldCheck, Users, X } from "lucide-react";
+import {
+  ArrowLeft,
+  KeyRound,
+  ShieldAlert,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -185,21 +192,20 @@ export function MessageThread({
     [allMessages, detail, rootKeyStore, user?.id]
   );
 
-  // Decrypt any messages not yet in the cache. Messages that failed (e.g. the
-  // wrapped keys were created by the sender after this thread loaded) are
-  // retried whenever the detail or message list changes, so they recover as
-  // soon as the keys are available.
+  // Decrypt any messages not yet in the cache. Retried when rootKeyStore, detail
+  // or message list changes so messages decrypt as soon as keys are available.
   useEffect(() => {
+    if (!rootKeyStore) {
+      return;
+    }
     for (const message of allMessages) {
       const state = decryptedRef.current[message.id];
-      if (state === undefined) {
+      if (state === undefined || state === "error") {
         setDecrypted((prev) => ({ ...prev, [message.id]: "pending" }));
-        void decrypt(message.id);
-      } else if (state === "error") {
         void decrypt(message.id);
       }
     }
-  }, [allMessages, decrypt]);
+  }, [allMessages, decrypt, rootKeyStore]);
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
@@ -561,7 +567,17 @@ function ThreadHeader({
   }, [fingerprint, peer, verified]);
 
   return (
-    <div className="border-border/60 flex h-14 shrink-0 items-center gap-3 border-b px-4">
+    <div className="border-border/60 flex h-14 shrink-0 items-center gap-2 border-b px-3 md:px-4">
+      <button
+        aria-label="Back to conversations"
+        className="icon-btn-3d -ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full md:hidden"
+        onClick={onBack}
+        title="Back to conversations"
+        type="button"
+      >
+        <ArrowLeft className="h-4 w-4" />
+      </button>
+
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
           <Link

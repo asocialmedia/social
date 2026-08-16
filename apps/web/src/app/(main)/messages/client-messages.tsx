@@ -88,14 +88,26 @@ export default function ClientMessages() {
       )}
     >
       <div className="hide-native-scrollbar flex min-h-0 flex-1 flex-row overflow-hidden">
-        <div className="flex h-full w-16 shrink-0 flex-col border-r border-[hsl(var(--border))]">
+        <div
+          className={cn(
+            "h-full flex-col border-r border-[hsl(var(--border))]",
+            pendingConversation
+              ? "hidden shrink-0 md:flex md:w-80"
+              : "flex w-full shrink-0 md:w-80"
+          )}
+        >
           <ConversationList
             activeConversationId={pendingConversation ?? null}
             onSelect={selectConversation}
           />
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]">
+        <div
+          className={cn(
+            "min-w-0 flex-1 flex-col border-r border-[hsl(var(--border))]",
+            pendingConversation ? "flex w-full" : "hidden md:flex"
+          )}
+        >
           {pendingConversation ? (
             <MessageThread
               conversationId={pendingConversation}
