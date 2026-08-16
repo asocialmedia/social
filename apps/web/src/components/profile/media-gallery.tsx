@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
+import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
@@ -535,6 +536,8 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
   locked = false,
   userId,
 }) => {
+  const isXl = useMediaQuery("(min-width: 1280px)");
+
   // Guests see a locked sidebar: a full-height skeleton grid with the login
   // prompt centered on top of it.
   if (locked) {
@@ -547,7 +550,7 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
 
   return (
     <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-y-auto xl:flex">
-      <MediaGalleryContent enabled={!locked} userId={userId} />
+      <MediaGalleryContent enabled={!locked && isXl} userId={userId} />
     </aside>
   );
 };

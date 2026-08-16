@@ -219,32 +219,28 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
   // If ?id= was provided, jump straight to that gust once the feed is loaded:
   // mark it active (so its video plays) and center it in the stream container
-  // instantly. scrollIntoView would smooth-scroll every scrollable ancestor,
-  // dragging the whole page through the list; scrolling the container directly
-  // lands on the gust immediately. A ref keeps this a one-time jump instead of
-  // re-scrolling every time the feed grows or refetches.
-  const didJumpToInitialRef = useRef(false);
+  // instantly.
+  const lastJumpedPostIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!initialPostId || posts.length === 0 || didJumpToInitialRef.current) {
+    if (
+      !initialPostId ||
+      posts.length === 0 ||
+      lastJumpedPostIdRef.current === initialPostId
+    ) {
       return;
     }
     const idx = posts.findIndex((post) => post.id === initialPostId);
     if (idx === -1) {
       return;
     }
-    didJumpToInitialRef.current = true;
-    // The IntersectionObserver picks up the now-centered item and marks it
-    // active, so no manual setState is needed here.
+    lastJumpedPostIdRef.current = initialPostId;
+    // eslint-disable-next-line react-compiler -- sync activeIndex when jumping to initial gust via query param
+    setActiveIndex(idx);
     const container = containerRef.current;
     const el = itemRefs.current[idx];
     if (container && el) {
-      const containerTop = container.getBoundingClientRect().top;
-      const elTop = el.getBoundingClientRect().top;
-      const target =
-        container.scrollTop +
-        (elTop - containerTop) -
-        (container.clientHeight - el.clientHeight) / 2;
-      container.scrollTo({ top: Math.max(0, target) });
+      const target = el.offsetTop - container.offsetTop;
+      container.scrollTo({ behavior: "smooth", top: Math.max(0, target) });
     }
   }, [initialPostId, posts]);
 
@@ -573,7 +569,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           ) : null}
         </AnimatePresence>
 
-        {/* Scroll Up / Down Navigation pinned to the right side (desktop) */}
         {status === "success" && posts.length > 0 ? (
           <div className="fixed top-1/2 right-4 z-40 hidden -translate-y-1/2 flex-col items-center gap-3 md:flex">
             <button

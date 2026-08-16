@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     const otherPosts = await prisma.post.findMany({
       include: getPostDataInclude(userId),
       orderBy: { createdAt: "desc" },
-      take: pageSize,
+      take: pageSize + 1,
       where: {
         id: { not: initialId },
         isGust: true,
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     const combined = initialPost ? [initialPost, ...otherPosts] : otherPosts;
     const hydrated = await hydrateViewCounts(combined.slice(0, pageSize));
     const nextCursor =
-      combined.length >= pageSize ? combined[pageSize - 1].id : null;
+      combined.length > pageSize ? combined[pageSize].id : null;
 
     const data: PostsPage = {
       nextCursor,

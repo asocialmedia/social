@@ -122,7 +122,10 @@ export const GustCard: React.FC<GustCardProps> = ({
     };
   }, [isActive]);
 
-  // Pause video if user switches tabs or browser is backgrounded
+  const wasPlayingBeforeHideRef = useRef(false);
+
+  // Pause video if user switches tabs or browser is backgrounded,
+  // restoring playback on return only if the clip was playing when hidden.
   useEffect(() => {
     const handleVisibilityChange = () => {
       const video = videoRef.current;
@@ -130,8 +133,9 @@ export const GustCard: React.FC<GustCardProps> = ({
         return;
       }
       if (document.hidden) {
+        wasPlayingBeforeHideRef.current = !video.paused;
         video.pause();
-      } else if (isActive) {
+      } else if (isActive && wasPlayingBeforeHideRef.current) {
         void (async () => {
           try {
             await video.play();
@@ -139,6 +143,7 @@ export const GustCard: React.FC<GustCardProps> = ({
             // Play request might be interrupted
           }
         })();
+        wasPlayingBeforeHideRef.current = false;
       }
     };
 

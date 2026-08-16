@@ -171,7 +171,7 @@ export function ConversationList({
       </div>
 
       {searchOpen ? (
-        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 overflow-hidden rounded-2xl p-2 shadow-none">
+        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 max-w-[calc(100vw-5.5rem)] overflow-hidden rounded-2xl p-2 shadow-none">
           <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
             <Search className="text-muted-foreground h-4 w-4 shrink-0" />
             <input
@@ -253,9 +253,13 @@ export function ConversationList({
         ? onlineUsers.find((u) => u.id === peer.id)
         : undefined;
       const active = item.conversation.id === activeConversationId;
+      const label =
+        item.unreadCount > 0
+          ? `${peer?.displayName ?? "Conversation"}, ${item.unreadCount} unread message${item.unreadCount === 1 ? "" : "s"}`
+          : (peer?.displayName ?? "Conversation");
       return (
         <button
-          aria-label={peer?.displayName ?? "Conversation"}
+          aria-label={label}
           className={cn(
             "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors",
             active
