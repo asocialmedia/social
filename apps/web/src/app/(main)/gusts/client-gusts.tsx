@@ -45,12 +45,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialPostId = searchParams.get("id");
-  const autoOpenCreate = searchParams.get("create") === "true";
-
   const { user } = useSession();
-  const { openSpotlight } = useSpotlight();
   const { goToLogin } = useRequireAuth();
   const openComposer = useComposerStore((state) => state.openComposer);
+  const { openSpotlight } = useSpotlight();
+  const autoOpenCreate = searchParams.get("create") === "true";
+  const queryClient = useQueryClient();
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -153,47 +153,17 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     hasNextPageRef.current = hasNextPage;
   }, [hasNextPage]);
 
-  // Locks input while a wrap-around jump is in flight so momentum can't fight
-  // the animation, and temporarily lifts CSS scroll-snap so the browser can't
-  // snap back to the old position (which made loops look like they "bounced"
-  // in place instead of landing at the top/bottom).
-  const isWrappingRef = useRef(false);
-  const wrapTo = useCallback((target: number, smooth = true) => {
+  // Scrolls the stream so the gust at `idx` is in view, computing the target
+  // directly on the scroll container.
+  const scrollToItem = useCallback((idx: number) => {
     const container = containerRef.current;
-    if (!container) {
+    const el = itemRefs.current[idx];
+    if (!container || !el) {
       return;
     }
-    isWrappingRef.current = true;
-    container.style.scrollSnapType = "none";
-    container.scrollTo({ behavior: smooth ? "smooth" : "auto", top: target });
-    window.setTimeout(
-      () => {
-        container.style.scrollSnapType = "";
-        isWrappingRef.current = false;
-      },
-      smooth ? 900 : 80
-    );
+    const target = el.offsetTop - container.offsetTop;
+    container.scrollTo({ behavior: "smooth", top: target });
   }, []);
-
-  // Scrolls the stream so the gust at `idx` is in view, computing the target
-  // directly on the scroll container. scrollIntoView would also scroll every
-  // scrollable ancestor (fighting the snap container and the page layout),
-  // which is what made the buttons/keyboard jump to a wrong-looking spot.
-  const scrollToItem = useCallback(
-    (idx: number) => {
-      const container = containerRef.current;
-      const el = itemRefs.current[idx];
-      if (!container || !el) {
-        return;
-      }
-      const target = Math.min(
-        Math.max(el.offsetTop - container.offsetTop, 0),
-        container.scrollHeight - container.clientHeight
-      );
-      wrapTo(target);
-    },
-    [wrapTo]
-  );
 
   // Touch handling: pull-to-refresh from the top. Swiping past the last gust
   // needs no handling here - the doubled stream's scroll listener wraps it
@@ -334,6 +304,24 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
     });
   }, []);
 
+  const scrollToPrev = useCallback(() => {
+    if (activeIndex > 0) {
+      const prevIndex = activeIndex - 1;
+      setActiveIndex(prevIndex);
+      scrollToItem(prevIndex);
+    }
+  }, [activeIndex, scrollToItem]);
+
+  const scrollToNext = useCallback(() => {
+    if (activeIndex < posts.length - 1) {
+      const nextIndex = activeIndex + 1;
+      setActiveIndex(nextIndex);
+      scrollToItem(nextIndex);
+    }
+  }, [activeIndex, posts.length, scrollToItem]);
+
+  // Keyboard navigation for desktop: arrow down/up, j/k to jump between
+  // gusts, m to toggle mute.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in input/textarea
@@ -346,14 +334,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
-        if (activeIndex < posts.length - 1) {
-          scrollToItem(activeIndex + 1);
-        }
+        scrollToNext();
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
-        if (activeIndex > 0) {
-          scrollToItem(activeIndex - 1);
-        }
+        scrollToPrev();
       } else if (e.key === "m") {
         e.preventDefault();
         handleToggleMute();
@@ -362,11 +346,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeIndex, posts.length, handleToggleMute, scrollToItem]);
+  }, [handleToggleMute, scrollToNext, scrollToPrev]);
 
   // Record a visit for the active gust so the recents card surfaces it and
   // keeps the "recently viewed" order fresh. Guests don't have history.
-  const queryClient = useQueryClient();
   const isLoggedIn = Boolean(user);
   const activePost = posts[activeIndex];
   useEffect(() => {
@@ -400,18 +383,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
       openComposer("gust");
     }
   }, [autoOpenCreate, openComposer, user]);
-
-  const scrollToPrev = useCallback(() => {
-    if (activeIndex > 0) {
-      scrollToItem(activeIndex - 1);
-    }
-  }, [activeIndex, scrollToItem]);
-
-  const scrollToNext = useCallback(() => {
-    if (activeIndex < posts.length - 1) {
-      scrollToItem(activeIndex + 1);
-    }
-  }, [activeIndex, posts.length, scrollToItem]);
 
   const renderContent = () => {
     if (status === "pending") {
@@ -598,12 +569,12 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           ) : null}
         </AnimatePresence>
 
-        {/* Scroll Up / Down Navigation pinned to the rightmost edge (desktop) */}
+        {/* Scroll Up / Down Navigation pinned to the right side (desktop) */}
         {status === "success" && posts.length > 0 ? (
-          <div className="fixed top-1/2 right-3 z-30 hidden -translate-y-1/2 flex-col items-center gap-3 lg:flex">
+          <div className="fixed top-1/2 right-4 z-40 hidden -translate-y-1/2 flex-col items-center gap-3 md:flex">
             <button
               aria-label="Previous Gust"
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-30"
+              className="rail-3d-btn flex h-11 w-11 cursor-pointer items-center justify-center rounded-full shadow-md transition-all duration-150 hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-30"
               disabled={activeIndex <= 0}
               onClick={scrollToPrev}
               type="button"
@@ -612,7 +583,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
             </button>
             <button
               aria-label="Next Gust"
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-30"
+              className="rail-3d-btn flex h-11 w-11 cursor-pointer items-center justify-center rounded-full shadow-md transition-all duration-150 hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-30"
               disabled={activeIndex >= posts.length - 1}
               onClick={scrollToNext}
               type="button"
