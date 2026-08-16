@@ -8,6 +8,7 @@ import {
   prisma,
   redis,
 } from "@asm/db";
+import { updateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -51,6 +52,11 @@ export async function deletePost(id: string) {
   } catch (error) {
     console.error("Failed to enqueue post-deleted event:", error);
   }
+
+  // Expire the cached OG card + media rows immediately so a deleted post's
+  // share card and media URLs stop being served (read-your-own-writes).
+  updateTag("og-post-card");
+  updateTag("media-row");
 
   return deletedPost;
 }

@@ -12,16 +12,20 @@ interface GustVoteButtonProps {
   authorName: string;
   direction: "up" | "down";
   initialState: VoteInfo;
+  interactive?: boolean;
   postId: string;
 }
 
 // Vertical vote action for the reels action rail. "up" amplifies and carries
 // the bold orange aura count, "down" mutes the author. Both share the
 // ["vote-info", postId] cache with the double-tap gesture so they stay in sync.
+// When interactive=false (the feed's infinite-scroll mirror copy) the buttons
+// render read-only so they can't fire mutations that fight the first copy.
 export default function GustVoteButton({
   authorName,
   direction,
   initialState,
+  interactive = true,
   postId,
 }: GustVoteButtonProps) {
   const { aura, toggleVote, userVote } = useGustVote({
@@ -33,8 +37,11 @@ export default function GustVoteButton({
   const isActive = userVote === (isUp ? 1 : -1);
 
   const handleVote = useCallback(() => {
+    if (!interactive) {
+      return;
+    }
     toggleVote(isUp ? 1 : -1);
-  }, [isUp, toggleVote]);
+  }, [interactive, isUp, toggleVote]);
 
   let ariaLabel: string;
   if (isActive && isUp) {

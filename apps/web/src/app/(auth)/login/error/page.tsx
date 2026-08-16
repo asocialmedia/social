@@ -5,6 +5,7 @@ import { AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 const ERROR_MESSAGES = {
   accountNotFound: "Account not found.",
@@ -71,6 +72,14 @@ const AnimatedAsocialmediaText = () => {
 };
 
 export default function LoginErrorPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginErrorContent />
+    </Suspense>
+  );
+}
+
+function LoginErrorContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const email = searchParams.get("email");

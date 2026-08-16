@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
@@ -15,8 +15,8 @@ import { useCallback, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FollowingFeed from "@/components/home/feedview/following";
-import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import HomeFeed from "@/components/home/home-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
@@ -77,15 +77,27 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
             <MobileTopBar />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="for-you">
+                <AnimatedTabTrigger
+                  active={tab === "for-you"}
+                  layoutId="home-tab-indicator"
+                  value="for-you"
+                >
                   Trending
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="global">
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={tab === "global"}
+                  layoutId="home-tab-indicator"
+                  value="global"
+                >
                   Global
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="following">
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={tab === "following"}
+                  layoutId="home-tab-indicator"
+                  value="following"
+                >
                   Following
-                </TabsTrigger>
+                </AnimatedTabTrigger>
               </TabsList>
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
                 <div className="w-full max-w-[24rem] xl:max-w-md">

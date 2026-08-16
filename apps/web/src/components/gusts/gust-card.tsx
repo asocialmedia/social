@@ -31,6 +31,7 @@ import GustVoteButton from "./gust-vote-button";
 import { useGustVote } from "./use-gust-vote";
 
 interface GustCardProps {
+  interactive?: boolean;
   isActive: boolean;
   isMuted: boolean;
   onOpenComments: () => void;
@@ -45,6 +46,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   isMuted,
   onToggleMute,
   onOpenComments,
+  interactive = true,
   shouldMountVideo = true,
 }) => {
   const { user } = useSession();
@@ -194,6 +196,11 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent) => {
+      // The duplicate feed copy is a pixel mirror for the infinite wrap; it
+      // must not fire mutations that fight the first copy's vote cache.
+      if (!interactive) {
+        return;
+      }
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 280;
 
@@ -218,7 +225,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         }, DOUBLE_TAP_DELAY);
       }
     },
-    [amplify, spawnAuraBurst, togglePlay]
+    [amplify, interactive, spawnAuraBurst, togglePlay]
   );
 
   if (!videoMedia) {
@@ -404,6 +411,7 @@ export const GustCard: React.FC<GustCardProps> = ({
               aura: post.aura,
               userVote: post.vote?.[0]?.value ?? 0,
             }}
+            interactive={interactive}
             postId={post.id}
           />
 
@@ -415,6 +423,7 @@ export const GustCard: React.FC<GustCardProps> = ({
               aura: post.aura,
               userVote: post.vote?.[0]?.value ?? 0,
             }}
+            interactive={interactive}
             postId={post.id}
           />
 
@@ -457,6 +466,7 @@ export const GustCard: React.FC<GustCardProps> = ({
             initialState={{
               isBookmarkedByUser: isBookmarked,
             }}
+            kind="gust"
             postId={post.id}
           />
 

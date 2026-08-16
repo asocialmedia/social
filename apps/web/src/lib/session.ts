@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { Session, User } from "@asm/auth/core";
 import { headers as nextHeaders } from "next/headers";
+import { connection } from "next/server";
 import { cache } from "react";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
@@ -43,6 +44,10 @@ export const getSessionFromApi = cache(async (): Promise<SessionResponse> => {
   }
 
   const cacheKey = hashCookie(cookie);
+  // The cache-TTL bookkeeping needs a real clock; await connection() so the
+  // session lookup is evaluated at request time instead of being baked into
+  // the prerender.
+  await connection();
   const now = Date.now();
 
   const existing = sessionCache.get(cacheKey);

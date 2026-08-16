@@ -1,14 +1,14 @@
 "use client";
 
 import type { UserData } from "@asm/db";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MediaGallery, {
@@ -130,30 +130,42 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
 
                   <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
                     <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
-                      <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
+                      <AnimatedTabTrigger
+                        active={activeTab === "posts"}
+                        layoutId="profile-tab-indicator"
+                        value="posts"
+                      >
                         Posts
-                      </TabsTrigger>
-                      <TabsTrigger className={TAB_TRIGGER_CLASS} value="gusts">
+                      </AnimatedTabTrigger>
+                      <AnimatedTabTrigger
+                        active={activeTab === "gusts"}
+                        layoutId="profile-tab-indicator"
+                        value="gusts"
+                      >
                         Gusts
-                      </TabsTrigger>
-                      <TabsTrigger
-                        className={TAB_TRIGGER_CLASS}
+                      </AnimatedTabTrigger>
+                      <AnimatedTabTrigger
+                        active={activeTab === "replies"}
+                        layoutId="profile-tab-indicator"
                         value="replies"
                       >
                         Replies
-                      </TabsTrigger>
-                      <TabsTrigger
-                        className={TAB_TRIGGER_CLASS}
+                      </AnimatedTabTrigger>
+                      <AnimatedTabTrigger
+                        active={activeTab === "amplified"}
+                        layoutId="profile-tab-indicator"
                         value="amplified"
                       >
                         Amplified
-                      </TabsTrigger>
-                      <TabsTrigger
-                        className={`${TAB_TRIGGER_CLASS} xl:hidden`}
+                      </AnimatedTabTrigger>
+                      <AnimatedTabTrigger
+                        active={activeTab === "media"}
+                        className="xl:hidden"
+                        layoutId="profile-tab-indicator"
                         value="media"
                       >
                         Media
-                      </TabsTrigger>
+                      </AnimatedTabTrigger>
                     </TabsList>
                   </div>
 

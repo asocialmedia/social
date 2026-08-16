@@ -57,5 +57,3 @@ export async function POST() {
     );
   }
 }
-
-export const runtime = "nodejs";

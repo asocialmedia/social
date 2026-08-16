@@ -135,12 +135,7 @@ export async function generateMetadata(
   };
 }
 
-export default async function Page() {
-  const session = await getSessionFromApi();
-  const loggedInUserData = session?.user
-    ? await getUserData(session.user.id)
-    : null;
-
+export default function Page() {
   return (
     <Suspense
       fallback={
@@ -149,7 +144,16 @@ export default async function Page() {
         </div>
       }
     >
-      <ClientGusts loggedInUserData={loggedInUserData} />
+      <GustsContent />
     </Suspense>
   );
+}
+
+async function GustsContent() {
+  const session = await getSessionFromApi();
+  const loggedInUserData = session?.user
+    ? await getUserData(session.user.id)
+    : null;
+
+  return <ClientGusts loggedInUserData={loggedInUserData} />;
 }

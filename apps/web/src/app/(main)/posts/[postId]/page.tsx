@@ -2,8 +2,9 @@ import { getPostDataInclude, prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { cache } from "react";
+import { cache, Suspense } from "react";
 
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
 import {
@@ -87,9 +88,16 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   };
 }
 
-export default async function Page(props: PageProps) {
-  const params = await props.params;
-  const { postId } = params;
+export default function Page(props: PageProps) {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <PostContent params={props.params} />
+    </Suspense>
+  );
+}
+
+async function PostContent({ params }: PageProps) {
+  const { postId } = await params;
   const session = await getSessionFromApi();
 
   const [post, userData] = await Promise.all([

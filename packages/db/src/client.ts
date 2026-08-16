@@ -301,6 +301,11 @@ export interface ConversationListPage {
 
 export interface BookmarkCountInfo {
   totalCount: number;
+  // Split by kind so the bookmarks page tabs and sidebar tiles can show
+  // per-category counts from one shared, reactive query.
+  gustCount: number;
+  hnCount: number;
+  postCount: number;
 }
 
 export interface MessageCountInfo {

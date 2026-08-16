@@ -8,8 +8,6 @@ import {
 import { getConversationForUser } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 // Server-Sent Events fan-out for real-time DMs, mirroring the comments stack.
 // Every message write is published to the conversation's Redis channel; each
 // open stream here subscribes and forwards events to the browser. Ciphertext

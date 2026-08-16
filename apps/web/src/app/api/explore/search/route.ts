@@ -8,8 +8,6 @@ import type { Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
 export async function GET(request: Request) {

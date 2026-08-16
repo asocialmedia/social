@@ -5,6 +5,7 @@ import type { QueryKey } from "@tanstack/react-query";
 import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
 
+import { adjustBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
@@ -13,6 +14,7 @@ import { cn } from "@/lib/utils";
 interface BookmarkButtonProps {
   className?: string;
   initialState: BookmarkInfo;
+  kind?: "post" | "gust";
   postId: string;
 }
 
@@ -21,6 +23,7 @@ const BookmarkXIcon = <BookmarkX />;
 
 export default function BookmarkButton({
   className,
+  kind = "post",
   postId,
   initialState,
 }: BookmarkButtonProps) {
@@ -43,6 +46,8 @@ export default function BookmarkButton({
         : kyInstance.post(`/api/posts/${postId}/bookmark`),
     onError(error, _variables, context) {
       queryClient.setQueryData(queryKey, context?.previousState);
+      // Roll back the optimistic count so it can't drift from the server.
+      adjustBookmarkCount(queryClient, kind, data.isBookmarkedByUser ? 1 : -1);
       clientLog.error(error);
       toast({
         description: "That didn't go through, give it another try?",
@@ -59,13 +64,21 @@ export default function BookmarkButton({
       });
 
       await queryClient.cancelQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: ["bookmark-count"] });
       const previousState = queryClient.getQueryData<BookmarkInfo>(queryKey);
       queryClient.setQueryData<BookmarkInfo>(queryKey, () => ({
         isBookmarkedByUser: !previousState?.isBookmarkedByUser,
       }));
+      // Optimistically bump the shared count so the sidebar badge and mobile
+      // nav update instantly; reconcile against the server on success.
+      adjustBookmarkCount(queryClient, kind, data.isBookmarkedByUser ? -1 : 1);
 
       return { previousState };
+    },
+    onSettled: () => {
+      // Reconcile the optimistic count with the server's authoritative value.
+      void queryClient.invalidateQueries({
+        queryKey: ["bookmark-count"],
+      });
     },
   });
 

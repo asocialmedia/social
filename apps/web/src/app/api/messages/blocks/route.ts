@@ -3,8 +3,6 @@ import { prisma } from "@asm/db";
 import { parseJsonBody } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 // Hard cap so an unbounded block list can never balloon a response.
 const BLOCK_LIST_LIMIT = 100;
 

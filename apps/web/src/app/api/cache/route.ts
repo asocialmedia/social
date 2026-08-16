@@ -2,8 +2,6 @@ import { followerInfoCache } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(req: Request) {
   try {
     const session = await getSessionFromApi();

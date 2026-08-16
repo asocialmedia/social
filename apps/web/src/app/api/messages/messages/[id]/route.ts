@@ -2,8 +2,6 @@ import { prisma, publishMessageDeleted } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function DELETE(
   _request: Request,
   ctx: { params: Promise<{ id: string }> }

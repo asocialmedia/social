@@ -2,7 +2,7 @@
 
 import type { PostData, PostsPage } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
-import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import useDebounce from "@/hooks/use-debounce";
@@ -341,13 +341,15 @@ const ExploreClient: React.FC = () => {
         <div className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5">
           <TabsList className="flex h-full min-w-0 flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
             {(Object.keys(TAB_META) as ExploreTab[]).map((tab) => (
-              <TabsTrigger
-                className={`${TAB_TRIGGER_CLASS} flex-1`}
+              <AnimatedTabTrigger
+                active={activeTab === tab}
+                className="flex-1"
                 key={tab}
+                layoutId="explore-tab-indicator"
                 value={tab}
               >
                 {TAB_META[tab]}
-              </TabsTrigger>
+              </AnimatedTabTrigger>
             ))}
           </TabsList>
 

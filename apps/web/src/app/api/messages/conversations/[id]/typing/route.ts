@@ -3,8 +3,6 @@ import { publishTypingStarted } from "@asm/db";
 import { getConversationForUser } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 // Best-effort typing indicator: the client heartbeats while the user is
 // typing and the peer's open SSE stream shows it. The event only carries the
 // sender id (metadata, not plaintext), and the peer's client auto-clears it

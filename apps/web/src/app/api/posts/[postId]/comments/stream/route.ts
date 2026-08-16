@@ -2,8 +2,6 @@ import { commentChannel, parseCommentEvent, subscribeToChannel } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 // Server-Sent Events fan-out for real-time eddies. Every comment write is
 // published to the post's Redis channel; each open stream here subscribes to
 // that channel and forwards events to the browser. Pub/sub (rather than a

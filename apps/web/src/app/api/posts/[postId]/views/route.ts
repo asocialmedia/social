@@ -5,8 +5,6 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function POST(
   _request: NextRequest,
   context: { params: Promise<{ postId: string }> }

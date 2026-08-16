@@ -563,6 +563,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
                 }}
               >
                 <GustCard
+                  interactive={!inDuplicate}
                   isActive={isCurrentActive}
                   isMuted={isMuted}
                   onOpenComments={() => setIsCommentsOpen(true)}

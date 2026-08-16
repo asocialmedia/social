@@ -1,7 +1,8 @@
 import { getUserDataSelect, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
-import { cache } from "react";
+import { cache, Suspense } from "react";
 
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -29,9 +30,16 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
   return user;
 });
 
-export default async function Page(props: PageProps) {
-  const params = await props.params;
-  const { username } = params;
+export default function Page(props: PageProps) {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <FollowersContent params={props.params} />
+    </Suspense>
+  );
+}
+
+async function FollowersContent({ params }: PageProps) {
+  const { username } = await params;
   const session = await getSessionFromApi();
 
   if (!session?.user) {

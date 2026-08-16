@@ -66,8 +66,12 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
       attachment.type === "IMAGE" ||
       (attachment.type === "VIDEO" && attachment.thumbnailKey)
   );
-  // Gusts embed bigger: a wider card and a taller cover image.
-  const cardWidth = data.isGust ? "max-w-80" : "max-w-72";
+  // Gusts embed bigger: a wider card and a taller cover image. max-w-full
+  // lets the card shrink to fit the bubble instead of overflowing on phones.
+  const cardWidth = cn(
+    "max-w-full",
+    data.isGust ? "sm:max-w-80" : "sm:max-w-72"
+  );
   const coverHeight = data.isGust ? "h-56" : "h-40";
 
   return (

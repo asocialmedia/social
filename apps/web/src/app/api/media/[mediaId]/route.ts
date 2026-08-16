@@ -1,6 +1,6 @@
 import { prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
-import { unstable_cache } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { NextResponse } from "next/server";
 
 import {
@@ -13,29 +13,28 @@ import {
   shouldDisplayInline,
 } from "@/lib/utils/mime-utils";
 
-export const dynamic = "force-dynamic";
-
 // Media rows are immutable (the stored key/mime never changes for a given id),
 // so the lookup is safe to cache for a long window. This keeps feed scrolls
 // that render many posters/images from hammering the database on every request;
 // the object itself is still streamed fresh from storage each time. A stale
 // row after deletion simply 404s like the DB row would.
-const getMediaRow = unstable_cache(
-  (mediaId: string) =>
-    prisma.media.findUnique({
-      select: {
-        id: true,
-        key: true,
-        mimeType: true,
-        size: true,
-        thumbnailKey: true,
-        type: true,
-      },
-      where: { id: mediaId },
-    }),
-  ["media-row"],
-  { revalidate: 3600 }
-);
+async function getMediaRow(mediaId: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("media-row");
+
+  return await prisma.media.findUnique({
+    select: {
+      id: true,
+      key: true,
+      mimeType: true,
+      size: true,
+      thumbnailKey: true,
+      type: true,
+    },
+    where: { id: mediaId },
+  });
+}
 
 // Object storage rejects invalid or unsatisfiable byte ranges with the
 // InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can

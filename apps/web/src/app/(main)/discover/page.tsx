@@ -4,8 +4,9 @@ import { Suspense } from "react";
 import ExploreClient from "@/components/discover/explore-client";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
-import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
@@ -15,7 +16,15 @@ export const metadata: Metadata = {
   title: "Explore",
 };
 
-export default async function DiscoveryPage() {
+export default function DiscoveryPage() {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <DiscoveryContent />
+    </Suspense>
+  );
+}
+
+async function DiscoveryContent() {
   const session = await getSessionFromApi();
   const isLoggedIn = Boolean(session?.user);
   const userData = session?.user ? await getUserData(session.user.id) : null;
@@ -25,7 +34,7 @@ export default async function DiscoveryPage() {
       <LeftSidebar userData={userData} />
 
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-        <Suspense fallback={<CenteredLogoLoader size={64} />}>
+        <Suspense fallback={<FeedViewSkeleton />}>
           <ExploreClient />
         </Suspense>
       </div>

@@ -3,9 +3,11 @@ import { siteConfig } from "@asm/ui/meta/site";
 import { Hash } from "lucide-react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import HashtagFeed from "@/components/posts/hashtag-feed";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
@@ -79,10 +81,18 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   };
 }
 
-export default async function Page(props: PageProps) {
-  const params = await props.params;
-  const tag = safeDecodeTag(params.tag);
-  if (!tag.trim()) {
+export default function Page(props: PageProps) {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <HashtagContent params={props.params} />
+    </Suspense>
+  );
+}
+
+async function HashtagContent({ params }: PageProps) {
+  const { tag } = await params;
+  const decodedTag = safeDecodeTag(tag);
+  if (!decodedTag.trim()) {
     notFound();
   }
   const session = await getSessionFromApi();
@@ -90,9 +100,9 @@ export default async function Page(props: PageProps) {
 
   const tagRecord = await prisma.tag.findFirst({
     select: { name: true },
-    where: { name: { equals: tag, mode: "insensitive" } },
+    where: { name: { equals: decodedTag, mode: "insensitive" } },
   });
-  const canonicalName = tagRecord?.name ?? tag;
+  const canonicalName = tagRecord?.name ?? decodedTag;
   const tagUrl = absoluteUrl(`/hashtag/${encodeURIComponent(canonicalName)}`);
 
   const collectionJsonLd = {

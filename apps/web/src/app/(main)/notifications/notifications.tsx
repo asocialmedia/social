@@ -13,7 +13,7 @@ import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigger";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
@@ -129,26 +129,22 @@ export default function Notifications() {
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <MobileTopBar />
         <div className="border-border/60 flex items-center border-b">
-          <button
-            className={`${TAB_TRIGGER_CLASS} flex-1 ${
-              activeTab === "all" ? "data-[state=active]" : ""
-            }`}
-            data-state={activeTab === "all" ? "active" : "inactive"}
+          <AnimatedTabButton
+            active={activeTab === "all"}
+            className="flex-1"
+            layoutId="notifications-tab-indicator"
             onClick={handleShowAll}
-            type="button"
           >
             All
-          </button>
-          <button
-            className={`${TAB_TRIGGER_CLASS} flex-1 ${
-              activeTab === "mentions" ? "data-[state=active]" : ""
-            }`}
-            data-state={activeTab === "mentions" ? "active" : "inactive"}
+          </AnimatedTabButton>
+          <AnimatedTabButton
+            active={activeTab === "mentions"}
+            className="flex-1"
+            layoutId="notifications-tab-indicator"
             onClick={handleShowMentions}
-            type="button"
           >
             Mentions
-          </button>
+          </AnimatedTabButton>
         </div>
       </div>
 

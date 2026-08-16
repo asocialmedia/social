@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { prisma } from "@asm/db";
-import { unstable_cache } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
 import { excerpt, toAbsoluteUrl } from "@/lib/seo";
@@ -14,7 +14,6 @@ export const size = {
   width: 1200,
 };
 export const contentType = "image/png";
-export const runtime = "nodejs";
 
 // The card is 1200x630; when a media thumbnail is shown it takes the right
 // ~520px, leaving the left column for text.
@@ -27,31 +26,33 @@ const INDEX_SEGMENT_PATTERN = /^\d+$/;
 // data is cached for an hour and re-rendered on cache expiry. Social crawlers
 // hammer these URLs when a post goes viral; caching turns a DB query + full
 // render into a pure cache hit. The response itself already ships
-// `Cache-Control: public, immutable, max-age=31536000` in production.
-const getPostForCard = unstable_cache(
-  (postId: string) =>
-    prisma.post.findUnique({
-      select: {
-        _count: { select: { comments: true, vote: true } },
-        attachments: true,
-        aura: true,
-        content: true,
-        createdAt: true,
-        id: true,
-        tags: { select: { name: true } },
-        user: {
-          select: {
-            displayName: true,
-            id: true,
-            username: true,
-          },
+// `Cache-Control: public, immutable, max-age=31536000` in production. The
+// "og-post-card" tag lets the delete action expire the card immediately.
+async function getPostForCard(postId: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("og-post-card");
+
+  return await prisma.post.findUnique({
+    select: {
+      _count: { select: { comments: true, vote: true } },
+      attachments: true,
+      aura: true,
+      content: true,
+      createdAt: true,
+      id: true,
+      tags: { select: { name: true } },
+      user: {
+        select: {
+          displayName: true,
+          id: true,
+          username: true,
         },
       },
-      where: { id: postId },
-    }),
-  ["og-post-card"],
-  { revalidate: 3600 }
-);
+    },
+    where: { id: postId },
+  });
+}
 
 // The Docker build runs `next build apps/web` from the monorepo root, so
 // process.cwd() is "/app" there but "apps/web" locally (and the app dir when

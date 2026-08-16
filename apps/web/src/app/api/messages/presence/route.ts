@@ -2,8 +2,6 @@ import { getIdleUsers, getOnlineUsers, markUserOnline, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export interface PresenceUser {
   avatarUrl: string | null;
   displayName: string;

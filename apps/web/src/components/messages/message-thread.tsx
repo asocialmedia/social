@@ -7,14 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  KeyRound,
-  ShieldAlert,
-  ShieldCheck,
-  Users,
-  X,
-} from "lucide-react";
+import { KeyRound, ShieldAlert, ShieldCheck, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -569,14 +562,6 @@ function ThreadHeader({
 
   return (
     <div className="border-border/60 flex h-14 shrink-0 items-center gap-3 border-b px-4">
-      <button
-        aria-label="Back to conversations"
-        className="icon-btn-3d flex h-8 w-8 items-center justify-center rounded-full md:hidden"
-        onClick={onBack}
-        type="button"
-      >
-        <ArrowLeft className="h-4 w-4" />
-      </button>
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
           <Link
@@ -625,7 +610,7 @@ function ThreadHeader({
 
       <button
         aria-label="Close chat"
-        className="icon-btn-3d hidden h-8 w-8 shrink-0 items-center justify-center rounded-full md:flex"
+        className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
         onClick={onBack}
         title="Close chat"
         type="button"
