@@ -96,6 +96,28 @@ describe("auth service http handler", () => {
     );
   });
 
+  test("synthesizes origin for internal server-to-server requests without origin", async () => {
+    const req = new Request(
+      "http://localhost/api/auth/email-otp/send-verification-otp",
+      {
+        headers: {
+          "content-type": "application/json",
+          "x-internal-secret": "secret",
+        },
+        method: "POST",
+      }
+    );
+
+    const handleRequest = createHandler();
+    const res = await handleRequest(req);
+
+    expect(res.status).toBe(200);
+    expect(mockAuthHandler).toHaveBeenCalled();
+    const passedReq = mockAuthHandler.mock.calls[0]?.[0] as Request;
+    expect(passedReq.headers.get("origin")).toBe("https://social.localhost");
+    expect(passedReq.headers.get("referer")).toBe("https://social.localhost/");
+  });
+
   test.each([
     "/api/auth/pending-signup",
     "/api/auth/pending-verify",

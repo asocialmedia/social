@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveAuthBaseUrl } from "./auth-internal";
+import { authInternalHeaders, resolveAuthBaseUrl } from "./auth-internal";
 
 describe("resolveAuthBaseUrl", () => {
   test("server uses the internal URL when configured", () => {
@@ -27,5 +27,14 @@ describe("resolveAuthBaseUrl", () => {
         true
       )
     ).toBe("https://auth.asocialmedia.cc");
+  });
+});
+
+describe("authInternalHeaders", () => {
+  test("includes origin and referer headers", () => {
+    const headers = authInternalHeaders({ "content-type": "application/json" });
+    expect(headers.origin).toBeDefined();
+    expect(headers.referer).toBeDefined();
+    expect(headers["content-type"]).toBe("application/json");
   });
 });

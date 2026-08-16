@@ -35,6 +35,7 @@ export default function UserAvatar({
     ? getSecureImageUrl(avatarUrl)
     : getDefaultAvatar(user?.id || user?.username || seed);
   const transparent = supportsTransparency(resolvedSrc);
+  const isDefaultAvatar = resolvedSrc.startsWith("/avatars/");
 
   return (
     <Image
@@ -49,8 +50,8 @@ export default function UserAvatar({
       onError={() => setHasError(true)}
       priority={priority}
       src={resolvedSrc}
-      unoptimized={isGifUrl(avatarUrl)}
-      width={size ?? 48} // Don't optimize GIFs to keep animation
+      unoptimized={isDefaultAvatar || isGifUrl(avatarUrl)}
+      width={size ?? 48}
     />
   );
 }
