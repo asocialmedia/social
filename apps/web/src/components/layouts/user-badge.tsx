@@ -91,6 +91,8 @@ const UserBadge: React.FC<{
               alt=""
               className="h-full w-full object-contain"
               height={20}
+              loading="eager"
+              priority
               src={src}
               unoptimized
               width={60}

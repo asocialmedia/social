@@ -98,6 +98,16 @@ export const CustomVideoPlayer = ({
 
   useEffect(
     () => () => {
+      const video = videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.src = "";
+          video.load();
+        } catch {
+          // Ignore
+        }
+      }
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }

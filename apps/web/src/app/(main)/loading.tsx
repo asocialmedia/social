@@ -1,8 +1,4 @@
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
-
-// Route-group fallback for the main app shell: shown instantly on client-side
-// navigation while the target segment's RSC payload renders and streams, so
-// page switches never freeze on the previous screen.
+// Prevent whole-app skeleton unmounting during client-side navigation
 export default function MainLoading() {
-  return <AppShellSkeleton />;
+  return null;
 }

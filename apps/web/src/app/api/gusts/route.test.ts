@@ -29,15 +29,34 @@ let mockPostList = [...sampleGusts];
 let lastFindManyArgs: unknown = null;
 
 const mockFindMany = mock(
-  (args: { cursor?: { id: string }; take?: number; where?: unknown }) => {
+  (args: {
+    cursor?: { id: string };
+    take?: number;
+    where?: { id?: { not?: string } };
+  }) => {
     lastFindManyArgs = args;
     const take = args?.take ?? 11;
-    return mockPostList.slice(0, take);
+    let list = mockPostList;
+    if (args?.where?.id?.not) {
+      list = list.filter((p) => p.id !== args.where?.id?.not);
+    }
+    if (args?.cursor?.id) {
+      const cursorIndex = list.findIndex((p) => p.id === args.cursor?.id);
+      if (cursorIndex !== -1) {
+        list = list.slice(cursorIndex);
+      }
+    }
+    return list.slice(0, take);
   }
 );
 
 const mockHydrateViewCounts = mock((posts: unknown[]) =>
   posts.map((p) => ({ ...(p as Record<string, unknown>), viewCount: 42 }))
+);
+
+const mockFindUnique = mock(
+  (args: { where?: { id?: string } }) =>
+    mockPostList.find((g) => g.id === args?.where?.id) ?? null
 );
 
 mock.module("@asm/db", () => ({
@@ -54,6 +73,7 @@ mock.module("@asm/db", () => ({
   prisma: {
     post: {
       findMany: mockFindMany,
+      findUnique: mockFindUnique,
     },
   },
 }));
@@ -143,5 +163,61 @@ describe("GET /api/gusts", () => {
     const callArgs = lastFindManyArgs as { take?: number };
     // take + 1 for pagination lookahead
     expect(callArgs?.take).toBe(6);
+  });
+
+  test("prepends requested initialId gust to the first page", async () => {
+    const req = new Request("http://localhost:3000/api/gusts?initialId=gust2");
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      nextCursor: string | null;
+      posts: { id: string }[];
+    };
+
+    expect(json.posts).toHaveLength(2);
+    expect(json.posts[0].id).toBe("gust2");
+    expect(mockFindUnique).toHaveBeenCalledTimes(1);
+  });
+
+  test("initialId pagination lookahead does not repeat posts on subsequent page", async () => {
+    mockPostList = Array.from({ length: 15 }, (_, i) => ({
+      attachments: [{ id: `m${i}`, type: "VIDEO" }],
+      aura: 10 + i,
+      createdAt: new Date(),
+      id: `gust_${i}`,
+      isGust: true,
+      user: { id: "u1", username: "alice" },
+    }));
+
+    // Request initialId = gust_14 with take = 5
+    const req1 = new Request(
+      "http://localhost:3000/api/gusts?initialId=gust_14&take=5"
+    );
+    const res1 = await GET(req1);
+    const json1 = (await res1.json()) as {
+      nextCursor: string | null;
+      posts: { id: string }[];
+    };
+
+    expect(json1.posts).toHaveLength(5);
+    expect(json1.posts[0].id).toBe("gust_14");
+    expect(json1.nextCursor).toBe("gust_4");
+
+    // Request second page with returned cursor
+    const req2 = new Request(
+      `http://localhost:3000/api/gusts?cursor=${json1.nextCursor}&take=5`
+    );
+    const res2 = await GET(req2);
+    const json2 = (await res2.json()) as {
+      nextCursor: string | null;
+      posts: { id: string }[];
+    };
+
+    const firstPageIds = new Set(json1.posts.map((p) => p.id));
+    const secondPageIds = json2.posts.map((p) => p.id);
+    for (const id of secondPageIds) {
+      expect(firstPageIds.has(id)).toBe(false);
+    }
   });
 });
