@@ -29,15 +29,28 @@ let mockPostList = [...sampleGusts];
 let lastFindManyArgs: unknown = null;
 
 const mockFindMany = mock(
-  (args: { cursor?: { id: string }; take?: number; where?: unknown }) => {
+  (args: {
+    cursor?: { id: string };
+    take?: number;
+    where?: { id?: { not?: string } };
+  }) => {
     lastFindManyArgs = args;
     const take = args?.take ?? 11;
-    return mockPostList.slice(0, take);
+    let list = mockPostList;
+    if (args?.where?.id?.not) {
+      list = list.filter((p) => p.id !== args.where?.id?.not);
+    }
+    return list.slice(0, take);
   }
 );
 
 const mockHydrateViewCounts = mock((posts: unknown[]) =>
   posts.map((p) => ({ ...(p as Record<string, unknown>), viewCount: 42 }))
+);
+
+const mockFindUnique = mock(
+  (args: { where?: { id?: string } }) =>
+    sampleGusts.find((g) => g.id === args?.where?.id) ?? null
 );
 
 mock.module("@asm/db", () => ({
@@ -54,6 +67,7 @@ mock.module("@asm/db", () => ({
   prisma: {
     post: {
       findMany: mockFindMany,
+      findUnique: mockFindUnique,
     },
   },
 }));
@@ -143,5 +157,20 @@ describe("GET /api/gusts", () => {
     const callArgs = lastFindManyArgs as { take?: number };
     // take + 1 for pagination lookahead
     expect(callArgs?.take).toBe(6);
+  });
+
+  test("prepends requested initialId gust to the first page", async () => {
+    const req = new Request("http://localhost:3000/api/gusts?initialId=gust2");
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      nextCursor: string | null;
+      posts: { id: string }[];
+    };
+
+    expect(json.posts).toHaveLength(2);
+    expect(json.posts[0].id).toBe("gust2");
+    expect(mockFindUnique).toHaveBeenCalledTimes(1);
   });
 });

@@ -92,14 +92,18 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   } = useInfiniteQuery({
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }: { pageParam: string | null }) =>
-      kyInstance
-        .get(
-          "/api/gusts",
-          pageParam ? { searchParams: { cursor: pageParam } } : {}
-        )
-        .json<PostsPage>(),
-    queryKey: ["gusts-feed"],
+    queryFn: ({ pageParam }: { pageParam: string | null }) => {
+      const queryParams: Record<string, string> = {};
+      if (pageParam) {
+        queryParams.cursor = pageParam;
+      } else if (initialPostId) {
+        queryParams.initialId = initialPostId;
+      }
+      return kyInstance
+        .get("/api/gusts", { searchParams: queryParams })
+        .json<PostsPage>();
+    },
+    queryKey: ["gusts-feed", initialPostId],
     staleTime: 1000 * 60,
   });
 
