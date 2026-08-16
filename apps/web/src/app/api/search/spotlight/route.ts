@@ -1,7 +1,5 @@
 import { searchPosts, searchUsers } from "@asm/db";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request) {
   // Public search popup; no account needed.
   const url = new URL(request.url);

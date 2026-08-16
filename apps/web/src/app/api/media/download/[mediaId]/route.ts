@@ -2,8 +2,6 @@ import { prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ mediaId: string }> }

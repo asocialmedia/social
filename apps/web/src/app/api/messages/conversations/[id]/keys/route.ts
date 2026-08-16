@@ -3,8 +3,6 @@ import { prisma } from "@asm/db";
 import { getConversationForUser, parseJsonBody } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export interface WrappedKeyPayload {
   encryptedKey: {
     ciphertext: string;

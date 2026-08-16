@@ -10,12 +10,18 @@ export async function GET() {
   }
   const userId = session.user.id;
 
-  const [postBookmarks, hnBookmarks] = await Promise.all([
-    prisma.bookmark.count({ where: { userId } }),
+  const [postBookmarks, gustBookmarks, hnBookmarks] = await Promise.all([
+    prisma.bookmark.count({ where: { post: { isGust: false }, userId } }),
+    prisma.bookmark.count({ where: { post: { isGust: true }, userId } }),
     prisma.hNBookmark.count({ where: { userId } }),
   ]);
 
   return Response.json({
+    // Matches the sidebar's historical total: posts + HN (gusts are tracked
+    // separately on the bookmarks page).
+    gustCount: gustBookmarks,
+    hnCount: hnBookmarks,
+    postCount: postBookmarks,
     totalCount: postBookmarks + hnBookmarks,
   } satisfies BookmarkCountInfo);
 }

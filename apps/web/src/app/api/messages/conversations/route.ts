@@ -10,8 +10,6 @@ import {
 } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 const PAGE_SIZE = 20;
 
 export interface ConversationListItem {

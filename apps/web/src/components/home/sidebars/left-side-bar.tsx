@@ -34,6 +34,7 @@ import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { LinkStatusHint } from "@/components/layouts/link-status-hint";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useRequireAuth } from "@/hooks/use-require-auth";
@@ -214,6 +215,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       <>
         <Icon className="h-6 w-6 shrink-0" />
         <span className="min-w-0 flex-1">{label}</span>
+        <LinkStatusHint className="text-primary" />
         {count !== undefined && count > 0 ? (
           <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums">
             {count}

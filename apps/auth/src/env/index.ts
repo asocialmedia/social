@@ -27,6 +27,10 @@ export function loadRootEnv(): void {
   const nodeEnv = process.env.NODE_ENV ?? "development";
   const appEnv = path.join(process.cwd(), `.env.${nodeEnv}`);
   if (existsSync(appEnv)) {
-    loadEnv({ override: true, path: appEnv, quiet: true });
+    // Fill in dev-only values without clobbering real secrets already loaded
+    // from the root .env. The committed .env.development keeps empty
+    // placeholders (RESEND_API_KEY=) for vars that only live in the local,
+    // gitignored .env; overriding here would wipe the real value to "".
+    loadEnv({ override: false, path: appEnv, quiet: true });
   }
 }

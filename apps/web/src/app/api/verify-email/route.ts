@@ -3,8 +3,6 @@ import type { NextRequest } from "next/server";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
-export const dynamic = "force-dynamic";
-
 type PendingVerifyResult =
   | { ok: true; data?: { email: string; password: string } }
   | { ok: true }

@@ -127,11 +127,22 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
             avatarUrl={gust.user.avatarUrl}
             className="size-6 rounded-lg border border-white/40"
           />
-          <span className="truncate text-xs font-semibold text-white/95">
-            @{gust.user.username}
-          </span>
-          <UserBadge badge={gust.user.badge} />
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-xs font-semibold text-white/95">
+              {gust.user.displayName || gust.user.username}
+            </p>
+            <p className="truncate text-[10px] text-white/70">
+              @{gust.user.username}
+            </p>
+          </div>
+          <UserBadge
+            badge={gust.user.badge}
+            className="hidden shrink-0 sm:inline-flex"
+          />
         </div>
+
+        {/* Role badge gets its own row on mobile so it doesn't crowd the name */}
+        <UserBadge badge={gust.user.badge} className="mt-1 sm:hidden" />
 
         {gust.content ? (
           <p className="mt-1 line-clamp-1 text-[11px] text-white/80">

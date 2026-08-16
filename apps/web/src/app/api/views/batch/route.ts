@@ -2,8 +2,6 @@ import { postViewsCache, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 // Batched view increment: the client accumulates visible post ids and posts
 // them here in one request instead of one request per post. Dedup is still
 // enforced server-side per (user, post).

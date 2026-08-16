@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
@@ -15,9 +17,15 @@ export const metadata: Metadata = {
   title: "Rustles",
 };
 
-export const dynamic = "force-dynamic";
+export default function Page() {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <NotificationsContent />
+    </Suspense>
+  );
+}
 
-export default async function Page() {
+async function NotificationsContent() {
   const session = await getSessionFromApi();
   const userData = session?.user ? await getUserData(session.user.id) : null;
 

@@ -1,12 +1,18 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@asm/ui/shadui/dropdown-menu";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { useQuery } from "@tanstack/react-query";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
-import { Clapperboard, Hash, Loader2, X } from "lucide-react";
+import { Clapperboard, Hash, Loader2, MoreHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -506,44 +512,108 @@ export default function PostEditor({
                   </motion.div>
                 ) : null}
               </AnimatePresence>
-              <motion.div
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <FileInput
-                  disabled={isUploading || attachments.length >= 5}
-                  onFilesSelected={startUpload}
-                  videoOnly={isGust}
-                />
-              </motion.div>
-              {isGust ? null : (
-                <motion.button
-                  aria-label="Search and add a GIF"
-                  className={cn(
-                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                    gifPickerOpen && "text-primary",
-                    (isUploading || attachments.length >= 5) &&
-                      "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
-                  )}
-                  disabled={isUploading || attachments.length >= 5}
-                  onClick={() => setGifPickerOpen((prev) => !prev)}
-                  type="button"
+
+              {/* Mobile-only: inline image/video button; the rest collapse into
+                  a dropdown. */}
+              <div className="max-md:flex md:hidden">
+                <motion.div
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <Clapperboard className="size-5" size={20} />
-                    <span
-                      className={cn(
-                        "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                        gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
-                      )}
+                  <FileInput
+                    disabled={isUploading || attachments.length >= 5}
+                    onFilesSelected={startUpload}
+                    types={["image"]}
+                    videoOnly={isGust}
+                  />
+                </motion.div>
+              </div>
+
+              {/* Mobile-only: remaining options in a dropdown. */}
+              {isGust ? null : (
+                <div className="max-md:block md:hidden">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        aria-label="More attachment options"
+                        className={cn(
+                          "pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                          (isUploading || attachments.length >= 5) &&
+                            "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                        )}
+                        disabled={isUploading || attachments.length >= 5}
+                        type="button"
+                      >
+                        <MoreHorizontal className="size-5" size={20} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="apple-panel min-w-44 p-1.5 shadow-none"
                     >
-                      GIFs
-                    </span>
-                  </span>
-                </motion.button>
+                      <DropdownMenuItem
+                        className="pill-3d-hover rounded-md px-2 py-2"
+                        disabled={isUploading || attachments.length >= 5}
+                        onClick={() => setGifPickerOpen((prev) => !prev)}
+                      >
+                        <span className="flex items-center gap-3">
+                          <Clapperboard className="size-4" />
+                          GIFs
+                        </span>
+                      </DropdownMenuItem>
+                      <div className="flex items-center px-1 py-1">
+                        <FileInput
+                          disabled={isUploading || attachments.length >= 5}
+                          onFilesSelected={startUpload}
+                          types={["audio", "document", "code"]}
+                        />
+                      </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               )}
+
+              {/* Desktop-only: the full inline toolbar (GIF + all file types). */}
+              <div className="hidden items-center gap-1 md:flex">
+                <motion.div
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <FileInput
+                    disabled={isUploading || attachments.length >= 5}
+                    onFilesSelected={startUpload}
+                    videoOnly={isGust}
+                  />
+                </motion.div>
+                {isGust ? null : (
+                  <motion.button
+                    aria-label="Search and add a GIF"
+                    className={cn(
+                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                      gifPickerOpen && "text-primary",
+                      (isUploading || attachments.length >= 5) &&
+                        "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                    )}
+                    disabled={isUploading || attachments.length >= 5}
+                    onClick={() => setGifPickerOpen((prev) => !prev)}
+                    type="button"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Clapperboard className="size-5" size={20} />
+                      <span
+                        className={cn(
+                          "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                          gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                        )}
+                      >
+                        GIFs
+                      </span>
+                    </span>
+                  </motion.button>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">

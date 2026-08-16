@@ -241,20 +241,22 @@ const MediaViewer = ({
     return (
       <div className="relative flex h-full max-h-full w-full items-center justify-center">
         {isLoading ? <MediaViewerSkeleton type="IMAGE" /> : null}
+        {/* key remounts the image per media item so the load state resets
+            cleanly instead of reusing one <img> whose src keeps swapping */}
         <Image
+          key={item.id}
           alt={`Media item ${currentIndex + 1}`}
           className={cn(
-            "max-h-full w-auto object-contain",
-            isLoading && "hidden"
+            "object-contain transition-opacity duration-200",
+            isLoading ? "opacity-0" : "opacity-100"
           )}
-          height={800}
+          fill
           onError={handleImageError}
           onLoad={handleMediaLoaded}
           priority
           quality={100}
           sizes="95vw"
           src={getMediaUrl(item.id)}
-          width={1200}
         />
       </div>
     );
@@ -264,6 +266,7 @@ const MediaViewer = ({
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
       {isLoading ? <MediaViewerSkeleton type="VIDEO" /> : null}
       <CustomVideoPlayer
+        key={item.id}
         autoPlay
         className={cn(
           "h-full max-h-full w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",

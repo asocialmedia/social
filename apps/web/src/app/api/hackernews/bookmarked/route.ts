@@ -24,5 +24,3 @@ export async function GET() {
 
   return Response.json({ nextCursor: null, stories });
 }
-
-export const runtime = "nodejs";

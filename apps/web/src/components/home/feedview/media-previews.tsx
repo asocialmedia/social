@@ -91,7 +91,9 @@ const GridImagePreview = ({
           setIsLoading(false);
         }}
         onLoad={() => setIsLoading(false)}
-        sizes="(max-width: 768px) 100vw, 640px"
+        // Mobile grid is 2 columns, desktop is 3; match the rendered column
+        // width so the browser picks an appropriately-sized image.
+        sizes="(max-width: 768px) 50vw, 33vw"
         src={getMediaUrl(media.id)}
         style={{ objectFit: "cover" }}
       />
@@ -314,7 +316,7 @@ const VideoPreview = ({
           isVideoActive ? "opacity-0" : "opacity-100"
         )}
         fill
-        sizes="(max-width: 768px) 100vw, 640px"
+        sizes="(max-width: 768px) 50vw, 33vw"
         src={getMediaProxyUrl(media)}
         unoptimized
       />

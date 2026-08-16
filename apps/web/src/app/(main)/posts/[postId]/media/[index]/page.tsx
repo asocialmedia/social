@@ -1,8 +1,9 @@
 import { getPostDataInclude, prisma } from "@asm/db";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { cache } from "react";
+import { cache, Suspense } from "react";
 
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import {
   absoluteUrl,
@@ -105,7 +106,15 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   };
 }
 
-export default async function Page(props: PageProps) {
+export default function Page(props: PageProps) {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <MediaContent {...props} />
+    </Suspense>
+  );
+}
+
+async function MediaContent(props: PageProps) {
   const params = await props.params;
   const searchParams = await props.searchParams;
   const { postId, index } = params;

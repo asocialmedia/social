@@ -2,9 +2,6 @@ import { avatarCache, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ userId: string }> }

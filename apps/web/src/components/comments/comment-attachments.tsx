@@ -75,14 +75,13 @@ export function CommentMedia({ media }: CommentMediaProps) {
             "max-h-72 w-auto rounded-lg object-contain",
             isLoading && "invisible"
           )}
-          height={0}
+          height={media.height ?? 480}
           onError={handleError}
           onLoad={handleLoad}
           sizes="(max-width: 640px) 100vw, 384px"
           src={getMediaUrl(media.id)}
-          style={{ height: "auto" }}
           unoptimized
-          width={0}
+          width={media.width ?? 640}
         />
       </div>
     </div>

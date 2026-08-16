@@ -147,9 +147,8 @@ export function ConversationList({
 
   return (
     <div className="relative flex h-full w-full flex-col">
-      {/* Search trigger & Header on mobile / icon rail on desktop */}
-      <div className="border-border/60 flex h-14 shrink-0 items-center justify-between border-b px-3 md:justify-center md:px-0">
-        <h1 className="text-base font-bold md:hidden">Messages</h1>
+      {/* Icon-rail header: the same compact avatar rail on every screen size. */}
+      <div className="border-border/60 flex h-14 shrink-0 items-center justify-center border-b">
         <button
           aria-label="Search people"
           className={cn(
@@ -167,30 +166,12 @@ export function ConversationList({
         </button>
       </div>
 
-      {searchOpen ? (
-        <div className="border-border/40 bg-muted/20 border-b p-3 md:hidden">
-          <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
-            <Search className="text-muted-foreground h-4 w-4 shrink-0" />
-            <input
-              autoFocus
-              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search people you follow…"
-              value={query}
-            />
-          </div>
-          <div className="mt-2 flex max-h-60 flex-col overflow-y-auto">
-            {renderSearchResults()}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="hide-native-scrollbar flex flex-1 flex-col gap-1.5 overflow-y-auto p-2 md:items-center">
+      <div className="hide-native-scrollbar flex flex-1 flex-col items-center gap-1.5 overflow-y-auto p-2">
         {renderConversations()}
       </div>
 
       {searchOpen ? (
-        <div className="apple-panel absolute top-16 left-full z-50 ml-2 hidden w-72 overflow-hidden rounded-2xl p-2 shadow-none md:block">
+        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 max-w-[calc(100vw-4.5rem)] overflow-hidden rounded-2xl p-2 shadow-none">
           <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
             <Search className="text-muted-foreground h-4 w-4 shrink-0" />
             <input
@@ -262,9 +243,6 @@ export function ConversationList({
       return (
         <div className="flex flex-col items-center justify-center p-6 text-center">
           <MessageCircle className="text-muted-foreground/40 h-8 w-8" />
-          <p className="text-muted-foreground mt-2 text-xs md:hidden">
-            No conversations yet. Search to start a chat!
-          </p>
         </div>
       );
     }
@@ -281,7 +259,7 @@ export function ConversationList({
         <button
           aria-label={peer?.displayName ?? "Conversation"}
           className={cn(
-            "relative flex w-full items-center gap-3 rounded-2xl p-2.5 transition-colors md:h-12 md:w-12 md:justify-center md:p-0",
+            "relative flex h-12 w-12 items-center justify-center rounded-2xl p-0 transition-colors",
             active
               ? "border-border/60 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
               : "pill-3d-hover"
@@ -303,24 +281,8 @@ export function ConversationList({
             ) : null}
           </div>
 
-          <div className="min-w-0 flex-1 text-left md:hidden">
-            <div className="flex items-center justify-between gap-1">
-              <span className="truncate text-sm font-semibold">
-                {peer?.displayName || peer?.username || "Chat"}
-              </span>
-              {item.unreadCount > 0 ? (
-                <span className="bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
-                  {item.unreadCount}
-                </span>
-              ) : null}
-            </div>
-            <p className="text-muted-foreground truncate text-xs">
-              @{peer?.username}
-            </p>
-          </div>
-
           {item.unreadCount > 0 ? (
-            <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 hidden h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums md:flex">
+            <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
               {item.unreadCount}
             </span>
           ) : null}

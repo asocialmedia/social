@@ -3,18 +3,18 @@
 import type { HNStory as HnStoryType } from "@asm/aggregator/hackernews";
 import type { PostsPage, UserData } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noBookmarksImage from "@assets/general/nonotibook.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import BookmarksSidebar from "@/components/bookmarks/bookmarks-sidebar";
 import { HNStoryCard } from "@/components/hackernews/hn-story-card";
 import { FeedView } from "@/components/home/feed-view";
-import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
+import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
@@ -23,6 +23,7 @@ import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import kyInstance from "@/lib/ky";
 
 import BookmarkedGusts from "./bookmarked-gusts";
@@ -47,6 +48,19 @@ const Bookmarks: React.FC<BookmarksProps> = ({
   userData,
 }) => {
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState("posts");
+
+  // Server props seed the cache; optimistic bookmark toggles + invalidation
+  // keep the tab badges and sidebar tiles live without a reload.
+  const { data: liveCounts } = useBookmarkCount({
+    gustCount: gustBookmarkCount,
+    hnCount: hnBookmarkCount,
+    postCount: postBookmarkCount,
+    totalCount: postBookmarkCount + hnBookmarkCount,
+  });
+  const postsTabCount = liveCounts?.postCount ?? postBookmarkCount;
+  const gustTabCount = liveCounts?.gustCount ?? gustBookmarkCount;
+  const hnTabCount = liveCounts?.hnCount ?? hnBookmarkCount;
 
   const {
     data: postsData,
@@ -194,42 +208,62 @@ const Bookmarks: React.FC<BookmarksProps> = ({
       <LeftSidebar userData={userData} />
 
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-        <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="posts">
+        <Tabs
+          className="flex min-h-0 flex-1 flex-col"
+          onValueChange={setActiveTab}
+          value={activeTab}
+        >
           <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
             <MobileTopBar />
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="posts">
+                <AnimatedTabTrigger
+                  active={activeTab === "posts"}
+                  layoutId="bookmarks-tab-indicator"
+                  value="posts"
+                >
                   <Newspaper className="mr-2 h-4 w-4" />
                   Posts
-                  {postBookmarkCount > 0 ? (
+                  {postsTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
-                      {postBookmarkCount}
+                      {postsTabCount}
                     </span>
                   ) : null}
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="gusts">
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={activeTab === "gusts"}
+                  layoutId="bookmarks-tab-indicator"
+                  value="gusts"
+                >
                   <Clapperboard className="mr-2 h-4 w-4" />
                   Gusts
-                  {gustBookmarkCount > 0 ? (
+                  {gustTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
-                      {gustBookmarkCount}
+                      {gustTabCount}
                     </span>
                   ) : null}
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="hackernews">
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={activeTab === "hackernews"}
+                  layoutId="bookmarks-tab-indicator"
+                  value="hackernews"
+                >
                   <Terminal className="mr-2 h-4 w-4" />
                   HackerNews
-                  {hnBookmarkCount > 0 ? (
+                  {hnTabCount > 0 ? (
                     <span className="border-border/60 bg-muted/50 text-muted-foreground ml-2 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums">
-                      {hnBookmarkCount}
+                      {hnTabCount}
                     </span>
                   ) : null}
-                </TabsTrigger>
-                <TabsTrigger className={TAB_TRIGGER_CLASS} value="likes">
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={activeTab === "likes"}
+                  layoutId="bookmarks-tab-indicator"
+                  value="likes"
+                >
                   <Heart className="mr-2 h-4 w-4" />
                   Likes
-                </TabsTrigger>
+                </AnimatedTabTrigger>
               </TabsList>
               <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
                 <div className="w-full max-w-[24rem] xl:max-w-md">
@@ -252,9 +286,9 @@ const Bookmarks: React.FC<BookmarksProps> = ({
       </div>
 
       <BookmarksSidebar
-        gustBookmarkCount={gustBookmarkCount}
-        hnBookmarkCount={hnBookmarkCount}
-        postBookmarkCount={postBookmarkCount}
+        gustBookmarkCount={gustTabCount}
+        hnBookmarkCount={hnTabCount}
+        postBookmarkCount={postsTabCount}
       />
       <MobileBottomNav />
     </div>

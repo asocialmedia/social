@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 interface FileInputProps {
   disabled: boolean;
   onFilesSelected: (files: File[]) => void;
+  // Restrict which file buttons render; undefined = all. videoOnly (gusts)
+  // keeps only the image button regardless.
+  types?: FileButtonType[];
   videoOnly?: boolean;
 }
 
@@ -185,6 +188,7 @@ const FILE_BUTTONS: Omit<
 export const FileInput = ({
   onFilesSelected,
   disabled,
+  types,
   videoOnly = false,
 }: FileInputProps) => {
   const inputRefs = useRef<Record<FileButtonType, HTMLInputElement | null>>({
@@ -215,11 +219,15 @@ export const FileInput = ({
     [onFilesSelected]
   );
 
+  // videoOnly (gusts) reduces to just the image/video button; otherwise filter
+  // by the explicit `types` list when provided.
+  const buttons = FILE_BUTTONS.filter(
+    (config) => !videoOnly || config.buttonType === "image"
+  ).filter((config) => !types || types.includes(config.buttonType));
+
   return (
     <div className="flex items-center gap-1.5">
-      {FILE_BUTTONS.filter(
-        (config) => !videoOnly || config.buttonType === "image"
-      ).map((config) => (
+      {buttons.map((config) => (
         <FileButton
           {...config}
           disabled={disabled}

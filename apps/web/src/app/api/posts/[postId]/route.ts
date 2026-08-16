@@ -2,8 +2,6 @@ import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(
   _request: Request,
   ctx: { params: Promise<{ postId: string }> }

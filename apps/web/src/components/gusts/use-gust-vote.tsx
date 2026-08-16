@@ -57,20 +57,16 @@ export function useGustVote({
   const { mutate } = useMutation<
     { serverResponse: VoteInfo; voteAttempted: number },
     Error,
-    { vote: number; force?: boolean },
+    { force?: boolean; previousVote: number; vote: number },
     { previousState: VoteInfo | undefined }
   >({
-    mutationFn: async ({ vote, force }) => {
-      // Read the latest vote from the cache rather than the useQuery closure
-      // so rapid sequential mutations (double-tap then rail tap) don't act on
-      // a stale snapshot.
-      const latest = queryClient.getQueryData<VoteInfo>(queryKey);
-      const currentUserVote = latest?.userVote ?? 0;
-      // The double-tap gesture forces +1 (TikTok-style): even when already
-      // amplified we still re-issue the upvote so the aura stays credited and
-      // the optimistic cache stays consistent. The rail button toggles (vote
-      // equal to current clears it via DELETE).
-      const shouldClear = !force && vote === currentUserVote;
+    mutationFn: async ({ force, previousVote, vote }) => {
+      // The toggle decision uses the vote captured at call time (before the
+      // optimistic onMutate write touches the cache), so a fresh amplify isn't
+      // mistaken for a toggle-off. The double-tap gesture forces +1
+      // (TikTok-style): even when already amplified we re-issue the upvote so
+      // the aura stays credited and the optimistic cache stays consistent.
+      const shouldClear = !force && vote === previousVote;
       const response = shouldClear
         ? await kyInstance.delete(voteEndpoint).json<VoteInfo>()
         : await kyInstance
@@ -123,10 +119,7 @@ export function useGustVote({
     // oxlint-disable-next-line react/no-unstable-nested-components
     onSuccess: (result, variables) => {
       const { serverResponse } = result;
-      // Capture the pre-mutation vote for toast decisions before overwriting
-      // the cache (reads the latest cached value, not a stale closure).
-      const previousVote =
-        queryClient.getQueryData<VoteInfo>(queryKey)?.userVote ?? 0;
+      const { previousVote } = variables;
       queryClient.setQueryData<VoteInfo>(queryKey, {
         aura: serverResponse.aura,
         userVote: serverResponse.userVote,
@@ -179,9 +172,9 @@ export function useGustVote({
         goToLogin();
         return;
       }
-      mutate({ force: false, vote });
+      mutate({ force: false, previousVote: data.userVote, vote });
     },
-    [goToLogin, isLoggedIn, mutate]
+    [data.userVote, goToLogin, isLoggedIn, mutate]
   );
 
   // Idempotent upvote used by the double-tap gesture: it amplifies once and
@@ -191,8 +184,8 @@ export function useGustVote({
       goToLogin();
       return;
     }
-    mutate({ force: true, vote: 1 });
-  }, [goToLogin, isLoggedIn, mutate]);
+    mutate({ force: true, previousVote: data.userVote, vote: 1 });
+  }, [data.userVote, goToLogin, isLoggedIn, mutate]);
 
   return {
     amplify,

@@ -1,11 +1,11 @@
 import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { MetadataRoute } from "next";
+import { cacheLife } from "next/cache";
 
 // Regenerate the sitemap at most once an hour; the lists are large and don't
-// need to be recomputed on every crawler hit.
-export const revalidate = 3600;
-
+// need to be recomputed on every crawler hit. cacheLife replaces the old
+// `export const revalidate` under Cache Components.
 const CORE_PATHS = [
   "",
   "/discover",
@@ -23,6 +23,9 @@ export default async function sitemap({
 }: {
   id: string;
 }): Promise<MetadataRoute.Sitemap> {
+  "use cache";
+  cacheLife("hours");
+
   const base = siteConfig.url;
 
   switch (id) {

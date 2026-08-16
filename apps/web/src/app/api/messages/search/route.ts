@@ -2,8 +2,6 @@ import { prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
   const user = session?.user;

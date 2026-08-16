@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -12,7 +12,15 @@ export const metadata = {
   title: "HackerNews",
 };
 
-export default async function HackerNewsPage() {
+export default function HackerNewsPage() {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <HackerNewsContent />
+    </Suspense>
+  );
+}
+
+async function HackerNewsContent() {
   const session = await getSessionFromApi();
 
   if (!session?.user) {
@@ -25,9 +33,5 @@ export default async function HackerNewsPage() {
     return <p className="text-destructive">Unable to load user data.</p>;
   }
 
-  return (
-    <Suspense fallback={<CenteredLogoLoader size={64} />}>
-      <ClientHackerNews userData={userData} />
-    </Suspense>
-  );
+  return <ClientHackerNews userData={userData} />;
 }

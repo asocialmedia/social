@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { prisma } from "@asm/db";
-import { unstable_cache } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
 import { excerpt, toAbsoluteUrl } from "@/lib/seo";
@@ -14,41 +14,41 @@ export const size = {
   width: 1200,
 };
 export const contentType = "image/png";
-export const runtime = "nodejs";
 
 const BIO_MAX = 150;
 
-const getUserForCard = unstable_cache(
-  (username: string) =>
-    prisma.user.findFirst({
-      select: {
-        _count: {
-          select: {
-            followers: true,
-            following: true,
-            posts: true,
-          },
-        },
-        aura: true,
-        avatarUrl: true,
-        badge: true,
-        bannerUrl: true,
-        bio: true,
-        createdAt: true,
-        displayName: true,
-        id: true,
-        username: true,
-      },
-      where: {
-        username: {
-          equals: username,
-          mode: "insensitive",
+async function getUserForCard(username: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("og-user-profile");
+
+  return await prisma.user.findFirst({
+    select: {
+      _count: {
+        select: {
+          followers: true,
+          following: true,
+          posts: true,
         },
       },
-    }),
-  ["og-user-profile"],
-  { revalidate: 3600 }
-);
+      aura: true,
+      avatarUrl: true,
+      badge: true,
+      bannerUrl: true,
+      bio: true,
+      createdAt: true,
+      displayName: true,
+      id: true,
+      username: true,
+    },
+    where: {
+      username: {
+        equals: username,
+        mode: "insensitive",
+      },
+    },
+  });
+}
 
 const FONT_CANDIDATES = [
   path.join(process.cwd(), "public", "fonts"),

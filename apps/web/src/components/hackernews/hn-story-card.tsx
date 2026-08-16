@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import type * as React from "react";
 import { useCallback } from "react";
 
+import { adjustBookmarkCount } from "@/hooks/use-bookmark-count";
 import { toast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -80,10 +81,20 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
       const method = isBookmarked ? "DELETE" : "POST";
       await fetch(`/api/hackernews/${story.id}/bookmark`, { method });
     },
+    onError: () => {
+      adjustBookmarkCount(queryClient, "hn", isBookmarked ? 1 : -1);
+    },
+    onMutate: () => {
+      adjustBookmarkCount(queryClient, "hn", isBookmarked ? -1 : 1);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["bookmark-count"],
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hn-bookmark", story.id] });
       queryClient.invalidateQueries({ queryKey: ["hn-bookmarks"] });
-      queryClient.invalidateQueries({ queryKey: ["bookmark-count"] });
       queryClient.setQueriesData<Record<number, boolean>>(
         { queryKey: ["hn-bookmark-states"] },
         (old) => ({

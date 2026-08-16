@@ -4,8 +4,6 @@ import { prisma, unreadMessageCache } from "@asm/db";
 import { unreadMessageWhere } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
-
 export async function GET() {
   const session = await getSessionFromApi();
   const user = session?.user;

@@ -4,9 +4,6 @@ import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // Banners live in the private ASMOB bucket (key prefix `banners/{userId}/...`)
 // and are streamed through this app route so content is only reachable via the
 // app, never directly from object storage.

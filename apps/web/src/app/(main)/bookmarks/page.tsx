@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
+import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -13,7 +13,15 @@ export const metadata: Metadata = {
   title: "Bookmarks",
 };
 
-export default async function Page() {
+export default function Page() {
+  return (
+    <Suspense fallback={<AppShellSkeleton />}>
+      <BookmarksContent />
+    </Suspense>
+  );
+}
+
+async function BookmarksContent() {
   const session = await getSessionFromApi();
 
   if (!session?.user) {
@@ -41,13 +49,11 @@ export default async function Page() {
     ]);
 
   return (
-    <Suspense fallback={<CenteredLogoLoader size={64} />}>
-      <Bookmarks
-        gustBookmarkCount={gustBookmarkCount}
-        hnBookmarkCount={hnBookmarkCount}
-        postBookmarkCount={postBookmarkCount}
-        userData={userData}
-      />
-    </Suspense>
+    <Bookmarks
+      gustBookmarkCount={gustBookmarkCount}
+      hnBookmarkCount={hnBookmarkCount}
+      postBookmarkCount={postBookmarkCount}
+      userData={userData}
+    />
   );
 }
