@@ -10,6 +10,11 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@asm/ui/shadui/input-otp";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AtSign, Mail } from "lucide-react";
 import { useState } from "react";
@@ -111,6 +116,40 @@ const EmailFieldRenderer = ({
         type="email"
         {...field}
       />
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
+
+// Segmented 6-digit OTP input, matching the signup verification flow. Rendered
+// with react-hook-form's field for wiring into FormField.
+const OtpFieldRenderer = ({
+  field,
+}: {
+  field:
+    | ControllerRenderProps<EmailFormValues, "otp">
+    | ControllerRenderProps<EmailVerifyFormValues, "otp">;
+}) => (
+  <FormItem>
+    <FormLabel>Verification code</FormLabel>
+    <FormControl>
+      <InputOTP
+        containerClassName="w-full"
+        maxLength={6}
+        onChange={(value) => field.onChange(value)}
+        pattern="[0-9]*"
+        value={field.value ?? ""}
+      >
+        <InputOTPGroup className="w-full justify-between">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <InputOTPSlot
+              className="w-full flex-1"
+              index={index}
+              key={`otp-slot-${index}`}
+            />
+          ))}
+        </InputOTPGroup>
+      </InputOTP>
     </FormControl>
     <FormMessage />
   </FormItem>
@@ -349,43 +388,41 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
             />
 
             {user.email && !emailChangeRequested ? (
-              <div className="flex items-end gap-2">
-                <FormField
-                  control={emailForm.control}
-                  disabled={emailChangeRequested}
-                  name="otp"
-                  render={({ field }) => (
-                    <FormItem className="flex-1">
-                      <FormLabel>Current email code</FormLabel>
-                      <FormControl>
-                        <Input
-                          autoComplete="one-time-code"
-                          className="premium-input h-10 rounded-xl text-sm"
-                          inputMode="numeric"
-                          placeholder="123456"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <LoadingButton
-                  className="h-10 shrink-0 rounded-xl px-4 text-xs"
-                  loading={sendCurrentEmailCodeMutation.isPending}
-                  onClick={handleSendCurrentEmailCode}
-                  type="button"
-                  variant="outline"
-                >
-                  {currentEmailCodeSent ? "Resend code" : "Send code"}
-                </LoadingButton>
+              <div className="space-y-3">
+                {/* The code input only appears once the mail has been sent. */}
+                {currentEmailCodeSent ? (
+                  <FormField
+                    control={emailForm.control}
+                    disabled={emailChangeRequested}
+                    name="otp"
+                    render={OtpFieldRenderer}
+                  />
+                ) : null}
+                <div className="flex justify-start">
+                  <LoadingButton
+                    className="h-10 shrink-0 rounded-xl px-4 text-xs"
+                    loading={sendCurrentEmailCodeMutation.isPending}
+                    onClick={handleSendCurrentEmailCode}
+                    type="button"
+                    variant="outline"
+                  >
+                    {currentEmailCodeSent
+                      ? "Resend code"
+                      : "Send code to current email"}
+                  </LoadingButton>
+                </div>
               </div>
             ) : null}
 
             <div className="flex justify-end">
               <LoadingButton
                 className={BUTTON_CLASS}
-                disabled={emailChangeRequested}
+                disabled={
+                  emailChangeRequested ||
+                  (Boolean(user.email) &&
+                    (!currentEmailCodeSent ||
+                      (emailForm.watch("otp")?.length ?? 0) < 6))
+                }
                 loading={emailMutation.isPending}
                 type="submit"
               >
@@ -410,20 +447,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
                 <FormField
                   control={emailVerifyForm.control}
                   name="otp"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Verification code</FormLabel>
-                      <FormControl>
-                        <Input
-                          autoComplete="one-time-code"
-                          inputMode="numeric"
-                          placeholder="123456"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={OtpFieldRenderer}
                 />
                 <div className="flex justify-end gap-2">
                   <button

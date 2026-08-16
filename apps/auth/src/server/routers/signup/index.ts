@@ -4,7 +4,6 @@ import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { prisma, redis } from "@asm/db";
 import { createLogger } from "@asm/logger";
-import { env } from "@root/env";
 import { z } from "zod";
 
 import { auth } from "@/auth/config";
@@ -370,68 +369,6 @@ async function findExistingSignupUser(
   });
 }
 
-async function repairMissingCredentialsInDevelopment(user: ExistingSignupUser) {
-  if (!(user.email && user.passwordHash)) {
-    return;
-  }
-
-  const accountId = user.email.toLowerCase();
-  const password = user.passwordHash;
-  const existingAccounts = await prisma.account.findMany({
-    select: { providerId: true },
-    where: {
-      providerId: { in: ["email", "credential"] },
-      userId: user.id,
-    },
-  });
-
-  const providerIds = new Set(
-    existingAccounts.map((account) => account.providerId)
-  );
-
-  if (!providerIds.has("email")) {
-    await prisma.account.create({
-      data: {
-        accountId,
-        password,
-        providerId: "email",
-        userId: user.id,
-      },
-    });
-  }
-
-  if (!providerIds.has("credential")) {
-    await prisma.account.create({
-      data: {
-        accountId,
-        password,
-        providerId: "credential",
-        userId: user.id,
-      },
-    });
-  }
-}
-
-async function ensureExistingSignupUserIsConsistent(
-  existingUser: ExistingSignupUser
-) {
-  if (env.NODE_ENV !== "development") {
-    return;
-  }
-
-  try {
-    await repairMissingCredentialsInDevelopment(existingUser);
-  } catch (repairError) {
-    debugLog.api("pendingSignupStart:dev-repair-accounts-error", {
-      error:
-        repairError instanceof Error
-          ? repairError.message
-          : String(repairError),
-      userId: existingUser.id,
-    });
-  }
-}
-
 function userExistsResponse() {
   return {
     error: "user-exists",
@@ -460,18 +397,14 @@ async function _sendVerificationEmailSafe(
   email: string,
   token: string
 ): Promise<void> {
-  const base = env.APP_URL ?? "https://social.localhost";
-  const url = new URL(`${base}/verify-email`);
-  url.searchParams.set("token", token);
   try {
     const { sendVerificationEmail } = await import("@/email/service");
     await sendVerificationEmail(email, token);
     debugLog.api("pending:email-sent");
-  } catch {
-    if (process.env.NODE_ENV === "development") {
-      console.log("Pending signup verification URL:", url.toString());
-    }
-    debugLog.api("pending:email-send-fallback", { url: url.toString() });
+  } catch (error) {
+    debugLog.api("pending:email-send-fallback", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -481,91 +414,6 @@ interface PendingSignup {
   password: string;
   passwordHash: string;
   username: string;
-}
-
-function isPrismaUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
-
-async function createAccountImmediatelyInDevelopment(
-  input: {
-    email: string;
-    username: string;
-  },
-  payload: PendingSignup,
-  token: string
-) {
-  try {
-    const user = await prisma.user.create({
-      data: {
-        displayName: payload.displayName,
-        displayUsername: payload.username,
-        email: payload.email,
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-        passwordHash: payload.passwordHash,
-        role: "user",
-        username: payload.username,
-      },
-      select: { id: true },
-    });
-
-    const emailLower = payload.email.toLowerCase();
-    const { passwordHash } = payload;
-
-    await prisma.account.create({
-      data: {
-        accountId: emailLower,
-        password: passwordHash,
-        providerId: "email",
-        userId: user.id,
-      },
-    });
-
-    await prisma.account
-      .create({
-        data: {
-          accountId: emailLower,
-          password: passwordHash,
-          providerId: "credential",
-          userId: user.id,
-        },
-      })
-      .catch(() => {
-        // ignore errors, account might already exist
-      });
-
-    await redis.del(`${PENDING_PREFIX}${token}`);
-    await redis.del(`${PENDING_PREFIX}email:${emailLower}`);
-
-    debugLog.api("pendingSignupStart:dev-account-created", {
-      email: input.email,
-      userId: user.id,
-    });
-
-    return {
-      requiresEmailVerification: false,
-      success: true,
-      userId: user.id,
-    } as const;
-  } catch (devCreateError) {
-    if (isPrismaUniqueConstraintError(devCreateError)) {
-      return { error: "user-exists", success: false } as const;
-    }
-
-    debugLog.api("pendingSignupStart:dev-create-error", {
-      error:
-        devCreateError instanceof Error
-          ? devCreateError.message
-          : String(devCreateError),
-    });
-    return { error: "server-error", success: false } as const;
-  }
 }
 
 export const signupRouter = router({
@@ -700,7 +548,6 @@ export const signupRouter = router({
           userId: existingUser?.id,
         });
         if (existingUser) {
-          await ensureExistingSignupUserIsConsistent(existingUser);
           return userExistsResponse();
         }
 
@@ -734,14 +581,6 @@ export const signupRouter = router({
         };
 
         await writePendingSignup(token, payload);
-
-        if (env.NODE_ENV === "development") {
-          return await createAccountImmediatelyInDevelopment(
-            { email: input.email, username: input.username },
-            payload,
-            token
-          );
-        }
 
         try {
           const otpSent = await sendSignupVerificationOTP(input.email);

@@ -20,11 +20,13 @@ import FollowingFeed from "@/components/home/feedview/following";
 import HomeFeed from "@/components/home/home-feed";
 import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
+import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
 import PostEditor from "@/components/posts/editor/post-editor";
+import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 
 interface ClientHomeProps {
   userData: UserData | null;
@@ -62,6 +64,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   );
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const hideTopBar = useHideOnScroll(feedScrollRef);
 
   return (
     <div className="relative flex h-dvh overflow-hidden">
@@ -73,8 +76,10 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
           onValueChange={handleTabChange}
           value={tab}
         >
-          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-            <MobileTopBar />
+          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
+            <CollapsibleTopBar hidden={hideTopBar}>
+              <MobileTopBar />
+            </CollapsibleTopBar>
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <AnimatedTabTrigger

@@ -67,6 +67,22 @@ describe("loadRootEnv", () => {
     expect(process.env.TEST_AUTH_ENV_B as string | undefined).toBe("env");
   });
 
+  test("empty placeholder in app env does not wipe the root value", async () => {
+    await Bun.$`rm -rf ${TMP_ROOT}`.quiet();
+    await Bun.$`mkdir -p ${TMP_ROOT}`.quiet();
+    await Bun.write(`${TMP_ROOT}/.env`, "TEST_AUTH_ENV_A=real-secret\n");
+    await Bun.write(`${TMP_ROOT}/.env.development`, "TEST_AUTH_ENV_A=\n");
+    process.chdir(TMP_ROOT);
+    process.env.NODE_ENV = "development";
+    delete process.env.TEST_AUTH_ENV_A;
+
+    loadRootEnv();
+
+    expect(process.env.TEST_AUTH_ENV_A as string | undefined).toBe(
+      "real-secret"
+    );
+  });
+
   test("does nothing when no env files exist", async () => {
     const emptyDir = "/tmp/opencode/env-load-empty-test";
     await Bun.$`rm -rf ${emptyDir}`.quiet();
