@@ -113,7 +113,11 @@ const PostContent: React.FC<PostContentProps> = ({
         <div className="relative flex items-start gap-2">
           {detail ? (
             <UserTooltip user={post.user}>
-              <Link className="shrink-0" href={`/users/${post.user.username}`}>
+              <Link
+                className="shrink-0"
+                href={`/users/${post.user.username}`}
+                prefetch={false}
+              >
                 <UserAvatar
                   avatarUrl={post.user.avatarUrl}
                   className="h-12 w-12"
@@ -129,6 +133,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   <Link
                     className="text-foreground truncate font-semibold hover:underline"
                     href={`/users/${post.user.username}`}
+                    prefetch={false}
                   >
                     {post.user.displayName}
                   </Link>
@@ -137,6 +142,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 <Link
                   className="text-muted-foreground shrink-0 hover:underline"
                   href={`/posts/${post.id}`}
+                  prefetch={false}
                   suppressHydrationWarning
                 >
                   {formatRelativeDate(post.createdAt)}
@@ -147,6 +153,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   <Link
                     className="text-muted-foreground truncate hover:underline"
                     href={`/users/${post.user.username}`}
+                    prefetch={false}
                   >
                     @{post.user.username}
                   </Link>
@@ -169,6 +176,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 <Link
                   className="text-foreground truncate font-semibold hover:underline"
                   href={`/users/${post.user.username}`}
+                  prefetch={false}
                 >
                   {post.user.displayName}
                 </Link>
@@ -178,6 +186,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 <Link
                   className="text-muted-foreground truncate hover:underline"
                   href={`/users/${post.user.username}`}
+                  prefetch={false}
                 >
                   @{post.user.username}
                 </Link>
@@ -186,6 +195,7 @@ const PostContent: React.FC<PostContentProps> = ({
               <Link
                 className="text-muted-foreground shrink-0 hover:underline"
                 href={`/posts/${post.id}`}
+                prefetch={false}
                 suppressHydrationWarning
               >
                 {formatRelativeDate(post.createdAt)}

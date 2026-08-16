@@ -93,6 +93,19 @@ export async function GET(
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
     const isThumbnail = url.searchParams.get("thumb") === "1";
+    if (isThumbnail && media.type === "VIDEO" && !media.thumbnailKey) {
+      // Return a lightweight SVG placeholder thumbnail when no stored video frame exists
+      // so image renderers never download multi-megabyte video streams pretending to be images.
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
+      return new NextResponse(svg, {
+        headers: {
+          "Cache-Control": "public, max-age=60",
+          "Content-Type": "image/svg+xml",
+        },
+        status: 200,
+      });
+    }
+
     // Video thumbnails live under their own key; serving them through this
     // route keeps the bucket private while giving every consumer one URL.
     const objectKey =

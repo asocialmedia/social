@@ -111,15 +111,17 @@ const VideoTile = ({
   aspectRatio: number;
   item: Media;
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isVideoActive, setIsVideoActive] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const handlePlaying = useCallback(() => {
     setIsVideoActive(true);
   }, []);
 
   const handleMouseEnter = useCallback(() => {
+    setIsHovered(true);
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
     }
@@ -138,6 +140,7 @@ const VideoTile = ({
   }, []);
 
   const handleMouseLeave = useCallback(() => {
+    setIsHovered(false);
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
       hoverTimeoutRef.current = null;
@@ -191,9 +194,9 @@ const VideoTile = ({
         onLoadedMetadata={handleLoadedMetadata}
         onPlaying={handlePlaying}
         playsInline
-        preload="metadata"
+        preload="none"
         ref={videoRef}
-        src={getMediaUrl(item.id)}
+        src={isHovered ? getMediaUrl(item.id) : undefined}
       />
       {/* Thumbnail overlay crossfades out once playback actually starts */}
       <Image

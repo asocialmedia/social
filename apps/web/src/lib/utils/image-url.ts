@@ -91,15 +91,14 @@ export function toAppProxyUrl(url: string | null | undefined): string {
   return rewriteAsmobUrl(url);
 }
 
-// App proxy URL for a media object. Videos that have a stored 2s thumbnail
-// return the thumbnail URL (?thumb=1) so callers can show a real poster
-// instead of downloading the clip just to paint a preview frame.
+// App proxy URL for a media object. Videos always request the thumbnail URL
+// (?thumb=1) so image callers receive a poster image/placeholder instead of
+// downloading multi-megabyte video streams.
 export function getMediaProxyUrl(media: {
   id: string;
   type?: string;
   thumbnailKey?: string | null;
 }): string {
-  const thumbnail =
-    media.type === "VIDEO" && media.thumbnailKey ? "?thumb=1" : "";
+  const thumbnail = media.type === "VIDEO" ? "?thumb=1" : "";
   return `/api/media/${media.id}${thumbnail}`;
 }
