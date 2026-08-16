@@ -146,10 +146,9 @@ export function ConversationList({
   );
 
   return (
-    <div className="relative flex h-full w-full flex-col">
-      {/* Header with Title and Search Button */}
-      <div className="border-border/60 flex h-14 shrink-0 items-center justify-between border-b px-4">
-        <h1 className="text-lg font-bold tracking-tight">Messages</h1>
+    <div className="relative flex w-16 shrink-0 flex-col border-r border-[hsl(var(--border))]">
+      {/* Discord-style icon rail: no header, just the search trigger. */}
+      <div className="border-border/60 flex h-14 shrink-0 items-center justify-center border-b">
         <button
           aria-label="Search people"
           className={cn(
@@ -167,9 +166,12 @@ export function ConversationList({
         </button>
       </div>
 
-      {/* Embedded Search Input when searchOpen */}
+      <div className="hide-native-scrollbar flex flex-1 flex-col items-center gap-1.5 overflow-y-auto p-2">
+        {renderConversations()}
+      </div>
+
       {searchOpen ? (
-        <div className="border-border/40 bg-muted/20 border-b p-3">
+        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 overflow-hidden rounded-2xl p-2 shadow-none">
           <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
             <Search className="text-muted-foreground h-4 w-4 shrink-0" />
             <input
@@ -180,16 +182,11 @@ export function ConversationList({
               value={query}
             />
           </div>
-          <div className="mt-2 flex max-h-60 flex-col overflow-y-auto">
+          <div className="mt-2 flex max-h-80 flex-col overflow-y-auto">
             {renderSearchResults()}
           </div>
         </div>
       ) : null}
-
-      {/* Conversations List */}
-      <div className="hide-native-scrollbar flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-        {renderConversations()}
-      </div>
     </div>
   );
 
@@ -244,17 +241,7 @@ export function ConversationList({
     }
     if (!data || data.items.length === 0) {
       return (
-        <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
-          <div className="bg-muted/30 flex h-14 w-14 items-center justify-center rounded-2xl">
-            <MessageCircle className="text-muted-foreground/50 h-7 w-7" />
-          </div>
-          <p className="text-muted-foreground mt-3 text-xs font-medium">
-            No conversations yet
-          </p>
-          <p className="text-muted-foreground/70 mt-1 text-[11px]">
-            Search to start chatting with people you follow.
-          </p>
-        </div>
+        <MessageCircle className="text-muted-foreground/40 mt-6 h-6 w-6" />
       );
     }
     return data.items.map((item) => {
@@ -270,18 +257,18 @@ export function ConversationList({
         <button
           aria-label={peer?.displayName ?? "Conversation"}
           className={cn(
-            "relative flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition-colors",
+            "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors",
             active
-              ? "border-primary/40 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
-              : "hover:bg-muted/50"
+              ? "border-border/60 bg-primary/15 border shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)]"
+              : "pill-3d-hover"
           )}
           key={item.conversation.id}
           onClick={() => onSelect(item.conversation.id)}
           title={peer?.displayName ?? "Conversation"}
           type="button"
         >
-          <div className="relative shrink-0">
-            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={40} />
+          <div className="relative">
+            <UserAvatar avatarUrl={peer?.avatarUrl ?? null} size={38} />
             {presence?.status ? (
               <span
                 className={cn(
@@ -291,22 +278,11 @@ export function ConversationList({
               />
             ) : null}
           </div>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-1">
-              <span className="truncate text-sm font-semibold">
-                {peer?.displayName || peer?.username || "Chat"}
-              </span>
-              {item.unreadCount > 0 ? (
-                <span className="bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
-                  {item.unreadCount}
-                </span>
-              ) : null}
-            </div>
-            <p className="text-muted-foreground truncate text-xs">
-              @{peer?.username}
-            </p>
-          </div>
+          {item.unreadCount > 0 ? (
+            <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
+              {item.unreadCount}
+            </span>
+          ) : null}
         </button>
       );
     });

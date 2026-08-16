@@ -16,7 +16,6 @@ import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
-import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
@@ -536,13 +535,6 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
   locked = false,
   userId,
 }) => {
-  const isXl = useMediaQuery("(min-width: 1280px)");
-  const { data, status } = useUserMediaQuery(userId, isXl && !locked);
-  const media = useMemo(
-    () => data?.pages.flatMap((page) => page.media) || [],
-    [data?.pages]
-  );
-
   // Guests see a locked sidebar: a full-height skeleton grid with the login
   // prompt centered on top of it.
   if (locked) {
@@ -553,33 +545,9 @@ const MediaGallery: React.FC<MediaGalleryProps> = ({
     );
   }
 
-  // Profiles with no media still keep the sidebar: skeleton tiles behind a
-  // centered empty state (with the app's nomedia avatar) instead of vanishing.
-  if (status === "success" && media.length === 0) {
-    return (
-      <aside className="hide-native-scrollbar relative hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-hidden xl:flex">
-        <MediaSkeletonGrid />
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[hsl(var(--background-alt))]/75 px-6 text-center backdrop-blur-sm">
-          <Image
-            alt=""
-            className="h-28 w-auto object-contain opacity-90"
-            draggable={false}
-            height={1024}
-            src={noMediaImage}
-            width={1536}
-          />
-          <p className="text-sm font-medium">No media yet</p>
-          <p className="text-muted-foreground max-w-44 text-xs">
-            Media from this profile's posts will show up here
-          </p>
-        </div>
-      </aside>
-    );
-  }
-
   return (
     <aside className="hide-native-scrollbar hidden h-screen w-full max-w-sm shrink-0 flex-col overflow-y-auto xl:flex">
-      <MediaGalleryContent enabled={isXl} userId={userId} />
+      <MediaGalleryContent enabled={!locked} userId={userId} />
     </aside>
   );
 };

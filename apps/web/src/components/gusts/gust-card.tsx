@@ -112,10 +112,54 @@ export const GustCard: React.FC<GustCardProps> = ({
       // eslint-disable-next-line react-compiler -- reset progress bar when video is inactive
       setProgress(0);
     }
+
+    return () => {
+      try {
+        video.pause();
+      } catch {
+        // Ignore aborts
+      }
+    };
+  }, [isActive]);
+
+  // Pause video if user switches tabs or browser is backgrounded
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const video = videoRef.current;
+      if (!video) {
+        return;
+      }
+      if (document.hidden) {
+        video.pause();
+      } else if (isActive) {
+        void (async () => {
+          try {
+            await video.play();
+          } catch {
+            // Play request might be interrupted
+          }
+        })();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [isActive]);
 
   useEffect(
     () => () => {
+      const video = videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.src = "";
+          video.load();
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
       if (singleTapTimerRef.current) {
         clearTimeout(singleTapTimerRef.current);
       }
