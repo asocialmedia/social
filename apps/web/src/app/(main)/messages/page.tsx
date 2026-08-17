@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import { MessageIdentityProvider } from "@/components/messages/message-identity-provider";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
@@ -17,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<FeedViewSkeleton />}>
       <MessagesContent />
     </Suspense>
   );
@@ -32,14 +31,12 @@ async function MessagesContent() {
   }
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={userData} />
-
+    <>
       <MessageIdentityProvider>
         <ClientMessages />
       </MessageIdentityProvider>
 
       <MobileBottomNav />
-    </div>
+    </>
   );
 }

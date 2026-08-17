@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache, Suspense } from "react";
 
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import {
   absoluteUrl,
@@ -108,7 +108,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<MediaRouteSkeleton />}>
       <MediaContent {...props} />
     </Suspense>
   );

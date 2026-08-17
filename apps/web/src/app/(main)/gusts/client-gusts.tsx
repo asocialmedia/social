@@ -29,7 +29,6 @@ import { useSession } from "@/app/(main)/session-provider";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import kyInstance from "@/lib/ky";
@@ -39,9 +38,7 @@ interface ClientGustsProps {
   loggedInUserData: UserData | null;
 }
 
-export const ClientGusts: React.FC<ClientGustsProps> = ({
-  loggedInUserData,
-}) => {
+export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialPostId = searchParams.get("id");
@@ -489,12 +486,9 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
   };
 
   return (
-    <div className="bg-background relative flex h-dvh overflow-hidden">
-      {/* Left Navigation Sidebar */}
-      <LeftSidebar userData={loggedInUserData} />
-
+    <>
       {/* Main Gusts Container */}
-      <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden">
+      <div className="bg-background relative flex min-w-0 flex-1 justify-center overflow-hidden">
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"
@@ -619,6 +613,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = ({
           ) : null}
         </AnimatePresence>
       </div>
-    </div>
+    </>
   );
 };

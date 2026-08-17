@@ -17,6 +17,7 @@ import Comments from "@/components/comments/comments";
 import FollowButton from "@/components/layouts/follow-button";
 import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import PostMoreButton from "@/components/posts/post-more-button";
@@ -39,6 +40,18 @@ const FALLBACK_IMAGE = fallbackImage;
 
 const getMediaUrl = (mediaId: string, download = false) =>
   `/api/media/${mediaId}${download ? "?download=true" : ""}`;
+
+// Only IMAGE / SVG / VIDEO gate rendering on an async onLoad/onLoadedData event.
+// CODE / DOCUMENT / AUDIO render immediately and have no load callback, so they
+// must never be left in a loading state or the skeleton would stay forever.
+function hasAsyncLoad(media: Media | undefined): boolean {
+  return (
+    !!media &&
+    (media.type === "IMAGE" ||
+      media.type === "VIDEO" ||
+      media.mimeType === "image/svg+xml")
+  );
+}
 
 interface MediaViewerProps {
   initialIndex?: number;
@@ -81,31 +94,35 @@ const MediaViewer = ({
 
   const currentMedia = media[currentIndex];
 
+  // Sync isLoading with the current item. Async media (image/video/svg) flip it
+  // off via their onLoad/onLoadedData; everything else has no such event, so
+  // clear it immediately to avoid an infinite skeleton.
   useEffect(() => {
-    if (isOpen) {
-      // eslint-disable-next-line react-compiler -- sync the viewer position when the dialog opens
-      setCurrentIndex(initialIndex);
-      setIsLoading(true);
+    if (!isOpen) {
+      return;
     }
-  }, [isOpen, initialIndex]);
+    // eslint-disable-next-line react-compiler -- reset load state per item
+    setIsLoading(hasAsyncLoad(media[currentIndex]));
+  }, [isOpen, currentIndex, media]);
 
   const handlePrevious = useCallback(() => {
     setCurrentIndex((prev) => {
       const next = prev > 0 ? prev - 1 : media.length - 1;
       onNavigate?.(next);
-      setIsLoading(true);
+      // Only async-media types show a skeleton; no-op otherwise.
+      setIsLoading(hasAsyncLoad(media[next]));
       return next;
     });
-  }, [media.length, onNavigate]);
+  }, [media, onNavigate]);
 
   const handleNext = useCallback(() => {
     setCurrentIndex((prev) => {
       const next = prev < media.length - 1 ? prev + 1 : 0;
       onNavigate?.(next);
-      setIsLoading(true);
+      setIsLoading(hasAsyncLoad(media[next]));
       return next;
     });
-  }, [media.length, onNavigate]);
+  }, [media, onNavigate]);
 
   const handleMediaLoaded = useCallback(() => {
     setIsLoading(false);
@@ -228,7 +245,7 @@ const MediaViewer = ({
           <SVGViewer
             className={cn(
               "flex h-full w-full items-center justify-center",
-              isLoading && "hidden"
+              isLoading && "opacity-0"
             )}
             onDownload={handleDownload}
             onLoad={handleMediaLoaded}
@@ -271,7 +288,10 @@ const MediaViewer = ({
         className={cn(
           "h-full max-h-full w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
           "shadow-lg",
-          isLoading && "hidden"
+          // Fade in on load via opacity instead of display:none: a display:none
+          // <video> with preload=metadata may never fire onLoadedData, which
+          // would leave the media viewer stuck on its skeleton forever.
+          isLoading && "opacity-0"
         )}
         onError={handleMediaLoaded}
         onLoadedData={handleMediaLoaded}
@@ -450,12 +470,15 @@ const MediaViewer = ({
             <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
           </Link>
           <div className="min-w-0 flex-1">
-            <Link
-              className="block truncate font-semibold text-white hover:underline"
-              href={`/users/${post.user.username}`}
-            >
-              {post.user.displayName}
-            </Link>
+            <span className="flex items-center gap-1.5">
+              <Link
+                className="block truncate font-semibold text-white hover:underline"
+                href={`/users/${post.user.username}`}
+              >
+                {post.user.displayName}
+              </Link>
+              <UserBadge badge={post.user.badge} />
+            </span>
             <Link
               className="block truncate text-white/70 hover:underline"
               href={`/users/${post.user.username}`}
@@ -479,7 +502,12 @@ const MediaViewer = ({
 
   return (
     <Dialog onOpenChange={onClose} open={isOpen}>
-      <DialogContent className="h-dvh max-h-dvh max-w-none border-none bg-black p-0 [&>button:last-child]:hidden">
+      {/* The named view transition makes the post <-> media route swap a smooth
+          crossfade into/out of the fullscreen viewer instead of an instant pop. */}
+      <DialogContent
+        className="h-dvh max-h-dvh max-w-none border-none bg-black p-0 [&>button:last-child]:hidden"
+        style={{ viewTransitionName: "media-viewer" }}
+      >
         <DialogTitle asChild>
           <VisuallyHidden>
             Media Viewer - {currentIndex + 1} of {media.length}
@@ -546,12 +574,15 @@ const MediaViewer = ({
                   />
                 </Link>
                 <div className="min-w-0 flex-1">
-                  <Link
-                    className="text-foreground block truncate font-semibold hover:underline"
-                    href={`/users/${post.user.username}`}
-                  >
-                    {post.user.displayName}
-                  </Link>
+                  <span className="flex items-center gap-1.5">
+                    <Link
+                      className="text-foreground block truncate font-semibold hover:underline"
+                      href={`/users/${post.user.username}`}
+                    >
+                      {post.user.displayName}
+                    </Link>
+                    <UserBadge badge={post.user.badge} />
+                  </span>
                   <Link
                     className="text-muted-foreground block truncate hover:underline"
                     href={`/users/${post.user.username}`}

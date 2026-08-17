@@ -54,22 +54,22 @@ afterEach(() => {
 });
 
 describe("web telemetry", () => {
-  test("is a no-op on non-node runtimes", () => {
+  test("is a no-op on non-node runtimes", async () => {
     process.env.NEXT_RUNTIME = "edge";
-    initWebTelemetry();
+    await initWebTelemetry();
     expect(getWebLogger()).toBeUndefined();
   });
 
-  test("is a no-op without an OTLP endpoint", () => {
+  test("is a no-op without an OTLP endpoint", async () => {
     delete (process.env as Record<string, string | undefined>)
       .OTEL_EXPORTER_OTLP_ENDPOINT;
-    initWebTelemetry();
+    await initWebTelemetry();
     expect(getWebLogger()).toBeUndefined();
   });
 
   test("boots the logger and forwards console.error as a log", async () => {
     const { calls, restore } = captureConsole("error");
-    initWebTelemetry();
+    await initWebTelemetry();
     expect(getWebLogger()).toBeDefined();
 
     console.error("boom", new Error("kaboom"));

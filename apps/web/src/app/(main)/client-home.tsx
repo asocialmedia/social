@@ -18,7 +18,6 @@ import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FollowingFeed from "@/components/home/feedview/following";
 import HomeFeed from "@/components/home/home-feed";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
 import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -34,7 +33,7 @@ interface ClientHomeProps {
 
 type FeedTab = "for-you" | "global" | "following";
 
-const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
+const ClientHome: React.FC<ClientHomeProps> = () => {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,9 +66,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
   const hideTopBar = useHideOnScroll(feedScrollRef);
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={userData} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
@@ -121,7 +118,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       align="end"
-                      className="apple-panel min-w-[13rem] p-1.5 shadow-none"
+                      className="apple-panel min-w-52 p-1.5 shadow-none"
                     >
                       <DropdownMenuItem
                         aria-disabled="true"
@@ -181,7 +178,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ userData }) => {
 
       <RightSideBar />
       <MobileBottomNav />
-    </div>
+    </>
   );
 };
 

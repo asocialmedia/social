@@ -1,4 +1,5 @@
-// oxlint-disable react-compiler -- nested preview components (SingleImagePreview/GridPreview/ShowMoreSection) need hooks and parent state, which the React Compiler rules reject
+// oxlint-disable react-compiler -- thumbnail components use local hooks/state that the React
+// Compiler would otherwise try to memoize across parent renders
 
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
@@ -20,6 +21,7 @@ import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { withViewTransition } from "@/lib/view-transition";
 
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
 import MediaViewer from "./media-viewer";
@@ -38,10 +40,21 @@ const VIDEO_HOVER_DELAY = 350;
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
+// Resolves a media item's natural aspect ratio (when stored) so the single
+// featured image can preserve true proportions instead of shrinking to a
+// corner tile on mobile.
+function mediaAspectRatio(media: Media, fallback = "1 / 1"): string {
+  const w =
+    typeof media.width === "number" && media.width > 0 ? media.width : null;
+  const h =
+    typeof media.height === "number" && media.height > 0 ? media.height : null;
+  return w && h ? `${w} / ${h}` : fallback;
+}
+
 const getCommonClasses = (isSmall: boolean) =>
   cn(
     "mx-auto w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105",
-    isSmall ? "h-20" : "h-56"
+    isSmall ? "aspect-square" : "aspect-square sm:h-72"
   );
 
 const GridImagePreview = ({
@@ -59,7 +72,7 @@ const GridImagePreview = ({
       <div
         className={cn(
           "group border-border/60 bg-muted/20 text-muted-foreground relative flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed p-2 text-center text-xs",
-          isSmall ? "h-20" : "h-56"
+          isSmall ? "aspect-square" : "aspect-square sm:h-72"
         )}
       >
         <ImageOff className="h-5 w-5 opacity-60" />
@@ -72,7 +85,7 @@ const GridImagePreview = ({
     <div
       className={cn(
         "group bg-muted/20 relative w-full overflow-hidden rounded-lg",
-        isSmall ? "h-20" : "h-56"
+        isSmall ? "aspect-square" : "aspect-square sm:h-72"
       )}
     >
       {isLoading ? (
@@ -107,8 +120,13 @@ const renderFilePreview = (
   isSmall: boolean,
   icon: React.ReactNode
 ) => (
-  <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
-    <div className="bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105">
+  <div className="relative w-full">
+    <div
+      className={cn(
+        "bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105",
+        isSmall ? "" : "min-h-40"
+      )}
+    >
       <div className="flex h-full flex-col items-center justify-center gap-2">
         <div className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}>
           {icon}
@@ -124,8 +142,13 @@ const renderFilePreview = (
 );
 
 const renderCodePreview = (m: Media, isSmall: boolean) => (
-  <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
-    <div className="bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105">
+  <div className="relative w-full">
+    <div
+      className={cn(
+        "bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105",
+        isSmall ? "" : "min-h-40"
+      )}
+    >
       <div className="flex h-full flex-col items-center justify-center gap-2">
         <FileCode
           className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}
@@ -147,11 +170,9 @@ const renderCodePreview = (m: Media, isSmall: boolean) => (
 
 const VideoPreview = ({
   autoPlay = false,
-  isSmall,
   media,
 }: {
   autoPlay?: boolean;
-  isSmall: boolean;
   media: Media;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -231,16 +252,10 @@ const VideoPreview = ({
     setIsVideoActive(false);
   }, [autoPlay]);
 
-  // Fade the thumbnail overlay out only once playback actually starts so the
-  // poster-to-video switch is a smooth crossfade instead of an instant swap.
   const handlePlaying = useCallback(() => {
     setIsVideoActive(true);
   }, []);
 
-  // Seek past the first frame so the preview shows a meaningful thumbnail
-  // (hover mode only - in autoplay mode the video starts from the beginning),
-  // and expand if the preview already started before this video's metadata
-  // loaded.
   const handleLoadedMetadata = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
@@ -270,7 +285,6 @@ const VideoPreview = ({
     [autoPlay, getExpandedHeight]
   );
 
-  // Clear any pending hover timer on unmount
   useEffect(
     () => () => {
       if (hoverTimeoutRef.current) {
@@ -280,8 +294,6 @@ const VideoPreview = ({
     []
   );
 
-  // Autoplay mode (post detail page): expand to the natural height and start
-  // playing as soon as the video metadata is available.
   useEffect(() => {
     if (autoPlay) {
       startPreview();
@@ -290,18 +302,16 @@ const VideoPreview = ({
 
   return (
     <div
-      className={cn(
-        "group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
-        isSmall ? "h-20" : "h-56"
-      )}
+      className="group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       ref={containerRef}
-      style={expandedHeight === null ? undefined : { height: expandedHeight }}
-    >
-      {
-        // absolute fill crops the video to the preview box while collapsed, but matches the expanded height when hovering
+      style={
+        expandedHeight === null
+          ? { aspectRatio: mediaAspectRatio(media, "16 / 9") }
+          : { height: expandedHeight }
       }
+    >
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
         muted
@@ -311,7 +321,6 @@ const VideoPreview = ({
         preload={autoPlay ? "metadata" : "none"}
         src={isHovered || autoPlay ? getMediaUrl(media.id) : undefined}
       />
-      {/* Thumbnail overlay crossfades out once playback actually starts */}
       <Image
         alt="Video preview"
         className={cn(
@@ -319,7 +328,8 @@ const VideoPreview = ({
           isVideoActive ? "opacity-0" : "opacity-100"
         )}
         fill
-        sizes="(max-width: 768px) 50vw, 33vw"
+        loading="eager"
+        sizes="(max-width: 768px) 100vw, 640px"
         src={getMediaProxyUrl(media)}
         unoptimized
       />
@@ -345,6 +355,105 @@ const VideoPreview = ({
       </div>
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
+  );
+};
+
+// A single (un-dimensioned) image fills the full column width on every screen
+// while preserving its natural aspect ratio, so rectangles no longer sit small
+// and centered and squares don't shrink to a corner tile on mobile.
+const SingleImagePreview = ({
+  interactive,
+  media,
+  onSelect,
+}: {
+  interactive: boolean;
+  media: Media;
+  onSelect: () => void;
+}) => {
+  const storedW =
+    typeof media.width === "number" && media.width > 0 ? media.width : null;
+  const storedH =
+    typeof media.height === "number" && media.height > 0 ? media.height : null;
+  const hasStoredDims = storedW !== null && storedH !== null;
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(
+    hasStoredDims ? { h: storedH, w: storedW } : null
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFailed, setIsFailed] = useState(false);
+
+  useEffect(() => {
+    if (hasStoredDims) {
+      return;
+    }
+    if (natural) {
+      return;
+    }
+    const img = new window.Image();
+    const handleLoad = () => {
+      if (img.naturalWidth > 0) {
+        setNatural({ h: img.naturalHeight, w: img.naturalWidth });
+      }
+    };
+    img.addEventListener("load", handleLoad);
+    img.src = getMediaUrl(media.id);
+    return () => {
+      img.removeEventListener("load", handleLoad);
+    };
+  }, [media.id, natural, hasStoredDims]);
+
+  const dims = natural;
+
+  if (isFailed) {
+    return (
+      <div className="border-border/60 bg-muted/20 text-muted-foreground flex max-h-[500px] w-full items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm">
+        <ImageOff className="h-5 w-5 opacity-60" />
+        <span>Attachment failed to load</span>
+      </div>
+    );
+  }
+
+  // Sizes at the photo's natural ratio: landscape fills the column width,
+  // portrait is capped in height and pinned to the left (not centered) so it
+  // doesn't stretch the feed into a huge frame or float awkwardly.
+  const isPortrait = Boolean(dims && dims.h > dims.w);
+  const previewContent = (
+    <div className="bg-muted/20 relative block w-full overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md">
+      {isLoading ? (
+        <div className="bg-muted/40 absolute inset-0 animate-pulse rounded-xl" />
+      ) : null}
+      <Image
+        alt="Attachment"
+        className={cn(
+          "rounded-xl object-contain transition-opacity duration-300",
+          isPortrait
+            ? "h-auto max-h-[72vh] w-auto max-w-full"
+            : "h-auto w-full",
+          isLoading ? "opacity-0" : "opacity-100"
+        )}
+        height={dims?.h ?? 600}
+        onError={() => {
+          setIsFailed(true);
+          setIsLoading(false);
+        }}
+        onLoad={() => setIsLoading(false)}
+        sizes="(max-width: 768px) 100vw, 640px"
+        src={getMediaUrl(media.id)}
+        width={dims?.w ?? 640}
+      />
+    </div>
+  );
+
+  return interactive ? (
+    <button
+      aria-label="View attachment"
+      className="block w-full cursor-pointer text-left"
+      onClick={onSelect}
+      type="button"
+    >
+      {previewContent}
+    </button>
+  ) : (
+    <div>{previewContent}</div>
   );
 };
 
@@ -376,10 +485,16 @@ export const MediaPreviews = ({
 
   const handleCloseViewer = useCallback(() => {
     if (post) {
-      // Replace (not push) so closing the viewer returns to the post page
-      // without leaving a stale media URL in the history that pressing Back
-      // would reopen.
-      router.replace(`/posts/${post.id}`);
+      // The media URL was pushed on top of the post page, so closing the viewer
+      // should pop it with back() - that returns to the post page in one step
+      // without leaving a duplicate entry behind (which would make the top-left
+      // back button need multiple presses). Fall back to replace for direct
+      // loads where there is no prior entry to pop.
+      if (typeof window !== "undefined" && window.history.length > 1) {
+        withViewTransition(() => router.back());
+      } else {
+        withViewTransition(() => router.replace(`/posts/${post.id}`));
+      }
       return;
     }
     setSelectedIndex(null);
@@ -388,7 +503,9 @@ export const MediaPreviews = ({
   const openAtIndex = useCallback(
     (index: number) => {
       if (post) {
-        router.push(`/posts/${post.id}/media/${index}`);
+        withViewTransition(() =>
+          router.push(`/posts/${post.id}/media/${index}`)
+        );
         return;
       }
       setSelectedIndex(index);
@@ -400,7 +517,9 @@ export const MediaPreviews = ({
     (index: number) => {
       if (post) {
         // Update the URL in place so the shared link tracks the viewed asset.
-        router.replace(`/posts/${post.id}/media/${index}`);
+        withViewTransition(() =>
+          router.replace(`/posts/${post.id}/media/${index}`)
+        );
         return;
       }
       setSelectedIndex(index);
@@ -417,9 +536,12 @@ export const MediaPreviews = ({
   const renderImagePreview = (m: Media, isSmall: boolean) => {
     if (m.mimeType === "image/svg+xml") {
       return (
-        <div className={cn("group relative w-full", isSmall ? "h-20" : "h-56")}>
+        <div className="group relative w-full">
           <object
-            className={getCommonClasses(isSmall)}
+            className={cn(
+              "mx-auto w-full rounded-lg transition-transform duration-300 group-hover:scale-105",
+              isSmall ? "aspect-square" : "aspect-square"
+            )}
             data={getMediaUrl(m.id)}
             type="image/svg+xml"
           >
@@ -429,7 +551,6 @@ export const MediaPreviews = ({
         </div>
       );
     }
-
     return <GridImagePreview isSmall={isSmall} media={m} />;
   };
 
@@ -439,9 +560,7 @@ export const MediaPreviews = ({
         return renderImagePreview(m, isSmall);
       }
       case "VIDEO": {
-        return (
-          <VideoPreview autoPlay={autoPlayVideos} isSmall={isSmall} media={m} />
-        );
+        return <VideoPreview autoPlay={autoPlayVideos} media={m} />;
       }
       case "AUDIO": {
         return renderFilePreview(m, isSmall, <FileAudioIcon />);
@@ -463,131 +582,33 @@ export const MediaPreviews = ({
     [openAtIndex]
   );
 
-  // eslint-disable-next-line react/no-unstable-nested-components -- SingleImagePreview needs parent state and hooks, making it reasonable to keep nested
-  const SingleImagePreview = ({
-    media,
-    onSelect,
-  }: {
-    media: Media;
-    onSelect: () => void;
-  }) => {
-    const storedW =
-      typeof media.width === "number" && media.width > 0 ? media.width : null;
-    const storedH =
-      typeof media.height === "number" && media.height > 0
-        ? media.height
-        : null;
-    const hasStoredDims = storedW !== null && storedH !== null;
-    const [natural, setNatural] = useState<{ w: number; h: number } | null>(
-      hasStoredDims ? { h: storedH, w: storedW } : null
-    );
-    const [isLoading, setIsLoading] = useState(true);
-    const [isFailed, setIsFailed] = useState(false);
+  // These "preview card" components are declared at module scope (not nested)
+  // so their identity is stable across parent re-renders. Nested definitions
+  // would give them a fresh type on every MediaPreviews render, forcing React
+  // to unmount and remount each thumbnail (and reload its image) whenever the
+  // feed refreshes — the source of the images "blinking" mid-scroll.
+  const renderSingleImage = (m: Media, index: number) => (
+    <SingleImagePreview
+      key={m.id}
+      interactive={interactive}
+      media={m}
+      onSelect={handleSelectImage(index)}
+    />
+  );
 
-    useEffect(() => {
-      if (hasStoredDims) {
-        return;
-      }
-      if (natural) {
-        return;
-      }
-      const img = new window.Image();
-      const handleLoad = () => {
-        if (img.naturalWidth > 0) {
-          setNatural({ h: img.naturalHeight, w: img.naturalWidth });
-        }
-      };
-      img.addEventListener("load", handleLoad);
-      img.src = getMediaUrl(media.id);
-      return () => {
-        img.removeEventListener("load", handleLoad);
-      };
-    }, [media.id, natural, hasStoredDims]);
-
-    const dims = natural;
-
-    if (isFailed) {
-      return (
-        <div className="border-border/60 bg-muted/20 text-muted-foreground flex max-h-[500px] w-full items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm">
-          <ImageOff className="h-5 w-5 opacity-60" />
-          <span>Attachment failed to load</span>
-        </div>
-      );
-    }
-
-    const previewContent = (
-      <div className="bg-muted/20 relative inline-block max-w-full overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md">
-        {isLoading ? (
-          <div className="bg-muted/40 absolute inset-0 animate-pulse" />
-        ) : null}
-        <Image
-          alt="Attachment"
-          className={cn(
-            "h-auto max-h-[500px] w-auto max-w-full rounded-xl object-contain transition-opacity duration-300",
-            isLoading ? "opacity-0" : "opacity-100"
-          )}
-          height={dims?.h ?? 480}
-          onError={() => {
-            setIsFailed(true);
-            setIsLoading(false);
-          }}
-          onLoad={() => setIsLoading(false)}
-          sizes="(max-width: 768px) 100vw, 640px"
-          src={getMediaUrl(media.id)}
-          style={
-            dims
-              ? {
-                  aspectRatio: `${dims.w} / ${dims.h}`,
-                  maxHeight: "500px",
-                }
-              : { maxHeight: "500px" }
-          }
-          width={dims?.w ?? 640}
-        />
-      </div>
-    );
-
-    return interactive ? (
-      <button
-        aria-label="View attachment"
-        className="block w-full cursor-pointer text-left"
-        onClick={onSelect}
-        type="button"
-      >
-        {previewContent}
-      </button>
-    ) : (
-      <div>{previewContent}</div>
-    );
-  };
-
-  // eslint-disable-next-line react/no-unstable-nested-components -- GridPreview uses parent component props and state, making it reasonable to keep nested
-  const GridPreview = ({
-    media,
-    index,
-    size = "large",
-  }: {
-    media: Media;
-    index: number;
-    size?: "small" | "large";
-  }) => {
+  const renderGridTile = (m: Media, index: number, size: "small" | "large") => {
     const isSmall = size === "small";
-    // Videos size themselves (collapsed preview + hover expansion), so let the wrapper grow with them
-    let wrapperHeightClass = "h-56";
-    if (isSmall) {
-      wrapperHeightClass = "h-20";
-    }
-    if (media.type === "VIDEO") {
-      wrapperHeightClass = "h-auto";
-    }
+    const handleSelect = () => openAtIndex(index);
+    // Videos (and a lone media item) size themselves via their own natural
+    // aspect ratio, so don't force a square/tall crop that squeezes them.
+    // Small tiles stay square for a tidy grid; large image tiles use a square
+    // crop on mobile and a tall crop on desktop.
+    // Videos size themselves via their own natural aspect ratio, so don't force
+    // a square/tall crop on them. Images (and small tiles) keep a tidy crop.
+    const wrapperHeightClass =
+      !isSmall && m.type === "VIDEO" ? "h-auto" : "aspect-square sm:h-72";
 
-    // openAtIndex is a stable useCallback from the parent scope, so index is
-    // the only value that can change between renders of this row.
-    const handleSelect = useCallback(() => {
-      openAtIndex(index);
-    }, [index]);
-
-    return interactive ? (
+    return (
       <button
         aria-label="View attachment"
         className={cn(
@@ -595,25 +616,26 @@ export const MediaPreviews = ({
           wrapperHeightClass
         )}
         data-card-interactive
+        key={m.id}
         onClick={handleSelect}
         type="button"
       >
-        {renderPreview(media, index, isSmall)}
+        {renderPreview(m, index, isSmall)}
       </button>
-    ) : (
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-lg shadow-xs",
-          wrapperHeightClass
-        )}
-      >
-        {renderPreview(media, index, isSmall)}
-      </div>
     );
   };
 
-  // eslint-disable-next-line react/no-unstable-nested-components -- ShowMoreSection uses parent component state, making it reasonable to keep nested
-  const ShowMoreSection = () => {
+  const renderGridCell = (
+    m: Media,
+    index: number,
+    size: "small" | "large" = "large"
+  ) => (
+    <div className="relative overflow-hidden rounded-lg shadow-xs" key={m.id}>
+      {renderPreview(m, index, size === "small")}
+    </div>
+  );
+
+  const renderShowMoreSection = () => {
     if (isMobile) {
       return (
         <div className="px-4 pb-4">
@@ -629,14 +651,9 @@ export const MediaPreviews = ({
               </div>
 
               <div className="grid grid-cols-3 gap-2">
-                {remainingAttachments.map((m, index) => (
-                  <GridPreview
-                    index={index + initialCount}
-                    key={m.id}
-                    media={m}
-                    size="small"
-                  />
-                ))}
+                {remainingAttachments.map((m, index) =>
+                  renderGridTile(m, index + initialCount, "small")
+                )}
               </div>
             </div>
           </div>
@@ -675,17 +692,39 @@ export const MediaPreviews = ({
     );
   };
 
+  // On mobile the first attachment is rendered as a full-width featured card
+  // (so a rectangle isn't squeezed into a half-width crop it doesn't fill) and
+  // the rest tile below it in a 2-column grid. Desktop keeps a uniform grid.
+  const [first, ...rest] = visibleAttachments;
+
+  const renderFirstAttachment = () => {
+    if (!first) {
+      return null;
+    }
+    if (first.type === "IMAGE" && first.mimeType !== "image/svg+xml") {
+      return renderSingleImage(first, 0);
+    }
+    if (interactive) {
+      return renderGridTile(first, 0, "large");
+    }
+    return renderGridCell(first, 0);
+  };
+
   return (
     <div className="w-full">
+      {isMobile && first ? (
+        <div className="mb-4 w-full">{renderFirstAttachment()}</div>
+      ) : null}
+
       <div
         className={cn(
           "grid gap-4",
           (() => {
-            if (visibleAttachments.length === 1) {
-              return "grid-cols-1";
-            }
             if (isMobile) {
               return "grid-cols-2";
+            }
+            if (visibleAttachments.length === 1) {
+              return "grid-cols-1";
             }
             if (visibleAttachments.length === 2) {
               return "grid-cols-2";
@@ -694,24 +733,26 @@ export const MediaPreviews = ({
           })()
         )}
       >
-        {visibleAttachments.map((m, index) =>
-          visibleAttachments.length === 1 &&
-          m.type === "IMAGE" &&
-          m.mimeType !== "image/svg+xml" ? (
-            <SingleImagePreview
-              key={m.id}
-              media={m}
-              onSelect={handleSelectImage(index)}
-            />
-          ) : (
-            <GridPreview index={index} key={m.id} media={m} />
-          )
-        )}
+        {(isMobile ? rest : visibleAttachments).map((m, index) => {
+          const isSingleImage =
+            visibleAttachments.length === 1 &&
+            m.type === "IMAGE" &&
+            m.mimeType !== "image/svg+xml";
+          if (isSingleImage) {
+            return renderSingleImage(m, index);
+          }
+          const tileIndex = isMobile ? index + 1 : index;
+          if (interactive) {
+            return renderGridTile(m, tileIndex, "large");
+          }
+          return renderGridCell(m, tileIndex);
+        })}
       </div>
 
-      {interactive && !showAll && attachments.length > initialCount && (
-        <ShowMoreSection />
-      )}
+      {interactive &&
+        !showAll &&
+        attachments.length > initialCount &&
+        renderShowMoreSection()}
 
       {interactive && showAll ? (
         <div className="flex justify-center pb-4">

@@ -1,7 +1,16 @@
-import { createLogger, initTelemetry } from "@asm/logger";
-import type { Logger } from "@asm/logger";
+// Edge-runtime safe. @asm/logger is Node-only (uses node:stream / process.stderr)
+// so it is imported lazily inside initWebTelemetry, which is itself only
+// reached on the Node.js runtime. Statically importing it here would pull the
+// Node module into the Edge (proxy/middleware) bundle and fail to compile.
 
-let webLogger: Logger | undefined;
+interface PinoLogger {
+  debug: (message: string) => void;
+  error: (message: string) => void;
+  info: (message: string) => void;
+  warn: (message: string) => void;
+}
+
+let webLogger: PinoLogger | undefined;
 
 function stringifyArg(arg: unknown): string {
   if (typeof arg === "string") {
@@ -35,7 +44,7 @@ const CONSOLE_TO_PINO: Record<ConsoleMethod, LogMethod> = {
 // Forwards the Next.js server's console output into the pino logger (and thus
 // OpenObserve under the configured stream, e.g. asm_web_logs). The original
 // console methods still run so terminal output and Dokploy logs are unchanged.
-function forwardConsoleOutput(logger: Logger): void {
+function forwardConsoleOutput(logger: PinoLogger): void {
   const consoleRef = console as Record<
     ConsoleMethod,
     (...args: unknown[]) => void
@@ -59,8 +68,9 @@ let initialized = false;
 // Boots the web app's OpenTelemetry stack: traces, metrics and logs ship to
 // OpenObserve under the asm_web_* streams. Safe to call repeatedly; only runs
 // on the Node.js server runtime and only when an OTLP endpoint is configured
-// (so `next build` stays offline and unset environments are no-ops).
-export function initWebTelemetry(): void {
+// (so `next build` stays offline, unset environments are no-ops, and the Edge
+// runtime never touches the Node-only @asm/logger module).
+export async function initWebTelemetry(): Promise<void> {
   if (initialized || process.env.NEXT_RUNTIME !== "nodejs") {
     return;
   }
@@ -72,15 +82,23 @@ export function initWebTelemetry(): void {
     return;
   }
 
-  initialized = true;
-  initTelemetry({ serviceName: "web", version: "1.1.85" });
-  webLogger ??= createLogger({
+  const { createLogger, initTelemetry } = await import("@asm/logger");
+  const logger = createLogger({
     level: process.env.LOG_LEVEL ?? "info",
     serviceName: "web",
   });
+  const telemetry = initTelemetry({ serviceName: "web", version: "1.1.85" });
+
+  initialized = true;
+  webLogger = logger;
   forwardConsoleOutput(webLogger);
+
+  // Tear down exporters cleanly on shutdown.
+  process.once("exit", () => {
+    void telemetry.shutdown();
+  });
 }
 
-export function getWebLogger(): Logger | undefined {
+export function getWebLogger(): PinoLogger | undefined {
   return webLogger;
 }

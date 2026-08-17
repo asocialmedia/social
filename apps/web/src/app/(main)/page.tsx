@@ -2,7 +2,7 @@ import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
 // the skeleton when ready.
 export default function Page() {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<HomePageSkeleton />}>
       <HomeContent />
     </Suspense>
   );

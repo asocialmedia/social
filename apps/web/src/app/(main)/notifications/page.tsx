@@ -3,10 +3,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
@@ -19,7 +18,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<FeedViewSkeleton />}>
       <NotificationsContent />
     </Suspense>
   );
@@ -34,9 +33,7 @@ async function NotificationsContent() {
   }
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={userData} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Notifications />
       </div>
@@ -71,6 +68,6 @@ async function NotificationsContent() {
       </aside>
 
       <MobileBottomNav />
-    </div>
+    </>
   );
 }

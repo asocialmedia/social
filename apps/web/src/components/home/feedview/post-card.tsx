@@ -29,8 +29,9 @@ import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
 import { isPopupOpen } from "@/lib/popup-tracker";
-import { cn, formatRelativeDate } from "@/lib/utils";
+import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { withViewTransition } from "@/lib/view-transition";
 
 import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
@@ -104,7 +105,11 @@ const PostContent: React.FC<PostContentProps> = ({
       {!detail && (
         <UserTooltip user={post.user}>
           <Link className="shrink-0" href={`/users/${post.user.username}`}>
-            <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
+            <UserAvatar
+              avatarUrl={post.user.avatarUrl}
+              className="h-10 w-10"
+              priority
+            />
           </Link>
         </UserTooltip>
       )}
@@ -121,6 +126,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 <UserAvatar
                   avatarUrl={post.user.avatarUrl}
                   className="h-12 w-12"
+                  priority
                 />
               </Link>
             </UserTooltip>
@@ -283,7 +289,9 @@ const PostContent: React.FC<PostContentProps> = ({
               title="Views"
             >
               <Eye className="size-5" />
-              <span className="text-sm tabular-nums">{post.viewCount}</span>
+              <span className="text-sm tabular-nums">
+                {formatNumber(post.viewCount)}
+              </span>
             </span>
             <ShareButton
               defaultTab="link"
@@ -343,7 +351,7 @@ const FeedComments: React.FC<{ post: ExtendedPostData }> = ({ post }) => {
       <div
         className={cn(
           isClamped &&
-            "overflow-hidden [mask-image:linear-gradient(to_bottom,black_85%,transparent)]"
+            "overflow-hidden mask-[linear-gradient(to_bottom,black_85%,transparent)]"
         )}
         ref={containerRef}
         style={isClamped ? { maxHeight: COMMENTS_MAX_HEIGHT } : undefined}
@@ -429,7 +437,7 @@ const PostCard: React.FC<PostCardProps> = ({
       if (isPopupOpen()) {
         return;
       }
-      router.push(`/posts/${post.id}`);
+      withViewTransition(() => router.push(`/posts/${post.id}`));
     },
     [detail, post.id, router]
   );
@@ -441,7 +449,7 @@ const PostCard: React.FC<PostCardProps> = ({
       }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        router.push(`/posts/${post.id}`);
+        withViewTransition(() => router.push(`/posts/${post.id}`));
       }
     },
     [detail, post.id, router]

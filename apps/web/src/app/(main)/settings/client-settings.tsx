@@ -5,7 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useCallback, useRef, useState } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
@@ -41,9 +40,7 @@ export default function ClientSettings({ user }: ClientSettingsProps) {
   }, []);
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={user} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
@@ -99,6 +96,6 @@ export default function ClientSettings({ user }: ClientSettingsProps) {
 
       <SettingsSidebar user={user} />
       <MobileBottomNav />
-    </div>
+    </>
   );
 }

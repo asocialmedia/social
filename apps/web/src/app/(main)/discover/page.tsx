@@ -2,13 +2,10 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import ExploreClient from "@/components/discover/explore-client";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
-import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
 export const metadata: Metadata = {
@@ -18,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function DiscoveryPage() {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<FeedViewSkeleton />}>
       <DiscoveryContent />
     </Suspense>
   );
@@ -27,12 +24,9 @@ export default function DiscoveryPage() {
 async function DiscoveryContent() {
   const session = await getSessionFromApi();
   const isLoggedIn = Boolean(session?.user);
-  const userData = session?.user ? await getUserData(session.user.id) : null;
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={userData} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Suspense fallback={<FeedViewSkeleton />}>
           <ExploreClient />
@@ -47,6 +41,6 @@ async function DiscoveryContent() {
       </aside>
 
       <MobileBottomNav />
-    </div>
+    </>
   );
 }

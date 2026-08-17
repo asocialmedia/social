@@ -42,12 +42,16 @@ export function formatNumber(num: number): string {
   const sign = num < 0 ? "-" : "";
   const abs = Math.abs(num);
   if (abs >= 1_000_000) {
-    return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+    return `${sign}${trimTrailingZero((abs / 1_000_000).toFixed(1))}m`;
   }
   if (abs >= 1000) {
-    return `${sign}${(abs / 1000).toFixed(1)}K`;
+    return `${sign}${trimTrailingZero((abs / 1000).toFixed(1))}k`;
   }
   return `${sign}${abs}`;
+}
+
+function trimTrailingZero(value: string): string {
+  return value.endsWith(".0") ? value.slice(0, -2) : value;
 }
 
 export function slugify(input: string): string {

@@ -1,9 +1,9 @@
-import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
-
+// When navigating from the post detail page into the fullscreen viewer the
+// media route renders the same post shell (ClientPost) with the viewer open.
+// Showing a dedicated full-screen black overlay here would make that
+// navigation read as a jarring third page swap. Instead we keep the post page
+// visible and let the real viewer (with its own in-place asset skeleton)
+// drive the loading state, so feed -> post -> media stays one connected flow.
 export default function Loading() {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
-      <MediaViewerSkeleton className="max-h-[85vh] max-w-[90vw]" type="IMAGE" />
-    </div>
-  );
+  return null;
 }
