@@ -14,7 +14,7 @@ import {
 } from "@/lib/seo";
 import { getSessionFromApi } from "@/lib/session";
 
-import ClientPost from "../../client-post";
+import MediaPage from "./media-page";
 
 interface PageProps {
   params: Promise<{ postId: string; index: string }>;
@@ -155,11 +155,5 @@ async function MediaContent(props: PageProps) {
     resolvedIndex = mediaIndex;
   }
 
-  return (
-    <ClientPost
-      initialMediaIndex={resolvedIndex}
-      post={post}
-      userData={userData}
-    />
-  );
+  return <MediaPage initialMediaIndex={resolvedIndex} post={post} />;
 }
