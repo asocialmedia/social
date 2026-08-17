@@ -30,6 +30,20 @@ function buildAuthHeader(
   return {};
 }
 
+// Resolves the OpenObserve log stream a service should write to. Falls back
+// to `default` (or `default_<service>` when a service name is known) so local
+// setups without configuration still have a well-defined destination.
+export function resolveLogStreamName(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return (
+    env.OPENOBSERVE_LOG_STREAM ??
+    env.OPENOBSERVE_STREAM ??
+    env.ZO_STREAM ??
+    (env.OTEL_SERVICE_NAME ? `default_${env.OTEL_SERVICE_NAME}` : "default")
+  );
+}
+
 // Reads OpenObserve / OpenTelemetry settings from the environment. Uses the
 // standard OTEL_* variables where possible and OpenObserve-specific ones for
 // the ingestion stream names and organization.
@@ -42,10 +56,7 @@ export function readOtelConfig(
     env.ZO_ENDPOINT ??
     "http://localhost:5080/api/default";
 
-  const streamName =
-    env.OPENOBSERVE_STREAM ??
-    env.ZO_STREAM ??
-    (env.OTEL_SERVICE_NAME ? `default_${env.OTEL_SERVICE_NAME}` : "default");
+  const streamName = resolveLogStreamName(env);
 
   const headers: Record<string, string> = {};
 
@@ -73,10 +84,7 @@ export function readOtelConfig(
     headers.organization = organization;
   }
 
-  const enabled =
-    env.OTEL_ENABLED === "true" ||
-    env.OPENOBSERVE_ENABLED === "true" ||
-    (env.OTEL_ENABLED === undefined && env.NODE_ENV !== "test");
+  const enabled = env.OPENOBSERVE_ENABLED === "true" || env.NODE_ENV !== "test";
 
   return {
     enabled,

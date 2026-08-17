@@ -9,5 +9,6 @@ export {
   enableOtelDiagnostics,
   type OtelConfig,
   readOtelConfig,
+  resolveLogStreamName,
 } from "./otel-config";
 export { createOtlpLogDestination } from "./otlp-log-destination";

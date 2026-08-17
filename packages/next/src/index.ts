@@ -83,7 +83,7 @@ export const config: NextConfig = {
   partialPrefetching: true,
   reactCompiler: true,
   reactStrictMode: true,
-  transpilePackages: ["@asm/auth", "@asm/db", "@asm/config"],
+  transpilePackages: ["@asm/auth", "@asm/db", "@asm/config", "@asm/logger"],
 };
 
 export const withStreamConfig = (sourceConfig: NextConfig): NextConfig => ({

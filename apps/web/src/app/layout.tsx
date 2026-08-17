@@ -174,12 +174,16 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
       <meta content="default" name="apple-mobile-web-app-status-bar-style" />
       <meta content="asocialmedia" name="apple-mobile-web-app-title" />
       <link href="/site.webmanifest" rel="manifest" />
-      <link href="https://tracking.przknv.cc" rel="preconnect" />
-      <script
-        data-website-id="e9ee46c1-9c4a-4e03-a5e0-133af1b65fb9"
-        defer
-        src="https://tracking.przknv.cc/script.js"
-      />
+      {process.env.NODE_ENV === "production" ? (
+        <>
+          <link href="https://tracking.przknv.cc" rel="preconnect" />
+          <script
+            data-website-id="e9ee46c1-9c4a-4e03-a5e0-133af1b65fb9"
+            defer
+            src="https://tracking.przknv.cc/script.js"
+          />
+        </>
+      ) : null}
     </head>
     <body className="min-h-screen font-sans antialiased">
       <JsonLd data={websiteJsonLd} />
