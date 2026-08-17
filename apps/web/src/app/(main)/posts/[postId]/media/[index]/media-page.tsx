@@ -43,6 +43,7 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
       onClose={handleClose}
       onNavigate={handleNavigate}
       post={post}
+      standalone
     />
   );
 }

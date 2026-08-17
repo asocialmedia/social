@@ -60,6 +60,10 @@ interface MediaViewerProps {
   onClose: () => void;
   onNavigate?: (index: number) => void;
   post?: PostData;
+  // When true, render the media screen as a standalone page (full-viewport, no
+  // Radix dialog/overlay/portal). Used by the /posts/[id]/media/... route so the
+  // viewer reads as its own page instead of an overlay on the post page.
+  standalone?: boolean;
 }
 
 function getShareThumbnail(
@@ -85,6 +89,7 @@ const MediaViewer = ({
   onClose,
   onNavigate,
   post,
+  standalone = false,
 }: MediaViewerProps) => {
   const { toast } = useToast();
   const { user: sessionUser } = useSession();
@@ -229,13 +234,17 @@ const MediaViewer = ({
         e.preventDefault();
         handleNext();
       }
+      // In dialog mode Escape is handled by Radix Dialog (onOpenChange -> onClose),
+      // so we only handle it ourselves in standalone (page) mode.
+      if (standalone && e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
     };
-    // Escape is handled solely by Radix Dialog (onOpenChange -> onClose) so
-    // closing never fires the navigation twice.
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, handlePrevious, handleNext]);
+  }, [isOpen, handlePrevious, handleNext, standalone, onClose]);
 
   const renderImageMedia = (item: Media) => {
     if (item.mimeType === "image/svg+xml") {
@@ -500,7 +509,181 @@ const MediaViewer = ({
     );
   };
 
-  return (
+  const body = (
+    <div className="flex h-full w-full overflow-hidden">
+      <div className="relative flex h-full min-w-0 flex-1 flex-col bg-black">
+        {renderMobileHeader()}
+
+        <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
+          {renderMedia()}
+
+          <button
+            aria-label="Close viewer"
+            className="absolute top-4 left-3 z-50 hidden rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 lg:flex"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="h-6 w-6" />
+          </button>
+
+          {media.length > 1 && (
+            <>
+              <button
+                aria-label="Previous media"
+                className="absolute top-1/2 left-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
+                onClick={handlePrevious}
+                type="button"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                aria-label="Next media"
+                className="absolute top-1/2 right-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
+                onClick={handleNext}
+                type="button"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+
+              <div className="absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 backdrop-blur-md">
+                <span className="text-sm text-white">
+                  {currentIndex + 1} / {media.length}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {post ? renderActionBar() : null}
+      </div>
+
+      {post ? (
+        <aside className="hidden h-full w-95 flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <Link className="shrink-0" href={`/users/${post.user.username}`}>
+              <UserAvatar
+                avatarUrl={post.user.avatarUrl}
+                className="h-10 w-10"
+              />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <Link
+                  className="text-foreground block truncate font-semibold hover:underline"
+                  href={`/users/${post.user.username}`}
+                >
+                  {post.user.displayName}
+                </Link>
+                <UserBadge badge={post.user.badge} />
+              </span>
+              <Link
+                className="text-muted-foreground block truncate hover:underline"
+                href={`/users/${post.user.username}`}
+              >
+                @{post.user.username}
+              </Link>
+            </div>
+            {sessionUser?.id === post.user.id ? (
+              <PostMoreButton className="shrink-0" post={post} />
+            ) : null}
+          </div>
+
+          <div className="px-4 pt-1 pb-2">
+            <Linkify>
+              <p className="text-foreground text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
+                {post.content}
+              </p>
+            </Linkify>
+            {post.tags?.length || post.mentions?.length ? (
+              <div className="mt-3">
+                <PostMeta
+                  mentions={post.mentions.map((m) => m.user)}
+                  tags={post.tags}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-sm">
+            <span>
+              {new Date(post.createdAt).toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+            <span aria-hidden>·</span>
+            <span>
+              {new Date(post.createdAt).toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </span>
+            <div className="flex-1" />
+            <span>{formatNumber(post.viewCount)} views</span>
+          </div>
+
+          <div className="border-border/60 flex items-center gap-1 border-y px-4 py-2">
+            <AuraVoteButton
+              authorName={post.user.displayName}
+              initialState={{
+                aura: post.aura,
+                userVote: post.vote[0]?.value || 0,
+              }}
+              postId={post.id}
+            />
+            <div className="flex-1" />
+            <BookmarkButton
+              className="h-9 w-9"
+              initialState={{
+                isBookmarkedByUser: post.bookmarks.some(
+                  (bookmark) => bookmark.userId === sessionUser?.id
+                ),
+              }}
+              postId={post.id}
+            />
+            <ShareButton
+              description={post.content}
+              dialogDescription="Share this media with your network"
+              dialogTitle="Share Media"
+              postId={post.id}
+              shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+              thumbnail={getShareThumbnail(post, currentMedia)}
+              title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+            />
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className="px-4 py-3">
+              <Comments post={post} />
+            </div>
+            <div>
+              <div className="flex items-center justify-between px-4 py-2">
+                <span className="text-sm font-semibold">View more content</span>
+                <Link
+                  aria-label="View all posts on the global feed"
+                  className="text-primary shrink-0 text-sm font-medium hover:underline"
+                  href="/"
+                >
+                  View all posts
+                </Link>
+              </div>
+              <RelatedPosts excludePostId={post.id} />
+            </div>
+          </div>
+        </aside>
+      ) : null}
+    </div>
+  );
+
+  return standalone ? (
+    <div
+      className="flex h-dvh w-full overflow-hidden bg-black"
+      style={{ viewTransitionName: "media-viewer" }}
+    >
+      {body}
+    </div>
+  ) : (
     <Dialog onOpenChange={onClose} open={isOpen}>
       {/* The named view transition makes the post <-> media route swap a smooth
           crossfade into/out of the fullscreen viewer instead of an instant pop. */}
@@ -514,175 +697,7 @@ const MediaViewer = ({
           </VisuallyHidden>
         </DialogTitle>
 
-        <div className="flex h-full w-full overflow-hidden">
-          <div className="relative flex h-full min-w-0 flex-1 flex-col bg-black">
-            {renderMobileHeader()}
-
-            <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
-              {renderMedia()}
-
-              <button
-                aria-label="Close viewer"
-                className="absolute top-4 left-3 z-50 hidden rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 lg:flex"
-                onClick={onClose}
-                type="button"
-              >
-                <X className="h-6 w-6" />
-              </button>
-
-              {media.length > 1 && (
-                <>
-                  <button
-                    aria-label="Previous media"
-                    className="absolute top-1/2 left-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
-                    onClick={handlePrevious}
-                    type="button"
-                  >
-                    <ChevronLeft className="h-6 w-6" />
-                  </button>
-                  <button
-                    aria-label="Next media"
-                    className="absolute top-1/2 right-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
-                    onClick={handleNext}
-                    type="button"
-                  >
-                    <ChevronRight className="h-6 w-6" />
-                  </button>
-
-                  <div className="absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 backdrop-blur-md">
-                    <span className="text-sm text-white">
-                      {currentIndex + 1} / {media.length}
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {post ? renderActionBar() : null}
-          </div>
-
-          {post ? (
-            <aside className="hidden h-full w-95 flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
-              <div className="flex items-center gap-3 px-4 py-3">
-                <Link
-                  className="shrink-0"
-                  href={`/users/${post.user.username}`}
-                >
-                  <UserAvatar
-                    avatarUrl={post.user.avatarUrl}
-                    className="h-10 w-10"
-                  />
-                </Link>
-                <div className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <Link
-                      className="text-foreground block truncate font-semibold hover:underline"
-                      href={`/users/${post.user.username}`}
-                    >
-                      {post.user.displayName}
-                    </Link>
-                    <UserBadge badge={post.user.badge} />
-                  </span>
-                  <Link
-                    className="text-muted-foreground block truncate hover:underline"
-                    href={`/users/${post.user.username}`}
-                  >
-                    @{post.user.username}
-                  </Link>
-                </div>
-                {sessionUser?.id === post.user.id ? (
-                  <PostMoreButton className="shrink-0" post={post} />
-                ) : null}
-              </div>
-
-              <div className="px-4 pt-1 pb-2">
-                <Linkify>
-                  <p className="text-foreground text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-                    {post.content}
-                  </p>
-                </Linkify>
-                {post.tags?.length || post.mentions?.length ? (
-                  <div className="mt-3">
-                    <PostMeta
-                      mentions={post.mentions.map((m) => m.user)}
-                      tags={post.tags}
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-sm">
-                <span>
-                  {new Date(post.createdAt).toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </span>
-                <span aria-hidden>·</span>
-                <span>
-                  {new Date(post.createdAt).toLocaleTimeString(undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </span>
-                <div className="flex-1" />
-                <span>{formatNumber(post.viewCount)} views</span>
-              </div>
-
-              <div className="border-border/60 flex items-center gap-1 border-y px-4 py-2">
-                <AuraVoteButton
-                  authorName={post.user.displayName}
-                  initialState={{
-                    aura: post.aura,
-                    userVote: post.vote[0]?.value || 0,
-                  }}
-                  postId={post.id}
-                />
-                <div className="flex-1" />
-                <BookmarkButton
-                  className="h-9 w-9"
-                  initialState={{
-                    isBookmarkedByUser: post.bookmarks.some(
-                      (bookmark) => bookmark.userId === sessionUser?.id
-                    ),
-                  }}
-                  postId={post.id}
-                />
-                <ShareButton
-                  description={post.content}
-                  dialogDescription="Share this media with your network"
-                  dialogTitle="Share Media"
-                  postId={post.id}
-                  shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
-                  thumbnail={getShareThumbnail(post, currentMedia)}
-                  title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
-                />
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                <div className="px-4 py-3">
-                  <Comments post={post} />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between px-4 py-2">
-                    <span className="text-sm font-semibold">
-                      View more content
-                    </span>
-                    <Link
-                      aria-label="View all posts on the global feed"
-                      className="text-primary shrink-0 text-sm font-medium hover:underline"
-                      href="/"
-                    >
-                      View all posts
-                    </Link>
-                  </div>
-                  <RelatedPosts excludePostId={post.id} />
-                </div>
-              </div>
-            </aside>
-          ) : null}
-        </div>
+        {body}
       </DialogContent>
     </Dialog>
   );

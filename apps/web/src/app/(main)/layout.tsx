@@ -2,9 +2,9 @@ import type React from "react";
 import { Suspense } from "react";
 
 import { GooeyToaster } from "@/components/auth/gooey-toaster";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import FloatingPostComposer from "@/components/layouts/floating-post-composer";
 import { GuestAuthBar } from "@/components/layouts/guest-auth-bar";
+import { MainShell } from "@/components/layouts/main-shell";
 import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { SpotlightProvider } from "@/components/search/spotlight-provider";
 import { getUserData } from "@/hooks/use-user-data";
@@ -46,11 +46,10 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
           route changes instead of collapsing them into the loading skeleton on
           every navigation. Pages render only their center column + right rail
           inside the flex-1 region. MobileBottomNav stays per-page: some
-          immersive routes (post, gust, profile) intentionally omit it. */}
-      <div className="relative flex h-dvh overflow-hidden">
-        <LeftSidebar userData={userData} />
-        <div className="flex min-w-0 flex-1 items-stretch">{children}</div>
-      </div>
+          immersive routes (post, gust, profile) intentionally omit it. Media
+          routes are standalone fullscreen pages, so MainShell skips the chrome
+          there entirely. */}
+      <MainShell userData={userData}>{children}</MainShell>
       {isLoggedIn ? <FloatingPostComposer /> : <GuestAuthBar />}
     </SessionProvider>
   );
