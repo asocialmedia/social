@@ -2,7 +2,11 @@ import { trace } from "@opentelemetry/api";
 import pino from "pino";
 import pretty from "pino-pretty";
 
-import { buildOpenObserveAuth, getOtlpEndpoints } from "./otel-config";
+import {
+  buildOpenObserveAuth,
+  getOtlpEndpoints,
+  resolveLogStreamName,
+} from "./otel-config";
 import { createOtlpLogDestination } from "./otlp-log-destination";
 
 export type Logger = pino.Logger;
@@ -89,10 +93,15 @@ export function createLogger(options: LoggerOptions = {}): Logger {
     endpoints.logs;
 
   const auth = buildOpenObserveAuth();
+  // Route pino logs to the same OpenObserve stream the SDK exporters use so
+  // every signal lands in the project's organized stream (asm_auth_logs,
+  // asm_web_logs, ...) instead of the "default" one.
+  const streamName = resolveLogStreamName();
   const resolved: LoggerOptions = {
     ...options,
     otlpEndpoint: endpoint,
     otlpHeaders: {
+      ...(streamName ? { "stream-name": streamName } : {}),
       ...(auth ? { Authorization: auth } : {}),
       ...parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
       ...options.otlpHeaders,

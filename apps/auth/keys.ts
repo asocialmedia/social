@@ -31,7 +31,6 @@ export const keys = createEnv({
     OPENOBSERVE_PASSWORD: process.env.OPENOBSERVE_PASSWORD,
     OPENOBSERVE_TRACE_STREAM: process.env.OPENOBSERVE_TRACE_STREAM,
     OPENOBSERVE_USER: process.env.OPENOBSERVE_USER,
-    OTEL_ENABLED: process.env.OTEL_ENABLED,
     OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
     OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
     OTEL_SERVICE_NAME: process.env.OTEL_SERVICE_NAME,
@@ -71,13 +70,12 @@ export const keys = createEnv({
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
-    OPENOBSERVE_LOG_STREAM: z.string().default("auth_logs"),
-    OPENOBSERVE_METRIC_STREAM: z.string().default("auth_metrics"),
+    OPENOBSERVE_LOG_STREAM: z.string().default("asm_auth_logs"),
+    OPENOBSERVE_METRIC_STREAM: z.string().default("asm_auth_metrics"),
     OPENOBSERVE_ORG: z.string().default("default"),
     OPENOBSERVE_PASSWORD: z.string().optional(),
-    OPENOBSERVE_TRACE_STREAM: z.string().default("auth_traces"),
+    OPENOBSERVE_TRACE_STREAM: z.string().default("asm_auth_traces"),
     OPENOBSERVE_USER: z.string().optional(),
-    OTEL_ENABLED: z.enum(["true", "false"]).default("false"),
     OTEL_EXPORTER_OTLP_ENDPOINT: z
       .url()
       .default("http://localhost:5080/api/default"),

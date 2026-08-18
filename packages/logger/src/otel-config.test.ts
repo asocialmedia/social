@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { readOtelConfig } from "./otel-config";
+import { readOtelConfig, resolveLogStreamName } from "./otel-config";
 import { createOtlpLogDestination } from "./otlp-log-destination";
 
 describe("otel-config", () => {
@@ -30,11 +30,39 @@ describe("otel-config", () => {
   test("parses OTEL_EXPORTER_OTLP_HEADERS", () => {
     const config = readOtelConfig({
       NODE_ENV: "production",
-      OTEL_ENABLED: "true",
       OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Bearer abc,stream-name=logs",
     });
     expect(config.headers.Authorization).toBe("Bearer abc");
     expect(config.headers["stream-name"]).toBe("logs");
+  });
+});
+
+describe("resolve-log-stream-name", () => {
+  test("prefers OPENOBSERVE_LOG_STREAM for per-project organization", () => {
+    const stream = resolveLogStreamName({
+      OPENOBSERVE_LOG_STREAM: "asm_auth_logs",
+      OTEL_SERVICE_NAME: "auth",
+    });
+    expect(stream).toBe("asm_auth_logs");
+  });
+
+  test("falls back to default_<service> without explicit streams", () => {
+    const stream = resolveLogStreamName({ OTEL_SERVICE_NAME: "web" });
+    expect(stream).toBe("default_web");
+  });
+
+  test("falls back to default with no configuration", () => {
+    const stream = resolveLogStreamName({});
+    expect(stream).toBe("default");
+  });
+
+  test("falls back through OPENOBSERVE_STREAM and ZO_STREAM", () => {
+    expect(resolveLogStreamName({ OPENOBSERVE_STREAM: "asm_web_logs" })).toBe(
+      "asm_web_logs"
+    );
+    expect(resolveLogStreamName({ ZO_STREAM: "asm_web_logs" })).toBe(
+      "asm_web_logs"
+    );
   });
 });
 

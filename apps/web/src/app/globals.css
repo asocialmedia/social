@@ -928,3 +928,63 @@
   min-width: 320px;
   min-height: 50vh;
 }
+
+/* Seamless connected transitions between feed / post / media routes. The
+   native View Transitions API (driven from withViewTransition) crossfades the
+   outgoing and incoming frames so navigating an image through its detail and
+   viewer feels like one continuous motion rather than three hard page swaps.
+   Only light timing + a subtle fade-in are customized; the default crossfade
+   is kept and reduced-motion users get none. */
+::view-transition-old(root) {
+  animation: vt-old 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+::view-transition-new(root) {
+  animation: vt-new 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes vt-old {
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+@keyframes vt-new {
+  from {
+    opacity: 0.4;
+    transform: scale(1.005);
+  }
+}
+
+/* The media viewer gets its own named transition so opening it from the post
+   page (and closing back to it) is a fade-in/out of the black canvas, not an
+   instant pop. The old snapshot fades out as the new one fades in. */
+::view-transition-old(media-viewer) {
+  animation: media-viewer-out 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+::view-transition-new(media-viewer) {
+  animation: media-viewer-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes media-viewer-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes media-viewer-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(media-viewer),
+  ::view-transition-new(media-viewer) {
+    animation: none;
+  }
+}

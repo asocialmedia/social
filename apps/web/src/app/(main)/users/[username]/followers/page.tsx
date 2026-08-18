@@ -2,7 +2,7 @@ import { getUserDataSelect, prisma } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -32,7 +32,7 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<FeedViewSkeleton />}>
       <FollowersContent params={props.params} />
     </Suspense>
   );

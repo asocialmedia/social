@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache, Suspense } from "react";
 
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import {
   absoluteUrl,
@@ -14,7 +14,7 @@ import {
 } from "@/lib/seo";
 import { getSessionFromApi } from "@/lib/session";
 
-import ClientPost from "../../client-post";
+import MediaPage from "./media-page";
 
 interface PageProps {
   params: Promise<{ postId: string; index: string }>;
@@ -108,7 +108,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<MediaRouteSkeleton />}>
       <MediaContent {...props} />
     </Suspense>
   );
@@ -155,11 +155,5 @@ async function MediaContent(props: PageProps) {
     resolvedIndex = mediaIndex;
   }
 
-  return (
-    <ClientPost
-      initialMediaIndex={resolvedIndex}
-      post={post}
-      userData={userData}
-    />
-  );
+  return <MediaPage initialMediaIndex={resolvedIndex} post={post} />;
 }

@@ -15,7 +15,6 @@ import BookmarksSidebar from "@/components/bookmarks/bookmarks-sidebar";
 import { HNStoryCard } from "@/components/hackernews/hn-story-card";
 import { FeedView } from "@/components/home/feed-view";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
@@ -204,9 +203,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
   }
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={userData} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
@@ -291,7 +288,7 @@ const Bookmarks: React.FC<BookmarksProps> = ({
         postBookmarkCount={postsTabCount}
       />
       <MobileBottomNav />
-    </div>
+    </>
   );
 };
 

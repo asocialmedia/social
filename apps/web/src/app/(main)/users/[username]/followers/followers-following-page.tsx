@@ -12,7 +12,6 @@ import type React from "react";
 import { useCallback, useRef } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import FollowButton from "@/components/layouts/follow-button";
@@ -42,7 +41,6 @@ interface FollowersFollowingPageProps {
 }
 
 const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
-  loggedInUserData,
   userData,
 }) => {
   const pathname = usePathname();
@@ -170,9 +168,7 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
   }
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={loggedInUserData} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
           <MobileTopBar />
@@ -235,7 +231,7 @@ const FollowersFollowingPage: React.FC<FollowersFollowingPageProps> = ({
       </aside>
 
       <MobileBottomNav />
-    </div>
+    </>
   );
 };
 

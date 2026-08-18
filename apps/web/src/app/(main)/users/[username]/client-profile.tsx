@@ -9,7 +9,6 @@ import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MediaGallery, {
   MediaGalleryContent,
@@ -85,131 +84,127 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     : false;
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={loggedInUserData} />
-
-      <div className="flex min-w-0 flex-1">
-        <div className="mx-auto flex w-full max-w-[88rem] min-w-0 justify-center">
-          <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-            <Tabs
-              className="flex min-h-0 flex-1 flex-col"
-              onValueChange={handleTabChange}
-              value={activeTab}
-            >
-              <div className="relative min-h-0 flex-1">
-                <div
-                  className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
-                    isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
-                  }`}
-                  ref={feedScrollRef}
-                >
-                  <div className="relative">
-                    <ProfileHeader
-                      isOwnProfile={isOwnProfile}
-                      userData={userData}
-                    />
-                    <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 md:hidden">
-                      <button
-                        aria-label="Go back to home"
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                        onClick={handleGoHome}
-                        type="button"
-                      >
-                        <ArrowLeft className="h-5 w-5" />
-                      </button>
-                      <button
-                        aria-label="Settings"
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                        onClick={handleOpenSettings}
-                        type="button"
-                      >
-                        <Settings className="h-5 w-5" />
-                      </button>
-                    </div>
+    <div className="flex min-w-0 flex-1">
+      <div className="mx-auto flex w-full max-w-[88rem] min-w-0 justify-center">
+        <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+          <Tabs
+            className="flex min-h-0 flex-1 flex-col"
+            onValueChange={handleTabChange}
+            value={activeTab}
+          >
+            <div className="relative min-h-0 flex-1">
+              <div
+                className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+                  isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                }`}
+                ref={feedScrollRef}
+              >
+                <div className="relative">
+                  <ProfileHeader
+                    isOwnProfile={isOwnProfile}
+                    userData={userData}
+                  />
+                  <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 md:hidden">
+                    <button
+                      aria-label="Go back to home"
+                      className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
+                      onClick={handleGoHome}
+                      type="button"
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      aria-label="Settings"
+                      className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
+                      onClick={handleOpenSettings}
+                      type="button"
+                    >
+                      <Settings className="h-5 w-5" />
+                    </button>
                   </div>
-
-                  <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
-                    <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
-                      <AnimatedTabTrigger
-                        active={activeTab === "posts"}
-                        layoutId="profile-tab-indicator"
-                        value="posts"
-                      >
-                        Posts
-                      </AnimatedTabTrigger>
-                      <AnimatedTabTrigger
-                        active={activeTab === "gusts"}
-                        layoutId="profile-tab-indicator"
-                        value="gusts"
-                      >
-                        Gusts
-                      </AnimatedTabTrigger>
-                      <AnimatedTabTrigger
-                        active={activeTab === "replies"}
-                        layoutId="profile-tab-indicator"
-                        value="replies"
-                      >
-                        Replies
-                      </AnimatedTabTrigger>
-                      <AnimatedTabTrigger
-                        active={activeTab === "amplified"}
-                        layoutId="profile-tab-indicator"
-                        value="amplified"
-                      >
-                        Amplified
-                      </AnimatedTabTrigger>
-                      <AnimatedTabTrigger
-                        active={activeTab === "media"}
-                        className="xl:hidden"
-                        layoutId="profile-tab-indicator"
-                        value="media"
-                      >
-                        Media
-                      </AnimatedTabTrigger>
-                    </TabsList>
-                  </div>
-
-                  <TabsContent className="mt-0 pb-12" value="posts">
-                    <UserPostsFeed
-                      isOwnProfile={isOwnProfile}
-                      userId={userData.id}
-                    />
-                  </TabsContent>
-
-                  <TabsContent className="mt-0 pb-12" value="gusts">
-                    <UserGustsFeed
-                      isOwnProfile={isOwnProfile}
-                      userId={userData.id}
-                    />
-                  </TabsContent>
-
-                  {isLoggedIn ? (
-                    <>
-                      <TabsContent className="mt-0 pb-12" value="replies">
-                        <UserRepliesFeed userId={userData.id} />
-                      </TabsContent>
-
-                      <TabsContent className="mt-0 pb-12" value="amplified">
-                        <UserAmplifiedFeed userId={userData.id} />
-                      </TabsContent>
-                    </>
-                  ) : null}
-
-                  <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                    {isLoggedIn ? (
-                      <MediaGalleryContent userId={userData.id} />
-                    ) : (
-                      <MediaGalleryLocked />
-                    )}
-                  </TabsContent>
                 </div>
-                <FeedScrollbar containerRef={feedScrollRef} />
-              </div>
-            </Tabs>
-          </div>
 
-          <MediaGallery locked={!isLoggedIn} userId={userData.id} />
+                <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
+                  <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
+                    <AnimatedTabTrigger
+                      active={activeTab === "posts"}
+                      layoutId="profile-tab-indicator"
+                      value="posts"
+                    >
+                      Posts
+                    </AnimatedTabTrigger>
+                    <AnimatedTabTrigger
+                      active={activeTab === "gusts"}
+                      layoutId="profile-tab-indicator"
+                      value="gusts"
+                    >
+                      Gusts
+                    </AnimatedTabTrigger>
+                    <AnimatedTabTrigger
+                      active={activeTab === "replies"}
+                      layoutId="profile-tab-indicator"
+                      value="replies"
+                    >
+                      Replies
+                    </AnimatedTabTrigger>
+                    <AnimatedTabTrigger
+                      active={activeTab === "amplified"}
+                      layoutId="profile-tab-indicator"
+                      value="amplified"
+                    >
+                      Amplified
+                    </AnimatedTabTrigger>
+                    <AnimatedTabTrigger
+                      active={activeTab === "media"}
+                      className="xl:hidden"
+                      layoutId="profile-tab-indicator"
+                      value="media"
+                    >
+                      Media
+                    </AnimatedTabTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent className="mt-0 pb-12" value="posts">
+                  <UserPostsFeed
+                    isOwnProfile={isOwnProfile}
+                    userId={userData.id}
+                  />
+                </TabsContent>
+
+                <TabsContent className="mt-0 pb-12" value="gusts">
+                  <UserGustsFeed
+                    isOwnProfile={isOwnProfile}
+                    userId={userData.id}
+                  />
+                </TabsContent>
+
+                {isLoggedIn ? (
+                  <>
+                    <TabsContent className="mt-0 pb-12" value="replies">
+                      <UserRepliesFeed userId={userData.id} />
+                    </TabsContent>
+
+                    <TabsContent className="mt-0 pb-12" value="amplified">
+                      <UserAmplifiedFeed userId={userData.id} />
+                    </TabsContent>
+                  </>
+                ) : null}
+
+                <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
+                  {isLoggedIn ? (
+                    <MediaGalleryContent userId={userData.id} />
+                  ) : (
+                    <MediaGalleryLocked />
+                  )}
+                </TabsContent>
+              </div>
+              <FeedScrollbar containerRef={feedScrollRef} />
+            </div>
+          </Tabs>
         </div>
+
+        <MediaGallery locked={!isLoggedIn} userId={userData.id} />
       </div>
     </div>
   );

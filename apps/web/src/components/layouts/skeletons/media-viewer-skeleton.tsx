@@ -69,16 +69,17 @@ export const MediaViewerSkeleton: React.FC<MediaViewerSkeletonProps> = ({
     );
   }
 
-  // IMAGE / VIDEO
+  // IMAGE / VIDEO: a full-bleed placeholder that fills the entire media area and
+  // is centered with the media (never a small left-aligned box). The content
+  // renders over it, so it mirrors the actual viewing region.
   return (
     <div
       className={cn(
-        "relative flex h-[60vh] max-h-[750px] w-full max-w-4xl items-center justify-center overflow-hidden rounded-2xl",
+        "relative h-full max-h-full w-full max-w-full overflow-hidden",
         className
       )}
     >
-      <div className="bg-muted/30 absolute inset-0 animate-pulse rounded-2xl" />
-      <div className="border-border/60 bg-muted/40 flex h-14 w-14 animate-pulse items-center justify-center rounded-2xl border backdrop-blur-md" />
+      <div className="bg-muted/15 absolute inset-0 animate-pulse" aria-hidden />
     </div>
   );
 };

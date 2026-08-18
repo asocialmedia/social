@@ -1,6 +1,6 @@
 {
   "name": "@asm/next",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "private": true,
   "description": "asocialmedia Next.js package contains shared configs for Next.js",
   "main": "./src/index.ts",

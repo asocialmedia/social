@@ -5,14 +5,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import HashtagFeed from "@/components/posts/hashtag-feed";
 import JsonLd from "@/components/seo/json-ld";
-import { getUserData } from "@/hooks/use-user-data";
 import { absoluteUrl } from "@/lib/seo";
-import { getSessionFromApi } from "@/lib/session";
 
 interface PageProps {
   params: Promise<{ tag: string }>;
@@ -83,7 +80,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<FeedViewSkeleton />}>
       <HashtagContent params={props.params} />
     </Suspense>
   );
@@ -95,8 +92,6 @@ async function HashtagContent({ params }: PageProps) {
   if (!decodedTag.trim()) {
     notFound();
   }
-  const session = await getSessionFromApi();
-  const userData = session?.user ? await getUserData(session.user.id) : null;
 
   const tagRecord = await prisma.tag.findFirst({
     select: { name: true },
@@ -120,9 +115,7 @@ async function HashtagContent({ params }: PageProps) {
   };
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
-      <LeftSidebar userData={userData} />
-
+    <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto">
           <div className="px-4 py-6">
@@ -142,6 +135,6 @@ async function HashtagContent({ params }: PageProps) {
 
       <SecondaryRightSideBar />
       <JsonLd data={collectionJsonLd} />
-    </div>
+    </>
   );
 }

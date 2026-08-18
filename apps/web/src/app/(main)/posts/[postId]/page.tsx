@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache, Suspense } from "react";
 
-import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
+import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
 import {
@@ -90,7 +90,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
 export default function Page(props: PageProps) {
   return (
-    <Suspense fallback={<AppShellSkeleton />}>
+    <Suspense fallback={<PostDetailSkeleton />}>
       <PostContent params={props.params} />
     </Suspense>
   );
