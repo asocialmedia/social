@@ -20,6 +20,8 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
@@ -455,6 +457,9 @@ const MediaViewer = ({
   };
 
   const isSelf = post ? sessionUser?.id === post.user.id : false;
+  // The more-button is shown to the author and to admins so moderation is
+  // reachable from the full-screen viewer too.
+  const canModerate = post ? isSelf || sessionUser?.role === "admin" : false;
 
   const renderMobileHeader = () => {
     if (!post) {
@@ -471,7 +476,9 @@ const MediaViewer = ({
           >
             <X className="h-6 w-6" />
           </button>
-          {isSelf ? <PostMoreButton className="shrink-0" post={post} /> : null}
+          {canModerate ? (
+            <PostMoreButton className="shrink-0" post={post} />
+          ) : null}
         </div>
 
         <div className="mt-3 flex items-center gap-3">
@@ -515,7 +522,23 @@ const MediaViewer = ({
         {renderMobileHeader()}
 
         <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
-          {renderMedia()}
+          {(() => {
+            if (post?.moderated) {
+              return (
+                <div className="flex h-full w-full items-center justify-center bg-black/60">
+                  <ModeratedNotice className="mx-4 max-w-sm" kind="post" />
+                </div>
+              );
+            }
+            if (post?.explicitContent) {
+              return (
+                <ExplicitContentGate className="h-full w-full">
+                  {renderMedia()}
+                </ExplicitContentGate>
+              );
+            }
+            return renderMedia();
+          })()}
 
           <button
             aria-label="Close viewer"
@@ -583,7 +606,7 @@ const MediaViewer = ({
                 @{post.user.username}
               </Link>
             </div>
-            {sessionUser?.id === post.user.id ? (
+            {canModerate ? (
               <PostMoreButton className="shrink-0" post={post} />
             ) : null}
           </div>

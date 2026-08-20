@@ -5,15 +5,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { Hash, MoreHorizontal, Trash2 } from "lucide-react";
+import { Hash, MoreHorizontal, ShieldCheck, Trash2 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 
 import DeletePostDialog from "./delete-post-dialog";
+import PostModerationDialog from "./post-moderation-dialog";
 
 interface PostMoreButtonProps {
   className?: string;
@@ -24,9 +26,21 @@ export default function PostMoreButton({
   post,
   className,
 }: PostMoreButtonProps) {
+  const { user } = useSession();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showModerationDialog, setShowModerationDialog] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+
+  // Moderators are the app admin and the author of the post itself. Guests and
+  // other users never see the moderation entries.
+  const canModerate = Boolean(
+    user && (user.role === "admin" || user.id === post.user.id)
+  );
+  // Edit and hard-delete stay author-only (their server actions check
+  // ownership), so a moderator who isn't the author only gets the reversible
+  // moderation flags.
+  const isOwner = Boolean(user && user.id === post.user.id);
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
@@ -52,6 +66,17 @@ export default function PostMoreButton({
 
   const handleCloseEditDialog = useCallback(() => {
     setShowEditDialog(false);
+    setPopupOpen(false);
+  }, []);
+
+  const handleShowModerationDialog = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowModerationDialog(true);
+    setPopupOpen(true);
+  }, []);
+
+  const handleCloseModerationDialog = useCallback(() => {
+    setShowModerationDialog(false);
     setPopupOpen(false);
   }, []);
 
@@ -83,26 +108,49 @@ export default function PostMoreButton({
           align="end"
           className="apple-panel p-1.5 shadow-none"
         >
-          <DropdownMenuItem
-            className="pill-3d-hover rounded-md px-2 py-2"
-            onClick={handleShowEditDialog}
-          >
-            <span className="flex items-center gap-3">
-              <Hash className="size-4" />
-              Edit tags &amp; mentions
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="pill-3d-hover rounded-md px-2 py-2"
-            onClick={handleShowDeleteDialog}
-          >
-            <span className="text-destructive flex items-center gap-3">
-              <Trash2 className="size-4" />
-              Delete
-            </span>
-          </DropdownMenuItem>
+          {canModerate ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleShowModerationDialog}
+            >
+              <span className="flex items-center gap-3">
+                <ShieldCheck className="size-4" />
+                Moderation
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {isOwner ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleShowEditDialog}
+            >
+              <span className="flex items-center gap-3">
+                <Hash className="size-4" />
+                Edit tags &amp; mentions
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {isOwner ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleShowDeleteDialog}
+            >
+              <span className="text-destructive flex items-center gap-3">
+                <Trash2 className="size-4" />
+                Delete
+              </span>
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {canModerate ? (
+        <PostModerationDialog
+          onClose={handleCloseModerationDialog}
+          open={showModerationDialog}
+          post={post}
+        />
+      ) : null}
 
       <DeletePostDialog
         onClose={handleCloseDeleteDialog}

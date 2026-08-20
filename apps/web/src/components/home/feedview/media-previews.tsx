@@ -417,7 +417,16 @@ const SingleImagePreview = ({
   // doesn't stretch the feed into a huge frame or float awkwardly.
   const isPortrait = Boolean(dims && dims.h > dims.w);
   const previewContent = (
-    <div className="bg-muted/20 relative block w-full overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md">
+    <div
+      className={cn(
+        "bg-muted/20 relative block overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md",
+        // Portrait images are height-capped and left-pinned, so shrink-wrap
+        // the frame to the image width instead of forcing w-full. Otherwise the
+        // container's bg fills the gap to the right and clashes with the post
+        // card's background.
+        isPortrait ? "w-fit max-w-full" : "w-full"
+      )}
+    >
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse rounded-xl" />
       ) : null}

@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useToast } from "@/lib/gooey-toast";
 
-import { deletePost } from "./actions";
+import { deletePost, updatePostModeration } from "./actions";
+import type { PostModerationChanges } from "./actions";
 
 export function useDeletePostMutation() {
   const { toast } = useToast();
@@ -54,6 +55,35 @@ export function useDeletePostMutation() {
       if (pathname === `/posts/${deletedPost.id}`) {
         router.push(`/users/${deletedPost.user.username}`);
       }
+    },
+  });
+
+  return mutation;
+}
+
+export function useModeratePostMutation() {
+  const { toast } = useToast();
+
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (input: { changes: PostModerationChanges; postId: string }) =>
+      updatePostModeration(input.postId, input.changes),
+    onError(error) {
+      clientLog.error(error);
+      toast({
+        description: "Couldn't update moderation, try again?",
+        variant: "destructive",
+      });
+    },
+    onSuccess: async () => {
+      // Moderation is a rare action, so a full refetch is cheap and guarantees
+      // every surface (feed, gust reels, profile, detail, viewer) shows the
+      // latest flag state.
+      await queryClient.invalidateQueries({ queryKey: ["post-feed"] });
+      await queryClient.invalidateQueries({ queryKey: ["gusts-feed"] });
+
+      toast({ description: "Post updated" });
     },
   });
 

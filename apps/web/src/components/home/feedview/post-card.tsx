@@ -24,6 +24,8 @@ import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
@@ -61,6 +63,7 @@ interface PostCardProps {
 }
 
 interface PostContentProps {
+  currentUserIsAdmin: boolean;
   currentUserId: string;
   detail: boolean;
   initialMediaIndex?: number;
@@ -72,6 +75,7 @@ interface PostContentProps {
 }
 
 const PostContent: React.FC<PostContentProps> = ({
+  currentUserIsAdmin,
   currentUserId,
   detail,
   isExpanded,
@@ -210,7 +214,7 @@ const PostContent: React.FC<PostContentProps> = ({
           )}
 
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
-            {post.user.id === currentUserId && (
+            {(post.user.id === currentUserId || currentUserIsAdmin) && (
               <PostMoreButton
                 className="opacity-0 transition-opacity group-hover/post:opacity-100"
                 post={post}
@@ -228,47 +232,70 @@ const PostContent: React.FC<PostContentProps> = ({
           </div>
         </div>
 
-        <Linkify>
-          <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
-            <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-              {post.content}
-            </p>
-          </div>
-        </Linkify>
-        {isOverflowing ? (
-          <button
-            className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
-            onClick={onToggleExpand}
-            type="button"
-          >
-            {isExpanded ? "Show less" : "Show more"}
-          </button>
-        ) : null}
+        {post.moderated ? (
+          <ModeratedNotice className="mt-2.5" kind="post" />
+        ) : (
+          <>
+            <Linkify>
+              <div
+                className={cn(!isExpanded && "line-clamp-6")}
+                ref={contentRef}
+              >
+                <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
+                  {post.content}
+                </p>
+              </div>
+            </Linkify>
+            {isOverflowing ? (
+              <button
+                className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
+                onClick={onToggleExpand}
+                type="button"
+              >
+                {isExpanded ? "Show less" : "Show more"}
+              </button>
+            ) : null}
 
-        {post.hnStoryShare ? (
-          <div className="hn-story-solid mt-3 overflow-hidden">
-            <HNStoryCard hnStory={post.hnStoryShare} />
-          </div>
-        ) : null}
+            {post.hnStoryShare ? (
+              <div className="hn-story-solid mt-3 overflow-hidden">
+                <HNStoryCard hnStory={post.hnStoryShare} />
+              </div>
+            ) : null}
 
-        {!!post.attachments.length && (
-          <div className="mt-2.5 max-w-full overflow-hidden">
-            <MediaPreviews
-              attachments={post.attachments}
-              autoPlayVideos={detail}
-              initialMediaIndex={initialMediaIndex}
-              interactive={!isJoined}
-              post={post}
-            />
-          </div>
+            {!!post.attachments.length && (
+              <div className="mt-2.5 max-w-full overflow-hidden">
+                {post.explicitContent ? (
+                  <ExplicitContentGate>
+                    <MediaPreviews
+                      attachments={post.attachments}
+                      autoPlayVideos={detail}
+                      initialMediaIndex={initialMediaIndex}
+                      interactive={!isJoined}
+                      post={post}
+                    />
+                  </ExplicitContentGate>
+                ) : (
+                  <MediaPreviews
+                    attachments={post.attachments}
+                    autoPlayVideos={detail}
+                    initialMediaIndex={initialMediaIndex}
+                    interactive={!isJoined}
+                    post={post}
+                  />
+                )}
+              </div>
+            )}
+
+            {post.tags?.length || post.mentions?.length ? (
+              <PostMeta
+                mentions={post.mentions.map(
+                  (m) => m.user as unknown as UserData
+                )}
+                tags={post.tags as TagWithCount[]}
+              />
+            ) : null}
+          </>
         )}
-
-        {post.tags?.length || post.mentions?.length ? (
-          <PostMeta
-            mentions={post.mentions.map((m) => m.user as unknown as UserData)}
-            tags={post.tags as TagWithCount[]}
-          />
-        ) : null}
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1">
@@ -418,6 +445,7 @@ const PostCard: React.FC<PostCardProps> = ({
   }, []);
 
   const currentUserId = user?.id ?? "";
+  const currentUserIsAdmin = user?.role === "admin";
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -457,6 +485,7 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const body = (
     <PostContent
+      currentUserIsAdmin={currentUserIsAdmin}
       currentUserId={currentUserId}
       detail={detail}
       initialMediaIndex={initialMediaIndex}

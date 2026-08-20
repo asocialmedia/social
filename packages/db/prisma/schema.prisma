@@ -307,6 +307,8 @@ model Post {
   viewCount            Int            @default(0)
   lastAwardedViewCount Int            @default(0)
   isGust               Boolean        @default(false)
+  moderated            Boolean        @default(false)
+  explicitContent      Boolean        @default(false)
   attachments          Media[]
   bookmarks            Bookmark[]
   comments             Comment[]

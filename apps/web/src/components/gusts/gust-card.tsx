@@ -21,6 +21,8 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import BookmarkButton from "@/components/posts/bookmark-button";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import Linkify from "@/helpers/global/linkify";
@@ -57,6 +59,9 @@ export const GustCard: React.FC<GustCardProps> = ({
     "play" | "pause" | null
   >(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
+  // Tracks whether the explicit-content gate has been dismissed so the video
+  // only starts once the viewer chooses to continue.
+  const [explicitRevealed, setExplicitRevealed] = useState(false);
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
@@ -97,6 +102,11 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
 
     if (isActive) {
+      if (post.explicitContent && !explicitRevealed) {
+        // Keep the clip paused behind the blur until the viewer taps Continue.
+        video.pause();
+        return;
+      }
       void (async () => {
         try {
           await video.play();
@@ -120,7 +130,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         // Ignore aborts
       }
     };
-  }, [isActive]);
+  }, [explicitRevealed, isActive, post.explicitContent]);
 
   const wasPlayingBeforeHideRef = useRef(false);
 
@@ -288,10 +298,28 @@ export const GustCard: React.FC<GustCardProps> = ({
     user.id !== post.user.id &&
     !post.user.followers?.some((f) => f.followerId === user.id);
   const isOwner = user?.id === post.user.id;
+  const isAdmin = user?.role === "admin";
   const isFollowedByUser = Boolean(
     post.user.followers?.some((f) => f.followerId === user?.id)
   );
   const isBookmarked = Boolean(post.bookmarks?.length);
+
+  // A moderated gust is hidden behind a notice instead of the clip. The row is
+  // never deleted, so an admin or the author can reverse it at any time - the
+  // more-button stays reachable in the corner so moderation can be reopened.
+  if (post.moderated) {
+    return (
+      <div className="relative flex h-full w-full items-center justify-center bg-black/40">
+        <ModeratedNotice className="mx-4 max-w-xs" kind="gust" />
+        {isOwner || isAdmin ? (
+          <PostMoreButton
+            className="absolute top-3 right-3 text-white"
+            post={post}
+          />
+        ) : null}
+      </div>
+    );
+  }
 
   let preloadMode: "auto" | "metadata" | "none" = "none";
   if (isActive) {
@@ -303,18 +331,39 @@ export const GustCard: React.FC<GustCardProps> = ({
   return (
     <div className="relative flex h-full w-full items-center justify-center">
       <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-[9/16] sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
-        {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
-        <video
-          className="h-full w-full object-contain"
-          loop
-          muted={isMuted}
-          onTimeUpdate={handleTimeUpdate}
-          playsInline
-          poster={thumbUrl}
-          preload={preloadMode}
-          ref={videoRef}
-          src={shouldMountVideo ? videoUrl : undefined}
-        />
+        {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
+        {post.explicitContent ? (
+          <ExplicitContentGate
+            className="h-full w-full"
+            label="This gust has explicit media."
+            onReveal={() => setExplicitRevealed(true)}
+          >
+            <video
+              className="h-full w-full object-contain"
+              loop
+              muted={isMuted}
+              onTimeUpdate={handleTimeUpdate}
+              playsInline
+              poster={thumbUrl}
+              preload={preloadMode}
+              ref={videoRef}
+              src={shouldMountVideo ? videoUrl : undefined}
+            />
+          </ExplicitContentGate>
+        ) : (
+          <video
+            className="h-full w-full object-contain"
+            loop
+            muted={isMuted}
+            onTimeUpdate={handleTimeUpdate}
+            playsInline
+            poster={thumbUrl}
+            preload={preloadMode}
+            ref={videoRef}
+            src={shouldMountVideo ? videoUrl : undefined}
+          />
+        )}
+        {/* oxlint-enable jsx-a11y/media-has-caption */}
 
         {/* Clickable transparent backdrop for play/pause & double tap */}
         <button
@@ -519,8 +568,8 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More (owners only) */}
-          {isOwner ? (
+          {/* More (owners and admins only) */}
+          {isOwner || isAdmin ? (
             <PostMoreButton
               className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
               post={post}
