@@ -79,9 +79,13 @@ export function useModeratePostMutation() {
     onSuccess: async () => {
       // Moderation is a rare action, so a full refetch is cheap and guarantees
       // every surface (feed, gust reels, profile, detail, viewer) shows the
-      // latest flag state.
+      // latest flag state. The unread notification count is refreshed too so
+      // the sidebar/header badge reflects the moderation bell entry right away.
       await queryClient.invalidateQueries({ queryKey: ["post-feed"] });
       await queryClient.invalidateQueries({ queryKey: ["gusts-feed"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["unread-notification-count"],
+      });
 
       toast({ description: "Post updated" });
     },

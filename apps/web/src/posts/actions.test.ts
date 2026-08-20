@@ -5,6 +5,28 @@ const AUTHOR_ID = "author1";
 const OTHER_USER_ID = "user2";
 
 const updatedPosts: { changes: Record<string, unknown>; id: string }[] = [];
+const auraPenalties: string[] = [];
+const auraLogs: {
+  amount: number;
+  issuerId: string;
+  postId: string;
+  type: string;
+  userId: string;
+}[] = [];
+const notifications: {
+  issuerId: string;
+  postId: string;
+  recipientId: string;
+  type: string;
+}[] = [];
+const enqueuedNotificationRecipients: string[] = [];
+
+let postState: {
+  explicitContent: boolean;
+  id: string;
+  moderated: boolean;
+  userId: string;
+};
 
 const mockGetSession = mock(
   (): { user: { id: string; role: string } } | null => ({
@@ -12,10 +34,33 @@ const mockGetSession = mock(
   })
 );
 
-const mockPrisma = {
+const tx = {
+  auraLog: {
+    create: (args: {
+      data: {
+        amount: number;
+        issuerId: string;
+        postId: string;
+        type: string;
+        userId: string;
+      };
+    }) => {
+      auraLogs.push(args.data);
+    },
+  },
+  notification: {
+    create: (args: {
+      data: {
+        issuerId: string;
+        postId: string;
+        recipientId: string;
+        type: string;
+      };
+    }) => {
+      notifications.push(args.data);
+    },
+  },
   post: {
-    findUnique: (args: { where: { id: string } }) =>
-      args.where.id === POST_ID ? { id: POST_ID, userId: AUTHOR_ID } : null,
     update: (args: {
       data: Record<string, unknown>;
       where: { id: string };
@@ -24,10 +69,32 @@ const mockPrisma = {
       return { ...args.data, id: args.where.id, userId: AUTHOR_ID };
     },
   },
+  user: {
+    update: (args: {
+      data: Record<string, unknown>;
+      where: { id: string };
+    }) => {
+      auraPenalties.push(args.where.id);
+    },
+  },
+};
+
+const mockPrisma = {
+  $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+  post: {
+    findUnique: (args: { where: { id: string } }) =>
+      args.where.id === POST_ID ? { ...postState } : null,
+  },
+  user: {
+    upsert: () => ({ id: "sys-zeph" }),
+  },
 };
 
 const mockUpdateTag = mock(() => {});
 const mockInclude = () => ({ attachments: true, user: true });
+const mockIncrementUnread = mock((userId: string) => {
+  enqueuedNotificationRecipients.push(userId);
+});
 const mockNoop = mock(() => {});
 
 mock.module("@asm/db", () => ({
@@ -37,6 +104,7 @@ mock.module("@asm/db", () => ({
   getPostDataInclude: mockInclude,
   prisma: mockPrisma,
   redis: { del: mockNoop, srem: mockNoop },
+  unreadNotificationCache: { increment: mockIncrementUnread },
 }));
 
 mock.module("@/lib/session", () => ({
@@ -48,9 +116,20 @@ mock.module("next/cache", () => ({
 }));
 
 beforeEach(() => {
+  postState = {
+    explicitContent: false,
+    id: POST_ID,
+    moderated: false,
+    userId: AUTHOR_ID,
+  };
   updatedPosts.length = 0;
+  auraPenalties.length = 0;
+  auraLogs.length = 0;
+  notifications.length = 0;
+  enqueuedNotificationRecipients.length = 0;
   mockGetSession.mockClear();
   mockUpdateTag.mockClear();
+  mockIncrementUnread.mockClear();
 });
 
 describe("updatePostModeration", () => {
@@ -86,32 +165,129 @@ describe("updatePostModeration", () => {
     ).rejects.toThrow("Post not found");
   });
 
-  test("lets the author flag their own post as moderated", async () => {
+  test("moderating docks the author's aura and logs the penalty", async () => {
+    const { updatePostModeration } = await import("./actions");
+    mockGetSession.mockImplementation(() => ({
+      user: { id: "admin-1", role: "admin" },
+    }));
+
+    await updatePostModeration(POST_ID, { moderated: true });
+
+    expect(auraPenalties).toEqual([AUTHOR_ID]);
+    expect(auraLogs).toEqual([
+      {
+        amount: -100,
+        issuerId: "admin-1",
+        postId: POST_ID,
+        type: "MODERATION_PENALTY",
+        userId: AUTHOR_ID,
+      },
+    ]);
+  });
+
+  test("author self-moderation still notifies via the Zeph persona", async () => {
     const { updatePostModeration } = await import("./actions");
     mockGetSession.mockImplementation(() => ({
       user: { id: AUTHOR_ID, role: "user" },
     }));
 
+    // Author flagging their own post: the aura penalty applies, and the
+    // author still gets a notification issued by the neutral Zeph account so
+    // the moderation shows up in their bell.
     await updatePostModeration(POST_ID, { moderated: true });
 
-    expect(updatedPosts).toEqual([
-      { changes: { moderated: true }, id: POST_ID },
+    expect(auraPenalties).toEqual([AUTHOR_ID]);
+    expect(notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "MODERATION",
+      },
     ]);
-    expect(mockUpdateTag).toHaveBeenCalledTimes(2);
+    expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
   });
 
-  test("lets an admin flag any post as explicit and revert it", async () => {
+  test("admin moderation notifies the author", async () => {
+    const { updatePostModeration } = await import("./actions");
+    mockGetSession.mockImplementation(() => ({
+      user: { id: "admin-1", role: "admin" },
+    }));
+
+    await updatePostModeration(POST_ID, { moderated: true });
+
+    expect(notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "MODERATION",
+      },
+    ]);
+    expect(mockIncrementUnread).toHaveBeenCalledWith(AUTHOR_ID);
+  });
+
+  test("flagging explicit notifies the author without an aura penalty", async () => {
     const { updatePostModeration } = await import("./actions");
     mockGetSession.mockImplementation(() => ({
       user: { id: "admin-1", role: "admin" },
     }));
 
     await updatePostModeration(POST_ID, { explicitContent: true });
+
+    expect(auraPenalties).toEqual([]);
+    expect(notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "MODERATION",
+      },
+    ]);
+    expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
+  });
+
+  test("lifting the explicit flag still notifies but never touches aura", async () => {
+    const { updatePostModeration } = await import("./actions");
+    mockGetSession.mockImplementation(() => ({
+      user: { id: "admin-1", role: "admin" },
+    }));
+
+    postState.explicitContent = true;
     await updatePostModeration(POST_ID, { explicitContent: false });
 
-    expect(updatedPosts).toEqual([
-      { changes: { explicitContent: true }, id: POST_ID },
-      { changes: { explicitContent: false }, id: POST_ID },
+    expect(auraPenalties).toEqual([]);
+    expect(auraLogs).toEqual([]);
+    expect(notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "MODERATION",
+      },
     ]);
+    expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
+  });
+
+  test("unmoderating notifies without refunding aura", async () => {
+    const { updatePostModeration } = await import("./actions");
+    mockGetSession.mockImplementation(() => ({
+      user: { id: "admin-1", role: "admin" },
+    }));
+
+    postState.moderated = true;
+    await updatePostModeration(POST_ID, { moderated: false });
+
+    expect(auraPenalties).toEqual([]);
+    expect(auraLogs).toEqual([]);
+    expect(notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "MODERATION",
+      },
+    ]);
+    expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
   });
 });

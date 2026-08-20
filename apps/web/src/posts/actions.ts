@@ -7,19 +7,27 @@ import {
   POST_VIEWS_SET,
   prisma,
   redis,
+  unreadNotificationCache,
 } from "@asm/db";
 import { updateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/session";
+import { getModerationSystemUserId } from "@/lib/system-moderation-user";
 
 export interface PostModerationChanges {
   explicitContent?: boolean;
   moderated?: boolean;
 }
 
+// Aura docked from the author the first time their post is marked as
+// moderated. The penalty is one-way: unmoderating restores the content but
+// never refunds the aura.
+const MODERATION_AURA_PENALTY = 100;
+
 // Admins can moderate any post; the author can flag their own. Both flags are
 // reversible - a moderated post stays in the DB and can be restored, and the
-// explicit gate can be lifted - so this is an update, never a delete.
+// explicit gate can be lifted - so this is an update, never a delete. Marking a
+// post as moderated also docks the author's aura (one-way) and notifies them.
 export async function updatePostModeration(
   id: string,
   changes: PostModerationChanges
@@ -31,7 +39,7 @@ export async function updatePostModeration(
   }
 
   const post = await prisma.post.findUnique({
-    select: { id: true, userId: true },
+    select: { explicitContent: true, id: true, moderated: true, userId: true },
     where: { id },
   });
 
@@ -45,11 +53,75 @@ export async function updatePostModeration(
     throw new Error("Unauthorized");
   }
 
-  const updated = await prisma.post.update({
-    data: changes,
-    include: getPostDataInclude(session.user.id),
-    where: { id },
+  const moderatedNow = changes.moderated ?? post.moderated;
+  const explicitNow = changes.explicitContent ?? post.explicitContent;
+  const justModerated = moderatedNow && !post.moderated;
+  const justUnmoderated = !moderatedNow && post.moderated;
+  const justFlaggedExplicit = explicitNow && !post.explicitContent;
+  const justUnflaggedExplicit = !explicitNow && post.explicitContent;
+
+  // The author is notified on every flag transition so they always know what
+  // happened: moderated/unmoderated and explicit-flagged/unflagged. Explicit
+  // flags never cost aura; only the false->true moderated transition does.
+  const shouldNotify =
+    justModerated ||
+    justUnmoderated ||
+    justFlaggedExplicit ||
+    justUnflaggedExplicit;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.post.update({
+      data: changes,
+      include: getPostDataInclude(session.user.id),
+      where: { id },
+    });
+
+    // The moderation aura penalty is applied exactly once, on the false->true
+    // transition. Unmoderating never refunds it.
+    if (justModerated) {
+      await tx.user.update({
+        data: { aura: { increment: -MODERATION_AURA_PENALTY } },
+        where: { id: post.userId },
+      });
+      await tx.auraLog.create({
+        data: {
+          amount: -MODERATION_AURA_PENALTY,
+          issuerId: session.user.id,
+          postId: id,
+          type: "MODERATION_PENALTY",
+          userId: post.userId,
+        },
+      });
+    }
+
+    // Notify the author on every flag change. The notification is issued by
+    // the neutral "Zeph" system account so the moderator stays anonymous - even
+    // for self-moderation, so the author sees the moderation in their bell.
+    if (shouldNotify) {
+      const systemUserId = await getModerationSystemUserId();
+      await tx.notification.create({
+        data: {
+          issuerId: systemUserId,
+          postId: id,
+          recipientId: post.userId,
+          type: "MODERATION",
+        },
+      });
+    }
+
+    return result;
   });
+
+  // Bump the unread-bell counter synchronously (not via the worker) so the
+  // count is correct the instant the mutation resolves and the sidebar/header
+  // badge can refresh immediately instead of waiting on the 60s poll.
+  if (shouldNotify) {
+    try {
+      await unreadNotificationCache.increment(post.userId);
+    } catch (error) {
+      console.error("Failed to increment unread notification count:", error);
+    }
+  }
 
   // Expire the cached OG card + media rows so the moderation state is reflected
   // on share cards and media pages (read-your-own-writes).
