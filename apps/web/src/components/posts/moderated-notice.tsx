@@ -1,4 +1,5 @@
-import { ShieldAlert } from "lucide-react";
+import errorImage from "@assets/general/error.png";
+import Image from "next/image";
 
 import { cn } from "@/lib/utils";
 
@@ -11,14 +12,19 @@ const ModeratedNotice: React.FC<{
 }> = ({ className, kind = "post" }) => (
   <div
     className={cn(
-      "bg-muted border-border/70 flex items-center gap-3 rounded-xl border border-dashed px-4 py-5",
+      "bg-muted border-border/70 flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-6 text-center",
       className
     )}
   >
-    <div className="bg-background flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
-      <ShieldAlert className="text-muted-foreground size-4.5" />
-    </div>
-    <div className="min-w-0">
+    <Image
+      alt=""
+      className="size-20 shrink-0 object-contain"
+      draggable={false}
+      height={1199}
+      src={errorImage}
+      width={1312}
+    />
+    <div>
       <p className="text-foreground text-sm font-semibold">
         This {kind} has been moderated
       </p>
