@@ -254,7 +254,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                   <span className="block truncate font-bold group-hover:underline">
                     {author.displayName || author.username}
                   </span>
-                  <UserBadge badge={author.badge} />
+                  <UserBadge badge={author.badge} badges={author.badges} />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                   @{author.username}

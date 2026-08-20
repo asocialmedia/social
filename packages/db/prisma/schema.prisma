@@ -36,6 +36,7 @@ model User {
   name            String?
   role            String    @default("user")
   badge           String?
+  badges          String[]  @default([])
   banned          Boolean   @default(false)
   banReason       String?
   banExpires      DateTime?

@@ -486,7 +486,7 @@ const MediaViewer = ({
               >
                 {post.user.displayName}
               </Link>
-              <UserBadge badge={post.user.badge} />
+              <UserBadge badge={post.user.badge} badges={post.user.badges} />
             </span>
             <Link
               className="block truncate text-white/70 hover:underline"
@@ -574,7 +574,7 @@ const MediaViewer = ({
                 >
                   {post.user.displayName}
                 </Link>
-                <UserBadge badge={post.user.badge} />
+                <UserBadge badge={post.user.badge} badges={post.user.badges} />
               </span>
               <Link
                 className="text-muted-foreground block truncate hover:underline"

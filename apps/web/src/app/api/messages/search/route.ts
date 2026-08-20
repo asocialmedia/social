@@ -20,6 +20,7 @@ export async function GET(request: Request) {
     select: {
       avatarUrl: true,
       badge: true,
+      badges: true,
       displayName: true,
       id: true,
       messageIdentity: { select: { userId: true } },
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
     users: users.map((u) => ({
       avatarUrl: u.avatarUrl,
       badge: u.badge,
+      badges: u.badges,
       displayName: u.displayName,
       hasIdentity: u.messageIdentity !== null,
       id: u.id,

@@ -94,7 +94,10 @@ const RightSideBar: React.FC = () => {
                       <span className="block truncate text-sm font-medium">
                         {suggestedUser.displayName || suggestedUser.username}
                       </span>
-                      <UserBadge badge={suggestedUser.badge} />
+                      <UserBadge
+                        badge={suggestedUser.badge}
+                        badges={suggestedUser.badges}
+                      />
                     </span>
                     <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                       @{suggestedUser.username}

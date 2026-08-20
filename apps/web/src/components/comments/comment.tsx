@@ -187,7 +187,10 @@ export default function CommentItem({
                       {comment.user.displayName}
                     </Link>
                   </UserTooltip>
-                  <UserBadge badge={comment.user.badge} />
+                  <UserBadge
+                    badge={comment.user.badge}
+                    badges={comment.user.badges}
+                  />
                   <Link
                     className="text-muted-foreground truncate hover:underline"
                     href={`/users/${comment.user.username}`}

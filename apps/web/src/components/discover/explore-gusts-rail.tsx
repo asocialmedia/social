@@ -137,12 +137,17 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
           </div>
           <UserBadge
             badge={gust.user.badge}
+            badges={gust.user.badges}
             className="hidden shrink-0 sm:inline-flex"
           />
         </div>
 
         {/* Role badge gets its own row on mobile so it doesn't crowd the name */}
-        <UserBadge badge={gust.user.badge} className="mt-1 sm:hidden" />
+        <UserBadge
+          badge={gust.user.badge}
+          badges={gust.user.badges}
+          className="mt-1 sm:hidden"
+        />
 
         {gust.content ? (
           <p className="mt-1 line-clamp-1 text-[11px] text-white/80">

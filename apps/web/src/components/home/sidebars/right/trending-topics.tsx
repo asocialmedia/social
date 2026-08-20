@@ -82,7 +82,11 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
           <span className="block min-w-0 flex-1 truncate text-sm font-medium">
             {item.displayName || `@${item.username}`}
           </span>
-          <UserBadge badge={item.badge} className="shrink-0" />
+          <UserBadge
+            badge={item.badge}
+            badges={item.badges}
+            className="shrink-0"
+          />
         </span>
         <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
           @{item.username} · {formatNumber(item.count)}{" "}
@@ -199,7 +203,11 @@ const TrendingTopics: React.FC = () => {
                     <span className="block min-w-0 flex-1 truncate text-sm font-medium">
                       {auraUser.displayName || `@${auraUser.username}`}
                     </span>
-                    <UserBadge badge={auraUser.badge} className="shrink-0" />
+                    <UserBadge
+                      badge={auraUser.badge}
+                      badges={auraUser.badges}
+                      className="shrink-0"
+                    />
                   </span>
                   <span className="text-muted-foreground flex items-center gap-1 truncate text-xs transition-colors group-hover:text-inherit">
                     @{auraUser.username}

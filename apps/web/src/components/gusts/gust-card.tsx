@@ -400,7 +400,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                 >
                   {authorName}
                 </Link>
-                <UserBadge badge={post.user.badge} />
+                <UserBadge badge={post.user.badge} badges={post.user.badges} />
                 {canFollow ? (
                   <FollowButton
                     className="h-7 shrink-0 rounded-full px-3 text-xs"

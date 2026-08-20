@@ -24,6 +24,7 @@ if (import.meta.main) {
     processInactiveUsersSweep,
     processHnRefresh,
     processExpiredTokens,
+    processShitposterCheck,
   } = await import("./worker/jobs");
 
   const workers: QueueWorkerType[] = [];
@@ -119,6 +120,9 @@ if (import.meta.main) {
           }
           case "notification-deleted": {
             return processNotificationDeleted(job.data);
+          }
+          case "shitposter-check": {
+            return processShitposterCheck(job.data, logger);
           }
           default: {
             throw new Error(`Unknown content event: ${job.name}`);

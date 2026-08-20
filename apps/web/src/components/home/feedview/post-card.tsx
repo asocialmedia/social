@@ -144,7 +144,7 @@ const PostContent: React.FC<PostContentProps> = ({
                     {post.user.displayName}
                   </Link>
                 </UserTooltip>
-                <UserBadge badge={post.user.badge} />
+                <UserBadge badge={post.user.badge} badges={post.user.badges} />
                 <Link
                   className="text-muted-foreground shrink-0 hover:underline"
                   href={`/posts/${post.id}`}

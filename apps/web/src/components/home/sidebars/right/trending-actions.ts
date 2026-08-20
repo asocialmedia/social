@@ -8,6 +8,7 @@ import { selectTopAuraUsers } from "./trending-utils";
 export interface TrendingMention {
   avatarUrl: string | null;
   badge: string | null;
+  badges: string[];
   count: number;
   displayName: string;
   type: "mention";
@@ -25,6 +26,7 @@ export interface TrendingAuraUser {
   aura: number;
   avatarUrl: string | null;
   badge: string | null;
+  badges: string[];
   displayName: string | null;
   type: "aura";
   userId: string;
@@ -55,6 +57,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
       select: {
         avatarUrl: true,
         badge: true,
+        badges: true,
         displayName: true,
         id: true,
         username: true,
@@ -73,6 +76,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
         return {
           avatarUrl: user.avatarUrl,
           badge: user.badge,
+          badges: user.badges,
           count: group._count._all,
           displayName: user.displayName,
           type: "mention" as const,
@@ -100,6 +104,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
         aura: true,
         avatarUrl: true,
         badge: true,
+        badges: true,
         displayName: true,
         id: true,
         username: true,
@@ -111,6 +116,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
       aura: user.aura,
       avatarUrl: user.avatarUrl,
       badge: user.badge,
+      badges: user.badges,
       displayName: user.displayName,
       type: "aura" as const,
       userId: user.id,

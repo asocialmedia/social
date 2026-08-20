@@ -159,7 +159,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
               <p className="truncate text-xs font-semibold text-white/95">
                 {post.user.displayName || post.user.username}
               </p>
-              <UserBadge badge={post.user.badge} />
+              <UserBadge badge={post.user.badge} badges={post.user.badges} />
             </div>
             <p className="truncate text-[11px] text-white/70">
               @{post.user.username}

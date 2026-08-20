@@ -58,6 +58,7 @@ describe("worker job processors", () => {
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
     deleteObject: mockDeleteObject,
+    grantShitposterBadgeIfQualified: mock(() => Promise.resolve(true)),
     prisma: mockPrisma,
     redis: mockRedis,
     unreadNotificationCache: {

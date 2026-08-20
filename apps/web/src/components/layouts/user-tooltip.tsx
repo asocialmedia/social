@@ -100,7 +100,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
               <Link href={`/users/${user.username}`}>
                 <div className="text-card-foreground flex items-center gap-1.5 text-lg font-semibold hover:underline">
                   {user.displayName}
-                  <UserBadge badge={user.badge} />
+                  <UserBadge badge={user.badge} badges={user.badges} />
                 </div>
                 <div className="text-muted-foreground">@{user.username}</div>
               </Link>

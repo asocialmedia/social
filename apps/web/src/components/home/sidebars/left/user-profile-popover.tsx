@@ -184,7 +184,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                   <span className="block truncate text-sm font-medium">
                     {userData.displayName || userData.username}
                   </span>
-                  <UserBadge badge={userData.badge} />
+                  <UserBadge badge={userData.badge} badges={userData.badges} />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs">
                   @{userData.username}

@@ -35,6 +35,7 @@ export interface SearchUserResult {
   aura: number;
   avatarUrl: string | null;
   badge: string | null;
+  badges: string[];
   bio: string | null;
   displayName: string;
   displayUsername: string | null;
@@ -72,6 +73,7 @@ export async function searchUsers(
       aura: true,
       avatarUrl: true,
       badge: true,
+      badges: true,
       bio: true,
       displayName: true,
       displayUsername: true,
@@ -114,6 +116,7 @@ export async function searchPosts(
         select: {
           avatarUrl: true,
           badge: true,
+          badges: true,
           displayName: true,
           id: true,
           username: true,
