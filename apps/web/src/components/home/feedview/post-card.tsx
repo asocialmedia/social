@@ -216,7 +216,9 @@ const PostContent: React.FC<PostContentProps> = ({
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
             {(post.user.id === currentUserId || currentUserIsAdmin) && (
               <PostMoreButton
-                className="opacity-0 transition-opacity group-hover/post:opacity-100"
+                // Touch devices have no hover, so the button must always be
+                // visible there; on desktop it still fades in on card hover.
+                className="transition-opacity sm:opacity-0 sm:group-hover/post:opacity-100"
                 post={post}
               />
             )}

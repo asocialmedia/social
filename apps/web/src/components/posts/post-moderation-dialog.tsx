@@ -71,6 +71,11 @@ export default function PostModerationDialog({
     e.stopPropagation();
   }, []);
 
+  // The 3D subcard: a raised panel with a bright top lip, soft inner bottom
+  // shade and a tight ring, matching the apple-panel / sidebar-subcard look.
+  const subcardClass =
+    "rounded-xl border border-white/10 bg-[hsl(var(--background-alt))] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_1px_2px_rgba(255,255,255,0.06),inset_0_-2px_4px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
+
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent
@@ -90,39 +95,43 @@ export default function PostModerationDialog({
           </DialogDescription>
         </div>
 
-        <div className="flex flex-col px-5 pb-5">
-          <div className="flex items-start justify-between gap-4 py-2">
-            <div>
-              <p className="text-sm font-semibold">Mark as moderated</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                Hides the content behind a &quot;This post has been
-                moderated&quot; notice.
-              </p>
+        <div className="flex flex-col gap-2.5 px-5 pb-5">
+          <div className={subcardClass}>
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold">Mark as moderated</p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  Hides the content behind a &quot;This post has been
+                  moderated&quot; notice.
+                </p>
+              </div>
+              <Switch
+                aria-label="Mark as moderated"
+                checked={moderated}
+                onCheckedChange={setModerated}
+              />
             </div>
-            <Switch
-              aria-label="Mark as moderated"
-              checked={moderated}
-              onCheckedChange={setModerated}
-            />
           </div>
 
-          <div className="border-border/60 flex items-start justify-between gap-4 border-t py-2">
-            <div>
-              <p className="text-sm font-semibold">Flag explicit content</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                Blurs the media until a viewer taps Continue.
-              </p>
+          <div className={subcardClass}>
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold">Flag explicit content</p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  Blurs the media until a viewer taps Continue.
+                </p>
+              </div>
+              <Switch
+                aria-label="Flag explicit content"
+                checked={explicitContent}
+                onCheckedChange={setExplicitContent}
+              />
             </div>
-            <Switch
-              aria-label="Flag explicit content"
-              checked={explicitContent}
-              onCheckedChange={setExplicitContent}
-            />
           </div>
 
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-2 flex justify-end gap-2">
             <Button
-              className="pill-3d-hover text-muted-foreground"
+              className="pill-3d-hover text-muted-foreground rounded-full px-5"
               disabled={mutation.isPending}
               onClick={onClose}
               variant="ghost"
@@ -130,7 +139,7 @@ export default function PostModerationDialog({
               Cancel
             </Button>
             <LoadingButton
-              className="pill-3d-hover rounded-full px-5 py-2 text-sm"
+              className="rounded-full bg-gradient-to-b from-[#ff9500] to-[#e65500] px-5 py-2 text-sm text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:from-[#ff9f0a] hover:to-[#ea5b00]"
               disabled={!isDirty}
               loading={mutation.isPending}
               onClick={handleApply}

@@ -221,6 +221,7 @@ enum AuraType {
   FOLLOW_GIVEN
   POST_BOOKMARKED
   POST_BOOKMARK_RECEIVED
+  MODERATION_PENALTY
 }
 
 model PasswordResetToken {
@@ -506,6 +507,7 @@ enum NotificationType {
   FOLLOW
   COMMENT
   MENTION
+  MODERATION
 }
 
 model Mention {

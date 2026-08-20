@@ -1,7 +1,8 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { EyeOff } from "lucide-react";
+import nosearchImage from "@assets/general/nosearch.png";
+import Image from "next/image";
 import type * as React from "react";
 import { useState } from "react";
 
@@ -15,11 +16,15 @@ import { cn } from "@/lib/utils";
 const ExplicitContentGate: React.FC<{
   children: React.ReactNode;
   className?: string;
+  // Rounding for the blurred copy, so its corners follow the media frame
+  // beneath it (post media tiles are rounded-xl, gusts are rounded-2xl/3xl).
+  blurClassName?: string;
   label?: string;
   onReveal?: () => void;
 }> = ({
   children,
   className,
+  blurClassName = "rounded-xl",
   label = "This post has explicit media.",
   onReveal,
 }) => {
@@ -38,29 +43,43 @@ const ExplicitContentGate: React.FC<{
     <div className={cn("relative w-full overflow-hidden", className)}>
       <div
         aria-hidden
-        className="pointer-events-none h-full w-full scale-105 opacity-60 blur-xl saturate-50"
+        className={cn(
+          "pointer-events-none h-full w-full scale-105 opacity-60 blur-xl saturate-50",
+          blurClassName
+        )}
       >
         {children}
       </div>
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
-        <div className="apple-panel flex w-full max-w-xs flex-col items-center gap-3 rounded-2xl p-5 text-center">
-          <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-full">
-            <EyeOff className="text-muted-foreground size-5" />
+        <div className="apple-panel flex w-full max-w-xs flex-col gap-3 rounded-2xl p-4">
+          <div className="flex items-center gap-3 text-left">
+            <Image
+              alt=""
+              className="size-12 shrink-0 object-contain"
+              draggable={false}
+              height={1024}
+              src={nosearchImage}
+              width={1536}
+            />
+            <div className="min-w-0">
+              <p className="text-foreground text-sm leading-tight font-semibold">
+                {label}
+              </p>
+              <p className="text-muted-foreground mt-0.5 text-xs leading-tight">
+                Do you want to continue watching?
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-foreground text-sm font-semibold">{label}</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Do you want to continue watching?
-            </p>
+          <div className="flex justify-center">
+            <Button
+              className="rounded-full px-6"
+              onClick={handleContinue}
+              type="button"
+              variant="premium"
+            >
+              Continue
+            </Button>
           </div>
-          <Button
-            className="rounded-full px-6"
-            onClick={handleContinue}
-            type="button"
-            variant="premium"
-          >
-            Continue
-          </Button>
         </div>
       </div>
     </div>

@@ -307,16 +307,22 @@ export const GustCard: React.FC<GustCardProps> = ({
   // A moderated gust is hidden behind a notice instead of the clip. The row is
   // never deleted, so an admin or the author can reverse it at any time - the
   // more-button stays reachable in the corner so moderation can be reopened.
+  // The frame mirrors the live gust's container (same 9:16 frame, rounding and
+  // shadow) so the notice reads as the clip's replacement, not a thrown-in box.
   if (post.moderated) {
     return (
-      <div className="relative flex h-full w-full items-center justify-center bg-black/40">
-        <ModeratedNotice className="mx-4 max-w-xs" kind="gust" />
-        {isOwner || isAdmin ? (
-          <PostMoreButton
-            className="absolute top-3 right-3 text-white"
-            post={post}
-          />
-        ) : null}
+      <div className="relative flex h-full w-full items-center justify-center">
+        <div className="relative flex h-full w-full flex-col overflow-hidden bg-black select-none sm:aspect-[9/16] sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
+          <div className="flex h-full w-full flex-1 items-center justify-center bg-black/40">
+            <ModeratedNotice className="mx-4 max-w-xs" kind="gust" />
+          </div>
+          {isOwner || isAdmin ? (
+            <PostMoreButton
+              className="absolute top-3 right-3 text-white"
+              post={post}
+            />
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -334,6 +340,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
         {post.explicitContent ? (
           <ExplicitContentGate
+            blurClassName="rounded-2xl lg:rounded-3xl"
             className="h-full w-full"
             label="This gust has explicit media."
             onReveal={() => setExplicitRevealed(true)}

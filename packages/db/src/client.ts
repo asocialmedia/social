@@ -158,6 +158,7 @@ export const notificationsInclude = {
     select: {
       content: true,
       id: true,
+      isGust: true,
     },
   },
 } satisfies Prisma.NotificationInclude;
