@@ -40,10 +40,15 @@ export const signUpSchema = z.object({
       const commonWords = ["password", "admin", "user", "login"];
       return !commonWords.some((word) => password.toLowerCase().includes(word));
     }, "'password123' is so last season, pick something better!"),
-  username: requiredUsername.regex(
-    /^[a-zA-Z0-9_]+$/,
-    "Username can only contain letters, numbers, and underscores (no weird symbols pls)"
-  ),
+  username: requiredUsername
+    .regex(
+      /^[a-zA-Z0-9_]+$/,
+      "Username can only contain letters, numbers, and underscores (no weird symbols pls)"
+    )
+    .refine(
+      (username) => username.toLowerCase() !== "zeph",
+      "That username is taken, try something else"
+    ),
 });
 
 export const loginSchema = z.object({

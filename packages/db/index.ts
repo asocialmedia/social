@@ -12,5 +12,6 @@ export * from "./queue";
 export * from "./src/client";
 export { default as prisma } from "./src/prisma";
 export * from "./src/redis";
+export * from "./src/reserved-usernames";
 export * from "./src/search";
 export * from "./src/storage";

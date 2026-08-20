@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { prisma, redis } from "@asm/db";
+import { isReservedUsername, prisma, redis } from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
@@ -548,6 +548,14 @@ export const signupRouter = router({
           userId: existingUser?.id,
         });
         if (existingUser) {
+          return userExistsResponse();
+        }
+
+        // Reserved handles (the "zeph" moderation persona) can never be claimed
+        // by a real account. Treat them like an existing username so the signup
+        // fails with the same "already exists" message instead of revealing the
+        // reservation.
+        if (isReservedUsername(input.username)) {
           return userExistsResponse();
         }
 
