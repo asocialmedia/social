@@ -4,18 +4,25 @@ import { clientLog } from "@asm/config/debug";
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
-import fallbackImage from "@assets/general/nomedia.png";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { ChevronLeft, ChevronRight, Download, FileIcon, X } from "lucide-react";
+import { formatDate } from "date-fns";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileIcon,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
 import FollowButton from "@/components/layouts/follow-button";
 import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
+import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
@@ -38,10 +45,13 @@ import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
 import { SVGViewer } from "./svg-viewer";
 
-const FALLBACK_IMAGE = fallbackImage;
-
 const getMediaUrl = (mediaId: string, download = false) =>
   `/api/media/${mediaId}${download ? "?download=true" : ""}`;
+
+// If async media (image/video/svg) hasn't fired its load event within this
+// window, the viewer gives up waiting and shows the retry state instead of
+// spinning forever.
+const MEDIA_LOAD_TIMEOUT_MS = 12_000;
 
 // Only IMAGE / SVG / VIDEO gate rendering on an async onLoad/onLoadedData event.
 // CODE / DOCUMENT / AUDIO render immediately and have no load callback, so they
@@ -98,19 +108,40 @@ const MediaViewer = ({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  // Set when the media element errors or the load times out, so the content
+  // area shows a retry button instead of an endless skeleton. `loadAttempt`
+  // remounts the media element on retry.
+  const [mediaError, setMediaError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const currentMedia = media[currentIndex];
 
   // Sync isLoading with the current item. Async media (image/video/svg) flip it
   // off via their onLoad/onLoadedData; everything else has no such event, so
-  // clear it immediately to avoid an infinite skeleton.
+  // clear it immediately to avoid an infinite skeleton. Error state resets per
+  // item too.
   useEffect(() => {
     if (!isOpen) {
       return;
     }
     // eslint-disable-next-line react-compiler -- reset load state per item
     setIsLoading(hasAsyncLoad(media[currentIndex]));
-  }, [isOpen, currentIndex, media]);
+    setMediaError(false);
+  }, [isOpen, currentIndex, media, loadAttempt]);
+
+  // Fail-safe: if an async media item never fires its load event (e.g. the
+  // storage range request stalls), surface the error state instead of leaving
+  // the viewer stuck on a spinner forever.
+  useEffect(() => {
+    if (!isOpen || !isLoading) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+      setMediaError(true);
+    }, MEDIA_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [isOpen, isLoading, currentIndex, loadAttempt]);
 
   const handlePrevious = useCallback(() => {
     setCurrentIndex((prev) => {
@@ -133,16 +164,29 @@ const MediaViewer = ({
 
   const handleMediaLoaded = useCallback(() => {
     setIsLoading(false);
+    setMediaError(false);
   }, []);
 
-  const handleImageError = useCallback(
-    (event: SyntheticEvent<HTMLImageElement>) => {
-      clientLog.error("Image load error:", event);
-      event.currentTarget.src = FALLBACK_IMAGE.src;
-      setIsLoading(false);
-    },
-    []
-  );
+  const handleMediaError = useCallback(() => {
+    setIsLoading(false);
+    setMediaError(true);
+  }, []);
+
+  // Videos frequently fire a transient `error` (e.g. a range request hiccup)
+  // and then recover and play. Immediately showing the fatal retry overlay
+  // over a playing video is worse than waiting, so for video an `error` is
+  // deliberately ignored here: if the clip genuinely never loads, the
+  // load-timeout flips to the retry state; if it recovers, onLoadedData or
+  // onPlaying clears the loading state instead.
+  const handleVideoError = useCallback(() => {
+    /* empty */
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    setLoadAttempt((attempt) => attempt + 1);
+    setMediaError(false);
+    setIsLoading(hasAsyncLoad(currentMedia));
+  }, [currentMedia]);
 
   const handleOpenPdf = useCallback(() => {
     if (currentMedia) {
@@ -252,8 +296,8 @@ const MediaViewer = ({
     if (item.mimeType === "image/svg+xml") {
       return (
         <div className="relative flex h-full w-full items-center justify-center">
-          {isLoading ? <MediaViewerSkeleton type="IMAGE" /> : null}
           <SVGViewer
+            key={`${item.id}-${loadAttempt}`}
             className={cn(
               "flex h-full w-full items-center justify-center",
               isLoading && "opacity-0"
@@ -268,18 +312,18 @@ const MediaViewer = ({
 
     return (
       <div className="relative flex h-full max-h-full w-full items-center justify-center">
-        {isLoading ? <MediaViewerSkeleton type="IMAGE" /> : null}
-        {/* key remounts the image per media item so the load state resets
-            cleanly instead of reusing one <img> whose src keeps swapping */}
+        {/* key remounts the image per media item + retry so the load state
+            resets cleanly instead of reusing one <img> whose src keeps
+            swapping */}
         <Image
-          key={item.id}
+          key={`${item.id}-${loadAttempt}`}
           alt={`Media item ${currentIndex + 1}`}
           className={cn(
             "object-contain transition-opacity duration-200",
             isLoading ? "opacity-0" : "opacity-100"
           )}
           fill
-          onError={handleImageError}
+          onError={handleMediaError}
           onLoad={handleMediaLoaded}
           priority
           quality={100}
@@ -292,9 +336,8 @@ const MediaViewer = ({
 
   const renderVideoMedia = (item: Media) => (
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
-      {isLoading ? <MediaViewerSkeleton type="VIDEO" /> : null}
       <CustomVideoPlayer
-        key={item.id}
+        key={`${item.id}-${loadAttempt}`}
         autoPlay
         className={cn(
           "h-full max-h-full w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
@@ -304,8 +347,9 @@ const MediaViewer = ({
           // would leave the media viewer stuck on its skeleton forever.
           isLoading && "opacity-0"
         )}
-        onError={handleMediaLoaded}
+        onError={handleVideoError}
         onLoadedData={handleMediaLoaded}
+        onPlaying={handleMediaLoaded}
         poster={getMediaProxyUrl(item)}
         src={getMediaUrl(item.id)}
       />
@@ -482,7 +526,11 @@ const MediaViewer = ({
         </div>
 
         <div className="mt-3 flex items-center gap-3">
-          <Link className="shrink-0" href={`/users/${post.user.username}`}>
+          <Link
+            aria-label="View profile"
+            className="shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            href={`/users/${post.user.username}`}
+          >
             <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
           </Link>
           <div className="min-w-0 flex-1">
@@ -540,6 +588,33 @@ const MediaViewer = ({
             return renderMedia();
           })()}
 
+          {/* Loading spinner over the content area. The media element stays
+              mounted (hidden behind this) so its load event can still fire. */}
+          {isLoading ? (
+            <div className="absolute inset-0 z-20 flex items-center justify-center">
+              <Spinner3D />
+            </div>
+          ) : null}
+
+          {/* Fail-safe: the media errored or timed out, so offer a retry
+              instead of leaving the user staring at a spinner. */}
+          {mediaError ? (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
+              <p className="text-sm font-medium text-white/90">
+                Couldn&apos;t load this media.
+              </p>
+              <Button
+                className="gap-2 rounded-full px-6"
+                onClick={handleRetry}
+                type="button"
+                variant="premium"
+              >
+                <RotateCcw className="size-4" />
+                Retry
+              </Button>
+            </div>
+          ) : null}
+
           <button
             aria-label="Close viewer"
             className="absolute top-4 left-3 z-50 hidden rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 lg:flex"
@@ -583,7 +658,11 @@ const MediaViewer = ({
       {post ? (
         <aside className="hidden h-full w-95 flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
           <div className="flex items-center gap-3 px-4 py-3">
-            <Link className="shrink-0" href={`/users/${post.user.username}`}>
+            <Link
+              aria-label="View profile"
+              className="focus-visible:ring-ring shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
+              href={`/users/${post.user.username}`}
+            >
               <UserAvatar
                 avatarUrl={post.user.avatarUrl}
                 className="h-10 w-10"
@@ -628,19 +707,16 @@ const MediaViewer = ({
           </div>
 
           <div className="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-sm">
-            <span>
-              {new Date(post.createdAt).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
+            {/* The timestamp is rendered in the viewer's local timezone, which
+                can differ between server and client, so hydration is suppressed
+                to avoid a mismatch on refresh. formatDate keeps the shape
+                deterministic across locales. */}
+            <span suppressHydrationWarning>
+              {formatDate(new Date(post.createdAt), "d MMM yyyy")}
             </span>
             <span aria-hidden>·</span>
-            <span>
-              {new Date(post.createdAt).toLocaleTimeString(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
+            <span suppressHydrationWarning>
+              {formatDate(new Date(post.createdAt), "h:mm a")}
             </span>
             <div className="flex-1" />
             <span>{formatNumber(post.viewCount)} views</span>
