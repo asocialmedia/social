@@ -8,6 +8,8 @@ import {
   FileCode,
   FileIcon,
   ImageOff,
+  Pause,
+  Play,
   VolumeX,
 } from "lucide-react";
 import Image from "next/image";
@@ -39,6 +41,15 @@ interface MediaPreviewsProps {
 const VIDEO_HOVER_DELAY = 350;
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+
+function formatTime(time: number): string {
+  if (!Number.isFinite(time) || time < 0) {
+    return "0:00";
+  }
+  const minutes = Math.floor(time / 60);
+  const seconds = Math.floor(time % 60);
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
 
 // Resolves a media item's natural aspect ratio (when stored) so the single
 // featured image can preserve true proportions instead of shrinking to a
@@ -182,6 +193,10 @@ const VideoPreview = ({
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
   const [isVideoActive, setIsVideoActive] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  // Minimal hover controls: playback state, current time and clip duration.
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -256,6 +271,50 @@ const VideoPreview = ({
     setIsVideoActive(true);
   }, []);
 
+  const handleTimeUpdate = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      setCurrentTime(event.currentTarget.currentTime);
+    },
+    []
+  );
+
+  const handleDurationChange = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      if (Number.isFinite(event.currentTarget.duration)) {
+        setDuration(event.currentTarget.duration);
+      }
+    },
+    []
+  );
+
+  const handleVideoPlay = useCallback(() => setIsPlaying(true), []);
+  const handleVideoPause = useCallback(() => setIsPlaying(false), []);
+
+  // Toggle playback from the hover controls. Stops propagation so the tile's
+  // "open media viewer" click never fires while using the control.
+  const togglePlayback = useCallback(
+    (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const video = containerRef.current?.querySelector("video");
+      if (!video) {
+        return;
+      }
+      if (video.paused) {
+        void (async () => {
+          try {
+            await video.play();
+          } catch {
+            // Autoplay may be blocked; ignore safely
+          }
+        })();
+      } else {
+        video.pause();
+      }
+    },
+    []
+  );
+
   const handleLoadedMetadata = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
@@ -315,8 +374,12 @@ const VideoPreview = ({
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
         muted
+        onDurationChange={handleDurationChange}
         onLoadedMetadata={handleLoadedMetadata}
+        onPause={handleVideoPause}
+        onPlay={handleVideoPlay}
         onPlaying={handlePlaying}
+        onTimeUpdate={handleTimeUpdate}
         playsInline
         preload={autoPlay ? "metadata" : "none"}
         src={isHovered || autoPlay ? getMediaUrl(media.id) : undefined}
@@ -345,13 +408,56 @@ const VideoPreview = ({
       </div>
       <div
         className={cn(
-          "absolute bottom-2 left-2 flex h-7 items-center gap-1.5 rounded-full bg-black/50 px-2 text-white backdrop-blur-md transition-opacity duration-300",
+          "absolute bottom-2 left-2 flex h-7 items-center gap-1.5 rounded-full bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-opacity duration-300",
           autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
         role="status" // eslint-disable-line jsx-a11y/prefer-tag-over-role -- status badge overlaid on the video
       >
         <VolumeX className="h-3.5 w-3.5" />
         <span className="text-xs font-medium">Muted</span>
+      </div>
+
+      {/* Minimal hover controls: play/pause + time, shown as two separate
+          floating elements so they read independently. Rendered as divs (not a
+          <button>) because the whole preview sits inside the tile's "open
+          media viewer" <button>; nesting a button would be invalid HTML and
+          break hydration. Opaque 3D surfaces matching the app's button
+          language. Clicks are swallowed so they never bubble to the tile and
+          open the viewer. */}
+      {/* oxlint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role -- the play/pause control (and its click-swallowing surface) must not be a <button> because the whole preview sits inside the tile's "open media viewer" <button>; nesting a button would be invalid HTML and break hydration */}
+      <div
+        aria-label={isPlaying ? "Pause" : "Play"}
+        className={cn(
+          "absolute right-2 bottom-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)] transition-all duration-200 hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px",
+          autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
+        onClick={togglePlayback}
+        onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            togglePlayback(event);
+          }
+        }}
+        role="button"
+        tabIndex={-1}
+      >
+        {isPlaying ? (
+          <Pause className="h-3.5 w-3.5" />
+        ) : (
+          <Play className="ml-0.5 h-3.5 w-3.5" />
+        )}
+      </div>
+      {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
+      <div
+        className={cn(
+          "pointer-events-none absolute right-2 bottom-11 flex h-5 items-center rounded-md bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-1.5 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-opacity duration-300",
+          autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
+      >
+        <span className="text-[10px] font-medium tabular-nums">
+          {formatTime(currentTime)} / {formatTime(duration)}
+        </span>
       </div>
       <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>

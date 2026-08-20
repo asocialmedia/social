@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
-import { Clapperboard, Hash, Loader2, MoreHorizontal, X } from "lucide-react";
+import { Clapperboard, Hash, MoreHorizontal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -89,7 +89,6 @@ export default function PostEditor({
     startUpload,
     attachments,
     isUploading,
-    uploadProgress,
     removeAttachment,
     reset: resetMediaUploads,
   } = useMediaUpload();
@@ -497,22 +496,6 @@ export default function PostEditor({
 
           <div className="mt-3 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
-              <AnimatePresence>
-                {isUploading ? (
-                  <motion.div
-                    animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-2"
-                    exit={{ opacity: 0, x: -20 }}
-                    initial={{ opacity: 0, x: -20 }}
-                  >
-                    <span className="text-sm font-medium tabular-nums">
-                      {(uploadProgress ?? 0).toFixed(1)}%
-                    </span>
-                    <Loader2 className="text-primary size-5 animate-spin" />
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-
               {/* Mobile-only: inline image/video button; the rest collapse into
                   a dropdown. */}
               <div className="max-md:flex md:hidden">
