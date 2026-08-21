@@ -128,6 +128,10 @@ export function CommentAvatarFallback({
 }) {
   const [failed, setFailed] = useState(false);
   const resolved = failed || !src ? noMediaImage.src : src;
+  // Storage avatars are served through our /api/users/avatar/{id}/image proxy;
+  // the image optimizer rejects same-origin /api/ URLs, so proxy and GIF
+  // sources must bypass optimization (the proxy already serves sized bytes).
+  const isProxySrc = resolved.startsWith("/api/");
 
   return (
     <Image
@@ -139,7 +143,7 @@ export function CommentAvatarFallback({
       height={40}
       onError={() => setFailed(true)}
       src={resolved}
-      unoptimized={isGifUrl(src)}
+      unoptimized={isProxySrc || isGifUrl(src)}
       width={40}
     />
   );
