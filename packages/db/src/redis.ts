@@ -778,6 +778,25 @@ export async function claimOnce(
   }
 }
 
+// Atomically claims the dedupe key and increments the counter in one script so
+// a duplicate claim can never race an increment (no double-count window).
+// KEYS[1] = dedupe key ("" when there is no viewer identity), KEYS[2] = the
+// set of posts with counters, KEYS[3] = the per-post counter. Returns the
+// current counter for a duplicate claim, or the new counter after INCR.
+const CLAIM_AND_INCREMENT_SCRIPT = `
+local claimed = true
+if KEYS[1] ~= "" then
+  local ok = redis.call("SET", KEYS[1], "1", "EX", tonumber(ARGV[1]), "NX")
+  if not ok then
+    local current = redis.call("GET", KEYS[3])
+    if current then return tonumber(current) end
+    return 0
+  end
+end
+redis.call("SADD", KEYS[2], ARGV[2])
+return redis.call("INCR", KEYS[3])
+`;
+
 export const postViewsCache = {
   async getMultipleViews(postIds: string[]): Promise<Record<string, number>> {
     try {
@@ -820,35 +839,26 @@ export const postViewsCache = {
     try {
       // Dedupe before counting: a signed-in user counts once per post per
       // window, and an anonymous client counts once per IP hash per window.
-      // The claim fails open (claimOnce returns true when Redis is down) so
-      // real views are never dropped because of an infrastructure hiccup.
-      let dedupeKey: string | null = null;
+      // The claim and counter bump run in one atomic script so a duplicate
+      // claim can never double-count. Fails open (returns 0) when Redis is
+      // down so real views are never dropped by an infrastructure hiccup.
+      let dedupeKey = "";
       if (viewer?.userId) {
         dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:u:${viewer.userId}`;
       } else if (viewer?.viewerHash) {
         dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:a:${viewer.viewerHash}`;
       }
-      if (dedupeKey) {
-        const isFirstHit = await claimOnce(
+      const newCount = Number(
+        await redis.eval(
+          CLAIM_AND_INCREMENT_SCRIPT,
+          3,
           dedupeKey,
-          viewer?.userId ? 21_600 : 3600
-        );
-        if (!isFirstHit) {
-          const current = Math.trunc(
-            Number(
-              (await redis.get(`${POST_VIEWS_KEY_PREFIX}${postId}`)) || "0"
-            )
-          );
-          return current;
-        }
-      }
-
-      const pipeline = redis.pipeline();
-      pipeline.sadd(POST_VIEWS_SET, postId);
-      pipeline.incr(`${POST_VIEWS_KEY_PREFIX}${postId}`);
-      const results = await pipeline.exec();
-
-      const newCount = (results?.[1]?.[1] as number) || 0;
+          POST_VIEWS_SET,
+          `${POST_VIEWS_KEY_PREFIX}${postId}`,
+          viewer?.userId ? 21_600 : 3600,
+          postId
+        )
+      );
 
       await enqueueViewIncrement(postId);
 

@@ -89,9 +89,10 @@ const SidebarCardSkeleton: React.FC = () => (
 );
 
 const ExplorePageSkeleton: React.FC = () => (
+  // Top bar + tab row, then the scroll body (gust rail + masonry), then the
+  // right sidebar on xl screens.
   <div className="flex min-w-0 flex-1">
     <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-      {/* Top bar + tabs */}
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <Skeleton className="h-12 w-full rounded-none" />
         <div className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5">
@@ -109,7 +110,6 @@ const ExplorePageSkeleton: React.FC = () => (
         </div>
       </div>
 
-      {/* Scroll body */}
       <div className="p-4">
         <GustRailSkeleton />
         <div className="columns-2 gap-4 sm:columns-3 xl:columns-4">
@@ -124,7 +124,6 @@ const ExplorePageSkeleton: React.FC = () => (
       </div>
     </div>
 
-    {/* Right sidebar */}
     <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
         <SidebarCardSkeleton />

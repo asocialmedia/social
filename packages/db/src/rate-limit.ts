@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 
 import { createLogger } from "@asm/logger";
 
+import { keys } from "../keys";
 import { redis } from "./redis";
 
 const logger = createLogger({ serviceName: "db-rate-limit" });
@@ -64,21 +65,32 @@ export async function consumeRateLimit(
   }
 }
 
-// Stable, non-reversible viewer identity for anonymous dedupe. Hashes the IP
-// so raw addresses never sit in Redis keys or logs.
+// Stable, non-reversible viewer identity for anonymous dedupe. An HMAC keyed
+// by the deployment secret so raw addresses never sit in Redis keys or logs
+// and the pseudonym is not derivable offline (an unkeyed SHA-256 over a small
+// IP space is brute-forceable). Key rotation: set a new VIEWER_HASH_SECRET and
+// old pseudonyms stop being generated; existing dedup keys expire within their
+// TTL window, so a viewer may be counted once more per post after a rotation.
 export function hashViewerId(ip: string): string {
-  return createHash("sha256").update(ip).digest("hex").slice(0, 24);
+  return createHmac("sha256", keys.VIEWER_HASH_SECRET)
+    .update(ip)
+    .digest("hex")
+    .slice(0, 24);
 }
 
-// Extracts the best-guess client IP from proxy headers. Cloudflare sets
-// cf-connecting-ip on every request it forwards; once the origin is locked
-// to Cloudflare-only traffic that header is trustworthy. The fallbacks keep
-// local development and non-Cloudflare deployments working.
-export function getClientIpFromRequest(request: Request): string {
-  const { headers } = request;
+// Resolves the client IP from a headers object (Request, NextRequest, or the
+// next/headers store). In production Cloudflare is the only ingress and always
+// sets cf-connecting-ip, overwriting anything the client sent, so it is the
+// single trusted source. The x-forwarded-for / x-real-ip fallbacks are only
+// honored outside production (local dev, tests, direct non-CF deployments)
+// where a direct client can forge them.
+export function getClientIpFromHeaders(headers: Pick<Headers, "get">): string {
   const cf = headers.get("cf-connecting-ip");
   if (cf) {
     return cf.trim();
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "unknown";
   }
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
@@ -88,4 +100,8 @@ export function getClientIpFromRequest(request: Request): string {
     }
   }
   return headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+export function getClientIpFromRequest(request: Request): string {
+  return getClientIpFromHeaders(request.headers);
 }

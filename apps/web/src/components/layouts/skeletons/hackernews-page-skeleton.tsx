@@ -54,9 +54,9 @@ const SidebarCardSkeleton: React.FC = () => (
 );
 
 const HackerNewsPageSkeleton: React.FC = () => (
+  // Top bar + tab row, HN feed rows, then the right sidebar on xl screens.
   <div className="flex min-w-0 flex-1">
     <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-      {/* Top bar */}
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <Skeleton className="h-12 w-full rounded-none" />
         <div className="border-border/60 relative flex items-center border-b py-1.5">
@@ -75,7 +75,6 @@ const HackerNewsPageSkeleton: React.FC = () => (
         </div>
       </div>
 
-      {/* HN feed rows */}
       <div className="flex flex-col">
         {[1, 2, 3].map((index) => (
           <div key={`hn-skeleton-${index}`}>
@@ -86,7 +85,6 @@ const HackerNewsPageSkeleton: React.FC = () => (
       </div>
     </div>
 
-    {/* Right sidebar */}
     <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
         <SidebarCardSkeleton />

@@ -26,7 +26,14 @@ export async function GET(request: Request) {
   if (initialId && !cursor) {
     const initialPost = await prisma.post.findUnique({
       include: getPostDataInclude(userId),
-      where: { id: initialId, isGust: true },
+      where: {
+        id: initialId,
+        isGust: true,
+        // When the caller opted out of moderated gusts (explore rail), the
+        // initial post is held to the same contract: a moderated gust is not
+        // prepended.
+        ...(excludeModerated ? { moderated: false } : {}),
+      },
     });
 
     const otherPosts = await prisma.post.findMany({

@@ -40,6 +40,14 @@ const ExplicitContentGate: React.FC<{
     onReveal?.();
   };
 
+  // The compact gate is often rendered inside a Link (row cards). The reveal
+  // click must reveal the media, not navigate the link underneath.
+  const handleCompactReveal = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleContinue();
+  };
+
   // The children stay in one stable wrapper for both states so media elements
   // (e.g. the gust video) are never unmounted/remounted on reveal; only the
   // blur styling and the overlay toggle.
@@ -52,7 +60,7 @@ const ExplicitContentGate: React.FC<{
       <button
         aria-label="Show content"
         className="absolute inset-0 z-10 flex cursor-pointer items-center justify-center border-0 bg-transparent"
-        onClick={handleContinue}
+        onClick={handleCompactReveal}
         type="button"
       >
         <Image

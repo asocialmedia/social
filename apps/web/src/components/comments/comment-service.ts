@@ -9,6 +9,7 @@ import {
   publishCommentDeleted,
 } from "@asm/db";
 import type { CommentData } from "@asm/db";
+import { updateTag } from "next/cache";
 
 // Aura awarded for participating in comment threads. Commenting credits both
 // the commenter and the user they reply to (the post author for a top-level
@@ -209,6 +210,13 @@ export async function createComment(
       }
     })
   );
+
+  // The media rows' commentId just changed, and /api/media caches the row to
+  // drive its access decision. Drop that cache so the updated ownership is
+  // picked up instead of serving a stale row for up to an hour.
+  if (mediaIdsValidated.length > 0) {
+    updateTag("media-row");
+  }
 
   try {
     await publishCommentCreated(params.postId, comment);

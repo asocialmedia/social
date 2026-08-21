@@ -134,6 +134,8 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
     );
   }
 
+  // Explicit media is just blurred in explore - no gate popup, the content
+  // stays hidden until the post is opened.
   return (
     <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link className="block" href={href}>
@@ -148,8 +150,6 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 <span className="text-[10px] font-semibold">Gust</span>
               </div>
             ) : null}
-            {/* Explicit media is just blurred in explore - no gate popup, the
-                content stays hidden until the post is opened. */}
             <div
               className={cn(
                 "h-full w-full",

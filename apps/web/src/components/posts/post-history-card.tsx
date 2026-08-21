@@ -96,8 +96,8 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             <span className="truncate">This post seemed harmful</span>
           </span>
         ) : (
-          /* Hard cap on the row: clamp the content to two lines so a long post
-             never stretches the recents card (max-h-10 = 2 lines at leading-snug). */
+          // Hard cap on the row: clamp the content to two lines so a long post
+          // never stretches the recents card (max-h-10 = 2 lines at leading-snug).
           <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
             {post.content || "View post"}
           </span>

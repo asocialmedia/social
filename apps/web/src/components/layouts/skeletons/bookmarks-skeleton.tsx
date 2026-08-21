@@ -38,8 +38,8 @@ const BookmarkRowSkeleton: React.FC = () => (
 );
 
 const BookmarksSkeleton: React.FC = () => (
+  // Top bar (mobile header + tab row + search) then the bookmarks feed.
   <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-    {/* Top bar */}
     <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
       <Skeleton className="h-12 w-full rounded-none" />
       <div className="border-border/60 flex items-center border-b py-1.5">
@@ -60,7 +60,6 @@ const BookmarksSkeleton: React.FC = () => (
       </div>
     </div>
 
-    {/* Bookmarks feed */}
     <div className="flex flex-col">
       <Separator className="bg-border/60" />
       {[1, 2, 3].map((index) => (

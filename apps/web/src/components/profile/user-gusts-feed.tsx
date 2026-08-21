@@ -89,13 +89,14 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
   }
 
   return (
+    // Poster thumbnail (explicit gusts stay blurred); hover preview only plays
+    // for non-explicit gusts.
     <Link
       className="group relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-sm transition-transform duration-300 hover:scale-[1.02] hover:shadow-lg"
       href={`/gusts?id=${post.id}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Poster Thumbnail (explicit gusts stay blurred) */}
       <Image
         alt={post.content || "Gust video"}
         className={cn(
@@ -109,7 +110,6 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         unoptimized
       />
 
-      {/* Video Preview on Hover (not for explicit gusts - clip stays hidden) */}
       {post.explicitContent ? null : (
         <video
           className={cn(
@@ -125,13 +125,12 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         />
       )}
 
-      {/* Top Overlay Badge */}
       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-black/40 px-2 py-0.5 text-xs text-white backdrop-blur-md">
         <Clapperboard className="text-primary size-3" />
         <span className="text-[11px] font-medium">Gust</span>
       </div>
 
-      {/* Bottom Gradient Overlay with Metrics */}
+      {/* Bottom gradient overlay with metrics */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-6 text-white">
         {post.content ? (
           <p className="line-clamp-2 text-xs font-medium text-white/90 drop-shadow-xs">
@@ -160,7 +159,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         </div>
       </div>
 
-      {/* Center Play Indicator on Hover */}
+      {/* Center play indicator on hover */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-md">
           <Play className="ml-0.5 size-5 fill-white text-white" />

@@ -76,6 +76,8 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
   );
   const coverHeight = data.isGust ? "h-56" : "h-40";
 
+  // Content: moderated posts show the notice instead of the text. Below it the
+  // full-width image/video preview (gated when explicit).
   return (
     <Link
       className={cn(
@@ -116,7 +118,6 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
         </div>
       </div>
 
-      {/* Content: moderated posts show the notice instead of the text */}
       <div className="px-3 py-2">
         {data.moderated ? (
           <ModeratedNotice className="w-full" compact kind="post" />
@@ -134,7 +135,6 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
         )}
       </div>
 
-      {/* Full-width image / video thumbnail preview (gated when explicit) */}
       {!data.moderated && previews.length > 0 ? (
         <div className="px-3 pb-2">
           <div

@@ -210,9 +210,15 @@ export async function GET(
       shouldDisplayInline(media.mimeType) &&
       !shouldForceAttachment(media.mimeType);
     headers.set("Content-Disposition", getContentDisposition(filename, inline));
-    // Content for a given media id is immutable (a new upload creates a
-    // row), so browsers may cache without revalidating on refresh.
-    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    // Post-linked media is immutable (a new upload creates a new row), so it
+    // may be cached long-lived by browsers and shared caches. Comment/message
+    // media is session-scoped and owner-only media must not leave a shared
+    // cache without re-running decideMediaAccess, so those are private and
+    // never stored.
+    headers.set(
+      "Cache-Control",
+      media.postId ? "public, max-age=31536000, immutable" : "private, no-store"
+    );
     headers.set("Accept-Ranges", "bytes");
     headers.set("X-Content-Type-Options", "nosniff");
 

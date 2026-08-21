@@ -181,13 +181,13 @@ describe("createSecurity", () => {
     for (let i = 0; i < 3; i += 1) {
       // Sequential hits are the point: each request consumes budget.
       // eslint-disable-next-line no-await-in-loop
-      const hit1 = await security.check(makeReq(), "9.9.9.9");
-      expect(hit1.allowed).toBe(true);
+      const anonymousHit = await security.check(makeReq(), "9.9.9.9");
+      expect(anonymousHit.allowed).toBe(true);
     }
-    const fourth = await security.check(makeReq(), "9.9.9.9");
-    expect(fourth.allowed).toBe(false);
-    expect(fourth.response?.status).toBe(429);
-    expect(fourth.response?.headers.get("retry-after")).toBeTruthy();
+    const anonymousBlocked = await security.check(makeReq(), "9.9.9.9");
+    expect(anonymousBlocked.allowed).toBe(false);
+    expect(anonymousBlocked.response?.status).toBe(429);
+    expect(anonymousBlocked.response?.headers.get("retry-after")).toBeTruthy();
   });
 
   test("authenticated requests get a generous limit", async () => {
@@ -211,18 +211,18 @@ describe("createSecurity", () => {
     for (let i = 0; i < 3; i += 1) {
       // Sequential hits are the point: each request consumes budget.
       // eslint-disable-next-line no-await-in-loop
-      const hit2 = await security.check(makeReq(false), "1.1.1.1");
-      expect(hit2.allowed).toBe(true);
+      const anonymousHit = await security.check(makeReq(false), "1.1.1.1");
+      expect(anonymousHit.allowed).toBe(true);
     }
-    const hit3 = await security.check(makeReq(false), "1.1.1.1");
-    expect(hit3.allowed).toBe(false);
+    const anonymousBlocked = await security.check(makeReq(false), "1.1.1.1");
+    expect(anonymousBlocked.allowed).toBe(false);
 
     // Authenticated (session cookie): still allowed at 10.
     for (let i = 0; i < 6; i += 1) {
       // Sequential hits are the point: each request consumes budget.
       // eslint-disable-next-line no-await-in-loop
-      const hit4 = await security.check(makeReq(true), "1.1.1.1");
-      expect(hit4.allowed).toBe(true);
+      const authenticatedHit = await security.check(makeReq(true), "1.1.1.1");
+      expect(authenticatedHit.allowed).toBe(true);
     }
   });
 
@@ -236,13 +236,13 @@ describe("createSecurity", () => {
         method: "GET",
       });
 
-    const hit5 = await security.check(makeReq(), "3.3.3.3");
-    expect(hit5.allowed).toBe(true);
-    const hit6 = await security.check(makeReq(), "3.3.3.3");
-    expect(hit6.allowed).toBe(true);
-    const third = await security.check(makeReq(), "3.3.3.3");
-    expect(third.allowed).toBe(false);
-    expect(third.response?.status).toBe(429);
+    const burstHit = await security.check(makeReq(), "3.3.3.3");
+    expect(burstHit.allowed).toBe(true);
+    const burstHitAgain = await security.check(makeReq(), "3.3.3.3");
+    expect(burstHitAgain.allowed).toBe(true);
+    const burstBlocked = await security.check(makeReq(), "3.3.3.3");
+    expect(burstBlocked.allowed).toBe(false);
+    expect(burstBlocked.response?.status).toBe(429);
   });
 
   test("applies strict limits on sensitive paths", async () => {
@@ -253,13 +253,13 @@ describe("createSecurity", () => {
         method: "POST",
       });
 
-    const hit7 = await security.check(makeReq(), "5.5.5.5");
-    expect(hit7.allowed).toBe(true);
-    const hit8 = await security.check(makeReq(), "5.5.5.5");
-    expect(hit8.allowed).toBe(true);
-    const third = await security.check(makeReq(), "5.5.5.5");
-    expect(third.allowed).toBe(false);
-    expect(third.response?.status).toBe(429);
+    const strictHit = await security.check(makeReq(), "5.5.5.5");
+    expect(strictHit.allowed).toBe(true);
+    const strictHitAgain = await security.check(makeReq(), "5.5.5.5");
+    expect(strictHitAgain.allowed).toBe(true);
+    const strictBlocked = await security.check(makeReq(), "5.5.5.5");
+    expect(strictBlocked.allowed).toBe(false);
+    expect(strictBlocked.response?.status).toBe(429);
   });
 
   test("different IPs are rate limited independently", async () => {
@@ -272,16 +272,16 @@ describe("createSecurity", () => {
         method: "GET",
       });
 
-    const hit9 = await security.check(makeReq(), "1.1.1.1");
-    expect(hit9.allowed).toBe(true);
-    const hit10 = await security.check(makeReq(), "1.1.1.1");
-    expect(hit10.allowed).toBe(true);
-    const hit11 = await security.check(makeReq(), "2.2.2.2");
-    expect(hit11.allowed).toBe(true);
-    const hit12 = await security.check(makeReq(), "1.1.1.1");
-    expect(hit12.allowed).toBe(false);
-    const hit13 = await security.check(makeReq(), "2.2.2.2");
-    expect(hit13.allowed).toBe(true);
+    const firstIpFirstHit = await security.check(makeReq(), "1.1.1.1");
+    expect(firstIpFirstHit.allowed).toBe(true);
+    const firstIpSecondHit = await security.check(makeReq(), "1.1.1.1");
+    expect(firstIpSecondHit.allowed).toBe(true);
+    const secondIpFirstHit = await security.check(makeReq(), "2.2.2.2");
+    expect(secondIpFirstHit.allowed).toBe(true);
+    const firstIpBlocked = await security.check(makeReq(), "1.1.1.1");
+    expect(firstIpBlocked.allowed).toBe(false);
+    const secondIpSecondHit = await security.check(makeReq(), "2.2.2.2");
+    expect(secondIpSecondHit.allowed).toBe(true);
   });
 });
 

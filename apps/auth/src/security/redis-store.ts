@@ -49,8 +49,12 @@ export function createRedisRateLimitStore(
           ),
         };
       } catch (error) {
+        // The key embeds the client IP (e.g. "anon:1.2.3.4"), so never log it
+        // raw. Log only the limiter scope (the leading segment) to preserve
+        // error context without leaking caller identity.
+        const scope = key.split(":")[0] ?? "rate-limit";
         logger.error(
-          { error, key },
+          { error, scope },
           "redis rate-limit store unavailable, failing open"
         );
         return { hit: false, retryAfterSeconds: 0 };

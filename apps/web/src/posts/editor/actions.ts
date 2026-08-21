@@ -11,6 +11,7 @@ import {
   prisma,
   tagCache,
 } from "@asm/db";
+import { updateTag } from "next/cache";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -207,6 +208,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         });
       }
 
+      // The media rows' postId just changed (draft uploads start unlinked), and
+      // /api/media caches the row to drive its access decision. Drop that cache
+      // so the now-public ownership is picked up immediately instead of serving
+      // a stale "protected" row for up to an hour.
+      if (validatedInput.mediaIds.length > 0) {
+        updateTag("media-row");
+      }
+
       if (input.hnStory) {
         await tx.hNStoryShare.create({
           data: {
@@ -326,11 +335,18 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 }
 
 export async function incrementPostView(postId: string) {
-  const { getSessionFromApi } = await import("@/lib/session");
-  const sessionData = await getSessionFromApi();
-  return await postViewsCache.incrementView(postId, {
-    userId: sessionData?.user?.id,
-  });
+  const [{ getClientIpFromHeaders, hashViewerId }, { headers }, sessionModule] =
+    await Promise.all([
+      import("@asm/db"),
+      import("next/headers"),
+      import("@/lib/session"),
+    ]);
+  const sessionData = await sessionModule.getSessionFromApi();
+  const userId = sessionData?.user?.id;
+  const viewerHash = userId
+    ? undefined
+    : hashViewerId(getClientIpFromHeaders(await headers()));
+  return await postViewsCache.incrementView(postId, { userId, viewerHash });
 }
 
 export async function getPostViews(postId: string) {

@@ -1,3 +1,4 @@
+import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
@@ -32,19 +33,20 @@ export function getHostname(host: string): string {
   return host.split(":")[0]?.toLowerCase() ?? "";
 }
 
+// Well-formed IPv4 or IPv6 address, used to reject trivial cf-connecting-ip
+// spoofs (junk strings) in the Cloudflare gate. A forged valid IP is still
+// possible at the middleware layer; blocking those requires the origin
+// firewall that restricts 80/443 to Cloudflare ranges.
+const IPV4_PATTERN =
+  /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const IPV6_PATTERN = /^[0-9a-fA-F:]{3,45}$/;
+const looksLikeIp = (value: string): boolean =>
+  IPV4_PATTERN.test(value) || IPV6_PATTERN.test(value);
+
+// Resolves the client IP using the trusted-ingress policy shared with the
+// rate limiter: in production only Cloudflare-provided headers are honored.
 export function clientIpFromRequest(request: NextRequest): string {
-  const cf = request.headers.get("cf-connecting-ip");
-  if (cf) {
-    return cf.trim();
-  }
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) {
-      return first;
-    }
-  }
-  return request.headers.get("x-real-ip")?.trim() || "unknown";
+  return getClientIpFromHeaders(request.headers);
 }
 
 function securityHeaders(): Record<string, string> {
@@ -97,14 +99,22 @@ export async function proxy(request: NextRequest) {
   }
 
   // Direct-to-origin requests bypass Cloudflare's WAF and rate limiting.
-  // Reject them in production when the lockdown flag is set.
+  // Reject them in production when the lockdown flag is set. Only requests
+  // that carry a well-formed cf-connecting-ip (set by Cloudflare for every
+  // request it forwards) are accepted; a direct caller can forge the header,
+  // but the real enforcement is the host firewall that limits 80/443 to
+  // Cloudflare ranges, and the header check here stays a cheap backstop.
+  const cfConnectingIp = request.headers.get("cf-connecting-ip");
+  const hasValidCfIp = Boolean(
+    cfConnectingIp && looksLikeIp(cfConnectingIp.trim())
+  );
   if (
     ENFORCE_CLOUDFLARE &&
     process.env.NODE_ENV === "production" &&
     !isLoopback &&
-    !request.headers.get("cf-connecting-ip")
+    !hasValidCfIp
   ) {
-    return new NextResponse("Forbidden", { status: 403 });
+    return withSecurityHeaders(new NextResponse("Forbidden", { status: 403 }));
   }
 
   // Per-IP tiered rate limiting for API routes. Fails open on Redis errors;

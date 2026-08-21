@@ -27,7 +27,6 @@ import { useSession } from "@/app/(main)/session-provider";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
-import ModeratedNotice from "@/components/posts/moderated-notice";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
@@ -94,14 +93,11 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
     return null;
   }
 
-  // Moderated gusts stay in the explore surface but show the notice instead
-  // of the clip - never hidden.
+  // Moderated gusts stay out of the explore grid entirely: the route already
+  // excludes them (excludeModerated=1), but a stale payload from a race is
+  // skipped rather than rendered as a moderation tile.
   if (post.moderated) {
-    return (
-      <div className="flex aspect-9/16 w-full items-center justify-center overflow-hidden rounded-2xl bg-neutral-900">
-        <ModeratedNotice className="mx-3" kind="gust" />
-      </div>
-    );
+    return null;
   }
 
   const thumbUrl = getMediaProxyUrl(videoMedia);

@@ -1,5 +1,4 @@
 import {
-  claimOnce,
   enqueueShareEvent,
   getClientIpFromRequest,
   hashViewerId,
@@ -32,18 +31,20 @@ export async function POST(
     }
 
     // One click per viewer per post+platform inside the window: signed-in
-    // users dedupe by user id, anonymous by hashed IP. Fails open so real
-    // clicks are never dropped when Redis is unavailable.
+    // users dedupe by user id, anonymous by hashed IP. The claim and the
+    // counter bump run atomically so a duplicate click can never double-count.
+    // Fails open so real clicks are never dropped when Redis is unavailable.
     const session = await getSessionFromApi();
     const viewer = session?.user?.id
       ? `u:${session.user.id}`
       : `a:${hashViewerId(getClientIpFromRequest(request))}`;
-    const claimed = await claimOnce(
+    const { claimed } = await shareStatsCache.claimAndIncrementClick(
+      postId,
+      platform,
       `share:click:seen:${postId}:${platform}:${viewer}`,
       3600
     );
     if (claimed) {
-      await shareStatsCache.incrementClick(postId, platform);
       try {
         await enqueueShareEvent(postId, platform, "click");
       } catch (error) {

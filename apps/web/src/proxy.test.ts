@@ -11,6 +11,10 @@ mock.module("@asm/db", () => ({
     resetAt: Date.now() + 60_000,
     retryAfterSeconds: 0,
   })),
+  getClientIpFromHeaders: mock(
+    (headers: { get: (name: string) => string | null }) =>
+      headers.get("cf-connecting-ip") ?? "unknown"
+  ),
 }));
 
 const { proxy } = await import("./proxy");

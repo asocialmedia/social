@@ -5,17 +5,17 @@ import { Skeleton } from "@asm/ui/shadui/skeleton";
 // fallback for /users/[username] so the first paint reads as "a profile loading"
 // rather than a bare feed.
 export default function ProfileSkeleton() {
+  // Banner, avatar + action buttons, identity, bio, joined, stats row, then
+  // the sticky tab bar and the posts feed.
   return (
     <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
       <div className="border-border/60 border-b">
-        {/* Banner */}
         <div className="bg-muted/20 relative h-32 sm:h-44">
           <Skeleton className="absolute inset-0 rounded-none" />
           <div className="absolute inset-0 bg-linear-to-t from-[hsl(var(--background-alt))] to-transparent" />
         </div>
 
         <div className="px-4">
-          {/* Avatar + action buttons */}
           <div className="flex items-end justify-between">
             <Skeleton className="ring-background relative -mt-14 size-28 rounded-xl ring-4 sm:-mt-16" />
             <div className="mb-2 flex gap-2">
@@ -24,22 +24,18 @@ export default function ProfileSkeleton() {
             </div>
           </div>
 
-          {/* Identity */}
           <div className="mt-3 space-y-1.5">
             <Skeleton className="h-7 w-48" />
             <Skeleton className="h-4 w-32" />
           </div>
 
-          {/* Bio */}
           <div className="mt-3 space-y-2">
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-4/5" />
           </div>
 
-          {/* Joined */}
           <Skeleton className="mt-3 h-4 w-36" />
 
-          {/* Stats row */}
           <div className="mt-2.5 flex items-center gap-4 pb-4">
             <Skeleton className="h-4 w-20" />
             <Skeleton className="h-4 w-20" />
@@ -48,7 +44,6 @@ export default function ProfileSkeleton() {
         </div>
       </div>
 
-      {/* Sticky tab bar */}
       <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
         <div className="flex items-center gap-1">
           {[1, 2, 3, 4].map((index) => (
@@ -57,7 +52,6 @@ export default function ProfileSkeleton() {
         </div>
       </div>
 
-      {/* Posts feed */}
       <div className="p-4">
         <div className="flex gap-3">
           <Skeleton className="h-10 w-10 shrink-0 rounded-full" />

@@ -20,8 +20,8 @@ const KEYS = [
 ];
 
 const GustRailSkeleton: React.FC = () => (
+  // Header row, then the horizontal row of 9:16 gust tiles.
   <section className="sidebar-subcard mb-6 overflow-hidden rounded-2xl">
-    {/* Header */}
     <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
         <Skeleton className="size-4.5 rounded-full" />
@@ -29,7 +29,6 @@ const GustRailSkeleton: React.FC = () => (
       </div>
       <Skeleton className="h-4 w-16 rounded-md" />
     </div>
-    {/* Horizontal row of 9:16 gust tiles */}
     <div className="flex gap-3 overflow-hidden px-4 pb-4">
       {[0, 1, 2, 3].map((index) => (
         <div className="w-28 shrink-0 sm:w-36" key={`gust-rail-${index}`}>

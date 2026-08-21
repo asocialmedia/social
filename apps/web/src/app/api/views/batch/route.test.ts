@@ -15,11 +15,13 @@ const persistedById = new Map<string, number>([
 // Simulates the Redis counter: the delta since the last worker flush, starting
 // fresh at 1 for every post on first touch.
 const deltas = new Map<string, number>();
-const mockIncrementView = mock((postId: string) => {
-  const next = (deltas.get(postId) ?? 0) + 1;
-  deltas.set(postId, next);
-  return next;
-});
+const mockIncrementView = mock(
+  (postId: string, _options?: { userId?: string; viewerHash?: string }) => {
+    const next = (deltas.get(postId) ?? 0) + 1;
+    deltas.set(postId, next);
+    return next;
+  }
+);
 
 const mockFindMany = mock((args: { where?: { id?: { in?: string[] } } }) => {
   const ids = args?.where?.id?.in ?? [];
@@ -33,6 +35,9 @@ const mockFindMany = mock((args: { where?: { id?: { in?: string[] } } }) => {
 });
 
 mock.module("@asm/db", () => ({
+  getClientIpFromRequest: (request: Request) =>
+    request.headers.get("cf-connecting-ip") ?? "unknown",
+  hashViewerId: (ip: string) => `hash-${ip}`,
   postViewsCache: {
     incrementView: mockIncrementView,
   },

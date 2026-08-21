@@ -22,10 +22,10 @@ const NotificationSkeletonRow: React.FC = () => (
 
 const NotificationsSkeleton: React.FC = () => (
   // Same column wrapper as the real page so the skeleton stays centered at
-  // max-w-5xl instead of stretching full width.
+  // max-w-5xl instead of stretching full width. Top bar, then the notification
+  // feed rows.
   <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Top bar */}
       <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
         <Skeleton className="h-12 w-full rounded-none" />
         <div className="border-border/60 flex items-center border-b">
@@ -34,7 +34,6 @@ const NotificationsSkeleton: React.FC = () => (
         </div>
       </div>
 
-      {/* Notification rows */}
       <div className="flex flex-col">
         {[1, 2, 3, 4, 5].map((index) => (
           <div key={`notif-skeleton-${index}`}>

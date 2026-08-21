@@ -428,6 +428,8 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
   // A moderated post's media is replaced by a banner exactly the same size and
   // shape as the media tile; clicking it goes straight to the post/gust page.
   if (isModerated) {
+    // Same frame as the real media tile: identical aspect ratio, rounding,
+    // border and shadow.
     return (
       <div className="mb-2 break-inside-avoid">
         <Link
@@ -440,8 +442,6 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
             }
           }}
         >
-          {/* Same frame as the real media tile: identical aspect ratio,
-              rounding, border and shadow. */}
           <div
             className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs"
             style={{ aspectRatio: tileAspectRatio(item) }}
@@ -468,6 +468,9 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
     );
   }
 
+  // Explicit media is shown blurred in the gallery - no gate popup, it stays
+  // hidden until the media is opened. The blur sits inside a rounded bordered
+  // container so it never bleeds past the tile.
   return (
     <div className="mb-2 break-inside-avoid">
       <button
@@ -476,9 +479,6 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
         onClick={handleClick}
         type="button"
       >
-        {/* Explicit media is shown blurred in the gallery - no gate popup, it
-            stays hidden until the media is opened. The blur sits inside a
-            rounded bordered container so it never bleeds past the tile. */}
         <div className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs">
           <div
             className={cn(

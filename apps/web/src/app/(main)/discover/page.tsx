@@ -25,12 +25,13 @@ async function DiscoveryContent() {
   const session = await getSessionFromApi();
   const isLoggedIn = Boolean(session?.user);
 
+  // ExploreClient suspends up to the single page-level Suspense in
+  // DiscoveryPage, so the shell and sidebar are never duplicated by a nested
+  // fallback.
   return (
     <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-        <Suspense fallback={<ExplorePageSkeleton />}>
-          <ExploreClient />
-        </Suspense>
+        <ExploreClient />
       </div>
 
       <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
