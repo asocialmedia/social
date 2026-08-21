@@ -726,6 +726,14 @@ export const signupRouter = router({
             });
           }
 
+          // Reserved handles (the "zeph" moderation persona) can never be
+          // claimed, even from a pending signup created before the reservation
+          // existed. Clean up the pending key and fail like a taken username.
+          if (isReservedUsername(pendingData.username)) {
+            await redis.del(pendingKey);
+            return { error: "user-exists", success: false } as const;
+          }
+
           const user = await prisma.user.create({
             data: {
               displayName: pendingData.displayName,
@@ -809,6 +817,14 @@ export const signupRouter = router({
         exists: Boolean(existing),
       });
       if (existing) {
+        await redis.del(key);
+        return { error: "user-exists", success: false } as const;
+      }
+
+      // Reserved handles (the "zeph" moderation persona) can never be claimed,
+      // even from a pending signup created before the reservation existed.
+      // Clean up the pending key and fail like a taken username.
+      if (isReservedUsername(data.username)) {
         await redis.del(key);
         return { error: "user-exists", success: false } as const;
       }

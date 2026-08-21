@@ -9,6 +9,7 @@ import {
   redis,
   unreadNotificationCache,
 } from "@asm/db";
+import type { PostData } from "@asm/db";
 import { updateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/session";
@@ -53,32 +54,69 @@ export async function updatePostModeration(
     throw new Error("Unauthorized");
   }
 
-  const moderatedNow = changes.moderated ?? post.moderated;
-  const explicitNow = changes.explicitContent ?? post.explicitContent;
-  const justModerated = moderatedNow && !post.moderated;
-  const justUnmoderated = !moderatedNow && post.moderated;
-  const justFlaggedExplicit = explicitNow && !post.explicitContent;
-  const justUnflaggedExplicit = !explicitNow && post.explicitContent;
+  // Only the two moderation flags may ever be written by this action. Build a
+  // fresh object from the known fields so stray/unknown client properties
+  // (content, userId, aura, counters, isGust, ...) can never reach Prisma.
+  const data: { explicitContent?: boolean; moderated?: boolean } = {};
+  if (changes.explicitContent !== undefined) {
+    data.explicitContent = changes.explicitContent;
+  }
+  if (changes.moderated !== undefined) {
+    data.moderated = changes.moderated;
+  }
 
-  // The author is notified on every flag transition so they always know what
-  // happened: moderated/unmoderated and explicit-flagged/unflagged. Explicit
-  // flags never cost aura; only the false->true moderated transition does.
-  const shouldNotify =
-    justModerated ||
-    justUnmoderated ||
-    justFlaggedExplicit ||
-    justUnflaggedExplicit;
+  // Transitions derived from the pre-transaction state. The moderated penalty
+  // and notification use `confirmedModeratedTransition` (set inside the
+  // transaction) so concurrent requests cannot double-apply them.
+  const justUnmoderated = data.moderated === false && post.moderated;
+  const justFlaggedExplicit =
+    data.explicitContent === true && !post.explicitContent;
+  const justUnflaggedExplicit =
+    data.explicitContent === false && post.explicitContent;
 
+  // Resolve the neutral system user once, before the transaction, so the
+  // callback never performs redundant I/O.
+  const systemUserId = await getModerationSystemUserId();
+
+  let confirmedModeratedTransition = false;
   const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.post.update({
-      data: changes,
-      include: getPostDataInclude(session.user.id),
-      where: { id },
-    });
+    let result: PostData | null;
 
-    // The moderation aura penalty is applied exactly once, on the false->true
-    // transition. Unmoderating never refunds it.
-    if (justModerated) {
+    if (data.moderated === true) {
+      // Atomic: only the caller that actually flips moderated false->true is
+      // charged. Concurrent requests race on this single conditional update.
+      const flip = await tx.post.updateMany({
+        data,
+        where: { id, moderated: false },
+      });
+      confirmedModeratedTransition = flip.count === 1;
+      // The post was already moderated (or a concurrent request won the race):
+      // apply only an accompanying explicit flag so it still lands.
+      if (flip.count === 0 && data.explicitContent !== undefined) {
+        await tx.post.update({
+          data: { explicitContent: data.explicitContent },
+          where: { id },
+        });
+      }
+      result = await tx.post.findUnique({
+        include: getPostDataInclude(session.user.id),
+        where: { id },
+      });
+    } else {
+      result = await tx.post.update({
+        data,
+        include: getPostDataInclude(session.user.id),
+        where: { id },
+      });
+    }
+
+    if (!result) {
+      throw new Error("Post not found");
+    }
+
+    // The moderation aura penalty is applied exactly once, on the transactionally
+    // confirmed false->true transition. Unmoderating never refunds it.
+    if (confirmedModeratedTransition) {
       await tx.user.update({
         data: { aura: { increment: -MODERATION_AURA_PENALTY } },
         where: { id: post.userId },
@@ -97,8 +135,12 @@ export async function updatePostModeration(
     // Notify the author on every flag change. The notification is issued by
     // the neutral "Zeph" system account so the moderator stays anonymous - even
     // for self-moderation, so the author sees the moderation in their bell.
-    if (shouldNotify) {
-      const systemUserId = await getModerationSystemUserId();
+    if (
+      confirmedModeratedTransition ||
+      justUnmoderated ||
+      justFlaggedExplicit ||
+      justUnflaggedExplicit
+    ) {
       await tx.notification.create({
         data: {
           issuerId: systemUserId,
@@ -115,7 +157,12 @@ export async function updatePostModeration(
   // Bump the unread-bell counter synchronously (not via the worker) so the
   // count is correct the instant the mutation resolves and the sidebar/header
   // badge can refresh immediately instead of waiting on the 60s poll.
-  if (shouldNotify) {
+  if (
+    confirmedModeratedTransition ||
+    justUnmoderated ||
+    justFlaggedExplicit ||
+    justUnflaggedExplicit
+  ) {
     try {
       await unreadNotificationCache.increment(post.userId);
     } catch (error) {

@@ -18,4 +18,13 @@ ON "users" (LOWER("username"));
 SQL
 bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/username-unique.sql
 
+echo "Ensuring single-admin and single-author constraints..."
+cat > /tmp/single-slot-indexes.sql <<'SQL'
+CREATE UNIQUE INDEX IF NOT EXISTS "users_admin_role_unique"
+ON "users" (role) WHERE role = 'admin';
+CREATE UNIQUE INDEX IF NOT EXISTS "users_author_badge_unique"
+ON "users" (badge) WHERE badge = 'author';
+SQL
+bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
+
 echo "Prisma bootstrap complete"

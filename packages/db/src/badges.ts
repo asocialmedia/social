@@ -42,6 +42,10 @@ export class BadgeLimitError extends Error {
   }
 }
 
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (error as { code?: string })?.code === "P2002";
+}
+
 async function assertAuthorSlot(userId: string) {
   const currentAuthor = await prisma.user.findFirst({
     select: { id: true },
@@ -56,14 +60,38 @@ async function assertAuthorSlot(userId: string) {
 }
 
 // Grants a badge to a user, returning false when they already hold it. The
-// author badge is single-slot: granting it to a second user throws so the "one
-// author" rule is enforced in every granting code path.
+// author badge is single-slot: a partial unique index on users(badge) where
+// badge='author' (see the docker prisma scripts) makes concurrent grants
+// atomic at the database level, so a second author is rejected even under
+// races - the P2002 conflict surfaces as BadgeLimitError. The legacy `badge`
+// column is used for the author slot since it is the column the index guards.
 export async function grantBadge(
   userId: string,
   badge: string
 ): Promise<boolean> {
   if (badge === BADGE_AUTHOR) {
+    // Early user-facing validation; the DB constraint is the authoritative
+    // backstop against concurrent grants.
     await assertAuthorSlot(userId);
+    const holder = await prisma.user.findUnique({
+      select: { badge: true, badges: true },
+      where: { id: userId },
+    });
+    if (holder && getUserBadges(holder).includes(BADGE_AUTHOR)) {
+      return false;
+    }
+    try {
+      await prisma.user.update({
+        data: { badge: BADGE_AUTHOR },
+        where: { id: userId },
+      });
+      return true;
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        throw new BadgeLimitError("Only one author is allowed for the app.");
+      }
+      throw error;
+    }
   }
 
   const user = await prisma.user.findUnique({
@@ -97,20 +125,23 @@ export async function revokeBadge(
   }
 
   const user = await prisma.user.findUnique({
-    select: { badges: true },
+    select: { badge: true, badges: true },
     where: { id: userId },
   });
   if (!user) {
     return false;
   }
 
-  const next = (user.badges ?? []).filter((value) => value !== badge);
-  if (next.length === user.badges.length) {
+  // Derive the normalized list (legacy `badge` folded in), filter the badge out
+  // and persist the array, clearing the legacy column so the badge stops
+  // rendering from either storage location.
+  const next = getUserBadges(user).filter((value) => value !== badge);
+  if (next.length === getUserBadges(user).length) {
     return false;
   }
 
   await prisma.user.update({
-    data: { badges: next },
+    data: { badge: user.badge === badge ? null : user.badge, badges: next },
     where: { id: userId },
   });
   return true;
