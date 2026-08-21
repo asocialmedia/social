@@ -111,8 +111,16 @@ function isAllowedOrigin(
 // the provider's own state/CSRF handling protects them.
 const OAUTH_CALLBACK_PREFIX = "/api/auth/callback/";
 
-function isOAuthCallback(pathname: string): boolean {
-  return pathname.startsWith(OAUTH_CALLBACK_PREFIX);
+// After a failed callback or verification, Better Auth redirects the browser
+// to its error page (/api/auth/error?error=...). That is the same class of
+// top-level navigation: no Origin header, GET, and it only renders an error
+// message, so it must not demand the internal secret.
+const AUTH_ERROR_PATH = "/api/auth/error";
+
+function isBrowserRedirectPath(pathname: string): boolean {
+  return (
+    pathname.startsWith(OAUTH_CALLBACK_PREFIX) || pathname === AUTH_ERROR_PATH
+  );
 }
 
 // The signup/OTP tRPC surface (start, verify, resend, send-link) is
@@ -245,7 +253,7 @@ export function createSecurity(
       }
       return { allowed: true };
     }
-    if (request.method === "GET" && isOAuthCallback(pathname)) {
+    if (request.method === "GET" && isBrowserRedirectPath(pathname)) {
       return { allowed: true };
     }
     if (!hasValidSecret(request, config.internalSecret)) {

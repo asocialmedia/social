@@ -158,8 +158,11 @@ const LoginContent = ({
 
     <div className="mb-3 grid grid-cols-1 gap-0 sm:grid-cols-2 md:gap-2">
       <AuthButtonWrapper className="w-full">
+        {/* Disable BOTH buttons while any social flow is in flight: a second
+            sign-in/social call overwrites the OAuth state cookie, so the
+            first authorize URL's callback fails with state_mismatch. */}
         <GoogleSignInButton
-          disabled={isLoading && activeProvider !== "google"}
+          disabled={isLoading}
           loading={activeProvider === "google"}
           onEnd={end}
           onStart={onGoogleStart}
@@ -167,7 +170,7 @@ const LoginContent = ({
       </AuthButtonWrapper>
       <AuthButtonWrapper className="w-full">
         <RedditSignInButton
-          disabled={isLoading && activeProvider !== "reddit"}
+          disabled={isLoading}
           loading={activeProvider === "reddit"}
           onEnd={end}
           onStart={onRedditStart}
