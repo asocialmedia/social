@@ -83,6 +83,10 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     ? userData.id === loggedInUserData.id
     : false;
 
+  // The mobile media tab is a compact fixed-height section, not the full-height
+  // desktop sidebar. bare hides the skeleton grid background so only the
+  // message shows, and scrolling is enabled inside the fixed height so long
+  // galleries can be browsed.
   return (
     <div className="flex min-w-0 flex-1">
       <div className="mx-auto flex w-full max-w-[88rem] min-w-0 justify-center">
@@ -192,11 +196,13 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                 ) : null}
 
                 <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                  {isLoggedIn ? (
-                    <MediaGalleryContent userId={userData.id} />
-                  ) : (
-                    <MediaGalleryLocked />
-                  )}
+                  <div className="hide-native-scrollbar h-72 overflow-y-auto">
+                    {isLoggedIn ? (
+                      <MediaGalleryContent bare userId={userData.id} />
+                    ) : (
+                      <MediaGalleryLocked bare />
+                    )}
+                  </div>
                 </TabsContent>
               </div>
               <FeedScrollbar containerRef={feedScrollRef} />

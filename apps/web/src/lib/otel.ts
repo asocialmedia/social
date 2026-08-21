@@ -3,11 +3,16 @@
 // reached on the Node.js runtime. Statically importing it here would pull the
 // Node module into the Edge (proxy/middleware) bundle and fail to compile.
 
+// Supports both pino calling conventions: structured (obj, message) and the
+// plain console-style (message) used by forwarded console output.
+type LogFn = ((obj: object, message?: string) => void) &
+  ((message: string) => void);
+
 interface PinoLogger {
-  debug: (message: string) => void;
-  error: (message: string) => void;
-  info: (message: string) => void;
-  warn: (message: string) => void;
+  debug: LogFn;
+  error: LogFn;
+  info: LogFn;
+  warn: LogFn;
 }
 
 let webLogger: PinoLogger | undefined;

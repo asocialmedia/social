@@ -45,8 +45,13 @@ export async function GET(request: Request) {
 
   const postWhere: Prisma.PostWhereInput =
     tab === "gusts"
-      ? { content: { contains: q, mode: "insensitive" }, isGust: true }
-      : { content: { contains: q, mode: "insensitive" } };
+      ? {
+          content: { contains: q, mode: "insensitive" },
+          isGust: true,
+          // Moderated posts are hidden from explore entirely.
+          moderated: false,
+        }
+      : { content: { contains: q, mode: "insensitive" }, moderated: false };
 
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({

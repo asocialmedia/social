@@ -22,7 +22,18 @@ if (import.meta.main) {
 
   const logger = createLogger({ serviceName: "auth" });
   const securityConfig = readSecurityConfig();
-  const security = createSecurity(securityConfig);
+
+  // Keep per-IP rate-limit budgets in Redis when available so they survive
+  // restarts and deploys; fall back to the in-memory store otherwise.
+  let securityStore;
+  if (process.env.REDIS_URL) {
+    const { createRedisRateLimitStore } =
+      await import("./security/redis-store");
+    const { getRedisClient } = await import("@asm/db");
+    securityStore = createRedisRateLimitStore(getRedisClient);
+    logger.info("security: using redis-backed rate limit store");
+  }
+  const security = createSecurity(securityConfig, securityStore);
 
   let activeRequests = 0;
 

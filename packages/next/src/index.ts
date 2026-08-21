@@ -81,6 +81,8 @@ export const config: NextConfig = {
   // per link), cached per-session on the client, so navigations resolve the
   // shell instantly like an SPA. Requires cacheComponents.
   partialPrefetching: true,
+  // Don't advertise the framework version in the X-Powered-By header.
+  poweredByHeader: false,
   reactCompiler: true,
   reactStrictMode: true,
   transpilePackages: ["@asm/auth", "@asm/db", "@asm/config", "@asm/logger"],

@@ -5,7 +5,7 @@ import { Suspense } from "react";
 
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<NotificationsSkeleton />}>
       <NotificationsContent />
     </Suspense>
   );

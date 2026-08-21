@@ -27,7 +27,9 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
         const result = await kyInstance
           .get(
             "/api/posts/for-you",
-            pageParam ? { searchParams: { cursor: pageParam } } : {}
+            pageParam
+              ? { searchParams: { cursor: pageParam, excludeModerated: "1" } }
+              : { searchParams: { excludeModerated: "1" } }
           )
           .json<{ posts: PostData[]; nextCursor: string | null }>();
         return result;

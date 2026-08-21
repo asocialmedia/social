@@ -94,11 +94,13 @@ const ExploreClient: React.FC = () => {
     [pathname, router, searchParams]
   );
 
-  // Fetch top Gusts for the trending rail
+  // Fetch top Gusts for the trending rail (moderated gusts excluded)
   const { data: gustsData } = useQuery({
     queryFn: async () => {
       const res = await kyInstance
-        .get("/api/gusts", { searchParams: { take: "8" } })
+        .get("/api/gusts", {
+          searchParams: { excludeModerated: "1", take: "8" },
+        })
         .json<PostsPage>();
       return res.posts;
     },
@@ -129,7 +131,11 @@ const ExploreClient: React.FC = () => {
       }
 
       const [posts, users] = await Promise.all([
-        kyInstance.get(`/api/posts/${activeTab}`).json<{ posts: PostData[] }>(),
+        kyInstance
+          .get(`/api/posts/${activeTab}`, {
+            searchParams: { excludeModerated: "1" },
+          })
+          .json<{ posts: PostData[] }>(),
         kyInstance
           .get(
             `/api/users/${activeTab === "for-you" ? "suggested" : "trending"}`
@@ -162,7 +168,9 @@ const ExploreClient: React.FC = () => {
       void (async () => {
         try {
           const fresh = await kyInstance
-            .get(`/api/posts/${activeTab}`)
+            .get(`/api/posts/${activeTab}`, {
+              searchParams: { excludeModerated: "1" },
+            })
             .json<{ posts: PostData[] }>();
           // Ignore responses that started for a previous identity (a tab switch
           // could land while a request is in flight).

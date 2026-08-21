@@ -1,12 +1,12 @@
 import { debugLog } from "@asm/config/debug";
-import { postViewsCache } from "@asm/db";
+import { getClientIpFromRequest, hashViewerId, postViewsCache } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ postId: string }> }
 ) {
   try {
@@ -21,13 +21,19 @@ export async function POST(
       );
     }
 
-    // Pass the authenticated user id so the counter dedupes per user+post (a
-    // single user cannot inflate a count by refreshing). Anonymous views still
-    // count every hit.
+    // Signed-in viewers dedupe per user+post; anonymous viewers dedupe per
+    // hashed IP+post (see postViewsCache.incrementView). Both fail open, so
+    // genuine views are never lost to an infrastructure hiccup.
     const session = await getSessionFromApi();
     const userId = session?.user?.id;
+    const viewerHash = userId
+      ? undefined
+      : hashViewerId(getClientIpFromRequest(request));
 
-    const newCount = await postViewsCache.incrementView(postId, userId);
+    const newCount = await postViewsCache.incrementView(postId, {
+      userId,
+      viewerHash,
+    });
     debugLog.views(`Incremented view count for post: ${postId} to ${newCount}`);
 
     return NextResponse.json({

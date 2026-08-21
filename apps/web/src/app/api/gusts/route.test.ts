@@ -55,8 +55,21 @@ const mockHydrateViewCounts = mock((posts: unknown[]) =>
 );
 
 const mockFindUnique = mock(
-  (args: { where?: { id?: string } }) =>
-    mockPostList.find((g) => g.id === args?.where?.id) ?? null
+  (args: {
+    where?: { id?: string; isGust?: boolean; moderated?: boolean };
+  }) => {
+    const candidate = mockPostList.find((g) => g.id === args?.where?.id);
+    if (!candidate) {
+      return null;
+    }
+    if (
+      args?.where?.moderated === false &&
+      (candidate as { moderated?: boolean }).moderated
+    ) {
+      return null;
+    }
+    return candidate;
+  }
 );
 
 mock.module("@asm/db", () => ({
@@ -178,6 +191,36 @@ describe("GET /api/gusts", () => {
     expect(json.posts).toHaveLength(2);
     expect(json.posts[0].id).toBe("gust2");
     expect(mockFindUnique).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not prepend a moderated initialId gust when excludeModerated=1", async () => {
+    const moderated = {
+      attachments: [{ id: "m9", type: "VIDEO" }],
+      aura: 5,
+      createdAt: new Date("2026-01-01T08:00:00Z"),
+      id: "gust-moderated",
+      isGust: true,
+      moderated: true,
+      user: { id: "u3", username: "mallory" },
+    };
+    mockPostList = [...sampleGusts, moderated];
+
+    const req = new Request(
+      "http://localhost:3000/api/gusts?initialId=gust-moderated&excludeModerated=1"
+    );
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      nextCursor: string | null;
+      posts: { id: string; moderated?: boolean }[];
+    };
+
+    // The moderated gust is excluded: the findUnique where clause (moderated:
+    // false) returns null, so it is never prepended.
+    expect(json.posts).toHaveLength(2);
+    expect(json.posts[0].id).toBe("gust1");
+    expect(json.posts.some((p) => p.id === "gust-moderated")).toBe(false);
   });
 
   test("initialId pagination lookahead does not repeat posts on subsequent page", async () => {

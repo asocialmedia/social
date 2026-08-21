@@ -1,4 +1,9 @@
-import { postViewsCache, prisma } from "@asm/db";
+import {
+  getClientIpFromRequest,
+  hashViewerId,
+  postViewsCache,
+  prisma,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -23,6 +28,11 @@ export async function POST(request: Request) {
 
     const session = await getSessionFromApi();
     const userId = session?.user?.id;
+    // Anonymous viewers dedupe per hashed IP+post, mirroring the single-post
+    // views route, so a batch ping cannot inflate counts by rotating post ids.
+    const viewerHash = userId
+      ? undefined
+      : hashViewerId(getClientIpFromRequest(request));
 
     const persistedPosts = postIds.length
       ? await prisma.post.findMany({
@@ -37,7 +47,13 @@ export async function POST(request: Request) {
     const entries = await Promise.all(
       postIds.map(
         async (postId) =>
-          [postId, await postViewsCache.incrementView(postId, userId)] as const
+          [
+            postId,
+            await postViewsCache.incrementView(postId, {
+              userId: userId || undefined,
+              viewerHash,
+            }),
+          ] as const
       )
     );
 

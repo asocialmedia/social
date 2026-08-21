@@ -19,6 +19,10 @@ export async function GET(
   const url = new URL(req.url);
   const cursor = url.searchParams.get("cursor") || undefined;
   const filter = url.searchParams.get("filter");
+  // Sidebar "more from" cards opt out of moderated posts via this param; the
+  // profile feed itself still shows them (with the notice) since moderation
+  // state is intentionally never hidden from full post surfaces.
+  const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   const pageSize = 20;
   const { userId } = await ctx.params;
 
@@ -38,6 +42,10 @@ export async function GET(
     };
   } else {
     where = { isGust: false, userId };
+  }
+
+  if (excludeModerated) {
+    where = { ...where, moderated: false };
   }
 
   const posts = await prisma.post.findMany({

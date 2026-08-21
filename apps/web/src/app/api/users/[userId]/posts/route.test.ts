@@ -122,4 +122,37 @@ describe("GET /api/users/[userId]/posts", () => {
     const json = (await res.json()) as { posts: unknown[] };
     expect(json.posts).toHaveLength(1);
   });
+
+  test("omits moderated:false by default across all filters", async () => {
+    for (const filter of [undefined, "gusts", "media"]) {
+      const query = filter ? `?filter=${filter}` : "";
+      // Each filter is asserted against the last findMany args, so the calls
+      // must run sequentially and share that captured state.
+      // eslint-disable-next-line no-await-in-loop
+      await GET(
+        new Request(`http://localhost:3000/api/users/targetUser/posts${query}`),
+        { params: Promise.resolve({ userId: "targetUser" }) }
+      );
+      const callArgs = lastFindManyArgs as {
+        where?: Record<string, unknown>;
+      };
+      expect(callArgs?.where).not.toHaveProperty("moderated");
+    }
+  });
+
+  test("applies moderated:false only when excludeModerated=1", async () => {
+    for (const filter of [undefined, "gusts", "media"]) {
+      const query = `?${filter ? `filter=${filter}&` : ""}excludeModerated=1`;
+      // Sequential for the same shared-state reason as the test above.
+      // eslint-disable-next-line no-await-in-loop
+      await GET(
+        new Request(`http://localhost:3000/api/users/targetUser/posts${query}`),
+        { params: Promise.resolve({ userId: "targetUser" }) }
+      );
+      const callArgs = lastFindManyArgs as {
+        where?: { moderated?: boolean };
+      };
+      expect(callArgs?.where?.moderated).toBe(false);
+    }
+  });
 });

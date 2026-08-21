@@ -21,6 +21,7 @@ const posts: PostRow[] = [
 
 let lastOrderBy: unknown;
 let lastTake: number;
+let lastWhere: unknown;
 
 const mockPrisma = {
   post: {
@@ -28,9 +29,11 @@ const mockPrisma = {
       cursor?: { id: string };
       orderBy?: unknown;
       take: number;
+      where?: unknown;
     }) => {
       lastOrderBy = args.orderBy;
       lastTake = args.take;
+      lastWhere = args.where;
       const sorted = [...posts].toSorted((a, b) => b.aura - a.aura);
       return sorted.slice(0, args.take);
     },
@@ -50,6 +53,7 @@ describe("GET /api/posts/trending", () => {
   beforeEach(() => {
     lastOrderBy = undefined;
     lastTake = 0;
+    lastWhere = undefined;
     mockGetSession.mockClear();
   });
 
@@ -83,9 +87,11 @@ describe("GET /api/posts/trending", () => {
       cursor?: { id: string };
       orderBy?: unknown;
       take: number;
+      where?: unknown;
     }) => {
       lastOrderBy = args.orderBy;
       lastTake = args.take;
+      lastWhere = args.where;
       return [...manyPosts].slice(0, args.take);
     };
 
@@ -95,5 +101,18 @@ describe("GET /api/posts/trending", () => {
     expect(body.posts).toHaveLength(20);
     expect(lastTake).toBe(21);
     expect(body.nextCursor).toBe("p20");
+  });
+
+  test("includes moderated posts by default", async () => {
+    await GET(new Request("http://localhost/api/posts/trending"));
+    expect(lastWhere).toEqual({ isGust: false });
+  });
+
+  test("excludes moderated posts only when excludeModerated=1", async () => {
+    const req = new Request(
+      "http://localhost/api/posts/trending?excludeModerated=1"
+    );
+    await GET(req);
+    expect(lastWhere).toEqual({ isGust: false, moderated: false });
   });
 });

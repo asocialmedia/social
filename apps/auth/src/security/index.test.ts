@@ -32,13 +32,13 @@ describe("createSecurity", () => {
     delete process.env.BETTER_AUTH_SECRET;
   });
 
-  test("allows a request with an allowed browser origin", () => {
+  test("allows a request with an allowed browser origin", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
       headers: { origin: "https://social.localhost" },
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
   });
 
@@ -48,7 +48,7 @@ describe("createSecurity", () => {
       headers: { origin: "https://evil.example.com" },
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(403);
     expect(await decision.response?.json()).toEqual({
@@ -61,7 +61,7 @@ describe("createSecurity", () => {
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(403);
     expect(await decision.response?.json()).toEqual({
@@ -69,23 +69,23 @@ describe("createSecurity", () => {
     });
   });
 
-  test("allows an OAuth callback GET without origin or secret", () => {
+  test("allows an OAuth callback GET without origin or secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
       "http://auth.localhost/api/auth/callback/google?code=abc&state=xyz",
       { method: "GET" }
     );
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
   });
 
-  test("allows a Reddit OAuth callback GET without origin or secret", () => {
+  test("allows a Reddit OAuth callback GET without origin or secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
       "http://auth.localhost/api/auth/callback/reddit?code=abc&state=xyz",
       { method: "GET" }
     );
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe("createSecurity", () => {
     const req = new Request("http://auth.localhost/api/auth/callback/google", {
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(403);
     expect(await decision.response?.json()).toEqual({
@@ -102,59 +102,59 @@ describe("createSecurity", () => {
     });
   });
 
-  test("allows a request with the internal secret and no origin", () => {
+  test("allows a request with the internal secret and no origin", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
       headers: { "x-internal-secret": TEST_SECRET },
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
   });
 
-  test("rejects a request with a wrong internal secret", () => {
+  test("rejects a request with a wrong internal secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
       headers: { "x-internal-secret": "wrong-secret" },
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(403);
   });
 
-  test("rejects non-GET/POST methods", () => {
+  test("rejects non-GET/POST methods", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
       headers: { "x-internal-secret": TEST_SECRET },
       method: "DELETE",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(405);
   });
 
-  test("rejects unknown paths", () => {
+  test("rejects unknown paths", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/admin/delete", {
       headers: { "x-internal-secret": TEST_SECRET },
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(404);
   });
 
-  test("allows the health endpoint without a secret", () => {
+  test("allows the health endpoint without a secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/health", {
       method: "GET",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(true);
   });
 
-  test("rejects oversized bodies", () => {
+  test("rejects oversized bodies", async () => {
     const security = createSecurity(baseConfig({ maxBodyBytes: 100 }));
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
       headers: {
@@ -163,12 +163,12 @@ describe("createSecurity", () => {
       },
       method: "POST",
     });
-    const decision = security.check(req, "1.2.3.4");
+    const decision = await security.check(req, "1.2.3.4");
     expect(decision.allowed).toBe(false);
     expect(decision.response?.status).toBe(413);
   });
 
-  test("rate limits anonymous requests per IP", () => {
+  test("rate limits anonymous requests per IP", async () => {
     const security = createSecurity(
       baseConfig({ anonRateLimitMax: 3, anonRateLimitWindowMs: 60_000 })
     );
@@ -179,15 +179,18 @@ describe("createSecurity", () => {
       });
 
     for (let i = 0; i < 3; i += 1) {
-      expect(security.check(makeReq(), "9.9.9.9").allowed).toBe(true);
+      // Sequential hits are the point: each request consumes budget.
+      // eslint-disable-next-line no-await-in-loop
+      const anonymousHit = await security.check(makeReq(), "9.9.9.9");
+      expect(anonymousHit.allowed).toBe(true);
     }
-    const fourth = security.check(makeReq(), "9.9.9.9");
-    expect(fourth.allowed).toBe(false);
-    expect(fourth.response?.status).toBe(429);
-    expect(fourth.response?.headers.get("retry-after")).toBeTruthy();
+    const anonymousBlocked = await security.check(makeReq(), "9.9.9.9");
+    expect(anonymousBlocked.allowed).toBe(false);
+    expect(anonymousBlocked.response?.status).toBe(429);
+    expect(anonymousBlocked.response?.headers.get("retry-after")).toBeTruthy();
   });
 
-  test("authenticated requests get a generous limit", () => {
+  test("authenticated requests get a generous limit", async () => {
     const security = createSecurity(
       baseConfig({
         anonRateLimitMax: 3,
@@ -206,17 +209,24 @@ describe("createSecurity", () => {
 
     // Anonymous: trips after 3.
     for (let i = 0; i < 3; i += 1) {
-      expect(security.check(makeReq(false), "1.1.1.1").allowed).toBe(true);
+      // Sequential hits are the point: each request consumes budget.
+      // eslint-disable-next-line no-await-in-loop
+      const anonymousHit = await security.check(makeReq(false), "1.1.1.1");
+      expect(anonymousHit.allowed).toBe(true);
     }
-    expect(security.check(makeReq(false), "1.1.1.1").allowed).toBe(false);
+    const anonymousBlocked = await security.check(makeReq(false), "1.1.1.1");
+    expect(anonymousBlocked.allowed).toBe(false);
 
     // Authenticated (session cookie): still allowed at 10.
     for (let i = 0; i < 6; i += 1) {
-      expect(security.check(makeReq(true), "1.1.1.1").allowed).toBe(true);
+      // Sequential hits are the point: each request consumes budget.
+      // eslint-disable-next-line no-await-in-loop
+      const authenticatedHit = await security.check(makeReq(true), "1.1.1.1");
+      expect(authenticatedHit.allowed).toBe(true);
     }
   });
 
-  test("burst limiter blocks continuous polling", () => {
+  test("burst limiter blocks continuous polling", async () => {
     const security = createSecurity(
       baseConfig({ burstRateLimitMax: 2, burstRateLimitWindowMs: 60_000 })
     );
@@ -226,14 +236,16 @@ describe("createSecurity", () => {
         method: "GET",
       });
 
-    expect(security.check(makeReq(), "3.3.3.3").allowed).toBe(true);
-    expect(security.check(makeReq(), "3.3.3.3").allowed).toBe(true);
-    const third = security.check(makeReq(), "3.3.3.3");
-    expect(third.allowed).toBe(false);
-    expect(third.response?.status).toBe(429);
+    const burstHit = await security.check(makeReq(), "3.3.3.3");
+    expect(burstHit.allowed).toBe(true);
+    const burstHitAgain = await security.check(makeReq(), "3.3.3.3");
+    expect(burstHitAgain.allowed).toBe(true);
+    const burstBlocked = await security.check(makeReq(), "3.3.3.3");
+    expect(burstBlocked.allowed).toBe(false);
+    expect(burstBlocked.response?.status).toBe(429);
   });
 
-  test("applies strict limits on sensitive paths", () => {
+  test("applies strict limits on sensitive paths", async () => {
     const security = createSecurity(baseConfig({ strictRateLimitMax: 2 }));
     const makeReq = () =>
       new Request("http://auth.localhost/api/auth/sign-in/email", {
@@ -241,14 +253,16 @@ describe("createSecurity", () => {
         method: "POST",
       });
 
-    expect(security.check(makeReq(), "5.5.5.5").allowed).toBe(true);
-    expect(security.check(makeReq(), "5.5.5.5").allowed).toBe(true);
-    const third = security.check(makeReq(), "5.5.5.5");
-    expect(third.allowed).toBe(false);
-    expect(third.response?.status).toBe(429);
+    const strictHit = await security.check(makeReq(), "5.5.5.5");
+    expect(strictHit.allowed).toBe(true);
+    const strictHitAgain = await security.check(makeReq(), "5.5.5.5");
+    expect(strictHitAgain.allowed).toBe(true);
+    const strictBlocked = await security.check(makeReq(), "5.5.5.5");
+    expect(strictBlocked.allowed).toBe(false);
+    expect(strictBlocked.response?.status).toBe(429);
   });
 
-  test("different IPs are rate limited independently", () => {
+  test("different IPs are rate limited independently", async () => {
     const security = createSecurity(
       baseConfig({ anonRateLimitMax: 2, anonRateLimitWindowMs: 60_000 })
     );
@@ -258,11 +272,16 @@ describe("createSecurity", () => {
         method: "GET",
       });
 
-    expect(security.check(makeReq(), "1.1.1.1").allowed).toBe(true);
-    expect(security.check(makeReq(), "1.1.1.1").allowed).toBe(true);
-    expect(security.check(makeReq(), "2.2.2.2").allowed).toBe(true);
-    expect(security.check(makeReq(), "1.1.1.1").allowed).toBe(false);
-    expect(security.check(makeReq(), "2.2.2.2").allowed).toBe(true);
+    const firstIpFirstHit = await security.check(makeReq(), "1.1.1.1");
+    expect(firstIpFirstHit.allowed).toBe(true);
+    const firstIpSecondHit = await security.check(makeReq(), "1.1.1.1");
+    expect(firstIpSecondHit.allowed).toBe(true);
+    const secondIpFirstHit = await security.check(makeReq(), "2.2.2.2");
+    expect(secondIpFirstHit.allowed).toBe(true);
+    const firstIpBlocked = await security.check(makeReq(), "1.1.1.1");
+    expect(firstIpBlocked.allowed).toBe(false);
+    const secondIpSecondHit = await security.check(makeReq(), "2.2.2.2");
+    expect(secondIpSecondHit.allowed).toBe(true);
   });
 });
 

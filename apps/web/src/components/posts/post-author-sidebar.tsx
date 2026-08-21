@@ -1,8 +1,8 @@
 "use client";
 
-import type { Media, PostData, PostsPage } from "@asm/db";
+import type { PostData, PostsPage } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Flame, MessageSquare, Newspaper } from "lucide-react";
+import { Flame, MessageSquare, Newspaper, ShieldAlert } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -15,6 +15,7 @@ import FollowButton from "@/components/layouts/follow-button";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -34,45 +35,6 @@ const PostRowSkeleton: React.FC = () => (
     </div>
   </div>
 );
-
-const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
-
-const MediaThumb: React.FC<{ media: Media }> = ({ media }) => {
-  if (media.type === "IMAGE") {
-    return (
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg shadow-xs">
-        <Image
-          alt="Post media"
-          className="object-cover"
-          fill
-          sizes="48px"
-          src={getMediaUrl(media.id)}
-          unoptimized
-        />
-      </div>
-    );
-  }
-
-  if (media.type === "VIDEO") {
-    return (
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
-        <Image
-          alt="Post video thumbnail"
-          className="object-cover"
-          fill
-          sizes="48px"
-          src={getMediaProxyUrl(media)}
-          unoptimized
-        />
-        <span className="absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
-          <MdPlayArrow className="h-4 w-4 text-white" />
-        </span>
-      </div>
-    );
-  }
-
-  return null;
-};
 
 // Compact relative timestamp with an explicit "ago" suffix (e.g. "5m ago")
 const getRelativeAgo = (from: Date | string) => {
@@ -119,12 +81,56 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
       href={`/posts/${post.id}`}
     >
       {firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO" ? (
-        <MediaThumb media={firstMedia} />
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
+          {post.explicitContent ? (
+            <ExplicitContentGate
+              className="h-full w-full"
+              compact
+              label="Explicit"
+            >
+              <Image
+                alt="Post media"
+                className="object-cover"
+                fill
+                sizes="48px"
+                src={getMediaProxyUrl(firstMedia)}
+                unoptimized
+              />
+            </ExplicitContentGate>
+          ) : (
+            <Image
+              alt="Post media"
+              className="object-cover"
+              fill
+              sizes="48px"
+              src={getMediaProxyUrl(firstMedia)}
+              unoptimized
+            />
+          )}
+          {firstMedia.type === "VIDEO" && !post.explicitContent ? (
+            <span className="absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+              <MdPlayArrow className="h-4 w-4 text-white" />
+            </span>
+          ) : null}
+        </div>
       ) : null}
       <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 text-sm leading-snug font-medium">
-          {post.content || "View post"}
+        <span className="flex items-center gap-1.5">
+          <span className="block truncate text-sm font-semibold">
+            {post.user.displayName || post.user.username}
+          </span>
+          <UserBadge badge={post.user.badge} badges={post.user.badges} />
         </span>
+        {post.moderated ? (
+          <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">
+            <ShieldAlert className="size-3.5 shrink-0" />
+            <span className="truncate">This post seemed harmful</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
+            {post.content || "View post"}
+          </span>
+        )}
         <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
             {getRelativeAgo(post.createdAt)}
@@ -174,7 +180,9 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
       kyInstance
         .get(
           `/api/users/${author.id}/posts`,
-          pageParam ? { searchParams: { cursor: pageParam } } : undefined
+          pageParam
+            ? { searchParams: { cursor: pageParam, excludeModerated: "1" } }
+            : { searchParams: { excludeModerated: "1" } }
         )
         .json<PostsPage>(),
     queryKey: ["post-author-posts", author.id, post.id],

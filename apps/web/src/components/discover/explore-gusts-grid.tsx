@@ -93,6 +93,13 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
     return null;
   }
 
+  // Moderated gusts stay out of the explore grid entirely: the route already
+  // excludes them (excludeModerated=1), but a stale payload from a race is
+  // skipped rather than rendered as a moderation tile.
+  if (post.moderated) {
+    return null;
+  }
+
   const thumbUrl = getMediaProxyUrl(videoMedia);
 
   return (
@@ -107,7 +114,10 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
         alt={post.content || "Gust video"}
         className={cn(
           "h-full w-full object-cover transition-opacity duration-300",
-          isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100"
+          isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100",
+          // Explicit gusts are shown blurred in explore - no gate popup, the
+          // clip stays hidden until opened.
+          post.explicitContent && "opacity-60 blur-lg saturate-50"
         )}
         fill
         sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
@@ -115,19 +125,21 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
         unoptimized
       />
 
-      {/* Hover Stream Preview */}
+      {/* Hover Stream Preview (not for explicit gusts - the clip stays hidden) */}
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
-      <video
-        className={cn(
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-          isPlaying && hasStartedPlaying ? "opacity-100" : "opacity-0"
-        )}
-        loop
-        muted
-        playsInline
-        preload="none"
-        ref={videoRef}
-      />
+      {post.explicitContent ? null : (
+        <video
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+            isPlaying && hasStartedPlaying ? "opacity-100" : "opacity-0"
+          )}
+          loop
+          muted
+          playsInline
+          preload="none"
+          ref={videoRef}
+        />
+      )}
 
       {/* Top Clapperboard Badge */}
       <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-white backdrop-blur-md">
@@ -218,8 +230,14 @@ export const ExploreGustsGrid: React.FC = () => {
         .get(
           "/api/gusts",
           pageParam
-            ? { searchParams: { cursor: pageParam, take: "12" } }
-            : { searchParams: { take: "12" } }
+            ? {
+                searchParams: {
+                  cursor: pageParam,
+                  excludeModerated: "1",
+                  take: "12",
+                },
+              }
+            : { searchParams: { excludeModerated: "1", take: "12" } }
         )
         .json<PostsPage>(),
     queryKey: ["explore-gusts-grid"],
@@ -246,7 +264,9 @@ export const ExploreGustsGrid: React.FC = () => {
       void (async () => {
         try {
           const fresh = await kyInstance
-            .get("/api/gusts", { searchParams: { take: "12" } })
+            .get("/api/gusts", {
+              searchParams: { excludeModerated: "1", take: "12" },
+            })
             .json<PostsPage>();
           const newest = fresh.posts[0]?.id;
           if (!newest || newest === newestIdRef.current) {

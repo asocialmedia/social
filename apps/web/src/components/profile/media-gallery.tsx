@@ -20,6 +20,7 @@ import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
@@ -31,10 +32,11 @@ import { getMediaProxyUrl } from "@/lib/utils/image-url";
 // desktop locked sidebar and the mobile media tab so guests see the same look.
 // Two explicit columns with alternating aspect ratios guarantee a Pinterest
 // style masonry arrangement on every screen width.
-export const MediaGalleryLocked: React.FC = () => (
-  <div className="relative">
-    <MediaSkeletonGrid />
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[hsl(var(--background-alt))]/75 p-4 text-center backdrop-blur-sm">
+export const MediaGalleryLocked: React.FC<{ bare?: boolean }> = ({
+  bare = false,
+}) =>
+  bare ? (
+    <div className="flex h-full flex-col items-center justify-center gap-2.5 p-4 text-center">
       <Image
         alt=""
         className="h-28 w-auto object-contain"
@@ -55,16 +57,66 @@ export const MediaGalleryLocked: React.FC = () => (
         <Link href="/login">Log in</Link>
       </Button>
     </div>
-  </div>
-);
+  ) : (
+    <div className="relative h-full">
+      <MediaSkeletonGrid />
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-[hsl(var(--background-alt))]/75 p-4 text-center backdrop-blur-sm">
+        <Image
+          alt=""
+          className="h-28 w-auto object-contain"
+          draggable={false}
+          height={1024}
+          src={noMediaImage}
+          width={1536}
+        />
+        <p className="text-sm font-medium">Media</p>
+        <p className="text-muted-foreground max-w-44 text-xs">
+          Log in to see this profile's media
+        </p>
+        <Button
+          asChild
+          className="mt-1 h-8 rounded-full px-4 text-xs"
+          variant="premium"
+        >
+          <Link href="/login">Log in</Link>
+        </Button>
+      </div>
+    </div>
+  );
 
-// Two explicit columns with alternating aspect ratios guarantee a Pinterest
-// style masonry arrangement on every screen width. Shared by the locked and
-// empty sidebar states so both show skeleton tiles behind their overlay.
+// Fixed-aspect skeleton tiles (masonry style) that tile down the full height of
+// the sidebar. The column height is measured and enough tiles are rendered to
+// fill it, so the count scales dynamically instead of tiles stretching.
 const MediaSkeletonGrid: React.FC = () => {
-  const tileIndexes = Array.from({ length: 4 }, (_, index) => index);
-  const leftTiles = tileIndexes.filter((index) => index % 2 === 0);
-  const rightTiles = tileIndexes.filter((index) => index % 2 === 1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tilesPerColumn, setTilesPerColumn] = useState(4);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) {
+      return;
+    }
+    const recompute = () => {
+      const height = el.clientHeight;
+      // Conservative average tile height for the two-column grid so the last
+      // full tile fits inside the sidebar instead of overflowing. Overshoot is
+      // worse than a small gap at the bottom, which the overlay hides anyway.
+      const width = el.clientWidth;
+      const colWidth = (width - 8) / 2;
+      const avgTileHeight = colWidth * 0.72 + 8;
+      setTilesPerColumn(Math.max(4, Math.floor(height / avgTileHeight)));
+    };
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const leftTiles = Array.from({ length: tilesPerColumn }, (_, index) => index);
+  const rightTiles = Array.from(
+    { length: tilesPerColumn },
+    (_, index) => index + tilesPerColumn
+  );
 
   const renderTile = (index: number) => (
     <div
@@ -77,11 +129,11 @@ const MediaSkeletonGrid: React.FC = () => {
   );
 
   return (
-    <div className="flex gap-2 p-3">
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+    <div ref={containerRef} className="flex h-full gap-2 p-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden">
         {leftTiles.map(renderTile)}
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden">
         {rightTiles.map(renderTile)}
       </div>
     </div>
@@ -353,6 +405,12 @@ function postHrefFor(item: UserMediaItem): string | null {
     : `/posts/${item.postId}`;
 }
 
+// The aspect ratio a media tile renders at, so the moderated banner matches the
+// media's size/shape exactly.
+function tileAspectRatio(item: UserMediaItem): number {
+  return item.width && item.height ? item.width / item.height : DEFAULT_ASPECT;
+}
+
 interface MediaTileProps {
   index: number;
   item: UserMediaItem;
@@ -365,7 +423,54 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
     [item, index, onSelect]
   );
   const postHref = postHrefFor(item);
+  const isModerated = Boolean(item.post?.moderated);
 
+  // A moderated post's media is replaced by a banner exactly the same size and
+  // shape as the media tile; clicking it goes straight to the post/gust page.
+  if (isModerated) {
+    // Same frame as the real media tile: identical aspect ratio, rounding,
+    // border and shadow.
+    return (
+      <div className="mb-2 break-inside-avoid">
+        <Link
+          aria-label={`Open moderated ${item.post?.isGust ? "gust" : "post"}`}
+          className="group relative block w-full"
+          href={postHref ?? "#"}
+          onClick={(event) => {
+            if (!postHref) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <div
+            className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs"
+            style={{ aspectRatio: tileAspectRatio(item) }}
+          >
+            <div className="flex h-full w-full items-center justify-center">
+              <ModeratedNotice
+                bare
+                className="mx-2"
+                kind={item.post?.isGust ? "gust" : "post"}
+                vertical
+              />
+            </div>
+          </div>
+        </Link>
+        {postHref ? (
+          <Link
+            className="text-muted-foreground hover:text-primary mt-1 block truncate text-[11px] transition-colors duration-200"
+            href={postHref}
+          >
+            View {item.post?.isGust ? "gust" : "post"}
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Explicit media is shown blurred in the gallery - no gate popup, it stays
+  // hidden until the media is opened. The blur sits inside a rounded bordered
+  // container so it never bleeds past the tile.
   return (
     <div className="mb-2 break-inside-avoid">
       <button
@@ -374,7 +479,16 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
         onClick={handleClick}
         type="button"
       >
-        {renderMediaTile(item)}
+        <div className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs">
+          <div
+            className={cn(
+              "pointer-events-none",
+              item.post?.explicitContent && "opacity-60 blur-lg saturate-50"
+            )}
+          >
+            {renderMediaTile(item)}
+          </div>
+        </div>
       </button>
       {postHref ? (
         <Link
@@ -389,11 +503,13 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
 };
 
 interface MediaGalleryContentProps {
+  bare?: boolean;
   enabled?: boolean;
   userId: string;
 }
 
 const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
+  bare = false,
   enabled = true,
   userId,
 }) => {
@@ -470,12 +586,28 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
       </p>
     );
   } else if (media.length === 0) {
-    // Same skeleton-behind-overlay treatment as the desktop sidebar so the
-    // mobile media tab and the xl sidebar look consistent.
-    body = (
-      <div className="relative">
+    // Desktop: the empty state fills the whole sidebar height so the "no media
+    // yet" message sits centered with the skeleton grid behind it. The mobile
+    // media tab (bare) shows just the centered message, no background.
+    body = bare ? (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+        <Image
+          alt=""
+          className="h-28 w-auto object-contain opacity-90"
+          draggable={false}
+          height={1024}
+          src={noMediaImage}
+          width={1536}
+        />
+        <p className="text-sm font-medium">No media yet</p>
+        <p className="text-muted-foreground max-w-44 text-xs">
+          Media from this profile's posts will show up here
+        </p>
+      </div>
+    ) : (
+      <div className="relative flex min-h-full flex-1 flex-col">
         <MediaSkeletonGrid />
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[hsl(var(--background-alt))]/75 px-6 py-16 text-center backdrop-blur-sm">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[hsl(var(--background-alt))]/75 px-6 text-center backdrop-blur-sm">
           <Image
             alt=""
             className="h-28 w-auto object-contain opacity-90"
@@ -515,7 +647,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
 
   return (
     <>
-      <div className="p-3">{body}</div>
+      <div className="flex h-full flex-col p-3">{body}</div>
       {selectedMedia ? (
         <MediaViewer
           initialIndex={selectedIndex}

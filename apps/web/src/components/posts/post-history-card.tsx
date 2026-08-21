@@ -3,12 +3,21 @@
 import type { PostData } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
-import { Eye, Flame, History, MessageSquare, Play } from "lucide-react";
+import {
+  Eye,
+  Flame,
+  History,
+  MessageSquare,
+  Play,
+  ShieldAlert,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
+import UserBadge from "@/components/layouts/user-badge";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -41,15 +50,32 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
     >
       {firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO" ? (
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
-          <Image
-            alt="Post media"
-            className="object-cover"
-            fill
-            sizes="48px"
-            src={getMediaProxyUrl(firstMedia)}
-            unoptimized
-          />
-          {firstMedia.type === "VIDEO" ? (
+          {post.explicitContent ? (
+            <ExplicitContentGate
+              className="h-full w-full"
+              compact
+              label="Explicit"
+            >
+              <Image
+                alt="Post media"
+                className="object-cover"
+                fill
+                sizes="48px"
+                src={getMediaProxyUrl(firstMedia)}
+                unoptimized
+              />
+            </ExplicitContentGate>
+          ) : (
+            <Image
+              alt="Post media"
+              className="object-cover"
+              fill
+              sizes="48px"
+              src={getMediaProxyUrl(firstMedia)}
+              unoptimized
+            />
+          )}
+          {firstMedia.type === "VIDEO" && !post.explicitContent ? (
             <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
               <Play className="h-3 w-3 fill-white text-white" />
             </span>
@@ -57,14 +83,26 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
         </div>
       ) : null}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">
-          {post.user.displayName || post.user.username}
+        <span className="flex items-center gap-1.5">
+          <span className="block truncate text-sm font-semibold">
+            {post.user.displayName || post.user.username}
+          </span>
+          <UserBadge badge={post.user.badge} badges={post.user.badges} />
         </span>
-        {/* Hard cap on the row: clamp the content to two lines so a long post
-            never stretches the recents card (max-h-10 = 2 lines at leading-snug). */}
-        <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
-          {post.content || "View post"}
-        </span>
+
+        {post.moderated ? (
+          <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">
+            <ShieldAlert className="size-3.5 shrink-0" />
+            <span className="truncate">This post seemed harmful</span>
+          </span>
+        ) : (
+          // Hard cap on the row: clamp the content to two lines so a long post
+          // never stretches the recents card (max-h-10 = 2 lines at leading-snug).
+          <span className="text-muted-foreground mt-0.5 line-clamp-2 block max-h-10 overflow-hidden text-sm leading-snug font-medium">
+            {post.content || "View post"}
+          </span>
+        )}
+
         <span className="text-muted-foreground mt-1 flex items-center gap-2 text-xs transition-colors group-hover:text-inherit">
           <span className="shrink-0" suppressHydrationWarning>
             {formatRelativeDate(post.createdAt)}

@@ -1,6 +1,7 @@
 import { isReservedUsername, prisma } from "@asm/db";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import {
   admin as adminPlugin,
   emailOTP,
@@ -13,6 +14,7 @@ import type {
 } from "better-auth/social-providers";
 
 import { env } from "../../env";
+import { validateEmailAdvanced } from "../validation/email-validator";
 import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 
 const DEFAULT_AVATARS = ["/avatars/default-1.png", "/avatars/default-2.png"];
@@ -303,6 +305,36 @@ export function createAuthConfig(config: AuthConfig = {}) {
       // cookiePrefix can be set if multiple auth stacks coexist
     },
 
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        // Reject throwaway/suspicious email addresses BEFORE the user row is
+        // created. Without this gate the address was only scored when the
+        // verification OTP was sent - a background task that runs after
+        // sign-up already returned 200 - so junk accounts piled up in the
+        // database with no way to ever verify them. Social sign-ups are not
+        // affected: this path only fires for email+password registration.
+        if (!ctx.path.startsWith("/sign-up/email")) {
+          return;
+        }
+        const body = ctx.body as { email?: unknown } | undefined;
+        const email = typeof body?.email === "string" ? body.email : "";
+        if (!email) {
+          return;
+        }
+        const validation = await validateEmailAdvanced(email, {
+          skipMxCheck: true,
+          skipSmtpCheck: true,
+          timeout: 5000,
+        });
+        if (!validation.isValid) {
+          throw new APIError("BAD_REQUEST", {
+            message:
+              "This email address cannot be used to register. Please use a different address.",
+          });
+        }
+      }),
+    },
+
     verification: {
       modelName: "verification",
     },
@@ -310,12 +342,17 @@ export function createAuthConfig(config: AuthConfig = {}) {
     trustedOrigins: [
       env.APP_URL,
       env.AUTH_URL,
-      "https://social.localhost",
-      "https://auth.localhost",
-      "http://localhost:3000",
-      "http://localhost:3001",
       "https://asocialmedia.cc",
       "https://auth.asocialmedia.cc",
+      // Local development origins never ship to production.
+      ...(environment === "production"
+        ? []
+        : [
+            "https://social.localhost",
+            "https://auth.localhost",
+            "http://localhost:3000",
+            "http://localhost:3001",
+          ]),
     ].filter(Boolean),
 
     telemetry: {

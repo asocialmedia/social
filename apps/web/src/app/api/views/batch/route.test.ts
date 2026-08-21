@@ -15,11 +15,13 @@ const persistedById = new Map<string, number>([
 // Simulates the Redis counter: the delta since the last worker flush, starting
 // fresh at 1 for every post on first touch.
 const deltas = new Map<string, number>();
-const mockIncrementView = mock((postId: string) => {
-  const next = (deltas.get(postId) ?? 0) + 1;
-  deltas.set(postId, next);
-  return next;
-});
+const mockIncrementView = mock(
+  (postId: string, _options?: { userId?: string; viewerHash?: string }) => {
+    const next = (deltas.get(postId) ?? 0) + 1;
+    deltas.set(postId, next);
+    return next;
+  }
+);
 
 const mockFindMany = mock((args: { where?: { id?: { in?: string[] } } }) => {
   const ids = args?.where?.id?.in ?? [];
@@ -33,6 +35,9 @@ const mockFindMany = mock((args: { where?: { id?: { in?: string[] } } }) => {
 });
 
 mock.module("@asm/db", () => ({
+  getClientIpFromRequest: (request: Request) =>
+    request.headers.get("cf-connecting-ip") ?? "unknown",
+  hashViewerId: (ip: string) => `hash-${ip}`,
   postViewsCache: {
     incrementView: mockIncrementView,
   },
@@ -73,8 +78,12 @@ describe("POST /api/views/batch", () => {
     expect(json.success).toBe(true);
     expect(json.results).toEqual({ post1: 101, post2: 6 });
     expect(mockIncrementView).toHaveBeenCalledTimes(2);
-    expect(mockIncrementView).toHaveBeenCalledWith("post1", "user1");
-    expect(mockIncrementView).toHaveBeenCalledWith("post2", "user1");
+    expect(mockIncrementView).toHaveBeenCalledWith("post1", {
+      userId: "user1",
+    });
+    expect(mockIncrementView).toHaveBeenCalledWith("post2", {
+      userId: "user1",
+    });
   });
 
   test("reads persisted counts before incrementing", async () => {
