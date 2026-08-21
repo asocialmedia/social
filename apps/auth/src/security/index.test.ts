@@ -102,6 +102,29 @@ describe("createSecurity", () => {
     });
   });
 
+  test("allows the Better Auth error redirect GET without origin or secret", async () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request(
+      "http://auth.localhost/api/auth/error?error=state_mismatch",
+      { method: "GET" }
+    );
+    const decision = await security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("still requires origin or secret for error path POSTs", async () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request("http://auth.localhost/api/auth/error", {
+      method: "POST",
+    });
+    const decision = await security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(false);
+    expect(decision.response?.status).toBe(403);
+    expect(await decision.response?.json()).toEqual({
+      error: "internal-secret-required",
+    });
+  });
+
   test("allows a request with the internal secret and no origin", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
