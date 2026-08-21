@@ -86,7 +86,7 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   MODERATION: {
     action: (notification) =>
       notification.post?.isGust ? "flagged your gust" : "flagged your post",
-    badgeClass: "bg-gradient-to-b from-[#fbbf24] to-[#f97316]",
+    badgeClass: "bg-gradient-to-b from-amber-400 to-orange-500",
     href: (notification) => `/posts/${notification.postId}`,
     icon: ShieldAlert,
   },

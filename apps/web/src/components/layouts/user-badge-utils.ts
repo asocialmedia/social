@@ -49,5 +49,5 @@ export function normalizeBadges(
       result.push(type);
     }
   }
-  return result.toSorted((a, b) => BADGE_ORDER[a] - BADGE_ORDER[b]);
+  return [...result].toSorted((a, b) => BADGE_ORDER[a] - BADGE_ORDER[b]);
 }

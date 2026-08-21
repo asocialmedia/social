@@ -428,7 +428,7 @@ const VideoPreview = ({
       <div
         aria-label={isPlaying ? "Pause" : "Play"}
         className={cn(
-          "absolute right-2 bottom-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)] transition-all duration-200 hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px",
+          "absolute right-2 bottom-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)] transition-all duration-200 hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px",
           autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
         onClick={togglePlayback}
@@ -451,7 +451,7 @@ const VideoPreview = ({
       {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
       <div
         className={cn(
-          "pointer-events-none absolute right-2 bottom-11 flex h-5 items-center rounded-md bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-1.5 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-opacity duration-300",
+          "pointer-events-none absolute right-2 bottom-11 z-10 flex h-5 items-center rounded-md bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-1.5 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-opacity duration-300",
           autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
       >
@@ -459,7 +459,7 @@ const VideoPreview = ({
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
-      <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
+      <div className="pointer-events-none absolute inset-0 z-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
   );
 };

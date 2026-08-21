@@ -330,9 +330,9 @@ const PostContent: React.FC<PostContentProps> = ({
               dialogTitle="Share Post"
               postId={post.id}
               thumbnail={
-                post.attachments[0]
-                  ? getMediaProxyUrl(post.attachments[0])
-                  : `/posts/${post.id}/opengraph-image`
+                post.moderated || !post.attachments[0]
+                  ? `/posts/${post.id}/opengraph-image`
+                  : getMediaProxyUrl(post.attachments[0])
               }
               title={
                 post.moderated

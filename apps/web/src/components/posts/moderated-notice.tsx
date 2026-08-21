@@ -1,5 +1,6 @@
 import errorImage from "@assets/general/error.png";
 import Image from "next/image";
+import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 

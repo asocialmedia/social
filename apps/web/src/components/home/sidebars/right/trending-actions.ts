@@ -47,6 +47,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
       by: ["userId"],
       orderBy: { _count: { userId: "desc" } },
       take: 5,
+      where: { userId: { not: SYSTEM_MODERATION_USER_ID } },
     });
 
     if (grouped.length === 0) {

@@ -34,7 +34,12 @@ export async function GET(_req: Request) {
 
     const cachedData = await suggestedUsersCache.get(user.id);
     if (cachedData) {
-      return Response.json(cachedData);
+      // Cached suggestions may predate the system-user exclusion (or include it
+      // via an old write), so filter before returning.
+      const visible = (cachedData as { id: string }[]).filter(
+        (cached) => cached.id !== SYSTEM_MODERATION_USER_ID
+      );
+      return Response.json(visible);
     }
 
     const recentlyShownKey = RECENTLY_SHOWN_CACHE_KEY(user.id);

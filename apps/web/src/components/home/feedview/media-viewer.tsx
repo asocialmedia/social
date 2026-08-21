@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
@@ -118,11 +118,24 @@ const MediaViewer = ({
   const currentMedia = media[currentIndex];
 
   // Bumped on every video timeupdate so the load deadline below resets while
-  // bytes keep flowing; a stalled clip stops bumping it and times out.
+  // bytes keep flowing; a stalled clip stops bumping it and times out. Updates
+  // are ignored once loading has finished so the timeout effect is not
+  // needlessly recreated for the lifetime of the clip.
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
   const [mediaProgressTick, setMediaProgressTick] = useState(0);
   const handleMediaProgress = useCallback(() => {
+    if (!isLoadingRef.current) {
+      return;
+    }
     setMediaProgressTick((tick) => tick + 1);
   }, []);
+
+  // Tracks whether the explicit-content gate has been dismissed so the loading
+  // spinner / retry overlay don't cover the gate's Continue prompt.
+  const [explicitRevealed, setExplicitRevealed] = useState(false);
 
   // Sync isLoading with the current item. Async media (image/video/svg) flip it
   // off via their onLoad/onLoadedData; everything else has no such event, so
@@ -142,6 +155,7 @@ const MediaViewer = ({
     // eslint-disable-next-line react-compiler -- reset load state per item
     setIsLoading(hasAsyncLoad(media[currentIndex]));
     setMediaError(false);
+    setExplicitRevealed(false);
   }, [isOpen, currentIndex, media, loadAttempt, post?.moderated]);
 
   // Fail-safe: if an async media item never fires its load event (e.g. the
@@ -605,7 +619,10 @@ const MediaViewer = ({
             }
             if (post?.explicitContent) {
               return (
-                <ExplicitContentGate className="h-full w-full">
+                <ExplicitContentGate
+                  className="h-full w-full"
+                  onReveal={() => setExplicitRevealed(true)}
+                >
                   {renderMedia()}
                 </ExplicitContentGate>
               );
@@ -615,16 +632,23 @@ const MediaViewer = ({
 
           {/* Loading spinner over the content area. The media element stays
               mounted (hidden behind this) so its load event can still fire.
-              Not shown for moderated posts - the notice is the content. */}
-          {isLoading && !post?.moderated ? (
-            <div className="absolute inset-0 z-20 flex items-center justify-center">
+              Not shown for moderated posts (the notice is the content) or
+              while the explicit-content gate is unrevealed (the Continue
+              prompt is the content). pointer-events-none so it can never
+              intercept the gate's Continue button. */}
+          {isLoading &&
+          !post?.moderated &&
+          !(post?.explicitContent && !explicitRevealed) ? (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
               <Spinner3D />
             </div>
           ) : null}
 
           {/* Fail-safe: the media errored or timed out, so offer a retry
               instead of leaving the user staring at a spinner. */}
-          {mediaError && !post?.moderated ? (
+          {mediaError &&
+          !post?.moderated &&
+          !(post?.explicitContent && !explicitRevealed) ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
               <p className="text-sm font-medium text-white/90">
                 Couldn&apos;t load this media.
