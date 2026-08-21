@@ -17,27 +17,39 @@ import {
   shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
 
-// Media rows are immutable (the stored key/mime never changes for a given id),
-// so the lookup is safe to cache for a long window. This keeps feed scrolls
-// that render many posters/images from hammering the database on every request;
-// the object itself is still streamed fresh from storage each time. A stale
-// row after deletion simply 404s like the DB row would. The ownership columns
-// are immutable too, so the access decision can safely rely on the cached row.
-async function getMediaRow(mediaId: string) {
+// Object-serving fields are immutable for a given media id (the stored key,
+// mime and size never change), so they are safe to cache for a long window.
+// This keeps feed scrolls that render many posters/images from hammering the
+// database on every request; the object itself is still streamed fresh from
+// storage each time.
+async function getMediaObject(mediaId: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag("media-row");
+  cacheTag("media-object");
 
   return await prisma.media.findUnique({
     select: {
-      commentId: true,
       id: true,
       key: true,
       mimeType: true,
-      postId: true,
       size: true,
       thumbnailKey: true,
       type: true,
+    },
+    where: { id: mediaId },
+  });
+}
+
+// Ownership columns are NOT immutable: a draft upload starts unlinked
+// (postId null) and becomes public when the post is created. Caching them
+// would leave a stale "protected" row that 401s real images for hours, so
+// the access decision always reads fresh ownership data on a single indexed
+// PK lookup.
+async function getMediaOwnership(mediaId: string) {
+  return await prisma.media.findUnique({
+    select: {
+      commentId: true,
+      postId: true,
       userId: true,
     },
     where: { id: mediaId },
@@ -91,7 +103,7 @@ export async function GET(
     return new NextResponse("Media ID is required", { status: 400 });
   }
 
-  const media = await getMediaRow(mediaId);
+  const media = await getMediaObject(mediaId);
 
   if (!media) {
     return new NextResponse("Media not found", { status: 404 });
@@ -99,8 +111,15 @@ export async function GET(
 
   // Authorization: post attachments are public, comment media needs a
   // session, message/draft uploads are owner-only (see media-access.ts).
+  // Ownership is read fresh (never cached) so a just-published post's
+  // attachments become public immediately instead of serving a stale
+  // "protected" row.
+  const ownership = await getMediaOwnership(mediaId);
+  if (!ownership) {
+    return new NextResponse("Media not found", { status: 404 });
+  }
   const session = await getSessionFromApi();
-  const decision = decideMediaAccess(media, session?.user ?? null);
+  const decision = decideMediaAccess(ownership, session?.user ?? null);
   if (!decision.allowed) {
     return new NextResponse(
       decision.status === 401 ? "Unauthorized" : "Media not found",
@@ -217,7 +236,9 @@ export async function GET(
     // never stored.
     headers.set(
       "Cache-Control",
-      media.postId ? "public, max-age=31536000, immutable" : "private, no-store"
+      ownership.postId
+        ? "public, max-age=31536000, immutable"
+        : "private, no-store"
     );
     headers.set("Accept-Ranges", "bytes");
     headers.set("X-Content-Type-Options", "nosniff");

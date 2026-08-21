@@ -215,7 +215,7 @@ export async function createComment(
   // drive its access decision. Drop that cache so the updated ownership is
   // picked up instead of serving a stale row for up to an hour.
   if (mediaIdsValidated.length > 0) {
-    updateTag("media-row");
+    updateTag("media-object");
   }
 
   try {

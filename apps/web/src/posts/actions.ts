@@ -177,7 +177,7 @@ export async function updatePostModeration(
   // Expire the cached OG card + media rows so the moderation state is reflected
   // on share cards and media pages (read-your-own-writes).
   updateTag("og-post-card");
-  updateTag("media-row");
+  updateTag("media-object");
 
   return updated;
 }
@@ -226,7 +226,7 @@ export async function deletePost(id: string) {
   // Expire the cached OG card + media rows immediately so a deleted post's
   // share card and media URLs stop being served (read-your-own-writes).
   updateTag("og-post-card");
-  updateTag("media-row");
+  updateTag("media-object");
 
   return deletedPost;
 }
