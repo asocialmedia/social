@@ -1,14 +1,15 @@
-import { prisma } from "@asm/db";
+import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 // System moderation account. Notifications about moderated or explicit-flagged
 // posts are issued by this neutral platform persona ("Zeph") instead of the
 // acting moderator, so an admin/author's real name and avatar are never
-// exposed to the person being moderated.
+// exposed to the person being moderated. The account is hidden from profile
+// and discovery surfaces (see SYSTEM_MODERATION_USER_ID exclusions).
 const MODERATION_SYSTEM_USER = {
   avatarUrl: "/avatars/avatar-placeholder.png",
   displayName: "Zeph",
   email: "zeph@asocialmedia.cc",
-  id: "sys-zeph",
+  id: SYSTEM_MODERATION_USER_ID,
   username: "zeph",
 } as const;
 

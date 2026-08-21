@@ -1,4 +1,9 @@
-import { getUserDataSelect, prisma, redis } from "@asm/db";
+import {
+  getUserDataSelect,
+  prisma,
+  redis,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -41,9 +46,10 @@ export async function GET() {
       select: getUserDataSelect(userId || ""),
       take: 6,
       where: {
-        id: {
-          not: userId || undefined,
-        },
+        AND: [
+          { id: { not: userId || undefined } },
+          { id: { not: SYSTEM_MODERATION_USER_ID } },
+        ],
       },
     });
 

@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { SYSTEM_MODERATION_USER_ID } from "./reserved-usernames";
 
 let ensurePromise: Promise<void> | null = null;
 
@@ -83,10 +84,15 @@ export async function searchUsers(
     },
     take: limit,
     where: {
-      OR: [
-        { username: { contains: q, mode: "insensitive" } },
-        { displayName: { contains: q, mode: "insensitive" } },
-        { displayUsername: { contains: q, mode: "insensitive" } },
+      AND: [
+        { id: { not: SYSTEM_MODERATION_USER_ID } },
+        {
+          OR: [
+            { username: { contains: q, mode: "insensitive" } },
+            { displayName: { contains: q, mode: "insensitive" } },
+            { displayUsername: { contains: q, mode: "insensitive" } },
+          ],
+        },
       ],
     },
   });

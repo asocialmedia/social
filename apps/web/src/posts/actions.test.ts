@@ -118,6 +118,7 @@ const mockNoop = mock(() => {});
 mock.module("@asm/db", () => ({
   POST_VIEWS_KEY_PREFIX: "post:views:",
   POST_VIEWS_SET: "posts:with:views",
+  SYSTEM_MODERATION_USER_ID: "sys-zeph",
   enqueuePostDeleted: mockNoop,
   getPostDataInclude: mockInclude,
   prisma: mockPrisma,

@@ -5,6 +5,11 @@
 // username path. Matching is case-insensitive to keep the reservation airtight.
 const RESERVED_USERNAMES = new Set(["zeph"]);
 
+// The fixed id of the system moderation persona. Kept in @asm/db so every
+// surface (profile route, search, suggestions, trending) can exclude it from
+// user-facing discovery instead of treating it as a real account.
+export const SYSTEM_MODERATION_USER_ID = "sys-zeph";
+
 export function isReservedUsername(username?: string | null): boolean {
   if (!username) {
     return false;

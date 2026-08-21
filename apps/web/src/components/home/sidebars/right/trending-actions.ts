@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@asm/db";
+import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 import { getTrendingTopics } from "./topic-actions";
 import { selectTopAuraUsers } from "./trending-utils";
@@ -62,7 +62,10 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
         id: true,
         username: true,
       },
-      where: { id: { in: grouped.map((g) => g.userId) } },
+      where: {
+        NOT: { id: SYSTEM_MODERATION_USER_ID },
+        id: { in: grouped.map((g) => g.userId) },
+      },
     });
 
     const userById = new Map(users.map((user) => [user.id, user]));
@@ -110,6 +113,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
         username: true,
       },
       take: TOP_AURA_CANDIDATES,
+      where: { id: { not: SYSTEM_MODERATION_USER_ID } },
     });
 
     return users.map((user) => ({

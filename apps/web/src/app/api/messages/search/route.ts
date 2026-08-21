@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -30,7 +30,9 @@ export async function GET(request: Request) {
     where: {
       AND: [
         // Only people the caller follows are messageable; filter through the
-        // relation instead of a separate follow query + id list.
+        // relation instead of a separate follow query + id list. The system
+        // moderation persona has no discoverable profile.
+        { id: { not: SYSTEM_MODERATION_USER_ID } },
         { followers: { some: { followerId: user.id } } },
         {
           OR: [

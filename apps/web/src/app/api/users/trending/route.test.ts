@@ -28,10 +28,13 @@ const mockPrisma = {
       orderBy: unknown;
       select: unknown;
       take: number;
-      where: { id: { not: string | undefined } };
+      where: { AND: { id: { not: string | undefined } }[] };
     }) => {
-      const filtered = args.where.id.not
-        ? users.filter((u) => u.id !== args.where.id.not)
+      const excludeIds = args.where.AND.map((clause) => clause.id?.not).filter(
+        (id): id is string => Boolean(id)
+      );
+      const filtered = excludeIds.length
+        ? users.filter((u) => !excludeIds.includes(u.id))
         : users;
       return filtered.slice(0, args.take);
     },
