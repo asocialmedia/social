@@ -5,6 +5,7 @@ import { createGustSchema, createPostSchema } from "@asm/auth/validation";
 import {
   cancelMediaCleanup,
   enqueueNotificationCreated,
+  enqueueShitposterCheck,
   getPostDataInclude,
   postViewsCache,
   prisma,
@@ -52,6 +53,16 @@ const AURA_REWARDS = {
 };
 
 type AttachmentType = "IMAGE" | "VIDEO" | "AUDIO" | "CODE";
+
+// Fire-and-forget wrapper so post creation never blocks on the badge check
+// enqueue; failures are logged, never surfaced to the author.
+async function enqueueShitposterCheckSafely(userId: string) {
+  try {
+    await enqueueShitposterCheck(userId);
+  } catch (error) {
+    console.error("Failed to enqueue shitposter check:", error);
+  }
+}
 
 async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
   let totalAura = hasHnStory
@@ -301,6 +312,11 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
       return completePost;
     });
+
+    // The worker checks whether this post (or gust) pushed the author over the
+    // shitposter threshold inside the rolling window and grants the badge. The
+    // wrapper swallows enqueue failures so a Redis hiccup never fails the post.
+    await enqueueShitposterCheckSafely(sessionData.user.id);
 
     return newPost;
   } catch (error) {

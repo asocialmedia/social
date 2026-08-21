@@ -2,7 +2,14 @@
 
 import type { NotificationData, NotificationType } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Heart, MessageCircle, UserPlus, X } from "lucide-react";
+import {
+  AtSign,
+  Heart,
+  MessageCircle,
+  ShieldAlert,
+  UserPlus,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
@@ -75,6 +82,13 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     badgeClass: "bg-gradient-to-b from-[#a78bfa] to-[#7c3aed]",
     href: (notification) => `/posts/${notification.postId}`,
     icon: AtSign,
+  },
+  MODERATION: {
+    action: (notification) =>
+      notification.post?.isGust ? "flagged your gust" : "flagged your post",
+    badgeClass: "bg-gradient-to-b from-amber-400 to-orange-500",
+    href: (notification) => `/posts/${notification.postId}`,
+    icon: ShieldAlert,
   },
 };
 

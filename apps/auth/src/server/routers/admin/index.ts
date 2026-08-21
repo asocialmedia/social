@@ -1,9 +1,52 @@
-import { prisma, userCache } from "@asm/db";
+import {
+  BADGES,
+  BadgeLimitError,
+  grantBadge,
+  prisma,
+  revokeBadge,
+  userCache,
+} from "@asm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { adminProcedure, router, t } from "../../trpc";
 import type { User } from "../../types";
+
+// Hard rule: the app runs with exactly one admin. Granting a second admin is
+// rejected, and the last remaining admin cannot be demoted (otherwise nobody
+// could ever promote anyone again and the app would be locked out).
+async function assertRoleChangeAllowed(userId: string, newRole: string) {
+  if (newRole === "admin") {
+    const otherAdmins = await prisma.user.count({
+      where: { id: { not: userId }, role: "admin" },
+    });
+    if (otherAdmins > 0) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message:
+          "Only one admin is allowed for the app. Demote the current admin before promoting someone else.",
+      });
+    }
+    return;
+  }
+
+  const current = await prisma.user.findUnique({
+    select: { role: true },
+    where: { id: userId },
+  });
+  if (current?.role === "admin") {
+    const otherAdmins = await prisma.user.count({
+      where: { id: { not: userId }, role: "admin" },
+    });
+    if (otherAdmins === 0) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message:
+          "The app needs exactly one admin, so the last admin cannot be demoted.",
+      });
+    }
+  }
+}
 
 const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
   if (!ctx.user?.id) {
@@ -24,6 +67,39 @@ const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
 
   return next();
 });
+
+// Prisma surfaces unique constraint conflicts as P2002. A partial unique index
+// on users(role) where role='admin' makes the "exactly one admin" rule atomic
+// at the database level, so concurrent promotions cannot race past the
+// check-then-write in assertRoleChangeAllowed.
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (error as { code?: string })?.code === "P2002";
+}
+
+function adminLimitConflict(): TRPCError {
+  return new TRPCError({
+    code: "CONFLICT",
+    message: "Only one admin is allowed for the app.",
+  });
+}
+
+// Converts a DB unique-constraint conflict (single-admin race) into the
+// user-facing CONFLICT response; rethrows TRPCError untouched; wraps everything
+// else as INTERNAL_SERVER_ERROR.
+function rethrowRoleError(error: unknown): never {
+  if (error instanceof TRPCError) {
+    throw error;
+  }
+  if (isUniqueConstraintViolation(error)) {
+    throw adminLimitConflict();
+  }
+  console.error("Role update failed:", error);
+  throw new TRPCError({
+    cause: error,
+    code: "INTERNAL_SERVER_ERROR",
+    message: "Failed to update role",
+  });
+}
 
 export interface AdminUser {
   _count: {
@@ -384,6 +460,38 @@ export const adminRouter = router({
               });
             }
 
+            // The single-admin rule applies to bulk grants too: promoting more
+            // than one user at once, or promoting while another admin exists,
+            // would break the "exactly one admin" invariant. Demoting every
+            // current admin at once would lock the app out of admin access.
+            if (data.role === "admin") {
+              if (userIds.length > 1) {
+                throw new TRPCError({
+                  code: "CONFLICT",
+                  message: "Only one admin is allowed for the app.",
+                });
+              }
+              await assertRoleChangeAllowed(userIds[0], data.role);
+            } else {
+              const currentAdmins = await prisma.user.findMany({
+                select: { id: true },
+                where: { role: "admin" },
+              });
+              const selectedAdminIds = currentAdmins.filter((admin) =>
+                userIds.includes(admin.id)
+              );
+              if (
+                currentAdmins.length > 0 &&
+                selectedAdminIds.length === currentAdmins.length
+              ) {
+                throw new TRPCError({
+                  code: "CONFLICT",
+                  message:
+                    "The app needs exactly one admin, so the last admin cannot be demoted.",
+                });
+              }
+            }
+
             result = await prisma.user.updateMany({
               data: { role: data.role },
               where: { id: { in: userIds } },
@@ -442,6 +550,14 @@ export const adminRouter = router({
           success: true,
         };
       } catch (error) {
+        // Preserve CONFLICT responses from the single-admin validation and the
+        // DB constraint; only wrap unexpected errors as INTERNAL_SERVER_ERROR.
+        if (error instanceof TRPCError) {
+          throw error;
+        }
+        if (isUniqueConstraintViolation(error)) {
+          throw adminLimitConflict();
+        }
         console.error("Bulk operation error:", error);
         const trpcError = new TRPCError({
           cause: error,
@@ -902,6 +1018,41 @@ export const adminRouter = router({
       return { success: true };
     }),
 
+  setBadge: rateLimitedAdminProcedure
+    .input(
+      z.object({
+        badge: z.enum(BADGES),
+        grant: z.boolean().default(true),
+        userId: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const changed = input.grant
+          ? await grantBadge(input.userId, input.badge)
+          : await revokeBadge(input.userId, input.badge);
+
+        await userCache.invalidateUserDetail(input.userId);
+        await userCache.invalidateUserList();
+        await userCache.invalidateSearchCache();
+
+        return { changed, success: true };
+      } catch (error) {
+        if (error instanceof BadgeLimitError) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: error.message,
+          });
+        }
+        console.error("Failed to update user badge:", error);
+        throw new TRPCError({
+          cause: error,
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update user badge",
+        });
+      }
+    }),
+
   setRole: rateLimitedAdminProcedure
     .input(
       z.object({
@@ -910,6 +1061,8 @@ export const adminRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      await assertRoleChangeAllowed(input.userId, input.role);
+
       try {
         await prisma.user.update({
           data: { role: input.role },
@@ -922,13 +1075,7 @@ export const adminRouter = router({
 
         return { success: true };
       } catch (error) {
-        console.error("Failed to update user role:", error);
-        const trpcError = new TRPCError({
-          cause: error,
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to update user role",
-        });
-        throw trpcError;
+        rethrowRoleError(error);
       }
     }),
 
@@ -961,6 +1108,10 @@ export const adminRouter = router({
     )
     .mutation(async ({ input }) => {
       const { userId, data } = input;
+
+      if (data.role) {
+        await assertRoleChangeAllowed(userId, data.role);
+      }
 
       const user = await prisma.user.update({
         data,

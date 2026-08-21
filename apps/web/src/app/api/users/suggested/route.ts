@@ -1,4 +1,10 @@
-import { getUserDataSelect, Prisma, prisma, redis } from "@asm/db";
+import {
+  getUserDataSelect,
+  Prisma,
+  prisma,
+  redis,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
@@ -21,13 +27,19 @@ export async function GET(_req: Request) {
         orderBy: { aura: Prisma.SortOrder.desc },
         select: { ...getUserDataSelect(""), aura: true },
         take: 6,
+        where: { id: { not: SYSTEM_MODERATION_USER_ID } },
       });
       return Response.json(guestUsers);
     }
 
     const cachedData = await suggestedUsersCache.get(user.id);
     if (cachedData) {
-      return Response.json(cachedData);
+      // Cached suggestions may predate the system-user exclusion (or include it
+      // via an old write), so filter before returning.
+      const visible = (cachedData as { id: string }[]).filter(
+        (cached) => cached.id !== SYSTEM_MODERATION_USER_ID
+      );
+      return Response.json(visible);
     }
 
     const recentlyShownKey = RECENTLY_SHOWN_CACHE_KEY(user.id);
@@ -70,6 +82,7 @@ export async function GET(_req: Request) {
       where: {
         AND: [
           { id: { not: user.id } },
+          { id: { not: SYSTEM_MODERATION_USER_ID } },
           { id: { notIn: recentlyShown } },
           {
             followers: {
@@ -116,6 +129,7 @@ export async function GET(_req: Request) {
         where: {
           AND: [
             { id: { not: user.id } },
+            { id: { not: SYSTEM_MODERATION_USER_ID } },
             {
               followers: {
                 none: {

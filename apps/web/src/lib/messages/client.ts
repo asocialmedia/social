@@ -65,6 +65,7 @@ export interface ConversationListResponse {
 export interface SearchUserResult {
   avatarUrl: string | null;
   badge: string | null;
+  badges: string[];
   displayName: string;
   hasIdentity: boolean;
   id: string;

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
-import { prisma, redis } from "@asm/db";
+import { isReservedUsername, prisma, redis } from "@asm/db";
 import { createLogger } from "@asm/logger";
 import { z } from "zod";
 
@@ -551,6 +551,14 @@ export const signupRouter = router({
           return userExistsResponse();
         }
 
+        // Reserved handles (the "zeph" moderation persona) can never be claimed
+        // by a real account. Treat them like an existing username so the signup
+        // fails with the same "already exists" message instead of revealing the
+        // reservation.
+        if (isReservedUsername(input.username)) {
+          return userExistsResponse();
+        }
+
         const creationRateCheck = await checkAccountCreationRateLimit(
           ip,
           input.email.toLowerCase()
@@ -718,6 +726,14 @@ export const signupRouter = router({
             });
           }
 
+          // Reserved handles (the "zeph" moderation persona) can never be
+          // claimed, even from a pending signup created before the reservation
+          // existed. Clean up the pending key and fail like a taken username.
+          if (isReservedUsername(pendingData.username)) {
+            await redis.del(pendingKey);
+            return { error: "user-exists", success: false } as const;
+          }
+
           const user = await prisma.user.create({
             data: {
               displayName: pendingData.displayName,
@@ -801,6 +817,14 @@ export const signupRouter = router({
         exists: Boolean(existing),
       });
       if (existing) {
+        await redis.del(key);
+        return { error: "user-exists", success: false } as const;
+      }
+
+      // Reserved handles (the "zeph" moderation persona) can never be claimed,
+      // even from a pending signup created before the reservation existed.
+      // Clean up the pending key and fail like a taken username.
+      if (isReservedUsername(data.username)) {
         await redis.del(key);
         return { error: "user-exists", success: false } as const;
       }

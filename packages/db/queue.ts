@@ -185,6 +185,22 @@ export async function enqueueNotificationDeleted(
   });
 }
 
+// Checks whether a user has earned the shitposter badge. Deduplicated per user
+// with a stable jobId so a burst of posts enqueues a single check. Completed
+// jobs are removed immediately so the jobId frees up for the next burst; failed
+// jobs are kept briefly for retry/observability.
+export async function enqueueShitposterCheck(userId: string): Promise<void> {
+  await getQueue(CONTENT_EVENTS_QUEUE).add(
+    "shitposter-check",
+    { userId },
+    {
+      jobId: `shitposter-check-${userId}`,
+      removeOnComplete: true,
+      removeOnFail: 1000,
+    }
+  );
+}
+
 export async function scheduleMediaCleanup(mediaId: string): Promise<void> {
   // Delayed with an idempotency key so re-submitting a post does not enqueue
   // a second cleanup for the same media row. If the media got attached to a

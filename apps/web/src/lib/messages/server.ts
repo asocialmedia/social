@@ -64,6 +64,7 @@ export function messageSenderSelect() {
       select: {
         avatarUrl: true,
         badge: true,
+        badges: true,
         displayName: true,
         id: true,
         username: true,

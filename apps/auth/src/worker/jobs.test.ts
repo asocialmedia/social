@@ -8,6 +8,10 @@ describe("worker job processors", () => {
     deletedObjects.push(key);
   });
 
+  const mockGrantShitposter = mock((): Promise<boolean> =>
+    Promise.resolve(true)
+  );
+
   const mockRedis = {
     del: mock(() => 1),
     srem: mock(() => 1),
@@ -58,6 +62,7 @@ describe("worker job processors", () => {
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
     deleteObject: mockDeleteObject,
+    grantShitposterBadgeIfQualified: mockGrantShitposter,
     prisma: mockPrisma,
     redis: mockRedis,
     unreadNotificationCache: {
@@ -181,5 +186,27 @@ describe("worker job processors", () => {
 
     expect(unreadNotificationCache.increment).toHaveBeenCalledWith("user-1");
     expect(unreadNotificationCache.decrement).toHaveBeenCalledWith("user-1");
+  });
+
+  test("processShitposterCheck returns true when the badge is granted", async () => {
+    const { processShitposterCheck } = await import("./jobs");
+    mockGrantShitposter.mockClear();
+    mockGrantShitposter.mockResolvedValue(true);
+
+    const granted = await processShitposterCheck({ userId: "user-1" });
+
+    expect(mockGrantShitposter).toHaveBeenCalledWith("user-1");
+    expect(granted).toBe(true);
+  });
+
+  test("processShitposterCheck returns false when the user does not qualify", async () => {
+    const { processShitposterCheck } = await import("./jobs");
+    mockGrantShitposter.mockClear();
+    mockGrantShitposter.mockResolvedValue(false);
+
+    const granted = await processShitposterCheck({ userId: "user-1" });
+
+    expect(mockGrantShitposter).toHaveBeenCalledWith("user-1");
+    expect(granted).toBe(false);
   });
 });

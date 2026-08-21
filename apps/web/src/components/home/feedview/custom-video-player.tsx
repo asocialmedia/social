@@ -29,6 +29,8 @@ interface CustomVideoPlayerProps {
   className?: string;
   onError: () => void;
   onLoadedData: () => void;
+  onPlaying?: () => void;
+  onProgress?: () => void;
   poster?: string;
   src: string;
 }
@@ -76,6 +78,8 @@ export const CustomVideoPlayer = ({
   src,
   onLoadedData,
   onError,
+  onPlaying,
+  onProgress,
   className,
   captions = EMPTY_CAPTIONS,
   poster,
@@ -147,22 +151,44 @@ export const CustomVideoPlayer = ({
       return;
     }
 
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-    const handleDurationChange = () => setDuration(video.duration);
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
 
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("durationchange", handleDurationChange);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
 
     return () => {
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("durationchange", handleDurationChange);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
   }, []);
+
+  const handleTimeUpdate = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      const video = event.currentTarget;
+      setCurrentTime(video.currentTime);
+      // durationchange can fire before React attaches (or never re-fire once the
+      // metadata is cached), so also reconcile the real duration on every
+      // timeupdate. Guarded so a stale 0 / Infinity never overwrites a good one.
+      const realDuration = video.duration;
+      if (Number.isFinite(realDuration) && realDuration > 0) {
+        setDuration((prev) => (prev === realDuration ? prev : realDuration));
+      }
+      // Let the parent know bytes are still flowing, so a load deadline can be
+      // extended while playback makes progress.
+      onProgress?.();
+    },
+    [onProgress]
+  );
+
+  const handleDurationChange = useCallback(
+    (event: React.SyntheticEvent<HTMLVideoElement>) => {
+      const next = event.currentTarget.duration;
+      if (Number.isFinite(next) && next > 0) {
+        setDuration(next);
+      }
+    },
+    []
+  );
 
   const handlePlayPause = useCallback(() => {
     const video = videoRef.current;
@@ -385,8 +411,11 @@ export const CustomVideoPlayer = ({
         loop
         muted={isMuted}
         onClick={handlePlayPause}
+        onDurationChange={handleDurationChange}
         onError={onError}
         onLoadedData={onLoadedData}
+        onPlaying={onPlaying}
+        onTimeUpdate={handleTimeUpdate}
         playsInline
         poster={poster}
         preload="metadata"

@@ -17,13 +17,17 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
 import FollowButton from "@/components/layouts/follow-button";
+import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import BookmarkButton from "@/components/posts/bookmark-button";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import Linkify from "@/helpers/global/linkify";
+import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -57,6 +61,12 @@ export const GustCard: React.FC<GustCardProps> = ({
     "play" | "pause" | null
   >(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
+  // Tracks whether the explicit-content gate has been dismissed so the video
+  // only starts once the viewer chooses to continue.
+  const [explicitRevealed, setExplicitRevealed] = useState(false);
+  // True while the clip is stalled waiting for more data (network delay /
+  // buffering), so a spinner can float over the video. Not the initial load.
+  const [isBuffering, setIsBuffering] = useState(false);
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
@@ -97,6 +107,11 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
 
     if (isActive) {
+      if (post.explicitContent && !explicitRevealed) {
+        // Keep the clip paused behind the blur until the viewer taps Continue.
+        video.pause();
+        return;
+      }
       void (async () => {
         try {
           await video.play();
@@ -111,6 +126,8 @@ export const GustCard: React.FC<GustCardProps> = ({
       video.currentTime = 0;
       // eslint-disable-next-line react-compiler -- reset progress bar when video is inactive
       setProgress(0);
+      // A paused clip can't be waiting for data, so clear the buffering spinner.
+      setIsBuffering(false);
     }
 
     return () => {
@@ -120,7 +137,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         // Ignore aborts
       }
     };
-  }, [isActive]);
+  }, [explicitRevealed, isActive, post.explicitContent]);
 
   const wasPlayingBeforeHideRef = useRef(false);
 
@@ -184,6 +201,12 @@ export const GustCard: React.FC<GustCardProps> = ({
       setProgress((video.currentTime / video.duration) * 100);
     }
   }, []);
+
+  // Buffering indicators: `waiting` fires when playback stalls for data,
+  // `playing`/`canplay` when it resumes. No-op on the initial load state.
+  const handleWaiting = useCallback(() => setIsBuffering(true), []);
+  const handleCanPlay = useCallback(() => setIsBuffering(false), []);
+  const handlePlaying = useCallback(() => setIsBuffering(false), []);
 
   const handleProgressBarChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -250,6 +273,11 @@ export const GustCard: React.FC<GustCardProps> = ({
       if (!interactive) {
         return;
       }
+      // A moderated gust has no video mounted, so play/pause and double-tap
+      // amplify would be no-ops or feel broken - swallow the tap entirely.
+      if (post.moderated) {
+        return;
+      }
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 280;
 
@@ -274,7 +302,7 @@ export const GustCard: React.FC<GustCardProps> = ({
         }, DOUBLE_TAP_DELAY);
       }
     },
-    [amplify, interactive, spawnAuraBurst, togglePlay]
+    [amplify, interactive, post.moderated, spawnAuraBurst, togglePlay]
   );
 
   if (!videoMedia) {
@@ -287,12 +315,18 @@ export const GustCard: React.FC<GustCardProps> = ({
     user &&
     user.id !== post.user.id &&
     !post.user.followers?.some((f) => f.followerId === user.id);
-  const isOwner = user?.id === post.user.id;
+
+  const canModerate = canModeratePost(user, post);
   const isFollowedByUser = Boolean(
     post.user.followers?.some((f) => f.followerId === user?.id)
   );
   const isBookmarked = Boolean(post.bookmarks?.length);
 
+  // A moderated gust hides the clip behind a notice but keeps the full gust UI
+  // (author header, caption, follow button, action rail) so it still reads as
+  // the author's gust, not a thrown-in box. The notice replaces just the video.
+  // The row is never deleted, so an admin or the author can reverse it at any
+  // time via the more-button.
   let preloadMode: "auto" | "metadata" | "none" = "none";
   if (isActive) {
     preloadMode = "auto";
@@ -303,26 +337,58 @@ export const GustCard: React.FC<GustCardProps> = ({
   return (
     <div className="relative flex h-full w-full items-center justify-center">
       <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-[9/16] sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
-        {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
-        <video
-          className="h-full w-full object-contain"
-          loop
-          muted={isMuted}
-          onTimeUpdate={handleTimeUpdate}
-          playsInline
-          poster={thumbUrl}
-          preload={preloadMode}
-          ref={videoRef}
-          src={shouldMountVideo ? videoUrl : undefined}
-        />
+        {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
+        {(() => {
+          if (post.moderated) {
+            return (
+              <div className="flex h-full w-full items-center justify-center bg-black/40">
+                <ModeratedNotice className="mx-4 max-w-xs" kind="gust" />
+              </div>
+            );
+          }
+          // One shared video element; wrapped with the explicit-content gate
+          // only when the gust is flagged explicit.
+          const video = (
+            <video
+              className="h-full w-full object-contain"
+              loop
+              muted={isMuted}
+              onCanPlay={handleCanPlay}
+              onPlaying={handlePlaying}
+              onTimeUpdate={handleTimeUpdate}
+              onWaiting={handleWaiting}
+              playsInline
+              poster={thumbUrl}
+              preload={preloadMode}
+              ref={videoRef}
+              src={shouldMountVideo ? videoUrl : undefined}
+            />
+          );
+          return post.explicitContent ? (
+            <ExplicitContentGate
+              blurClassName="rounded-2xl lg:rounded-3xl"
+              className="h-full w-full"
+              label="This gust has explicit media."
+              onReveal={() => setExplicitRevealed(true)}
+            >
+              {video}
+            </ExplicitContentGate>
+          ) : (
+            video
+          );
+        })()}
+        {/* oxlint-enable jsx-a11y/media-has-caption */}
 
-        {/* Clickable transparent backdrop for play/pause & double tap */}
-        <button
-          aria-label="Toggle play or pause"
-          className="absolute inset-0 z-0 h-full w-full cursor-pointer border-0 bg-transparent"
-          onClick={handleCardClick}
-          type="button"
-        />
+        {/* Clickable transparent backdrop for play/pause & double tap. Not
+            mounted on moderated gusts (no clip to control). */}
+        {post.moderated ? null : (
+          <button
+            aria-label="Toggle play or pause"
+            className="absolute inset-0 z-0 h-full w-full cursor-pointer border-0 bg-transparent"
+            onClick={handleCardClick}
+            type="button"
+          />
+        )}
 
         {/* Play/Pause Pulse Overlay */}
         <AnimatePresence>
@@ -344,6 +410,14 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           ) : null}
         </AnimatePresence>
+
+        {/* Buffering spinner over the clip while playback stalls for data
+            (network delay), not during the initial load */}
+        {isBuffering ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <Spinner3D className="size-12" />
+          </div>
+        ) : null}
 
         {/* Repeated-tap Aura Bursts: TikTok-style floating flames that tilt by sequence id */}
         <AnimatePresence>
@@ -400,7 +474,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                 >
                   {authorName}
                 </Link>
-                <UserBadge badge={post.user.badge} />
+                <UserBadge badge={post.user.badge} badges={post.user.badges} />
                 {canFollow ? (
                   <FollowButton
                     className="h-7 shrink-0 rounded-full px-3 text-xs"
@@ -519,47 +593,53 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More (owners only) */}
-          {isOwner ? (
+          {/* More (moderators only) */}
+          {canModerate ? (
             <PostMoreButton
               className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
               post={post}
             />
           ) : null}
 
-          {/* Mute / unmute (aligned below the More button) */}
-          <button
-            aria-label={isMuted ? "Unmute video" : "Mute video"}
-            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
-            onClick={onToggleMute}
-            type="button"
-          >
-            {isMuted ? (
-              <VolumeX className="size-5" />
-            ) : (
-              <Volume2 className="size-5" />
-            )}
-          </button>
+          {/* Mute / unmute (aligned below the More button); no video to mute on
+              a moderated gust */}
+          {post.moderated ? null : (
+            <button
+              aria-label={isMuted ? "Unmute video" : "Mute video"}
+              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+              onClick={onToggleMute}
+              type="button"
+            >
+              {isMuted ? (
+                <VolumeX className="size-5" />
+              ) : (
+                <Volume2 className="size-5" />
+              )}
+            </button>
+          )}
         </div>
 
-        {/* Seek bar - hidden native thumb, click or drag anywhere to seek */}
-        <div className="absolute inset-x-0 bottom-0 z-30 px-1 pb-1">
-          <div className="group relative h-1 w-full rounded-full bg-white/20 transition-all group-hover:h-1.5">
-            <div
-              className="h-full rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500]"
-              style={{ width: `${progress}%` }}
-            />
-            <input
-              aria-label="Seek video progress"
-              className="seek-slider absolute -top-1.5 right-0 bottom-0 left-0 h-4 w-full cursor-pointer opacity-0"
-              max="100"
-              min="0"
-              onChange={handleProgressBarChange}
-              type="range"
-              value={progress}
-            />
+        {/* Seek bar - hidden native thumb, click or drag anywhere to seek. Not
+            shown for moderated gusts (no clip to seek). */}
+        {post.moderated ? null : (
+          <div className="absolute inset-x-0 bottom-0 z-30 px-1 pb-1">
+            <div className="group relative h-1 w-full rounded-full bg-white/20 transition-all group-hover:h-1.5">
+              <div
+                className="h-full rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500]"
+                style={{ width: `${progress}%` }}
+              />
+              <input
+                aria-label="Seek video progress"
+                className="seek-slider absolute -top-1.5 right-0 bottom-0 left-0 h-4 w-full cursor-pointer opacity-0"
+                max="100"
+                min="0"
+                onChange={handleProgressBarChange}
+                type="range"
+                value={progress}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {isActive ? <ViewTracker postId={post.id} /> : null}

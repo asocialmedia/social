@@ -20,6 +20,7 @@ const users = [
   { aura: 500, displayName: "Top User", id: "u1", username: "top" },
   { aura: 400, displayName: "Auth User", id: USER_ID, username: "auth" },
   { aura: 300, displayName: "Third User", id: "u3", username: "third" },
+  { aura: 999, displayName: "Zeph", id: "sys-zeph", username: "zeph" },
 ];
 
 const mockPrisma = {
@@ -28,10 +29,13 @@ const mockPrisma = {
       orderBy: unknown;
       select: unknown;
       take: number;
-      where: { id: { not: string | undefined } };
+      where: { AND: { id: { not: string | undefined } }[] };
     }) => {
-      const filtered = args.where.id.not
-        ? users.filter((u) => u.id !== args.where.id.not)
+      const excludeIds = args.where.AND.map((clause) => clause.id?.not).filter(
+        (id): id is string => Boolean(id)
+      );
+      const filtered = excludeIds.length
+        ? users.filter((u) => !excludeIds.includes(u.id))
         : users;
       return filtered.slice(0, args.take);
     },
@@ -39,6 +43,7 @@ const mockPrisma = {
 };
 
 mock.module("@asm/db", () => ({
+  SYSTEM_MODERATION_USER_ID: "sys-zeph",
   getUserDataSelect: (loggedInUserId: string) => ({
     aura: true,
     displayName: true,
@@ -73,6 +78,9 @@ describe("GET /api/users/trending cache separation", () => {
 
     const data = await res.json();
     expect(data).toHaveLength(3);
+    expect(
+      data.find((u: { id: string }) => u.id === "sys-zeph")
+    ).toBeUndefined();
     expect(mockRedis.setex).toHaveBeenCalledTimes(1);
   });
 
@@ -95,6 +103,10 @@ describe("GET /api/users/trending cache separation", () => {
     // Authenticated query filters out the logged-in user (USER_ID)
     expect(
       authData.find((u: { id: string }) => u.id === USER_ID)
+    ).toBeUndefined();
+    // The system moderation persona is never surfaced.
+    expect(
+      authData.find((u: { id: string }) => u.id === "sys-zeph")
     ).toBeUndefined();
     expect(authData).toHaveLength(2);
   });

@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useToast } from "@/lib/gooey-toast";
 
-import { deletePost } from "./actions";
+import { deletePost, updatePostModeration } from "./actions";
+import type { PostModerationChanges } from "./actions";
 
 export function useDeletePostMutation() {
   const { toast } = useToast();
@@ -54,6 +55,47 @@ export function useDeletePostMutation() {
       if (pathname === `/posts/${deletedPost.id}`) {
         router.push(`/users/${deletedPost.user.username}`);
       }
+    },
+  });
+
+  return mutation;
+}
+
+export function useModeratePostMutation() {
+  const { toast } = useToast();
+
+  const queryClient = useQueryClient();
+  const router = useRouter();
+
+  const mutation = useMutation({
+    mutationFn: (input: { changes: PostModerationChanges; postId: string }) =>
+      updatePostModeration(input.postId, input.changes),
+    onError(error) {
+      clientLog.error(error);
+      toast({
+        description: "Couldn't update moderation, try again?",
+        variant: "destructive",
+      });
+    },
+    onSuccess: async () => {
+      // Moderation is rare, so invalidating broadly is cheap and guarantees
+      // every surface (feed, gust reels, profile, viewer) shows the latest flag
+      // state. All invalidations run in parallel; the unread notification count
+      // reflects the moderation bell entry right away. router.refresh() repulls
+      // the server-rendered post detail + media pages (they receive PostData as
+      // props rather than a client query).
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["post-feed"] }),
+        queryClient.invalidateQueries({ queryKey: ["gusts-feed"] }),
+        queryClient.invalidateQueries({ queryKey: ["related-posts"] }),
+        queryClient.invalidateQueries({ queryKey: ["post-history"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["unread-notification-count"],
+        }),
+      ]);
+      router.refresh();
+
+      toast({ description: "Post updated" });
     },
   });
 

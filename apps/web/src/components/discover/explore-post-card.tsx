@@ -156,7 +156,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 <span className="truncate text-xs font-medium">
                   {post.user.displayName || post.user.username}
                 </span>
-                <UserBadge badge={post.user.badge} />
+                <UserBadge badge={post.user.badge} badges={post.user.badges} />
               </div>
               <p className="text-muted-foreground truncate text-[11px]">
                 @{post.user.username}

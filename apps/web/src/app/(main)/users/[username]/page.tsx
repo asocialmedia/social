@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -28,6 +28,11 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
   });
 
   if (!user) {
+    notFound();
+  }
+
+  // The system moderation persona has no public profile.
+  if (user.id === SYSTEM_MODERATION_USER_ID) {
     notFound();
   }
 

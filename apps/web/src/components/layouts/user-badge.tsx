@@ -10,17 +10,23 @@ import asmLogo from "@assets/asm.png";
 import authorBadge from "@assets/roles/author.png";
 import devBadge from "@assets/roles/dev.png";
 import earlyBadge from "@assets/roles/early.png";
+import shitposterBadge from "@assets/roles/shitposter.png";
 import Image from "next/image";
 import { memo } from "react";
 
 import { cn } from "@/lib/utils";
 
-export type UserBadgeType = "author" | "dev" | "early";
+import { normalizeBadges } from "./user-badge-utils";
+import type { UserBadgeType } from "./user-badge-utils";
+
+export type { UserBadgeType } from "./user-badge-utils";
+export { normalizeBadge, normalizeBadges } from "./user-badge-utils";
 
 const BADGE_IMAGES: Record<UserBadgeType, { src: string; alt: string }> = {
   author: { alt: "Author badge", src: authorBadge.src },
   dev: { alt: "Developer badge", src: devBadge.src },
   early: { alt: "Early supporter badge", src: earlyBadge.src },
+  shitposter: { alt: "Shitposter badge", src: shitposterBadge.src },
 };
 
 // Custom tooltip copy shown when hovering the banner: a short label plus a
@@ -41,62 +47,66 @@ const BADGE_TOOLTIPS: Record<
     description: "OG, here before it was cool",
     title: "Early supporter",
   },
+  shitposter: {
+    description: "A menace to the feed and everyone on it",
+    title: "Shitposter",
+  },
 };
 
-// Maps a stored user badge value to a known type. Unknown values render
-// nothing so a bad DB toggle never shows a broken image.
-export function normalizeBadge(
-  value: string | null | undefined
-): UserBadgeType | null {
-  if (!value) {
-    return null;
-  }
-  const normalized = value.toLowerCase();
-  if (
-    normalized === "author" ||
-    normalized === "dev" ||
-    normalized === "early"
-  ) {
-    return normalized;
-  }
-  return null;
-}
-
-// Blue-tick style role banner shown next to a username. The source images are
+// Blue-tick style role banners shown next to a username. The source images are
 // wide 3:1 banners, so the box matches that ratio (60x20) instead of squishing
-// them into a square. Hovering surfaces a custom tooltip describing the role;
-// pass a className to scale the banner up next to larger headings.
+// them into a square. The first badge renders inline; any extras collapse into
+// a "+N" chip. Hovering surfaces a tooltip listing every badge; pass a
+// className to scale the primary banner up next to larger headings.
 const UserBadge: React.FC<{
-  badge: string | null | undefined;
+  badge?: string | null;
+  badges?: string[] | null;
   className?: string;
-}> = ({ badge, className }) => {
-  const type = normalizeBadge(badge);
-  if (!type) {
+}> = ({ badge, badges, className }) => {
+  // Always merge the legacy `badge` column with the `badges` array so a badge
+  // stored in either location renders (author in the legacy column + early in
+  // the array shows both, with author leading via precedence). normalizeBadges
+  // dedupes and sorts, so the first entry is the primary banner.
+  const primary = [...(badges ?? []), ...(badge ? [badge] : [])];
+  const list = normalizeBadges(primary);
+  if (list.length === 0) {
     return null;
   }
-  const { alt, src } = BADGE_IMAGES[type];
-  const tooltip = BADGE_TOOLTIPS[type];
+  const [primaryType, ...rest] = list;
+  const { alt, src } = BADGE_IMAGES[primaryType];
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
           <span
             aria-label={alt}
-            className={cn(
-              "inline-flex h-5 w-15 shrink-0 items-center justify-center",
-              className
-            )}
+            className="inline-flex shrink-0 items-center gap-1"
           >
-            <Image
-              alt=""
-              className="h-full w-full object-contain"
-              height={20}
-              loading="eager"
-              priority
-              src={src}
-              unoptimized
-              width={60}
-            />
+            <span
+              className={cn(
+                "inline-flex h-5 w-15 items-center justify-center",
+                className
+              )}
+            >
+              <Image
+                alt=""
+                className="h-full w-full object-contain"
+                height={20}
+                loading="eager"
+                priority
+                src={src}
+                unoptimized
+                width={60}
+              />
+            </span>
+            {rest.length > 0 ? (
+              <span
+                aria-label={`${rest.length} more badge${rest.length === 1 ? "" : "s"}`}
+                className="bg-muted text-muted-foreground flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none font-semibold"
+              >
+                +{rest.length}
+              </span>
+            ) : null}
           </span>
         </TooltipTrigger>
         <TooltipContent
@@ -104,21 +114,41 @@ const UserBadge: React.FC<{
           className="apple-panel max-w-64 bg-transparent shadow-none"
           side="top"
         >
-          <div className="flex items-center gap-2.5">
-            <Image
-              alt="asocialmedia logo"
-              className="size-8 shrink-0 rounded-md object-contain"
-              height={36}
-              src={asmLogo}
-              unoptimized
-              width={48}
-            />
-            <div className="min-w-0 text-left">
-              <span className="text-foreground block text-xs font-semibold whitespace-nowrap">
-                {tooltip.title}
-              </span>
-              <span className="text-muted-foreground block max-w-44 text-[11px] leading-tight">
-                {tooltip.description}
+          <div className="flex flex-col gap-2">
+            {list.map((type) => {
+              const tooltip = BADGE_TOOLTIPS[type];
+              return (
+                <div className="flex items-center gap-2.5" key={type}>
+                  <Image
+                    alt=""
+                    className="h-5 w-15 shrink-0 object-contain"
+                    height={20}
+                    src={BADGE_IMAGES[type].src}
+                    unoptimized
+                    width={60}
+                  />
+                  <div className="min-w-0 text-left">
+                    <span className="text-foreground block text-xs font-semibold whitespace-nowrap">
+                      {tooltip.title}
+                    </span>
+                    <span className="text-muted-foreground block max-w-44 text-[11px] leading-tight">
+                      {tooltip.description}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-2.5 pt-1">
+              <Image
+                alt="asocialmedia logo"
+                className="size-6 shrink-0 rounded-md object-contain"
+                height={24}
+                src={asmLogo}
+                unoptimized
+                width={32}
+              />
+              <span className="text-muted-foreground text-[11px] leading-tight">
+                asocialmedia
               </span>
             </div>
           </div>

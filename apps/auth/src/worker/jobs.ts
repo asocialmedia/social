@@ -1,6 +1,7 @@
 import { hackerNewsAPI } from "@asm/aggregator/hackernews";
 import {
   deleteObject,
+  grantShitposterBadgeIfQualified,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
@@ -86,6 +87,24 @@ export async function processNotificationDeleted({
       await unreadNotificationCache.decrement(recipientId);
     },
     { "user.id": recipientId }
+  );
+}
+
+export async function processShitposterCheck(
+  { userId }: { userId: string },
+  logger?: WorkerLogger
+): Promise<boolean> {
+  const log = resolveLogger(logger);
+  return await withSpan(
+    "job.shitposter-check",
+    async () => {
+      const granted = await grantShitposterBadgeIfQualified(userId);
+      if (granted) {
+        log.info({ userId }, "shitposter badge granted");
+      }
+      return granted;
+    },
+    { "user.id": userId }
   );
 }
 

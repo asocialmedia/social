@@ -1,13 +1,6 @@
 import { clientLog } from "@asm/config/debug";
 import { Upload } from "lucide-react";
-import {
-  createElement,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createElement, useCallback, useEffect, useRef, useState } from "react";
 
 import { useToast } from "@/lib/gooey-toast";
 import { validateFile } from "@/lib/utils/file-validation";
@@ -174,16 +167,6 @@ export default function useMediaUpload() {
     persistAttachments(attachments);
   }, [attachments]);
 
-  const uploadProgress = useMemo(() => {
-    const uploading = attachments.filter((a) => a.isUploading);
-    if (uploading.length === 0) {
-      return;
-    }
-    return Math.round(
-      uploading.reduce((sum, a) => sum + a.progress, 0) / uploading.length
-    );
-  }, [attachments]);
-
   async function handleStartUpload(files: File[]) {
     if (isUploading) {
       toast({
@@ -271,6 +254,5 @@ export default function useMediaUpload() {
     removeAttachment,
     reset,
     startUpload: handleStartUpload,
-    uploadProgress,
   };
 }

@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -12,6 +12,7 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
     select: getUserDataSelect(user.id),
     take: 10,
+    where: { id: { not: SYSTEM_MODERATION_USER_ID } },
   });
   return Response.json(users);
 }

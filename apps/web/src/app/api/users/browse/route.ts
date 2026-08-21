@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -69,6 +69,7 @@ export async function GET(request: Request) {
               not: viewerId,
             },
           },
+          { id: { not: SYSTEM_MODERATION_USER_ID } },
           {
             OR: [
               {

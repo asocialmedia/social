@@ -2,7 +2,7 @@ import { Card, CardContent } from "@asm/ui/shadui/card";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type React from "react";
 
-const PostCardSkeleton: React.FC = () => (
+export const PostCardSkeleton: React.FC = () => (
   <Card className="border-border bg-background border-t border-b">
     <CardContent className="p-4">
       <div className="mb-4 flex items-center justify-between">

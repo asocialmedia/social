@@ -179,7 +179,11 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         <div className="mt-3">
           <h1 className="flex items-center gap-1.5 text-xl font-bold sm:text-2xl">
             {liveUserData.displayName || liveUserData.username}
-            <UserBadge badge={liveUserData.badge} className="h-8 w-24" />
+            <UserBadge
+              badge={liveUserData.badge}
+              badges={liveUserData.badges}
+              className="h-8 w-24"
+            />
           </h1>
           <p className="text-muted-foreground">@{liveUserData.username}</p>
         </div>

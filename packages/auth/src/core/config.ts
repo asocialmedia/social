@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { isReservedUsername, prisma } from "@asm/db";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import {
@@ -406,6 +406,17 @@ export function createAuthConfig(config: AuthConfig = {}) {
               let attempt = 2;
               const MAX_ATTEMPTS = 50;
               for (;;) {
+                // Reserved handles (e.g. the "zeph" moderation persona) are
+                // treated as taken so an OAuth user never lands on one.
+                if (isReservedUsername(candidate)) {
+                  candidate = `${base}${attempt}`;
+                  attempt += 1;
+                  if (attempt > MAX_ATTEMPTS) {
+                    candidate = `${base}-${Date.now().toString(36)}`;
+                    break;
+                  }
+                  continue;
+                }
                 // oxlint-disable-next-line no-await-in-loop -- uniqueness is probed one candidate at a time
                 const existing = await prisma.user.findFirst({
                   select: { id: true },

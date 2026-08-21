@@ -13,6 +13,7 @@ export function getUserDataSelect(loggedInUserId: string) {
     avatarKey: true,
     avatarUrl: true,
     badge: true,
+    badges: true,
     bannerKey: true,
     bannerUrl: true,
     bio: true,
@@ -157,6 +158,7 @@ export const notificationsInclude = {
     select: {
       content: true,
       id: true,
+      isGust: true,
     },
   },
 } satisfies Prisma.NotificationInclude;
@@ -257,6 +259,7 @@ export const messageConversationInclude = {
         select: {
           avatarUrl: true,
           badge: true,
+          badges: true,
           displayName: true,
           id: true,
           messageIdentity: {
@@ -278,6 +281,7 @@ export const messageInclude = {
     select: {
       avatarUrl: true,
       badge: true,
+      badges: true,
       displayName: true,
       id: true,
       username: true,

@@ -24,10 +24,13 @@ import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { canModeratePost } from "@/lib/moderation";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -61,6 +64,7 @@ interface PostCardProps {
 }
 
 interface PostContentProps {
+  canModerate: boolean;
   currentUserId: string;
   detail: boolean;
   initialMediaIndex?: number;
@@ -72,6 +76,7 @@ interface PostContentProps {
 }
 
 const PostContent: React.FC<PostContentProps> = ({
+  canModerate,
   currentUserId,
   detail,
   isExpanded,
@@ -144,7 +149,7 @@ const PostContent: React.FC<PostContentProps> = ({
                     {post.user.displayName}
                   </Link>
                 </UserTooltip>
-                <UserBadge badge={post.user.badge} />
+                <UserBadge badge={post.user.badge} badges={post.user.badges} />
                 <Link
                   className="text-muted-foreground shrink-0 hover:underline"
                   href={`/posts/${post.id}`}
@@ -187,7 +192,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   {post.user.displayName}
                 </Link>
               </UserTooltip>
-              <UserBadge badge={post.user.badge} />
+              <UserBadge badge={post.user.badge} badges={post.user.badges} />
               <UserTooltip user={post.user}>
                 <Link
                   className="text-muted-foreground truncate hover:underline"
@@ -210,9 +215,11 @@ const PostContent: React.FC<PostContentProps> = ({
           )}
 
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
-            {post.user.id === currentUserId && (
+            {canModerate && (
               <PostMoreButton
-                className="opacity-0 transition-opacity group-hover/post:opacity-100"
+                // Touch devices have no hover, so the button must always be
+                // visible there; on desktop it still fades in on card hover.
+                className="transition-opacity sm:opacity-0 sm:group-hover/post:opacity-100"
                 post={post}
               />
             )}
@@ -228,47 +235,70 @@ const PostContent: React.FC<PostContentProps> = ({
           </div>
         </div>
 
-        <Linkify>
-          <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
-            <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-              {post.content}
-            </p>
-          </div>
-        </Linkify>
-        {isOverflowing ? (
-          <button
-            className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
-            onClick={onToggleExpand}
-            type="button"
-          >
-            {isExpanded ? "Show less" : "Show more"}
-          </button>
-        ) : null}
+        {post.moderated ? (
+          <ModeratedNotice className="mt-2.5" kind="post" />
+        ) : (
+          <>
+            <Linkify>
+              <div
+                className={cn(!isExpanded && "line-clamp-6")}
+                ref={contentRef}
+              >
+                <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
+                  {post.content}
+                </p>
+              </div>
+            </Linkify>
+            {isOverflowing ? (
+              <button
+                className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
+                onClick={onToggleExpand}
+                type="button"
+              >
+                {isExpanded ? "Show less" : "Show more"}
+              </button>
+            ) : null}
 
-        {post.hnStoryShare ? (
-          <div className="hn-story-solid mt-3 overflow-hidden">
-            <HNStoryCard hnStory={post.hnStoryShare} />
-          </div>
-        ) : null}
+            {post.hnStoryShare ? (
+              <div className="hn-story-solid mt-3 overflow-hidden">
+                <HNStoryCard hnStory={post.hnStoryShare} />
+              </div>
+            ) : null}
 
-        {!!post.attachments.length && (
-          <div className="mt-2.5 max-w-full overflow-hidden">
-            <MediaPreviews
-              attachments={post.attachments}
-              autoPlayVideos={detail}
-              initialMediaIndex={initialMediaIndex}
-              interactive={!isJoined}
-              post={post}
-            />
-          </div>
+            {!!post.attachments.length && (
+              <div className="mt-2.5 max-w-full overflow-hidden">
+                {post.explicitContent ? (
+                  <ExplicitContentGate>
+                    <MediaPreviews
+                      attachments={post.attachments}
+                      autoPlayVideos={detail}
+                      initialMediaIndex={initialMediaIndex}
+                      interactive={!isJoined}
+                      post={post}
+                    />
+                  </ExplicitContentGate>
+                ) : (
+                  <MediaPreviews
+                    attachments={post.attachments}
+                    autoPlayVideos={detail}
+                    initialMediaIndex={initialMediaIndex}
+                    interactive={!isJoined}
+                    post={post}
+                  />
+                )}
+              </div>
+            )}
+
+            {post.tags?.length || post.mentions?.length ? (
+              <PostMeta
+                mentions={post.mentions.map(
+                  (m) => m.user as unknown as UserData
+                )}
+                tags={post.tags as TagWithCount[]}
+              />
+            ) : null}
+          </>
         )}
-
-        {post.tags?.length || post.mentions?.length ? (
-          <PostMeta
-            mentions={post.mentions.map((m) => m.user as unknown as UserData)}
-            tags={post.tags as TagWithCount[]}
-          />
-        ) : null}
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1">
@@ -295,16 +325,20 @@ const PostContent: React.FC<PostContentProps> = ({
             </span>
             <ShareButton
               defaultTab="link"
-              description={post.content}
+              description={post.moderated ? "" : post.content}
               dialogDescription="Share this post with your network"
               dialogTitle="Share Post"
               postId={post.id}
               thumbnail={
-                post.attachments[0]
-                  ? getMediaProxyUrl(post.attachments[0])
-                  : `/posts/${post.id}/opengraph-image`
+                post.moderated || !post.attachments[0]
+                  ? `/posts/${post.id}/opengraph-image`
+                  : getMediaProxyUrl(post.attachments[0])
               }
-              title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+              title={
+                post.moderated
+                  ? `Post on asocialmedia`
+                  : `${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`
+              }
             />
           </div>
         </div>
@@ -418,6 +452,7 @@ const PostCard: React.FC<PostCardProps> = ({
   }, []);
 
   const currentUserId = user?.id ?? "";
+  const canModerate = canModeratePost(user, post);
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -457,6 +492,7 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const body = (
     <PostContent
+      canModerate={canModerate}
       currentUserId={currentUserId}
       detail={detail}
       initialMediaIndex={initialMediaIndex}

@@ -36,6 +36,7 @@ model User {
   name            String?
   role            String    @default("user")
   badge           String?
+  badges          String[]  @default([])
   banned          Boolean   @default(false)
   banReason       String?
   banExpires      DateTime?
@@ -220,6 +221,7 @@ enum AuraType {
   FOLLOW_GIVEN
   POST_BOOKMARKED
   POST_BOOKMARK_RECEIVED
+  MODERATION_PENALTY
 }
 
 model PasswordResetToken {
@@ -306,6 +308,8 @@ model Post {
   viewCount            Int            @default(0)
   lastAwardedViewCount Int            @default(0)
   isGust               Boolean        @default(false)
+  moderated            Boolean        @default(false)
+  explicitContent      Boolean        @default(false)
   attachments          Media[]
   bookmarks            Bookmark[]
   comments             Comment[]
@@ -503,6 +507,7 @@ enum NotificationType {
   FOLLOW
   COMMENT
   MENTION
+  MODERATION
 }
 
 model Mention {

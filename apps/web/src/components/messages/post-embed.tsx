@@ -101,7 +101,7 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
             <span className="truncate">
               {data.user.displayName || data.user.username}
             </span>
-            <UserBadge badge={data.user.badge} />
+            <UserBadge badge={data.user.badge} badges={data.user.badges} />
           </span>
           <span
             className={cn(

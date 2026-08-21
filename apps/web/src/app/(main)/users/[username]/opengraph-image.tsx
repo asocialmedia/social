@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { prisma } from "@asm/db";
+import { getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
@@ -34,6 +34,7 @@ async function getUserForCard(username: string) {
       aura: true,
       avatarUrl: true,
       badge: true,
+      badges: true,
       bannerUrl: true,
       bio: true,
       createdAt: true,
@@ -124,6 +125,7 @@ export default async function Image({
     ? toAbsoluteUrl(`/api/users/avatar/${user.id}/image`)
     : null;
   const joinedDate = formatDate(user.createdAt);
+  const badges = getUserBadges(user);
 
   return new ImageResponse(
     <div
@@ -269,20 +271,37 @@ export default async function Image({
             <div style={{ fontSize: 38, fontWeight: 700 }}>
               {user.displayName}
             </div>
-            {user.badge ? (
-              <div
-                style={{
-                  background:
-                    "linear-gradient(180deg, #ff9500 0%, #e65500 100%)",
-                  borderRadius: 6,
-                  color: "#ffffff",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  padding: "3px 10px",
-                  textTransform: "uppercase",
-                }}
-              >
-                {user.badge}
+            {badges.length > 0 ? (
+              <div style={{ alignItems: "center", display: "flex", gap: 6 }}>
+                <div
+                  style={{
+                    background:
+                      "linear-gradient(180deg, #ff9500 0%, #e65500 100%)",
+                    borderRadius: 6,
+                    color: "#ffffff",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    padding: "3px 10px",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {badges[0]}
+                </div>
+                {badges.length > 1 ? (
+                  <div
+                    style={{
+                      background: "rgba(255,255,255,0.08)",
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      borderRadius: 6,
+                      color: "#e4e4e7",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      padding: "3px 8px",
+                    }}
+                  >
+                    +{badges.length - 1}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

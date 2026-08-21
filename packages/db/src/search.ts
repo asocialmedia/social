@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { SYSTEM_MODERATION_USER_ID } from "./reserved-usernames";
 
 let ensurePromise: Promise<void> | null = null;
 
@@ -35,6 +36,7 @@ export interface SearchUserResult {
   aura: number;
   avatarUrl: string | null;
   badge: string | null;
+  badges: string[];
   bio: string | null;
   displayName: string;
   displayUsername: string | null;
@@ -46,6 +48,8 @@ export interface SearchUserResult {
 export interface SearchPostResult {
   aura: number;
   authorAvatarUrl: string | null;
+  authorBadge: string | null;
+  authorBadges: string[];
   authorDisplayName: string;
   authorId: string;
   authorUsername: string;
@@ -72,6 +76,7 @@ export async function searchUsers(
       aura: true,
       avatarUrl: true,
       badge: true,
+      badges: true,
       bio: true,
       displayName: true,
       displayUsername: true,
@@ -81,10 +86,15 @@ export async function searchUsers(
     },
     take: limit,
     where: {
-      OR: [
-        { username: { contains: q, mode: "insensitive" } },
-        { displayName: { contains: q, mode: "insensitive" } },
-        { displayUsername: { contains: q, mode: "insensitive" } },
+      AND: [
+        { id: { not: SYSTEM_MODERATION_USER_ID } },
+        {
+          OR: [
+            { username: { contains: q, mode: "insensitive" } },
+            { displayName: { contains: q, mode: "insensitive" } },
+            { displayUsername: { contains: q, mode: "insensitive" } },
+          ],
+        },
       ],
     },
   });
@@ -114,6 +124,7 @@ export async function searchPosts(
         select: {
           avatarUrl: true,
           badge: true,
+          badges: true,
           displayName: true,
           id: true,
           username: true,
@@ -130,6 +141,8 @@ export async function searchPosts(
   return posts.map((post) => ({
     aura: post.aura,
     authorAvatarUrl: post.user.avatarUrl,
+    authorBadge: post.user.badge,
+    authorBadges: post.user.badges,
     authorDisplayName: post.user.displayName,
     authorId: post.user.id,
     authorUsername: post.user.username,

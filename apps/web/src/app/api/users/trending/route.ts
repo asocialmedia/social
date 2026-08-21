@@ -1,4 +1,9 @@
-import { getUserDataSelect, prisma, redis } from "@asm/db";
+import {
+  getUserDataSelect,
+  prisma,
+  redis,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -15,7 +20,13 @@ export async function GET() {
       try {
         const cached = await redis.get(TRENDING_USERS_CACHE_KEY);
         if (cached) {
-          return Response.json(JSON.parse(cached), {
+          const parsed = JSON.parse(cached) as { id: string }[];
+          // The cache may predate the system-user exclusion, so filter it out
+          // before serving.
+          const visible = parsed.filter(
+            (u) => u.id !== SYSTEM_MODERATION_USER_ID
+          );
+          return Response.json(visible, {
             headers: {
               "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
               vary: "Cookie",
@@ -41,9 +52,10 @@ export async function GET() {
       select: getUserDataSelect(userId || ""),
       take: 6,
       where: {
-        id: {
-          not: userId || undefined,
-        },
+        AND: [
+          { id: { not: userId || undefined } },
+          { id: { not: SYSTEM_MODERATION_USER_ID } },
+        ],
       },
     });
 
