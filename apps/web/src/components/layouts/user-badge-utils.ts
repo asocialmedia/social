@@ -7,6 +7,16 @@ const KNOWN_BADGES = new Set<UserBadgeType>([
   "shitposter",
 ]);
 
+// Precedence for the primary badge shown inline: the first (lowest number) is
+// rendered as the banner and the rest collapse into the "+N" chip. Author
+// outranks every earned/honor badge so it always leads when present.
+export const BADGE_ORDER: Record<UserBadgeType, number> = {
+  author: 0,
+  dev: 1,
+  early: 2,
+  shitposter: 3,
+};
+
 // Maps a stored badge value to a known type. Unknown values are dropped so a
 // bad DB toggle never shows a broken image.
 export function normalizeBadge(
@@ -21,9 +31,9 @@ export function normalizeBadge(
     : null;
 }
 
-// Normalizes a stored badge list, dropping unknown values while preserving
-// order. The primary badge rendered inline is the first one; the rest are
-// shown behind the "+N" chip and inside the tooltip.
+// Normalizes a stored badge list, dropping unknown values, deduping and sorting
+// by precedence. The primary badge rendered inline is the first one; the rest
+// are shown behind the "+N" chip and inside the tooltip.
 export function normalizeBadges(
   values: (string | null | undefined)[] | null | undefined
 ): UserBadgeType[] {
@@ -39,5 +49,5 @@ export function normalizeBadges(
       result.push(type);
     }
   }
-  return result;
+  return result.toSorted((a, b) => BADGE_ORDER[a] - BADGE_ORDER[b]);
 }

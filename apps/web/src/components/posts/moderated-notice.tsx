@@ -6,14 +6,15 @@ import { cn } from "@/lib/utils";
 // Replaces a post's/gust's content when an admin or the author has flagged it
 // as moderated. The row stays in the database; only the rendering is swapped
 // for a notice. Compact horizontal layout: small avatar on the left, message on
-// the right, minimal height.
+// the right, minimal height. Solid dual border: an outer border plus an inset
+// hairline ring, matching the app's panel language instead of a dashed outline.
 const ModeratedNotice: React.FC<{
   className?: string;
   kind?: "gust" | "post";
 }> = ({ className, kind = "post" }) => (
   <div
     className={cn(
-      "bg-muted border-border/70 flex items-center gap-3 rounded-xl border border-dashed px-4 py-2.5",
+      "bg-muted border-border/60 flex items-center gap-3 rounded-xl border border-solid px-4 py-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.05)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),inset_0_1px_2px_rgba(255,255,255,0.04)]",
       className
     )}
   >

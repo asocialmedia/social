@@ -63,14 +63,11 @@ const UserBadge: React.FC<{
   badges?: string[] | null;
   className?: string;
 }> = ({ badge, badges, className }) => {
-  let primary: (string | null | undefined)[];
-  if (badges && badges.length > 0) {
-    primary = badges;
-  } else if (badge) {
-    primary = [badge];
-  } else {
-    primary = [];
-  }
+  // Always merge the legacy `badge` column with the `badges` array so a badge
+  // stored in either location renders (author in the legacy column + early in
+  // the array shows both, with author leading via precedence). normalizeBadges
+  // dedupes and sorts, so the first entry is the primary banner.
+  const primary = [...(badges ?? []), ...(badge ? [badge] : [])];
   const list = normalizeBadges(primary);
   if (list.length === 0) {
     return null;

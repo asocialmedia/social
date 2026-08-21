@@ -49,6 +49,20 @@ describe("getUserBadges", () => {
     expect(getUserBadges({ badge: "author" })).toEqual(["author"]);
   });
 
+  test("merges the legacy badge with the array and orders by precedence", async () => {
+    const { getUserBadges } = await import("./badges");
+
+    // Legacy author + array early => author leads (highest precedence).
+    expect(getUserBadges({ badge: "author", badges: ["early"] })).toEqual([
+      "author",
+      "early",
+    ]);
+    // Array already has both, legacy column repeats -> dedupe keeps one.
+    expect(
+      getUserBadges({ badge: "author", badges: ["early", "author"] })
+    ).toEqual(["author", "early"]);
+  });
+
   test("dedupes values and returns an empty list for no badges", async () => {
     const { getUserBadges } = await import("./badges");
 

@@ -20,10 +20,14 @@ describe("normalizeBadge", () => {
 });
 
 describe("normalizeBadges", () => {
-  test("keeps order and dedupes", () => {
+  test("sorts by precedence and dedupes", () => {
     expect(
-      normalizeBadges(["author", "dev", "author", "shitposter", null])
-    ).toEqual(["author", "dev", "shitposter"]);
+      normalizeBadges(["shitposter", "dev", "author", "early", "author", null])
+    ).toEqual(["author", "dev", "early", "shitposter"]);
+  });
+
+  test("author leads over early", () => {
+    expect(normalizeBadges(["early", "author"])).toEqual(["author", "early"]);
   });
 
   test("drops unknown values", () => {

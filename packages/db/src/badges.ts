@@ -21,18 +21,36 @@ export type Badge = (typeof BADGES)[number];
 export const SHITPOSTER_THRESHOLD = 5;
 export const SHITPOSTER_WINDOW_MS = 30 * 60 * 1000;
 
-// Resolves a row's badge state into a single deduped list. New grants write to
-// the `badges` array; the legacy single `badge` column is folded in as a
-// fallback so pre-migration rows still render.
+// Precedence order for badge resolution: the first (lowest number) is the
+// primary badge. Mirrors the client BADGE_ORDER so server-side decisions
+// (dedupe, slot checks) agree with what renders.
+const BADGE_PRECEDENCE: Record<string, number> = {
+  author: 0,
+  dev: 1,
+  early: 2,
+  shitposter: 3,
+};
+
+// Resolves a row's badge state into a single deduped list ordered by
+// precedence. Both storage locations are merged - the `badges` array plus the
+// legacy single `badge` column - so a badge held in either place is never
+// dropped and the highest-precedence badge comes first.
 export function getUserBadges(user: {
   badge?: string | null;
   badges?: string[] | null;
 }): string[] {
-  const list = [...(user.badges ?? [])];
-  if (list.length === 0 && user.badge) {
-    list.push(user.badge);
+  const merged = new Set<string>();
+  for (const value of [
+    ...(user.badges ?? []),
+    ...(user.badge ? [user.badge] : []),
+  ]) {
+    if (value) {
+      merged.add(value.toLowerCase());
+    }
   }
-  return [...new Set(list)];
+  return [...merged].toSorted(
+    (a, b) => (BADGE_PRECEDENCE[a] ?? 99) - (BADGE_PRECEDENCE[b] ?? 99)
+  );
 }
 
 export class BadgeLimitError extends Error {
