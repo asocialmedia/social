@@ -15,6 +15,7 @@ export const keys = createEnv({
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_TELEMETRY: process.env.BETTER_AUTH_TELEMETRY,
     DATABASE_URL: process.env.DATABASE_URL,
+    ENFORCE_CLOUDFLARE: process.env.ENFORCE_CLOUDFLARE,
     KLIPY_APP_KEY: process.env.KLIPY_APP_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
     NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
@@ -46,6 +47,7 @@ export const keys = createEnv({
     BETTER_AUTH_SECRET: z.string().optional(),
     BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
     DATABASE_URL: z.url(),
+    ENFORCE_CLOUDFLARE: z.enum(["0", "1"]).default("0"),
     KLIPY_APP_KEY: z.string().optional(),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])

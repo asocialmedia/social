@@ -73,8 +73,12 @@ describe("POST /api/views/batch", () => {
     expect(json.success).toBe(true);
     expect(json.results).toEqual({ post1: 101, post2: 6 });
     expect(mockIncrementView).toHaveBeenCalledTimes(2);
-    expect(mockIncrementView).toHaveBeenCalledWith("post1", "user1");
-    expect(mockIncrementView).toHaveBeenCalledWith("post2", "user1");
+    expect(mockIncrementView).toHaveBeenCalledWith("post1", {
+      userId: "user1",
+    });
+    expect(mockIncrementView).toHaveBeenCalledWith("post2", {
+      userId: "user1",
+    });
   });
 
   test("reads persisted counts before incrementing", async () => {

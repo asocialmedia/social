@@ -1,4 +1,4 @@
-import { prisma, scheduleMediaCleanup } from "@asm/db";
+import { consumeRateLimit, prisma, scheduleMediaCleanup } from "@asm/db";
 import type { MediaType } from "@asm/db";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { imageSize } from "image-size";
@@ -6,13 +6,49 @@ import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient, uploadToAsmob } from "@/lib/object-storage";
 import { getSessionFromApi } from "@/lib/session";
+import { sniffFileSignature } from "@/lib/utils/magic-bytes";
 import { extractVideoThumbnail } from "@/lib/video-thumbnail";
+
+// Hard ceiling accepted from the network before any parsing happens. The
+// largest category (video) allows 250MB; multipart framing adds overhead, so
+// the request-level cap sits slightly above it. Requests declaring more than
+// this are rejected before formData() buffers the body into memory.
+const MAX_REQUEST_BYTES = 260 * 1024 * 1024;
+
+// Per-user rolling quota: uploads per day. Generous for real creators
+// (dozens of posts with media), hostile to bulk-abuse scripts.
+const DAILY_UPLOAD_QUOTA = 120;
+const QUOTA_WINDOW_SECONDS = 86_400;
 
 export async function POST(request: Request) {
   const session = await getSessionFromApi();
   const user = session?.user;
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Shed oversized bodies before parsing: reading formData() buffers the
+  // whole payload in memory, so an early Content-Length check is the cheapest
+  // defense against memory exhaustion.
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (declaredLength > MAX_REQUEST_BYTES) {
+    return new NextResponse("Payload too large", { status: 413 });
+  }
+
+  const rate = await consumeRateLimit({
+    bucket: "upload-user",
+    identifier: user.id,
+    limit: DAILY_UPLOAD_QUOTA,
+    windowSeconds: QUOTA_WINDOW_SECONDS,
+  });
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Daily upload limit reached. Try again tomorrow." },
+      {
+        headers: { "retry-after": String(rate.retryAfterSeconds) },
+        status: 429,
+      }
+    );
   }
 
   const formData = await request.formData();
@@ -35,6 +71,17 @@ export async function POST(request: Request) {
   // thumbnail extraction both consume the same buffer, so a large clip never
   // occupies two copies in memory at once.
   const fileBuffer = Buffer.from(await file.arrayBuffer());
+
+  // The declared MIME type is untrusted; verify the leading bytes actually
+  // look like the claimed format before storing anything.
+  const signature = sniffFileSignature(fileBuffer, file.type);
+  if (!signature.ok) {
+    return NextResponse.json(
+      { error: signature.reason ?? "Unsupported file content" },
+      { status: 415 }
+    );
+  }
+
   const upload = await uploadToAsmob(file, user.id, fileBuffer);
 
   let width: number | null = null;

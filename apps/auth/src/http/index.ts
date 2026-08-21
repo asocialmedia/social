@@ -187,7 +187,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     try {
       if (security) {
         const ip = getClientIp(request);
-        const decision = security.check(request, ip);
+        const decision = await security.check(request, ip);
         if (!decision.allowed) {
           return addSecurityHeaders(
             addCorsHeaders(

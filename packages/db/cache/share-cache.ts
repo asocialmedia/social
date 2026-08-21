@@ -4,6 +4,18 @@ const SHARE_STATS_PREFIX = "share:stats:";
 const SHARE_CLICKS_PREFIX = "share:clicks:";
 
 export const shareStatsCache = {
+  async getClicks(postId: string, platform: string): Promise<number> {
+    try {
+      const clicks = await redis.get(
+        `${SHARE_CLICKS_PREFIX}${postId}:${platform}`
+      );
+      return Math.trunc(Number(clicks || "0"));
+    } catch (error) {
+      console.error("Error getting click count:", error);
+      return 0;
+    }
+  },
+
   async getStats(
     postId: string,
     platform: string

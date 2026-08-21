@@ -319,6 +319,27 @@ export const shouldDisplayInline = (mimeType: string) => {
   return inlineTypes.some((type) => mimeType.startsWith(type));
 };
 
+// Types that must never be served inline from our origin, no matter what the
+// client asks for. Browsers actively execute or render these when navigated
+// to: SVG can carry scripts (same-origin XSS), and text/* covers HTML/JS
+// payloads. They are delivered as downloads instead.
+export const shouldForceAttachment = (mimeType: string) => {
+  if (!mimeType) {
+    return true;
+  }
+  if (mimeType === "image/svg+xml") {
+    return true;
+  }
+  if (mimeType.startsWith("text/")) {
+    return true;
+  }
+  if (mimeType === "image/heic" || mimeType === "image/heif") {
+    // Not universally renderable; downloading is the friendlier default.
+    return false;
+  }
+  return false;
+};
+
 export const getFileType = (mimeType: string) => {
   if (mimeType.startsWith("image/")) {
     return "image";

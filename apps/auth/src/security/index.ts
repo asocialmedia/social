@@ -26,13 +26,47 @@ export interface SecurityDecision {
 }
 
 export interface Security {
-  check: (request: Request, ip: string) => SecurityDecision;
+  check: (request: Request, ip: string) => Promise<SecurityDecision>;
   headers: () => Record<string, string>;
 }
 
-export interface RateLimitStore {
-  get: (key: string) => { count: number; resetAt: number } | undefined;
-  set: (key: string, value: { count: number; resetAt: number }) => void;
+export interface RateLimitHit {
+  hit: boolean;
+  retryAfterSeconds: number;
+}
+
+// Pluggable counter backend for the layered per-IP limits. The in-memory
+// implementation is the default (fast, zero-dependency); a Redis-backed
+// implementation survives restarts and deploys so an attacker cannot reset
+// their budget by forcing a rollout.
+export interface AsyncRateLimitStore {
+  hit: (
+    key: string,
+    windowMs: number,
+    max: number,
+    now: number
+  ) => Promise<RateLimitHit>;
+}
+
+class InMemoryRateLimitStore implements AsyncRateLimitStore {
+  private readonly entries = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
+  private lastPrune = Date.now();
+
+  hit(
+    key: string,
+    windowMs: number,
+    max: number,
+    now: number
+  ): Promise<RateLimitHit> {
+    if (now - this.lastPrune > 60_000) {
+      pruneStore(this.entries, now);
+      this.lastPrune = now;
+    }
+    return rateLimitHit(this.entries, key, windowMs, max, now);
+  }
 }
 
 function safeEqual(a: string | undefined, b: string | undefined): boolean {
@@ -159,10 +193,14 @@ export function securityHeaders(): Record<string, string> {
 // rejects requests from disallowed origins, requests without the internal
 // secret when they carry no browser origin, oversized bodies, and floods from
 // a single IP. All responses get hardened security headers.
-export function createSecurity(config: SecurityConfig): Security {
-  const store = new Map<string, { count: number; resetAt: number }>();
-  let lastPrune = Date.now();
-
+//
+// The rate-limit store is pluggable: the default in-memory store resets on
+// every deploy, so production injects the Redis-backed store to keep attacker
+// budgets across restarts.
+export function createSecurity(
+  config: SecurityConfig,
+  store: AsyncRateLimitStore = new InMemoryRateLimitStore()
+): Security {
   const headers = (): Record<string, string> => ({ ...SECURITY_HEADERS });
 
   // Browser cross-origin calls carry an Origin header. Server-to-server calls
@@ -189,12 +227,11 @@ export function createSecurity(config: SecurityConfig): Security {
     return { allowed: true };
   };
 
-  const check = (request: Request, ip: string): SecurityDecision => {
+  const check = async (
+    request: Request,
+    ip: string
+  ): Promise<SecurityDecision> => {
     const now = Date.now();
-    if (now - lastPrune > 60_000) {
-      pruneStore(store, now);
-      lastPrune = now;
-    }
 
     const { pathname } = new URL(request.url);
 
@@ -207,7 +244,7 @@ export function createSecurity(config: SecurityConfig): Security {
     }
 
     if (pathname !== "/api/health") {
-      const pathDecision = checkPath(request, pathname, ip, now);
+      const pathDecision = await checkPath(request, pathname, ip, now);
       if (!pathDecision.allowed) {
         return pathDecision;
       }
@@ -223,7 +260,7 @@ export function createSecurity(config: SecurityConfig): Security {
     pathname: string,
     ip: string,
     now: number
-  ): SecurityDecision => {
+  ): Promise<SecurityDecision> => {
     const allowedPath =
       pathname.startsWith("/api/auth") || pathname.startsWith("/api/trpc");
     if (!allowedPath) {
@@ -245,14 +282,13 @@ export function createSecurity(config: SecurityConfig): Security {
 
   // Applies the layered per-IP limits: burst (continuous polling), strict
   // (brute-force targets), then a session-aware general limit.
-  const checkRateLimits = (
+  const checkRateLimits = async (
     request: Request,
     pathname: string,
     ip: string,
     now: number
-  ): SecurityDecision => {
-    const burst = rateLimitHit(
-      store,
+  ): Promise<SecurityDecision> => {
+    const burst = await store.hit(
       `burst:${ip}`,
       config.burstRateLimitWindowMs,
       config.burstRateLimitMax,
@@ -263,8 +299,7 @@ export function createSecurity(config: SecurityConfig): Security {
     }
 
     if (isStrictPath(pathname, config.strictPaths)) {
-      const strict = rateLimitHit(
-        store,
+      const strict = await store.hit(
         `strict:${ip}:${pathname}`,
         config.strictRateLimitWindowMs,
         config.strictRateLimitMax,
@@ -285,7 +320,7 @@ export function createSecurity(config: SecurityConfig): Security {
       : config.anonRateLimitMax;
     const limiterKey = authenticated ? `auth:${ip}` : `anon:${ip}`;
 
-    const limit = rateLimitHit(store, limiterKey, windowMs, max, now);
+    const limit = await store.hit(limiterKey, windowMs, max, now);
     if (limit.hit) {
       return rejectRateLimited(limit.retryAfterSeconds);
     }

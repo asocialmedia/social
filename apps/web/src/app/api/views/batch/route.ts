@@ -37,7 +37,12 @@ export async function POST(request: Request) {
     const entries = await Promise.all(
       postIds.map(
         async (postId) =>
-          [postId, await postViewsCache.incrementView(postId, userId)] as const
+          [
+            postId,
+            await postViewsCache.incrementView(postId, {
+              userId: userId || undefined,
+            }),
+          ] as const
       )
     );
 

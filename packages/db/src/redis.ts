@@ -57,6 +57,11 @@ const getRedisClient = (): IoRedis => {
   return redisClient;
 };
 
+// Direct access to the shared client for consumers that need to hand the
+// connection itself to another module (e.g. the auth service's security
+// store). Most code should use the `redis` proxy above instead.
+export { getRedisClient };
+
 const redis = new Proxy({} as IoRedis, {
   get(_target, property) {
     const client = getRedisClient();
@@ -753,6 +758,26 @@ export async function enqueueShareEvent(
   }
 }
 
+// Best-effort one-shot claim backed by SET NX EX. Returns true when this
+// caller is the first to claim `key` inside the TTL window. Used for
+// exactly-once semantics on soft events (view counting, share clicks) where
+// dropping a duplicate is always preferable to counting it twice. Fails open
+// (returns true) when Redis is unreachable so real events are never lost.
+export async function claimOnce(
+  key: string,
+  ttlSeconds: number
+): Promise<boolean> {
+  try {
+    // ioredis resolves SET ... NX to "OK" when the key was claimed and to
+    // null when it already existed, so only "OK" counts as a fresh claim.
+    const result = await redis.set(key, "1", "EX", ttlSeconds, "NX");
+    return result === "OK";
+  } catch (error) {
+    console.error("claim-once redis unavailable, failing open:", error);
+    return true;
+  }
+}
+
 export const postViewsCache = {
   async getMultipleViews(postIds: string[]): Promise<Record<string, number>> {
     try {
@@ -788,18 +813,42 @@ export const postViewsCache = {
     }
   },
 
-  async incrementView(postId: string, _userId?: string): Promise<number> {
+  async incrementView(
+    postId: string,
+    viewer?: { userId?: string; viewerHash?: string }
+  ): Promise<number> {
     try {
-      // Impression-style counting: every screenview increments, no per-user
-      // The client bounces identical refreshes, so
-      // this stays reasonable while the number moves visibly.
+      // Dedupe before counting: a signed-in user counts once per post per
+      // window, and an anonymous client counts once per IP hash per window.
+      // The claim fails open (claimOnce returns true when Redis is down) so
+      // real views are never dropped because of an infrastructure hiccup.
+      let dedupeKey: string | null = null;
+      if (viewer?.userId) {
+        dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:u:${viewer.userId}`;
+      } else if (viewer?.viewerHash) {
+        dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:a:${viewer.viewerHash}`;
+      }
+      if (dedupeKey) {
+        const isFirstHit = await claimOnce(
+          dedupeKey,
+          viewer?.userId ? 21_600 : 3600
+        );
+        if (!isFirstHit) {
+          const current = Math.trunc(
+            Number(
+              (await redis.get(`${POST_VIEWS_KEY_PREFIX}${postId}`)) || "0"
+            )
+          );
+          return current;
+        }
+      }
+
       const pipeline = redis.pipeline();
       pipeline.sadd(POST_VIEWS_SET, postId);
       pipeline.incr(`${POST_VIEWS_KEY_PREFIX}${postId}`);
       const results = await pipeline.exec();
 
       const newCount = (results?.[1]?.[1] as number) || 0;
-      console.log(`Redis: Incremented view for post ${postId} to ${newCount}`);
 
       await enqueueViewIncrement(postId);
 

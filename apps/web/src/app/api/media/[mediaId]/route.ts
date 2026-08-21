@@ -3,21 +3,26 @@ import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { cacheLife, cacheTag } from "next/cache";
 import { NextResponse } from "next/server";
 
+import { decideMediaAccess } from "@/lib/media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
   generatePresignedUrl,
 } from "@/lib/object-storage";
+import { getWebLogger } from "@/lib/otel";
+import { getSessionFromApi } from "@/lib/session";
 import {
   getContentDisposition,
   shouldDisplayInline,
+  shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
 
 // Media rows are immutable (the stored key/mime never changes for a given id),
 // so the lookup is safe to cache for a long window. This keeps feed scrolls
 // that render many posters/images from hammering the database on every request;
 // the object itself is still streamed fresh from storage each time. A stale
-// row after deletion simply 404s like the DB row would.
+// row after deletion simply 404s like the DB row would. The ownership columns
+// are immutable too, so the access decision can safely rely on the cached row.
 async function getMediaRow(mediaId: string) {
   "use cache";
   cacheLife("hours");
@@ -25,12 +30,15 @@ async function getMediaRow(mediaId: string) {
 
   return await prisma.media.findUnique({
     select: {
+      commentId: true,
       id: true,
       key: true,
       mimeType: true,
+      postId: true,
       size: true,
       thumbnailKey: true,
       type: true,
+      userId: true,
     },
     where: { id: mediaId },
   });
@@ -89,6 +97,17 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
 
+  // Authorization: post attachments are public, comment media needs a
+  // session, message/draft uploads are owner-only (see media-access.ts).
+  const session = await getSessionFromApi();
+  const decision = decideMediaAccess(media, session?.user ?? null);
+  if (!decision.allowed) {
+    return new NextResponse(
+      decision.status === 401 ? "Unauthorized" : "Media not found",
+      { status: decision.status }
+    );
+  }
+
   try {
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
@@ -101,6 +120,7 @@ export async function GET(
         headers: {
           "Cache-Control": "public, max-age=60",
           "Content-Type": "image/svg+xml",
+          "X-Content-Type-Options": "nosniff",
         },
         status: 200,
       });
@@ -183,12 +203,18 @@ export async function GET(
     );
 
     const filename = media.key.split("/").pop() || "file";
-    const inline = !download && shouldDisplayInline(media.mimeType);
+    // SVG and text-like payloads are always forced into a download so the
+    // browser never renders/executes them from our origin (stored-XSS guard).
+    const inline =
+      !download &&
+      shouldDisplayInline(media.mimeType) &&
+      !shouldForceAttachment(media.mimeType);
     headers.set("Content-Disposition", getContentDisposition(filename, inline));
-    // Content for a given media id is immutable (a new upload creates a new
+    // Content for a given media id is immutable (a new upload creates a
     // row), so browsers may cache without revalidating on refresh.
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
     headers.set("Accept-Ranges", "bytes");
+    headers.set("X-Content-Type-Options", "nosniff");
 
     // Normalize the body to a Web ReadableStream: the SDK returns a WebStream
     // (has transformToWebStream), while the presigned-URL fetch returns a
@@ -233,10 +259,15 @@ export async function GET(
     if (error instanceof DOMException && error.name === "AbortError") {
       return new Response(null, { status: 499 });
     }
-    console.error("Media proxy error:", error);
-    return new NextResponse(
-      `Internal Server Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-      { status: 500 }
-    );
+    const logger = getWebLogger();
+    const payload = { error, mediaId };
+    if (logger) {
+      logger.error(payload, "Media proxy error");
+    } else {
+      console.error("Media proxy error:", error);
+    }
+    // Deliberately opaque: internal error details (storage endpoints, keys)
+    // must never reach the client.
+    return new NextResponse("Internal Server Error", { status: 500 });
   }
 }

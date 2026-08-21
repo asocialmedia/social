@@ -26,7 +26,7 @@
     },
     "apps/auth": {
       "name": "@asm/auth-app",
-      "version": "1.0.78",
+      "version": "1.0.83",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -41,6 +41,7 @@
         "bullmq": "^6.1.0",
         "cross-env": "^10.1.0",
         "dotenv": "^17.4.2",
+        "ioredis": "^6.0.0",
         "jose": "^6.2.8",
         "pg": "8.18.0",
         "react": "^19.2.8",
@@ -58,7 +59,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.1.85",
+      "version": "1.2.5",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -140,7 +141,7 @@
     },
     "packages/auth": {
       "name": "@asm/auth",
-      "version": "1.0.76",
+      "version": "1.0.81",
       "dependencies": {
         "@asm/db": "workspace:*",
         "@prisma/client": "7.9.1",
@@ -167,9 +168,10 @@
     },
     "packages/db": {
       "name": "@asm/db",
-      "version": "1.0.46",
+      "version": "1.0.55",
       "dependencies": {
         "@asm/config": "workspace:*",
+        "@asm/logger": "workspace:*",
         "@aws-sdk/client-s3": "^3.1109.0",
         "@prisma/adapter-pg": "7.9.1",
         "@prisma/client": "7.9.1",
@@ -193,7 +195,7 @@
     },
     "packages/logger": {
       "name": "@asm/logger",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/api-logs": "^0.221.0",
@@ -219,7 +221,7 @@
     },
     "packages/next": {
       "name": "@asm/next",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "dependencies": {
         "dotenv": "^17.4.2",
         "next": "^16.3.0",
