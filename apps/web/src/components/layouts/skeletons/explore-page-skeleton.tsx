@@ -30,7 +30,10 @@ const GustRailSkeleton: React.FC = () => (
 const PostSkeleton: React.FC<{ aspect: number }> = ({ aspect }) => (
   <div className="sidebar-subcard mb-4 break-inside-avoid overflow-hidden rounded-2xl">
     <div className="bg-muted/20 relative w-full overflow-hidden">
-      <Skeleton className="w-full rounded-none" style={{ aspectRatio: aspect }} />
+      <Skeleton
+        className="w-full rounded-none"
+        style={{ aspectRatio: aspect }}
+      />
     </div>
     <div className="flex flex-col gap-2.5 p-3">
       <Skeleton className="h-3.5 w-full rounded-md" />
@@ -94,7 +97,10 @@ const ExplorePageSkeleton: React.FC = () => (
         <div className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5">
           <div className="flex flex-1 items-center justify-center gap-0 p-0 md:justify-start">
             {[0, 1, 2].map((index) => (
-              <Skeleton className="mx-1 h-8 w-20 rounded-full" key={`tab-${index}`} />
+              <Skeleton
+                className="mx-1 h-8 w-20 rounded-full"
+                key={`tab-${index}`}
+              />
             ))}
           </div>
           <div className="relative ml-auto hidden min-w-0 items-center gap-2 md:flex">

@@ -62,7 +62,10 @@ const HackerNewsPageSkeleton: React.FC = () => (
         <div className="border-border/60 relative flex items-center border-b py-1.5">
           <div className="flex h-full flex-1 items-center justify-center gap-0 p-0 md:justify-start">
             {[0, 1, 2].map((index) => (
-              <Skeleton className="mx-1 h-8 w-16 rounded-full" key={`tab-${index}`} />
+              <Skeleton
+                className="mx-1 h-8 w-16 rounded-full"
+                key={`tab-${index}`}
+              />
             ))}
           </div>
           <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">

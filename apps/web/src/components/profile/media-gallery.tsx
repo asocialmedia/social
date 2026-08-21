@@ -32,7 +32,9 @@ import { getMediaProxyUrl } from "@/lib/utils/image-url";
 // desktop locked sidebar and the mobile media tab so guests see the same look.
 // Two explicit columns with alternating aspect ratios guarantee a Pinterest
 // style masonry arrangement on every screen width.
-export const MediaGalleryLocked: React.FC<{ bare?: boolean }> = ({ bare = false }) =>
+export const MediaGalleryLocked: React.FC<{ bare?: boolean }> = ({
+  bare = false,
+}) =>
   bare ? (
     <div className="flex h-full flex-col items-center justify-center gap-2.5 p-4 text-center">
       <Image
@@ -406,9 +408,7 @@ function postHrefFor(item: UserMediaItem): string | null {
 // The aspect ratio a media tile renders at, so the moderated banner matches the
 // media's size/shape exactly.
 function tileAspectRatio(item: UserMediaItem): number {
-  return item.width && item.height
-    ? item.width / item.height
-    : DEFAULT_ASPECT;
+  return item.width && item.height ? item.width / item.height : DEFAULT_ASPECT;
 }
 
 interface MediaTileProps {
@@ -443,7 +443,7 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
           {/* Same frame as the real media tile: identical aspect ratio,
               rounding, border and shadow. */}
           <div
-            className="bg-muted/20 relative w-full overflow-hidden rounded-xl border border-border/60 shadow-xs"
+            className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs"
             style={{ aspectRatio: tileAspectRatio(item) }}
           >
             <div className="flex h-full w-full items-center justify-center">
@@ -479,11 +479,11 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
         {/* Explicit media is shown blurred in the gallery - no gate popup, it
             stays hidden until the media is opened. The blur sits inside a
             rounded bordered container so it never bleeds past the tile. */}
-        <div className="bg-muted/20 relative w-full overflow-hidden rounded-xl border border-border/60 shadow-xs">
+        <div className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs">
           <div
             className={cn(
               "pointer-events-none",
-              item.post?.explicitContent && "blur-lg opacity-60 saturate-50"
+              item.post?.explicitContent && "opacity-60 blur-lg saturate-50"
             )}
           >
             {renderMediaTile(item)}

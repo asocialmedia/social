@@ -48,7 +48,10 @@ const PostSkeleton: React.FC<{ aspect: number; isGust?: boolean }> = ({
 }) => (
   <div className="sidebar-subcard mb-4 break-inside-avoid overflow-hidden rounded-2xl">
     <div className="bg-muted/20 relative w-full overflow-hidden">
-      <Skeleton className="w-full rounded-none" style={{ aspectRatio: aspect }} />
+      <Skeleton
+        className="w-full rounded-none"
+        style={{ aspectRatio: aspect }}
+      />
       {isGust ? (
         <div className="absolute top-2 left-2 z-10">
           <Skeleton className="h-5 w-14 rounded-full" />
@@ -103,7 +106,11 @@ const ExploreMasonrySkeleton: React.FC = () => (
         index === 4 || index === 9 ? (
           <UserSkeleton key={key} />
         ) : (
-          <PostSkeleton aspect={ASPECTS[index]} isGust={index === 1} key={key} />
+          <PostSkeleton
+            aspect={ASPECTS[index]}
+            isGust={index === 1}
+            key={key}
+          />
         )
       )}
     </div>

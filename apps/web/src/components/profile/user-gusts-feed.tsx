@@ -80,7 +80,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
     return (
       <Link
         aria-label="Open moderated gust"
-        className="group relative flex aspect-[9/16] w-full items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-muted/20 shadow-sm transition-transform duration-300 hover:scale-[1.02] hover:shadow-lg"
+        className="group border-border/60 bg-muted/20 relative flex aspect-[9/16] w-full items-center justify-center overflow-hidden rounded-2xl border shadow-sm transition-transform duration-300 hover:scale-[1.02] hover:shadow-lg"
         href={`/gusts?id=${post.id}`}
       >
         <ModeratedNotice bare className="mx-3" kind="gust" vertical />
@@ -101,7 +101,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         className={cn(
           "h-full w-full object-cover transition-opacity duration-300",
           isHovered ? "opacity-0" : "opacity-100",
-          post.explicitContent && "blur-lg opacity-60 saturate-50"
+          post.explicitContent && "opacity-60 blur-lg saturate-50"
         )}
         fill
         sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 280px"
