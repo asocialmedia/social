@@ -30,6 +30,7 @@ interface CustomVideoPlayerProps {
   onError: () => void;
   onLoadedData: () => void;
   onPlaying?: () => void;
+  onProgress?: () => void;
   poster?: string;
   src: string;
 }
@@ -78,6 +79,7 @@ export const CustomVideoPlayer = ({
   onLoadedData,
   onError,
   onPlaying,
+  onProgress,
   className,
   captions = EMPTY_CAPTIONS,
   poster,
@@ -171,8 +173,11 @@ export const CustomVideoPlayer = ({
       if (Number.isFinite(realDuration) && realDuration > 0) {
         setDuration((prev) => (prev === realDuration ? prev : realDuration));
       }
+      // Let the parent know bytes are still flowing, so a load deadline can be
+      // extended while playback makes progress.
+      onProgress?.();
     },
-    []
+    [onProgress]
   );
 
   const handleDurationChange = useCallback(

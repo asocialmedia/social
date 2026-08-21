@@ -20,17 +20,7 @@ const Spinner3D: React.FC<{
 
     {/* Rotating orange arc, masked into a ring */}
     <div className="absolute inset-0 animate-spin [animation-duration:1.1s]">
-      <div
-        className="h-full w-full rounded-full"
-        style={{
-          WebkitMaskImage:
-            "radial-gradient(closest-side, transparent 76%, black 78%)",
-          background:
-            "conic-gradient(from 0deg, transparent 0deg, transparent 72deg, #ff9500 140deg, #e65500 300deg, transparent 360deg)",
-          maskImage:
-            "radial-gradient(closest-side, transparent 76%, black 78%)",
-        }}
-      />
+      <div className="h-full w-full rounded-full [mask-image:radial-gradient(closest-side,transparent_76%,black_78%)] [background:conic-gradient(from_0deg,transparent_0deg,transparent_72deg,#ff9500_140deg,#e65500_300deg,transparent_360deg)]" />
     </div>
   </div>
 );

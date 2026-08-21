@@ -35,6 +35,7 @@ import Linkify from "@/helpers/global/linkify";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
+import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -116,24 +117,39 @@ const MediaViewer = ({
 
   const currentMedia = media[currentIndex];
 
+  // Bumped on every video timeupdate so the load deadline below resets while
+  // bytes keep flowing; a stalled clip stops bumping it and times out.
+  const [mediaProgressTick, setMediaProgressTick] = useState(0);
+  const handleMediaProgress = useCallback(() => {
+    setMediaProgressTick((tick) => tick + 1);
+  }, []);
+
   // Sync isLoading with the current item. Async media (image/video/svg) flip it
   // off via their onLoad/onLoadedData; everything else has no such event, so
   // clear it immediately to avoid an infinite skeleton. Error state resets per
-  // item too.
+  // item too. Moderated posts show the notice instead of media, so skip the
+  // whole loading lifecycle.
   useEffect(() => {
     if (!isOpen) {
+      return;
+    }
+    if (post?.moderated) {
+      // eslint-disable-next-line react-compiler -- force-load state off for moderated posts so the notice shows, never a stale spinner
+      setIsLoading(false);
+      setMediaError(false);
       return;
     }
     // eslint-disable-next-line react-compiler -- reset load state per item
     setIsLoading(hasAsyncLoad(media[currentIndex]));
     setMediaError(false);
-  }, [isOpen, currentIndex, media, loadAttempt]);
+  }, [isOpen, currentIndex, media, loadAttempt, post?.moderated]);
 
   // Fail-safe: if an async media item never fires its load event (e.g. the
   // storage range request stalls), surface the error state instead of leaving
-  // the viewer stuck on a spinner forever.
+  // the viewer stuck on a spinner forever. The timer resets on each progress
+  // tick so a slow-but-active download is not treated as a failure.
   useEffect(() => {
-    if (!isOpen || !isLoading) {
+    if (!isOpen || !isLoading || post?.moderated) {
       return;
     }
     const timeout = setTimeout(() => {
@@ -141,7 +157,14 @@ const MediaViewer = ({
       setMediaError(true);
     }, MEDIA_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [isOpen, isLoading, currentIndex, loadAttempt]);
+  }, [
+    isOpen,
+    isLoading,
+    currentIndex,
+    loadAttempt,
+    mediaProgressTick,
+    post?.moderated,
+  ]);
 
   const handlePrevious = useCallback(() => {
     setCurrentIndex((prev) => {
@@ -178,6 +201,7 @@ const MediaViewer = ({
   // deliberately ignored here: if the clip genuinely never loads, the
   // load-timeout flips to the retry state; if it recovers, onLoadedData or
   // onPlaying clears the loading state instead.
+  // (Intentionally empty.)
   const handleVideoError = useCallback(() => {
     /* empty */
   }, []);
@@ -350,6 +374,7 @@ const MediaViewer = ({
         onError={handleVideoError}
         onLoadedData={handleMediaLoaded}
         onPlaying={handleMediaLoaded}
+        onProgress={handleMediaProgress}
         poster={getMediaProxyUrl(item)}
         src={getMediaUrl(item.id)}
       />
@@ -503,7 +528,7 @@ const MediaViewer = ({
   const isSelf = post ? sessionUser?.id === post.user.id : false;
   // The more-button is shown to the author and to admins so moderation is
   // reachable from the full-screen viewer too.
-  const canModerate = post ? isSelf || sessionUser?.role === "admin" : false;
+  const canModerate = post ? canModeratePost(sessionUser, post) : false;
 
   const renderMobileHeader = () => {
     if (!post) {
@@ -589,8 +614,9 @@ const MediaViewer = ({
           })()}
 
           {/* Loading spinner over the content area. The media element stays
-              mounted (hidden behind this) so its load event can still fire. */}
-          {isLoading ? (
+              mounted (hidden behind this) so its load event can still fire.
+              Not shown for moderated posts - the notice is the content. */}
+          {isLoading && !post?.moderated ? (
             <div className="absolute inset-0 z-20 flex items-center justify-center">
               <Spinner3D />
             </div>
@@ -598,7 +624,7 @@ const MediaViewer = ({
 
           {/* Fail-safe: the media errored or timed out, so offer a retry
               instead of leaving the user staring at a spinner. */}
-          {mediaError ? (
+          {mediaError && !post?.moderated ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
               <p className="text-sm font-medium text-white/90">
                 Couldn&apos;t load this media.

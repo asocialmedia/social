@@ -11,6 +11,7 @@ import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
+import { canModeratePost } from "@/lib/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
 
@@ -34,9 +35,7 @@ export default function PostMoreButton({
 
   // Moderators are the app admin and the author of the post itself. Guests and
   // other users never see the moderation entries.
-  const canModerate = Boolean(
-    user && (user.role === "admin" || user.id === post.user.id)
-  );
+  const canModerate = canModeratePost(user, post);
   // Edit and hard-delete stay author-only (their server actions check
   // ownership), so a moderator who isn't the author only gets the reversible
   // moderation flags.

@@ -27,6 +27,7 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import Linkify from "@/helpers/global/linkify";
+import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -125,6 +126,8 @@ export const GustCard: React.FC<GustCardProps> = ({
       video.currentTime = 0;
       // eslint-disable-next-line react-compiler -- reset progress bar when video is inactive
       setProgress(0);
+      // A paused clip can't be waiting for data, so clear the buffering spinner.
+      setIsBuffering(false);
     }
 
     return () => {
@@ -312,8 +315,8 @@ export const GustCard: React.FC<GustCardProps> = ({
     user &&
     user.id !== post.user.id &&
     !post.user.followers?.some((f) => f.followerId === user.id);
-  const isOwner = user?.id === post.user.id;
-  const isAdmin = user?.role === "admin";
+
+  const canModerate = canModeratePost(user, post);
   const isFollowedByUser = Boolean(
     post.user.followers?.some((f) => f.followerId === user?.id)
   );
@@ -343,32 +346,9 @@ export const GustCard: React.FC<GustCardProps> = ({
               </div>
             );
           }
-          if (post.explicitContent) {
-            return (
-              <ExplicitContentGate
-                blurClassName="rounded-2xl lg:rounded-3xl"
-                className="h-full w-full"
-                label="This gust has explicit media."
-                onReveal={() => setExplicitRevealed(true)}
-              >
-                <video
-                  className="h-full w-full object-contain"
-                  loop
-                  muted={isMuted}
-                  onCanPlay={handleCanPlay}
-                  onPlaying={handlePlaying}
-                  onTimeUpdate={handleTimeUpdate}
-                  onWaiting={handleWaiting}
-                  playsInline
-                  poster={thumbUrl}
-                  preload={preloadMode}
-                  ref={videoRef}
-                  src={shouldMountVideo ? videoUrl : undefined}
-                />
-              </ExplicitContentGate>
-            );
-          }
-          return (
+          // One shared video element; wrapped with the explicit-content gate
+          // only when the gust is flagged explicit.
+          const video = (
             <video
               className="h-full w-full object-contain"
               loop
@@ -384,16 +364,31 @@ export const GustCard: React.FC<GustCardProps> = ({
               src={shouldMountVideo ? videoUrl : undefined}
             />
           );
+          return post.explicitContent ? (
+            <ExplicitContentGate
+              blurClassName="rounded-2xl lg:rounded-3xl"
+              className="h-full w-full"
+              label="This gust has explicit media."
+              onReveal={() => setExplicitRevealed(true)}
+            >
+              {video}
+            </ExplicitContentGate>
+          ) : (
+            video
+          );
         })()}
         {/* oxlint-enable jsx-a11y/media-has-caption */}
 
-        {/* Clickable transparent backdrop for play/pause & double tap */}
-        <button
-          aria-label="Toggle play or pause"
-          className="absolute inset-0 z-0 h-full w-full cursor-pointer border-0 bg-transparent"
-          onClick={handleCardClick}
-          type="button"
-        />
+        {/* Clickable transparent backdrop for play/pause & double tap. Not
+            mounted on moderated gusts (no clip to control). */}
+        {post.moderated ? null : (
+          <button
+            aria-label="Toggle play or pause"
+            className="absolute inset-0 z-0 h-full w-full cursor-pointer border-0 bg-transparent"
+            onClick={handleCardClick}
+            type="button"
+          />
+        )}
 
         {/* Play/Pause Pulse Overlay */}
         <AnimatePresence>
@@ -598,8 +593,8 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More (owners and admins only) */}
-          {isOwner || isAdmin ? (
+          {/* More (moderators only) */}
+          {canModerate ? (
             <PostMoreButton
               className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
               post={post}

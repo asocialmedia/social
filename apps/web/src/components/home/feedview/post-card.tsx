@@ -30,6 +30,7 @@ import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { canModeratePost } from "@/lib/moderation";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -63,7 +64,7 @@ interface PostCardProps {
 }
 
 interface PostContentProps {
-  currentUserIsAdmin: boolean;
+  canModerate: boolean;
   currentUserId: string;
   detail: boolean;
   initialMediaIndex?: number;
@@ -75,7 +76,7 @@ interface PostContentProps {
 }
 
 const PostContent: React.FC<PostContentProps> = ({
-  currentUserIsAdmin,
+  canModerate,
   currentUserId,
   detail,
   isExpanded,
@@ -191,7 +192,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   {post.user.displayName}
                 </Link>
               </UserTooltip>
-              <UserBadge badge={post.user.badge} />
+              <UserBadge badge={post.user.badge} badges={post.user.badges} />
               <UserTooltip user={post.user}>
                 <Link
                   className="text-muted-foreground truncate hover:underline"
@@ -214,7 +215,7 @@ const PostContent: React.FC<PostContentProps> = ({
           )}
 
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
-            {(post.user.id === currentUserId || currentUserIsAdmin) && (
+            {canModerate && (
               <PostMoreButton
                 // Touch devices have no hover, so the button must always be
                 // visible there; on desktop it still fades in on card hover.
@@ -324,7 +325,7 @@ const PostContent: React.FC<PostContentProps> = ({
             </span>
             <ShareButton
               defaultTab="link"
-              description={post.content}
+              description={post.moderated ? "" : post.content}
               dialogDescription="Share this post with your network"
               dialogTitle="Share Post"
               postId={post.id}
@@ -333,7 +334,11 @@ const PostContent: React.FC<PostContentProps> = ({
                   ? getMediaProxyUrl(post.attachments[0])
                   : `/posts/${post.id}/opengraph-image`
               }
-              title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+              title={
+                post.moderated
+                  ? `Post on asocialmedia`
+                  : `${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`
+              }
             />
           </div>
         </div>
@@ -447,7 +452,7 @@ const PostCard: React.FC<PostCardProps> = ({
   }, []);
 
   const currentUserId = user?.id ?? "";
-  const currentUserIsAdmin = user?.role === "admin";
+  const canModerate = canModeratePost(user, post);
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -487,7 +492,7 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const body = (
     <PostContent
-      currentUserIsAdmin={currentUserIsAdmin}
+      canModerate={canModerate}
       currentUserId={currentUserId}
       detail={detail}
       initialMediaIndex={initialMediaIndex}

@@ -12,8 +12,8 @@ export default function MediaRouteSkeleton() {
     <div className="flex h-dvh w-full overflow-hidden bg-black">
       {/* Media column */}
       <div className="relative flex h-full min-w-0 flex-1 flex-col bg-black">
-        {/* Mobile header */}
-        <div className="flex shrink-0 items-center justify-between bg-linear-to-b from-black/80 to-transparent px-3 pt-3 pb-5">
+        {/* Mobile header (hidden on desktop, mirroring the real viewer) */}
+        <div className="flex shrink-0 items-center justify-between bg-linear-to-b from-black/80 to-transparent px-3 pt-3 pb-5 lg:hidden">
           <Skeleton className="h-9 w-9 rounded-full bg-white/15" />
           <div className="ml-3 flex items-center gap-2.5">
             <Skeleton className="h-10 w-10 rounded-full bg-white/15" />
@@ -40,8 +40,8 @@ export default function MediaRouteSkeleton() {
           <Skeleton className="absolute top-4 left-3 z-50 hidden h-11 w-11 rounded-full bg-white/10 lg:block" />
         </div>
 
-        {/* Action bar (mobile) */}
-        <div className="flex shrink-0 items-center justify-between px-4 py-3">
+        {/* Action bar (mobile only, hidden on desktop) */}
+        <div className="flex shrink-0 items-center justify-between px-4 py-3 lg:hidden">
           <div className="flex items-center gap-2">
             <Skeleton className="h-9 w-9 rounded-full bg-white/15" />
             <Skeleton className="h-9 w-9 rounded-full bg-white/10" />

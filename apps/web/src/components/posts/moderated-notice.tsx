@@ -21,9 +21,10 @@ const ModeratedNotice: React.FC<{
       alt=""
       className="size-12 shrink-0 object-contain"
       draggable={false}
-      height={1199}
+      height={48}
+      sizes="48px"
       src={errorImage}
-      width={1312}
+      width={48}
     />
     <div className="min-w-0">
       <p className="text-foreground text-sm leading-tight font-semibold">

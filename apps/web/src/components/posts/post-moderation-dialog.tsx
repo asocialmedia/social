@@ -53,7 +53,9 @@ export default function PostModerationDialog({
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
-      if (!(isOpen && mutation.isPending)) {
+      // Only close when the user is actually closing and no mutation is
+      // in flight; a pending apply must not be interrupted by an overlay click.
+      if (!isOpen && !mutation.isPending) {
         onClose();
       }
     },
