@@ -1,5 +1,5 @@
 import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
-import type { PostsPage } from "@asm/db";
+import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 
@@ -10,14 +10,21 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
+  // Explore opts out of moderated posts so its compact cards never show a
+  // moderation row; the home feed still returns them.
+  const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   const pageSize = 20;
+
+  const where: Prisma.PostWhereInput = excludeModerated
+    ? { isGust: false, moderated: false }
+    : { isGust: false };
 
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
     orderBy: [{ aura: "desc" }, { id: "desc" }],
     take: pageSize + 1,
-    where: { isGust: false },
+    where,
   });
 
   const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));

@@ -12,6 +12,9 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
   const initialId = url.searchParams.get("initialId") || undefined;
+  // Explore's trending-gusts rail opts out of moderated gusts; the reels feed
+  // keeps showing them.
+  const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   const takeValue = url.searchParams.get("take");
   const requestedTake =
     takeValue && TAKE_PATTERN.test(takeValue)
@@ -33,6 +36,7 @@ export async function GET(request: Request) {
       where: {
         id: { not: initialId },
         isGust: true,
+        ...(excludeModerated ? { moderated: false } : {}),
       },
     });
 
@@ -55,9 +59,9 @@ export async function GET(request: Request) {
     return Response.json(data, { headers: responseHeaders });
   }
 
-  const where: Prisma.PostWhereInput = {
-    isGust: true,
-  };
+  const where: Prisma.PostWhereInput = excludeModerated
+    ? { isGust: true, moderated: false }
+    : { isGust: true };
 
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,

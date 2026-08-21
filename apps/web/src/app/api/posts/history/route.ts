@@ -25,7 +25,9 @@ export async function GET() {
 
   const posts = await prisma.post.findMany({
     include: getPostDataInclude(userId),
-    where: { id: { in: postIds } },
+    // Moderated posts are excluded from the recents sidebar card at the API
+    // level; their rows are removed entirely rather than shown with a notice.
+    where: { id: { in: postIds }, moderated: false },
   });
 
   // Preserve the visited order (most recently visited first).

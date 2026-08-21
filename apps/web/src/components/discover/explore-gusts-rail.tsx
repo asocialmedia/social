@@ -9,6 +9,7 @@ import React, { useCallback, useRef, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -78,6 +79,16 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
     return null;
   }
 
+  // Moderated gusts stay in the explore surface but show the notice instead
+  // of the clip - never hidden.
+  if (gust.moderated) {
+    return (
+      <div className="flex aspect-[9/16] w-36 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-900 sm:w-44">
+        <ModeratedNotice className="mx-2" kind="gust" />
+      </div>
+    );
+  }
+
   const thumbUrl = getMediaProxyUrl(videoMedia);
 
   return (
@@ -87,32 +98,33 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Poster Thumbnail */}
+      {/* Poster Thumbnail (explicit gusts blurred in explore, no gate popup) */}
       <Image
         alt={gust.content || "Gust video"}
         className={cn(
           "h-full w-full object-cover transition-opacity duration-300",
-          isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100"
+          isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100",
+          gust.explicitContent && "blur-lg opacity-60 saturate-50"
         )}
         fill
         sizes="(max-width: 640px) 144px, 176px"
         src={thumbUrl}
         unoptimized
       />
-
-      {/* Video stream for hover preview */}
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
-      <video
-        className={cn(
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-          isPlaying && hasStartedPlaying ? "opacity-100" : "opacity-0"
-        )}
-        loop
-        muted
-        playsInline
-        preload="none"
-        ref={videoRef}
-      />
+      {gust.explicitContent ? null : (
+        <video
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+            isPlaying && hasStartedPlaying ? "opacity-100" : "opacity-0"
+          )}
+          loop
+          muted
+          playsInline
+          preload="none"
+          ref={videoRef}
+        />
+      )}
 
       {/* Top Clapperboard Badge */}
       <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-white backdrop-blur-md">

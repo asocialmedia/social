@@ -8,6 +8,8 @@ import Link from "next/link";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import Linkify from "@/helpers/global/linkify";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl, getSecureImageUrl } from "@/lib/utils/image-url";
@@ -114,22 +116,26 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
         </div>
       </div>
 
-      {/* Content */}
+      {/* Content: moderated posts show the notice instead of the text */}
       <div className="px-3 py-2">
-        <Linkify>
-          <p
-            className={cn(
-              "line-clamp-3 text-xs",
-              mine ? "text-white" : "text-foreground"
-            )}
-          >
-            {data.content || "…"}
-          </p>
-        </Linkify>
+        {data.moderated ? (
+          <ModeratedNotice className="w-full" compact kind="post" />
+        ) : (
+          <Linkify>
+            <p
+              className={cn(
+                "line-clamp-3 text-xs",
+                mine ? "text-white" : "text-foreground"
+              )}
+            >
+              {data.content || "…"}
+            </p>
+          </Linkify>
+        )}
       </div>
 
-      {/* Full-width image / video thumbnail preview */}
-      {previews.length > 0 ? (
+      {/* Full-width image / video thumbnail preview (gated when explicit) */}
+      {!data.moderated && previews.length > 0 ? (
         <div className="px-3 pb-2">
           <div
             className={cn(
@@ -137,20 +143,37 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
               coverHeight
             )}
           >
-            <Image
-              alt=""
-              className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-              fill
-              sizes="(max-width: 640px) 50vw, 320px"
-              src={getMediaProxyUrl(previews[0])}
-              unoptimized
-            />
-            {previews[0].type === "VIDEO" ? (
+            {data.explicitContent ? (
+              <ExplicitContentGate
+                className="h-full w-full"
+                compact
+                label="Explicit"
+              >
+                <Image
+                  alt=""
+                  className="h-full w-full object-cover"
+                  fill
+                  sizes="(max-width: 640px) 50vw, 320px"
+                  src={getMediaProxyUrl(previews[0])}
+                  unoptimized
+                />
+              </ExplicitContentGate>
+            ) : (
+              <Image
+                alt=""
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                fill
+                sizes="(max-width: 640px) 50vw, 320px"
+                src={getMediaProxyUrl(previews[0])}
+                unoptimized
+              />
+            )}
+            {previews[0].type === "VIDEO" && !data.explicitContent ? (
               <span className="absolute inset-0 flex items-center justify-center bg-black/25">
                 <Play className="h-8 w-8 fill-white text-white" />
               </span>
             ) : null}
-            {previews.length > 1 ? (
+            {previews.length > 1 && !data.explicitContent ? (
               <span className="absolute right-1.5 bottom-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                 +{previews.length - 1}
               </span>

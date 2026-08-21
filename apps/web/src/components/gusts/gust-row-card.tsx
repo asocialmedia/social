@@ -8,6 +8,8 @@ import React, { useCallback, useRef, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -67,6 +69,15 @@ const GustRowCard: React.FC<{
   const thumbUrl = getMediaProxyUrl(videoMedia);
   const videoUrl = `/api/media/${videoMedia.id}`;
 
+  // A moderated gust shows the notice instead of the clip.
+  if (post.moderated) {
+    return (
+      <div className="flex items-stretch gap-3 rounded-2xl border border-[hsl(var(--border)/0.6)] bg-[hsl(var(--background-alt))] p-2.5">
+        <ModeratedNotice className="w-full" kind="gust" />
+      </div>
+    );
+  }
+
   return (
     <Link
       className="group flex items-stretch gap-3 rounded-2xl border border-[hsl(var(--border)/0.6)] bg-[hsl(var(--background-alt))] p-2.5 transition-colors duration-150 hover:bg-[hsl(var(--muted))]"
@@ -76,30 +87,49 @@ const GustRowCard: React.FC<{
     >
       {/* 9:16 thumbnail with hover preview */}
       <div className="relative aspect-[9/16] h-40 shrink-0 overflow-hidden rounded-xl bg-black">
-        <Image
-          alt={post.content || "Gust video"}
-          className={cn(
-            "h-full w-full object-cover transition-opacity duration-300",
-            isHovered ? "opacity-0" : "opacity-100"
-          )}
-          fill
-          sizes="96px"
-          src={thumbUrl}
-          unoptimized
-        />
-        <video
-          className={cn(
-            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-            isHovered ? "opacity-100" : "opacity-0"
-          )}
-          loop
-          muted
-          playsInline
-          preload="none"
-          ref={videoRef}
-          src={videoUrl}
-        />
-        <div className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-white backdrop-blur-md">
+        {post.explicitContent ? (
+          <ExplicitContentGate
+            className="h-full w-full"
+            compact
+            label="Explicit"
+          >
+            <Image
+              alt={post.content || "Gust video"}
+              className="h-full w-full object-cover"
+              fill
+              sizes="96px"
+              src={thumbUrl}
+              unoptimized
+            />
+          </ExplicitContentGate>
+        ) : (
+          <Image
+            alt={post.content || "Gust video"}
+            className={cn(
+              "h-full w-full object-cover transition-opacity duration-300",
+              isHovered ? "opacity-0" : "opacity-100"
+            )}
+            fill
+            sizes="96px"
+            src={thumbUrl}
+            unoptimized
+          />
+        )}
+        {post.explicitContent ? null : (
+          <video
+            className={cn(
+              "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+              isHovered ? "opacity-100" : "opacity-0"
+            )}
+            loop
+            muted
+            playsInline
+            preload="none"
+            ref={videoRef}
+            src={videoUrl}
+          />
+        )}
+        <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-white backdrop-blur-md">
           <Clapperboard className="text-primary size-3" />
           <span className="text-[10px] font-bold">Gust</span>
         </div>

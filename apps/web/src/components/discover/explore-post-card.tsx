@@ -9,6 +9,7 @@ import { useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -124,6 +125,15 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
     mediaContent = <ExplorePostVideo media={media} />;
   }
 
+  // A moderated post never shows its media or content on the explore surface.
+  if (post.moderated) {
+    return (
+      <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl p-3 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+        <ModeratedNotice kind={isGustPost ? "gust" : "post"} />
+      </article>
+    );
+  }
+
   return (
     <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
       <Link className="block" href={href}>
@@ -138,7 +148,16 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 <span className="text-[10px] font-semibold">Gust</span>
               </div>
             ) : null}
-            {mediaContent}
+            {/* Explicit media is just blurred in explore - no gate popup, the
+                content stays hidden until the post is opened. */}
+            <div
+              className={cn(
+                "h-full w-full",
+                post.explicitContent && "blur-lg opacity-60 saturate-50"
+              )}
+            >
+              {mediaContent}
+            </div>
           </div>
         ) : null}
 

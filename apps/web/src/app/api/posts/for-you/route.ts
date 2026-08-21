@@ -13,6 +13,9 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
+  // "Related / more from" surfaces opt out of moderated posts so their compact
+  // cards never show a moderation row; the main feed still returns them.
+  const excludeModerated = url.searchParams.get("excludeModerated") === "1";
   // Validate the whole take value, accept only a positive integer, cap at 20,
   // default malformed to 20.
   const takeValue = url.searchParams.get("take");
@@ -22,7 +25,9 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
-  const where: Prisma.PostWhereInput = { isGust: false };
+  const where: Prisma.PostWhereInput = excludeModerated
+    ? { isGust: false, moderated: false }
+    : { isGust: false };
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
