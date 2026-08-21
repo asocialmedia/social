@@ -218,7 +218,7 @@ describe("updatePostModeration", () => {
     // Expire both the OG card and media rows so share cards + media pages
     // reflect the new moderation state.
     expect(mockUpdateTag).toHaveBeenCalledWith("og-post-card");
-    expect(mockUpdateTag).toHaveBeenCalledWith("media-row");
+    expect(mockUpdateTag).toHaveBeenCalledWith("media-object");
   });
 
   test("author self-moderation still notifies via the Zeph persona", async () => {

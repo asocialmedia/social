@@ -36,6 +36,10 @@ export default function UserAvatar({
     : getDefaultAvatar(user?.id || user?.username || seed);
   const transparent = supportsTransparency(resolvedSrc);
   const isDefaultAvatar = resolvedSrc.startsWith("/avatars/");
+  // Storage avatars are served through our /api/users/avatar/{id}/image proxy
+  // (already sized variants). The image optimizer rejects same-origin /api/
+  // URLs, so skip optimization for those; static default avatars can keep it.
+  const isProxyAvatar = resolvedSrc.startsWith("/api/");
 
   return (
     <Image
@@ -50,7 +54,7 @@ export default function UserAvatar({
       onError={() => setHasError(true)}
       priority={priority}
       src={resolvedSrc}
-      unoptimized={isDefaultAvatar || isGifUrl(avatarUrl)}
+      unoptimized={isDefaultAvatar || isProxyAvatar || isGifUrl(avatarUrl)}
       width={size ?? 48}
     />
   );

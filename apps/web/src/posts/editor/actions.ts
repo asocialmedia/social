@@ -213,7 +213,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // so the now-public ownership is picked up immediately instead of serving
       // a stale "protected" row for up to an hour.
       if (validatedInput.mediaIds.length > 0) {
-        updateTag("media-row");
+        updateTag("media-object");
       }
 
       if (input.hnStory) {

@@ -367,6 +367,7 @@ const MediaViewer = ({
           quality={100}
           sizes="95vw"
           src={getMediaUrl(item.id)}
+          unoptimized
         />
       </div>
     );
