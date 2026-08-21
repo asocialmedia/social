@@ -120,11 +120,12 @@ const GridImagePreview = ({
           setIsLoading(false);
         }}
         onLoad={() => setIsLoading(false)}
-        // Mobile grid is 2 columns, desktop is 3; match the rendered column
-        // width so the browser picks an appropriately-sized image.
+        // Media is served through our /api/media proxy; the image optimizer
+        // rejects same-origin /api/ URLs, so serve the stored bytes directly.
         sizes="(max-width: 768px) 50vw, 33vw"
         src={getMediaUrl(media.id)}
         style={{ objectFit: "cover" }}
+        unoptimized
       />
       <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
     </div>
@@ -596,6 +597,9 @@ const SingleImagePreview = ({
         onLoad={() => setIsLoading(false)}
         sizes="(max-width: 768px) 100vw, 640px"
         src={getMediaUrl(media.id)}
+        // Media is served through our /api/media proxy; the image optimizer
+        // rejects same-origin /api/ URLs, so serve the stored bytes directly.
+        unoptimized
         width={dims?.w ?? 640}
       />
     </div>
