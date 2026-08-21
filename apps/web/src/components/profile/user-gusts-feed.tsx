@@ -10,6 +10,7 @@ import Link from "next/link";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -73,6 +74,20 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
   const thumbUrl = getMediaProxyUrl(videoMedia);
   const videoUrl = `/api/media/${videoMedia.id}`;
 
+  // A moderated gust shows a moderation card (same 9:16 tile shape) instead of
+  // the thumbnail; clicking it opens the gust page where the notice lives.
+  if (post.moderated) {
+    return (
+      <Link
+        aria-label="Open moderated gust"
+        className="group relative flex aspect-[9/16] w-full items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-muted/20 shadow-sm transition-transform duration-300 hover:scale-[1.02] hover:shadow-lg"
+        href={`/gusts?id=${post.id}`}
+      >
+        <ModeratedNotice bare className="mx-3" kind="gust" vertical />
+      </Link>
+    );
+  }
+
   return (
     <Link
       className="group relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-neutral-900 shadow-sm transition-transform duration-300 hover:scale-[1.02] hover:shadow-lg"
@@ -80,12 +95,13 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Poster Thumbnail */}
+      {/* Poster Thumbnail (explicit gusts stay blurred) */}
       <Image
         alt={post.content || "Gust video"}
         className={cn(
           "h-full w-full object-cover transition-opacity duration-300",
-          isHovered ? "opacity-0" : "opacity-100"
+          isHovered ? "opacity-0" : "opacity-100",
+          post.explicitContent && "blur-lg opacity-60 saturate-50"
         )}
         fill
         sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 280px"
@@ -93,19 +109,21 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
         unoptimized
       />
 
-      {/* Video Preview on Hover */}
-      <video
-        className={cn(
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-          isHovered ? "opacity-100" : "opacity-0"
-        )}
-        loop
-        muted
-        playsInline
-        preload="none"
-        ref={videoRef}
-        src={isHovered ? videoUrl : undefined}
-      />
+      {/* Video Preview on Hover (not for explicit gusts - clip stays hidden) */}
+      {post.explicitContent ? null : (
+        <video
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+            isHovered ? "opacity-100" : "opacity-0"
+          )}
+          loop
+          muted
+          playsInline
+          preload="none"
+          ref={videoRef}
+          src={isHovered ? videoUrl : undefined}
+        />
+      )}
 
       {/* Top Overlay Badge */}
       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-black/40 px-2 py-0.5 text-xs text-white backdrop-blur-md">

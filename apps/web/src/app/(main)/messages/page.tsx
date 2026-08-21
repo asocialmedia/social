@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { MessageIdentityProvider } from "@/components/messages/message-identity-provider";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<MessagesSkeleton />}>
       <MessagesContent />
     </Suspense>
   );

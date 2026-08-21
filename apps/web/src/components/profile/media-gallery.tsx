@@ -20,6 +20,7 @@ import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { getLanguageFromFileName } from "@/lib/codefile-extensions";
@@ -353,6 +354,14 @@ function postHrefFor(item: UserMediaItem): string | null {
     : `/posts/${item.postId}`;
 }
 
+// The aspect ratio a media tile renders at, so the moderated banner matches the
+// media's size/shape exactly.
+function tileAspectRatio(item: UserMediaItem): number {
+  return item.width && item.height
+    ? item.width / item.height
+    : DEFAULT_ASPECT;
+}
+
 interface MediaTileProps {
   index: number;
   item: UserMediaItem;
@@ -365,6 +374,50 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
     [item, index, onSelect]
   );
   const postHref = postHrefFor(item);
+  const isModerated = Boolean(item.post?.moderated);
+
+  // A moderated post's media is replaced by a banner exactly the same size and
+  // shape as the media tile; clicking it goes straight to the post/gust page.
+  if (isModerated) {
+    return (
+      <div className="mb-2 break-inside-avoid">
+        <Link
+          aria-label={`Open moderated ${item.post?.isGust ? "gust" : "post"}`}
+          className="group relative block w-full"
+          href={postHref ?? "#"}
+          onClick={(event) => {
+            if (!postHref) {
+              event.preventDefault();
+            }
+          }}
+        >
+          {/* Same frame as the real media tile: identical aspect ratio,
+              rounding, border and shadow. */}
+          <div
+            className="bg-muted/20 relative w-full overflow-hidden rounded-xl border border-border/60 shadow-xs"
+            style={{ aspectRatio: tileAspectRatio(item) }}
+          >
+            <div className="flex h-full w-full items-center justify-center">
+              <ModeratedNotice
+                bare
+                className="mx-2"
+                kind={item.post?.isGust ? "gust" : "post"}
+                vertical
+              />
+            </div>
+          </div>
+        </Link>
+        {postHref ? (
+          <Link
+            className="text-muted-foreground hover:text-primary mt-1 block truncate text-[11px] transition-colors duration-200"
+            href={postHref}
+          >
+            View {item.post?.isGust ? "gust" : "post"}
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="mb-2 break-inside-avoid">
@@ -374,7 +427,19 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
         onClick={handleClick}
         type="button"
       >
-        {renderMediaTile(item)}
+        {/* Explicit media is shown blurred in the gallery - no gate popup, it
+            stays hidden until the media is opened. The blur sits inside a
+            rounded bordered container so it never bleeds past the tile. */}
+        <div className="bg-muted/20 relative w-full overflow-hidden rounded-xl border border-border/60 shadow-xs">
+          <div
+            className={cn(
+              "pointer-events-none",
+              item.post?.explicitContent && "blur-lg opacity-60 saturate-50"
+            )}
+          >
+            {renderMediaTile(item)}
+          </div>
+        </div>
       </button>
       {postHref ? (
         <Link

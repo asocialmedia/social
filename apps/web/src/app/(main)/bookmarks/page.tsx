@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import BookmarksSkeleton from "@/components/layouts/skeletons/bookmarks-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<BookmarksSkeleton />}>
       <BookmarksContent />
     </Suspense>
   );

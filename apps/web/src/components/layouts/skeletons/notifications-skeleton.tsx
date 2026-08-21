@@ -1,5 +1,8 @@
+import { Separator } from "@asm/ui/shadui/separator";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
+// Mirrors the notifications page's main column: mobile top bar + the
+// All / Mentions tab row, then the notification feed rows below it.
 const NotificationSkeletonRow: React.FC = () => (
   <div className="flex items-start gap-3 px-4 py-3">
     <div className="relative shrink-0">
@@ -18,10 +21,29 @@ const NotificationSkeletonRow: React.FC = () => (
 );
 
 const NotificationsSkeleton: React.FC = () => (
-  <div className="flex flex-col">
-    {[1, 2, 3, 4, 5].map((index) => (
-      <NotificationSkeletonRow key={`notif-skeleton-${index}`} />
-    ))}
+  // Same column wrapper as the real page so the skeleton stays centered at
+  // max-w-5xl instead of stretching full width.
+  <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Top bar */}
+      <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
+        <Skeleton className="h-12 w-full rounded-none" />
+        <div className="border-border/60 flex items-center border-b">
+          <Skeleton className="h-9 flex-1 rounded-none" />
+          <Skeleton className="h-9 flex-1 rounded-none" />
+        </div>
+      </div>
+
+      {/* Notification rows */}
+      <div className="flex flex-col">
+        {[1, 2, 3, 4, 5].map((index) => (
+          <div key={`notif-skeleton-${index}`}>
+            {index > 0 && <Separator className="bg-border/60" />}
+            <NotificationSkeletonRow />
+          </div>
+        ))}
+      </div>
+    </div>
   </div>
 );
 

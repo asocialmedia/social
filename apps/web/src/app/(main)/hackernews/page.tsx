@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import HackerNewsPageSkeleton from "@/components/layouts/skeletons/hackernews-page-skeleton";
 import { getUserData } from "@/hooks/use-user-data";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -14,7 +14,7 @@ export const metadata = {
 
 export default function HackerNewsPage() {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<HackerNewsPageSkeleton />}>
       <HackerNewsContent />
     </Suspense>
   );

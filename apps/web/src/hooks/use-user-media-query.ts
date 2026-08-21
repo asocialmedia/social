@@ -6,9 +6,15 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import kyInstance from "@/lib/ky";
 
 // The media API includes each row's owning post so the gallery can tell a
-// gust from a regular post (gust media opens /gusts, not /posts).
+// gust from a regular post (gust media opens /gusts, not /posts) and can show
+// the moderation/explicit state on each tile.
 export type UserMediaItem = Media & {
-  post: { isGust: boolean } | null;
+  post: {
+    explicitContent: boolean;
+    id: string;
+    isGust: boolean;
+    moderated: boolean;
+  } | null;
 };
 
 export interface UserMediaPage {

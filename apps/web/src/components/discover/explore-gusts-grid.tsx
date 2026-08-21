@@ -121,7 +121,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
           isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100",
           // Explicit gusts are shown blurred in explore - no gate popup, the
           // clip stays hidden until opened.
-          post.explicitContent && "blur-lg opacity-60 saturate-50"
+          post.explicitContent && "opacity-60 blur-lg saturate-50"
         )}
         fill
         sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"

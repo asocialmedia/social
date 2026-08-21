@@ -9,8 +9,8 @@ import { useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
-import ModeratedNotice from "@/components/posts/moderated-notice";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
+import ModeratedNotice from "@/components/posts/moderated-notice";
 import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -153,7 +153,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
             <div
               className={cn(
                 "h-full w-full",
-                post.explicitContent && "blur-lg opacity-60 saturate-50"
+                post.explicitContent && "opacity-60 blur-lg saturate-50"
               )}
             >
               {mediaContent}

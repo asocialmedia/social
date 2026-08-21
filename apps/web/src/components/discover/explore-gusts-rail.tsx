@@ -104,7 +104,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
         className={cn(
           "h-full w-full object-cover transition-opacity duration-300",
           isPlaying && hasStartedPlaying ? "opacity-0" : "opacity-100",
-          gust.explicitContent && "blur-lg opacity-60 saturate-50"
+          gust.explicitContent && "opacity-60 blur-lg saturate-50"
         )}
         fill
         sizes="(max-width: 640px) 144px, 176px"

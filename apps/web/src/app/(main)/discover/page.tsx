@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import ExploreClient from "@/components/discover/explore-client";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import ExplorePageSkeleton from "@/components/layouts/skeletons/explore-page-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function DiscoveryPage() {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<ExplorePageSkeleton />}>
       <DiscoveryContent />
     </Suspense>
   );
@@ -28,7 +28,7 @@ async function DiscoveryContent() {
   return (
     <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
-        <Suspense fallback={<FeedViewSkeleton />}>
+        <Suspense fallback={<ExplorePageSkeleton />}>
           <ExploreClient />
         </Suspense>
       </div>

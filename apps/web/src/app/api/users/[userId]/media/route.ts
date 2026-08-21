@@ -19,8 +19,17 @@ export async function GET(
   const media = await prisma.media.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: {
-      // Lets the gallery route gust media to /gusts instead of /posts.
-      post: { select: { isGust: true } },
+      // Lets the gallery route gust media to /gusts instead of /posts, and
+      // carries the moderation state so tiles can blur explicit media or show
+      // the moderated banner.
+      post: {
+        select: {
+          explicitContent: true,
+          id: true,
+          isGust: true,
+          moderated: true,
+        },
+      },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: pageSize + 1,
