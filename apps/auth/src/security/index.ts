@@ -38,14 +38,15 @@ export interface RateLimitHit {
 // Pluggable counter backend for the layered per-IP limits. The in-memory
 // implementation is the default (fast, zero-dependency); a Redis-backed
 // implementation survives restarts and deploys so an attacker cannot reset
-// their budget by forcing a rollout.
+// their budget by forcing a rollout. Implementations may be synchronous
+// (in-memory) or asynchronous (Redis); callers always await the result.
 export interface AsyncRateLimitStore {
   hit: (
     key: string,
     windowMs: number,
     max: number,
     now: number
-  ) => Promise<RateLimitHit>;
+  ) => RateLimitHit | Promise<RateLimitHit>;
 }
 
 class InMemoryRateLimitStore implements AsyncRateLimitStore {
@@ -55,12 +56,7 @@ class InMemoryRateLimitStore implements AsyncRateLimitStore {
   >();
   private lastPrune = Date.now();
 
-  hit(
-    key: string,
-    windowMs: number,
-    max: number,
-    now: number
-  ): Promise<RateLimitHit> {
+  hit(key: string, windowMs: number, max: number, now: number): RateLimitHit {
     if (now - this.lastPrune > 60_000) {
       pruneStore(this.entries, now);
       this.lastPrune = now;
@@ -243,24 +239,12 @@ export function createSecurity(
       return buildReject(405, { error: "method-not-allowed" });
     }
 
-    if (pathname !== "/api/health") {
-      const pathDecision = await checkPath(request, pathname, ip, now);
-      if (!pathDecision.allowed) {
-        return pathDecision;
-      }
+    if (pathname === "/api/health") {
+      return { allowed: true };
     }
 
-    return { allowed: true };
-  };
-
-  // Runs the non-health path checks: allowlist, body size, origin or internal
-  // secret, and per-IP flood limits.
-  const checkPath = (
-    request: Request,
-    pathname: string,
-    ip: string,
-    now: number
-  ): Promise<SecurityDecision> => {
+    // Non-health path checks: allowlist, body size, origin or internal
+    // secret, then the layered per-IP flood limits.
     const allowedPath =
       pathname.startsWith("/api/auth") || pathname.startsWith("/api/trpc");
     if (!allowedPath) {
@@ -277,7 +261,7 @@ export function createSecurity(
       return authDecision;
     }
 
-    return checkRateLimits(request, pathname, ip, now);
+    return await checkRateLimits(request, pathname, ip, now);
   };
 
   // Applies the layered per-IP limits: burst (continuous polling), strict
