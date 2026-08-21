@@ -64,6 +64,14 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   return (error as { code?: string })?.code === "P2002";
 }
 
+// Canonicalizes a badge input to the lowercase canonical form and validates it
+// against the known set, so values like "AUTHOR" / "DEV" behave identically to
+// "author" / "dev" and unsupported values are rejected before any rule runs.
+export function canonicalBadge(value: string): Badge | null {
+  const normalized = value.trim().toLowerCase();
+  return BADGES.includes(normalized as Badge) ? (normalized as Badge) : null;
+}
+
 async function assertAuthorSlot(userId: string) {
   const currentAuthor = await prisma.user.findFirst({
     select: { id: true },
@@ -87,7 +95,12 @@ export async function grantBadge(
   userId: string,
   badge: string
 ): Promise<boolean> {
-  if (badge === BADGE_AUTHOR) {
+  const canonical = canonicalBadge(badge);
+  if (!canonical) {
+    return false;
+  }
+
+  if (canonical === BADGE_AUTHOR) {
     // Early user-facing validation; the DB constraint is the authoritative
     // backstop against concurrent grants.
     await assertAuthorSlot(userId);
@@ -121,12 +134,12 @@ export async function grantBadge(
   }
 
   const current = getUserBadges(user);
-  if (current.includes(badge)) {
+  if (current.includes(canonical)) {
     return false;
   }
 
   await prisma.user.update({
-    data: { badges: [...current, badge] },
+    data: { badges: [...current, canonical] },
     where: { id: userId },
   });
   return true;
@@ -138,7 +151,12 @@ export async function revokeBadge(
   userId: string,
   badge: string
 ): Promise<boolean> {
-  if (badge === BADGE_AUTHOR) {
+  const canonical = canonicalBadge(badge);
+  if (!canonical) {
+    return false;
+  }
+
+  if (canonical === BADGE_AUTHOR) {
     throw new BadgeLimitError("The author badge cannot be revoked.");
   }
 
@@ -153,13 +171,16 @@ export async function revokeBadge(
   // Derive the normalized list (legacy `badge` folded in), filter the badge out
   // and persist the array, clearing the legacy column so the badge stops
   // rendering from either storage location.
-  const next = getUserBadges(user).filter((value) => value !== badge);
+  const next = getUserBadges(user).filter((value) => value !== canonical);
   if (next.length === getUserBadges(user).length) {
     return false;
   }
 
   await prisma.user.update({
-    data: { badge: user.badge === badge ? null : user.badge, badges: next },
+    data: {
+      badge: user.badge === canonical ? null : user.badge,
+      badges: next,
+    },
     where: { id: userId },
   });
   return true;

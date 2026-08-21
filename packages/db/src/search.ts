@@ -48,6 +48,8 @@ export interface SearchUserResult {
 export interface SearchPostResult {
   aura: number;
   authorAvatarUrl: string | null;
+  authorBadge: string | null;
+  authorBadges: string[];
   authorDisplayName: string;
   authorId: string;
   authorUsername: string;
@@ -139,6 +141,8 @@ export async function searchPosts(
   return posts.map((post) => ({
     aura: post.aura,
     authorAvatarUrl: post.user.avatarUrl,
+    authorBadge: post.user.badge,
+    authorBadges: post.user.badges,
     authorDisplayName: post.user.displayName,
     authorId: post.user.id,
     authorUsername: post.user.username,

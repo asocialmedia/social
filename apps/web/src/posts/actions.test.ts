@@ -74,13 +74,26 @@ const tx = {
       updatedPosts.push({ changes: args.data, id: args.where.id });
       return { ...args.data, id: args.where.id, userId: AUTHOR_ID };
     },
-    // Simulates the conditional false->true flip used to keep the aura penalty
-    // atomic: only matches while the post is still unmoderated.
+    // Simulates the conditional transitions: each updateMany only matches when
+    // the post is still in the "from" state (e.g. moderated false -> true only
+    // matches while unmoderated), so concurrent requests cannot double-apply.
     updateMany: (args: {
       data: Record<string, unknown>;
-      where: { id: string; moderated: boolean };
+      where: Record<string, unknown>;
     }) => {
-      const matched = args.where.moderated === false && !postState.moderated;
+      let matched = true;
+      if ("moderated" in args.where) {
+        const expectedModerated = args.where.moderated as boolean;
+        if (postState.moderated !== expectedModerated) {
+          matched = false;
+        }
+      }
+      if ("explicitContent" in args.where) {
+        const expectedExplicit = args.where.explicitContent as boolean;
+        if (postState.explicitContent !== expectedExplicit) {
+          matched = false;
+        }
+      }
       if (matched) {
         postState = { ...postState, ...args.data };
       }
@@ -202,6 +215,10 @@ describe("updatePostModeration", () => {
         userId: AUTHOR_ID,
       },
     ]);
+    // Expire both the OG card and media rows so share cards + media pages
+    // reflect the new moderation state.
+    expect(mockUpdateTag).toHaveBeenCalledWith("og-post-card");
+    expect(mockUpdateTag).toHaveBeenCalledWith("media-row");
   });
 
   test("author self-moderation still notifies via the Zeph persona", async () => {

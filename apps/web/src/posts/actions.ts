@@ -9,7 +9,6 @@ import {
   redis,
   unreadNotificationCache,
 } from "@asm/db";
-import type { PostData } from "@asm/db";
 import { updateTag } from "next/cache";
 
 import { getSessionFromApi } from "@/lib/session";
@@ -65,50 +64,54 @@ export async function updatePostModeration(
     data.moderated = changes.moderated;
   }
 
-  // Transitions derived from the pre-transaction state. The moderated penalty
-  // and notification use `confirmedModeratedTransition` (set inside the
-  // transaction) so concurrent requests cannot double-apply them.
-  const justUnmoderated = data.moderated === false && post.moderated;
-  const justFlaggedExplicit =
-    data.explicitContent === true && !post.explicitContent;
-  const justUnflaggedExplicit =
-    data.explicitContent === false && post.explicitContent;
-
   // Resolve the neutral system user once, before the transaction, so the
   // callback never performs redundant I/O.
   const systemUserId = await getModerationSystemUserId();
 
-  let confirmedModeratedTransition = false;
-  const updated = await prisma.$transaction(async (tx) => {
-    let result: PostData | null;
+  // Each transition is confirmed by a conditional affected-row count inside the
+  // transaction, so concurrent requests can never double-apply a transition
+  // (two sessions unmoderating, or applying the same explicit flag, both derive
+  // the stale pre-transaction state). Only the request whose conditional update
+  // actually matched a row notifies and increments the unread counter.
+  let confirmedModerated = false; // false -> true
+  let confirmedUnmoderated = false; // true -> false
+  let confirmedFlaggedExplicit = false; // false -> true
+  let confirmedUnflaggedExplicit = false; // true -> false
 
-    if (data.moderated === true) {
-      // Atomic: only the caller that actually flips moderated false->true is
-      // charged. Concurrent requests race on this single conditional update.
+  const updated = await prisma.$transaction(async (tx) => {
+    // Moderated transition: conditional on the current DB value.
+    if (data.moderated !== undefined) {
       const flip = await tx.post.updateMany({
-        data,
-        where: { id, moderated: false },
+        data: { moderated: data.moderated },
+        where: { id, moderated: !data.moderated },
       });
-      confirmedModeratedTransition = flip.count === 1;
-      // The post was already moderated (or a concurrent request won the race):
-      // apply only an accompanying explicit flag so it still lands.
-      if (flip.count === 0 && data.explicitContent !== undefined) {
-        await tx.post.update({
-          data: { explicitContent: data.explicitContent },
-          where: { id },
-        });
+      if (data.moderated) {
+        confirmedModerated = flip.count === 1;
+      } else {
+        confirmedUnmoderated = flip.count === 1;
       }
-      result = await tx.post.findUnique({
-        include: getPostDataInclude(session.user.id),
-        where: { id },
-      });
-    } else {
-      result = await tx.post.update({
-        data,
-        include: getPostDataInclude(session.user.id),
-        where: { id },
-      });
     }
+
+    // Explicit-content transition: conditional on the current DB value.
+    if (data.explicitContent !== undefined) {
+      const flip = await tx.post.updateMany({
+        data: { explicitContent: data.explicitContent },
+        where: {
+          explicitContent: !data.explicitContent,
+          id,
+        },
+      });
+      if (data.explicitContent) {
+        confirmedFlaggedExplicit = flip.count === 1;
+      } else {
+        confirmedUnflaggedExplicit = flip.count === 1;
+      }
+    }
+
+    const result = await tx.post.findUnique({
+      include: getPostDataInclude(session.user.id),
+      where: { id },
+    });
 
     if (!result) {
       throw new Error("Post not found");
@@ -116,7 +119,7 @@ export async function updatePostModeration(
 
     // The moderation aura penalty is applied exactly once, on the transactionally
     // confirmed false->true transition. Unmoderating never refunds it.
-    if (confirmedModeratedTransition) {
+    if (confirmedModerated) {
       await tx.user.update({
         data: { aura: { increment: -MODERATION_AURA_PENALTY } },
         where: { id: post.userId },
@@ -132,14 +135,15 @@ export async function updatePostModeration(
       });
     }
 
-    // Notify the author on every flag change. The notification is issued by
-    // the neutral "Zeph" system account so the moderator stays anonymous - even
-    // for self-moderation, so the author sees the moderation in their bell.
+    // Notify the author on every confirmed flag change. The notification is
+    // issued by the neutral "Zeph" system account so the moderator stays
+    // anonymous - even for self-moderation, so the author sees the moderation
+    // in their bell.
     if (
-      confirmedModeratedTransition ||
-      justUnmoderated ||
-      justFlaggedExplicit ||
-      justUnflaggedExplicit
+      confirmedModerated ||
+      confirmedUnmoderated ||
+      confirmedFlaggedExplicit ||
+      confirmedUnflaggedExplicit
     ) {
       await tx.notification.create({
         data: {
@@ -158,10 +162,10 @@ export async function updatePostModeration(
   // count is correct the instant the mutation resolves and the sidebar/header
   // badge can refresh immediately instead of waiting on the 60s poll.
   if (
-    confirmedModeratedTransition ||
-    justUnmoderated ||
-    justFlaggedExplicit ||
-    justUnflaggedExplicit
+    confirmedModerated ||
+    confirmedUnmoderated ||
+    confirmedFlaggedExplicit ||
+    confirmedUnflaggedExplicit
   ) {
     try {
       await unreadNotificationCache.increment(post.userId);
