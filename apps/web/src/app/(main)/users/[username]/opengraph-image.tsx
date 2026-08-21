@@ -59,9 +59,11 @@ const FONT_CANDIDATES = [
 
 function loadFont(file: string): Buffer {
   for (const dir of FONT_CANDIDATES) {
-    const candidate = path.join(dir, file);
+    // turbopackIgnore: the font lives in public/fonts (shipped with the app),
+    // so the runtime lookup below must not cause whole-project tracing.
+    const candidate = path.join(/* turbopackIgnore: true */ dir, file);
     try {
-      return readFileSync(candidate);
+      return readFileSync(/* turbopackIgnore: true */ candidate);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error;
