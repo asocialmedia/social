@@ -71,8 +71,21 @@ export async function consumeRateLimit(
 // IP space is brute-forceable). Key rotation: set a new VIEWER_HASH_SECRET and
 // old pseudonyms stop being generated; existing dedup keys expire within their
 // TTL window, so a viewer may be counted once more per post after a rotation.
+//
+// The key chain matters: t3-env skips validation in production, so a missing
+// VIEWER_HASH_SECRET arrives as undefined and the zod .default() never fires.
+// Falling back to BETTER_AUTH_SECRET keeps the HMAC keyed by a real secret in
+// every deployment instead of crashing createHmac at request time.
+function viewerHashKey(): string {
+  return (
+    keys.VIEWER_HASH_SECRET ??
+    process.env.BETTER_AUTH_SECRET ??
+    "asm-viewer-hash-unkeyed"
+  );
+}
+
 export function hashViewerId(ip: string): string {
-  return createHmac("sha256", keys.VIEWER_HASH_SECRET)
+  return createHmac("sha256", viewerHashKey())
     .update(ip)
     .digest("hex")
     .slice(0, 24);

@@ -1,7 +1,8 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Clapperboard, ImageOff, Play } from "lucide-react";
+import noMediaImage from "@assets/general/nomedia.png";
+import { Clapperboard, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -24,10 +25,14 @@ const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
 
   if (isImageFailed) {
     return (
-      <div className="border-border/60 bg-muted/20 text-muted-foreground flex h-full w-full flex-col items-center justify-center gap-1.5 border border-dashed p-4 text-center text-xs">
-        <ImageOff className="h-6 w-6 opacity-60" />
-        <span className="text-[11px]">Failed to load</span>
-      </div>
+      <Image
+        alt="Post media unavailable"
+        className="h-full w-full object-cover opacity-60"
+        fill
+        sizes="(max-width: 768px) 50vw, 300px"
+        src={noMediaImage}
+        unoptimized
+      />
     );
   }
 
@@ -64,10 +69,14 @@ const ExplorePostVideo: React.FC<{
 
   if (isImageFailed) {
     return (
-      <div className="border-border/60 bg-muted/20 text-muted-foreground flex h-full w-full flex-col items-center justify-center gap-1.5 border border-dashed p-4 text-center text-xs">
-        <ImageOff className="h-6 w-6 opacity-60" />
-        <span className="text-[11px]">Failed to load</span>
-      </div>
+      <Image
+        alt="Post video unavailable"
+        className="h-full w-full object-cover opacity-60"
+        fill
+        sizes="(max-width: 768px) 50vw, 300px"
+        src={noMediaImage}
+        unoptimized
+      />
     );
   }
 
