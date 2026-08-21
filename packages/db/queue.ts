@@ -186,16 +186,17 @@ export async function enqueueNotificationDeleted(
 }
 
 // Checks whether a user has earned the shitposter badge. Deduplicated per user
-// with a stable jobId so a burst of posts enqueues a single check; once the
-// worker drains it the id frees up for the next burst.
+// with a stable jobId so a burst of posts enqueues a single check. Completed
+// jobs are removed immediately so the jobId frees up for the next burst; failed
+// jobs are kept briefly for retry/observability.
 export async function enqueueShitposterCheck(userId: string): Promise<void> {
   await getQueue(CONTENT_EVENTS_QUEUE).add(
     "shitposter-check",
     { userId },
     {
       jobId: `shitposter-check-${userId}`,
-      removeOnComplete: 1000,
-      removeOnFail: 5000,
+      removeOnComplete: true,
+      removeOnFail: 1000,
     }
   );
 }

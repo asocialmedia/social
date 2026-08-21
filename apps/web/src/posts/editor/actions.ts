@@ -313,10 +313,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       return completePost;
     });
 
-    // Fire-and-forget: the worker checks whether this post (or gust) pushed the
-    // author over the shitposter threshold inside the rolling window and grants
-    // the badge without blocking the request path.
-    void enqueueShitposterCheckSafely(sessionData.user.id);
+    // The worker checks whether this post (or gust) pushed the author over the
+    // shitposter threshold inside the rolling window and grants the badge. The
+    // wrapper swallows enqueue failures so a Redis hiccup never fails the post.
+    await enqueueShitposterCheckSafely(sessionData.user.id);
 
     return newPost;
   } catch (error) {

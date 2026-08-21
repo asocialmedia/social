@@ -61,12 +61,30 @@ const tx = {
     },
   },
   post: {
+    findUnique: () => ({
+      explicitContent: postState.explicitContent,
+      id: POST_ID,
+      moderated: postState.moderated,
+      userId: AUTHOR_ID,
+    }),
     update: (args: {
       data: Record<string, unknown>;
       where: { id: string };
     }) => {
       updatedPosts.push({ changes: args.data, id: args.where.id });
       return { ...args.data, id: args.where.id, userId: AUTHOR_ID };
+    },
+    // Simulates the conditional false->true flip used to keep the aura penalty
+    // atomic: only matches while the post is still unmoderated.
+    updateMany: (args: {
+      data: Record<string, unknown>;
+      where: { id: string; moderated: boolean };
+    }) => {
+      const matched = args.where.moderated === false && !postState.moderated;
+      if (matched) {
+        postState = { ...postState, ...args.data };
+      }
+      return { count: matched ? 1 : 0 };
     },
   },
   user: {
@@ -289,5 +307,31 @@ describe("updatePostModeration", () => {
       },
     ]);
     expect(enqueuedNotificationRecipients).toEqual([AUTHOR_ID]);
+  });
+
+  test("re-applying the current moderation state is a no-op", async () => {
+    const { updatePostModeration } = await import("./actions");
+    mockGetSession.mockImplementation(() => ({
+      user: { id: "admin-1", role: "admin" },
+    }));
+
+    // Already moderated: re-applying moderated:true must not transition, so no
+    // aura penalty, no log, no notification and no unread increment.
+    postState.moderated = true;
+    await updatePostModeration(POST_ID, { moderated: true });
+
+    expect(auraPenalties).toEqual([]);
+    expect(auraLogs).toEqual([]);
+    expect(notifications).toEqual([]);
+    expect(enqueuedNotificationRecipients).toEqual([]);
+
+    // Re-applying explicit:true on an already-explicit post is likewise inert.
+    postState.explicitContent = true;
+    await updatePostModeration(POST_ID, { explicitContent: true });
+
+    expect(auraPenalties).toEqual([]);
+    expect(auraLogs).toEqual([]);
+    expect(notifications).toEqual([]);
+    expect(enqueuedNotificationRecipients).toEqual([]);
   });
 });

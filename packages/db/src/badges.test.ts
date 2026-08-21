@@ -114,6 +114,76 @@ describe("grantBadge", () => {
   });
 });
 
+describe("revokeBadge", () => {
+  test("removes a badge from the array", async () => {
+    const { revokeBadge } = await import("./badges");
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      badge: null,
+      badges: ["dev", "early"],
+    });
+
+    const result = await revokeBadge("u1", "early");
+
+    expect(result).toBe(true);
+    expect(prismaMock.user.update).toHaveBeenCalledWith({
+      data: { badge: null, badges: ["dev"] },
+      where: { id: "u1" },
+    });
+  });
+
+  test("removes a legacy-only badge and clears the legacy column", async () => {
+    const { getUserBadges, revokeBadge } = await import("./badges");
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      badge: "dev",
+      badges: [],
+    });
+
+    const result = await revokeBadge("u1", "dev");
+
+    expect(result).toBe(true);
+    expect(prismaMock.user.update).toHaveBeenCalledWith({
+      data: { badge: null, badges: [] },
+      where: { id: "u1" },
+    });
+
+    // A later read must not render the revoked badge from either location.
+    expect(getUserBadges({ badge: null, badges: [] })).toEqual([]);
+  });
+
+  test("returns false when the badge is not present", async () => {
+    const { revokeBadge } = await import("./badges");
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      badge: null,
+      badges: ["early"],
+    });
+
+    const result = await revokeBadge("u1", "dev");
+
+    expect(result).toBe(false);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  test("returns false for a missing user", async () => {
+    const { revokeBadge } = await import("./badges");
+
+    prismaMock.user.findUnique.mockResolvedValue(null);
+
+    const result = await revokeBadge("missing", "dev");
+
+    expect(result).toBe(false);
+  });
+
+  test("rejects revoking the author badge", async () => {
+    const { BadgeLimitError, revokeBadge } = await import("./badges");
+
+    await expect(revokeBadge("u1", "author")).rejects.toThrow(BadgeLimitError);
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("grantShitposterBadgeIfQualified", () => {
   test("grants when recent posts meet the threshold", async () => {
     const { grantShitposterBadgeIfQualified } = await import("./badges");
