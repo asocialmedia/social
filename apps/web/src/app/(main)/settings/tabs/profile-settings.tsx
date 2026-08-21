@@ -2,7 +2,7 @@
 
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import {
   Form,
   FormControl,
@@ -177,7 +177,7 @@ const SocialFormField = ({
 };
 
 interface ProfileSettingsProps {
-  user: UserData;
+  user: PrivateUserData;
 }
 
 export default function ProfileSettings({ user }: ProfileSettingsProps) {

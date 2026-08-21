@@ -40,7 +40,6 @@ export interface SearchUserResult {
   bio: string | null;
   displayName: string;
   displayUsername: string | null;
-  email: string | null;
   id: string;
   username: string;
 }
@@ -80,7 +79,6 @@ export async function searchUsers(
       bio: true,
       displayName: true,
       displayUsername: true,
-      email: true,
       id: true,
       username: true,
     },

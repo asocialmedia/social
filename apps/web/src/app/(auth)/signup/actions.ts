@@ -157,7 +157,10 @@ export async function resendVerificationEmail(email: string): Promise<{
       method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
-    const ok = data?.result?.data?.success === true || data?.success === true;
+    const ok =
+      data?.result?.data?.json?.success === true ||
+      data?.result?.data?.success === true ||
+      data?.success === true;
     if (!ok) {
       const err =
         data?.error?.message ||

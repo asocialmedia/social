@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import {
   Form,
   FormControl,
@@ -156,7 +156,7 @@ const OtpFieldRenderer = ({
 );
 
 interface AccountSettingsProps {
-  user: UserData;
+  user: PrivateUserData;
 }
 
 export default function AccountSettings({ user }: AccountSettingsProps) {

@@ -1,8 +1,10 @@
 import { clientLog } from "@asm/config/debug";
 import { redis } from "@asm/db";
 
+// Versioned so entries written before the public projection (which could
+// contain sensitive fields) are never served again.
 const SUGGESTED_USERS_CACHE_KEY = (userId: string) =>
-  `suggested-users:${userId}`;
+  `suggested-users:v2:${userId}`;
 const CACHE_TTL = 300;
 
 export const suggestedUsersCache = {

@@ -89,7 +89,7 @@ describe("GET /api/users/trending cache separation", () => {
     mockSessionUser = null;
     const guestRes = await GET();
     expect(guestRes.status).toBe(200);
-    expect(redisStore.has("trending:users:global")).toBe(true);
+    expect(redisStore.has("trending:users:global:v2")).toBe(true);
 
     // 2. Make authenticated request - must NOT return the cached guest response
     mockSessionUser = { user: { id: USER_ID } };

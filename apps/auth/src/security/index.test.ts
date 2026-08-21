@@ -112,6 +112,39 @@ describe("createSecurity", () => {
     expect(decision.allowed).toBe(true);
   });
 
+  test("requires the internal secret on signup tRPC procedures even with an allowed origin", async () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request(
+      "http://auth.localhost/api/trpc/pendingSignupStart",
+      {
+        headers: { origin: "https://social.localhost" },
+        method: "POST",
+      }
+    );
+    const decision = await security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(false);
+    expect(decision.response?.status).toBe(403);
+    expect(await decision.response?.json()).toEqual({
+      error: "internal-secret-required",
+    });
+  });
+
+  test("allows signup tRPC procedures with the internal secret", async () => {
+    const security = createSecurity(baseConfig());
+    const req = new Request(
+      "http://auth.localhost/api/trpc/pendingSignupVerify",
+      {
+        headers: {
+          origin: "https://social.localhost",
+          "x-internal-secret": TEST_SECRET,
+        },
+        method: "POST",
+      }
+    );
+    const decision = await security.check(req, "1.2.3.4");
+    expect(decision.allowed).toBe(true);
+  });
+
   test("rejects a request with a wrong internal secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request("http://auth.localhost/api/auth/sign-in/email", {

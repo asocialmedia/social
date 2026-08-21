@@ -1,6 +1,6 @@
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -38,16 +38,16 @@ interface UpdateBannerResponse {
 
 interface AvatarMutationContext {
   previousAvatar: unknown;
-  previousUser: UserData | undefined;
+  previousUser: PrivateUserData | undefined;
 }
 
 interface BannerMutationContext {
   optimisticUrl: string;
-  previousUser: UserData | undefined;
+  previousUser: PrivateUserData | undefined;
 }
 
 interface ProfileMutationContext {
-  previousUser: UserData | undefined;
+  previousUser: PrivateUserData | undefined;
 }
 
 interface UpdateProfileResponse {
@@ -111,11 +111,14 @@ export function useUpdateAvatarMutation() {
       await queryClient.cancelQueries({ queryKey: ["user", userId] });
       await queryClient.cancelQueries({ queryKey: ["avatar", userId] });
 
-      const previousUser = queryClient.getQueryData<UserData>(["user", userId]);
+      const previousUser = queryClient.getQueryData<PrivateUserData>([
+        "user",
+        userId,
+      ]);
       const previousAvatar = queryClient.getQueryData(["avatar", userId]);
       const optimisticUrl = URL.createObjectURL(file);
 
-      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
         old ? { ...old, avatarUrl: optimisticUrl } : old
       );
 
@@ -129,7 +132,7 @@ export function useUpdateAvatarMutation() {
     onSuccess: (data, { userId }) => {
       const secureUrl = getSecureImageUrl(data.avatar.url);
 
-      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
         old ? { ...old, avatarKey: data.avatar.key, avatarUrl: secureUrl } : old
       );
 
@@ -184,10 +187,13 @@ export function useUpdateBannerMutation() {
     onMutate: async ({ file, userId }) => {
       await queryClient.cancelQueries({ queryKey: ["user", userId] });
 
-      const previousUser = queryClient.getQueryData<UserData>(["user", userId]);
+      const previousUser = queryClient.getQueryData<PrivateUserData>([
+        "user",
+        userId,
+      ]);
       const optimisticUrl = URL.createObjectURL(file);
 
-      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
         old ? { ...old, bannerUrl: optimisticUrl } : old
       );
 
@@ -201,7 +207,7 @@ export function useUpdateBannerMutation() {
     onSuccess: (data, { userId }) => {
       const secureUrl = getSecureImageUrl(data.banner.url);
 
-      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
         old ? { ...old, bannerKey: data.banner.key, bannerUrl: secureUrl } : old
       );
 
@@ -250,9 +256,12 @@ export function useDeleteBannerMutation() {
     },
     onMutate: async ({ userId }) => {
       await queryClient.cancelQueries({ queryKey: ["user", userId] });
-      const previousUser = queryClient.getQueryData<UserData>(["user", userId]);
+      const previousUser = queryClient.getQueryData<PrivateUserData>([
+        "user",
+        userId,
+      ]);
 
-      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
         old ? { ...old, bannerKey: null, bannerUrl: null } : old
       );
 
@@ -304,7 +313,10 @@ export function useUpdateProfileMutation() {
     },
     onMutate: async ({ values, userId }) => {
       await queryClient.cancelQueries({ queryKey: ["user", userId] });
-      const previousUser = queryClient.getQueryData<UserData>(["user", userId]);
+      const previousUser = queryClient.getQueryData<PrivateUserData>([
+        "user",
+        userId,
+      ]);
 
       if (previousUser) {
         const optimisticUser = {
@@ -322,11 +334,13 @@ export function useUpdateProfileMutation() {
       return { previousUser };
     },
     onSuccess: (updatedUser, { userId }) => {
-      queryClient.setQueryData<UserData>(["user", userId], (old) =>
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
         old
           ? {
               ...old,
-              avatarKey: updatedUser.avatarKey ?? old.avatarKey,
+              // Profile updates never change the avatar; keep the cached key
+              // (avatar uploads update it via their own mutation).
+              avatarKey: old.avatarKey,
               avatarUrl: updatedUser.avatarUrl ?? old.avatarUrl,
               bio: updatedUser.bio ?? "",
               displayName: updatedUser.displayName,

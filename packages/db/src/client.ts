@@ -1,6 +1,6 @@
 import type { Prisma } from "../prisma/generated/prisma/client";
 
-export function getUserDataSelect(loggedInUserId: string) {
+export function getPublicUserSelect(loggedInUserId: string) {
   return {
     _count: {
       select: {
@@ -10,17 +10,14 @@ export function getUserDataSelect(loggedInUserId: string) {
       },
     },
     aura: true,
-    avatarKey: true,
     avatarUrl: true,
     badge: true,
     badges: true,
-    bannerKey: true,
     bannerUrl: true,
     bio: true,
     createdAt: true,
     displayName: true,
-    email: true,
-    emailVerified: true,
+    displayUsername: true,
     followers: {
       select: {
         followerId: true,
@@ -30,16 +27,33 @@ export function getUserDataSelect(loggedInUserId: string) {
       },
     },
     githubUsername: true,
-    googleId: true,
     id: true,
     linkedinUsername: true,
-    passwordHash: true,
-    redditId: true,
     redditUsername: true,
     twitterUsername: true,
     username: true,
   } satisfies Prisma.UserSelect;
 }
+
+export function getUserDataSelect(loggedInUserId: string) {
+  return getPublicUserSelect(loggedInUserId);
+}
+
+export function getPrivateUserSelect(loggedInUserId: string) {
+  return {
+    ...getPublicUserSelect(loggedInUserId),
+    avatarKey: true,
+    bannerKey: true,
+    email: true,
+    emailVerified: true,
+    googleId: true,
+    redditId: true,
+  } satisfies Prisma.UserSelect;
+}
+
+export type PrivateUserData = Prisma.UserGetPayload<{
+  select: ReturnType<typeof getPrivateUserSelect>;
+}>;
 
 export function getPostDataInclude(loggedInUserId: string) {
   return {

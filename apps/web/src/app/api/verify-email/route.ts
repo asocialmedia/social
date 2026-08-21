@@ -136,6 +136,114 @@ async function handleVerificationFallback(
   return Response.json({ ok: isVerified }, { status: isVerified ? 200 : 400 });
 }
 
+// Server-side proxy for OTP verification during signup. The auth microservice
+// now requires the internal secret on its signup tRPC procedures, so the
+// browser cannot call them directly; this route carries the user's code to the
+// auth service and relays the (public) outcome back.
+async function verifyOtpWithAuthService(
+  req: NextRequest,
+  email: string,
+  otp: string,
+  authBase: string
+): Promise<
+  { status: number; ok: boolean; json?: unknown; error?: string } | false
+> {
+  try {
+    const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
+      body: JSON.stringify({
+        id: 1,
+        json: { email, otp, otpVerified: true },
+      }),
+      cache: "no-store",
+      headers: authInternalHeaders({
+        "content-type": "application/json",
+        "user-agent": req.headers.get("user-agent") ?? "",
+        "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
+        "x-real-ip": req.headers.get("x-real-ip") ?? "",
+      }),
+      method: "POST",
+    });
+
+    const data = (await res.json().catch(() => ({}) as unknown)) as {
+      result?: {
+        data?: { json?: { success?: boolean; error?: string } };
+      };
+    };
+
+    return {
+      json: data?.result?.data?.json,
+      ok: res.ok,
+      status: res.status,
+    };
+  } catch {
+    return false;
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = (await req.json().catch(() => ({}) as unknown)) as {
+      email?: unknown;
+      otp?: unknown;
+    };
+    const email = typeof body.email === "string" ? body.email : "";
+    const otp = typeof body.otp === "string" ? body.otp : "";
+
+    if (!email || !/^\d{6}$/.test(otp)) {
+      return Response.json(
+        { error: "invalid-request", ok: false },
+        { status: 400 }
+      );
+    }
+
+    const authBase = getAuthBaseUrl();
+    const result = await verifyOtpWithAuthService(req, email, otp, authBase);
+
+    if (!result) {
+      return Response.json(
+        { error: "network-error", ok: false },
+        { status: 502 }
+      );
+    }
+
+    const json = result.json as
+      | {
+          success?: boolean;
+          error?: string;
+          remaining?: number;
+          resetTime?: number;
+        }
+      | undefined;
+
+    if (result.ok && json?.success === true) {
+      return Response.json({ ok: true, success: true }, { status: 200 });
+    }
+
+    if (json?.error === "rate-limited") {
+      return Response.json(
+        {
+          error: "rate-limited",
+          ok: false,
+          remaining: json.remaining ?? 0,
+          resetTime: json.resetTime ?? 0,
+        },
+        { status: 429 }
+      );
+    }
+
+    const status = result.status >= 500 ? 502 : 200;
+    return Response.json(
+      { error: json?.error || "invalid-otp", ok: false },
+      { status }
+    );
+  } catch {
+    return Response.json(
+      { error: "network-error", ok: false },
+      { status: 502 }
+    );
+  }
+}
+
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
   if (!token) {

@@ -32,6 +32,14 @@ const RATE_GLOBAL_MAX_ATTEMPTS = 8;
 const RATE_ACTION_WINDOW_SECONDS = 60 * 5;
 const RATE_MAX_START_PER_WINDOW = 6;
 const RATE_MAX_RESEND_PER_WINDOW = 3;
+// Verify is the OTP brute-force surface: a 6-digit space (10^6) must never
+// allow sustained guessing. A tight per-email+per-IP cap plus a hard lockout
+// (below) bounds a window to a handful of attempts.
+const RATE_MAX_VERIFY_PER_WINDOW = 5;
+// Failed attempts per email before the code is consumed and further guesses
+// are rejected without touching the database.
+const VERIFY_MAX_FAILURES_PER_EMAIL = 5;
+const VERIFY_FAILURE_WINDOW_SECONDS = 60 * 10;
 const RATE_CREATION_WINDOW_SECONDS = 60 * 60;
 const RATE_MAX_CREATIONS_PER_WINDOW = 3;
 
@@ -51,10 +59,76 @@ async function cleanupExpiredVerifications(): Promise<void> {
   }
 }
 
+async function consumeVerificationCodes(emailLower: string): Promise<void> {
+  try {
+    const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
+    await prisma.verification.deleteMany({
+      where: {
+        OR: [
+          {
+            identifier: {
+              equals: betterAuthIdentifier,
+              mode: "insensitive",
+            },
+          },
+          { identifier: { equals: emailLower, mode: "insensitive" } },
+        ],
+      },
+    });
+    debugLog.api("verifyEmailOtp:codes-consumed", { emailLower });
+  } catch (cleanupError) {
+    console.error("Failed to consume OTP records:", cleanupError);
+  }
+}
+
+async function countVerifyFailure(emailLower: string): Promise<void> {
+  try {
+    const key = `${RATE_PREFIX}verifyfail:${emailLower}`;
+    const current = Number((await redis.get(key)) ?? 0);
+    await redis.set(
+      key,
+      String(current + 1),
+      "EX",
+      VERIFY_FAILURE_WINDOW_SECONDS
+    );
+  } catch (error) {
+    debugLog.api("verifyEmailOtp:fail-counter-error", {
+      emailLower,
+      error: String(error),
+    });
+  }
+}
+
+async function clearVerifyFailures(emailLower: string): Promise<void> {
+  try {
+    await redis.del(`${RATE_PREFIX}verifyfail:${emailLower}`);
+  } catch {
+    // Non-fatal
+  }
+}
+
+// Returns "valid" for a correct code, "invalid" for a wrong or expired code
+// and "locked" when the per-email failure budget is exhausted (the code is
+// consumed so a resend is required). Wrong guesses only count against the
+// budget when a live code actually exists for the email, so an anonymous
+// caller cannot freeze a pending signup with random guesses.
 async function verifyEmailOtp(
   emailLower: string,
   otp: string
-): Promise<boolean> {
+): Promise<"valid" | "invalid" | "locked"> {
+  const failKey = `${RATE_PREFIX}verifyfail:${emailLower}`;
+  try {
+    const failures = Number((await redis.get(failKey)) ?? 0);
+    if (failures >= VERIFY_MAX_FAILURES_PER_EMAIL) {
+      await consumeVerificationCodes(emailLower);
+      debugLog.api("verifyEmailOtp:locked", { emailLower });
+      return "locked";
+    }
+  } catch {
+    // Fail-open on counter errors: the request-level verify rate limit still
+    // bounds guessing.
+  }
+
   const betterAuthIdentifier = `email-verification-otp-${emailLower}`;
   try {
     await prisma.verification.deleteMany({
@@ -92,7 +166,11 @@ async function verifyEmailOtp(
       emailLower,
       otp,
     });
-    return false;
+    // Only count a failure when a live code existed for this email.
+    if (allVerifications.length > 0) {
+      await countVerifyFailure(emailLower);
+    }
+    return "invalid";
   }
 
   if (v.expiresAt < new Date()) {
@@ -100,11 +178,12 @@ async function verifyEmailOtp(
       emailLower,
       expiresAt: v.expiresAt,
     });
-    return false;
+    return "invalid";
   }
 
+  await clearVerifyFailures(emailLower);
   debugLog.api("verifyEmailOtp:valid", { emailLower, otp });
-  return true;
+  return "valid";
 }
 
 /**
@@ -241,8 +320,12 @@ async function checkRateLimit(
       return { allowed: false, remaining: 0, resetTime };
     }
 
-    const actionMax =
-      kind === "start" ? RATE_MAX_START_PER_WINDOW : RATE_MAX_RESEND_PER_WINDOW;
+    let actionMax = RATE_MAX_RESEND_PER_WINDOW;
+    if (kind === "start") {
+      actionMax = RATE_MAX_START_PER_WINDOW;
+    } else if (kind === "verify") {
+      actionMax = RATE_MAX_VERIFY_PER_WINDOW;
+    }
     const actionIpAllowed = actionIpCount <= actionMax;
     const actionEmailAllowed = actionEmailCount <= actionMax;
 
@@ -444,7 +527,9 @@ export const signupRouter = router({
       const token = await redis.get(emailKey);
       debugLog.api("pendingSignupResend:lookup", { found: Boolean(token) });
       if (!token) {
-        return { error: "not-found", success: false } as const;
+        // Uniform response: whether or not a pending signup exists, the caller
+        // sees success so the endpoint cannot be used as an existence oracle.
+        return { success: true } as const;
       }
       try {
         const otpSent = await sendSignupVerificationOTP(input.email);
@@ -493,7 +578,8 @@ export const signupRouter = router({
       const emailKey = `${PENDING_PREFIX}email:${emailLower}`;
       const token = await redis.get(emailKey);
       if (!token) {
-        return { error: "no-pending-signup", success: false } as const;
+        // Uniform response: never reveal whether a pending signup exists.
+        return { success: true } as const;
       }
       try {
         await _sendVerificationEmailSafe(emailLower, token);
@@ -633,7 +719,7 @@ export const signupRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       debugLog.api("pendingSignupVerify:begin");
-      const _ip = getClientIpFromHeaders(
+      const ip = getClientIpFromHeaders(
         ctx?.req?.headers as Headers | undefined
       );
 
@@ -642,8 +728,18 @@ export const signupRouter = router({
         void cleanupExpiredVerifications();
 
         const emailLower = input.email.toLowerCase();
-        const otpIsValid = await verifyEmailOtp(emailLower, input.otp);
-        if (!otpIsValid) {
+        const rateCheck = await checkRateLimit("verify", ip, emailLower);
+        if (!rateCheck.allowed) {
+          return {
+            error: "rate-limited",
+            remaining: rateCheck.remaining,
+            resetTime: rateCheck.resetTime,
+            success: false,
+          } as const;
+        }
+
+        const otpStatus = await verifyEmailOtp(emailLower, input.otp);
+        if (otpStatus !== "valid") {
           return { error: "invalid-otp", success: false } as const;
         }
 

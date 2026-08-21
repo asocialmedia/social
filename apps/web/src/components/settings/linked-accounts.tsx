@@ -1,5 +1,5 @@
 import { clientLog } from "@asm/config/debug";
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import { Link2 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 interface LinkedAccountsProps {
   onLink: (provider: string) => void;
-  user: UserData;
+  user: PrivateUserData;
 }
 
 const getStatusText = (isComingSoon: boolean, isConnected?: boolean) => {

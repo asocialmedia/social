@@ -25,7 +25,6 @@ import {
   useSignupStore,
 } from "@asm/ui/store/signup-store";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { env } from "@root/env";
 import { AlertCircle, ArrowLeft, Mail, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -440,30 +439,31 @@ export default function SignUpForm() {
         setVerifying(true);
         setOtpError(false);
         const email = currentEmail || form.getValues("email");
-        const authBase = env.NEXT_PUBLIC_AUTH_URL;
-        const res = await fetch(`${authBase}/api/trpc/pendingSignupVerify`, {
+        // Verification runs through the web app's own proxy: the auth
+        // microservice only accepts the internal secret, which browsers cannot
+        // carry.
+        const res = await fetch("/api/verify-email", {
           body: JSON.stringify({
-            id: 1,
-            json: {
-              email,
-              otp: otpValue,
-              otpVerified: true,
-            },
+            email,
+            otp: otpValue,
           }),
           credentials: "include",
           headers: { "content-type": "application/json" },
           method: "POST",
         });
 
-        const data = await res.json().catch(() => ({}) as unknown);
+        const data = (await res.json().catch(() => ({}) as unknown)) as {
+          error?: string;
+          ok?: boolean;
+          remaining?: number;
+          resetTime?: number;
+          success?: boolean;
+        };
 
-        if (!(res.ok && data?.result?.data?.json?.success)) {
-          const serverError =
-            data?.result?.error?.message ||
-            data?.result?.data?.json?.error ||
-            "Signup completion failed";
+        if (!(res.ok && data.ok && data.success)) {
+          const serverError = data.error || "Signup completion failed";
 
-          const rateLimitInfo = data?.result?.data?.json;
+          const rateLimitInfo = data;
 
           let userFriendlyError = "Something went wrong. Please try again.";
           let errorTitle = "Verification Failed";
@@ -516,8 +516,7 @@ export default function SignUpForm() {
           return;
         }
 
-        const responseData = data?.result?.data?.json;
-        const responseEmail = responseData?.email;
+        const responseEmail = email;
         const responsePassword = form.getValues("password");
 
         if (responseEmail && responsePassword) {

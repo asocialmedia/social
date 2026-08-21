@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { PrivateUserData, UserData } from "@asm/db";
 import { formatDate } from "date-fns";
 import { CalendarDays, Flame, MessageCircle } from "lucide-react";
 import Image from "next/image";
@@ -63,11 +63,15 @@ function getSocialLinks(user: UserData): SocialLink[] {
 interface ProfileHeaderProps {
   isOwnProfile: boolean;
   userData: UserData;
+  // The session owner's own data (includes avatarKey/bannerKey needed by the
+  // edit dialog). Only ever provided for the owner's own profile.
+  ownUserData?: PrivateUserData | null;
 }
 
 const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   userData,
   isOwnProfile,
+  ownUserData,
 }) => {
   const { data: liveUserData } = useUserDataQuery(userData);
   const { user } = useSession();
@@ -153,7 +157,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           </div>
           <div className="mb-2 flex items-center gap-2">
             {isOwnProfile ? (
-              <EditProfileButton user={liveUserData} />
+              <EditProfileButton
+                user={ownUserData ?? (liveUserData as PrivateUserData)}
+              />
             ) : (
               <div className="flex flex-col items-end gap-2">
                 <FollowButton

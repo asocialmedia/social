@@ -7,7 +7,9 @@ import {
 
 import { getSessionFromApi } from "@/lib/session";
 
-const TRENDING_USERS_CACHE_KEY = "trending:users:global";
+// Bumped when the cached shape changes (public projection); old entries may
+// contain sensitive fields and must not be served.
+const TRENDING_USERS_CACHE_KEY = "trending:users:global:v2";
 const TRENDING_USERS_TTL = 60;
 
 export async function GET() {

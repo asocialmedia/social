@@ -115,6 +115,28 @@ function isOAuthCallback(pathname: string): boolean {
   return pathname.startsWith(OAUTH_CALLBACK_PREFIX);
 }
 
+// The signup/OTP tRPC surface (start, verify, resend, send-link) is
+// abuse-prone: it creates pending accounts, emails OTPs to arbitrary
+// addresses and verifies codes. Only the main app's server-side proxy (which
+// presents the internal secret) may call it. Accepting a browser Origin here
+// would bypass the main app's strict per-IP signup limit, so these paths
+// require the secret unconditionally. The legacy /api/auth/pending-* aliases
+// map to the same procedures and are covered too.
+const SIGNUP_TRPC_PREFIXES = [
+  "/api/trpc/pendingSignup",
+  "/api/auth/pending-signup",
+  "/api/auth/pending-verify",
+  "/api/auth/pending-resend",
+  // Better Auth's direct email sign-up creates real account rows; the web app
+  // never calls it (signup goes through pendingSignupStart), so browsers
+  // must not be able to reach it with an Origin alone.
+  "/api/auth/sign-up/email",
+];
+
+function isSignupProcedure(pathname: string): boolean {
+  return SIGNUP_TRPC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 function isStrictPath(pathname: string, strictPaths: RegExp[]): boolean {
   return strictPaths.some((pattern) => pattern.test(pathname));
 }
@@ -207,6 +229,15 @@ export function createSecurity(
     request: Request,
     pathname: string
   ): SecurityDecision => {
+    // Account-creation and OTP procedures are internal-only: the web app's
+    // server proxy is the sole legitimate caller, so a browser Origin must
+    // not substitute for the secret on these paths.
+    if (isSignupProcedure(pathname)) {
+      if (hasValidSecret(request, config.internalSecret)) {
+        return { allowed: true };
+      }
+      return buildReject(403, { error: "internal-secret-required" });
+    }
     const origin = getClientOrigin(request);
     if (origin) {
       if (!isAllowedOrigin(origin, config.allowedOrigins)) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { USERNAME_REGEX } from "@asm/auth/validation";
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import {
   Form,
   FormControl,
@@ -43,7 +43,7 @@ const identifierSchema = z.object({
 type FormValues = z.infer<typeof identifierSchema>;
 
 interface SecuritySettingsProps {
-  user: UserData;
+  user: PrivateUserData;
 }
 
 export default function SecuritySettings({ user }: SecuritySettingsProps) {

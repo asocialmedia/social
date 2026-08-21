@@ -1,7 +1,7 @@
 import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import {
   Dialog,
   DialogContent,
@@ -57,7 +57,7 @@ const ORANGE_GRADIENT_CLASS =
 interface EditProfileDialogProps {
   onOpenChange: (open: boolean) => void;
   open: boolean;
-  user: UserData;
+  user: PrivateUserData;
 }
 
 const regex = /\s+/;
@@ -663,7 +663,7 @@ interface AvatarInputProps {
   onGifSelected: (file: File | null) => void;
   onImageCropped: (blob: Blob | null) => void;
   src: string | StaticImageData;
-  user: UserData;
+  user: PrivateUserData;
 }
 
 const AvatarInput = ({

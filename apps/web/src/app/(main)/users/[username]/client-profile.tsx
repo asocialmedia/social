@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { PrivateUserData, UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,7 @@ import UserRepliesFeed from "@/components/profile/user-replies-feed";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 
 interface ProfilePageProps {
-  loggedInUserData: UserData | null;
+  loggedInUserData: PrivateUserData | null;
   userData: UserData;
 }
 
@@ -106,6 +106,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                 <div className="relative">
                   <ProfileHeader
                     isOwnProfile={isOwnProfile}
+                    ownUserData={loggedInUserData}
                     userData={userData}
                   />
                   <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 md:hidden">

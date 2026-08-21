@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useCallback, useState } from "react";
 
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 interface EditProfileButtonProps {
   className?: string;
-  user: UserData;
+  user: PrivateUserData;
 }
 
 export default function EditProfileButton({

@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getPrivateUserSelect, prisma } from "@asm/db";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
@@ -23,7 +23,7 @@ async function SettingsContent() {
   }
 
   const user = await prisma.user.findUnique({
-    select: getUserDataSelect(session.user.id),
+    select: getPrivateUserSelect(session.user.id),
     where: { id: session.user.id },
   });
 

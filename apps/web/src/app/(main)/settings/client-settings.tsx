@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { PrivateUserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useCallback, useRef, useState } from "react";
 
@@ -17,7 +17,7 @@ import ProfileSettings from "./tabs/profile-settings";
 import SecuritySettings from "./tabs/security-settings";
 
 interface ClientSettingsProps {
-  user: UserData;
+  user: PrivateUserData;
 }
 
 export default function ClientSettings({ user }: ClientSettingsProps) {
