@@ -191,12 +191,17 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   </>
                 ) : null}
 
+                {/* Mobile media tab: a compact fixed-height section, not the
+                    full-height desktop sidebar. bare hides the skeleton grid
+                    background so only the message shows. */}
                 <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                  {isLoggedIn ? (
-                    <MediaGalleryContent userId={userData.id} />
-                  ) : (
-                    <MediaGalleryLocked />
-                  )}
+                  <div className="h-72 overflow-hidden">
+                    {isLoggedIn ? (
+                      <MediaGalleryContent bare userId={userData.id} />
+                    ) : (
+                      <MediaGalleryLocked bare />
+                    )}
+                  </div>
                 </TabsContent>
               </div>
               <FeedScrollbar containerRef={feedScrollRef} />
