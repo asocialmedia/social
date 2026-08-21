@@ -12,6 +12,7 @@ class BadgeLimitError extends Error {
 const prismaMock = {
   user: {
     count: mock((): Promise<number> => Promise.resolve(0)),
+    findMany: mock((): Promise<{ id: string }[]> => Promise.resolve([])),
     findUnique: mock((): Promise<{ role: string } | null> =>
       Promise.resolve(null)
     ),
@@ -62,10 +63,12 @@ async function caller() {
 
 beforeEach(() => {
   prismaMock.user.count.mockClear();
+  prismaMock.user.findMany.mockClear();
   prismaMock.user.findUnique.mockClear();
   prismaMock.user.update.mockClear();
   prismaMock.user.updateMany.mockClear();
   prismaMock.user.count.mockResolvedValue(0);
+  prismaMock.user.findMany.mockResolvedValue([]);
   prismaMock.user.findUnique.mockResolvedValue(null);
   prismaMock.user.update.mockResolvedValue({ id: "u" });
   prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
@@ -111,6 +114,81 @@ describe("admin setRole hard rules", () => {
       data: { role: "admin" },
       where: { id: "u2" },
     });
+  });
+});
+
+describe("admin bulkUpdateUsers / updateUser role guards", () => {
+  test("bulkUpdateUsers rejects promoting a second admin", async () => {
+    prismaMock.user.count.mockResolvedValue(1);
+
+    const trpc = await caller();
+    const promise = trpc.bulkUpdateUsers({
+      action: "updateRole",
+      data: { role: "admin" },
+      userIds: ["u2"],
+    });
+
+    await expect(promise).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("bulkUpdateUsers rejects promoting more than one user at once", async () => {
+    const trpc = await caller();
+    const promise = trpc.bulkUpdateUsers({
+      action: "updateRole",
+      data: { role: "admin" },
+      userIds: ["u2", "u3"],
+    });
+
+    await expect(promise).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("bulkUpdateUsers rejects demoting every current admin", async () => {
+    prismaMock.user.findMany.mockResolvedValue([{ id: "admin1" }]);
+
+    const trpc = await caller();
+    const promise = trpc.bulkUpdateUsers({
+      action: "updateRole",
+      data: { role: "user" },
+      userIds: ["admin1"],
+    });
+
+    await expect(promise).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  test("bulkUpdateUsers allows demoting a non-admin or when other admins remain", async () => {
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: "admin1" },
+      { id: "admin2" },
+    ]);
+
+    const trpc = await caller();
+    await trpc.bulkUpdateUsers({
+      action: "updateRole",
+      data: { role: "user" },
+      userIds: ["admin1"],
+    });
+
+    expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
+      data: { role: "user" },
+      where: { id: { in: ["admin1"] } },
+    });
+  });
+
+  test("updateUser rejects demoting the last admin", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ role: "admin" });
+    prismaMock.user.count.mockResolvedValue(0);
+
+    const trpc = await caller();
+    const promise = trpc.updateUser({
+      data: { role: "user" },
+      userId: "admin1",
+    });
+
+    await expect(promise).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 });
 
