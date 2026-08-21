@@ -3,13 +3,7 @@
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import {
-  FileAudioIcon,
-  FileCode,
-  FileIcon,
-  ImageOff,
-  Loader2,
-} from "lucide-react";
+import { FileAudioIcon, FileCode, FileIcon, Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -348,11 +342,17 @@ const ImageTile = ({
   if (isFailed) {
     return (
       <div
-        className="group text-muted-foreground border-border/60 bg-muted/20 relative flex w-full flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl border border-dashed p-4 text-center shadow-xs"
+        className="group bg-muted/20 relative w-full overflow-hidden rounded-xl shadow-xs"
         style={{ aspectRatio }}
       >
-        <ImageOff className="h-5 w-5 opacity-60" />
-        <span className="text-[10px]">Failed to load</span>
+        <Image
+          alt="Media unavailable"
+          className="h-full w-full object-cover opacity-60"
+          fill
+          sizes="176px"
+          src={noMediaImage}
+          unoptimized
+        />
       </div>
     );
   }

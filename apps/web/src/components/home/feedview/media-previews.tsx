@@ -3,11 +3,11 @@
 
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import noMediaImage from "@assets/general/nomedia.png";
 import {
   FileAudioIcon,
   FileCode,
   FileIcon,
-  ImageOff,
   Pause,
   Play,
   VolumeX,
@@ -82,12 +82,17 @@ const GridImagePreview = ({
     return (
       <div
         className={cn(
-          "group border-border/60 bg-muted/20 text-muted-foreground relative flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed p-2 text-center text-xs",
+          "bg-muted/20 relative w-full overflow-hidden rounded-lg",
           isSmall ? "aspect-square" : "aspect-square sm:h-72"
         )}
       >
-        <ImageOff className="h-5 w-5 opacity-60" />
-        <span className="text-[10px]">Failed to load</span>
+        <Image
+          alt="Attachment unavailable"
+          className="h-full w-full object-cover opacity-60"
+          fill
+          sizes="(max-width: 768px) 50vw, 33vw"
+          src={noMediaImage}
+        />
       </div>
     );
   }
@@ -193,6 +198,9 @@ const VideoPreview = ({
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
   const [isVideoActive, setIsVideoActive] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  // Set when the poster or the video itself fails to load, so a broken clip
+  // shows the nomedia placeholder instead of an empty black tile.
+  const [isFailed, setIsFailed] = useState(false);
   // Minimal hover controls: playback state, current time and clip duration.
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -290,6 +298,16 @@ const VideoPreview = ({
   const handleVideoPlay = useCallback(() => setIsPlaying(true), []);
   const handleVideoPause = useCallback(() => setIsPlaying(false), []);
 
+  const handlePosterError = useCallback(() => {
+    setIsFailed(true);
+    setIsVideoActive(false);
+  }, []);
+
+  const handleVideoError = useCallback(() => {
+    setIsFailed(true);
+    setIsVideoActive(false);
+  }, []);
+
   // Toggle playback from the hover controls. Stops propagation so the tile's
   // "open media viewer" click never fires while using the control.
   const togglePlayback = useCallback(
@@ -359,6 +377,23 @@ const VideoPreview = ({
     }
   }, [autoPlay, startPreview]);
 
+  if (isFailed) {
+    return (
+      <div
+        className="bg-muted/20 relative w-full overflow-hidden rounded-lg"
+        style={{ aspectRatio: mediaAspectRatio(media, "16 / 9") }}
+      >
+        <Image
+          alt="Video unavailable"
+          className="h-full w-full object-cover opacity-60"
+          fill
+          sizes="(max-width: 768px) 100vw, 640px"
+          src={noMediaImage}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
@@ -375,6 +410,7 @@ const VideoPreview = ({
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
         muted
         onDurationChange={handleDurationChange}
+        onError={handleVideoError}
         onLoadedMetadata={handleLoadedMetadata}
         onPause={handleVideoPause}
         onPlay={handleVideoPlay}
@@ -392,6 +428,7 @@ const VideoPreview = ({
         )}
         fill
         loading="eager"
+        onError={handlePosterError}
         sizes="(max-width: 768px) 100vw, 640px"
         src={getMediaProxyUrl(media)}
         unoptimized
@@ -511,9 +548,15 @@ const SingleImagePreview = ({
 
   if (isFailed) {
     return (
-      <div className="border-border/60 bg-muted/20 text-muted-foreground flex max-h-[500px] w-full items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm">
-        <ImageOff className="h-5 w-5 opacity-60" />
-        <span>Attachment failed to load</span>
+      <div className="bg-muted/20 relative flex max-h-[500px] w-full items-center justify-center overflow-hidden rounded-xl">
+        <Image
+          alt="Attachment unavailable"
+          className="h-auto max-h-[500px] w-full object-contain opacity-60"
+          height={600}
+          sizes="(max-width: 768px) 100vw, 640px"
+          src={noMediaImage}
+          width={640}
+        />
       </div>
     );
   }
@@ -660,7 +703,13 @@ export const MediaPreviews = ({
             data={getMediaUrl(m.id)}
             type="image/svg+xml"
           >
-            Your browser does not support SVG
+            <Image
+              alt="Attachment unavailable"
+              className="h-full w-full object-cover opacity-60"
+              fill
+              sizes="(max-width: 768px) 50vw, 33vw"
+              src={noMediaImage}
+            />
           </object>
           <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
         </div>
