@@ -1,4 +1,5 @@
 import { debugLog } from "@asm/config/debug";
+import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
@@ -7,6 +8,27 @@ type PendingVerifyResult =
   | { ok: true; data?: { email: string; password: string } }
   | { ok: true }
   | false;
+
+// The auth service keys its per-IP limits on the address it sees, so this
+// proxy must never forward the client's raw forwarding headers (they are
+// attacker-controlled). Derive the address from trusted ingress metadata
+// (cf-connecting-ip set by Cloudflare) and relay that single value instead.
+function trustedClientHeaders(req: NextRequest): Record<string, string> {
+  const clientIp = getClientIpFromHeaders(req.headers);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "user-agent": req.headers.get("user-agent") ?? "",
+  };
+  if (clientIp !== "unknown") {
+    headers["x-forwarded-for"] = clientIp;
+    headers["x-real-ip"] = clientIp;
+  }
+  const cfConnectingIp = req.headers.get("cf-connecting-ip");
+  if (cfConnectingIp) {
+    headers["cf-connecting-ip"] = cfConnectingIp;
+  }
+  return headers;
+}
 
 async function tryPendingSignupVerification(
   req: NextRequest,
@@ -20,12 +42,7 @@ async function tryPendingSignupVerification(
         json: { token },
       }),
       cache: "no-store",
-      headers: authInternalHeaders({
-        "content-type": "application/json",
-        "user-agent": req.headers.get("user-agent") ?? "",
-        "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
-        "x-real-ip": req.headers.get("x-real-ip") ?? "",
-      }),
+      headers: authInternalHeaders(trustedClientHeaders(req)),
       method: "POST",
     });
 
@@ -155,13 +172,11 @@ async function verifyOtpWithAuthService(
         json: { email, otp, otpVerified: true },
       }),
       cache: "no-store",
-      headers: authInternalHeaders({
-        "content-type": "application/json",
-        "user-agent": req.headers.get("user-agent") ?? "",
-        "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "",
-        "x-real-ip": req.headers.get("x-real-ip") ?? "",
-      }),
+      headers: authInternalHeaders(trustedClientHeaders(req)),
       method: "POST",
+      // Bound the upstream hop so a hung auth service surfaces as a clean
+      // network-error response instead of a stalled request.
+      signal: AbortSignal.timeout(10_000),
     });
 
     const data = (await res.json().catch(() => ({}) as unknown)) as {

@@ -37,6 +37,7 @@ interface UpdateBannerResponse {
 }
 
 interface AvatarMutationContext {
+  optimisticUrl: string;
   previousAvatar: unknown;
   previousUser: PrivateUserData | undefined;
 }
@@ -127,7 +128,14 @@ export function useUpdateAvatarMutation() {
         url: optimisticUrl,
       });
 
-      return { previousAvatar, previousUser };
+      return { optimisticUrl, previousAvatar, previousUser };
+    },
+    // The optimistic preview is a temporary object URL; release it once the
+    // mutation settles, matching the banner mutation's cleanup.
+    onSettled: (_, __, ___, context) => {
+      if (context?.optimisticUrl) {
+        URL.revokeObjectURL(context.optimisticUrl);
+      }
     },
     onSuccess: (data, { userId }) => {
       const secureUrl = getSecureImageUrl(data.avatar.url);

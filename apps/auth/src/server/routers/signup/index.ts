@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { auth } from "@/auth/config";
 import { sendVerificationOTP } from "@/email/service";
+import { getClientIpFromHeaders } from "@/security/client-ip";
 
 import { procedure, router } from "../../trpc";
 import { emailRouter } from "../email";
@@ -75,27 +76,37 @@ async function consumeVerificationCodes(emailLower: string): Promise<void> {
         ],
       },
     });
-    debugLog.api("verifyEmailOtp:codes-consumed", { emailLower });
+    debugLog.api("verifyEmailOtp:codes-consumed", {
+      email: redactEmail(emailLower),
+    });
   } catch (cleanupError) {
     console.error("Failed to consume OTP records:", cleanupError);
   }
 }
 
-async function countVerifyFailure(emailLower: string): Promise<void> {
+// Atomically increments the per-email failure counter and returns the new
+// count. A plain read-then-write loses updates when wrong guesses overlap,
+// letting more guesses through than the budget allows; INCR + EXPIRE in one
+// pipeline keeps the count exact under concurrency.
+async function countVerifyFailure(emailLower: string): Promise<number> {
+  const key = `${RATE_PREFIX}verifyfail:${emailLower}`;
   try {
-    const key = `${RATE_PREFIX}verifyfail:${emailLower}`;
-    const current = Number((await redis.get(key)) ?? 0);
-    await redis.set(
-      key,
-      String(current + 1),
-      "EX",
-      VERIFY_FAILURE_WINDOW_SECONDS
-    );
+    const multi = redis.multi();
+    multi.incr(key);
+    multi.expire(key, VERIFY_FAILURE_WINDOW_SECONDS);
+    const results = await multi.exec();
+    if (!results) {
+      return 1;
+    }
+    return Number(results[0]?.[1] ?? 1);
   } catch (error) {
     debugLog.api("verifyEmailOtp:fail-counter-error", {
-      emailLower,
+      email: redactEmail(emailLower),
       error: String(error),
     });
+    // Fail open on counter errors; the request-level verify rate limit still
+    // bounds guessing.
+    return 1;
   }
 }
 
@@ -121,7 +132,9 @@ async function verifyEmailOtp(
     const failures = Number((await redis.get(failKey)) ?? 0);
     if (failures >= VERIFY_MAX_FAILURES_PER_EMAIL) {
       await consumeVerificationCodes(emailLower);
-      debugLog.api("verifyEmailOtp:locked", { emailLower });
+      debugLog.api("verifyEmailOtp:locked", {
+        email: redactEmail(emailLower),
+      });
       return "locked";
     }
   } catch {
@@ -150,8 +163,7 @@ async function verifyEmailOtp(
   });
 
   debugLog.api("verifyEmailOtp:lookup", {
-    betterAuthIdentifier,
-    emailLower,
+    email: redactEmail(emailLower),
     recordCount: allVerifications.length,
   });
 
@@ -161,28 +173,33 @@ async function verifyEmailOtp(
   });
 
   if (!v) {
+    // Never log the guessed OTP or the raw address.
     debugLog.api("verifyEmailOtp:not-found", {
-      betterAuthIdentifier,
-      emailLower,
-      otp,
+      email: redactEmail(emailLower),
     });
-    // Only count a failure when a live code existed for this email.
+    // Only count a failure when a live code existed for this email, so a
+    // caller cannot freeze a pending signup with random guesses. The counter
+    // increment is atomic; once the budget is exhausted the code is consumed.
     if (allVerifications.length > 0) {
-      await countVerifyFailure(emailLower);
+      const failures = await countVerifyFailure(emailLower);
+      if (failures >= VERIFY_MAX_FAILURES_PER_EMAIL) {
+        await consumeVerificationCodes(emailLower);
+      }
     }
     return "invalid";
   }
 
   if (v.expiresAt < new Date()) {
     debugLog.api("verifyEmailOtp:expired", {
-      emailLower,
+      email: redactEmail(emailLower),
       expiresAt: v.expiresAt,
     });
     return "invalid";
   }
 
   await clearVerifyFailures(emailLower);
-  debugLog.api("verifyEmailOtp:valid", { emailLower, otp });
+  // Never log the OTP itself.
+  debugLog.api("verifyEmailOtp:valid", { email: redactEmail(emailLower) });
   return "valid";
 }
 
@@ -235,13 +252,12 @@ async function sendSignupVerificationOTP(email: string): Promise<boolean> {
   }
 }
 
-function getClientIpFromHeaders(headers: Headers | undefined): string {
-  const forwarded = headers?.get?.("x-forwarded-for");
-  if (!forwarded) {
-    return "unknown";
-  }
-  const first = forwarded.split(",")[0]?.trim();
-  return first || "unknown";
+// Shared trusted-ingress policy: cf-connecting-ip first (Cloudflare always
+// overwrites it), then the LAST x-forwarded-for entry, which the web app sets
+// from its own trusted ingress. Client-supplied leading XFF entries are never
+// trusted, so a caller cannot rotate them to evade per-IP budgets.
+function getIpFromHeaders(headers: Headers | undefined): string {
+  return getClientIpFromHeaders(headers);
 }
 
 async function getPendingSignupData(input: {
@@ -508,8 +524,7 @@ export const signupRouter = router({
       debugLog.api("pendingSignupResend:begin", {
         email: redactEmail(input.email),
       });
-      const reqHeaders = ctx?.req?.headers as Headers | undefined;
-      const ip = reqHeaders?.get?.("x-forwarded-for") || "unknown";
+      const ip = getIpFromHeaders(ctx?.req?.headers as Headers | undefined);
       const rateCheck = await checkRateLimit(
         "resend",
         ip,
@@ -604,13 +619,11 @@ export const signupRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       debugLog.api("pendingSignupStart:begin", {
-        email: input.email,
+        email: redactEmail(input.email),
         username: input.username,
       });
       try {
-        const ip = getClientIpFromHeaders(
-          ctx?.req?.headers as Headers | undefined
-        );
+        const ip = getIpFromHeaders(ctx?.req?.headers as Headers | undefined);
         const rateCheck = await checkRateLimit(
           "start",
           ip,
@@ -719,9 +732,7 @@ export const signupRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       debugLog.api("pendingSignupVerify:begin");
-      const ip = getClientIpFromHeaders(
-        ctx?.req?.headers as Headers | undefined
-      );
+      const ip = getIpFromHeaders(ctx?.req?.headers as Headers | undefined);
 
       if ("otpVerified" in input && input.email && input.otp) {
         debugLog.api("pendingSignupVerify:otp-verification-start");
@@ -810,7 +821,7 @@ export const signupRouter = router({
               deletedCount: deletedCount.count,
             });
             console.log(
-              `Cleaned up ${deletedCount.count} OTP records for ${emailLower}`
+              `Cleaned up ${deletedCount.count} OTP records for ${redactEmail(emailLower)}`
             );
           } catch (cleanupError) {
             console.error("Failed to cleanup OTP records:", cleanupError);
@@ -995,7 +1006,7 @@ export const signupRouter = router({
           deletedCount: deletedCount.count,
         });
         console.log(
-          `Cleaned up ${deletedCount.count} OTP records for ${emailLower} (link path)`
+          `Cleaned up ${deletedCount.count} OTP records for ${redactEmail(emailLower)} (link path)`
         );
       } catch (cleanupError) {
         console.error("Failed to cleanup OTP records:", cleanupError);

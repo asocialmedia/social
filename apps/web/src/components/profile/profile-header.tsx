@@ -102,6 +102,35 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   const joinedDate = formatDate(new Date(liveUserData.createdAt), "MMMM yyyy");
   const socialLinks = getSocialLinks(liveUserData);
 
+  // The edit dialog needs the owner's private avatarKey/bannerKey, so it only
+  // renders when the private own-user payload is present; non-own profiles get
+  // the follow/message actions instead.
+  let profileActions: React.ReactNode = null;
+  if (isOwnProfile) {
+    if (ownUserData) {
+      profileActions = <EditProfileButton user={ownUserData} />;
+    }
+  } else {
+    profileActions = (
+      <div className="flex flex-col items-end gap-2">
+        <FollowButton
+          className="h-9 px-4 text-sm"
+          initialState={followerInfo}
+          userId={liveUserData.id}
+        />
+        <Link
+          aria-label={`Message ${liveUserData.displayName || liveUserData.username}`}
+          className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm!"
+          href={`/messages?dm=${liveUserData.id}`}
+          onClick={handleMessageClick}
+        >
+          <MessageCircle className="h-4 w-4" />
+          Message
+        </Link>
+      </div>
+    );
+  }
+
   let bannerContent: React.ReactNode;
   if (liveUserData.bannerUrl && !bannerFailed) {
     bannerContent = (
@@ -155,30 +184,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               user={liveUserData}
             />
           </div>
-          <div className="mb-2 flex items-center gap-2">
-            {isOwnProfile ? (
-              <EditProfileButton
-                user={ownUserData ?? (liveUserData as PrivateUserData)}
-              />
-            ) : (
-              <div className="flex flex-col items-end gap-2">
-                <FollowButton
-                  className="h-9 px-4 text-sm"
-                  initialState={followerInfo}
-                  userId={liveUserData.id}
-                />
-                <Link
-                  aria-label={`Message ${liveUserData.displayName || liveUserData.username}`}
-                  className="btn-3d-gray flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm!"
-                  href={`/messages?dm=${liveUserData.id}`}
-                  onClick={handleMessageClick}
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  Message
-                </Link>
-              </div>
-            )}
-          </div>
+          <div className="mb-2 flex items-center gap-2">{profileActions}</div>
         </div>
 
         {/* Identity */}

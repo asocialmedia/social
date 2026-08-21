@@ -19,6 +19,7 @@ if (import.meta.main) {
     import("./security"),
     import("./security/config"),
   ]);
+  const { getClientIpFromHeaders } = await import("./security/client-ip");
 
   const logger = createLogger({ serviceName: "auth" });
   const securityConfig = readSecurityConfig();
@@ -38,18 +39,19 @@ if (import.meta.main) {
   let activeRequests = 0;
 
   const getClientIp = (request: Request): string => {
-    // The web app proxies browser traffic to auth, so the real client address
-    // is in x-forwarded-for. Direct callers without the internal secret are
-    // rejected earlier, so trusting this header is safe here.
-    const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded) {
-      return forwarded.split(",")[0]?.trim() || "unknown";
+    // Trusted-ingress policy: Cloudflare-provided headers first (set for every
+    // request Cloudflare forwards), then the LAST x-forwarded-for entry, which
+    // the web app's internal proxy sets from ITS trusted ingress. Only fall
+    // back to the socket address for direct callers.
+    const trusted = getClientIpFromHeaders(request.headers);
+    if (trusted !== "unknown") {
+      return trusted;
     }
     const socketIp = server?.requestIP(request)?.address;
     if (socketIp) {
       return socketIp;
     }
-    return request.headers.get("x-real-ip") ?? "unknown";
+    return "unknown";
   };
 
   const { fetchRequestHandler: trpcFetchHandler } =

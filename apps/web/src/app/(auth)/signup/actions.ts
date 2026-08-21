@@ -1,8 +1,28 @@
 "use server";
 
+import { getClientIpFromHeaders } from "@asm/db";
+import { headers } from "next/headers";
+
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
 
 const RATE_LIMIT_ERROR = "rate-limited";
+
+// Server Actions cannot be reached directly by browsers with forged headers,
+// but the client IP must still be derived from trusted ingress metadata so
+// the auth service's per-IP signup limits are keyed on the real caller, not
+// a shared fallback value.
+async function clientIpHeaders(): Promise<Record<string, string>> {
+  const headersList = await headers();
+  const clientIp = getClientIpFromHeaders(headersList);
+  if (clientIp === "unknown") {
+    return {};
+  }
+  return {
+    "cf-connecting-ip": clientIp,
+    "x-forwarded-for": clientIp,
+    "x-real-ip": clientIp,
+  };
+}
 
 function handleRateLimitError(
   data: unknown,
@@ -58,6 +78,7 @@ export async function signUp(credentials: {
 }): Promise<SignUpResponse> {
   try {
     const authBase = getAuthBaseUrl();
+    const ipHeaders = await clientIpHeaders();
     const res = await fetch(`${authBase}/api/trpc/pendingSignupStart`, {
       body: JSON.stringify({
         id: 1,
@@ -69,7 +90,10 @@ export async function signUp(credentials: {
         },
       }),
       credentials: "include",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
+      headers: authInternalHeaders({
+        "content-type": "application/json",
+        ...ipHeaders,
+      }),
       method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
@@ -150,10 +174,14 @@ export async function resendVerificationEmail(email: string): Promise<{
 }> {
   try {
     const authBase = getAuthBaseUrl();
+    const ipHeaders = await clientIpHeaders();
     const res = await fetch(`${authBase}/api/trpc/pendingSignupResend`, {
       body: JSON.stringify({ id: 1, json: { email } }),
       credentials: "include",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
+      headers: authInternalHeaders({
+        "content-type": "application/json",
+        ...ipHeaders,
+      }),
       method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
@@ -265,10 +293,14 @@ export async function sendVerificationLink(email: string): Promise<{
 }> {
   try {
     const authBase = getAuthBaseUrl();
+    const ipHeaders = await clientIpHeaders();
     const res = await fetch(`${authBase}/api/trpc/pendingSignupSendLink`, {
       body: JSON.stringify({ id: 1, json: { email } }),
       credentials: "include",
-      headers: authInternalHeaders({ "content-type": "application/json" }),
+      headers: authInternalHeaders({
+        "content-type": "application/json",
+        ...ipHeaders,
+      }),
       method: "POST",
     });
     const data = await res.json().catch(() => ({}) as unknown);
