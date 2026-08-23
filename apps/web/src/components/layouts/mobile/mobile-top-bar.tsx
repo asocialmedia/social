@@ -56,10 +56,7 @@ const MobileTopBar: React.FC = () => {
       {/* Out of flow and pinned to the bar's own centerline: the side columns
           have different widths, so centering within the leftover space would
           keep the logo off-center relative to the full-width bar. */}
-      <Link
-        className="absolute left-1/2 -translate-x-1/2 shrink-0"
-        href="/"
-      >
+      <Link className="absolute left-1/2 shrink-0 -translate-x-1/2" href="/">
         <div className="relative h-9 w-12">
           <Image
             alt="asocialmedia"
