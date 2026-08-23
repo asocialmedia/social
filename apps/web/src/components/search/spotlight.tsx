@@ -352,7 +352,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
   }, [onOpenChange]);
 
   const handleRowClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
+    (e: React.MouseEvent<HTMLElement>) => {
       const index = Number(e.currentTarget.dataset.index);
       const result = resultsRef.current[index];
       if (result) {
@@ -362,12 +362,9 @@ const Spotlight: React.FC<SpotlightProps> = ({
     [handleSelect]
   );
 
-  const handleRowHover = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      setActiveIndex(Number(e.currentTarget.dataset.index));
-    },
-    []
-  );
+  const handleRowHover = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    setActiveIndex(Number(e.currentTarget.dataset.index));
+  }, []);
 
   const hasContent = isFetching || items.length > 0 || trimmedQuery;
 
@@ -446,9 +443,9 @@ const Spotlight: React.FC<SpotlightProps> = ({
                 </div>
               ) : null}
               {items.map((item, index) => (
-                <button
+                <div
                   className={cn(
-                    "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
+                    "group relative flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
                     item.type === "post"
                       ? "max-h-[88px] overflow-hidden py-2"
                       : "",
@@ -459,8 +456,16 @@ const Spotlight: React.FC<SpotlightProps> = ({
                   data-index={index}
                   key={item.id}
                   onClick={handleRowClick}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleSelect(item);
+                    }
+                  }}
                   onMouseEnter={handleRowHover}
-                  type="button"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                  role="button"
+                  tabIndex={0}
                 >
                   {item.type === "user" || item.type === "post" ? (
                     <UserAvatar
@@ -582,12 +587,13 @@ const Spotlight: React.FC<SpotlightProps> = ({
                         }
                       }}
                       size="icon"
+                      type="button"
                       variant="ghost"
                     >
                       <X className="h-3.5 w-3.5" />
                     </Button>
                   ) : null}
-                </button>
+                </div>
               ))}
             </div>
           ) : null}

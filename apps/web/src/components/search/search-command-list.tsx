@@ -328,12 +328,20 @@ export const SearchCommandList = ({
                     currentUser.username.toLowerCase())
               );
               return (
-                <button
+                <div
                   className={cn(ROW_CLASS, "group")}
                   data-index={index}
                   key={`history-user-${item.user.id}-${index}`}
                   onClick={() => onSelectUser(item.user)}
-                  type="button"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectUser(item.user);
+                    }
+                  }}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                  role="button"
+                  tabIndex={0}
                 >
                   <UserAvatar
                     avatarUrl={item.user.avatarUrl}
@@ -368,18 +376,19 @@ export const SearchCommandList = ({
                       data-target={removeTarget}
                       onClick={handleRemoveHistoryClick}
                       size="icon"
+                      type="button"
                       variant="ghost"
                     >
                       <X className="h-3.5 w-3.5" />
                     </Button>
                   ) : null}
-                </button>
+                </div>
               );
             }
 
             if (item.type === "post") {
               return (
-                <button
+                <div
                   className={cn(
                     ROW_CLASS,
                     "group relative max-h-23 items-start overflow-hidden py-2.5"
@@ -387,7 +396,15 @@ export const SearchCommandList = ({
                   data-index={index}
                   key={`history-post-${item.post.id}-${index}`}
                   onClick={() => onSelectPost(item.post)}
-                  type="button"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectPost(item.post);
+                    }
+                  }}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                  role="button"
+                  tabIndex={0}
                 >
                   <UserAvatar
                     avatarUrl={item.post.authorAvatarUrl}
@@ -453,12 +470,13 @@ export const SearchCommandList = ({
                       data-target={removeTarget}
                       onClick={handleRemoveHistoryClick}
                       size="icon"
+                      type="button"
                       variant="ghost"
                     >
                       <X className="h-3.5 w-3.5" />
                     </Button>
                   ) : null}
-                </button>
+                </div>
               );
             }
 
@@ -470,12 +488,20 @@ export const SearchCommandList = ({
             ].filter(Boolean);
 
             return (
-              <button
+              <div
                 className={cn(ROW_CLASS, "group")}
                 data-index={index}
                 key={`history-query-${item.query}-${index}`}
                 onClick={() => onSelectSuggestion(item.query)}
-                type="button"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectSuggestion(item.query);
+                  }
+                }}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                role="button"
+                tabIndex={0}
               >
                 <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
                   <Clock3 className="h-4 w-4" />
@@ -497,12 +523,13 @@ export const SearchCommandList = ({
                     data-target={removeTarget}
                     onClick={handleRemoveHistoryClick}
                     size="icon"
+                    type="button"
                     variant="ghost"
                   >
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 ) : null}
-              </button>
+              </div>
             );
           })}
         </div>
