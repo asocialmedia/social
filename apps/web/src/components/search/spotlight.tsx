@@ -1,12 +1,11 @@
 "use client";
 
 import type {
-  SearchHistoryItem,
   SearchPostResult,
   SearchUserResult,
 } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Clock3, Eye, Flame, Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -16,8 +15,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { searchMutations } from "@/components/search/mutations";
-import kyInstance from "@/lib/ky";
+import {
+  normalizeHistoryItem,
+  useSearchHistory,
+} from "@/components/search/use-search-history";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -49,40 +50,6 @@ export interface SpotlightResultItem {
   viewCount?: number;
 }
 
-function normalizeHistoryItem(
-  item: SearchHistoryItem | string
-): SearchHistoryItem {
-  if (typeof item === "string") {
-    try {
-      const parsed = JSON.parse(item);
-      if (parsed && typeof parsed === "object" && "type" in parsed) {
-        if (parsed.type === "user" && parsed.user) {
-          return { raw: item, type: "user", user: parsed.user };
-        }
-        if (parsed.type === "post" && parsed.post) {
-          return {
-            post: {
-              ...parsed.post,
-              createdAt: parsed.post.createdAt
-                ? new Date(parsed.post.createdAt)
-                : new Date(),
-            },
-            raw: item,
-            type: "post",
-          };
-        }
-        if (parsed.type === "query" && typeof parsed.query === "string") {
-          return { query: parsed.query, raw: item, type: "query" };
-        }
-      }
-    } catch {
-      // plain string query
-    }
-    return { query: item, raw: item, type: "query" };
-  }
-  return item;
-}
-
 const fetchResults = async (query: string): Promise<SpotlightResponse> => {
   const response = await fetch(
     `/api/search/spotlight?q=${encodeURIComponent(query)}`
@@ -107,7 +74,6 @@ const Spotlight: React.FC<SpotlightProps> = ({
   initialQuery,
 }) => {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const [query, setQuery] = useState("");
@@ -116,40 +82,12 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<SpotlightResultItem[]>([]);
 
-  const searchMutation = useMutation({
-    mutationFn: searchMutations.addSearch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-      queryClient.invalidateQueries({ queryKey: ["search-suggestions"] });
-    },
-  });
-
-  const addUserSearchMutation = useMutation({
-    mutationFn: searchMutations.addUserSearch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-    },
-  });
-
-  const addPostSearchMutation = useMutation({
-    mutationFn: searchMutations.addPostSearch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-    },
-  });
-
-  const { data: history } = useQuery({
-    enabled: open && isLoggedIn,
-    queryFn: () =>
-      kyInstance
-        .get("/api/search", { searchParams: { type: "history" } })
-        .json<SearchHistoryItem[]>(),
-    queryKey: ["spotlight-history"],
-    staleTime: 30_000,
-  });
+  const {
+    addPostSearchMutation,
+    addSearchMutation,
+    addUserSearchMutation,
+    history,
+  } = useSearchHistory(open);
 
   const { data, isFetching } = useQuery({
     enabled: open && Boolean(query.trim()),
@@ -292,7 +230,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
       } else if (item.type === "post" && item.rawPost) {
         addPostSearchMutation.mutate(item.rawPost);
       } else {
-        searchMutation.mutate(item.displayName);
+        addSearchMutation.mutate(item.displayName);
       }
       onSelect(item);
       onOpenChange(false);
@@ -302,11 +240,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
     },
     [
       addPostSearchMutation,
+      addSearchMutation,
       addUserSearchMutation,
       onOpenChange,
       onSelect,
       router,
-      searchMutation,
     ]
   );
 
@@ -335,7 +273,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
       if (activeItems[activeIndex]) {
         handleSelect(activeItems[activeIndex]);
       } else if (trimmedQuery) {
-        searchMutation.mutate(trimmedQuery);
+        addSearchMutation.mutate(trimmedQuery);
       }
     }
   };

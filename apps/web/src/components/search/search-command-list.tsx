@@ -13,6 +13,7 @@ import { useCallback } from "react";
 import type { MouseEvent } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import { normalizeHistoryItem } from "@/components/search/use-search-history";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -32,40 +33,6 @@ interface SearchCommandListProps {
 interface SearchSuggestion {
   count: number;
   query: string;
-}
-
-function normalizeHistoryItem(
-  item: SearchHistoryItem | string
-): SearchHistoryItem {
-  if (typeof item === "string") {
-    try {
-      const parsed = JSON.parse(item);
-      if (parsed && typeof parsed === "object" && "type" in parsed) {
-        if (parsed.type === "user" && parsed.user) {
-          return { raw: item, type: "user", user: parsed.user };
-        }
-        if (parsed.type === "post" && parsed.post) {
-          return {
-            post: {
-              ...parsed.post,
-              createdAt: parsed.post.createdAt
-                ? new Date(parsed.post.createdAt)
-                : new Date(),
-            },
-            raw: item,
-            type: "post",
-          };
-        }
-        if (parsed.type === "query" && typeof parsed.query === "string") {
-          return { query: parsed.query, raw: item, type: "query" };
-        }
-      }
-    } catch {
-      // plain string query
-    }
-    return { query: item, raw: item, type: "query" };
-  }
-  return item;
 }
 
 const ROW_CLASS =

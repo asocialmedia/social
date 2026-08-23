@@ -1,23 +1,22 @@
 "use client";
 
 import type {
-  SearchHistoryItem,
   SearchPostResult,
   SearchSuggestion,
   SearchUserResult,
 } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSpotlight } from "@/components/search/spotlight-provider";
+import { useSearchHistory } from "@/components/search/use-search-history";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
 
-import { searchMutations } from "../search/mutations";
 import { SearchCommandList } from "../search/search-command-list";
 
 interface SpotlightResponse {
@@ -32,12 +31,20 @@ export default function SearchField({
 } = {}) {
   const router = useRouter();
   const { openSpotlight } = useSpotlight();
-  const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const commandRef = useRef<HTMLDivElement>(null);
   const debouncedInput = useDebounce(input, 300);
+
+  const {
+    addPostSearchMutation,
+    addSearchMutation,
+    addUserSearchMutation,
+    clearHistoryMutation,
+    history,
+    removeHistoryItemMutation,
+  } = useSearchHistory(open);
 
   const { data: suggestions } = useQuery({
     enabled: Boolean(debouncedInput),
@@ -54,15 +61,6 @@ export default function SearchField({
     queryKey: ["search-suggestions", debouncedInput],
   });
 
-  const { data: history } = useQuery({
-    enabled: open,
-    queryFn: () =>
-      kyInstance
-        .get("/api/search", { searchParams: { type: "history" } })
-        .json<SearchHistoryItem[]>(),
-    queryKey: ["search-history"],
-  });
-
   const { data: spotlight } = useQuery({
     enabled: open && Boolean(debouncedInput),
     queryFn: (): Promise<SpotlightResponse> => {
@@ -77,47 +75,6 @@ export default function SearchField({
     },
     queryKey: ["search-spotlight", debouncedInput],
     staleTime: 15_000,
-  });
-
-  const searchMutation = useMutation({
-    mutationFn: searchMutations.addSearch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-suggestions"] });
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-    },
-  });
-
-  const addUserSearchMutation = useMutation({
-    mutationFn: searchMutations.addUserSearch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-    },
-  });
-
-  const addPostSearchMutation = useMutation({
-    mutationFn: searchMutations.addPostSearch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-    },
-  });
-
-  const clearHistoryMutation = useMutation({
-    mutationFn: searchMutations.clearHistory,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-    },
-  });
-
-  const removeHistoryItemMutation = useMutation({
-    mutationFn: searchMutations.removeHistoryItem,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["search-history"] });
-      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
-    },
   });
 
   useEffect(() => {
@@ -142,10 +99,10 @@ export default function SearchField({
       }
       setOpen(false);
       onAfterSearch?.();
-      searchMutation.mutate(searchQuery.trim());
+      addSearchMutation.mutate(searchQuery.trim());
       openSpotlight(searchQuery.trim());
     },
-    [onAfterSearch, openSpotlight, searchMutation]
+    [addSearchMutation, onAfterSearch, openSpotlight]
   );
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
