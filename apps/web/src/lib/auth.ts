@@ -4,7 +4,8 @@ import { createAuthClient } from "better-auth/react";
 const WEB_AUTH_BASE = process.env.NEXT_PUBLIC_URL || "https://social.localhost";
 
 export const authClient = createAuthClient({
-  baseURL: WEB_AUTH_BASE,
+  baseURL:
+    typeof window === "undefined" ? WEB_AUTH_BASE : window.location.origin,
   fetchOptions: {
     credentials: "include",
   },
