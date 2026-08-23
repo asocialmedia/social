@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
     const {
       post: searchedPost,
       query,
+      resultCount,
       type: itemType,
       user: searchedUser,
     } = body;
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest) {
       }
     } else if (query && typeof query === "string") {
       await Promise.all([
-        searchSuggestionsCache.addToHistory(user.id, query),
+        searchSuggestionsCache.addToHistory(user.id, query, resultCount),
         searchSuggestionsCache.addSuggestion(query),
       ]);
     }

@@ -11,9 +11,15 @@ export const searchMutations = {
     }
   },
 
-  addSearch: async (query: string) => {
+  addSearch: async (
+    payload: string | { query: string; resultCount?: number }
+  ) => {
     try {
-      return await kyInstance.post("/api/search", { json: { query } });
+      const json =
+        typeof payload === "string"
+          ? { query: payload }
+          : { query: payload.query, resultCount: payload.resultCount };
+      return await kyInstance.post("/api/search", { json });
     } catch {
       // Guest or network failure should not surface as an unhandled rejection
       // in the UI — history is best-effort.

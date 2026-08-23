@@ -12,9 +12,15 @@ import Image from "next/image";
 import { useCallback } from "react";
 import type { MouseEvent } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { normalizeHistoryItem } from "@/components/search/use-search-history";
-import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import {
+  cn,
+  formatNumber,
+  formatRelativeDate,
+  formatSearchTime,
+} from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SearchCommandListProps {
@@ -50,6 +56,8 @@ export const SearchCommandList = ({
   onClearHistory,
   onRemoveHistoryItem,
 }: SearchCommandListProps) => {
+  const { user: currentUser } = useSession();
+
   const handleClearHistory = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault();
@@ -140,32 +148,47 @@ export const SearchCommandList = ({
           <div className="text-muted-foreground px-2.5 pt-1.5 pb-0.5 text-xs font-semibold tracking-wide uppercase">
             People
           </div>
-          {users.map((user, index) => (
-            <button
-              className={ROW_CLASS}
-              data-index={index}
-              key={`user-${user.id}`}
-              onClick={handleUserClick}
-              type="button"
-            >
-              <UserAvatar
-                avatarUrl={user.avatarUrl}
-                className="h-9 w-9 shrink-0"
-                size={36}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">
-                  {user.displayName || user.username}
+          {users.map((user, index) => {
+            const isSelf = Boolean(
+              currentUser &&
+              (user.id === currentUser.id ||
+                user.username.toLowerCase() ===
+                  currentUser.username.toLowerCase())
+            );
+            return (
+              <button
+                className={ROW_CLASS}
+                data-index={index}
+                key={`user-${user.id}`}
+                onClick={handleUserClick}
+                type="button"
+              >
+                <UserAvatar
+                  avatarUrl={user.avatarUrl}
+                  className="h-9 w-9 shrink-0"
+                  size={36}
+                />
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                    <span className="truncate">
+                      {user.displayName || user.username}
+                    </span>
+                    {isSelf ? (
+                      <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
+                        You
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-xs">
+                    @{user.username}
+                  </span>
                 </span>
-                <span className="text-muted-foreground block truncate text-xs">
-                  @{user.username}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {formatNumber(user.aura)} aura
                 </span>
-              </span>
-              <span className="text-muted-foreground shrink-0 text-xs">
-                {formatNumber(user.aura)} aura
-              </span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       ) : null}
 
@@ -298,6 +321,12 @@ export const SearchCommandList = ({
             }
 
             if (item.type === "user") {
+              const isSelf = Boolean(
+                currentUser &&
+                (item.user.id === currentUser.id ||
+                  item.user.username.toLowerCase() ===
+                    currentUser.username.toLowerCase())
+              );
               return (
                 <button
                   className={cn(ROW_CLASS, "group")}
@@ -312,11 +341,21 @@ export const SearchCommandList = ({
                     size={36}
                   />
                   <span className="min-w-0 flex-1 truncate">
-                    <span className="block truncate text-sm font-medium">
-                      {item.user.displayName || item.user.username}
+                    <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                      <span className="truncate">
+                        {item.user.displayName || item.user.username}
+                      </span>
+                      {isSelf ? (
+                        <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
+                          You
+                        </span>
+                      ) : null}
                     </span>
                     <span className="text-muted-foreground block truncate text-xs">
                       @{item.user.username}
+                      {item.searchedAt
+                        ? ` · ${formatSearchTime(item.searchedAt)}`
+                        : ""}
                     </span>
                   </span>
                   <span className="text-muted-foreground shrink-0 text-xs">
@@ -378,6 +417,11 @@ export const SearchCommandList = ({
                       <span className="shrink-0">
                         {formatRelativeDate(item.post.createdAt)}
                       </span>
+                      {item.searchedAt ? (
+                        <span className="shrink-0">
+                          · {formatSearchTime(item.searchedAt)}
+                        </span>
+                      ) : null}
                     </span>
                   </span>
                   {item.post.previewMedia ? (
@@ -418,6 +462,13 @@ export const SearchCommandList = ({
               );
             }
 
+            const sublineParts = [
+              typeof item.resultCount === "number"
+                ? `${formatNumber(item.resultCount)} results`
+                : null,
+              item.searchedAt ? formatSearchTime(item.searchedAt) : null,
+            ].filter(Boolean);
+
             return (
               <button
                 className={cn(ROW_CLASS, "group")}
@@ -429,9 +480,16 @@ export const SearchCommandList = ({
                 <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
                   <Clock3 className="h-4 w-4" />
                 </div>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {item.query}
-                </span>
+                <div className="min-w-0 flex-1 truncate">
+                  <span className="block truncate text-sm font-medium">
+                    {item.query}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-xs">
+                    {sublineParts.length > 0
+                      ? sublineParts.join(" · ")
+                      : "Recent search"}
+                  </span>
+                </div>
                 {onRemoveHistoryItem ? (
                   <Button
                     aria-label="Remove"

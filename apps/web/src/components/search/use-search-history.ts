@@ -20,7 +20,15 @@ export function normalizeHistoryItem(
       const parsed = JSON.parse(item);
       if (parsed && typeof parsed === "object" && "type" in parsed) {
         if (parsed.type === "user" && parsed.user) {
-          return { raw: item, type: "user", user: parsed.user };
+          return {
+            raw: item,
+            searchedAt:
+              typeof parsed.searchedAt === "number"
+                ? parsed.searchedAt
+                : undefined,
+            type: "user",
+            user: parsed.user,
+          };
         }
         if (parsed.type === "post" && parsed.post) {
           return {
@@ -31,11 +39,27 @@ export function normalizeHistoryItem(
                 : new Date(),
             },
             raw: item,
+            searchedAt:
+              typeof parsed.searchedAt === "number"
+                ? parsed.searchedAt
+                : undefined,
             type: "post",
           };
         }
         if (parsed.type === "query" && typeof parsed.query === "string") {
-          return { query: parsed.query, raw: item, type: "query" };
+          return {
+            query: parsed.query,
+            raw: item,
+            resultCount:
+              typeof parsed.resultCount === "number"
+                ? parsed.resultCount
+                : undefined,
+            searchedAt:
+              typeof parsed.searchedAt === "number"
+                ? parsed.searchedAt
+                : undefined,
+            type: "query",
+          };
         }
       }
     } catch {
@@ -69,13 +93,20 @@ export function useSearchHistory(enabled = true) {
         queryClient.setQueryData(["search-history"], context.previousHistory);
       }
     },
-    onMutate: async (query: string) => {
+    onMutate: async (
+      payload: string | { query: string; resultCount?: number }
+    ) => {
       await queryClient.cancelQueries({ queryKey: ["search-history"] });
       const previousHistory = queryClient.getQueryData<SearchHistoryItem[]>([
         "search-history",
       ]);
 
-      const normalized = query.trim().toLowerCase();
+      const queryStr =
+        typeof payload === "string" ? payload.trim() : payload.query.trim();
+      const resultCount =
+        typeof payload === "object" ? payload.resultCount : undefined;
+      const normalized = queryStr.toLowerCase();
+      const now = Date.now();
       const current = previousHistory ?? [];
       const filtered = current.filter((raw) => {
         const item = normalizeHistoryItem(raw);
@@ -85,8 +116,15 @@ export function useSearchHistory(enabled = true) {
       });
 
       const optimisticItem: SearchHistoryItem = {
-        query: query.trim(),
-        raw: JSON.stringify({ query: query.trim(), type: "query" }),
+        query: queryStr,
+        raw: JSON.stringify({
+          query: queryStr,
+          resultCount,
+          searchedAt: now,
+          type: "query",
+        }),
+        resultCount,
+        searchedAt: now,
         type: "query",
       };
 
@@ -116,6 +154,7 @@ export function useSearchHistory(enabled = true) {
         "search-history",
       ]);
 
+      const now = Date.now();
       const current = previousHistory ?? [];
       const filtered = current.filter((raw) => {
         const item = normalizeHistoryItem(raw);
@@ -123,7 +162,12 @@ export function useSearchHistory(enabled = true) {
       });
 
       const optimisticItem: SearchHistoryItem = {
-        raw: JSON.stringify({ type: "user", user: userPayload }),
+        raw: JSON.stringify({
+          searchedAt: now,
+          type: "user",
+          user: userPayload,
+        }),
+        searchedAt: now,
         type: "user",
         user: userPayload,
       };
@@ -153,6 +197,7 @@ export function useSearchHistory(enabled = true) {
         "search-history",
       ]);
 
+      const now = Date.now();
       const current = previousHistory ?? [];
       const filtered = current.filter((raw) => {
         const item = normalizeHistoryItem(raw);
@@ -161,7 +206,12 @@ export function useSearchHistory(enabled = true) {
 
       const optimisticItem: SearchHistoryItem = {
         post: postPayload,
-        raw: JSON.stringify({ post: postPayload, type: "post" }),
+        raw: JSON.stringify({
+          post: postPayload,
+          searchedAt: now,
+          type: "post",
+        }),
+        searchedAt: now,
         type: "post",
       };
 

@@ -1,9 +1,6 @@
 "use client";
 
-import type {
-  SearchPostResult,
-  SearchUserResult,
-} from "@asm/db";
+import type { SearchPostResult, SearchUserResult } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
 import { Clock3, Eye, Flame, Search } from "lucide-react";
@@ -19,7 +16,12 @@ import {
   normalizeHistoryItem,
   useSearchHistory,
 } from "@/components/search/use-search-history";
-import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import {
+  cn,
+  formatNumber,
+  formatRelativeDate,
+  formatSearchTime,
+} from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SpotlightResponse {
@@ -37,6 +39,7 @@ export interface SpotlightResultItem {
   href: string;
   icon?: React.ReactNode;
   id: string;
+  isSelf?: boolean;
   meta: string;
   previewMedia?: {
     id: string;
@@ -45,6 +48,8 @@ export interface SpotlightResultItem {
   } | null;
   rawPost?: SearchPostResult;
   rawUser?: SearchUserResult;
+  resultCount?: number;
+  searchedAt?: number;
   subtitle?: string;
   type: "user" | "post" | "history" | "suggestion";
   viewCount?: number;
@@ -111,11 +116,17 @@ const Spotlight: React.FC<SpotlightProps> = ({
     const items: SpotlightResultItem[] = [];
 
     for (const suggestion of data?.users ?? []) {
+      const isSelf = Boolean(
+        user &&
+        (suggestion.id === user.id ||
+          suggestion.username.toLowerCase() === user.username.toLowerCase())
+      );
       items.push({
         avatarUrl: suggestion.avatarUrl,
         displayName: suggestion.displayName || suggestion.username,
         href: `/users/${suggestion.username}`,
         id: `user-${suggestion.id}`,
+        isSelf,
         meta: `${formatNumber(suggestion.aura ?? 0)} aura`,
         rawUser: suggestion,
         subtitle: `@${suggestion.username}`,
@@ -143,7 +154,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
     }
 
     return items;
-  }, [data]);
+  }, [data, user]);
 
   const buildSuggestions = useCallback(
     (queryPrefix: string): SpotlightResultItem[] => {
@@ -158,14 +169,27 @@ const Spotlight: React.FC<SpotlightProps> = ({
             entry.user.username.toLowerCase().includes(q) ||
             entry.user.displayName?.toLowerCase().includes(q);
           if (match) {
+            const isSelf = Boolean(
+              user &&
+              (entry.user.id === user.id ||
+                entry.user.username.toLowerCase() ===
+                  user.username.toLowerCase())
+            );
+            const searchTimeStr = entry.searchedAt
+              ? formatSearchTime(entry.searchedAt)
+              : "";
             items.push({
               avatarUrl: entry.user.avatarUrl,
               displayName: entry.user.displayName || entry.user.username,
               href: `/users/${entry.user.username}`,
               id: `history-user-${entry.user.id}`,
+              isSelf,
               meta: `${formatNumber(entry.user.aura ?? 0)} aura`,
               rawUser: entry.user,
-              subtitle: `@${entry.user.username}`,
+              searchedAt: entry.searchedAt,
+              subtitle: searchTimeStr
+                ? `@${entry.user.username} · ${searchTimeStr}`
+                : `@${entry.user.username}`,
               type: "user",
             });
           }
@@ -187,6 +211,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               meta: `${formatNumber(entry.post.aura)} aura · ${formatNumber(entry.post.viewCount)} views`,
               previewMedia: entry.post.previewMedia,
               rawPost: entry.post,
+              searchedAt: entry.searchedAt,
               subtitle: undefined,
               type: "post",
               viewCount: entry.post.viewCount,
@@ -195,11 +220,22 @@ const Spotlight: React.FC<SpotlightProps> = ({
         } else if (entry.type === "query") {
           const match = !q || entry.query.toLowerCase().includes(q);
           if (match) {
+            const metaParts = [
+              typeof entry.resultCount === "number"
+                ? `${formatNumber(entry.resultCount)} results`
+                : null,
+              entry.searchedAt
+                ? formatSearchTime(entry.searchedAt)
+                : "Recent search",
+            ].filter(Boolean);
+
             items.push({
               displayName: entry.query,
               href: "",
               id: `history-query-${entry.query}`,
-              meta: "Recent Search",
+              meta: metaParts.join(" · "),
+              resultCount: entry.resultCount,
+              searchedAt: entry.searchedAt,
               type: "history",
             });
           }
@@ -208,7 +244,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
       return items;
     },
-    [history]
+    [history, user]
   );
 
   const trimmedQuery = query.trim();
@@ -230,7 +266,10 @@ const Spotlight: React.FC<SpotlightProps> = ({
       } else if (item.type === "post" && item.rawPost) {
         addPostSearchMutation.mutate(item.rawPost);
       } else {
-        addSearchMutation.mutate(item.displayName);
+        const resultCount = data
+          ? data.users.length + data.posts.length
+          : undefined;
+        addSearchMutation.mutate({ query: item.displayName, resultCount });
       }
       onSelect(item);
       onOpenChange(false);
@@ -242,6 +281,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
       addPostSearchMutation,
       addSearchMutation,
       addUserSearchMutation,
+      data,
       onOpenChange,
       onSelect,
       router,
@@ -273,7 +313,10 @@ const Spotlight: React.FC<SpotlightProps> = ({
       if (activeItems[activeIndex]) {
         handleSelect(activeItems[activeIndex]);
       } else if (trimmedQuery) {
-        addSearchMutation.mutate(trimmedQuery);
+        const resultCount = data
+          ? data.users.length + data.posts.length
+          : undefined;
+        addSearchMutation.mutate({ query: trimmedQuery, resultCount });
       }
     }
   };
@@ -400,16 +443,23 @@ const Spotlight: React.FC<SpotlightProps> = ({
                   )}
 
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        item.type === "post"
-                          ? "line-clamp-3 overflow-hidden leading-[1.35] [overflow-wrap:anywhere] break-words"
-                          : "block truncate"
-                      )}
-                    >
-                      {item.displayName}
-                    </span>
+                    <div className="flex items-center gap-1.5 overflow-hidden">
+                      <span
+                        className={cn(
+                          "text-sm font-medium",
+                          item.type === "post"
+                            ? "line-clamp-3 overflow-hidden leading-[1.35] [overflow-wrap:anywhere] break-words"
+                            : "block truncate"
+                        )}
+                      >
+                        {item.displayName}
+                      </span>
+                      {item.isSelf ? (
+                        <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
+                          You
+                        </span>
+                      ) : null}
+                    </div>
                     {item.type === "post" ? (
                       <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
                         {item.authorUsername ? (
@@ -439,6 +489,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
                         {item.createdAt ? (
                           <span className="shrink-0">
                             {formatRelativeDate(item.createdAt)}
+                          </span>
+                        ) : null}
+                        {item.searchedAt ? (
+                          <span className="shrink-0">
+                            · {formatSearchTime(item.searchedAt)}
                           </span>
                         ) : null}
                       </span>

@@ -10,16 +10,20 @@ export type SearchHistoryItem =
   | {
       query: string;
       raw: string;
+      resultCount?: number;
+      searchedAt?: number;
       type: "query";
     }
   | {
       raw: string;
+      searchedAt?: number;
       type: "user";
       user: SearchUserResult;
     }
   | {
       post: SearchPostResult;
       raw: string;
+      searchedAt?: number;
       type: "post";
     };
 
@@ -28,7 +32,15 @@ export function parseHistoryEntry(raw: string): SearchHistoryItem {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "type" in parsed) {
       if (parsed.type === "user" && parsed.user) {
-        return { raw, type: "user", user: parsed.user };
+        return {
+          raw,
+          searchedAt:
+            typeof parsed.searchedAt === "number"
+              ? parsed.searchedAt
+              : undefined,
+          type: "user",
+          user: parsed.user,
+        };
       }
       if (parsed.type === "post" && parsed.post) {
         return {
@@ -39,11 +51,27 @@ export function parseHistoryEntry(raw: string): SearchHistoryItem {
               : new Date(),
           },
           raw,
+          searchedAt:
+            typeof parsed.searchedAt === "number"
+              ? parsed.searchedAt
+              : undefined,
           type: "post",
         };
       }
       if (parsed.type === "query" && typeof parsed.query === "string") {
-        return { query: parsed.query, raw, type: "query" };
+        return {
+          query: parsed.query,
+          raw,
+          resultCount:
+            typeof parsed.resultCount === "number"
+              ? parsed.resultCount
+              : undefined,
+          searchedAt:
+            typeof parsed.searchedAt === "number"
+              ? parsed.searchedAt
+              : undefined,
+          type: "query",
+        };
       }
     }
   } catch {
@@ -76,7 +104,11 @@ export const searchSuggestionsCache = {
         return item.type === "post" && item.post.id === post.id;
       });
 
-      const member = JSON.stringify({ post, type: "post" });
+      const member = JSON.stringify({
+        post,
+        searchedAt: Date.now(),
+        type: "post",
+      });
       const pipeline = redis.pipeline();
       if (stale.length > 0) {
         pipeline.zrem(key, ...stale);
@@ -110,7 +142,11 @@ export const searchSuggestionsCache = {
     }
   },
 
-  async addToHistory(userId: string, query: string): Promise<void> {
+  async addToHistory(
+    userId: string,
+    query: string,
+    resultCount?: number
+  ): Promise<void> {
     try {
       const trimmed = query.trim();
       if (!trimmed) {
@@ -132,7 +168,12 @@ export const searchSuggestionsCache = {
         );
       });
 
-      const member = JSON.stringify({ query: trimmed, type: "query" });
+      const member = JSON.stringify({
+        query: trimmed,
+        resultCount: typeof resultCount === "number" ? resultCount : undefined,
+        searchedAt: Date.now(),
+        type: "query",
+      });
       const pipeline = redis.pipeline();
       if (stale.length > 0) {
         pipeline.zrem(key, ...stale);
@@ -164,7 +205,11 @@ export const searchSuggestionsCache = {
         return item.type === "user" && item.user.id === user.id;
       });
 
-      const member = JSON.stringify({ type: "user", user });
+      const member = JSON.stringify({
+        searchedAt: Date.now(),
+        type: "user",
+        user,
+      });
       const pipeline = redis.pipeline();
       if (stale.length > 0) {
         pipeline.zrem(key, ...stale);

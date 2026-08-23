@@ -12,7 +12,8 @@ describe("search cache", () => {
     });
   });
 
-  it("parses json serialized user search item", () => {
+  it("parses json serialized user search item with searchedAt", () => {
+    const now = Date.now();
     const userPayload = {
       aura: 150,
       avatarUrl: "https://avatar.example.com",
@@ -25,7 +26,11 @@ describe("search cache", () => {
       username: "janedoe",
     };
 
-    const serialized = JSON.stringify({ type: "user", user: userPayload });
+    const serialized = JSON.stringify({
+      searchedAt: now,
+      type: "user",
+      user: userPayload,
+    });
     const parsed = parseHistoryEntry(serialized);
 
     expect(parsed.type).toBe("user");
@@ -33,10 +38,12 @@ describe("search cache", () => {
       expect(parsed.user.username).toBe("janedoe");
       expect(parsed.user.id).toBe("u-1");
       expect(parsed.user.aura).toBe(150);
+      expect(parsed.searchedAt).toBe(now);
     }
   });
 
-  it("parses json serialized post search item", () => {
+  it("parses json serialized post search item with searchedAt", () => {
+    const now = Date.now();
     const postPayload = {
       aura: 25,
       authorAvatarUrl: null,
@@ -53,7 +60,11 @@ describe("search cache", () => {
       viewCount: 100,
     };
 
-    const serialized = JSON.stringify({ post: postPayload, type: "post" });
+    const serialized = JSON.stringify({
+      post: postPayload,
+      searchedAt: now,
+      type: "post",
+    });
     const parsed = parseHistoryEntry(serialized);
 
     expect(parsed.type).toBe("post");
@@ -61,10 +72,29 @@ describe("search cache", () => {
       expect(parsed.post.id).toBe("p-1");
       expect(parsed.post.content).toBe("Hello world post");
       expect(parsed.post.createdAt).toBeInstanceOf(Date);
+      expect(parsed.searchedAt).toBe(now);
     }
   });
 
-  it("adds and retrieves rich user, post, and query history in redis", async () => {
+  it("parses json serialized query with resultCount and searchedAt", () => {
+    const now = Date.now();
+    const serialized = JSON.stringify({
+      query: "parazeeknova",
+      resultCount: 12,
+      searchedAt: now,
+      type: "query",
+    });
+    const parsed = parseHistoryEntry(serialized);
+
+    expect(parsed.type).toBe("query");
+    if (parsed.type === "query") {
+      expect(parsed.query).toBe("parazeeknova");
+      expect(parsed.resultCount).toBe(12);
+      expect(parsed.searchedAt).toBe(now);
+    }
+  });
+
+  it("adds and retrieves rich user, post, and query history in redis with metadata", async () => {
     const testUserId = "unit-test-user-search-history";
     await searchSuggestionsCache.clearHistory(testUserId);
 
@@ -98,15 +128,27 @@ describe("search cache", () => {
 
     await searchSuggestionsCache.addUserToHistory(testUserId, userItem);
     await searchSuggestionsCache.addPostToHistory(testUserId, postItem);
-    await searchSuggestionsCache.addToHistory(testUserId, "bun runtime");
+    await searchSuggestionsCache.addToHistory(testUserId, "bun runtime", 15);
 
     const history = await searchSuggestionsCache.getHistory(testUserId);
     expect(history.length).toBe(3);
 
     // Latest added is at the top
     expect(history[0]?.type).toBe("query");
+    if (history[0]?.type === "query") {
+      expect(history[0].resultCount).toBe(15);
+      expect(history[0].searchedAt).toBeDefined();
+    }
+
     expect(history[1]?.type).toBe("post");
+    if (history[1]?.type === "post") {
+      expect(history[1].searchedAt).toBeDefined();
+    }
+
     expect(history[2]?.type).toBe("user");
+    if (history[2]?.type === "user") {
+      expect(history[2].searchedAt).toBeDefined();
+    }
 
     // Remove user
     await searchSuggestionsCache.removeHistoryItem(testUserId, "alice-1");
