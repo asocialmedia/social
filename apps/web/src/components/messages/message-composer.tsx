@@ -326,7 +326,7 @@ export function MessageComposer({
   const busy = sending || sendingMedia;
 
   return (
-    <div className="border-border/60 border-t px-4 py-3">
+    <div className="border-border/60 shrink-0 border-t px-4 py-3">
       {replyTarget ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <MessageSquareQuote className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
