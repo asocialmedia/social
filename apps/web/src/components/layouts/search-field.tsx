@@ -83,6 +83,7 @@ export default function SearchField({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["search-suggestions"] });
       queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
     },
   });
 
@@ -90,6 +91,7 @@ export default function SearchField({
     mutationFn: searchMutations.clearHistory,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
     },
   });
 
@@ -97,6 +99,7 @@ export default function SearchField({
     mutationFn: searchMutations.removeHistoryItem,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
     },
   });
 

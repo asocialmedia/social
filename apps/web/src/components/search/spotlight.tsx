@@ -2,7 +2,7 @@
 
 import type { SearchPostResult, SearchUserResult } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Eye, Flame, Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -67,6 +67,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
   initialQuery,
 }) => {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const [query, setQuery] = useState("");
@@ -74,6 +75,15 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<SpotlightResultItem[]>([]);
+
+  const searchMutation = useMutation({
+    mutationFn: searchMutations.addSearch,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
+      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: ["search-suggestions"] });
+    },
+  });
 
   const { data: history } = useQuery({
     enabled: open && isLoggedIn,
@@ -174,24 +184,32 @@ const Spotlight: React.FC<SpotlightProps> = ({
     [history]
   );
 
+  const trimmedQuery = query.trim();
+  const suggestions = buildSuggestions(query);
+  const items = trimmedQuery ? buildItems() : suggestions;
+
   useEffect(() => {
-    resultsRef.current = buildItems();
-  }, [buildItems]);
+    resultsRef.current = items;
+  }, [items]);
 
   const handleSelect = useCallback(
     (item: SpotlightResultItem) => {
-      searchMutations.addSearch(item.displayName);
+      if (item.type === "history") {
+        setQuery(item.displayName);
+        return;
+      }
+      searchMutation.mutate(item.displayName);
       onSelect(item);
       onOpenChange(false);
       if (item.href) {
         router.push(item.href);
       }
     },
-    [onOpenChange, onSelect, router]
+    [onOpenChange, onSelect, router, searchMutation]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    const items = resultsRef.current;
+    const activeItems = resultsRef.current;
 
     if (e.key === "Escape") {
       onOpenChange(false);
@@ -201,17 +219,21 @@ const Spotlight: React.FC<SpotlightProps> = ({
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((current) =>
-        items.length ? (current + 1) % items.length : 0
+        activeItems.length ? (current + 1) % activeItems.length : 0
       );
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIndex((current) =>
-        items.length ? (current - 1 + items.length) % items.length : 0
+        activeItems.length
+          ? (current - 1 + activeItems.length) % activeItems.length
+          : 0
       );
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (items[activeIndex]) {
-        handleSelect(items[activeIndex]);
+      if (activeItems[activeIndex]) {
+        handleSelect(activeItems[activeIndex]);
+      } else if (trimmedQuery) {
+        searchMutation.mutate(trimmedQuery);
       }
     }
   };
@@ -245,10 +267,6 @@ const Spotlight: React.FC<SpotlightProps> = ({
     },
     []
   );
-
-  const trimmedQuery = query.trim();
-  const suggestions = buildSuggestions(query);
-  const items = trimmedQuery ? buildItems() : suggestions;
 
   const hasContent = isFetching || items.length > 0 || trimmedQuery;
 
