@@ -2,10 +2,14 @@
 
 import type { PrivateUserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import EditProfileDialog from "@/components/layouts/edit-profile-dialog";
 import { cn } from "@/lib/utils";
+
+// While this flag is set the dialog reopens after a page refresh, so an
+// in-progress edit survives an accidental reload.
+const OPEN_FLAG_KEY = "edit-profile-dialog-open";
 
 interface EditProfileButtonProps {
   className?: string;
@@ -17,7 +21,33 @@ export default function EditProfileButton({
   className,
 }: EditProfileButtonProps) {
   const [showDialog, setShowDialog] = useState(false);
-  const handleOpenDialog = useCallback(() => setShowDialog(true), []);
+
+  // Restore an editing session interrupted by a refresh.
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(OPEN_FLAG_KEY);
+      if (stored === "1") {
+        // Deferred one tick so the restore isn't a synchronous setState
+        // inside the effect body.
+        queueMicrotask(() => setShowDialog(true));
+      }
+    } catch {
+      // Storage unavailable (privacy mode): the dialog just stays closed.
+    }
+  }, []);
+
+  const handleOpenChange = useCallback((open: boolean) => {
+    setShowDialog(open);
+    try {
+      if (open) {
+        sessionStorage.setItem(OPEN_FLAG_KEY, "1");
+      } else {
+        sessionStorage.removeItem(OPEN_FLAG_KEY);
+      }
+    } catch {
+      // Ignore storage failures; closing still works.
+    }
+  }, []);
 
   return (
     <>
@@ -31,13 +61,13 @@ export default function EditProfileButton({
           "dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
           className
         )}
-        onClick={handleOpenDialog}
+        onClick={() => handleOpenChange(true)}
         variant="ghost"
       >
         Edit profile
       </Button>
       <EditProfileDialog
-        onOpenChange={setShowDialog}
+        onOpenChange={handleOpenChange}
         open={showDialog}
         user={user}
       />

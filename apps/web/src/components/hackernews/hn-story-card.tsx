@@ -174,7 +174,7 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
               "inline-flex size-6 items-center justify-center rounded-full border-0 transition-all duration-200 ease-out outline-none active:translate-y-px",
               !isBookmarked && "text-muted-foreground pill-3d-hover",
               isBookmarked &&
-                "bg-gradient-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+                "bg-linear-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
             )}
             onClick={handleToggleBookmark}
             type="button"

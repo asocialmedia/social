@@ -74,6 +74,7 @@ export async function POST(request: Request) {
       updatedUser = await prisma.user.update({
         data: {
           bio: parsedValues.bio,
+          customDomain: parsedValues.customDomain || null,
           displayName: parsedValues.displayName,
           githubUsername: parsedValues.githubUsername || null,
           linkedinUsername: parsedValues.linkedinUsername || null,

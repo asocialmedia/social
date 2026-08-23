@@ -40,7 +40,27 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const params = await props.params;
   const { postId } = params;
   const session = await getSessionFromApi();
-  const post = await getPost(postId, session?.user?.id ?? "");
+
+  let post: Awaited<ReturnType<typeof getPost>> | null = null;
+  try {
+    post = await getPost(postId, session?.user?.id ?? "");
+  } catch {
+    // getPost throws notFound() when the row is missing. Under Cache
+    // Components the HTTP status stays 200 (the shell is streamed), so we
+    // must emit an explicit noindex and a safe title here rather than let
+    // the route appear as a soft-404.
+    return {
+      robots: { follow: false, index: false },
+      title: "Post not found",
+    };
+  }
+
+  if (!post) {
+    return {
+      robots: { follow: false, index: false },
+      title: "Post not found",
+    };
+  }
 
   const title = postTitle(post);
   const description = postDescription(post);

@@ -16,6 +16,7 @@ export function getPublicUserSelect(loggedInUserId: string) {
     bannerUrl: true,
     bio: true,
     createdAt: true,
+    customDomain: true,
     displayName: true,
     displayUsername: true,
     followers: {

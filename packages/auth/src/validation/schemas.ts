@@ -124,6 +124,18 @@ const socialUsername = z
   )
   .optional();
 
+// A custom domain like "example.com" (scheme optional, stored bare).
+const customDomain = z
+  .string()
+  .trim()
+  .max(100, "That domain is too long, keep it under 100 characters")
+  .regex(
+    /^(?:https?:\/\/)?[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/,
+    "Enter a valid domain like example.com"
+  )
+  .optional()
+  .or(z.literal(""));
+
 export const updateUserProfileSchema = z.object({
   bio: z
     .string()
@@ -133,6 +145,7 @@ export const updateUserProfileSchema = z.object({
         text.trim().split(whitespaceRegex).filter(Boolean).length <= 400,
       "Bio must not exceed 400 words"
     ),
+  customDomain,
   displayName: safeDisplayString,
   githubUsername: socialUsername,
   linkedinUsername: socialUsername,

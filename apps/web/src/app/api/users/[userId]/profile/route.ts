@@ -29,6 +29,7 @@ export async function PATCH(
   const data: Partial<{
     bio: string;
     displayName: string;
+    customDomain: string | null;
     githubUsername: string | null;
     linkedinUsername: string | null;
     redditUsername: string | null;
@@ -39,6 +40,9 @@ export async function PATCH(
   }
   if (parsedValues.displayName !== undefined) {
     data.displayName = parsedValues.displayName;
+  }
+  if (parsedValues.customDomain !== undefined) {
+    data.customDomain = parsedValues.customDomain || null;
   }
   if (parsedValues.githubUsername !== undefined) {
     data.githubUsername = parsedValues.githubUsername || null;

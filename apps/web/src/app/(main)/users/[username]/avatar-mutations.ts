@@ -278,6 +278,52 @@ export function useDeleteBannerMutation() {
   });
 }
 
+export function useDeleteAvatarMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    // oxlint-disable-next-line typescript/no-invalid-void-type -- delete mutations carry no data
+    void,
+    Error,
+    { userId: string },
+    ProfileMutationContext
+  >({
+    mutationFn: async () => {
+      // The route resolves the stored key server-side from the session, so no
+      // body is needed - the caller can never dictate whose avatar is removed.
+      const response = await fetch("/api/users/avatar", {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || "Failed to remove avatar");
+      }
+    },
+    onError: (error, _, context) => {
+      clientLog.error("Avatar delete error:", error);
+      if (context?.previousUser) {
+        queryClient.setQueryData(
+          ["user", context.previousUser.id],
+          context.previousUser
+        );
+      }
+    },
+    onMutate: async ({ userId }) => {
+      await queryClient.cancelQueries({ queryKey: ["user", userId] });
+      const previousUser = queryClient.getQueryData<PrivateUserData>([
+        "user",
+        userId,
+      ]);
+
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
+        old ? { ...old, avatarKey: null, avatarUrl: null } : old
+      );
+
+      return { previousUser };
+    },
+  });
+}
+
 export function useUpdateProfileMutation() {
   const queryClient = useQueryClient();
 

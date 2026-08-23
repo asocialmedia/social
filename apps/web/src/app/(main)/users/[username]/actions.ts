@@ -17,6 +17,7 @@ export async function updateUserProfile(values: UpdateUserProfileValues) {
   const updatedUser = await prisma.user.update({
     data: {
       bio: validatedValues.bio,
+      customDomain: validatedValues.customDomain || null,
       displayName: validatedValues.displayName,
       githubUsername: validatedValues.githubUsername || null,
       linkedinUsername: validatedValues.linkedinUsername || null,

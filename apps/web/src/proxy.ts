@@ -165,6 +165,21 @@ export async function proxy(request: NextRequest) {
   const isLoopback = LOOPBACK_HOSTNAMES.has(hostname);
   const isAllowedHost = ALLOWED_PRODUCTION_HOSTS.has(hostname);
 
+  // Canonicalize www → apex in production so every indexed URL is the apex
+  // and external links on either host resolve. Cloudflare should also have a
+  // page rule for this, but the app-level redirect keeps it correct even when
+  // traffic reaches the origin directly. Never touch loopback fetches.
+  if (
+    process.env.NODE_ENV === "production" &&
+    !isLoopback &&
+    hostname === "www.asocialmedia.cc"
+  ) {
+    const url = request.nextUrl.clone();
+    url.host = "asocialmedia.cc";
+    url.protocol = "https:";
+    return withSecurityHeaders(NextResponse.redirect(url, 301));
+  }
+
   // Only redirect plain HTTP forwarded requests on approved production domains.
   // Never redirect internal server-to-server or loopback image optimizer fetches.
   if (

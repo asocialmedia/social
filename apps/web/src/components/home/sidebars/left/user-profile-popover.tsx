@@ -13,6 +13,7 @@ import {
   CalendarDays,
   FileText,
   Flame,
+  Globe,
   LogOut,
   Settings2,
   UserPlus,
@@ -22,7 +23,6 @@ import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useState } from "react";
-import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { LogoutDialog } from "@/components/layouts/logout-dialog";
@@ -63,12 +63,20 @@ const PopoverStat = ({
 
 interface PopoverSocialLink {
   href: string;
-  icon: IconType;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
 }
 
 function getSocialLinks(user: UserData): PopoverSocialLink[] {
   const links: PopoverSocialLink[] = [];
+  if (user.customDomain) {
+    const domain = user.customDomain.replace(/^https?:\/\//, "");
+    links.push({
+      href: `https://${domain}`,
+      icon: Globe,
+      label: `Website: ${domain}`,
+    });
+  }
   if (user.githubUsername) {
     links.push({
       href: `https://github.com/${user.githubUsername}`,
