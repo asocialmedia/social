@@ -364,7 +364,7 @@ export const SearchCommandList = ({
                   {onRemoveHistoryItem ? (
                     <Button
                       aria-label="Remove"
-                      className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                      className="text-muted-foreground my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
                       data-target={removeTarget}
                       onClick={handleRemoveHistoryClick}
                       size="icon"
@@ -449,7 +449,7 @@ export const SearchCommandList = ({
                   {onRemoveHistoryItem ? (
                     <Button
                       aria-label="Remove"
-                      className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                      className="text-muted-foreground my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
                       data-target={removeTarget}
                       onClick={handleRemoveHistoryClick}
                       size="icon"
@@ -493,7 +493,7 @@ export const SearchCommandList = ({
                 {onRemoveHistoryItem ? (
                   <Button
                     aria-label="Remove"
-                    className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                    className="text-muted-foreground my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
                     data-target={removeTarget}
                     onClick={handleRemoveHistoryClick}
                     size="icon"

@@ -1,4 +1,4 @@
-// oxlint-disable-next-line oxc/no-barrel-file
+// oxlint-disable oxc/no-barrel-file
 export * from "./cache/avatar-cache";
 export * from "./cache/followbutton-cache";
 export * from "./cache/search-cache";
@@ -11,7 +11,8 @@ export { NotificationType } from "./prisma/generated/prisma/enums";
 export * from "./queue";
 export * from "./src/client";
 export { default as prisma } from "./src/prisma";
-export { Prisma } from "./prisma/generated/prisma/client";
+export * as Prisma from "./prisma/generated/prisma/internal/prismaNamespace";
+export type { Prisma as PrismaTypes } from "./prisma/generated/prisma/client";
 export * from "./src/rate-limit";
 export * from "./src/redis";
 export * from "./src/reserved-usernames";

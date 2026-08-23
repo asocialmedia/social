@@ -1,13 +1,15 @@
 "use client";
 
 import type { SearchPostResult, SearchUserResult } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
-import { Clock3, Eye, Flame, Search } from "lucide-react";
+import { Clock3, Eye, Flame, Search, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
+import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -48,6 +50,7 @@ export interface SpotlightResultItem {
   } | null;
   rawPost?: SearchPostResult;
   rawUser?: SearchUserResult;
+  removeTarget?: string;
   resultCount?: number;
   searchedAt?: number;
   subtitle?: string;
@@ -91,7 +94,9 @@ const Spotlight: React.FC<SpotlightProps> = ({
     addPostSearchMutation,
     addSearchMutation,
     addUserSearchMutation,
+    clearHistoryMutation,
     history,
+    removeHistoryItemMutation,
   } = useSearchHistory();
 
   const { data, isFetching } = useQuery({
@@ -163,7 +168,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
       for (const rawEntry of history ?? []) {
         const entry = normalizeHistoryItem(rawEntry);
+        let removeTarget = entry.raw;
         if (entry.type === "user") {
+          if (!removeTarget) {
+            removeTarget = entry.user.id;
+          }
           const match =
             !q ||
             entry.user.username.toLowerCase().includes(q) ||
@@ -186,6 +195,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               isSelf,
               meta: `${formatNumber(entry.user.aura ?? 0)} aura`,
               rawUser: entry.user,
+              removeTarget,
               searchedAt: entry.searchedAt,
               subtitle: searchTimeStr
                 ? `@${entry.user.username} · ${searchTimeStr}`
@@ -194,6 +204,9 @@ const Spotlight: React.FC<SpotlightProps> = ({
             });
           }
         } else if (entry.type === "post") {
+          if (!removeTarget) {
+            removeTarget = entry.post.id;
+          }
           const match =
             !q ||
             entry.post.content.toLowerCase().includes(q) ||
@@ -211,6 +224,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               meta: `${formatNumber(entry.post.aura)} aura · ${formatNumber(entry.post.viewCount)} views`,
               previewMedia: entry.post.previewMedia,
               rawPost: entry.post,
+              removeTarget,
               searchedAt: entry.searchedAt,
               subtitle: undefined,
               type: "post",
@@ -218,6 +232,9 @@ const Spotlight: React.FC<SpotlightProps> = ({
             });
           }
         } else if (entry.type === "query") {
+          if (!removeTarget) {
+            removeTarget = entry.query;
+          }
           const match = !q || entry.query.toLowerCase().includes(q);
           if (match) {
             const metaParts = [
@@ -234,6 +251,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               href: "",
               id: `history-query-${entry.query}`,
               meta: metaParts.join(" · "),
+              removeTarget,
               resultCount: entry.resultCount,
               searchedAt: entry.searchedAt,
               type: "history",
@@ -409,13 +427,31 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
           {!isFetching && items.length > 0 ? (
             <div className="flex flex-col gap-0.5">
+              {!trimmedQuery && history && history.length > 0 ? (
+                <div className="flex items-center justify-between px-2.5 pt-1 pb-0.5">
+                  <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                    Recent searches
+                  </span>
+                  <Button
+                    className="pill-3d-hover text-muted-foreground h-auto px-2 py-0.5 text-xs"
+                    onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                      e.preventDefault();
+                      clearHistoryMutation.mutate();
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Clear all
+                  </Button>
+                </div>
+              ) : null}
               {items.map((item, index) => (
                 <button
                   className={cn(
-                    "relative flex w-full gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
+                    "group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
                     item.type === "post"
-                      ? "max-h-[88px] items-center overflow-hidden py-2"
-                      : "items-center",
+                      ? "max-h-[88px] overflow-hidden py-2"
+                      : "",
                     index === activeIndex
                       ? "pill-nav-active"
                       : "pill-3d-hover text-foreground"
@@ -533,6 +569,24 @@ const Spotlight: React.FC<SpotlightProps> = ({
                       {item.meta}
                     </span>
                   )}
+
+                  {item.removeTarget ? (
+                    <Button
+                      aria-label="Remove"
+                      className="text-muted-foreground hover:text-foreground hover:bg-muted my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-focus-within:opacity-100 group-hover:opacity-100"
+                      onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (item.removeTarget) {
+                          removeHistoryItemMutation.mutate(item.removeTarget);
+                        }
+                      }}
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
                 </button>
               ))}
             </div>
