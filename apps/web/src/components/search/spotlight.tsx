@@ -394,7 +394,10 @@ const Spotlight: React.FC<SpotlightProps> = ({
           </kbd>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto p-1.5" ref={listRef}>
+        <div
+          className="hide-native-scrollbar max-h-[60vh] overflow-x-hidden overflow-y-auto p-1.5"
+          ref={listRef}
+        >
           {isFetching && trimmedQuery ? (
             <div className="flex flex-col gap-0.5">
               <SpotlightSkeleton />
@@ -445,12 +448,12 @@ const Spotlight: React.FC<SpotlightProps> = ({
               {items.map((item, index) => (
                 <div
                   className={cn(
-                    "group relative flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
+                    "group relative flex w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors duration-150 ease-out outline-none",
                     item.type === "post"
                       ? "max-h-[88px] overflow-hidden py-2"
                       : "",
                     index === activeIndex
-                      ? "pill-nav-active"
+                      ? "pill-nav-active font-normal!"
                       : "pill-3d-hover text-foreground"
                   )}
                   data-index={index}

@@ -42,7 +42,7 @@ interface SearchSuggestion {
 }
 
 const ROW_CLASS =
-  "pill-3d-hover flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-all duration-200 ease-out text-foreground data-[selected=true]:bg-transparent";
+  "pill-3d-hover flex w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left outline-none transition-colors duration-150 ease-out text-foreground data-[selected=true]:bg-transparent";
 
 export const SearchCommandList = ({
   input,
