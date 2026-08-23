@@ -1,6 +1,10 @@
 "use client";
 
-import type { SearchPostResult, SearchUserResult } from "@asm/db";
+import type {
+  SearchHistoryItem,
+  SearchPostResult,
+  SearchUserResult,
+} from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noSearchImage from "@assets/general/nosearch.png";
 import { Clock3, Eye, Flame, TrendingUp, X } from "lucide-react";
@@ -13,10 +17,10 @@ import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SearchCommandListProps {
-  history?: string[];
+  history?: (SearchHistoryItem | string)[];
   input: string;
   onClearHistory?: () => void;
-  onRemoveHistoryItem?: (query: string) => void;
+  onRemoveHistoryItem?: (target: string) => void;
   onSelectPost: (post: SearchPostResult) => void;
   onSelectSuggestion: (value: string) => void;
   onSelectUser: (user: SearchUserResult) => void;
@@ -28,6 +32,40 @@ interface SearchCommandListProps {
 interface SearchSuggestion {
   count: number;
   query: string;
+}
+
+function normalizeHistoryItem(
+  item: SearchHistoryItem | string
+): SearchHistoryItem {
+  if (typeof item === "string") {
+    try {
+      const parsed = JSON.parse(item);
+      if (parsed && typeof parsed === "object" && "type" in parsed) {
+        if (parsed.type === "user" && parsed.user) {
+          return { raw: item, type: "user", user: parsed.user };
+        }
+        if (parsed.type === "post" && parsed.post) {
+          return {
+            post: {
+              ...parsed.post,
+              createdAt: parsed.post.createdAt
+                ? new Date(parsed.post.createdAt)
+                : new Date(),
+            },
+            raw: item,
+            type: "post",
+          };
+        }
+        if (parsed.type === "query" && typeof parsed.query === "string") {
+          return { query: parsed.query, raw: item, type: "query" };
+        }
+      }
+    } catch {
+      // plain string query
+    }
+    return { query: item, raw: item, type: "query" };
+  }
+  return item;
 }
 
 const ROW_CLASS =
@@ -54,10 +92,10 @@ export const SearchCommandList = ({
   );
 
   const handleRemoveHistoryItem = useCallback(
-    (e: MouseEvent<HTMLButtonElement>, query: string) => {
+    (e: MouseEvent<HTMLButtonElement>, target: string) => {
       e.preventDefault();
       e.stopPropagation();
-      onRemoveHistoryItem?.(query);
+      onRemoveHistoryItem?.(target);
     },
     [onRemoveHistoryItem]
   );
@@ -95,22 +133,12 @@ export const SearchCommandList = ({
     [onSelectSuggestion, suggestions]
   );
 
-  const handleHistoryClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      const index = Number(e.currentTarget.dataset.index);
-      const query = history?.[index];
-      if (query) {
-        onSelectSuggestion(query);
-      }
-    },
-    [history, onSelectSuggestion]
-  );
-
   const handleRemoveHistoryClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
-      const { query } = e.currentTarget.dataset;
-      if (query) {
-        handleRemoveHistoryItem(e, query);
+      const target =
+        e.currentTarget.dataset.target || e.currentTarget.dataset.query;
+      if (target) {
+        handleRemoveHistoryItem(e, target);
       }
     },
     [handleRemoveHistoryItem]
@@ -289,34 +317,169 @@ export const SearchCommandList = ({
               </Button>
             ) : null}
           </div>
-          {history.map((query, index) => (
-            <button
-              className={cn(ROW_CLASS, "group")}
-              data-index={index}
-              key={query}
-              onClick={handleHistoryClick}
-              type="button"
-            >
-              <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
-                <Clock3 className="h-4 w-4" />
-              </div>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                {query}
-              </span>
-              {onRemoveHistoryItem ? (
-                <Button
-                  aria-label="Remove"
-                  className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
-                  data-query={query}
-                  onClick={handleRemoveHistoryClick}
-                  size="icon"
-                  variant="ghost"
+          {history.map((rawEntry, index) => {
+            const item = normalizeHistoryItem(rawEntry);
+            let removeTarget = item.raw;
+            if (!removeTarget) {
+              if (item.type === "query") {
+                removeTarget = item.query;
+              } else if (item.type === "user") {
+                removeTarget = item.user.id;
+              } else {
+                removeTarget = item.post.id;
+              }
+            }
+
+            if (item.type === "user") {
+              return (
+                <button
+                  className={cn(ROW_CLASS, "group")}
+                  data-index={index}
+                  key={`history-user-${item.user.id}-${index}`}
+                  onClick={() => onSelectUser(item.user)}
+                  type="button"
                 >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              ) : null}
-            </button>
-          ))}
+                  <UserAvatar
+                    avatarUrl={item.user.avatarUrl}
+                    className="h-9 w-9 shrink-0"
+                    size={36}
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="block truncate text-sm font-medium">
+                      {item.user.displayName || item.user.username}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      @{item.user.username}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {formatNumber(item.user.aura)} aura
+                  </span>
+                  {onRemoveHistoryItem ? (
+                    <Button
+                      aria-label="Remove"
+                      className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                      data-target={removeTarget}
+                      onClick={handleRemoveHistoryClick}
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </button>
+              );
+            }
+
+            if (item.type === "post") {
+              return (
+                <button
+                  className={cn(
+                    ROW_CLASS,
+                    "group relative max-h-23 items-start overflow-hidden py-2.5"
+                  )}
+                  data-index={index}
+                  key={`history-post-${item.post.id}-${index}`}
+                  onClick={() => onSelectPost(item.post)}
+                  type="button"
+                >
+                  <UserAvatar
+                    avatarUrl={item.post.authorAvatarUrl}
+                    className="h-9 w-9 shrink-0"
+                    size={36}
+                  />
+                  <span className="min-w-0 flex-1 overflow-hidden">
+                    <span className="line-clamp-3 overflow-hidden text-sm leading-[1.35] font-medium [overflow-wrap:anywhere] break-words">
+                      {item.post.content}
+                    </span>
+                    <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2.5 text-xs">
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        <Flame
+                          className={cn(
+                            "h-3 w-3",
+                            item.post.aura < 0
+                              ? "text-[#7c5cff]"
+                              : "text-orange-500"
+                          )}
+                        />
+                        {formatNumber(item.post.aura)}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        <Eye className="h-3 w-3" />
+                        {formatNumber(item.post.viewCount)}
+                      </span>
+                      <span className="shrink-0">
+                        {formatRelativeDate(item.post.createdAt)}
+                      </span>
+                    </span>
+                  </span>
+                  {item.post.previewMedia ? (
+                    <div className="bg-muted relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+                      <Image
+                        alt=""
+                        className={cn(
+                          "h-full w-full object-cover",
+                          item.post.explicitContent && "opacity-70 blur-md"
+                        )}
+                        fill
+                        sizes="48px"
+                        src={getMediaProxyUrl(item.post.previewMedia)}
+                        unoptimized
+                      />
+                      {item.post.previewMedia.type === "VIDEO" ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                            <span className="ml-px h-0 w-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-zinc-900" />
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {onRemoveHistoryItem ? (
+                    <Button
+                      aria-label="Remove"
+                      className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                      data-target={removeTarget}
+                      onClick={handleRemoveHistoryClick}
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </button>
+              );
+            }
+
+            return (
+              <button
+                className={cn(ROW_CLASS, "group")}
+                data-index={index}
+                key={`history-query-${item.query}-${index}`}
+                onClick={() => onSelectSuggestion(item.query)}
+                type="button"
+              >
+                <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                  <Clock3 className="h-4 w-4" />
+                </div>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {item.query}
+                </span>
+                {onRemoveHistoryItem ? (
+                  <Button
+                    aria-label="Remove"
+                    className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                    data-target={removeTarget}
+                    onClick={handleRemoveHistoryClick}
+                    size="icon"
+                    variant="ghost"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       ) : null}
 

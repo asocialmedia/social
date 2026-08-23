@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  SearchHistoryItem,
   SearchPostResult,
   SearchSuggestion,
   SearchUserResult,
@@ -58,7 +59,7 @@ export default function SearchField({
     queryFn: () =>
       kyInstance
         .get("/api/search", { searchParams: { type: "history" } })
-        .json<string[]>(),
+        .json<SearchHistoryItem[]>(),
     queryKey: ["search-history"],
   });
 
@@ -82,6 +83,22 @@ export default function SearchField({
     mutationFn: searchMutations.addSearch,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["search-suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
+    },
+  });
+
+  const addUserSearchMutation = useMutation({
+    mutationFn: searchMutations.addUserSearch,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
+    },
+  });
+
+  const addPostSearchMutation = useMutation({
+    mutationFn: searchMutations.addPostSearch,
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["search-history"] });
       queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
     },
@@ -147,8 +164,8 @@ export default function SearchField({
     clearHistoryMutation.mutate();
   }, [clearHistoryMutation]);
   const handleRemoveHistoryItem = useCallback(
-    (query: string) => {
-      removeHistoryItemMutation.mutate(query);
+    (target: string) => {
+      removeHistoryItemMutation.mutate(target);
     },
     [removeHistoryItemMutation]
   );
@@ -163,17 +180,19 @@ export default function SearchField({
   const handleSelectUser = useCallback(
     (user: SearchUserResult) => {
       setOpen(false);
+      addUserSearchMutation.mutate(user);
       router.push(`/users/${user.username}`);
     },
-    [router]
+    [addUserSearchMutation, router]
   );
 
   const handleSelectPost = useCallback(
     (post: SearchPostResult) => {
       setOpen(false);
+      addPostSearchMutation.mutate(post);
       router.push(`/posts/${post.id}`);
     },
-    [router]
+    [addPostSearchMutation, router]
   );
 
   return (

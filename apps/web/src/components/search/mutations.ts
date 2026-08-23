@@ -1,6 +1,16 @@
+import type { SearchPostResult, SearchUserResult } from "@asm/db";
+
 import kyInstance from "@/lib/ky";
 
 export const searchMutations = {
+  addPostSearch: async (post: SearchPostResult) => {
+    try {
+      return await kyInstance.post("/api/search", { json: { post } });
+    } catch {
+      return null;
+    }
+  },
+
   addSearch: async (query: string) => {
     try {
       return await kyInstance.post("/api/search", { json: { query } });
@@ -11,15 +21,23 @@ export const searchMutations = {
     }
   },
 
+  addUserSearch: async (user: SearchUserResult) => {
+    try {
+      return await kyInstance.post("/api/search", { json: { user } });
+    } catch {
+      return null;
+    }
+  },
+
   clearHistory: async () =>
     await kyInstance.delete("/api/search", {
       searchParams: { type: "history" },
     }),
 
-  removeHistoryItem: async (query: string) =>
+  removeHistoryItem: async (target: string) =>
     await kyInstance.delete("/api/search", {
       searchParams: {
-        query,
+        target,
         type: "history",
       },
     }),

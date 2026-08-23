@@ -1,6 +1,10 @@
 "use client";
 
-import type { SearchPostResult, SearchUserResult } from "@asm/db";
+import type {
+  SearchHistoryItem,
+  SearchPostResult,
+  SearchUserResult,
+} from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Eye, Flame, Search } from "lucide-react";
@@ -38,9 +42,45 @@ export interface SpotlightResultItem {
     thumbnailKey: string | null;
     type: string;
   } | null;
+  rawPost?: SearchPostResult;
+  rawUser?: SearchUserResult;
   subtitle?: string;
   type: "user" | "post" | "history" | "suggestion";
   viewCount?: number;
+}
+
+function normalizeHistoryItem(
+  item: SearchHistoryItem | string
+): SearchHistoryItem {
+  if (typeof item === "string") {
+    try {
+      const parsed = JSON.parse(item);
+      if (parsed && typeof parsed === "object" && "type" in parsed) {
+        if (parsed.type === "user" && parsed.user) {
+          return { raw: item, type: "user", user: parsed.user };
+        }
+        if (parsed.type === "post" && parsed.post) {
+          return {
+            post: {
+              ...parsed.post,
+              createdAt: parsed.post.createdAt
+                ? new Date(parsed.post.createdAt)
+                : new Date(),
+            },
+            raw: item,
+            type: "post",
+          };
+        }
+        if (parsed.type === "query" && typeof parsed.query === "string") {
+          return { query: parsed.query, raw: item, type: "query" };
+        }
+      }
+    } catch {
+      // plain string query
+    }
+    return { query: item, raw: item, type: "query" };
+  }
+  return item;
 }
 
 const fetchResults = async (query: string): Promise<SpotlightResponse> => {
@@ -85,12 +125,28 @@ const Spotlight: React.FC<SpotlightProps> = ({
     },
   });
 
+  const addUserSearchMutation = useMutation({
+    mutationFn: searchMutations.addUserSearch,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
+      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+    },
+  });
+
+  const addPostSearchMutation = useMutation({
+    mutationFn: searchMutations.addPostSearch,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spotlight-history"] });
+      queryClient.invalidateQueries({ queryKey: ["search-history"] });
+    },
+  });
+
   const { data: history } = useQuery({
     enabled: open && isLoggedIn,
     queryFn: () =>
       kyInstance
         .get("/api/search", { searchParams: { type: "history" } })
-        .json<string[]>(),
+        .json<SearchHistoryItem[]>(),
     queryKey: ["spotlight-history"],
     staleTime: 30_000,
   });
@@ -123,6 +179,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
         href: `/users/${suggestion.username}`,
         id: `user-${suggestion.id}`,
         meta: `${formatNumber(suggestion.aura ?? 0)} aura`,
+        rawUser: suggestion,
         subtitle: `@${suggestion.username}`,
         type: "user",
       });
@@ -140,6 +197,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
         id: `post-${post.id}`,
         meta: `${formatNumber(post.aura)} aura · ${formatNumber(post.viewCount)} views`,
         previewMedia: post.previewMedia,
+        rawPost: post,
         subtitle: undefined,
         type: "post",
         viewCount: post.viewCount,
@@ -152,30 +210,61 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const buildSuggestions = useCallback(
     (queryPrefix: string): SpotlightResultItem[] => {
       const items: SpotlightResultItem[] = [];
-      const q = queryPrefix.trim();
+      const q = queryPrefix.trim().toLowerCase();
 
-      if (!q) {
-        for (const entry of history ?? []) {
-          items.push({
-            displayName: entry,
-            href: "",
-            id: `history-${entry}`,
-            meta: "Recent",
-            type: "history",
-          });
-        }
-        return items;
-      }
-
-      for (const entry of history ?? []) {
-        if (entry.toLowerCase().includes(q.toLowerCase())) {
-          items.push({
-            displayName: entry,
-            href: "",
-            id: `history-${entry}`,
-            meta: "Recent",
-            type: "history",
-          });
+      for (const rawEntry of history ?? []) {
+        const entry = normalizeHistoryItem(rawEntry);
+        if (entry.type === "user") {
+          const match =
+            !q ||
+            entry.user.username.toLowerCase().includes(q) ||
+            entry.user.displayName?.toLowerCase().includes(q);
+          if (match) {
+            items.push({
+              avatarUrl: entry.user.avatarUrl,
+              displayName: entry.user.displayName || entry.user.username,
+              href: `/users/${entry.user.username}`,
+              id: `history-user-${entry.user.id}`,
+              meta: `${formatNumber(entry.user.aura ?? 0)} aura`,
+              rawUser: entry.user,
+              subtitle: `@${entry.user.username}`,
+              type: "user",
+            });
+          }
+        } else if (entry.type === "post") {
+          const match =
+            !q ||
+            entry.post.content.toLowerCase().includes(q) ||
+            entry.post.authorUsername.toLowerCase().includes(q);
+          if (match) {
+            items.push({
+              aura: entry.post.aura,
+              authorUsername: entry.post.authorUsername,
+              avatarUrl: entry.post.authorAvatarUrl,
+              createdAt: entry.post.createdAt,
+              displayName: entry.post.content,
+              explicitContent: entry.post.explicitContent,
+              href: `/posts/${entry.post.id}`,
+              id: `history-post-${entry.post.id}`,
+              meta: `${formatNumber(entry.post.aura)} aura · ${formatNumber(entry.post.viewCount)} views`,
+              previewMedia: entry.post.previewMedia,
+              rawPost: entry.post,
+              subtitle: undefined,
+              type: "post",
+              viewCount: entry.post.viewCount,
+            });
+          }
+        } else if (entry.type === "query") {
+          const match = !q || entry.query.toLowerCase().includes(q);
+          if (match) {
+            items.push({
+              displayName: entry.query,
+              href: "",
+              id: `history-query-${entry.query}`,
+              meta: "Recent Search",
+              type: "history",
+            });
+          }
         }
       }
 
@@ -198,14 +287,27 @@ const Spotlight: React.FC<SpotlightProps> = ({
         setQuery(item.displayName);
         return;
       }
-      searchMutation.mutate(item.displayName);
+      if (item.type === "user" && item.rawUser) {
+        addUserSearchMutation.mutate(item.rawUser);
+      } else if (item.type === "post" && item.rawPost) {
+        addPostSearchMutation.mutate(item.rawPost);
+      } else {
+        searchMutation.mutate(item.displayName);
+      }
       onSelect(item);
       onOpenChange(false);
       if (item.href) {
         router.push(item.href);
       }
     },
-    [onOpenChange, onSelect, router, searchMutation]
+    [
+      addPostSearchMutation,
+      addUserSearchMutation,
+      onOpenChange,
+      onSelect,
+      router,
+      searchMutation,
+    ]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
