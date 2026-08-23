@@ -52,8 +52,14 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
 
-  const handleGoHome = useCallback(() => {
-    router.push("/");
+  const handleGoBack = useCallback(() => {
+    // Return to wherever the user came from (e.g. a post opened via a swipe);
+    // only land on the home feed when there is no prior entry to go back to.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
   }, [router]);
 
   const handleOpenSettings = useCallback(() => {
@@ -137,9 +143,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   />
                   <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 md:hidden">
                     <button
-                      aria-label="Go back to home"
+                      aria-label="Go back"
                       className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                      onClick={handleGoHome}
+                      onClick={handleGoBack}
                       type="button"
                     >
                       <ArrowLeft className="h-5 w-5" />

@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  Bookmark,
   Clapperboard,
   Compass,
   Home,
   MessagesSquare,
+  Newspaper,
 } from "lucide-react";
 import { motion } from "motion/react";
 import Link, { useLinkStatus } from "next/link";
@@ -13,8 +13,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import Spinner3D from "@/components/layouts/spinner-3d";
 import { useSpotlight } from "@/components/search/spotlight-provider";
-import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { cn, formatNumber, isRouteActive } from "@/lib/utils";
@@ -36,21 +36,17 @@ const NAV_ITEMS: MobileNavItem[] = [
     label: "Messages",
     requiresAuth: true,
   },
+  // Bookmarks lives in the mobile profile popover instead; the last slot is
+  // HackerNews.
   {
-    href: "/bookmarks",
-    icon: Bookmark,
-    label: "Bookmarks",
+    href: "/hackernews",
+    icon: Newspaper,
+    label: "HN",
     requiresAuth: true,
   },
 ];
 
-const countFor = (
-  href: string,
-  counts: { bookmarkCount?: number; unreadMessageCount?: number }
-) => {
-  if (href === "/bookmarks") {
-    return counts.bookmarkCount;
-  }
+const countFor = (href: string, counts: { unreadMessageCount?: number }) => {
   if (href === "/messages") {
     return counts.unreadMessageCount;
   }
@@ -59,26 +55,42 @@ const countFor = (
 const formatCount = (count: number) =>
   count > 99 ? "99+" : formatNumber(count);
 
-// Replaces the icon with a spinner while the nearest <Link> navigation is
-// pending, keeping the loader in the icon's own slot instead of below it.
-// Never flashes on instant navigations.
+// Replaces the icon with the app's 3D spinner while the nearest <Link>
+// navigation is pending, keeping the loader in the icon's own slot instead of
+// below it. Only a navigation to a DIFFERENT page shows it - hammering the tab
+// you are already on must not flash anything.
 const NavIcon: React.FC<{
   active: boolean;
   icon: typeof Home;
 }> = ({ active, icon: Icon }) => {
   const { pending } = useLinkStatus();
-  if (!pending) {
-    return (
-      <Icon
-        className={cn("h-5 w-5 transition-colors", active && "text-white")}
-      />
-    );
+  if (pending && !active) {
+    return <Spinner3D className="size-5" />;
+  }
+  return (
+    <Icon className={cn("h-5 w-5 transition-colors", active && "text-white")} />
+  );
+};
+
+// The tab label hides while that link's navigation is pending, giving the 3D
+// spinner the whole item slot.
+const NavLabel: React.FC<{
+  active: boolean;
+  children: React.ReactNode;
+}> = ({ active, children }) => {
+  const { pending } = useLinkStatus();
+  if (pending && !active) {
+    return null;
   }
   return (
     <span
-      aria-hidden
-      className="inline-block size-5 animate-spin rounded-full border-2 border-current border-t-transparent"
-    />
+      className={cn(
+        "relative z-10 transition-colors",
+        active && "font-semibold text-white"
+      )}
+    >
+      {children}
+    </span>
   );
 };
 
@@ -88,7 +100,6 @@ const MobileBottomNav: React.FC = () => {
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
-  const { data: bookmarkData } = useBookmarkCount();
   const unreadMessageCount = useUnreadMessageCount();
   const { openSpotlight } = useSpotlight();
   const handleOpenSpotlight = () => openSpotlight();
@@ -101,7 +112,6 @@ const MobileBottomNav: React.FC = () => {
   }
 
   const counts = {
-    bookmarkCount: bookmarkData?.totalCount ?? 0,
     unreadMessageCount,
   };
 
@@ -141,14 +151,7 @@ const MobileBottomNav: React.FC = () => {
             </span>
           ) : null}
         </span>
-        <span
-          className={cn(
-            "relative z-10 transition-colors",
-            isActive && "font-semibold text-white"
-          )}
-        >
-          {label}
-        </span>
+        <NavLabel active={isActive}>{label}</NavLabel>
       </>
     );
 
