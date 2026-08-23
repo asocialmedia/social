@@ -1,3 +1,4 @@
+import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
@@ -9,6 +10,17 @@ const FORWARDED_HEADER_BLOCKLIST = new Set([
   "host",
   "transfer-encoding",
 ]);
+
+// Paths the auth service gates behind x-internal-secret because browsers must
+// never reach them directly. Injecting the shared secret here would vouch for
+// a browser-originated request and defeat that gate entirely (e.g. an
+// anonymous visitor registering with role="admin" through /sign-up/email).
+// The web app's own server-to-server callers attach the secret explicitly.
+const BROWSER_BLOCKED_PATHS = ["/api/auth/sign-up/email"];
+
+function isBrowserBlockedPath(pathname: string): boolean {
+  return BROWSER_BLOCKED_PATHS.some((prefix) => pathname.startsWith(prefix));
+}
 
 function buildUpstreamHeaders(request: NextRequest) {
   const headers = new Headers();
@@ -31,6 +43,21 @@ function buildUpstreamHeaders(request: NextRequest) {
   headers.set("x-forwarded-host", forwardedHost);
   headers.set("x-forwarded-proto", forwardedProto);
 
+  // The auth service derives per-IP rate-limit identities from forwarding
+  // headers, so client-supplied values must never pass through verbatim: a
+  // rotating X-Forwarded-For would reset every IP-keyed bucket (OTP brute
+  // force). Replace them with ONE normalized client IP resolved by this
+  // app's own trusted-ingress policy (Cloudflare's cf-connecting-ip when
+  // present; "unknown" otherwise in production).
+  const vouchedIp = getClientIpFromHeaders(request.headers);
+  if (vouchedIp && vouchedIp !== "unknown") {
+    headers.set("x-forwarded-for", vouchedIp);
+  } else {
+    headers.delete("x-forwarded-for");
+  }
+  headers.delete("cf-connecting-ip");
+  headers.delete("x-real-ip");
+
   if (!headers.get("origin")) {
     headers.set("origin", forwardedOrigin);
   }
@@ -39,8 +66,9 @@ function buildUpstreamHeaders(request: NextRequest) {
     headers.set("referer", `${forwardedOrigin}/`);
   }
 
-  // Authenticate this server-to-server proxied call to the auth service.
-  if (INTERNAL_SECRET) {
+  // Authenticate this server-to-server proxied call to the auth service,
+  // except for paths the auth service reserves for internal callers only.
+  if (INTERNAL_SECRET && !isBrowserBlockedPath(request.nextUrl.pathname)) {
     headers.set("x-internal-secret", INTERNAL_SECRET);
   }
 

@@ -1,5 +1,7 @@
-import { prisma } from "@asm/db";
+import { getUserDataSelect, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
+
+import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
   _request: Request,
@@ -15,24 +17,13 @@ export async function GET(
       );
     }
 
+    // Public projection only: never serialize a raw Prisma user row, which
+    // would include email, passwordHash and OAuth provider ids.
+    const session = await getSessionFromApi();
+    const viewerId = session?.user?.id ?? "";
+
     const user = await prisma.user.findUnique({
-      include: {
-        _count: {
-          select: {
-            followers: true,
-            following: true,
-            posts: true,
-          },
-        },
-        followers: {
-          select: {
-            followerId: true,
-          },
-          where: {
-            followerId: userId,
-          },
-        },
-      },
+      select: getUserDataSelect(viewerId),
       where: { id: userId },
     });
 

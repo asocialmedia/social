@@ -15,6 +15,46 @@ import { extractVideoThumbnail } from "@/lib/video-thumbnail";
 // this are rejected before formData() buffers the body into memory.
 const MAX_REQUEST_BYTES = 260 * 1024 * 1024;
 
+// image-size@2.0.2 has no patched release yet for its infinite-loop parsers
+// (CVE-2025-71329 JXL/HEIF, CVE-2025-71330 ICNS): a crafted zero-valued size
+// field permanently blocks the event loop. These formats stay uploadable, but
+// dimension extraction is skipped for anything whose BYTES look like one of
+// them (detected from magic, never trusted from the client-declared MIME).
+const HEIF_FTYP_BRANDS = new Set([
+  "heic",
+  "heim",
+  "heis",
+  "heix",
+  "hevc",
+  "hevx",
+  "hif",
+  "mif1",
+  "msf1",
+]);
+
+function looksLikeUnsafeImageSizeFormat(buffer: Buffer): boolean {
+  if (buffer.length < 12) {
+    return false;
+  }
+  // JPEG XL: raw codestream (FF 0A) or ISO-BMFF container with "JXL " brand.
+  if (buffer[0] === 0xff && buffer[1] === 0x0a) {
+    return true;
+  }
+  const brand = buffer.subarray(4, 8).toString("latin1");
+  if (brand === "JXL ") {
+    return true;
+  }
+  // ICNS: literal "icns" magic at offset 0.
+  if (buffer.subarray(0, 4).toString("latin1") === "icns") {
+    return true;
+  }
+  // HEIF family: ISO-BMFF whose ftyp brand is a HEIF/HEVC derivative.
+  if (buffer.subarray(4, 8).toString("latin1") === "ftyp") {
+    return HEIF_FTYP_BRANDS.has(buffer.subarray(8, 12).toString("latin1"));
+  }
+  return false;
+}
+
 // Reads the request body while counting bytes and rejects as soon as the total
 // exceeds MAX_REQUEST_BYTES. This matters for chunked requests without a
 // Content-Length, which the early header check cannot catch and formData()
@@ -148,13 +188,23 @@ export async function POST(request: Request) {
   let width: number | null = null;
   let height: number | null = null;
   if (file.type.startsWith("image/") && file.type !== "image/svg+xml") {
-    try {
-      const headerBuffer = await file.slice(0, 64 * 1024).arrayBuffer();
-      const dimensions = imageSize(new Uint8Array(headerBuffer));
-      width = dimensions.width ?? null;
-      height = dimensions.height ?? null;
-    } catch (error) {
-      console.error("Failed to read image dimensions:", error);
+    // Dimension extraction runs the third-party parser on attacker-supplied
+    // bytes, so formats with known unpatched infinite-loop parsers are
+    // detected from the buffer magic and skipped entirely.
+    if (looksLikeUnsafeImageSizeFormat(fileBuffer)) {
+      console.warn("Skipping dimension parsing for unsafe image format:", {
+        name: file.name,
+        type: file.type,
+      });
+    } else {
+      try {
+        const headerBuffer = await file.slice(0, 64 * 1024).arrayBuffer();
+        const dimensions = imageSize(new Uint8Array(headerBuffer));
+        width = dimensions.width ?? null;
+        height = dimensions.height ?? null;
+      } catch (error) {
+        console.error("Failed to read image dimensions:", error);
+      }
     }
   }
 

@@ -35,10 +35,24 @@ export async function GET(
     }
 
     const headers = new Headers();
-    headers.set(
-      "Content-Type",
-      response.ContentType || "application/octet-stream"
-    );
+    // Serve only a fixed image allowlist. A legacy or crafted object whose
+    // stored type is not an image falls back to octet-stream with an
+    // attachment disposition so the browser can never sniff it into HTML.
+    const IMAGE_CONTENT_TYPES = new Set([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+    const storedType = response.ContentType || "";
+    if (IMAGE_CONTENT_TYPES.has(storedType)) {
+      headers.set("Content-Type", storedType);
+      headers.set("Content-Disposition", "inline");
+    } else {
+      headers.set("Content-Type", "application/octet-stream");
+      headers.set("Content-Disposition", "attachment");
+    }
+    // Belt-and-braces against MIME sniffing for any stored content.
+    headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Cache-Control", "public, max-age=31536000");
     if (response.ContentLength) {
       headers.set("Content-Length", response.ContentLength.toString());

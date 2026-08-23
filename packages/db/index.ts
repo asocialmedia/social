@@ -11,6 +11,7 @@ export { NotificationType } from "./prisma/generated/prisma/enums";
 export * from "./queue";
 export * from "./src/client";
 export { default as prisma } from "./src/prisma";
+export { Prisma } from "./prisma/generated/prisma/client";
 export * from "./src/rate-limit";
 export * from "./src/redis";
 export * from "./src/reserved-usernames";

@@ -9,7 +9,15 @@ import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 import { env } from "../../env";
 import { validateFile } from "./utils/file-validation";
+import { sniffFileSignature } from "./utils/magic-bytes";
 import { getContentType, getFileConfigFromMime } from "./utils/mime-utils";
+
+// Client-fixable upload rejections (type, size, content signature). Routes
+// map this to a 4xx response instead of a 500 so the browser shows the
+// validation message rather than a server error.
+export class UploadValidationError extends Error {
+  override name = "UploadValidationError";
+}
 
 const asmobEndpoint = env.ASMOB_ENDPOINT;
 
@@ -232,12 +240,14 @@ export const uploadAvatar = async (file: File, userId: string) => {
     });
 
     if (!supportedTypes.includes(file.type)) {
-      throw new Error("Avatar must be in JPG, PNG, GIF, WebP, or HEIC format");
+      throw new UploadValidationError(
+        "Avatar must be in JPG, PNG, GIF, WebP, or HEIC format"
+      );
     }
 
     const maxSize = 8 * 1024 * 1024;
     if (file.size > maxSize) {
-      throw new Error("Avatar file size must be less than 8MB");
+      throw new UploadValidationError("Avatar file size must be less than 8MB");
     }
 
     const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
@@ -251,6 +261,16 @@ export const uploadAvatar = async (file: File, userId: string) => {
     } catch (error) {
       console.error("Buffer conversion error:", error);
       throw new Error("Failed to process avatar image", { cause: error });
+    }
+
+    // The client-declared MIME string is untrusted: verify the bytes actually
+    // match an image signature before storing, otherwise a crafted HTML
+    // payload could later MIME-sniff into script execution on the app origin.
+    const signature = sniffFileSignature(buffer, file.type);
+    if (!signature.ok) {
+      throw new UploadValidationError(
+        signature.reason ?? "File content validation failed"
+      );
     }
 
     await asmobClient.send(
@@ -354,12 +374,16 @@ export const uploadBanner = async (file: File, userId: string) => {
     });
 
     if (!supportedTypes.includes(file.type)) {
-      throw new Error("Banner must be in JPG, PNG, or WebP format");
+      throw new UploadValidationError(
+        "Banner must be in JPG, PNG, or WebP format"
+      );
     }
 
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
-      throw new Error("Banner file size must be less than 10MB");
+      throw new UploadValidationError(
+        "Banner file size must be less than 10MB"
+      );
     }
 
     const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
@@ -373,6 +397,16 @@ export const uploadBanner = async (file: File, userId: string) => {
     } catch (error) {
       console.error("Buffer conversion error:", error);
       throw new Error("Failed to process banner image", { cause: error });
+    }
+
+    // The client-declared MIME string is untrusted: verify the bytes actually
+    // match an image signature before storing, otherwise a crafted HTML
+    // payload could later MIME-sniff into script execution on the app origin.
+    const signature = sniffFileSignature(buffer, file.type);
+    if (!signature.ok) {
+      throw new UploadValidationError(
+        signature.reason ?? "File content validation failed"
+      );
     }
 
     await asmobClient.send(

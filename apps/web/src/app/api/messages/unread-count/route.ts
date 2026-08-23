@@ -19,16 +19,48 @@ export async function GET() {
   // Seed the Redis counter from the DB baseline so subsequent increments
   // build on the correct number (mirrors the notification badge flow). Each
   // conversation is bounded by its OWN read watermark - the global earliest
-  // read would over-count threads the user has already read.
-  const memberships = await prisma.messageConversationMember.findMany({
-    select: { conversationId: true, lastReadAt: true },
-    where: { userId: user.id },
-  });
+  // read would over-count threads the user has already read. Conversations
+  // with a blocked partner are excluded entirely: blocked pairs must not see
+  // each other's activity, unread badges included.
+  const [memberships, iBlocked, blockedMe] = await Promise.all([
+    prisma.messageConversationMember.findMany({
+      select: { conversationId: true, lastReadAt: true },
+      where: { userId: user.id },
+    }),
+    prisma.block.findMany({
+      select: { blockedId: true },
+      where: { blockerId: user.id },
+    }),
+    prisma.block.findMany({
+      select: { blockerId: true },
+      where: { blockedId: user.id },
+    }),
+  ]);
+  const hiddenPartnerIds = new Set<string>([
+    ...iBlocked.map((row) => row.blockedId),
+    ...blockedMe.map((row) => row.blockerId),
+  ]);
+  let visibleMemberships = memberships;
+  if (hiddenPartnerIds.size !== 0) {
+    const resolved = await Promise.all(
+      memberships.map(async (membership) => {
+        const other = await prisma.messageConversationMember.findFirst({
+          select: { userId: true },
+          where: {
+            conversationId: membership.conversationId,
+            userId: { not: user.id },
+          },
+        });
+        return other && hiddenPartnerIds.has(other.userId) ? null : membership;
+      })
+    );
+    visibleMemberships = resolved.filter((membership) => membership !== null);
+  }
 
   let unreadCount = 0;
-  if (memberships.length > 0) {
+  if (visibleMemberships.length > 0) {
     const counts = await Promise.all(
-      memberships.map((membership) =>
+      visibleMemberships.map((membership) =>
         prisma.message.count({
           where: unreadMessageWhere({
             conversationId: membership.conversationId,

@@ -611,7 +611,16 @@ export const signupRouter = router({
   pendingSignupStart: procedure
     .input(
       z.object({
-        displayName: z.string().min(1).max(64),
+        // Angle brackets are rejected at the gate: displayName flows into
+        // SEO/JSON-LD output, and stripping them here keeps parity with the
+        // profile-update validation.
+        displayName: z
+          .string()
+          .min(1)
+          .max(64)
+          .refine((value) => !/[<>]/.test(value), {
+            message: "Angle brackets are not allowed",
+          }),
         email: z.email(),
         password: z.string().min(8),
         username: z.string().min(3).max(32),

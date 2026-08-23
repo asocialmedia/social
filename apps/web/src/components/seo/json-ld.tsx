@@ -2,6 +2,20 @@ interface JsonLdProps {
   data: Record<string, unknown> | Record<string, unknown>[];
 }
 
+// JSON.stringify leaves "<" literal, so an attacker-controlled string (display
+// name, bio, tag, URL segment) containing "</script>" would close this element
+// during HTML parsing and execute a following script. Escaping the dangerous
+// characters as unicode escapes keeps the payload valid JSON while making a
+// script-context breakout impossible.
+function serializeJsonLd(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("\\u2028", "\\u2028")
+    .replaceAll("\\u2029", "\\u2029");
+}
+
 // Renders schema.org JSON-LD structured data. Server component: the script is
 // emitted into the initial HTML for crawlers to parse.
 export default function JsonLd({ data }: JsonLdProps) {
@@ -11,8 +25,8 @@ export default function JsonLd({ data }: JsonLdProps) {
       {payload.map((item, index) => (
         <script
           // oxlint-disable-next-line react/no-danger -- structured data must be emitted as raw script JSON
-          // eslint-disable-next-line no-danger -- structured data must be emitted as raw script JSON; the payload is server-generated and JSON.stringify-safe
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(item) }}
+          // eslint-disable-next-line no-danger -- structured data must be emitted as raw script JSON; serializeJsonLd escapes every sequence that could terminate the script context
+          dangerouslySetInnerHTML={{ __html: serializeJsonLd(item) }}
           key={index}
           type="application/ld+json"
         />

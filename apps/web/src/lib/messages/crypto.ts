@@ -5,13 +5,18 @@
 // Trust model: each user owns an ECDH P-256 identity keypair. The public half
 // is stored in plaintext on the server so anyone can derive a shared secret
 // to wrap conversation keys for that user. The private half is backed up on
-// the server encrypted under a master key derived (PBKDF2) from a hash of the
-// account's random backup secret. Enabling is fully automatic: the client
-// generates a 64-character random secret, stores only its SHA-256 hash with
-// the account on the server, and derives the master key from that hash. The
-// raw secret is never persisted, but the hash IS the KDF input, so a server
-// or database reader holding the row can re-derive the master key and decrypt
-// the backup; recovery on a new device needs no user input by design.
+// the server encrypted under a master key derived (PBKDF2) from the account's
+// random 64-char backup SECRET itself. The server stores only a SHA-256 hash
+// of that secret, used purely as a verifier: knowing the hash does NOT allow
+// re-deriving the master key (preimage resistance), so a database reader can
+// no longer decrypt the backup. The raw secret lives only on the user's
+// device(s); unlocking on a new device requires the user to supply it.
+//
+// Legacy rows: identities created before this scheme stored the hash and
+// derived from it, making them decryptable from the DB row alone. Unlock
+// still accepts those rows via the legacy derivation so existing accounts
+// keep working; they become safe again the next time the identity is
+// re-enabled (re-provisioned backup).
 //
 // Per-conversation, a fresh random 256-bit root key is wrapped for each
 // participant via ECDH(myPrivate, theirPublic) + HKDF + AES-GCM. Message
@@ -569,6 +574,11 @@ export async function clearStoredPrivateKey(userId: string): Promise<void> {
     } catch {
       // ignore
     }
+    try {
+      localStorage.removeItem(`${LS_SECRET_PREFIX}${userId}`);
+    } catch {
+      // ignore
+    }
   }
   if (typeof indexedDB !== "undefined") {
     try {
@@ -583,5 +593,38 @@ export async function clearStoredPrivateKey(userId: string): Promise<void> {
     } catch (error) {
       console.error("Failed to clear identity key from IDB:", error);
     }
+  }
+}
+
+// ---- device-scoped backup-secret storage ------------------------------------
+
+// The raw backup secret must live ONLY on the user's device: it is the input
+// to the master-key KDF and its SHA-256 is merely a verifier on the server.
+// Keeping it here lets the same device re-derive the master key without
+// prompting, while a database reader still learns nothing. A NEW device must
+// ask the user for this secret; there is deliberately no server-side path to
+// recover it.
+const LS_SECRET_PREFIX = "asm_msg_secret_";
+
+export function getStoredAccountSecret(userId: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return localStorage.getItem(`${LS_SECRET_PREFIX}${userId}`);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredAccountSecret(userId: string, secret: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    localStorage.setItem(`${LS_SECRET_PREFIX}${userId}`, secret);
+  } catch {
+    // Restricted storage environments lose convenience, not security: the
+    // unlock flow falls back to prompting for the secret.
   }
 }

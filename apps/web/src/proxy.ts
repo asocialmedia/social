@@ -25,6 +25,89 @@ const ALLOWED_PRODUCTION_HOSTS = new Set([
 // checks and internal calls keep working.
 const ENFORCE_CLOUDFLARE = process.env.ENFORCE_CLOUDFLARE === "1";
 
+// ── Same-origin enforcement for the API surface ────────────────────────────
+// The API exists to serve this app's own frontend. Requests that arrive
+// without any same-origin evidence - curl scripts, other websites, headless
+// scrapers - are rejected here at the edge, before any route handler or the
+// proxied auth service sees them. Set DISABLE_SAME_ORIGIN_GUARD=1 to opt out.
+const SAME_ORIGIN_GUARD_DISABLED =
+  process.env.DISABLE_SAME_ORIGIN_GUARD === "1";
+const API_PATH_PREFIX = "/api/";
+
+// Paths that are legitimately reached WITHOUT same-origin context:
+// - health probes come from infra, never a browser;
+// - OAuth providers redirect the browser straight back to the callback (a
+//   cross-site top-level navigation with no Origin header); their security is
+//   the provider's own state/CSRF validation;
+// - better-auth's error page and emailed verification links behave the same
+//   way (top-level navigation from an external referrer).
+const SAME_ORIGIN_EXEMPT_PATHS = [
+  "/api/health",
+  "/api/auth/callback/",
+  "/api/auth/error",
+  "/api/auth/verify-email",
+];
+
+function isSameOriginExemptPath(pathname: string): boolean {
+  return SAME_ORIGIN_EXEMPT_PATHS.some(
+    (exempt) =>
+      pathname === exempt ||
+      pathname.startsWith(`${exempt}/`) ||
+      (exempt.endsWith("/") && pathname.startsWith(exempt))
+  );
+}
+
+function hostOfUrlString(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return getHostname(new URL(value).host);
+  } catch {
+    return null;
+  }
+}
+
+// A browser request from this app always carries at least one same-origin
+// signal: fetch/XHR/server actions send an Origin, subresources (img,
+// EventSource) send a Referer, and every modern browser tags the request with
+// a Sec-Fetch-Site metadata header. A bare scripted client carries none.
+function hasSameOriginEvidence(request: NextRequest): boolean {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const targetHost = getHostname(
+    forwardedHost || request.headers.get("host") || ""
+  );
+  if (!targetHost) {
+    return false;
+  }
+
+  const originHost = hostOfUrlString(request.headers.get("origin"));
+  if (originHost && originHost === targetHost) {
+    return true;
+  }
+
+  const refererHost = hostOfUrlString(request.headers.get("referer"));
+  if (refererHost && refererHost === targetHost) {
+    return true;
+  }
+
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite === "same-origin" || fetchSite === "same-site") {
+    return true;
+  }
+  // Direct browser navigation (typed URL, bookmark) is marked "none"; allow
+  // it for safe methods only so a shared link still opens, while stateful
+  // verbs still demand real same-origin evidence.
+  if (
+    fetchSite === "none" &&
+    (request.method === "GET" || request.method === "HEAD")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function getHostname(host: string): string {
   if (host.startsWith("[")) {
     const endBracket = host.indexOf("]");
@@ -115,6 +198,23 @@ export async function proxy(request: NextRequest) {
     !hasValidCfIp
   ) {
     return withSecurityHeaders(new NextResponse("Forbidden", { status: 403 }));
+  }
+
+  // Same-origin gate for the API surface: reject scripted / cross-site
+  // requests at the edge, before route handlers or the auth proxy run.
+  // Loopback callers (container health checks, the Next.js image optimizer's
+  // internal fetches) are exempt like the redirect logic above.
+  if (
+    !SAME_ORIGIN_GUARD_DISABLED &&
+    request.nextUrl.pathname.startsWith(API_PATH_PREFIX) &&
+    !isLoopback &&
+    request.method !== "OPTIONS" &&
+    !isSameOriginExemptPath(request.nextUrl.pathname) &&
+    !hasSameOriginEvidence(request)
+  ) {
+    return withSecurityHeaders(
+      NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    );
   }
 
   // Per-IP tiered rate limiting for API routes. Fails open on Redis errors;

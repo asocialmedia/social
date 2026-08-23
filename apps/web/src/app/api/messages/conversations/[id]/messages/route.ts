@@ -68,7 +68,11 @@ export async function POST(
   }
 
   const { id } = await ctx.params;
-  const conversation = await getConversationForUser(id, user.id);
+  // The send path keeps its own clearer 403 for blocks, so the shared gate
+  // runs membership-only here.
+  const conversation = await getConversationForUser(id, user.id, {
+    enforceBlocks: false,
+  });
   if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }

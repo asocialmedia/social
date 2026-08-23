@@ -12,9 +12,16 @@ export function getConversationMembersInclude() {
 }
 
 // Returns the conversation only when `userId` is one of its members.
+//
+// When `enforceBlocks` is true (the default), a bidirectional block between
+// the two members makes the conversation invisible: every read, key-fetch,
+// stream, typing and read-receipt route resolves through this gate, so a
+// blocked pair loses read/stream/delete access, not just the ability to send.
+// The send path passes false so it can answer with its own clearer 403.
 export async function getConversationForUser(
   conversationId: string,
-  userId: string
+  userId: string,
+  options: { enforceBlocks?: boolean } = {}
 ) {
   const conversation = await prisma.messageConversation.findUnique({
     // `keys` (the wrapped conversation keys) is required by the client to
@@ -31,6 +38,14 @@ export async function getConversationForUser(
   }
   if (!conversation.members.some((member) => member.userId === userId)) {
     return null;
+  }
+  if (options.enforceBlocks !== false) {
+    const otherMember = conversation.members.find(
+      (member) => member.userId !== userId
+    );
+    if (otherMember && (await areBlocked(userId, otherMember.userId))) {
+      return null;
+    }
   }
   return conversation;
 }
