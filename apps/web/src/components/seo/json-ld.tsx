@@ -8,14 +8,16 @@ interface JsonLdProps {
 // characters as unicode escapes keeps the payload valid JSON while making a
 // script-context breakout impossible.
 function serializeJsonLd(value: unknown): string {
-  return JSON.stringify(value)
-    .replaceAll("<", "\\u003c")
-    .replaceAll(">", "\\u003e")
-    .replaceAll("&", "\\u0026")
-    // The literal line separators are valid JSON but terminate a JavaScript
-    // string literal in script context, so escape them as well.
-    .replaceAll("\u2028", "\\u2028")
-    .replaceAll("\u2029", "\\u2029");
+  return (
+    JSON.stringify(value)
+      .replaceAll("<", "\\u003c")
+      .replaceAll(">", "\\u003e")
+      .replaceAll("&", "\\u0026")
+      // The literal line separators are valid JSON but terminate a JavaScript
+      // string literal in script context, so escape them as well.
+      .replaceAll("\u2028", "\\u2028")
+      .replaceAll("\u2029", "\\u2029")
+  );
 }
 
 // Renders schema.org JSON-LD structured data. Server component: the script is
