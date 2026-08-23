@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import type * as React from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -48,7 +48,6 @@ export const HNSearchBar = ({
   search,
 }: HNSearchBarProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [isFocused, setIsFocused] = useState(false);
   const activeFilter =
     HN_FILTER_OPTIONS.find((option) => option.id === filter) ??
     HN_FILTER_OPTIONS[0];
@@ -65,14 +64,6 @@ export const HNSearchBar = ({
     [onSearchChange]
   );
 
-  const handleFocus = useCallback(() => {
-    setIsFocused(true);
-  }, []);
-
-  const handleBlur = useCallback(() => {
-    setIsFocused(false);
-  }, []);
-
   const handleSelectFilter = useCallback(
     (option: HNFilterId) => () => {
       onFilterChange(option);
@@ -83,26 +74,12 @@ export const HNSearchBar = ({
   return (
     <div className={cn("flex w-full items-center gap-2", className)}>
       <div className="relative min-w-0 flex-1">
-        <Search
-          className={cn(
-            "pointer-events-none absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2 transition-colors",
-            isFocused ? "text-orange-500" : "text-muted-foreground"
-          )}
-        />
+        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
         <Input
           aria-label="Search HackerNews stories"
           autoComplete="off"
-          className={cn(
-            "h-10 w-full rounded-full",
-            "bg-background/50 pr-8 pl-9 backdrop-blur-sm",
-            "border-muted-foreground/20",
-            "placeholder:text-muted-foreground/50",
-            "focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20",
-            "transition-all duration-200"
-          )}
-          onBlur={handleBlur}
+          className="focus-visible:ring-primary h-10 w-full py-2.5 pr-8 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
           onChange={handleChange}
-          onFocus={handleFocus}
           placeholder="Search stories..."
           ref={inputRef}
           type="text"

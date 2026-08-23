@@ -123,8 +123,11 @@ const MobileBottomNav: React.FC = () => {
     requiresAuth?: boolean
   ) => {
     const isActive = isRouteActive(pathname, href);
+    // Items stretch to fill their grid slot so every active pill is the same
+    // size and dead-centered - short labels (HN) otherwise get cramped,
+    // off-looking pills.
     const baseClass = cn(
-      "group text-muted-foreground relative flex flex-col items-center justify-center gap-0 justify-self-center rounded-full border-0 px-4 py-1 text-[10px] transition-all duration-200 ease-out outline-none hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+      "group text-muted-foreground relative flex w-full flex-col items-center justify-center gap-0 rounded-full border-0 px-2 py-1 text-[10px] transition-all duration-200 ease-out outline-none hover:bg-gradient-to-b hover:from-[#8f96a3] hover:to-[#5c6370] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
     );
 
     const inner = (
