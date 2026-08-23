@@ -47,14 +47,13 @@ function buildAllowedOrigins(env: NodeJS.ProcessEnv): string[] {
   add(env.AUTH_URL);
   add(env.NEXT_PUBLIC_URL);
   add(env.NEXT_PUBLIC_AUTH_URL);
-  // Production origins
-  add("https://asocialmedia.cc");
-  add("https://auth.asocialmedia.cc");
-  // Local development origins
-  add("http://localhost:3000");
-  add("http://localhost:3001");
-  add("https://social.localhost");
-  add("https://auth.localhost");
+  // Local-only origins — explicitly dev-only, never in production
+  if (env.NODE_ENV !== "production") {
+    add("http://localhost:3000");
+    add("http://localhost:3001");
+    add("https://social.localhost");
+    add("https://auth.localhost");
+  }
   return [...origins];
 }
 

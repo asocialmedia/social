@@ -37,24 +37,79 @@ const TRPC_AUTH_PATHS = [
   "/api/auth/pending-resend",
 ];
 
-export function getAllowedOrigin(): string {
+// Allowed origins are derived from env — no hardcoded prod URLs.
+// Local-only origins are explicitly dev-only and never accepted in production.
+const DEV_ONLY_ORIGINS = [
+  "https://social.localhost",
+  "https://auth.localhost",
+  "http://localhost:3000",
+  "http://localhost:3001",
+] as const;
+
+function getProdOrigins(): string[] {
+  return [
+    process.env.APP_URL,
+    process.env.AUTH_URL,
+    process.env.NEXT_PUBLIC_URL,
+    process.env.NEXT_PUBLIC_AUTH_URL,
+  ].filter((v): v is string => Boolean(v));
+}
+
+function getAllowedOriginsSet(): Set<string> {
+  return new Set<string>([
+    ...getProdOrigins(),
+    ...(process.env.NODE_ENV === "production" ? [] : DEV_ONLY_ORIGINS),
+  ]);
+}
+
+export function getAllowedOrigin(request?: Request): string {
+  const allowed = getAllowedOriginsSet();
+  const origin = request?.headers.get("origin")?.replace(/\/+$/, "");
+  if (origin && allowed.has(origin)) {
+    return origin;
+  }
+  // Fallback for server-to-server calls without Origin (internal secret)
+  if (!origin) {
+    if (!allowed.size) {
+      return process.env.APP_URL || process.env.AUTH_URL || "";
+    }
+    // In dev, prefer the local dev origin for internal calls
+    if (
+      process.env.NODE_ENV !== "production" &&
+      allowed.has("https://social.localhost")
+    ) {
+      return "https://social.localhost";
+    }
+    return [...allowed][0] || "";
+  }
+  const prodFallback =
+    process.env.APP_URL ||
+    process.env.AUTH_URL ||
+    process.env.NEXT_PUBLIC_URL ||
+    process.env.NEXT_PUBLIC_AUTH_URL ||
+    [...allowed][0] ||
+    "";
+  if (!prodFallback) {
+    return "";
+  }
   return process.env.NODE_ENV === "production"
-    ? process.env.APP_URL || "https://asocialmedia.cc"
+    ? prodFallback
     : "https://social.localhost";
 }
 
-export function corsHeaders(): Record<string, string> {
+export function corsHeaders(request?: Request): Record<string, string> {
   return {
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, Cache-Control",
+      "Content-Type, Authorization, Cache-Control, X-Requested-With",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Origin": getAllowedOrigin(),
+    "Access-Control-Allow-Origin": getAllowedOrigin(request),
+    Vary: "Origin",
   };
 }
 
-function addCorsHeaders(response: Response): Response {
-  for (const [key, value] of Object.entries(corsHeaders())) {
+function addCorsHeaders(response: Response, request?: Request): Response {
+  for (const [key, value] of Object.entries(corsHeaders(request))) {
     response.headers.set(key, value);
   }
   return response;
@@ -115,7 +170,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       req: request,
       router: appRouter,
     });
-    return addCorsHeaders(response);
+    return addCorsHeaders(response, request);
   }
 
   async function handleGetSession(request: Request): Promise<Response> {
@@ -126,7 +181,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       headers: {
         "cache-control": "no-store",
         "content-type": "application/json",
-        ...corsHeaders(),
+        ...corsHeaders(request),
       },
       status: 200,
     });
@@ -134,7 +189,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
 
   async function route(request: Request, pathname: string): Promise<Response> {
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders(), status: 204 });
+      return new Response(null, { headers: corsHeaders(request), status: 204 });
     }
     if (pathname === "/api/health") {
       return Response.json(
@@ -174,7 +229,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         authRequest = new Request(request, { headers: nextHeaders });
       }
 
-      return addCorsHeaders(await authInstance.handler(authRequest));
+      return addCorsHeaders(await authInstance.handler(authRequest), request);
     }
     return new Response("Not Found", { status: 404 });
   }
@@ -191,7 +246,8 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         if (!decision.allowed) {
           return addSecurityHeaders(
             addCorsHeaders(
-              decision.response ?? new Response("Forbidden", { status: 403 })
+              decision.response ?? new Response("Forbidden", { status: 403 }),
+              request
             )
           );
         }
@@ -204,7 +260,10 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
       response = Response.json(
         { error: "Internal server error" },
         {
-          headers: { "content-type": "application/json", ...corsHeaders() },
+          headers: {
+            "content-type": "application/json",
+            ...corsHeaders(request),
+          },
           status: 500,
         }
       );

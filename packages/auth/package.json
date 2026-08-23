@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth",
-  "version": "1.0.90",
+  "version": "1.0.91",
   "private": true,
   "description": "asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
