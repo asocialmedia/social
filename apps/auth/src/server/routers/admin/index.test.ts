@@ -10,6 +10,10 @@ class BadgeLimitError extends Error {
 }
 
 const prismaMock = {
+  $transaction: mock(
+    (fn: (tx: typeof prismaMock) => Promise<unknown>): Promise<unknown> =>
+      fn(prismaMock)
+  ),
   user: {
     count: mock((): Promise<number> => Promise.resolve(0)),
     findMany: mock((): Promise<{ id: string }[]> => Promise.resolve([])),
@@ -43,6 +47,11 @@ mock.module("@asm/auth/core", () => ({
 mock.module("@asm/db", () => ({
   BADGES: ["author", "dev", "early", "shitposter"],
   BadgeLimitError,
+  Prisma: {
+    TransactionIsolationLevel: {
+      Serializable: "Serializable",
+    },
+  },
   grantBadge: grantBadgeMock,
   prisma: prismaMock,
   revokeBadge: revokeBadgeMock,

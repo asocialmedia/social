@@ -191,10 +191,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
     user: {
       additionalFields: {
         avatarKey: {
+          input: false,
           required: false,
           type: "string",
         },
         avatarUrl: {
+          input: false,
           required: false,
           type: "string",
         },
@@ -204,6 +206,10 @@ export function createAuthConfig(config: AuthConfig = {}) {
         },
         role: {
           defaultValue: "user",
+          // Server-managed privilege claim. Without input:false better-auth's
+          // sign-up schema copies any extra body key verbatim into the created
+          // user row, letting an anonymous visitor register with role=admin.
+          input: false,
           required: true,
           type: "string",
         },
@@ -235,6 +241,11 @@ export function createAuthConfig(config: AuthConfig = {}) {
                 // through current-email verification by the route.
                 verifyCurrentEmail: false,
               },
+              // Account creation never happens through OTP sign-in: the app's
+              // own signup flow handles registration. Leaving sign-up enabled
+              // would let anyone mint an account on an arbitrary address by
+              // guessing a code.
+              disableSignUp: true,
               expiresIn: 300,
               otpLength: 6,
               overrideDefaultEmailVerification: true,
@@ -252,6 +263,9 @@ export function createAuthConfig(config: AuthConfig = {}) {
           verifyPasswordHash(password, hash),
       },
       requireEmailVerification: true,
+      // Invalidate every existing session when the password changes, so a
+      // stolen session token does not survive a password reset.
+      revokeSessionsOnPasswordReset: true,
       sendResetPassword: emailService?.sendPasswordResetEmail
         ? async ({ user, url }) => {
             const token = extractTokenFromUrl(url);
@@ -427,12 +441,16 @@ export function createAuthConfig(config: AuthConfig = {}) {
             // consistently across all environments.
             const avatarUrl = pickRandomDefaultAvatar();
 
-            // Email signup validates username availability before creating the
-            // user, but OAuth accounts derive a username from the profile and
-            // could collide with an existing one (the column is UNIQUE). Append
-            // a numeric suffix until the name is free so a Google/Reddit signup
-            // never fails on a taken handle.
-            let data: Record<string, unknown> = { ...user, avatarUrl };
+            // Backstop for the privilege model: no sign-up path may ever mint
+            // an admin. input:false already keeps client bodies from setting
+            // role; this guarantees the default even if a future better-auth
+            // version changes how additional fields are parsed. Admins are
+            // promoted exclusively through the admin setRole procedure.
+            let data: Record<string, unknown> = {
+              ...user,
+              avatarUrl,
+              role: "user",
+            };
             const requestedUsername =
               typeof data.username === "string" && data.username.trim()
                 ? data.username.trim()

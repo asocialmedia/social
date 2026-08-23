@@ -1,20 +1,30 @@
 "use client";
 
 import type { SearchPostResult, SearchUserResult } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
-import { Clock3, Search } from "lucide-react";
+import { Clock3, Eye, Flame, Search, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
+import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { searchMutations } from "@/components/search/mutations";
-import kyInstance from "@/lib/ky";
-import { cn, formatNumber } from "@/lib/utils";
+import {
+  normalizeHistoryItem,
+  useSearchHistory,
+} from "@/components/search/use-search-history";
+import {
+  cn,
+  formatNumber,
+  formatRelativeDate,
+  formatSearchTime,
+} from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SpotlightResponse {
   posts: SearchPostResult[];
@@ -22,14 +32,30 @@ interface SpotlightResponse {
 }
 
 export interface SpotlightResultItem {
+  aura?: number;
+  authorUsername?: string;
   avatarUrl?: string | null;
+  createdAt?: Date;
   displayName: string;
+  explicitContent?: boolean;
   href: string;
   icon?: React.ReactNode;
   id: string;
+  isSelf?: boolean;
   meta: string;
+  previewMedia?: {
+    id: string;
+    thumbnailKey: string | null;
+    type: string;
+  } | null;
+  rawPost?: SearchPostResult;
+  rawUser?: SearchUserResult;
+  removeTarget?: string;
+  resultCount?: number;
+  searchedAt?: number;
   subtitle?: string;
   type: "user" | "post" | "history" | "suggestion";
+  viewCount?: number;
 }
 
 const fetchResults = async (query: string): Promise<SpotlightResponse> => {
@@ -64,15 +90,14 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<SpotlightResultItem[]>([]);
 
-  const { data: history } = useQuery({
-    enabled: open && isLoggedIn,
-    queryFn: () =>
-      kyInstance
-        .get("/api/search", { searchParams: { type: "history" } })
-        .json<string[]>(),
-    queryKey: ["spotlight-history"],
-    staleTime: 30_000,
-  });
+  const {
+    addPostSearchMutation,
+    addSearchMutation,
+    addUserSearchMutation,
+    clearHistoryMutation,
+    history,
+    removeHistoryItemMutation,
+  } = useSearchHistory();
 
   const { data, isFetching } = useQuery({
     enabled: open && Boolean(query.trim()),
@@ -96,12 +121,19 @@ const Spotlight: React.FC<SpotlightProps> = ({
     const items: SpotlightResultItem[] = [];
 
     for (const suggestion of data?.users ?? []) {
+      const isSelf = Boolean(
+        user &&
+        (suggestion.id === user.id ||
+          suggestion.username.toLowerCase() === user.username.toLowerCase())
+      );
       items.push({
         avatarUrl: suggestion.avatarUrl,
         displayName: suggestion.displayName || suggestion.username,
         href: `/users/${suggestion.username}`,
         id: `user-${suggestion.id}`,
+        isSelf,
         meta: `${formatNumber(suggestion.aura ?? 0)} aura`,
+        rawUser: suggestion,
         subtitle: `@${suggestion.username}`,
         type: "user",
       });
@@ -109,72 +141,173 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
     for (const post of data?.posts ?? []) {
       items.push({
+        aura: post.aura,
+        authorUsername: post.authorUsername,
         avatarUrl: post.authorAvatarUrl,
+        createdAt: post.createdAt,
         displayName: post.content,
+        explicitContent: post.explicitContent,
         href: `/posts/${post.id}`,
         id: `post-${post.id}`,
         meta: `${formatNumber(post.aura)} aura · ${formatNumber(post.viewCount)} views`,
+        previewMedia: post.previewMedia,
+        rawPost: post,
         subtitle: undefined,
         type: "post",
+        viewCount: post.viewCount,
       });
     }
 
     return items;
-  }, [data]);
+  }, [data, user]);
 
   const buildSuggestions = useCallback(
     (queryPrefix: string): SpotlightResultItem[] => {
       const items: SpotlightResultItem[] = [];
-      const q = queryPrefix.trim();
+      const q = queryPrefix.trim().toLowerCase();
 
-      if (!q) {
-        for (const entry of history ?? []) {
-          items.push({
-            displayName: entry,
-            href: "",
-            id: `history-${entry}`,
-            meta: "Recent",
-            type: "history",
-          });
-        }
-        return items;
-      }
+      for (const rawEntry of history ?? []) {
+        const entry = normalizeHistoryItem(rawEntry);
+        let removeTarget = entry.raw;
+        if (entry.type === "user") {
+          if (!removeTarget) {
+            removeTarget = entry.user.id;
+          }
+          const match =
+            !q ||
+            entry.user.username.toLowerCase().includes(q) ||
+            entry.user.displayName?.toLowerCase().includes(q);
+          if (match) {
+            const isSelf = Boolean(
+              user &&
+              (entry.user.id === user.id ||
+                entry.user.username.toLowerCase() ===
+                  user.username.toLowerCase())
+            );
+            const searchTimeStr = entry.searchedAt
+              ? formatSearchTime(entry.searchedAt)
+              : "";
+            items.push({
+              avatarUrl: entry.user.avatarUrl,
+              displayName: entry.user.displayName || entry.user.username,
+              href: `/users/${entry.user.username}`,
+              id: `history-user-${entry.user.id}`,
+              isSelf,
+              meta: `${formatNumber(entry.user.aura ?? 0)} aura`,
+              rawUser: entry.user,
+              removeTarget,
+              searchedAt: entry.searchedAt,
+              subtitle: searchTimeStr
+                ? `@${entry.user.username} · ${searchTimeStr}`
+                : `@${entry.user.username}`,
+              type: "user",
+            });
+          }
+        } else if (entry.type === "post") {
+          if (!removeTarget) {
+            removeTarget = entry.post.id;
+          }
+          const match =
+            !q ||
+            entry.post.content.toLowerCase().includes(q) ||
+            entry.post.authorUsername.toLowerCase().includes(q);
+          if (match) {
+            items.push({
+              aura: entry.post.aura,
+              authorUsername: entry.post.authorUsername,
+              avatarUrl: entry.post.authorAvatarUrl,
+              createdAt: entry.post.createdAt,
+              displayName: entry.post.content,
+              explicitContent: entry.post.explicitContent,
+              href: `/posts/${entry.post.id}`,
+              id: `history-post-${entry.post.id}`,
+              meta: `${formatNumber(entry.post.aura)} aura · ${formatNumber(entry.post.viewCount)} views`,
+              previewMedia: entry.post.previewMedia,
+              rawPost: entry.post,
+              removeTarget,
+              searchedAt: entry.searchedAt,
+              subtitle: undefined,
+              type: "post",
+              viewCount: entry.post.viewCount,
+            });
+          }
+        } else if (entry.type === "query") {
+          if (!removeTarget) {
+            removeTarget = entry.query;
+          }
+          const match = !q || entry.query.toLowerCase().includes(q);
+          if (match) {
+            const metaParts = [
+              typeof entry.resultCount === "number"
+                ? `${formatNumber(entry.resultCount)} results`
+                : null,
+              entry.searchedAt
+                ? formatSearchTime(entry.searchedAt)
+                : "Recent search",
+            ].filter(Boolean);
 
-      for (const entry of history ?? []) {
-        if (entry.toLowerCase().includes(q.toLowerCase())) {
-          items.push({
-            displayName: entry,
-            href: "",
-            id: `history-${entry}`,
-            meta: "Recent",
-            type: "history",
-          });
+            items.push({
+              displayName: entry.query,
+              href: "",
+              id: `history-query-${entry.query}`,
+              meta: metaParts.join(" · "),
+              removeTarget,
+              resultCount: entry.resultCount,
+              searchedAt: entry.searchedAt,
+              type: "history",
+            });
+          }
         }
       }
 
       return items;
     },
-    [history]
+    [history, user]
   );
 
+  const trimmedQuery = query.trim();
+  const suggestions = buildSuggestions(query);
+  const items = trimmedQuery ? buildItems() : suggestions;
+
   useEffect(() => {
-    resultsRef.current = buildItems();
-  }, [buildItems]);
+    resultsRef.current = items;
+  }, [items]);
 
   const handleSelect = useCallback(
     (item: SpotlightResultItem) => {
-      searchMutations.addSearch(item.displayName);
+      if (item.type === "history") {
+        setQuery(item.displayName);
+        return;
+      }
+      if (item.type === "user" && item.rawUser) {
+        addUserSearchMutation.mutate(item.rawUser);
+      } else if (item.type === "post" && item.rawPost) {
+        addPostSearchMutation.mutate(item.rawPost);
+      } else {
+        const resultCount = data
+          ? data.users.length + data.posts.length
+          : undefined;
+        addSearchMutation.mutate({ query: item.displayName, resultCount });
+      }
       onSelect(item);
       onOpenChange(false);
       if (item.href) {
         router.push(item.href);
       }
     },
-    [onOpenChange, onSelect, router]
+    [
+      addPostSearchMutation,
+      addSearchMutation,
+      addUserSearchMutation,
+      data,
+      onOpenChange,
+      onSelect,
+      router,
+    ]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    const items = resultsRef.current;
+    const activeItems = resultsRef.current;
 
     if (e.key === "Escape") {
       onOpenChange(false);
@@ -184,17 +317,24 @@ const Spotlight: React.FC<SpotlightProps> = ({
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((current) =>
-        items.length ? (current + 1) % items.length : 0
+        activeItems.length ? (current + 1) % activeItems.length : 0
       );
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIndex((current) =>
-        items.length ? (current - 1 + items.length) % items.length : 0
+        activeItems.length
+          ? (current - 1 + activeItems.length) % activeItems.length
+          : 0
       );
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (items[activeIndex]) {
-        handleSelect(items[activeIndex]);
+      if (activeItems[activeIndex]) {
+        handleSelect(activeItems[activeIndex]);
+      } else if (trimmedQuery) {
+        const resultCount = data
+          ? data.users.length + data.posts.length
+          : undefined;
+        addSearchMutation.mutate({ query: trimmedQuery, resultCount });
       }
     }
   };
@@ -212,7 +352,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
   }, [onOpenChange]);
 
   const handleRowClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
+    (e: React.MouseEvent<HTMLElement>) => {
       const index = Number(e.currentTarget.dataset.index);
       const result = resultsRef.current[index];
       if (result) {
@@ -222,16 +362,9 @@ const Spotlight: React.FC<SpotlightProps> = ({
     [handleSelect]
   );
 
-  const handleRowHover = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      setActiveIndex(Number(e.currentTarget.dataset.index));
-    },
-    []
-  );
-
-  const trimmedQuery = query.trim();
-  const suggestions = buildSuggestions(query);
-  const items = trimmedQuery ? buildItems() : suggestions;
+  const handleRowHover = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    setActiveIndex(Number(e.currentTarget.dataset.index));
+  }, []);
 
   const hasContent = isFetching || items.length > 0 || trimmedQuery;
 
@@ -261,7 +394,10 @@ const Spotlight: React.FC<SpotlightProps> = ({
           </kbd>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto p-1.5" ref={listRef}>
+        <div
+          className="hide-native-scrollbar max-h-[60vh] overflow-x-hidden overflow-y-auto p-1.5"
+          ref={listRef}
+        >
           {isFetching && trimmedQuery ? (
             <div className="flex flex-col gap-0.5">
               <SpotlightSkeleton />
@@ -291,19 +427,48 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
           {!isFetching && items.length > 0 ? (
             <div className="flex flex-col gap-0.5">
+              {!trimmedQuery && history && history.length > 0 ? (
+                <div className="flex items-center justify-between px-2.5 pt-1 pb-0.5">
+                  <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                    Recent searches
+                  </span>
+                  <Button
+                    className="pill-3d-hover text-muted-foreground h-auto px-2 py-0.5 text-xs"
+                    onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                      e.preventDefault();
+                      clearHistoryMutation.mutate();
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Clear all
+                  </Button>
+                </div>
+              ) : null}
               {items.map((item, index) => (
-                <button
+                <div
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
+                    "group relative flex w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors duration-150 ease-out outline-none",
+                    item.type === "post"
+                      ? "max-h-[88px] overflow-hidden py-2"
+                      : "",
                     index === activeIndex
-                      ? "pill-nav-active"
+                      ? "pill-nav-active font-normal!"
                       : "pill-3d-hover text-foreground"
                   )}
                   data-index={index}
                   key={item.id}
                   onClick={handleRowClick}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleSelect(item);
+                    }
+                  }}
                   onMouseEnter={handleRowHover}
-                  type="button"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                  role="button"
+                  tabIndex={0}
                 >
                   {item.type === "user" || item.type === "post" ? (
                     <UserAvatar
@@ -321,28 +486,117 @@ const Spotlight: React.FC<SpotlightProps> = ({
                     </div>
                   )}
 
-                  <div className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        item.type === "post"
-                          ? "line-clamp-2 block leading-snug"
-                          : "block truncate"
-                      )}
-                    >
-                      {item.displayName}
-                    </span>
-                    {item.subtitle ? (
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <div className="flex items-center gap-1.5 overflow-hidden">
+                      <span
+                        className={cn(
+                          "text-sm font-medium",
+                          item.type === "post"
+                            ? "line-clamp-3 overflow-hidden leading-[1.35] [overflow-wrap:anywhere] break-words"
+                            : "block truncate"
+                        )}
+                      >
+                        {item.displayName}
+                      </span>
+                      {item.isSelf ? (
+                        <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
+                          You
+                        </span>
+                      ) : null}
+                    </div>
+                    {item.type === "post" ? (
+                      <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
+                        {item.authorUsername ? (
+                          <span className="min-w-0 truncate">
+                            @{item.authorUsername}
+                          </span>
+                        ) : null}
+                        {typeof item.aura === "number" ? (
+                          <span className="inline-flex shrink-0 items-center gap-1">
+                            <Flame
+                              className={cn(
+                                "h-3 w-3",
+                                (item.aura ?? 0) < 0
+                                  ? "text-[#7c5cff]"
+                                  : "text-orange-500"
+                              )}
+                            />
+                            {formatNumber(item.aura ?? 0)}
+                          </span>
+                        ) : null}
+                        {typeof item.viewCount === "number" ? (
+                          <span className="inline-flex shrink-0 items-center gap-1">
+                            <Eye className="h-3 w-3" />
+                            {formatNumber(item.viewCount ?? 0)}
+                          </span>
+                        ) : null}
+                        {item.createdAt ? (
+                          <span className="shrink-0">
+                            {formatRelativeDate(item.createdAt)}
+                          </span>
+                        ) : null}
+                        {item.searchedAt ? (
+                          <span className="shrink-0">
+                            · {formatSearchTime(item.searchedAt)}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    {item.type !== "post" && item.subtitle ? (
                       <span className="text-muted-foreground block truncate text-xs">
                         {item.subtitle}
                       </span>
                     ) : null}
                   </div>
 
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {item.meta}
-                  </span>
-                </button>
+                  {item.type === "post" && item.previewMedia ? (
+                    <div className="bg-muted relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+                      <Image
+                        alt=""
+                        className={cn(
+                          "h-full w-full object-cover",
+                          item.explicitContent && "opacity-70 blur-md"
+                        )}
+                        fill
+                        sizes="48px"
+                        src={getMediaProxyUrl(item.previewMedia)}
+                        unoptimized
+                      />
+                      {item.previewMedia.type === "VIDEO" ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                            <span className="ml-px h-0 w-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-zinc-900" />
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {item.type === "post" ? null : (
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      {item.meta}
+                    </span>
+                  )}
+
+                  {item.removeTarget ? (
+                    <Button
+                      aria-label="Remove"
+                      className="text-muted-foreground hover:text-foreground hover:bg-muted my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-focus-within:opacity-100 group-hover:opacity-100"
+                      onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (item.removeTarget) {
+                          removeHistoryItemMutation.mutate(item.removeTarget);
+                        }
+                      }}
+                      size="icon"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
               ))}
             </div>
           ) : null}

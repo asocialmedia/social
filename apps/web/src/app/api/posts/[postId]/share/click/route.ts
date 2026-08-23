@@ -1,6 +1,6 @@
 import {
   enqueueShareEvent,
-  getClientIpFromRequest,
+  getTrustedIngressIp,
   hashViewerId,
   shareStatsCache,
 } from "@asm/db";
@@ -37,7 +37,7 @@ export async function POST(
     const session = await getSessionFromApi();
     const viewer = session?.user?.id
       ? `u:${session.user.id}`
-      : `a:${hashViewerId(getClientIpFromRequest(request))}`;
+      : `a:${hashViewerId(getTrustedIngressIp(request.headers))}`;
     const { claimed } = await shareStatsCache.claimAndIncrementClick(
       postId,
       platform,

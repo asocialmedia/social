@@ -18,15 +18,32 @@ import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 
 import Notification from "./notification";
 
 type NotificationTab = "all" | "mentions";
 
+// Swipe order mirrors the rendered tab strip order.
+const TAB_ORDER: NotificationTab[] = ["all", "mentions"];
+
 export default function Notifications() {
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<NotificationTab>("all");
+
+  // Mobile swipes drag the tab strip like a carousel (same mechanism as the
+  // home feed).
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const nextIndex = TAB_ORDER.indexOf(activeTab) + direction;
+      if (nextIndex >= 0 && nextIndex < TAB_ORDER.length) {
+        setActiveTab(TAB_ORDER[nextIndex]);
+      }
+    },
+    [activeTab]
+  );
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
   const {
     data,
@@ -150,7 +167,7 @@ export default function Notifications() {
 
       <div className="relative min-h-0 flex-1">
         <div
-          className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
+          className="hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto"
           ref={feedScrollRef}
         >
           {feedBody}

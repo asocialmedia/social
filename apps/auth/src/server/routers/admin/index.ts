@@ -2,6 +2,7 @@ import {
   BADGES,
   BadgeLimitError,
   grantBadge,
+  Prisma,
   prisma,
   revokeBadge,
   userCache,
@@ -15,9 +16,16 @@ import type { User } from "../../types";
 // Hard rule: the app runs with exactly one admin. Granting a second admin is
 // rejected, and the last remaining admin cannot be demoted (otherwise nobody
 // could ever promote anyone again and the app would be locked out).
-async function assertRoleChangeAllowed(userId: string, newRole: string) {
+// Callers that must enforce this atomically pass their own transaction
+// client and run at SERIALIZABLE isolation, so two concurrent promotions
+// cannot both race past the count-then-write window.
+async function assertRoleChangeAllowed(
+  userId: string,
+  newRole: string,
+  client: Pick<typeof prisma.user, "count" | "findUnique"> = prisma.user
+) {
   if (newRole === "admin") {
-    const otherAdmins = await prisma.user.count({
+    const otherAdmins = await (client as typeof prisma.user).count({
       where: { id: { not: userId }, role: "admin" },
     });
     if (otherAdmins > 0) {
@@ -30,12 +38,12 @@ async function assertRoleChangeAllowed(userId: string, newRole: string) {
     return;
   }
 
-  const current = await prisma.user.findUnique({
+  const current = await (client as typeof prisma.user).findUnique({
     select: { role: true },
     where: { id: userId },
   });
   if (current?.role === "admin") {
-    const otherAdmins = await prisma.user.count({
+    const otherAdmins = await (client as typeof prisma.user).count({
       where: { id: { not: userId }, role: "admin" },
     });
     if (otherAdmins === 0) {
@@ -46,6 +54,35 @@ async function assertRoleChangeAllowed(userId: string, newRole: string) {
       });
     }
   }
+}
+
+// Runs a role-changing mutation with its guard inside ONE serializable
+// transaction, retrying serialization conflicts a bounded number of times.
+// This closes the theoretical race where two concurrent promotions both
+// observe zero other admins and both commit.
+async function runAtomicRoleChange<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  const MAX_ATTEMPTS = 4;
+  let lastError: unknown = new Error("role change did not run");
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- conflict retries are inherently sequential
+      return await prisma.$transaction(fn, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      lastError = error;
+      const isConflict =
+        (error as { code?: string })?.code === "P2034" ||
+        (error instanceof Error &&
+          error.message.includes("could not serialize"));
+      if (!isConflict || attempt === MAX_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
 }
 
 const rateLimitedAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
@@ -1061,12 +1098,13 @@ export const adminRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      await assertRoleChangeAllowed(input.userId, input.role);
-
       try {
-        await prisma.user.update({
-          data: { role: input.role },
-          where: { id: input.userId },
+        await runAtomicRoleChange(async (tx) => {
+          await assertRoleChangeAllowed(input.userId, input.role, tx.user);
+          await tx.user.update({
+            data: { role: input.role },
+            where: { id: input.userId },
+          });
         });
 
         await userCache.invalidateUserDetail(input.userId);
@@ -1109,28 +1147,51 @@ export const adminRouter = router({
     .mutation(async ({ input }) => {
       const { userId, data } = input;
 
+      // oxlint-disable-next-line unicorn/prefer-ternary -- conditional transaction path is clearer as if/else than a nested ternary
+      let user;
       if (data.role) {
-        await assertRoleChangeAllowed(userId, data.role);
+        const nextRole = data.role;
+        user = await runAtomicRoleChange(async (tx) => {
+          await assertRoleChangeAllowed(userId, nextRole, tx.user);
+          return tx.user.update({
+            data,
+            select: {
+              aura: true,
+              avatarUrl: true,
+              bio: true,
+              createdAt: true,
+              displayName: true,
+              displayUsername: true,
+              email: true,
+              emailVerified: true,
+              id: true,
+              role: true,
+              updatedAt: true,
+              username: true,
+            },
+            where: { id: userId },
+          });
+        });
+      } else {
+        user = await prisma.user.update({
+          data,
+          select: {
+            aura: true,
+            avatarUrl: true,
+            bio: true,
+            createdAt: true,
+            displayName: true,
+            displayUsername: true,
+            email: true,
+            emailVerified: true,
+            id: true,
+            role: true,
+            updatedAt: true,
+            username: true,
+          },
+          where: { id: userId },
+        });
       }
-
-      const user = await prisma.user.update({
-        data,
-        select: {
-          aura: true,
-          avatarUrl: true,
-          bio: true,
-          createdAt: true,
-          displayName: true,
-          displayUsername: true,
-          email: true,
-          emailVerified: true,
-          id: true,
-          role: true,
-          updatedAt: true,
-          username: true,
-        },
-        where: { id: userId },
-      });
 
       await userCache.invalidateUserDetail(userId);
       await userCache.invalidateUserList();

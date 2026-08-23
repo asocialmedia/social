@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -385,7 +385,63 @@ async function getComposeFileFingerprint() {
   );
 }
 
+async function cleanupStaleDevServers() {
+  // Ensures `bun run dev` is single-instance: kills any orphaned Next/Turbo/
+  // portless/bun-watch from a prior run that would otherwise block the new
+  // dev servers or hold stale ports. Failures are non-fatal (no process to kill
+  // is the common case).
+  const kill = async (pattern: string) => {
+    try {
+      await runCmd(["pkill", "-9", "-f", pattern]);
+    } catch {
+      // no matching process
+    }
+  };
+
+  // Kill stale dev processes (host-only — container pid namespaces are isolated)
+  await kill("next dev");
+  await kill("turbo dev");
+  await kill("portless social");
+  await kill("portless auth");
+  await kill("bun --watch src/dev");
+  await kill("src/server"); // the Bun.serve child inside the watcher
+  // Free the fixed auth port if a prior Bun.serve survived the watcher kill
+  const killPort = async (port: number) => {
+    try {
+      await runCmd(["fuser", "-k", `${port}/tcp`]);
+    } catch {
+      // no listener on this port
+    }
+    try {
+      await runCmd(["sh", "-c", `lsof -ti:${port} | xargs -r kill -9`]);
+    } catch {
+      // no listener on this port
+    }
+  };
+  await killPort(3000);
+  await killPort(3001);
+  // Also clear the Next.js dev lock that survives unclean exits and makes
+  // `next dev` report "Another next dev server is already running" with a stale PID.
+  await Promise.all(
+    [
+      path.join(process.cwd(), "apps/web/.next/dev/lock"),
+      path.join(process.cwd(), "apps/web/.next/dev/lock.file"),
+    ].map(async (lock) => {
+      try {
+        await unlink(lock);
+      } catch {
+        // no lock file
+      }
+    })
+  );
+  // Brief settle so ports are released before the new servers bind.
+  await Bun.sleep(800);
+}
+
 async function run() {
+  // Single-instance guarantee: clean up orphans before any checks or servers start.
+  await cleanupStaleDevServers();
+
   intro("asmdev preflight");
   renderProgress();
 

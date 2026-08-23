@@ -9,9 +9,11 @@ import {
 } from "@asm/ui/shadui/popover";
 import { formatDate } from "date-fns";
 import {
+  Bookmark,
   CalendarDays,
   FileText,
   Flame,
+  Globe,
   LogOut,
   Settings2,
   UserPlus,
@@ -21,13 +23,13 @@ import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useState } from "react";
-import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
+import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useLogout } from "@/hooks/use-logout";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -61,12 +63,20 @@ const PopoverStat = ({
 
 interface PopoverSocialLink {
   href: string;
-  icon: IconType;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
 }
 
 function getSocialLinks(user: UserData): PopoverSocialLink[] {
   const links: PopoverSocialLink[] = [];
+  if (user.customDomain) {
+    const domain = user.customDomain.replace(/^https?:\/\//, "");
+    links.push({
+      href: `https://${domain}`,
+      icon: Globe,
+      label: `Website: ${domain}`,
+    });
+  }
   if (user.githubUsername) {
     links.push({
       href: `https://github.com/${user.githubUsername}`,
@@ -118,6 +128,10 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
   }, [openLogoutDialog]);
 
   const handleClose = useCallback(() => setOpen(false), []);
+
+  // Shared bookmark-count cache (posts + HN); kept live by the optimistic
+  // adjustBookmarkCount updates from every toggle.
+  const { data: bookmarkCountData } = useBookmarkCount();
 
   const profileHref = `/users/${userData.username}`;
   const socialLinks = getSocialLinks(userData);
@@ -289,7 +303,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="mt-4 flex items-center gap-2 px-4 pb-4">
+          <div
+            className={cn(
+              "mt-4 flex items-center gap-2 px-4",
+              // The mobile popover adds a Bookmarks row below (its bottom nav
+              // has no room for it), so the actions row skips the padding.
+              compact ? "" : "pb-4"
+            )}
+          >
             <Button
               asChild
               className="h-9 flex-1 px-4 py-2 text-sm"
@@ -318,6 +339,27 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
+
+          {/* Mobile-only: bookmarks lives here instead of the bottom nav. */}
+          {compact ? (
+            <div className="mt-3 px-4 pb-4">
+              <Button
+                asChild
+                className="h-9 w-full px-4 py-2 text-sm"
+                variant="premium"
+              >
+                <Link href="/bookmarks" onClick={handleClose}>
+                  <Bookmark className="mr-2 h-4 w-4 shrink-0" />
+                  Bookmarks
+                  {bookmarkCountData && bookmarkCountData.totalCount > 0 ? (
+                    <span className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full border border-white/40 bg-black/15 px-1 text-[10px] font-semibold text-white tabular-nums">
+                      {formatNumber(bookmarkCountData.totalCount)}
+                    </span>
+                  ) : null}
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </PopoverContent>
       </Popover>
 

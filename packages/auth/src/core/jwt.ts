@@ -13,9 +13,13 @@ export async function validateJWTToken(
   token: string
 ): Promise<JWTValidationResult> {
   try {
-    const secret = new TextEncoder().encode(
-      process.env.NEXTAUTH_SECRET || "fallback-secret"
-    );
+    // Fail closed: without a configured secret, tokens signed with a
+    // guessable constant must never validate.
+    const secretValue = process.env.NEXTAUTH_SECRET;
+    if (!secretValue) {
+      return { error: "JWT secret not configured", valid: false };
+    }
+    const secret = new TextEncoder().encode(secretValue);
 
     const { payload } = await jwtVerify(token, secret, {
       audience: process.env.APP_URL || "https://social.localhost",

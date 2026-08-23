@@ -90,7 +90,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) => {
-      const queryParams: Record<string, string> = {};
+      // Moderated gusts never render in the stream (same as the explore rail).
+      const queryParams: Record<string, string> = {
+        excludeModerated: "1",
+      };
       if (pageParam) {
         queryParams.cursor = pageParam;
       } else if (initialPostId) {
@@ -106,9 +109,11 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
   const posts = useMemo(
     () =>
-      (data?.pages.flatMap((page) => page.posts) || []).filter((post) =>
-        post.attachments.some((m) => m.type === "VIDEO")
-      ),
+      (data?.pages.flatMap((page) => page.posts) || [])
+        // Drop moderated stragglers from stale cached pages so a gust that
+        // gets moderated mid-session disappears instead of lingering.
+        .filter((post) => !post.moderated)
+        .filter((post) => post.attachments.some((m) => m.type === "VIDEO")),
     [data?.pages]
   );
 

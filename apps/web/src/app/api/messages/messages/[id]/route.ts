@@ -1,5 +1,6 @@
 import { prisma, publishMessageDeleted } from "@asm/db";
 
+import { areBlocked } from "@/lib/messages/server";
 import { getSessionFromApi } from "@/lib/session";
 
 export async function DELETE(
@@ -21,10 +22,20 @@ export async function DELETE(
     return Response.json({ error: "Message not found" }, { status: 404 });
   }
 
-  // Either member of a 1:1 conversation may delete any message in it.
-  if (
-    !message.conversation.members.some((member) => member.userId === user.id)
-  ) {
+  // Either member of a 1:1 conversation may delete any message in it —
+  // unless a block exists between the pair: a blocked user must not be able
+  // to reach into the conversation at all.
+  const callerIsMember = message.conversation.members.some(
+    (member) => member.userId === user.id
+  );
+  if (!callerIsMember) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const otherMember = message.conversation.members.find(
+    (member) => member.userId !== user.id
+  );
+  if (otherMember && (await areBlocked(user.id, otherMember.userId))) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 

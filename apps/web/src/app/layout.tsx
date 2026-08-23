@@ -18,6 +18,9 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   alternates: {
     canonical: "/",
+    types: {
+      "application/rss+xml": `${siteConfig.url}/feed.xml`,
+    },
   },
   applicationName: siteConfig.name,
   authors: [...siteConfig.authors],
@@ -81,7 +84,7 @@ export const metadata: Metadata = {
     index: true,
   },
   title: {
-    default: siteConfig.name,
+    default: `${siteConfig.name} — ${siteConfig.description.slice(0, 72)}`,
     template: `%s | ${siteConfig.name}`,
   },
   twitter: {
@@ -92,7 +95,17 @@ export const metadata: Metadata = {
     title: siteConfig.name,
   },
   verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
     me: ["https://przknv.cc"],
+    other: {
+      ...(process.env.BING_SITE_VERIFICATION
+        ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION }
+        : {}),
+      ...(process.env.YANDEX_VERIFICATION
+        ? { "yandex-verification": process.env.YANDEX_VERIFICATION }
+        : {}),
+    },
+    yandex: process.env.YANDEX_VERIFICATION || undefined,
   },
 };
 

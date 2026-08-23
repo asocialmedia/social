@@ -5,6 +5,7 @@ import {
 } from "@asm/db";
 import type { CommentVoteInfo } from "@asm/db";
 
+import { runSerializableTransaction } from "@/lib/db-transactions";
 import { getSessionFromApi } from "@/lib/session";
 
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
@@ -58,7 +59,9 @@ export async function POST(
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    // Serializable + retry so a concurrent vote re-reads committed state
+    // instead of double-applying the aura delta.
+    const result = await runSerializableTransaction(async (tx) => {
       const comment = await tx.comment.findUnique({
         select: { aura: true, id: true, postId: true, userId: true },
         where: { id: commentId },
@@ -193,7 +196,7 @@ export async function DELETE(
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runSerializableTransaction(async (tx) => {
       const comment = await tx.comment.findUnique({
         select: { aura: true, postId: true, userId: true },
         where: { id: commentId },

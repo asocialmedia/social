@@ -34,7 +34,10 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     where: { name: { equals: rawTag, mode: "insensitive" } },
   });
   if (!tagRecord) {
-    return {};
+    return {
+      robots: { follow: false, index: false },
+      title: `#${rawTag} — not found`,
+    };
   }
 
   const count = await prisma.post.count({

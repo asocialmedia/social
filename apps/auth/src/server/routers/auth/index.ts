@@ -9,10 +9,13 @@ import { auditLogout, checkLogoutRateLimit } from "../security";
 export const authRouter = router({
   generateToken: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.user.id;
+    // Fail closed rather than signing with a public fallback constant.
+    const secretValue = process.env.NEXTAUTH_SECRET;
+    if (!secretValue) {
+      throw new Error("JWT secret not configured");
+    }
     const { SignJWT } = await import("jose");
-    const secret = new TextEncoder().encode(
-      process.env.NEXTAUTH_SECRET || "fallback-secret"
-    );
+    const secret = new TextEncoder().encode(secretValue);
 
     const token = await new SignJWT({
       email: ctx.user.email,

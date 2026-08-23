@@ -8,8 +8,8 @@ import {
 import { getSessionFromApi } from "@/lib/session";
 
 // Batched view increment: the client accumulates visible post ids and posts
-// them here in one request instead of one request per post. Dedup is still
-// enforced server-side per (user, post).
+// them here in one request instead of one request per post. Signed-in viewers
+// count on every screenview; guests dedupe per hashed IP inside incrementView.
 //
 // incrementView returns the Redis counter, which only holds the delta since
 // the last worker flush (often just 1). The client patches its caches with

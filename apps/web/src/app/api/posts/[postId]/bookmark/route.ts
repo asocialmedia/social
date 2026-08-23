@@ -141,20 +141,20 @@ export async function DELETE(
   const isSelfBookmark = post.userId === user.id;
 
   await prisma.$transaction(async (tx) => {
-    const existingBookmark = await tx.bookmark.findUnique({
-      where: {
-        userId_postId: { postId, userId: user.id },
-      },
+    // The authoritative gate is the delete itself, not a prior read: under
+    // READ COMMITTED two concurrent unbookmarks can both observe the row as
+    // present, but only the transaction whose deleteMany removes exactly one
+    // row performed the logical unbookmark and may reverse aura.
+    const { count } = await tx.bookmark.deleteMany({
+      where: { postId, userId: user.id },
     });
 
-    // Only reverse aura when the bookmark actually existed and was awarded
-    // (bookmarks created before this feature shipped never earned it).
-    if (!existingBookmark) {
+    if (count !== 1) {
       return;
     }
 
-    await tx.bookmark.deleteMany({ where: { postId, userId: user.id } });
-
+    // Only reverse aura when the bookmark actually existed and was awarded
+    // (bookmarks created before this feature shipped never earned it).
     if (!isSelfBookmark) {
       const wasAwarded = await tx.auraLog.findFirst({
         where: {

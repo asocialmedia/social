@@ -1,6 +1,7 @@
 import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import { notFound } from "next/navigation";
 import { cache, Suspense } from "react";
 
@@ -39,11 +40,37 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
   return user;
 });
 
+// Metadata never varies by viewer, so it reads through a cached scope instead
+// of touching the session's connection() - keeping generateMetadata
+// prerenderable instead of blocking the route's metadata on request data.
+async function getMetadataUser(username: string) {
+  "use cache";
+  cacheLife("hours");
+
+  const user = await prisma.user.findFirst({
+    select: getUserDataSelect(""),
+    where: {
+      username: {
+        equals: username,
+        mode: "insensitive",
+      },
+    },
+  });
+
+  if (!user || user.id === SYSTEM_MODERATION_USER_ID) {
+    return null;
+  }
+  return user;
+}
+
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const params = await props.params;
   const { username } = params;
-  const session = await getSessionFromApi();
-  const user = await getUser(username, session?.user?.id ?? "");
+  const user = await getMetadataUser(username);
+
+  if (!user) {
+    return { robots: { follow: false, index: false }, title: "User not found" };
+  }
 
   const title = `${user.displayName} (@${user.username})`;
   const bio = user.bio?.trim();

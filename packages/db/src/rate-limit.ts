@@ -118,3 +118,14 @@ export function getClientIpFromHeaders(headers: Pick<Headers, "get">): string {
 export function getClientIpFromRequest(request: Request): string {
   return getClientIpFromHeaders(request.headers);
 }
+
+// Strict variant for security decisions that must NOT be rotatable by the
+// client (per-viewer dedupe keys, abuse budgets): ONLY an infra-set header
+// qualifies. x-forwarded-for / x-real-ip are never consulted because a direct
+// client fully controls them; when no trusted ingress header exists every
+// anonymous viewer collapses into one "unknown" identity, which fails closed
+// against inflation instead of failing open.
+export function getTrustedIngressIp(headers: Pick<Headers, "get">): string {
+  const cf = headers.get("cf-connecting-ip");
+  return cf?.trim() ? cf.trim() : "unknown";
+}

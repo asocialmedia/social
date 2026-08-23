@@ -2,8 +2,6 @@
 
 import type { UserData } from "@asm/db";
 import { Tabs, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
@@ -18,9 +16,10 @@ import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import useDebounce from "@/hooks/use-debounce";
-import { useToast } from "@/lib/gooey-toast";
-import kyInstance from "@/lib/ky";
-import { cn } from "@/lib/utils";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
+
+// Swipe order mirrors the rendered tab strip order.
+const TAB_ORDER: HNSortOption[] = ["score", "time", "comments"];
 
 interface ClientHackerNewsProps {
   userData: UserData;
@@ -41,50 +40,8 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<HNFilterId>("all");
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const debouncedSearch = useDebounce(search, 300);
   const feedScrollRef = useRef<HTMLDivElement>(null);
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
-  const handleRefresh = useCallback(async () => {
-    try {
-      setIsRefreshing(true);
-      await kyInstance.post("/api/hackernews").json<{ success: boolean }>();
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["hackernews"] }),
-        queryClient.invalidateQueries({ queryKey: ["hn-top-stories"] }),
-        queryClient.invalidateQueries({ queryKey: ["hn-sidebar-stories"] }),
-      ]);
-      toast({
-        description: "Fresh stories, ready when you are!",
-        title: "Refreshed",
-      });
-    } catch {
-      toast({
-        description: "Couldn't refresh stories, try again?",
-        title: "Couldn't Refresh",
-        variant: "destructive",
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [queryClient, toast]);
-
-  const refreshButton = (
-    <button
-      aria-label="Refresh stories"
-      className="btn-3d flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-all active:translate-y-px"
-      disabled={isRefreshing}
-      onClick={handleRefresh}
-      type="button"
-    >
-      <RefreshCw
-        className={cn("inline-block h-4 w-4", isRefreshing && "animate-spin")}
-        strokeWidth={2.5}
-      />
-    </button>
-  );
 
   const handleSortChange = useCallback(
     (value: string) => {
@@ -99,6 +56,19 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
     },
     [pathname, router, searchParams]
   );
+
+  // Mobile swipes drag the sort tab strip like a carousel (same mechanism as
+  // the home feed).
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const nextIndex = TAB_ORDER.indexOf(sortBy) + direction;
+      if (nextIndex >= 0 && nextIndex < TAB_ORDER.length) {
+        handleSortChange(TAB_ORDER[nextIndex]);
+      }
+    },
+    [handleSortChange, sortBy]
+  );
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
   if (!userData) {
     return null;
@@ -133,7 +103,6 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
                   onSearchChange={setSearch}
                   search={search}
                 />
-                {refreshButton}
               </div>
             </div>
             <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2 md:hidden">
@@ -143,13 +112,12 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
                 onSearchChange={setSearch}
                 search={search}
               />
-              {refreshButton}
             </div>
           </div>
 
           <div className="relative min-h-0 flex-1">
             <div
-              className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto"
+              className="hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto"
               ref={feedScrollRef}
             >
               <HNFeed

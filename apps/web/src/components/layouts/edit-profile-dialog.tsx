@@ -4,6 +4,7 @@ import { clientLog } from "@asm/config/debug";
 import type { PrivateUserData } from "@asm/db";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
@@ -21,7 +22,7 @@ import { Label } from "@asm/ui/shadui/label";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, ImagePlus, UserRound } from "lucide-react";
+import { Camera, ImagePlus, Trash2, X } from "lucide-react";
 import Image from "next/image";
 import type { StaticImageData } from "next/image";
 import type { SyntheticEvent } from "react";
@@ -32,11 +33,10 @@ import type {
   ControllerRenderProps,
   UseFormReturn,
 } from "react-hook-form";
-import type { IconType } from "react-icons";
-import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 import Resizer from "react-image-file-resizer";
 
 import {
+  useDeleteAvatarMutation,
   useDeleteBannerMutation,
   useUpdateAvatarMutation,
   useUpdateBannerMutation,
@@ -63,13 +63,13 @@ interface EditProfileDialogProps {
 const regex = /\s+/;
 
 type SocialFieldName =
+  | "customDomain"
   | "githubUsername"
   | "linkedinUsername"
   | "twitterUsername"
   | "redditUsername";
 
 interface SocialFieldConfig {
-  icon: IconType;
   label: string;
   name: SocialFieldName;
   placeholder: string;
@@ -77,28 +77,29 @@ interface SocialFieldConfig {
 
 const SOCIAL_FIELDS: SocialFieldConfig[] = [
   {
-    icon: FaGithub,
     label: "GitHub",
     name: "githubUsername",
     placeholder: "octocat",
   },
   {
-    icon: FaLinkedin,
     label: "LinkedIn",
     name: "linkedinUsername",
     placeholder: "john-doe",
   },
   {
-    icon: FaXTwitter,
     label: "Twitter / X",
     name: "twitterUsername",
     placeholder: "yourhandle",
   },
   {
-    icon: FaReddit,
     label: "Reddit",
     name: "redditUsername",
     placeholder: "yourusername",
+  },
+  {
+    label: "Custom domain",
+    name: "customDomain",
+    placeholder: "yourdomain.com",
   },
 ];
 
@@ -111,6 +112,7 @@ export default function EditProfileDialog({
   const form = useForm<UpdateUserProfileValues>({
     defaultValues: {
       bio: user.bio || "",
+      customDomain: user.customDomain ?? "",
       displayName: user.displayName,
       githubUsername: user.githubUsername ?? "",
       linkedinUsername: user.linkedinUsername ?? "",
@@ -124,15 +126,18 @@ export default function EditProfileDialog({
   const [gifToCenter, setGifToCenter] = useState<File | null>(null);
   const [croppedBanner, setCroppedBanner] = useState<Blob | null>(null);
   const [bannerRemoved, setBannerRemoved] = useState(false);
+  const [avatarDeleted, setAvatarDeleted] = useState(false);
   const avatarMutation = useUpdateAvatarMutation();
   const bannerMutation = useUpdateBannerMutation();
   const deleteBannerMutation = useDeleteBannerMutation();
+  const deleteAvatarMutation = useDeleteAvatarMutation();
   const profileMutation = useUpdateProfileMutation();
   const isUpdating =
     avatarMutation.isPending ||
     bannerMutation.isPending ||
     profileMutation.isPending ||
-    deleteBannerMutation.isPending;
+    deleteBannerMutation.isPending ||
+    deleteAvatarMutation.isPending;
 
   // Keep a stable object URL for the cropped preview and revoke it on change/unmount.
   const croppedAvatarUrl = useMemo(
@@ -164,8 +169,10 @@ export default function EditProfileDialog({
       setGifToCenter(null);
       setCroppedBanner(null);
       setBannerRemoved(false);
+      setAvatarDeleted(false);
       form.reset({
         bio: user.bio || "",
+        customDomain: user.customDomain ?? "",
         displayName: user.displayName,
         githubUsername: user.githubUsername ?? "",
         linkedinUsername: user.linkedinUsername ?? "",
@@ -179,13 +186,20 @@ export default function EditProfileDialog({
     const hasProfileChanges =
       values.displayName !== user.displayName ||
       values.bio !== user.bio ||
+      values.customDomain !== (user.customDomain ?? "") ||
       values.githubUsername !== (user.githubUsername ?? "") ||
       values.linkedinUsername !== (user.linkedinUsername ?? "") ||
       values.twitterUsername !== (user.twitterUsername ?? "") ||
       values.redditUsername !== (user.redditUsername ?? "");
-    const hasAvatarChanges = croppedAvatar || gifToCenter;
+    const hasAvatarChanges = Boolean(croppedAvatar || gifToCenter);
+    const hasAvatarDeleted = avatarDeleted && Boolean(user.avatarKey);
     const hasBannerChanges = Boolean(croppedBanner) || bannerRemoved;
-    return { hasAvatarChanges, hasBannerChanges, hasProfileChanges };
+    return {
+      hasAvatarChanges,
+      hasAvatarDeleted,
+      hasBannerChanges,
+      hasProfileChanges,
+    };
   };
 
   const updateProfile = async (values: UpdateUserProfileValues) => {
@@ -233,10 +247,21 @@ export default function EditProfileDialog({
 
   const handleSubmit = async (values: UpdateUserProfileValues) => {
     try {
-      const { hasProfileChanges, hasAvatarChanges, hasBannerChanges } =
-        checkForChanges(values);
+      const {
+        hasAvatarChanges,
+        hasAvatarDeleted,
+        hasBannerChanges,
+        hasProfileChanges,
+      } = checkForChanges(values);
 
-      if (!(hasProfileChanges || hasAvatarChanges || hasBannerChanges)) {
+      if (
+        !(
+          hasProfileChanges ||
+          hasAvatarChanges ||
+          hasAvatarDeleted ||
+          hasBannerChanges
+        )
+      ) {
         toast({
           description: "Looks like nothing changed, make a tweak and save!",
           title: "No Changes",
@@ -250,6 +275,8 @@ export default function EditProfileDialog({
 
       if (hasAvatarChanges) {
         await updateAvatar();
+      } else if (hasAvatarDeleted && user.avatarKey) {
+        await deleteAvatarMutation.mutateAsync({ userId: user.id });
       }
 
       if (hasBannerChanges) {
@@ -331,27 +358,45 @@ export default function EditProfileDialog({
     setCroppedBanner(null);
   }, []);
 
+  const handleDeleteAvatar = useCallback(() => {
+    setCroppedAvatar(null);
+    setGifToCenter(null);
+    setAvatarDeleted(true);
+  }, []);
+
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="apple-panel w-full max-w-120 gap-4 overflow-hidden p-0 sm:rounded-2xl"
+        className="apple-panel w-[calc(100%-1.5rem)] max-w-120 gap-4 overflow-hidden rounded-2xl border-0 p-0 [&>button:last-child]:hidden"
         onClick={handleContentClick}
       >
-        <div className="border-border/60 border-b px-5 pt-5 pb-3">
-          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-            <div
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-lg",
-                ORANGE_GRADIENT_CLASS
-              )}
-            >
-              <UserRound className="h-3.5 w-3.5" />
-            </div>
-            Edit Profile
-          </DialogTitle>
-          <DialogDescription className="text-muted-foreground mt-1 text-xs">
-            Update your profile details
-          </DialogDescription>
+        {/* Flush square avatar fills the header's left edge; title and
+            description sit to its right, with a 3D close button centered
+            against the header row. */}
+        <div className="border-border/60 flex items-center border-b py-2 pr-3 pl-3">
+          <div className="relative size-10 shrink-0">
+            <Image
+              alt=""
+              className="object-cover"
+              fill
+              sizes="40px"
+              src={avatarPlaceholder}
+            />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col justify-center px-4 py-2">
+            <DialogTitle className="text-base font-semibold">
+              Edit Profile
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground mt-0.5 text-xs">
+              Update your profile details
+            </DialogDescription>
+          </div>
+          <DialogClose
+            className="icon-btn-3d flex size-7 shrink-0 items-center justify-center rounded-full border-0"
+            aria-label="Close"
+          >
+            <X className="size-4" />
+          </DialogClose>
         </div>
 
         <div className="max-h-[85vh] overflow-y-auto px-5 pb-5">
@@ -373,11 +418,20 @@ export default function EditProfileDialog({
           <div className="mt-4 space-y-1.5">
             <Label>Avatar</Label>
             <AvatarInput
+              canDelete={Boolean(user.avatarUrl || user.avatarKey)}
               form={form}
+              isDeleted={avatarDeleted}
               isUploading={avatarMutation.isPending}
+              onDelete={handleDeleteAvatar}
               onGifSelected={setGifToCenter}
               onImageCropped={setCroppedAvatar}
-              src={croppedAvatarUrl ?? user.avatarUrl ?? avatarPlaceholder.src}
+              src={
+                avatarDeleted
+                  ? avatarPlaceholder.src
+                  : (croppedAvatarUrl ??
+                    user.avatarUrl ??
+                    avatarPlaceholder.src)
+              }
               user={user}
             />
           </div>
@@ -400,17 +454,7 @@ export default function EditProfileDialog({
                 />
 
                 <div className="space-y-3 pt-1">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={cn(
-                        "flex h-7 w-7 items-center justify-center rounded-lg",
-                        ORANGE_GRADIENT_CLASS
-                      )}
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" />
-                    </div>
-                    <p className="text-sm font-medium">Social links</p>
-                  </div>
+                  <p className="text-sm font-medium">Social links</p>
                   {SOCIAL_FIELDS.map((item) => (
                     <SocialFormField
                       control={form.control}
@@ -467,25 +511,21 @@ interface SocialFieldRendererProps {
   item: SocialFieldConfig;
 }
 
-const SocialFieldRenderer = ({ field, item }: SocialFieldRendererProps) => {
-  const Icon = item.icon;
-  return (
-    <FormItem>
-      <FormLabel>{item.label}</FormLabel>
-      <FormControl>
-        <div className="relative">
-          <Icon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-          <Input
-            className="premium-input h-10 rounded-xl pr-3 pl-10 text-sm"
-            placeholder={item.placeholder}
-            {...field}
-          />
-        </div>
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  );
-};
+const SocialFieldRenderer = ({ field, item }: SocialFieldRendererProps) => (
+  <FormItem>
+    <FormLabel>{item.label}</FormLabel>
+    <FormControl>
+      <div className="relative">
+        <Input
+          className="premium-input h-10 rounded-xl px-3 text-sm"
+          placeholder={item.placeholder}
+          {...field}
+        />
+      </div>
+    </FormControl>
+    <FormMessage />
+  </FormItem>
+);
 
 interface BannerInputProps {
   canRemove: boolean;
@@ -602,48 +642,54 @@ const BannerInput = ({
         ref={fileInputRef}
         type="file"
       />
-      {canRemove && !isRemoved ? (
+      <div className="relative">
         <button
-          className="border-border/60 text-muted-foreground hover:border-destructive/40 hover:text-destructive mt-2 w-full rounded-lg border bg-[hsl(var(--background))] py-1.5 text-xs transition-colors duration-200"
+          className="group border-border/60 relative block h-28 w-full overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]"
           disabled={isUploading}
-          onClick={handleRemoveClick}
+          onClick={handleBannerClick}
           type="button"
         >
-          Remove header image
-        </button>
-      ) : null}
-      <button
-        className="group border-border/60 relative block h-28 w-full overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]"
-        disabled={isUploading}
-        onClick={handleBannerClick}
-        type="button"
-      >
-        {bannerSrc && !isRemoved ? (
-          <Image
-            alt="Header preview"
-            className="object-cover"
-            fill
-            sizes="480px"
-            src={bannerSrc}
-            unoptimized={
-              typeof bannerSrc === "string" &&
-              (bannerSrc.includes("asmob") || bannerSrc.startsWith("blob:"))
-            }
-          />
-        ) : (
-          <div className="text-muted-foreground absolute inset-0 flex items-center justify-center gap-2 bg-linear-to-br from-[#ff9500]/10 via-transparent to-[#e65500]/10 text-sm">
-            <ImagePlus className="h-4 w-4" />
-            Add a header image
-          </div>
-        )}
-        <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-          {isUploading ? (
-            <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          {bannerSrc && !isRemoved ? (
+            <Image
+              alt="Header preview"
+              className="object-cover"
+              fill
+              sizes="480px"
+              src={bannerSrc}
+              unoptimized={
+                typeof bannerSrc === "string" &&
+                (bannerSrc.includes("asmob") || bannerSrc.startsWith("blob:"))
+              }
+            />
           ) : (
-            <Camera className="h-6 w-6 text-white" />
+            <div className="text-muted-foreground absolute inset-0 flex items-center justify-center gap-2 bg-linear-to-br from-[#ff9500]/10 via-transparent to-[#e65500]/10 text-sm">
+              <ImagePlus className="h-4 w-4" />
+              Add a header image
+            </div>
           )}
-        </span>
-      </button>
+          <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            {isUploading ? (
+              <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <Camera className="h-6 w-6 text-white" />
+            )}
+          </span>
+        </button>
+
+        {/* Trash sits on the image itself instead of a separate full-width
+            row below; sibling of the preview button so buttons never nest. */}
+        {canRemove && !isRemoved ? (
+          <button
+            aria-label="Remove header image"
+            className="hover:bg-destructive absolute top-2 right-2 z-10 flex size-7 items-center justify-center rounded-full border-0 bg-black/50 text-white backdrop-blur-sm transition-colors duration-200 active:translate-y-px"
+            disabled={isUploading}
+            onClick={handleRemoveClick}
+            type="button"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
 
       {imageToCrop ? (
         <CropImageDialog
@@ -658,8 +704,11 @@ const BannerInput = ({
 };
 
 interface AvatarInputProps {
+  canDelete: boolean;
   form: UseFormReturn<UpdateUserProfileValues>;
+  isDeleted: boolean;
   isUploading: boolean;
+  onDelete: () => void;
   onGifSelected: (file: File | null) => void;
   onImageCropped: (blob: Blob | null) => void;
   src: string | StaticImageData;
@@ -667,10 +716,13 @@ interface AvatarInputProps {
 }
 
 const AvatarInput = ({
+  canDelete,
   src,
   onImageCropped,
   onGifSelected,
   form,
+  isDeleted,
+  onDelete,
   isUploading,
   user,
 }: AvatarInputProps) => {
@@ -787,37 +839,50 @@ const AvatarInput = ({
         type="file"
       />
       <div className="border-border/60 flex items-center gap-4 rounded-xl border bg-[hsl(var(--background))] p-3 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]">
-        <button
-          className="group relative block shrink-0"
-          disabled={isUploading}
-          onClick={handleAvatarClick}
-          type="button"
-        >
-          <Image
-            alt="Avatar preview"
-            className={cn(
-              "avatar-ring size-24 flex-none rounded-full object-cover",
-              isUploading && "opacity-50"
-            )}
-            height={150}
-            onError={handleAvatarError}
-            src={avatarSrc}
-            unoptimized={
-              typeof avatarSrc === "string" &&
-              (isGifUrl(avatarSrc) ||
-                avatarSrc.includes("asmob") ||
-                avatarSrc.startsWith("blob:"))
-            }
-            width={150}
-          />
-          <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 text-white ring-2 ring-white/50 transition-colors duration-200 group-hover:bg-black/30">
-            {isUploading ? (
-              <span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            ) : (
-              <Camera size={20} />
-            )}
-          </span>
-        </button>
+        <div className="relative shrink-0">
+          <button
+            className="group relative block"
+            disabled={isUploading}
+            onClick={handleAvatarClick}
+            type="button"
+          >
+            <Image
+              alt="Avatar preview"
+              className={cn(
+                "avatar-ring size-24 flex-none rounded-full object-cover",
+                isUploading && "opacity-50"
+              )}
+              height={150}
+              onError={handleAvatarError}
+              src={avatarSrc}
+              unoptimized={
+                typeof avatarSrc === "string" &&
+                (isGifUrl(avatarSrc) ||
+                  avatarSrc.includes("asmob") ||
+                  avatarSrc.startsWith("blob:"))
+              }
+              width={150}
+            />
+            <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 text-white ring-2 ring-white/50 transition-colors duration-200 group-hover:bg-black/30">
+              {isUploading ? (
+                <span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Camera size={20} />
+              )}
+            </span>
+          </button>
+          {canDelete && !isDeleted ? (
+            <button
+              aria-label="Remove avatar"
+              className="hover:bg-destructive absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded-full border-0 bg-black/50 text-white transition-colors duration-200 active:translate-y-px"
+              disabled={isUploading}
+              onClick={onDelete}
+              type="button"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          ) : null}
+        </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Change profile photo</p>
           <p className="text-muted-foreground mt-1 text-xs">

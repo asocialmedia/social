@@ -11,6 +11,7 @@ import { ConversationList } from "@/components/messages/conversation-list";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { MessageThread } from "@/components/messages/message-thread";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
+import { cn } from "@/lib/utils";
 
 export default function ClientMessages() {
   const { status } = useMessagesIdentity();
@@ -19,6 +20,7 @@ export default function ClientMessages() {
   const conversationId = searchParams.get("c");
   const dmUserId = searchParams.get("dm");
   const [railOpen, setRailOpen] = useState(false);
+  const keyboardInset = useAppScreenLayout();
 
   // The identity is provisioned automatically by the provider, so the
   // conversation the user was trying to reach just works once ready.
@@ -80,8 +82,21 @@ export default function ClientMessages() {
   }
 
   return (
-    <div className="border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] pb-14 sm:border-x lg:pb-0">
-      <div className="hide-native-scrollbar flex min-h-0 flex-1 flex-row overflow-hidden">
+    <div
+      className={cn(
+        "border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:pb-0",
+        // The bottom nav only shows when no thread is open (it unmounts for
+        // an active chat), so the padding reserved for it must too.
+        pendingConversation ? "" : "pb-14"
+      )}
+    >
+      <div
+        className="hide-native-scrollbar flex min-h-0 flex-1 flex-row overflow-hidden"
+        // Lift everything above the on-screen keyboard: the software keyboard
+        // overlays the layout viewport, so pad by its height to keep the
+        // composer visible without the browser panning the page.
+        style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
+      >
         <ConversationList
           activeConversationId={pendingConversation ?? null}
           onSelect={selectConversation}
@@ -131,6 +146,55 @@ export default function ClientMessages() {
       </div>
     </div>
   );
+}
+
+// Messages behaves like an app screen: the document itself never scrolls
+// (only the transcript and conversation list scroll internally), and the
+// software keyboard must not push the page around. Locking html/body scroll
+// stops mobile browsers from panning the whole app past its bounds when the
+// composer is focused, and the visualViewport listener exposes how much the
+// keyboard covers so the layout can shrink above it (dvh ignores the
+// keyboard). Same offset trick as the floating post editor.
+function useAppScreenLayout() {
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  useEffect(() => {
+    const { body, documentElement } = document;
+    const previousHtmlOverflow = documentElement.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    documentElement.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      return () => {
+        documentElement.style.overflow = previousHtmlOverflow;
+        body.style.overflow = previousBodyOverflow;
+      };
+    }
+
+    const syncViewport = () => {
+      // Undo any pan the browser applied to the window while chasing the
+      // focused input; the keyboard inset keeps that input visible, so no
+      // pan is needed in the first place.
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+      setKeyboardInset(Math.max(0, window.innerHeight - viewport.height));
+    };
+    viewport.addEventListener("resize", syncViewport);
+    viewport.addEventListener("scroll", syncViewport);
+    syncViewport();
+
+    return () => {
+      viewport.removeEventListener("resize", syncViewport);
+      viewport.removeEventListener("scroll", syncViewport);
+      documentElement.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, []);
+
+  return keyboardInset;
 }
 
 function EmptyThreadState() {

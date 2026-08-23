@@ -1,22 +1,15 @@
 "use client";
 
 import type { HNStory } from "@asm/aggregator/hackernews";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@asm/ui/shadui/dropdown-menu";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
-  ArrowUpRight,
   Bookmark,
   Clock,
+  Copy,
   Link as LinkIcon,
   MessageCircle,
-  MoreHorizontal,
   Share2,
   ThumbsUp,
   User,
@@ -145,14 +138,6 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
     e.stopPropagation();
   }, []);
 
-  const handleOpenComments = useCallback(() => {
-    window.open(hnItemUrl, "_blank", "noopener,noreferrer");
-  }, [hnItemUrl]);
-
-  const handleOpenStory = useCallback(() => {
-    window.open(story.url || hnItemUrl, "_blank", "noopener,noreferrer");
-  }, [hnItemUrl, story.url]);
-
   const handleToggleBookmark = useCallback(() => {
     toggleBookmark(undefined, {
       onSuccess: () => {
@@ -171,80 +156,31 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
       <div className="pointer-events-none absolute inset-0 -z-10 rounded-2xl bg-linear-to-r from-orange-500/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <HNLogo />
           <span className="text-[10px] font-semibold tracking-wide text-orange-600 uppercase dark:text-orange-400">
             Hacker News
           </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-2">
           <span className="text-muted-foreground/70 flex items-center gap-1 text-[11px] tabular-nums">
             <Clock className="h-3 w-3" />
             {timeAgo}
           </span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                aria-label="Story options"
-                className="pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px"
-                type="button"
-              >
-                <MoreHorizontal className="size-5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="apple-panel p-1.5 shadow-none"
-            >
-              <DropdownMenuItem
-                className="pill-3d-hover rounded-md px-2 py-2"
-                onClick={handleOpenComments}
-              >
-                <span className="flex items-center gap-3">
-                  <MessageCircle className="size-4" />
-                  Comments
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="pill-3d-hover rounded-md px-2 py-2"
-                onClick={handleShare}
-              >
-                <span className="flex items-center gap-3">
-                  <Share2 className="size-4" />
-                  Share
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="pill-3d-hover rounded-md px-2 py-2"
-                onClick={handleShareToAsocialmedia}
-              >
-                <span className="flex items-center gap-3">
-                  <Share2 className="size-4 rotate-90" />
-                  Share to asocialmedia
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="pill-3d-hover rounded-md px-2 py-2"
-                onClick={handleToggleBookmark}
-              >
-                <span className="flex items-center gap-3">
-                  <Bookmark
-                    className={cn("size-4", isBookmarked && "fill-current")}
-                  />
-                  {isBookmarked ? "Remove bookmark" : "Save"}
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="pill-3d-hover rounded-md px-2 py-2"
-                onClick={handleOpenStory}
-              >
-                <span className="flex items-center gap-3">
-                  <ArrowUpRight className="size-4" />
-                  Visit
-                </span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Save control at the card's top-right, matching post cards. */}
+          <button
+            aria-label={isBookmarked ? "Remove bookmark" : "Save story"}
+            className={cn(
+              "inline-flex size-6 items-center justify-center rounded-full border-0 transition-all duration-200 ease-out outline-none active:translate-y-px",
+              !isBookmarked && "text-muted-foreground pill-3d-hover",
+              isBookmarked &&
+                "bg-linear-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+            )}
+            onClick={handleToggleBookmark}
+            type="button"
+          >
+            <Bookmark className={cn("size-4", isBookmarked && "fill-white")} />
+          </button>
         </div>
       </div>
 
@@ -297,62 +233,23 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
       </div>
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 pt-2">
-        <a
-          className="hn-link dark:text-orange-400"
-          href={hnItemUrl}
-          onClick={handleVisit}
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          <MessageCircle className="h-3.5 w-3.5" />
-          <span>Comments</span>
-        </a>
-
-        <button
-          className="hn-link dark:text-orange-400"
-          onClick={handleShare}
-          type="button"
-        >
-          <Share2 className="h-3.5 w-3.5" />
-          <span>Share</span>
-        </button>
-
         <button
           className="hn-link dark:text-orange-400"
           onClick={handleShareToAsocialmedia}
           type="button"
         >
           <Share2 className="h-3.5 w-3.5 rotate-90" />
-          <span>Share to asocialmedia</span>
+          <span>Reshare as fleet</span>
         </button>
 
         <button
-          className={cn(
-            "hn-link dark:text-orange-400",
-            isBookmarked &&
-              "bg-linear-to-b from-[#ff9500] to-[#e65500] font-medium text-white! shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.4),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.08)] dark:text-white!"
-          )}
-          onClick={handleToggleBookmark}
+          className="hn-link ml-auto dark:text-orange-400"
+          onClick={handleShare}
           type="button"
         >
-          <Bookmark
-            className={cn("h-3.5 w-3.5", isBookmarked && "fill-current")}
-          />
-          <span>{isBookmarked ? "Saved" : "Save"}</span>
+          <Copy className="h-3.5 w-3.5" />
+          <span>Copy</span>
         </button>
-
-        {story.url ? (
-          <a
-            className="hn-link ml-auto dark:text-orange-400"
-            href={story.url}
-            onClick={handleVisit}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            <ArrowUpRight className="h-3.5 w-3.5" />
-            <span>Visit</span>
-          </a>
-        ) : null}
       </div>
     </div>
   );

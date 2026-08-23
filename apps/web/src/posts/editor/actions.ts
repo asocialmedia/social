@@ -138,6 +138,40 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     );
 
     const newPost = await prisma.$transaction(async (tx) => {
+      // Attachments must be owned by the caller and unclaimed: a crafted
+      // mediaId could otherwise drag another user's comment attachment (or an
+      // owner-only draft) into a public post, and the post-deletion worker
+      // would then permanently delete the victim's storage objects. Mirrors
+      // the ownership validation the comment flow already applies.
+      if (validatedInput.mediaIds.length > 0) {
+        const attachedMedia = await tx.media.findMany({
+          select: {
+            commentId: true,
+            id: true,
+            postId: true,
+            userId: true,
+          },
+          where: { id: { in: validatedInput.mediaIds } },
+        });
+        const foundIds = new Set(attachedMedia.map((m) => m.id));
+        const allOwnedAndUnclaimed =
+          attachedMedia.length === validatedInput.mediaIds.length &&
+          validatedInput.mediaIds.every(
+            (id) =>
+              foundIds.has(id) &&
+              attachedMedia.some(
+                (m) =>
+                  m.id === id &&
+                  m.userId === sessionData.user.id &&
+                  m.postId === null &&
+                  m.commentId === null
+              )
+          );
+        if (!allOwnedAndUnclaimed) {
+          throw new Error("One or more attachments are invalid");
+        }
+      }
+
       if (validatedInput.mentions.length > 0) {
         const validUsers = await tx.user.findMany({
           select: { id: true },

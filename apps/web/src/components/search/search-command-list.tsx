@@ -1,6 +1,10 @@
 "use client";
 
-import type { SearchPostResult, SearchUserResult } from "@asm/db";
+import type {
+  SearchHistoryItem,
+  SearchPostResult,
+  SearchUserResult,
+} from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noSearchImage from "@assets/general/nosearch.png";
 import { Clock3, Eye, Flame, TrendingUp, X } from "lucide-react";
@@ -8,14 +12,22 @@ import Image from "next/image";
 import { useCallback } from "react";
 import type { MouseEvent } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { normalizeHistoryItem } from "@/components/search/use-search-history";
+import {
+  cn,
+  formatNumber,
+  formatRelativeDate,
+  formatSearchTime,
+} from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SearchCommandListProps {
-  history?: string[];
+  history?: (SearchHistoryItem | string)[];
   input: string;
   onClearHistory?: () => void;
-  onRemoveHistoryItem?: (query: string) => void;
+  onRemoveHistoryItem?: (target: string) => void;
   onSelectPost: (post: SearchPostResult) => void;
   onSelectSuggestion: (value: string) => void;
   onSelectUser: (user: SearchUserResult) => void;
@@ -30,7 +42,7 @@ interface SearchSuggestion {
 }
 
 const ROW_CLASS =
-  "pill-3d-hover flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-all duration-200 ease-out text-foreground data-[selected=true]:bg-transparent";
+  "pill-3d-hover flex w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left outline-none transition-colors duration-150 ease-out text-foreground data-[selected=true]:bg-transparent";
 
 export const SearchCommandList = ({
   input,
@@ -44,6 +56,8 @@ export const SearchCommandList = ({
   onClearHistory,
   onRemoveHistoryItem,
 }: SearchCommandListProps) => {
+  const { user: currentUser } = useSession();
+
   const handleClearHistory = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault();
@@ -53,10 +67,10 @@ export const SearchCommandList = ({
   );
 
   const handleRemoveHistoryItem = useCallback(
-    (e: MouseEvent<HTMLButtonElement>, query: string) => {
+    (e: MouseEvent<HTMLButtonElement>, target: string) => {
       e.preventDefault();
       e.stopPropagation();
-      onRemoveHistoryItem?.(query);
+      onRemoveHistoryItem?.(target);
     },
     [onRemoveHistoryItem]
   );
@@ -94,22 +108,12 @@ export const SearchCommandList = ({
     [onSelectSuggestion, suggestions]
   );
 
-  const handleHistoryClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      const index = Number(e.currentTarget.dataset.index);
-      const query = history?.[index];
-      if (query) {
-        onSelectSuggestion(query);
-      }
-    },
-    [history, onSelectSuggestion]
-  );
-
   const handleRemoveHistoryClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
-      const { query } = e.currentTarget.dataset;
-      if (query) {
-        handleRemoveHistoryItem(e, query);
+      const target =
+        e.currentTarget.dataset.target || e.currentTarget.dataset.query;
+      if (target) {
+        handleRemoveHistoryItem(e, target);
       }
     },
     [handleRemoveHistoryItem]
@@ -119,7 +123,7 @@ export const SearchCommandList = ({
   const hasQuery = Boolean(input.trim());
 
   return (
-    <div className="apple-panel overflow-hidden rounded-2xl p-1.5 shadow-none">
+    <div className="apple-panel hide-native-scrollbar max-h-[min(68vh,440px)] overflow-x-hidden overflow-y-auto rounded-2xl p-1.5 shadow-none">
       {hasQuery && !hasResults && !suggestions?.length ? (
         <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
           <Image
@@ -144,32 +148,47 @@ export const SearchCommandList = ({
           <div className="text-muted-foreground px-2.5 pt-1.5 pb-0.5 text-xs font-semibold tracking-wide uppercase">
             People
           </div>
-          {users.map((user, index) => (
-            <button
-              className={ROW_CLASS}
-              data-index={index}
-              key={`user-${user.id}`}
-              onClick={handleUserClick}
-              type="button"
-            >
-              <UserAvatar
-                avatarUrl={user.avatarUrl}
-                className="h-9 w-9 shrink-0"
-                size={36}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">
-                  {user.displayName || user.username}
+          {users.map((user, index) => {
+            const isSelf = Boolean(
+              currentUser &&
+              (user.id === currentUser.id ||
+                user.username.toLowerCase() ===
+                  currentUser.username.toLowerCase())
+            );
+            return (
+              <button
+                className={ROW_CLASS}
+                data-index={index}
+                key={`user-${user.id}`}
+                onClick={handleUserClick}
+                type="button"
+              >
+                <UserAvatar
+                  avatarUrl={user.avatarUrl}
+                  className="h-9 w-9 shrink-0"
+                  size={36}
+                />
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                    <span className="truncate">
+                      {user.displayName || user.username}
+                    </span>
+                    {isSelf ? (
+                      <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
+                        You
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-xs">
+                    @{user.username}
+                  </span>
                 </span>
-                <span className="text-muted-foreground block truncate text-xs">
-                  @{user.username}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {formatNumber(user.aura)} aura
                 </span>
-              </span>
-              <span className="text-muted-foreground shrink-0 text-xs">
-                {formatNumber(user.aura)} aura
-              </span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       ) : null}
 
@@ -180,7 +199,10 @@ export const SearchCommandList = ({
           </div>
           {posts.map((post, index) => (
             <button
-              className={ROW_CLASS}
+              className={cn(
+                ROW_CLASS,
+                "relative max-h-23 items-start overflow-hidden py-2.5"
+              )}
               data-index={index}
               key={`post-${post.id}`}
               onClick={handlePostClick}
@@ -191,11 +213,11 @@ export const SearchCommandList = ({
                 className="h-9 w-9 shrink-0"
                 size={36}
               />
-              <span className="min-w-0 flex-1">
-                <span className="line-clamp-2 block text-sm leading-snug font-medium">
+              <span className="min-w-0 flex-1 overflow-hidden">
+                <span className="line-clamp-3 overflow-hidden text-sm leading-[1.35] font-medium [overflow-wrap:anywhere] break-words">
                   {post.content}
                 </span>
-                <span className="text-muted-foreground mt-1 flex items-center gap-3 text-xs">
+                <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2.5 text-xs">
                   <span className="flex shrink-0 items-center gap-0.5">
                     <Flame
                       className={cn(
@@ -214,6 +236,28 @@ export const SearchCommandList = ({
                   </span>
                 </span>
               </span>
+              {post.previewMedia ? (
+                <div className="bg-muted relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+                  <Image
+                    alt=""
+                    className={cn(
+                      "h-full w-full object-cover",
+                      post.explicitContent && "opacity-70 blur-md"
+                    )}
+                    fill
+                    sizes="48px"
+                    src={getMediaProxyUrl(post.previewMedia)}
+                    unoptimized
+                  />
+                  {post.previewMedia.type === "VIDEO" ? (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                        <span className="ml-px h-0 w-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-zinc-900" />
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </button>
           ))}
         </div>
@@ -263,34 +307,231 @@ export const SearchCommandList = ({
               </Button>
             ) : null}
           </div>
-          {history.map((query, index) => (
-            <button
-              className={cn(ROW_CLASS, "group")}
-              data-index={index}
-              key={query}
-              onClick={handleHistoryClick}
-              type="button"
-            >
-              <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
-                <Clock3 className="h-4 w-4" />
-              </div>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                {query}
-              </span>
-              {onRemoveHistoryItem ? (
-                <Button
-                  aria-label="Remove"
-                  className="text-muted-foreground h-7 w-7 shrink-0 rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
-                  data-query={query}
-                  onClick={handleRemoveHistoryClick}
-                  size="icon"
-                  variant="ghost"
+          {history.map((rawEntry, index) => {
+            const item = normalizeHistoryItem(rawEntry);
+            let removeTarget = item.raw;
+            if (!removeTarget) {
+              if (item.type === "query") {
+                removeTarget = item.query;
+              } else if (item.type === "user") {
+                removeTarget = item.user.id;
+              } else {
+                removeTarget = item.post.id;
+              }
+            }
+
+            if (item.type === "user") {
+              const isSelf = Boolean(
+                currentUser &&
+                (item.user.id === currentUser.id ||
+                  item.user.username.toLowerCase() ===
+                    currentUser.username.toLowerCase())
+              );
+              return (
+                <div
+                  className={cn(ROW_CLASS, "group")}
+                  data-index={index}
+                  key={`history-user-${item.user.id}-${index}`}
+                  onClick={() => onSelectUser(item.user)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectUser(item.user);
+                    }
+                  }}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                  role="button"
+                  tabIndex={0}
                 >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              ) : null}
-            </button>
-          ))}
+                  <UserAvatar
+                    avatarUrl={item.user.avatarUrl}
+                    className="h-9 w-9 shrink-0"
+                    size={36}
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                      <span className="truncate">
+                        {item.user.displayName || item.user.username}
+                      </span>
+                      {isSelf ? (
+                        <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
+                          You
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      @{item.user.username}
+                      {item.searchedAt
+                        ? ` · ${formatSearchTime(item.searchedAt)}`
+                        : ""}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {formatNumber(item.user.aura)} aura
+                  </span>
+                  {onRemoveHistoryItem ? (
+                    <Button
+                      aria-label="Remove"
+                      className="text-muted-foreground my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                      data-target={removeTarget}
+                      onClick={handleRemoveHistoryClick}
+                      size="icon"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            }
+
+            if (item.type === "post") {
+              return (
+                <div
+                  className={cn(
+                    ROW_CLASS,
+                    "group relative max-h-23 items-start overflow-hidden py-2.5"
+                  )}
+                  data-index={index}
+                  key={`history-post-${item.post.id}-${index}`}
+                  onClick={() => onSelectPost(item.post)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectPost(item.post);
+                    }
+                  }}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                  role="button"
+                  tabIndex={0}
+                >
+                  <UserAvatar
+                    avatarUrl={item.post.authorAvatarUrl}
+                    className="h-9 w-9 shrink-0"
+                    size={36}
+                  />
+                  <span className="min-w-0 flex-1 overflow-hidden">
+                    <span className="line-clamp-3 overflow-hidden text-sm leading-[1.35] font-medium [overflow-wrap:anywhere] break-words">
+                      {item.post.content}
+                    </span>
+                    <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2.5 text-xs">
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        <Flame
+                          className={cn(
+                            "h-3 w-3",
+                            item.post.aura < 0
+                              ? "text-[#7c5cff]"
+                              : "text-orange-500"
+                          )}
+                        />
+                        {formatNumber(item.post.aura)}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        <Eye className="h-3 w-3" />
+                        {formatNumber(item.post.viewCount)}
+                      </span>
+                      <span className="shrink-0">
+                        {formatRelativeDate(item.post.createdAt)}
+                      </span>
+                      {item.searchedAt ? (
+                        <span className="shrink-0">
+                          · {formatSearchTime(item.searchedAt)}
+                        </span>
+                      ) : null}
+                    </span>
+                  </span>
+                  {item.post.previewMedia ? (
+                    <div className="bg-muted relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+                      <Image
+                        alt=""
+                        className={cn(
+                          "h-full w-full object-cover",
+                          item.post.explicitContent && "opacity-70 blur-md"
+                        )}
+                        fill
+                        sizes="48px"
+                        src={getMediaProxyUrl(item.post.previewMedia)}
+                        unoptimized
+                      />
+                      {item.post.previewMedia.type === "VIDEO" ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                            <span className="ml-px h-0 w-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-zinc-900" />
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {onRemoveHistoryItem ? (
+                    <Button
+                      aria-label="Remove"
+                      className="text-muted-foreground my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                      data-target={removeTarget}
+                      onClick={handleRemoveHistoryClick}
+                      size="icon"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            }
+
+            const sublineParts = [
+              typeof item.resultCount === "number"
+                ? `${formatNumber(item.resultCount)} results`
+                : null,
+              item.searchedAt ? formatSearchTime(item.searchedAt) : null,
+            ].filter(Boolean);
+
+            return (
+              <div
+                className={cn(ROW_CLASS, "group")}
+                data-index={index}
+                key={`history-query-${item.query}-${index}`}
+                onClick={() => onSelectSuggestion(item.query)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectSuggestion(item.query);
+                  }
+                }}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- row contains a remove history button; nesting buttons is invalid HTML
+                role="button"
+                tabIndex={0}
+              >
+                <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                  <Clock3 className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1 truncate">
+                  <span className="block truncate text-sm font-medium">
+                    {item.query}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-xs">
+                    {sublineParts.length > 0
+                      ? sublineParts.join(" · ")
+                      : "Recent search"}
+                  </span>
+                </div>
+                {onRemoveHistoryItem ? (
+                  <Button
+                    aria-label="Remove"
+                    className="text-muted-foreground my-auto h-7 w-7 shrink-0 self-center rounded-full p-0 opacity-0 transition-all duration-200 ease-out group-hover:opacity-100"
+                    data-target={removeTarget}
+                    onClick={handleRemoveHistoryClick}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
 

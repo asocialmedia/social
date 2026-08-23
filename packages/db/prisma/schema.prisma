@@ -30,6 +30,7 @@ model User {
   linkedinUsername String?
   twitterUsername String?
   redditUsername  String?
+  customDomain    String?
   emailVerified   Boolean   @default(false)
   emailVerifiedAt DateTime?
   image           String?
@@ -85,13 +86,14 @@ model MessageIdentity {
   userId              String   @id
   publicKey           String
   encryptedPrivateKey String
-  // SHA-256 hex hash of the account's random 64-char backup secret. The hash
-  // IS the PBKDF2 secret used to derive the master key, so the server (or any
-  // database reader) holding this row can recompute the decryption key from
-  // hash + salt + kdfIterations. Recovery on a new device is automatic and
-  // requires no user input by design; the raw secret is never stored, but the
-  // encrypted backup is recoverable from the stored row alone. Optional only
-  // to tolerate legacy rows.
+  // SHA-256 hex hash of the account's random 64-char backup secret. This is
+  // a VERIFIER only: it proves knowledge of the secret but cannot yield the
+  // master key, because the master key derives (PBKDF2) from the raw secret,
+  // which lives exclusively on the user's devices. A database reader holding
+  // this row therefore cannot decrypt encryptedPrivateKey. Rows created by
+  // older clients derived the master key from this hash directly; those
+  // legacy rows remain decryptable until the identity is re-provisioned.
+  // Optional only to tolerate such legacy rows.
   masterKeyHash       String?
   salt                String
   kdfIterations       Int

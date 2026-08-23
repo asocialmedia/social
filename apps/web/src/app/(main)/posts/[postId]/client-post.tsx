@@ -14,6 +14,7 @@ import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import FloatingPostEditor from "@/components/layouts/mobile/floating-post-editor";
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 import { withViewTransition } from "@/lib/view-transition";
 
@@ -93,12 +94,25 @@ const ClientPost: React.FC<ClientPostProps> = ({
     }
   }, [router]);
 
+  // Mobile swipes: a right-to-left slide opens the author's profile. The
+  // fullscreen media viewer is a Radix dialog portaled outside this scroll
+  // container, so swiping inside an open viewer never reaches this handler.
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      if (direction === 1) {
+        withViewTransition(() => router.push(`/users/${post.user.username}`));
+      }
+    },
+    [post.user.username, router]
+  );
+  useFeedSwipeNavigation(scrollRef, handleSwipeNavigate);
+
   return (
     <CommentsRealtimeProvider postId={post.id}>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
         <div className="relative min-h-0 flex-1">
           <div
-            className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+            className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
               isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
             }`}
             ref={scrollRef}

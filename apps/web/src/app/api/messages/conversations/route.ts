@@ -102,13 +102,37 @@ export async function GET(request: Request) {
   const hasMore = memberships.length > PAGE_SIZE;
   const page = hasMore ? memberships.slice(0, PAGE_SIZE) : memberships;
 
+  // Blocked pairs lose all visibility into each other's metadata too: their
+  // conversations are omitted from the list entirely (last-message ciphertext
+  // preview and unread badge included).
+  const [iBlocked, blockedMe] = await Promise.all([
+    prisma.block.findMany({
+      select: { blockedId: true },
+      where: { blockerId: user.id },
+    }),
+    prisma.block.findMany({
+      select: { blockerId: true },
+      where: { blockedId: user.id },
+    }),
+  ]);
+  const hiddenPartnerIds = new Set<string>([
+    ...iBlocked.map((row) => row.blockedId),
+    ...blockedMe.map((row) => row.blockerId),
+  ]);
+  const visiblePage = page.filter((membership) => {
+    const other = membership.conversation.members.find(
+      (member) => member.userId !== user.id
+    );
+    return !other || !hiddenPartnerIds.has(other.userId);
+  });
+
   // One grouped query for the whole page instead of a count round-trip per
   // conversation. The coarse bound is the earliest lastReadAt in the page; the
   // per-conversation read watermark is applied precisely below so a recent
   // thread is not credited with messages the user already read elsewhere.
-  const pageIds = page.map((membership) => membership.conversationId);
+  const pageIds = visiblePage.map((membership) => membership.conversationId);
   let earliestReadAt: number | null = null;
-  for (const membership of page) {
+  for (const membership of visiblePage) {
     const myMember = membership.conversation.members.find(
       (member) => member.userId === user.id
     );
@@ -130,7 +154,7 @@ export async function GET(request: Request) {
           },
         });
 
-  const items: ConversationListItem[] = page.map((membership) => {
+  const items: ConversationListItem[] = visiblePage.map((membership) => {
     const { conversation } = membership;
     const [lastMessage] = conversation.messages;
     const myMember = conversation.members.find(
@@ -151,7 +175,7 @@ export async function GET(request: Request) {
     return toListItem(conversation, lastMessage, unreadCount);
   });
 
-  const last = page.at(-1);
+  const last = visiblePage.at(-1);
   const response: ConversationListPage & {
     items: ConversationListItem[];
     nextCursor: string | null;

@@ -20,6 +20,27 @@ const requiredPassword = z
   .min(1, "Password is required, keep it safe!");
 const requiredString = z.string().trim().min(1, "This field is required!");
 
+// Display names end up in SEO/JSON-LD contexts and profile pages, so strip
+// angle brackets outright: they carry no typographic value and remove an
+// entire class of injection sinks.
+const safeDisplayString = z
+  .string()
+  .trim()
+  .min(1, "This field is required!")
+  .refine(
+    (value) => !/[<>]/.test(value),
+    "Angle brackets are not allowed here"
+  );
+
+// Post tags flow into JSON-LD keywords and hashtag URLs; keep them short,
+// bracket-free, and hashtag-shaped.
+const postTagSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(50, "Tags must be at most 50 characters")
+  .regex(/^[^<>{}"']+$/, "Tags cannot contain brackets or quotes");
+
 export const signUpSchema = z.object({
   email: requiredEmail.email("Please enter a valid email address"),
   password: requiredPassword
@@ -61,7 +82,7 @@ export const createPostSchema = z.object({
   isGust: z.boolean().optional().default(false),
   mediaIds: z.array(z.string()).max(5, "Cannot have more than 5 attachments"),
   mentions: z.array(z.string()).default([]),
-  tags: z.array(z.string()),
+  tags: z.array(postTagSchema).max(10, "Cannot have more than 10 tags"),
 });
 
 // Gust captions are short by design - one punchy line under the clip,
@@ -103,6 +124,18 @@ const socialUsername = z
   )
   .optional();
 
+// A custom domain like "example.com" (scheme optional, stored bare).
+const customDomain = z
+  .string()
+  .trim()
+  .max(100, "That domain is too long, keep it under 100 characters")
+  .regex(
+    /^(?:https?:\/\/)?[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/,
+    "Enter a valid domain like example.com"
+  )
+  .optional()
+  .or(z.literal(""));
+
 export const updateUserProfileSchema = z.object({
   bio: z
     .string()
@@ -112,7 +145,8 @@ export const updateUserProfileSchema = z.object({
         text.trim().split(whitespaceRegex).filter(Boolean).length <= 400,
       "Bio must not exceed 400 words"
     ),
-  displayName: requiredString,
+  customDomain,
+  displayName: safeDisplayString,
   githubUsername: socialUsername,
   linkedinUsername: socialUsername,
   redditUsername: socialUsername,

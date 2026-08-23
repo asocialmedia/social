@@ -1,11 +1,9 @@
 // oxlint-disable next/no-img-element -- Satori image generation requires native img elements
-import { readFileSync } from "node:fs";
-import path from "node:path";
-
 import { getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
+import { getOgFontOptions } from "@/lib/og-fonts";
 import { excerpt, toAbsoluteUrl } from "@/lib/seo";
 
 export const alt = "asocialmedia user profile";
@@ -51,42 +49,6 @@ async function getUserForCard(username: string) {
   });
 }
 
-const FONT_CANDIDATES = [
-  path.join(process.cwd(), "public", "fonts"),
-  path.join(process.cwd(), "apps", "web", "public", "fonts"),
-  path.join(process.cwd(), "..", "apps", "web", "public", "fonts"),
-];
-
-function loadFont(file: string): Buffer {
-  for (const dir of FONT_CANDIDATES) {
-    // turbopackIgnore: the font lives in public/fonts (shipped with the app),
-    // so the runtime lookup below must not cause whole-project tracing.
-    const candidate = path.join(/* turbopackIgnore: true */ dir, file);
-    try {
-      return readFileSync(/* turbopackIgnore: true */ candidate);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
-    }
-  }
-  throw new Error(
-    `Could not locate font ${file}; searched: ${FONT_CANDIDATES.join(", ")}`
-  );
-}
-
-const fonts = {
-  bold: loadFont("SofiaProSoftBold.woff2"),
-  medium: loadFont("SofiaProSoftMed.woff2"),
-  regular: loadFont("SofiaProSoftReg.woff2"),
-};
-
-const fontOptions = [
-  { data: fonts.bold, name: "SofiaProSoft", style: "normal", weight: 700 },
-  { data: fonts.medium, name: "SofiaProSoft", style: "normal", weight: 500 },
-  { data: fonts.regular, name: "SofiaProSoft", style: "normal", weight: 400 },
-] as const;
-
 function formatDate(date: Date): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -110,7 +72,7 @@ export default async function Image({
           background: "#111111",
           color: "#fafafa",
           display: "flex",
-          fontFamily: "SofiaProSoft",
+          fontFamily: "sans-serif",
           height: "100%",
           justifyContent: "center",
           width: "100%",
@@ -129,6 +91,8 @@ export default async function Image({
   const joinedDate = formatDate(user.createdAt);
   const badges = getUserBadges(user);
 
+  const ogFonts = getOgFontOptions();
+
   return new ImageResponse(
     <div
       style={{
@@ -136,7 +100,7 @@ export default async function Image({
         color: "#fafafa",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "SofiaProSoft",
+        fontFamily: ogFonts ? "SofiaProSoft" : "sans-serif",
         height: "100%",
         justifyContent: "space-between",
         padding: "48px 56px",
@@ -369,9 +333,6 @@ export default async function Image({
         </div>
       </div>
     </div>,
-    {
-      ...size,
-      fonts: [...fontOptions],
-    }
+    ogFonts ? { ...size, fonts: ogFonts } : { ...size }
   );
 }

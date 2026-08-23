@@ -20,6 +20,7 @@ mock.module("@/lib/session", () => ({
 
 mock.module("@asm/db", () => ({
   prisma: {
+    block: { findMany: mock(() => []) },
     message: { count: mockCount },
     messageConversationMember: { findMany: mockMemberships },
   },

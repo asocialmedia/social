@@ -38,6 +38,45 @@ export function formatRelativeDate(from: Date | string) {
   }
 }
 
+export function formatSearchTime(date?: Date | string | number | null): string {
+  if (!date) {
+    return "";
+  }
+  try {
+    const dateObj =
+      typeof date === "number" || typeof date === "string"
+        ? new Date(date)
+        : date;
+    if (Number.isNaN(dateObj.getTime())) {
+      return "";
+    }
+
+    const currentDate = new Date();
+    const diffMs = currentDate.getTime() - dateObj.getTime();
+    if (diffMs < 60 * 1000) {
+      return "searched just now";
+    }
+    const diffMinutes = Math.floor(diffMs / (60 * 1000));
+    if (diffMinutes < 60) {
+      return `searched ${diffMinutes}m ago`;
+    }
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) {
+      return `searched ${diffHours}h ago`;
+    }
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) {
+      return `searched ${diffDays}d ago`;
+    }
+    if (currentDate.getFullYear() === dateObj.getFullYear()) {
+      return `searched on ${formatDate(dateObj, "MMM d")}`;
+    }
+    return `searched on ${formatDate(dateObj, "MMM d, yyyy")}`;
+  } catch {
+    return "";
+  }
+}
+
 export function formatNumber(num: number): string {
   const sign = num < 0 ? "-" : "";
   const abs = Math.abs(num);

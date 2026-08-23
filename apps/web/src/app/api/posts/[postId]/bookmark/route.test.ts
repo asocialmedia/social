@@ -38,7 +38,10 @@ const mockTx = {
       state.isBookmarked = true;
     },
     deleteMany: () => {
+      // Mirrors Prisma's real contract: returns how many rows were removed.
+      const existed = state.isBookmarked;
       state.isBookmarked = false;
+      return { count: existed ? 1 : 0 };
     },
     findUnique: () => (state.isBookmarked ? { id: "b1" } : null),
   },
@@ -206,6 +209,25 @@ describe("DELETE /api/posts/[postId]/bookmark", () => {
         userId: AUTHOR_ID,
       },
     ]);
+  });
+
+  test("a racing unbookmark whose delete removes no rows never double-debits aura", async () => {
+    // Simulates the loser of a concurrent DELETE race: the bookmark is already
+    // gone (deleteMany returns count 0), so the reversal must not run again.
+    state.isBookmarked = false;
+    state.bookmarkerAura = 0;
+    state.authorAura = 0;
+    state.auraLogs = [
+      { amount: -1, type: "POST_BOOKMARKED" },
+      { amount: -1, type: "POST_BOOKMARK_RECEIVED" },
+    ];
+
+    const res = await DELETE(request("DELETE"), context);
+
+    expect(res.status).toBe(200);
+    expect(state.bookmarkerAura).toBe(0);
+    expect(state.authorAura).toBe(0);
+    expect(state.auraLogs).toHaveLength(2);
   });
 });
 

@@ -31,6 +31,15 @@ export async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Self-follows would farm +6 aura and inflate the follower count with no
+    // social meaning; the bookmark route applies the same anti-farming rule.
+    if (userId === loggedInUser.id) {
+      return Response.json(
+        { error: "You cannot follow yourself" },
+        { status: 400 }
+      );
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       // Only reward aura when the follow is actually created, so repeated
       // follow calls (double-clicks, retries) cannot farm aura.
@@ -200,6 +209,14 @@ export async function DELETE(
 
     if (!loggedInUser) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Mirror of the follow guard: a self-unfollow is equally meaningless.
+    if (userId === loggedInUser.id) {
+      return Response.json(
+        { error: "You cannot unfollow yourself" },
+        { status: 400 }
+      );
     }
 
     const result = await prisma.$transaction(async (tx) => {

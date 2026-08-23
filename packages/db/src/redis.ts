@@ -778,6 +778,10 @@ export async function claimOnce(
   }
 }
 
+// Anonymous viewers may bump a post's view count at most once per this window
+// (per hashed IP); signed-in viewers always count.
+const ANON_VIEW_DEDUP_TTL_SECONDS = 900;
+
 // Atomically claims the dedupe key and increments the counter in one script so
 // a duplicate claim can never race an increment (no double-count window).
 // KEYS[1] = dedupe key ("" when there is no viewer identity), KEYS[2] = the
@@ -837,15 +841,14 @@ export const postViewsCache = {
     viewer?: { userId?: string; viewerHash?: string }
   ): Promise<number> {
     try {
-      // Dedupe before counting: a signed-in user counts once per post per
-      // window, and an anonymous client counts once per IP hash per window.
+      // Signed-in viewers count on every screenview - repeat views of a fleet
+      // or gust are real engagement. Only anonymous clients dedupe, via a per
+      // IP-hash claim (15 minutes) so guest refresh loops cannot pump counts.
       // The claim and counter bump run in one atomic script so a duplicate
       // claim can never double-count. Fails open (returns 0) when Redis is
       // down so real views are never dropped by an infrastructure hiccup.
       let dedupeKey = "";
-      if (viewer?.userId) {
-        dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:u:${viewer.userId}`;
-      } else if (viewer?.viewerHash) {
+      if (!viewer?.userId && viewer?.viewerHash) {
         dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:a:${viewer.viewerHash}`;
       }
       const newCount = Number(
@@ -855,7 +858,7 @@ export const postViewsCache = {
           dedupeKey,
           POST_VIEWS_SET,
           `${POST_VIEWS_KEY_PREFIX}${postId}`,
-          viewer?.userId ? 21_600 : 3600,
+          ANON_VIEW_DEDUP_TTL_SECONDS,
           postId
         )
       );

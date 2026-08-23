@@ -46,6 +46,31 @@ export const shareStatsCache = {
     }
   },
 
+  // Same exactly-once pattern for shares: claims `dedupeKey` inside the TTL
+  // and increments the share counter atomically, so a duplicate claim can
+  // never double-count. Fails open when Redis is unreachable.
+  async claimAndIncrementShare(
+    postId: string,
+    platform: string,
+    dedupeKey: string,
+    ttlSeconds: number
+  ): Promise<{ claimed: boolean; shares: number }> {
+    try {
+      const sharesKey = `${SHARE_STATS_PREFIX}${postId}:${platform}`;
+      const result = (await redis.eval(
+        CLAIM_AND_INCREMENT_CLICK_SCRIPT,
+        2,
+        dedupeKey,
+        sharesKey,
+        ttlSeconds
+      )) as [number, number];
+      return { claimed: result[0] === 1, shares: result[1] };
+    } catch (error) {
+      console.error("Error claiming and incrementing share count:", error);
+      return { claimed: true, shares: 0 };
+    }
+  },
+
   async getClicks(postId: string, platform: string): Promise<number> {
     try {
       const clicks = await redis.get(

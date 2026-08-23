@@ -132,6 +132,10 @@ function isBrowserRedirectPath(pathname: string): boolean {
 // map to the same procedures and are covered too.
 const SIGNUP_TRPC_PREFIXES = [
   "/api/trpc/pendingSignup",
+  // Dead-code email-sending procedures (sendPasswordReset/sendVerification)
+  // take an arbitrary recipient + attacker-chosen token from an anonymous
+  // caller; only internal server-to-server callers may ever reach them.
+  "/api/trpc/email.",
   "/api/auth/pending-signup",
   "/api/auth/pending-verify",
   "/api/auth/pending-resend",
@@ -143,6 +147,34 @@ const SIGNUP_TRPC_PREFIXES = [
 
 function isSignupProcedure(pathname: string): boolean {
   return SIGNUP_TRPC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+// Better-auth's email-OTP endpoints are brute-forceable when limits key on
+// source IP alone: each re-minted code gives a fresh 6-digit space, and IP
+// rotation resets per-IP buckets. A per-email budget survives IP rotation.
+const OTP_PATHS = ["/api/auth/email-otp/", "/api/auth/sign-in/email-otp"];
+
+function isOtpPath(pathname: string): boolean {
+  return OTP_PATHS.some((prefix) => pathname.startsWith(prefix));
+}
+
+const OTP_PER_EMAIL_WINDOW_MS = 10 * 60 * 1000;
+const OTP_PER_EMAIL_MAX = 5;
+
+async function otpTargetEmail(request: Request): Promise<string | undefined> {
+  try {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return undefined;
+    }
+    const body = (await request.clone().json()) as {
+      email?: unknown;
+    };
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    return email ? email.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isStrictPath(pathname: string, strictPaths: RegExp[]): boolean {
@@ -319,6 +351,23 @@ export function createSecurity(
     );
     if (burst.hit) {
       return rejectRateLimited(burst.retryAfterSeconds);
+    }
+
+    // Per-account OTP budget, keyed on the target email so rotating source
+    // IPs cannot reset it. Counts sends and verify attempts together.
+    if (isOtpPath(pathname)) {
+      const email = await otpTargetEmail(request);
+      if (email) {
+        const otpBudget = await store.hit(
+          `otp:${email}`,
+          OTP_PER_EMAIL_WINDOW_MS,
+          OTP_PER_EMAIL_MAX,
+          now
+        );
+        if (otpBudget.hit) {
+          return rejectRateLimited(otpBudget.retryAfterSeconds);
+        }
+      }
     }
 
     if (isStrictPath(pathname, config.strictPaths)) {

@@ -6,6 +6,7 @@ import {
 } from "@asm/db";
 import type { PostData } from "@asm/db";
 
+import { runSerializableTransaction } from "@/lib/db-transactions";
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
 
@@ -74,7 +75,10 @@ export async function POST(
 
   let auraChanged = false;
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    // Serializable + retry: a concurrent vote must re-read the committed
+    // state instead of double-applying the aura delta (READ COMMITTED lets
+    // both writers observe the same pre-race value).
+    const result = await runSerializableTransaction(async (tx) => {
       const post = await tx.post.findUnique({
         select: { id: true, userId: true },
         where: { id: postId },
@@ -205,7 +209,7 @@ export async function DELETE(
 
   let auraChanged = false;
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runSerializableTransaction(async (tx) => {
       const post = await tx.post.findUnique({
         select: { id: true, userId: true },
         where: { id: postId },

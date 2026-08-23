@@ -38,13 +38,17 @@ export async function GET(request: Request) {
   const pageSize = 10;
 
   // Guests can search public posts; per-user fields simply resolve to empty.
+  // Moderated posts are excluded at the DB query — never returned to the client.
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(user?.id ?? ""),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
     where: {
-      content: { contains: q, mode: "insensitive" },
+      AND: [
+        { moderated: false },
+        { content: { contains: q, mode: "insensitive" } },
+      ],
     },
   });
 
@@ -61,19 +65,52 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSessionFromApi();
     const user = session?.user;
+
+    const body = await req.json();
+    const {
+      post: searchedPost,
+      query,
+      resultCount,
+      type: itemType,
+      user: searchedUser,
+    } = body;
+
+    if (!query && !searchedUser && !searchedPost) {
+      return Response.json(
+        { error: "Query, user, or post is required" },
+        { status: 400 }
+      );
+    }
+
+    // Guests still contribute to global suggestions, just not personal history.
+    // Returning 200 avoids an unhandled 401 in the UI for logged-out users.
     if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (query && typeof query === "string") {
+        await searchSuggestionsCache.addSuggestion(query);
+      }
+      return Response.json({ success: true });
     }
 
-    const { query } = await req.json();
-    if (!query) {
-      return Response.json({ error: "Query is required" }, { status: 400 });
+    if (searchedUser || itemType === "user") {
+      const userPayload = searchedUser || body.data;
+      if (userPayload) {
+        await searchSuggestionsCache.addUserToHistory(user.id, userPayload);
+        const name = userPayload.displayName || userPayload.username;
+        if (name) {
+          await searchSuggestionsCache.addSuggestion(name);
+        }
+      }
+    } else if (searchedPost || itemType === "post") {
+      const postPayload = searchedPost || body.data;
+      if (postPayload) {
+        await searchSuggestionsCache.addPostToHistory(user.id, postPayload);
+      }
+    } else if (query && typeof query === "string") {
+      await Promise.all([
+        searchSuggestionsCache.addToHistory(user.id, query, resultCount),
+        searchSuggestionsCache.addSuggestion(query),
+      ]);
     }
-
-    await Promise.all([
-      searchSuggestionsCache.addToHistory(user.id, query),
-      searchSuggestionsCache.addSuggestion(query),
-    ]);
 
     return Response.json({ success: true });
   } catch (error) {
@@ -92,14 +129,17 @@ export async function DELETE(req: NextRequest) {
 
     const { searchParams } = req.nextUrl;
     const type = searchParams.get("type");
-    const query = searchParams.get("query");
+    const target =
+      searchParams.get("target") ||
+      searchParams.get("query") ||
+      searchParams.get("id");
 
     if (type !== "history") {
       return Response.json({ error: "Invalid operation" }, { status: 400 });
     }
 
-    await (query
-      ? searchSuggestionsCache.removeHistoryItem(user.id, query)
+    await (target
+      ? searchSuggestionsCache.removeHistoryItem(user.id, target)
       : searchSuggestionsCache.clearHistory(user.id));
 
     return Response.json({ success: true });

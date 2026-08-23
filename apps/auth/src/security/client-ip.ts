@@ -1,14 +1,21 @@
 // Trusted-ingress policy for the auth service.
 //
-// Cloudflare sets cf-connecting-ip for every request it forwards, overwriting
-// anything a client supplied, so it is the primary source. x-forwarded-for is
-// only honored for its LAST entry: that is the address appended by the nearest
-// trusted proxy (the web app's internal caller or Cloudflare), while earlier
-// entries are client-controlled and can be rotated to evade per-IP limits.
+// In production Cloudflare is the only ingress and always sets
+// cf-connecting-ip, overwriting anything the client sent, so it is the
+// single trusted source. x-forwarded-for / x-real-ip are never consulted in
+// production because a direct client fully controls them and could rotate
+// IPs to evade per-IP limits (OTP brute force). They are only honored
+// outside production (local dev, tests) where no trusted ingress exists.
+// x-forwarded-for honors only its LAST entry when honored: that is the
+// address appended by the nearest trusted proxy, while earlier entries are
+// client-controlled.
 export function getClientIpFromHeaders(headers: Headers | undefined): string {
   const cf = headers?.get?.("cf-connecting-ip");
   if (cf && cf.trim()) {
     return cf.trim();
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "unknown";
   }
   const forwarded = headers?.get?.("x-forwarded-for");
   if (forwarded) {

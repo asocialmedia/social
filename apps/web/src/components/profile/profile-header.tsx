@@ -2,11 +2,10 @@
 
 import type { PrivateUserData, UserData } from "@asm/db";
 import { formatDate } from "date-fns";
-import { CalendarDays, Flame, MessageCircle } from "lucide-react";
+import { CalendarDays, Flame, Globe, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -23,12 +22,20 @@ import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface SocialLink {
   href: string;
-  icon: IconType;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
 }
 
 function getSocialLinks(user: UserData): SocialLink[] {
   const links: SocialLink[] = [];
+  if (user.customDomain) {
+    const domain = user.customDomain.replace(/^https?:\/\//, "");
+    links.push({
+      href: `https://${domain}`,
+      icon: Globe,
+      label: `Website: ${domain}`,
+    });
+  }
   if (user.githubUsername) {
     links.push({
       href: `https://github.com/${user.githubUsername}`,

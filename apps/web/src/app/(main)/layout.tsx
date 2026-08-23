@@ -17,7 +17,7 @@ import SessionProvider from "./session-provider";
 // shell. Keep this layout synchronous and stream the auth-gated chrome below.
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <SpotlightProvider>
+    <>
       <main
         className="font-sofiaProSoft flex flex-1 flex-col"
         id="main-content"
@@ -27,7 +27,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </Suspense>
       </main>
       <GooeyToaster />
-    </SpotlightProvider>
+    </>
   );
 }
 
@@ -41,16 +41,18 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider value={session}>
-      {/* Persistent app chrome. The left nav and the full-height shell live
-          here (not inside each page), so App Router keeps them mounted across
-          route changes instead of collapsing them into the loading skeleton on
-          every navigation. Pages render only their center column + right rail
-          inside the flex-1 region. MobileBottomNav stays per-page: some
-          immersive routes (post, gust, profile) intentionally omit it. Media
-          routes are standalone fullscreen pages, so MainShell skips the chrome
-          there entirely. */}
-      <MainShell userData={userData}>{children}</MainShell>
-      {isLoggedIn ? <FloatingPostComposer /> : <GuestAuthBar />}
+      <SpotlightProvider>
+        {/* Persistent app chrome. The left nav and the full-height shell live
+            here (not inside each page), so App Router keeps them mounted across
+            route changes instead of collapsing them into the loading skeleton on
+            every navigation. Pages render only their center column + right rail
+            inside the flex-1 region. MobileBottomNav stays per-page: some
+            immersive routes (post, gust, profile) intentionally omit it. Media
+            routes are standalone fullscreen pages, so MainShell skips the chrome
+            there entirely. */}
+        <MainShell userData={userData}>{children}</MainShell>
+        {isLoggedIn ? <FloatingPostComposer /> : <GuestAuthBar />}
+      </SpotlightProvider>
     </SessionProvider>
   );
 }

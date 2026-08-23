@@ -381,7 +381,12 @@ const FeedComments: React.FC<{ post: ExtendedPostData }> = ({ post }) => {
   }, [measure]);
 
   return (
-    <div className="border-border/60 border-t px-4 pt-2 pb-4">
+    // Owns its clicks like the media previews do: tapping eddies here must
+    // not bubble into the card-wide navigation to the post page.
+    <div
+      className="border-border/60 border-t px-4 pt-2 pb-4"
+      data-card-interactive
+    >
       <div
         className={cn(
           isClamped &&

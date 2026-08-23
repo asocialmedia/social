@@ -22,10 +22,12 @@ import {
   exportPublicKeyJwk,
   generateAccountSecret,
   generateIdentityKeyPair,
+  getStoredAccountSecret,
   getStoredPrivateKey,
   hashAccountSecret,
   importPrivateKeyJwk,
   publicKeyJwkToBase64,
+  setStoredAccountSecret,
   setStoredPrivateKey,
 } from "@/lib/messages/crypto";
 
@@ -52,9 +54,12 @@ export function MessageIdentityProvider({
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
 
-  // Provisions a fresh identity: keypair + random backup secret. Only the
-  // SHA-256 hash of the secret is sent to the server; the raw value is never
-  // persisted anywhere and is immediately discarded.
+  // Provisions a fresh identity: keypair + random backup secret. The server
+  // receives only the SHA-256 hash of the secret, which acts as a VERIFIER:
+  // the master key is derived from the raw secret itself, so the stored row
+  // alone can never decrypt the backup. The raw secret persists only in this
+  // device's storage; unlocking on a NEW device requires the user to supply
+  // it.
   const enableIdentity = useCallback(async (): Promise<void> => {
     if (!user || typeof window === "undefined") {
       return;
@@ -63,12 +68,11 @@ export function MessageIdentityProvider({
     const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const secret = generateAccountSecret();
+    // Verifier only: proves knowledge of the secret without enabling
+    // derivation (SHA-256 preimage resistance).
     const masterKeyHash = await hashAccountSecret(secret);
-    const masterKey = await deriveMasterKey(
-      masterKeyHash,
-      salt,
-      KDF_ITERATIONS
-    );
+    // KDF input is the RAW secret, never the stored hash.
+    const masterKey = await deriveMasterKey(secret, salt, KDF_ITERATIONS);
     const backup = await encryptWithMasterKey(
       masterKey,
       JSON.stringify(privateKeyJwk)
@@ -84,15 +88,25 @@ export function MessageIdentityProvider({
       publicKey,
       salt: btoa(String.fromCodePoint(...salt)),
     });
+    setStoredAccountSecret(user.id, secret);
     await setStoredPrivateKey(user.id, privateKeyJwk);
     setPrivateKey(pair.privateKey);
     setStatus("ready");
   }, [user]);
 
-  // Derives the master key from the account's stored backup-secret hash and
-  // decrypts the backed-up private key, then remembers it on this device.
+  // Decrypts the backed-up private key and remembers it on this device.
+  //
+  // v2 rows (current): the master key derives from the RAW backup secret,
+  // which must come from this device's storage or from user input. The
+  // stored masterKeyHash is verified against it before use.
+  // Legacy rows: identities created before the verifier redesign derived the
+  // master key from the stored hash itself; those still unlock automatically
+  // until re-provisioned.
   const unlockIdentity = useCallback(
-    async (identityToUnlock: MessageIdentityPayload): Promise<void> => {
+    async (
+      identityToUnlock: MessageIdentityPayload,
+      suppliedSecret?: string
+    ): Promise<void> => {
       if (!user) {
         return;
       }
@@ -100,24 +114,66 @@ export function MessageIdentityProvider({
         atob(identityToUnlock.salt),
         (char) => char.codePointAt(0) ?? 0
       );
-      const masterKey = await deriveMasterKey(
-        identityToUnlock.masterKeyHash,
-        saltBytes,
-        identityToUnlock.kdfIterations
-      );
       // The backup is stored as `iv.ciphertext` (see enableIdentity()).
       const [iv, ciphertext] = identityToUnlock.encryptedPrivateKey.split(".");
       if (!iv || !ciphertext) {
         throw new Error("Malformed identity backup");
       }
-      const decrypted = await decryptWithMasterKey(masterKey, {
-        ciphertext,
-        iv,
-      });
-      const key = await importPrivateKeyJwk(JSON.parse(decrypted));
-      await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
-      setPrivateKey(key);
-      setStatus("ready");
+
+      const deviceSecret = suppliedSecret ?? getStoredAccountSecret(user.id);
+
+      if (deviceSecret) {
+        const verifier = await hashAccountSecret(deviceSecret);
+        if (
+          verifier.toLowerCase() ===
+          identityToUnlock.masterKeyHash.toLowerCase()
+        ) {
+          // v2 path: derive from the raw secret after verifying knowledge of it.
+          const masterKey = await deriveMasterKey(
+            deviceSecret,
+            saltBytes,
+            identityToUnlock.kdfIterations
+          );
+          try {
+            const decrypted = await decryptWithMasterKey(masterKey, {
+              ciphertext,
+              iv,
+            });
+            const key = await importPrivateKeyJwk(JSON.parse(decrypted));
+            await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
+            setPrivateKey(key);
+            setStatus("ready");
+            return;
+          } catch {
+            // Hash matched but decryption failed: fall through so legacy
+            // rows (where the "verifier" doubles as the KDF input) still
+            // unlock below.
+          }
+        }
+        // Secret known to this device but hash mismatch: it belongs to an
+        // older provisioned identity. Legacy derivation below may apply.
+      }
+
+      // Legacy path (pre-verifier rows): the stored hash IS the KDF input.
+      try {
+        const legacyMasterKey = await deriveMasterKey(
+          identityToUnlock.masterKeyHash,
+          saltBytes,
+          identityToUnlock.kdfIterations
+        );
+        const decrypted = await decryptWithMasterKey(legacyMasterKey, {
+          ciphertext,
+          iv,
+        });
+        const key = await importPrivateKeyJwk(JSON.parse(decrypted));
+        await setStoredPrivateKey(user.id, await exportPrivateKeyJwk(key));
+        setPrivateKey(key);
+        setStatus("ready");
+      } catch {
+        throw new Error(
+          "Backup secret required: enter your messages recovery secret to unlock on this device"
+        );
+      }
     },
     [user]
   );

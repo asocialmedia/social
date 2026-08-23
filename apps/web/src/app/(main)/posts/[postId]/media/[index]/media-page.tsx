@@ -2,9 +2,10 @@
 
 import type { PostData } from "@asm/db";
 import { useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 
 // Renders the media viewer as the media page itself (not an overlay on the post
 // page). Navigating here jumps straight to a fullscreen media screen; closing
@@ -16,6 +17,7 @@ interface MediaPageProps {
 
 export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => {
     // The media page is reached either by pushing from the post page or by a
@@ -35,15 +37,29 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
     [post.id, router]
   );
 
+  // Mobile swipes: a right-to-left slide opens the author's profile. The hook
+  // only binds below md, so desktop keyboard/button navigation is untouched.
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      if (direction === 1) {
+        router.push(`/users/${post.user.username}`);
+      }
+    },
+    [post.user.username, router]
+  );
+  useFeedSwipeNavigation(containerRef, handleSwipeNavigate);
+
   return (
-    <MediaViewer
-      initialIndex={initialMediaIndex}
-      isOpen
-      media={post.attachments}
-      onClose={handleClose}
-      onNavigate={handleNavigate}
-      post={post}
-      standalone
-    />
+    <div ref={containerRef} className="h-dvh w-full overflow-hidden">
+      <MediaViewer
+        initialIndex={initialMediaIndex}
+        isOpen
+        media={post.attachments}
+        onClose={handleClose}
+        onNavigate={handleNavigate}
+        post={post}
+        standalone
+      />
+    </div>
   );
 }

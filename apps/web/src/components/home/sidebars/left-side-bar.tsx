@@ -28,13 +28,13 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import Image from "next/image";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { LinkStatusHint } from "@/components/layouts/link-status-hint";
+import Spinner3D from "@/components/layouts/spinner-3d";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useRequireAuth } from "@/hooks/use-require-auth";
@@ -150,6 +150,17 @@ const renderCollapsedActionItem = ({
   </Tooltip>
 );
 
+// Right-edge loading indicator for sidebar rows: shows the app's 3D spinner
+// while this link navigates to a NEW page. Mashing the entry for the page you
+// are already on never flashes anything.
+const SidebarPendingHint: React.FC<{ active: boolean }> = ({ active }) => {
+  const { pending } = useLinkStatus();
+  if (pending && !active) {
+    return <Spinner3D className="size-5" />;
+  }
+  return null;
+};
+
 const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -204,9 +215,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     icon: Icon,
     requiresAuth,
   }: NavItem) => {
+    const isActive = isRouteActive(currentHref, href);
     const className = cn(
       "group flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out",
-      isRouteActive(currentHref, href)
+      isActive
         ? "pill-nav-active"
         : "pill-3d-hover text-foreground hover:text-foreground"
     );
@@ -215,7 +227,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       <>
         <Icon className="h-6 w-6 shrink-0" />
         <span className="min-w-0 flex-1">{label}</span>
-        <LinkStatusHint className="text-primary" />
+        <SidebarPendingHint active={isActive} />
         {count !== undefined && count > 0 ? (
           <span className="border-border/60 bg-muted/50 text-muted-foreground flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums">
             {count}
@@ -251,9 +263,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     icon: Icon,
     requiresAuth,
   }: NavItem) => {
+    const isActive = isRouteActive(currentHref, href);
     const className = cn(
       "group relative flex size-10 items-center justify-center rounded-full border border-transparent transition-all duration-200 ease-out",
-      isRouteActive(currentHref, href)
+      isActive
         ? "pill-nav-active"
         : "pill-3d-hover text-foreground hover:text-foreground"
     );

@@ -19,6 +19,7 @@ import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
 import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 
 interface ProfilePageProps {
@@ -27,6 +28,17 @@ interface ProfilePageProps {
 }
 
 type ProfileTab = "posts" | "gusts" | "replies" | "amplified" | "media";
+
+// Mobile swipe order mirrors the rendered tab strip. Guests never get
+// Replies/Amplified, so swipes skip them instead of bouncing to login.
+const LOGGED_IN_TAB_ORDER: ProfileTab[] = [
+  "posts",
+  "gusts",
+  "replies",
+  "amplified",
+  "media",
+];
+const GUEST_TAB_ORDER: ProfileTab[] = ["posts", "gusts", "media"];
 
 const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
@@ -40,8 +52,14 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
 
-  const handleGoHome = useCallback(() => {
-    router.push("/");
+  const handleGoBack = useCallback(() => {
+    // Return to wherever the user came from (e.g. a post opened via a swipe);
+    // only land on the home feed when there is no prior entry to go back to.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
   }, [router]);
 
   const handleOpenSettings = useCallback(() => {
@@ -71,6 +89,20 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     [goToLogin, isLoggedIn]
   );
 
+  // Mobile swipes drag the tab strip like a carousel (same mechanism as the
+  // home feed); guests swipe through their reduced tab set.
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const tabOrder = isLoggedIn ? LOGGED_IN_TAB_ORDER : GUEST_TAB_ORDER;
+      const nextIndex = tabOrder.indexOf(activeTab) + direction;
+      if (nextIndex >= 0 && nextIndex < tabOrder.length) {
+        handleTabChange(tabOrder[nextIndex]);
+      }
+    },
+    [activeTab, handleTabChange, isLoggedIn]
+  );
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
+
   // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
   useEffect(() => {
     if (isXl && activeTab === "media") {
@@ -98,7 +130,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
           >
             <div className="relative min-h-0 flex-1">
               <div
-                className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+                className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
                   isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
                 }`}
                 ref={feedScrollRef}
@@ -111,9 +143,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   />
                   <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 md:hidden">
                     <button
-                      aria-label="Go back to home"
+                      aria-label="Go back"
                       className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 active:translate-y-px"
-                      onClick={handleGoHome}
+                      onClick={handleGoBack}
                       type="button"
                     >
                       <ArrowLeft className="h-5 w-5" />
@@ -129,7 +161,10 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                   </div>
                 </div>
 
-                <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
+                {/* z-30 keeps this sticky bar above later-painted content
+                    overlays inside the scroller (e.g. the explicit-media
+                    gate's z-10 blur/popup) instead of tying on z-index. */}
+                <div className="border-border/60 sticky top-0 z-30 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
                   <TabsList className="flex items-center justify-center gap-0 bg-transparent p-0">
                     <AnimatedTabTrigger
                       active={activeTab === "posts"}

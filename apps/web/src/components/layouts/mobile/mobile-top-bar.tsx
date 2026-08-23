@@ -50,27 +50,28 @@ const MobileTopBar: React.FC = () => {
   };
 
   return (
-    <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2 md:hidden">
+    <div className="border-border/60 relative flex items-center gap-2 border-b px-3 py-2 md:hidden">
       <div className="flex w-10 shrink-0 items-center">{profileTrigger()}</div>
 
-      <div className="flex min-w-0 flex-1 justify-center">
-        <Link className="shrink-0" href="/">
-          <div className="relative h-9 w-12">
-            <Image
-              alt="asocialmedia"
-              className="object-contain"
-              fill
-              loading="eager"
-              sizes="48px"
-              src={asmLogo}
-            />
-          </div>
-        </Link>
-      </div>
+      {/* Out of flow and pinned to the bar's own centerline: the side columns
+          have different widths, so centering within the leftover space would
+          keep the logo off-center relative to the full-width bar. */}
+      <Link className="absolute left-1/2 shrink-0 -translate-x-1/2" href="/">
+        <div className="relative h-9 w-12">
+          <Image
+            alt="asocialmedia"
+            className="object-contain"
+            fill
+            loading="eager"
+            sizes="48px"
+            src={asmLogo}
+          />
+        </div>
+      </Link>
 
       <div
         className={cn(
-          "flex shrink-0 items-center justify-end gap-2",
+          "ml-auto flex shrink-0 items-center justify-end gap-2",
           user ? "w-22" : "w-10"
         )}
       >
