@@ -25,6 +25,7 @@ import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
 import PostEditor from "@/components/posts/editor/post-editor";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 
 interface ClientHomeProps {
@@ -64,6 +65,21 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const hideTopBar = useHideOnScroll(feedScrollRef);
+
+  // Mobile swipes drag the tab strip like a carousel: a left-to-right swipe
+  // pulls in the tab on the left (Trending), right-to-left the one on the
+  // right (Following).
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const order: FeedTab[] = ["for-you", "global", "following"];
+      const nextIndex = order.indexOf(tab) + direction;
+      if (nextIndex >= 0 && nextIndex < order.length) {
+        handleTabChange(order[nextIndex]);
+      }
+    },
+    [handleTabChange, tab]
+  );
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
   return (
     <>
@@ -142,7 +158,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
 
           <div className="relative min-h-0 flex-1">
             <div
-              className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+              className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
                 isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
               }`}
               ref={feedScrollRef}

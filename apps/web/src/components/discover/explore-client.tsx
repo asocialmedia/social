@@ -19,6 +19,7 @@ import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import useDebounce from "@/hooks/use-debounce";
+import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
 
@@ -36,6 +37,10 @@ const TAB_META: Record<ExploreTab, string> = {
   gusts: "Gusts",
   trending: "Trending",
 };
+
+// Swipe order must mirror the rendered strip order, which is this object's
+// key order — derive it so the two can never drift apart.
+const TAB_ORDER = Object.keys(TAB_META) as ExploreTab[];
 
 interface FeedData {
   posts: PostData[];
@@ -93,6 +98,23 @@ const ExploreClient: React.FC = () => {
     },
     [pathname, router, searchParams]
   );
+
+  // Mobile swipes drag the tab strip like a carousel (same mechanism as the
+  // home feed). The trending gusts rail keeps its own horizontal pan: the
+  // hook ignores any gesture that starts inside the rail's overflow-x
+  // scroller. No touch-pan-y is set on the scroll container here for the same
+  // reason — an ancestor restricting touch-action can suppress the rail's own
+  // native panning; the hook's preventDefault alone is sufficient.
+  const handleSwipeNavigate = useCallback(
+    (direction: -1 | 1) => {
+      const nextIndex = TAB_ORDER.indexOf(activeTab) + direction;
+      if (nextIndex >= 0 && nextIndex < TAB_ORDER.length) {
+        handleTabChange(TAB_ORDER[nextIndex]);
+      }
+    },
+    [activeTab, handleTabChange]
+  );
+  useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
   // Fetch top Gusts for the trending rail (moderated gusts excluded)
   const { data: gustsData } = useQuery({
