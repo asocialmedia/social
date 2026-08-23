@@ -38,13 +38,17 @@ export async function GET(request: Request) {
   const pageSize = 10;
 
   // Guests can search public posts; per-user fields simply resolve to empty.
+  // Moderated posts are excluded at the DB query — never returned to the client.
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(user?.id ?? ""),
     orderBy: { createdAt: "desc" },
     take: pageSize + 1,
     where: {
-      content: { contains: q, mode: "insensitive" },
+      AND: [
+        { moderated: false },
+        { content: { contains: q, mode: "insensitive" } },
+      ],
     },
   });
 
@@ -61,13 +65,17 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSessionFromApi();
     const user = session?.user;
-    if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const { query } = await req.json();
     if (!query) {
       return Response.json({ error: "Query is required" }, { status: 400 });
+    }
+
+    // Guests still contribute to global suggestions, just not personal history.
+    // Returning 200 avoids an unhandled 401 in the UI for logged-out users.
+    if (!user) {
+      await searchSuggestionsCache.addSuggestion(query);
+      return Response.json({ success: true });
     }
 
     await Promise.all([

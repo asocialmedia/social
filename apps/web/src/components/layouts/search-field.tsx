@@ -192,7 +192,7 @@ export default function SearchField({
 
       {open && (input || (history && history.length > 0)) && (
         <div
-          className="absolute left-1/2 z-205 mt-2 w-[min(90vw,28rem)] -translate-x-1/2 md:left-0 md:z-50 md:w-full md:translate-x-0"
+          className="absolute left-1/2 z-205 mt-2 w-[min(92vw,30rem)] -translate-x-1/2 md:right-0 md:left-auto md:z-50 md:w-[30rem] md:translate-x-0"
           ref={commandRef}
         >
           <SearchCommandList

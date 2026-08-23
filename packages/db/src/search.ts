@@ -54,7 +54,13 @@ export interface SearchPostResult {
   authorUsername: string;
   content: string;
   createdAt: Date;
+  explicitContent: boolean;
   id: string;
+  previewMedia: {
+    id: string;
+    thumbnailKey: string | null;
+    type: string;
+  } | null;
   viewCount: number;
 }
 
@@ -114,10 +120,16 @@ export async function searchPosts(
   const posts = await prisma.post.findMany({
     orderBy: { createdAt: "desc" },
     select: {
+      attachments: {
+        select: { id: true, thumbnailKey: true, type: true },
+        take: 1,
+      },
       aura: true,
       content: true,
       createdAt: true,
+      explicitContent: true,
       id: true,
+      moderated: true,
       user: {
         select: {
           avatarUrl: true,
@@ -132,21 +144,34 @@ export async function searchPosts(
     },
     take: limit,
     where: {
-      content: { contains: q, mode: "insensitive" },
+      AND: [
+        { moderated: false },
+        { content: { contains: q, mode: "insensitive" } },
+      ],
     },
   });
 
-  return posts.map((post) => ({
-    aura: post.aura,
-    authorAvatarUrl: post.user.avatarUrl,
-    authorBadge: post.user.badge,
-    authorBadges: post.user.badges,
-    authorDisplayName: post.user.displayName,
-    authorId: post.user.id,
-    authorUsername: post.user.username,
-    content: post.content,
-    createdAt: post.createdAt,
-    id: post.id,
-    viewCount: post.viewCount,
-  }));
+  return posts
+    .filter((post) => !post.moderated)
+    .map((post) => ({
+      aura: post.aura,
+      authorAvatarUrl: post.user.avatarUrl,
+      authorBadge: post.user.badge,
+      authorBadges: post.user.badges,
+      authorDisplayName: post.user.displayName,
+      authorId: post.user.id,
+      authorUsername: post.user.username,
+      content: post.content,
+      createdAt: post.createdAt,
+      explicitContent: post.explicitContent,
+      id: post.id,
+      previewMedia: post.attachments[0]
+        ? {
+            id: post.attachments[0].id,
+            thumbnailKey: post.attachments[0].thumbnailKey,
+            type: post.attachments[0].type,
+          }
+        : null,
+      viewCount: post.viewCount,
+    }));
 }

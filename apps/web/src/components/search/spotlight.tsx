@@ -3,7 +3,7 @@
 import type { SearchPostResult, SearchUserResult } from "@asm/db";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
-import { Clock3, Search } from "lucide-react";
+import { Clock3, Eye, Flame, Search } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,7 +14,8 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { searchMutations } from "@/components/search/mutations";
 import kyInstance from "@/lib/ky";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SpotlightResponse {
   posts: SearchPostResult[];
@@ -22,14 +23,24 @@ interface SpotlightResponse {
 }
 
 export interface SpotlightResultItem {
+  aura?: number;
+  authorUsername?: string;
   avatarUrl?: string | null;
+  createdAt?: Date;
   displayName: string;
+  explicitContent?: boolean;
   href: string;
   icon?: React.ReactNode;
   id: string;
   meta: string;
+  previewMedia?: {
+    id: string;
+    thumbnailKey: string | null;
+    type: string;
+  } | null;
   subtitle?: string;
   type: "user" | "post" | "history" | "suggestion";
+  viewCount?: number;
 }
 
 const fetchResults = async (query: string): Promise<SpotlightResponse> => {
@@ -109,13 +120,19 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
     for (const post of data?.posts ?? []) {
       items.push({
+        aura: post.aura,
+        authorUsername: post.authorUsername,
         avatarUrl: post.authorAvatarUrl,
+        createdAt: post.createdAt,
         displayName: post.content,
+        explicitContent: post.explicitContent,
         href: `/posts/${post.id}`,
         id: `post-${post.id}`,
         meta: `${formatNumber(post.aura)} aura · ${formatNumber(post.viewCount)} views`,
+        previewMedia: post.previewMedia,
         subtitle: undefined,
         type: "post",
+        viewCount: post.viewCount,
       });
     }
 
@@ -294,7 +311,10 @@ const Spotlight: React.FC<SpotlightProps> = ({
               {items.map((item, index) => (
                 <button
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
+                    "relative flex w-full gap-3 rounded-lg px-2.5 py-2 text-left transition-all duration-200 ease-out outline-none",
+                    item.type === "post"
+                      ? "max-h-[88px] items-center overflow-hidden py-2"
+                      : "items-center",
                     index === activeIndex
                       ? "pill-nav-active"
                       : "pill-3d-hover text-foreground"
@@ -321,27 +341,85 @@ const Spotlight: React.FC<SpotlightProps> = ({
                     </div>
                   )}
 
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <span
                       className={cn(
                         "text-sm font-medium",
                         item.type === "post"
-                          ? "line-clamp-2 block leading-snug"
+                          ? "line-clamp-3 overflow-hidden leading-[1.35] [overflow-wrap:anywhere] break-words"
                           : "block truncate"
                       )}
                     >
                       {item.displayName}
                     </span>
-                    {item.subtitle ? (
+                    {item.type === "post" ? (
+                      <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
+                        {item.authorUsername ? (
+                          <span className="min-w-0 truncate">
+                            @{item.authorUsername}
+                          </span>
+                        ) : null}
+                        {typeof item.aura === "number" ? (
+                          <span className="inline-flex shrink-0 items-center gap-1">
+                            <Flame
+                              className={cn(
+                                "h-3 w-3",
+                                (item.aura ?? 0) < 0
+                                  ? "text-[#7c5cff]"
+                                  : "text-orange-500"
+                              )}
+                            />
+                            {formatNumber(item.aura ?? 0)}
+                          </span>
+                        ) : null}
+                        {typeof item.viewCount === "number" ? (
+                          <span className="inline-flex shrink-0 items-center gap-1">
+                            <Eye className="h-3 w-3" />
+                            {formatNumber(item.viewCount ?? 0)}
+                          </span>
+                        ) : null}
+                        {item.createdAt ? (
+                          <span className="shrink-0">
+                            {formatRelativeDate(item.createdAt)}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    {item.type !== "post" && item.subtitle ? (
                       <span className="text-muted-foreground block truncate text-xs">
                         {item.subtitle}
                       </span>
                     ) : null}
                   </div>
 
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {item.meta}
-                  </span>
+                  {item.type === "post" && item.previewMedia ? (
+                    <div className="bg-muted relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+                      <Image
+                        alt=""
+                        className={cn(
+                          "h-full w-full object-cover",
+                          item.explicitContent && "opacity-70 blur-md"
+                        )}
+                        fill
+                        sizes="48px"
+                        src={getMediaProxyUrl(item.previewMedia)}
+                        unoptimized
+                      />
+                      {item.previewMedia.type === "VIDEO" ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                            <span className="ml-px h-0 w-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-zinc-900" />
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {item.type === "post" ? null : (
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      {item.meta}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

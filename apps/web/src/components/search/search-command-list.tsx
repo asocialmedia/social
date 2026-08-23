@@ -10,6 +10,7 @@ import type { MouseEvent } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SearchCommandListProps {
   history?: string[];
@@ -119,7 +120,7 @@ export const SearchCommandList = ({
   const hasQuery = Boolean(input.trim());
 
   return (
-    <div className="apple-panel overflow-hidden rounded-2xl p-1.5 shadow-none">
+    <div className="apple-panel hide-native-scrollbar max-h-[min(68vh,440px)] overflow-x-hidden overflow-y-auto rounded-2xl p-1.5 shadow-none">
       {hasQuery && !hasResults && !suggestions?.length ? (
         <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
           <Image
@@ -180,7 +181,10 @@ export const SearchCommandList = ({
           </div>
           {posts.map((post, index) => (
             <button
-              className={ROW_CLASS}
+              className={cn(
+                ROW_CLASS,
+                "relative max-h-23 items-start overflow-hidden py-2.5"
+              )}
               data-index={index}
               key={`post-${post.id}`}
               onClick={handlePostClick}
@@ -191,11 +195,11 @@ export const SearchCommandList = ({
                 className="h-9 w-9 shrink-0"
                 size={36}
               />
-              <span className="min-w-0 flex-1">
-                <span className="line-clamp-2 block text-sm leading-snug font-medium">
+              <span className="min-w-0 flex-1 overflow-hidden">
+                <span className="line-clamp-3 overflow-hidden text-sm leading-[1.35] font-medium [overflow-wrap:anywhere] break-words">
                   {post.content}
                 </span>
-                <span className="text-muted-foreground mt-1 flex items-center gap-3 text-xs">
+                <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2.5 text-xs">
                   <span className="flex shrink-0 items-center gap-0.5">
                     <Flame
                       className={cn(
@@ -214,6 +218,28 @@ export const SearchCommandList = ({
                   </span>
                 </span>
               </span>
+              {post.previewMedia ? (
+                <div className="bg-muted relative h-12 w-12 shrink-0 overflow-hidden rounded-lg">
+                  <Image
+                    alt=""
+                    className={cn(
+                      "h-full w-full object-cover",
+                      post.explicitContent && "opacity-70 blur-md"
+                    )}
+                    fill
+                    sizes="48px"
+                    src={getMediaProxyUrl(post.previewMedia)}
+                    unoptimized
+                  />
+                  {post.previewMedia.type === "VIDEO" ? (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                        <span className="ml-px h-0 w-0 border-y-[3px] border-l-[5px] border-y-transparent border-l-zinc-900" />
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </button>
           ))}
         </div>
