@@ -92,7 +92,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
     addSearchMutation,
     addUserSearchMutation,
     history,
-  } = useSearchHistory(open);
+  } = useSearchHistory();
 
   const { data, isFetching } = useQuery({
     enabled: open && Boolean(query.trim()),

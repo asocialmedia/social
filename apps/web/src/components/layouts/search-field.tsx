@@ -44,7 +44,7 @@ export default function SearchField({
     clearHistoryMutation,
     history,
     removeHistoryItemMutation,
-  } = useSearchHistory(open);
+  } = useSearchHistory();
 
   const { data: suggestions } = useQuery({
     enabled: Boolean(debouncedInput),
@@ -169,25 +169,28 @@ export default function SearchField({
         />
       </form>
 
-      {open && (input || (history && history.length > 0)) && (
-        <div
-          className="absolute left-1/2 z-205 mt-2 w-[min(92vw,30rem)] -translate-x-1/2 md:right-0 md:left-auto md:z-50 md:w-[30rem] md:translate-x-0"
-          ref={commandRef}
-        >
-          <SearchCommandList
-            history={history}
-            input={input}
-            onClearHistory={handleClearHistory}
-            onRemoveHistoryItem={handleRemoveHistoryItem}
-            onSelectPost={handleSelectPost}
-            onSelectSuggestion={handleSelectAction}
-            onSelectUser={handleSelectUser}
-            posts={spotlight?.posts}
-            suggestions={suggestions}
-            users={spotlight?.users}
-          />
-        </div>
-      )}
+      {open &&
+        (input ||
+          (history && history.length > 0) ||
+          (suggestions && suggestions.length > 0)) && (
+          <div
+            className="absolute left-1/2 z-205 mt-2 w-[min(92vw,30rem)] -translate-x-1/2 md:right-0 md:left-auto md:z-50 md:w-[30rem] md:translate-x-0"
+            ref={commandRef}
+          >
+            <SearchCommandList
+              history={history}
+              input={input}
+              onClearHistory={handleClearHistory}
+              onRemoveHistoryItem={handleRemoveHistoryItem}
+              onSelectPost={handleSelectPost}
+              onSelectSuggestion={handleSelectAction}
+              onSelectUser={handleSelectUser}
+              posts={spotlight?.posts}
+              suggestions={suggestions}
+              users={spotlight?.users}
+            />
+          </div>
+        )}
     </div>
   );
 }
