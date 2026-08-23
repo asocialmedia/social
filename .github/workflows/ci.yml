@@ -28,6 +28,20 @@ jobs:
     needs: detect-pr-merge
     if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.quality-already-passed == 'true') }}
     runs-on: ubuntu-latest
+    # The unit tests exercise the real Redis-backed caches (search history),
+    # so provision a throwaway instance matching the local dev default.
+    env:
+      REDIS_URL: redis://127.0.0.1:6379/0
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

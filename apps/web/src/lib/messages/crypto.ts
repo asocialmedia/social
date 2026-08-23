@@ -611,6 +611,8 @@ export function getStoredAccountSecret(userId: string): string | null {
     return null;
   }
   try {
+    // Device-local E2EE material by design; see the block comment above.
+    // codeql[js/clear-text-storage-of-sensitive-data]
     return localStorage.getItem(`${LS_SECRET_PREFIX}${userId}`);
   } catch {
     return null;
@@ -622,6 +624,8 @@ export function setStoredAccountSecret(userId: string, secret: string): void {
     return;
   }
   try {
+    // Device-local E2EE material by design; see the block comment above.
+    // codeql[js/clear-text-storage-of-sensitive-data]
     localStorage.setItem(`${LS_SECRET_PREFIX}${userId}`, secret);
   } catch {
     // Restricted storage environments lose convenience, not security: the
