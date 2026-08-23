@@ -44,7 +44,7 @@ export default function ProfileSkeleton() {
         </div>
       </div>
 
-      <div className="border-border/60 sticky top-0 z-10 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
+      <div className="border-border/60 sticky top-0 z-30 flex items-center justify-center border-b bg-[hsl(var(--background-alt))]/95 py-1.5 backdrop-blur-md">
         <div className="flex items-center gap-1">
           {[1, 2, 3, 4].map((index) => (
             <Skeleton className="h-8 w-16 rounded-full" key={`tab-${index}`} />
