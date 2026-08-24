@@ -1,4 +1,4 @@
-import { computeTrendingScore, prisma } from "@asm/db";
+import { computeTrendingScore, prisma, publishTrendingSnapshot } from "@asm/db";
 
 import { resolveLogger, withSpan } from "./log";
 import type { WorkerLogger } from "./log";
@@ -11,11 +11,13 @@ const WINDOW_DAYS = 7;
 export interface TrendingScoreFlushResult {
   batches: number;
   postsUpdated: number;
+  publishedToSnapshot: number;
 }
 
 // Recomputes the time-decayed trending score for every post created within
 // the window, in id-keyset batches, writing scores with one parameterized
-// bulk UPDATE per batch (never a whole-table scan).
+// bulk UPDATE per batch (never a whole-table scan), then publishes the full
+// recompute as a frozen Redis ZSET snapshot so scrolls don't drift.
 export async function flushTrendingScores(
   logger?: WorkerLogger,
   now?: Date
@@ -28,6 +30,7 @@ export async function flushTrendingScores(
     let cursorId: string | undefined;
     let batches = 0;
     let postsUpdated = 0;
+    const scoredEntries: { id: string; score: number }[] = [];
 
     for (;;) {
       // eslint-disable-next-line no-await-in-loop -- keyset pagination must await each batch
@@ -48,16 +51,18 @@ export async function flushTrendingScores(
         break;
       }
 
-      const ids = posts.map((post) => post.id);
-      const scores = posts.map((post) =>
-        computeTrendingScore({
+      const scored = posts.map((post) => ({
+        id: post.id,
+        score: computeTrendingScore({
           aura: post.aura,
           bookmarkCount: post._count.bookmarks,
           commentCount: post._count.comments,
           createdAt: post.createdAt,
           viewCount: post.viewCount,
-        })
-      );
+        }),
+      }));
+      const ids = scored.map((entry) => entry.id);
+      const scores = scored.map((entry) => entry.score);
 
       // eslint-disable-next-line no-await-in-loop -- each batch must persist before advancing the cursor
       await prisma.$executeRaw`
@@ -70,6 +75,7 @@ export async function flushTrendingScores(
         WHERE p.id = v.id
       `;
 
+      scoredEntries.push(...scored);
       batches += 1;
       postsUpdated += posts.length;
       cursorId = posts.at(-1)?.id;
@@ -78,7 +84,20 @@ export async function flushTrendingScores(
       }
     }
 
-    log.info({ batches, postsUpdated }, "trending scores flushed");
-    return { batches, postsUpdated };
+    // Best-effort: the trending route falls back to live Postgres ordering
+    // whenever no snapshot is available, so a failed publish only costs
+    // scroll stability until the next run, never availability.
+    let publishedToSnapshot = 0;
+    try {
+      publishedToSnapshot = await publishTrendingSnapshot(scoredEntries);
+    } catch (error) {
+      log.warn({ error }, "trending snapshot publish failed");
+    }
+
+    log.info(
+      { batches, postsUpdated, publishedToSnapshot },
+      "trending scores flushed"
+    );
+    return { batches, postsUpdated, publishedToSnapshot };
   });
 }

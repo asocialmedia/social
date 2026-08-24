@@ -49,6 +49,10 @@ describe("flushTrendingScores", () => {
     }
   );
 
+  const mockPublishSnapshot = mock(
+    (entries: { id: string; score: number }[]) => entries.length
+  );
+
   const mockPrisma = {
     $executeRaw: mockExecutedRaw,
     post: { findMany: mockFindMany },
@@ -57,6 +61,7 @@ describe("flushTrendingScores", () => {
   mock.module("@asm/db", () => ({
     computeTrendingScore: fakeComputeTrendingScore,
     prisma: mockPrisma,
+    publishTrendingSnapshot: mockPublishSnapshot,
   }));
 
   beforeEach(() => {
@@ -65,6 +70,10 @@ describe("flushTrendingScores", () => {
     batchedPosts = [];
     mockFindMany.mockClear();
     mockExecutedRaw.mockClear();
+    mockPublishSnapshot.mockClear();
+    mockPublishSnapshot.mockImplementation(
+      (entries: { id: string; score: number }[]) => entries.length
+    );
   });
 
   test("updates scores for a single partial batch", async () => {
@@ -86,7 +95,11 @@ describe("flushTrendingScores", () => {
     const scoresParam = (update?.args[1] ?? []) as number[];
     expect(scoresParam).toEqual([10, 10]); // fake scorer: aura * 2
 
-    expect(result).toEqual({ batches: 1, postsUpdated: 2 });
+    expect(result).toEqual({
+      batches: 1,
+      postsUpdated: 2,
+      publishedToSnapshot: 2,
+    });
   });
 
   test("paginates in keyset batches until exhausted", async () => {
@@ -106,7 +119,17 @@ describe("flushTrendingScores", () => {
     expect(secondCall?.cursor).toEqual({ id: "p499" });
     expect(secondCall?.skip).toBe(1);
 
-    expect(result).toEqual({ batches: 2, postsUpdated: 501 });
+    // All 501 scored posts reach the snapshot publisher in order.
+    expect(mockPublishSnapshot).toHaveBeenCalledTimes(1);
+    const publishedArg = mockPublishSnapshot.mock.calls[0]?.[0] ?? [];
+    expect(publishedArg[0]).toEqual({ id: "p0", score: 10 });
+    expect(publishedArg.at(-1)).toEqual({ id: "p500", score: 10 });
+
+    expect(result).toEqual({
+      batches: 2,
+      postsUpdated: 501,
+      publishedToSnapshot: 501,
+    });
   });
 
   test("scopes the scan to the recent window", async () => {
@@ -134,6 +157,39 @@ describe("flushTrendingScores", () => {
     const result = await flushTrendingScores();
 
     expect(mockExecutedRaw).not.toHaveBeenCalled();
-    expect(result).toEqual({ batches: 0, postsUpdated: 0 });
+    // The publisher itself no-ops on an empty window; the flush hands it the
+    // (empty) recompute regardless.
+    expect(mockPublishSnapshot).toHaveBeenCalledWith([]);
+    expect(result).toEqual({
+      batches: 0,
+      postsUpdated: 0,
+      publishedToSnapshot: 0,
+    });
+  });
+
+  test("keeps the flush successful when the snapshot publish fails", async () => {
+    batchedPosts = [[stubPost("post-1")]];
+    mockPublishSnapshot.mockImplementationOnce(() => {
+      throw new Error("redis down");
+    });
+
+    const { flushTrendingScores } = await import("./trending-score-flush");
+
+    const result = await flushTrendingScores();
+
+    expect(result.postsUpdated).toBe(1);
+    expect(result.publishedToSnapshot).toBe(0);
+  });
+
+  test("publishes nothing when there is no snapshot yet", async () => {
+    batchedPosts = [[stubPost("post-1")]];
+
+    const { flushTrendingScores } = await import("./trending-score-flush");
+
+    await flushTrendingScores();
+
+    expect(mockPublishSnapshot).toHaveBeenCalledWith([
+      { id: "post-1", score: 10 },
+    ]);
   });
 });
