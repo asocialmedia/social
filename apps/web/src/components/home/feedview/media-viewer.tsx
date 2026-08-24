@@ -52,8 +52,8 @@ const getMediaUrl = (mediaId: string, download = false) =>
 const MEDIA_LOAD_TIMEOUT_MS = 12_000;
 
 // Only IMAGE / SVG / VIDEO gate rendering on an async onLoad/onLoadedData event.
-// CODE / DOCUMENT / AUDIO render immediately and have no load callback, so they
-// must never be left in a loading state or the skeleton would stay forever.
+// DOCUMENT / AUDIO render immediately and have no load callback, so they must
+// never be left in a loading state or the skeleton would stay forever.
 function hasAsyncLoad(media: Media | undefined): boolean {
   return (
     !!media &&
