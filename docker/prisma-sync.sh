@@ -50,13 +50,13 @@ fi
 #      no --accept-data-loss ever needed).
 # The whole step only runs on drift; a synced database cannot contain them.
 if [ "$diff_status" -eq 2 ]; then
-  echo "Removing unsupported media types ahead of schema sync..."
+  # Row cleanup and the MediaType swap share one explicit transaction: if the
+  # conversion fails, the deletion rolls back with it instead of leaving the
+  # database half-migrated.
+  echo "Removing unsupported media types and swapping legacy variants atomically..."
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
-DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
-SQL
+BEGIN;
 
-  echo "Swapping out legacy MediaType variants (safe, lossless)..."
-  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
 DO $$
 DECLARE
   legacy_variants INTEGER;
@@ -67,7 +67,12 @@ BEGIN
   WHERE t.typname = 'MediaType'
     AND e.enumlabel IN ('DOCUMENT', 'CODE');
 
+  -- Everything is guarded: once the swap has run, the legacy literals are no
+  -- longer valid enum inputs at all, so an unguarded DELETE would fail to
+  -- parse on every subsequent sync.
   IF legacy_variants > 0 THEN
+    DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
+
     ALTER TYPE "MediaType" RENAME TO "MediaType_legacy";
     CREATE TYPE "MediaType" AS ENUM ('IMAGE', 'VIDEO', 'AUDIO');
     ALTER TABLE post_media ALTER COLUMN "type" DROP DEFAULT;
@@ -76,6 +81,8 @@ BEGIN
     DROP TYPE "MediaType_legacy";
   END IF;
 END $$;
+
+COMMIT;
 SQL
 
   echo "Schema drift detected. Pushing Prisma schema..."
