@@ -7,11 +7,17 @@
 // Run:
 //   bun scripts/backfill-trending-scores.ts
 //
+// The run is guarded by a row in the self-managed backfill_markers table, so
+// wiring it into the deploy pipeline is safe: every container runs this on
+// boot and exactly one of them does the work once; everyone after that skips
+// in milliseconds. --force reruns the sweep regardless of the marker.
+//
 // Posts are walked with keyset pagination (order by id asc) in BATCH_SIZE
 // chunks and each chunk is written with a single parameterized unnest UPDATE,
 // so an interrupted run leaves no half-written batch behind. To resume after
 // an interruption, rerun with the last post id printed by the previous run:
 //   bun scripts/backfill-trending-scores.ts --after=<postId>
+// A completed resume still records the marker.
 
 import { computeTrendingScore, prisma } from "@asm/db";
 
@@ -19,18 +25,50 @@ const BATCH_SIZE = 500;
 const LOG_EVERY_BATCHES = 20;
 const MS_PER_SECOND = 1000;
 const RESUME_FLAG_PREFIX = "--after=";
+const FORCE_FLAG = "--force";
+// Bump the suffix whenever this backfill's semantics change and it needs to
+// run again for rows written before the change.
+const MARKER_NAME = "trending-scores-initial-v1";
+// Postgres advisory lock key (arbitrary bigint): serializes concurrent deploy
+// containers so only one performs the check-and-backfill.
+const ADVISORY_LOCK_KEY = 742_193_001;
 
-function parseResumeAfterId(argv: string[]): string | undefined {
+function parseFlag(argv: string[], prefix: string): string | undefined {
   for (const arg of argv) {
-    if (!arg.startsWith(RESUME_FLAG_PREFIX)) {
+    if (!arg.startsWith(prefix)) {
       continue;
     }
-    const value = arg.slice(RESUME_FLAG_PREFIX.length);
+    const value = arg.slice(prefix.length);
     if (value.length > 0) {
       return value;
     }
   }
   return undefined;
+}
+
+async function ensureMarkerTable(): Promise<void> {
+  // Self-managed on purpose: the schema lives outside prisma/schema.prisma so
+  // this ops bookkeeping never shows up in client types or db push diffs.
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS backfill_markers (
+      name TEXT PRIMARY KEY,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+}
+
+async function hasMarker(name: string): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ name: string }[]>`
+    SELECT name FROM backfill_markers WHERE name = ${name}
+  `;
+  return rows.length > 0;
+}
+
+async function recordMarker(name: string): Promise<void> {
+  await prisma.$executeRaw`
+    INSERT INTO backfill_markers (name) VALUES (${name})
+    ON CONFLICT (name) DO NOTHING
+  `;
 }
 
 // Backfills trendingScore for all non-gust posts in chunks, resuming after
@@ -138,15 +176,46 @@ export async function backfillTrendingScores(options: {
   return { batches, postsUpdated: postsBackfilled };
 }
 
+// Deploy-safe entrypoint: marker-checked, lock-guarded, single-run. Returns
+// whether actual work happened so callers can log accordingly.
+export async function ensureTrendingScoresBackfilled(options: {
+  force?: boolean;
+  resumeAfterId?: string;
+}): Promise<{ ran: boolean; batches: number; postsUpdated: number }> {
+  await ensureMarkerTable();
+
+  // Advisory lock across containers: the loser waits here, then sees the
+  // winner's marker and skips without touching data.
+  await prisma.$queryRaw`SELECT pg_advisory_lock(${ADVISORY_LOCK_KEY})`;
+  try {
+    if (!options.force && (await hasMarker(MARKER_NAME))) {
+      console.log("[backfill] already completed previously, skipping");
+      return { batches: 0, postsUpdated: 0, ran: false };
+    }
+
+    const result = await backfillTrendingScores({
+      resumeAfterId: options.resumeAfterId,
+    });
+    await recordMarker(MARKER_NAME);
+    return { ran: true, ...result };
+  } finally {
+    await prisma.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
+  }
+}
+
 if (import.meta.main) {
-  const resumeAfterId = parseResumeAfterId(process.argv);
+  const resumeAfterId = parseFlag(process.argv, RESUME_FLAG_PREFIX);
+  const force = process.argv.includes(FORCE_FLAG);
   if (resumeAfterId !== undefined) {
     console.log(`[backfill] resuming after post id: ${resumeAfterId}`);
+  }
+  if (force) {
+    console.log("[backfill] --force set, ignoring any completion marker");
   }
 
   let exitCode = 0;
   try {
-    await backfillTrendingScores({ resumeAfterId });
+    await ensureTrendingScoresBackfilled({ force, resumeAfterId });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[backfill] failed: ${message}`);

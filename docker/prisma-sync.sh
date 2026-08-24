@@ -37,28 +37,24 @@ bunx prisma migrate diff --from-config-datasource --to-schema "$SCHEMA_PATH" --e
 diff_status=$?
 set -e
 
-if [ "$diff_status" -eq 0 ]; then
-  echo "PRISMA_SYNC_OK: no schema drift detected, database is in sync."
-  exit 0
-fi
-
-if [ "$diff_status" -ne 2 ]; then
+if [ "$diff_status" -ne 2 ] && [ "$diff_status" -ne 0 ]; then
   echo "Schema drift check failed with exit code ${diff_status}."
   exit "$diff_status"
 fi
 
-echo "Schema drift detected. Pushing Prisma schema..."
-bunx prisma db push --config "$PRISMA_CONFIG_PATH"
+if [ "$diff_status" -eq 2 ]; then
+  echo "Schema drift detected. Pushing Prisma schema..."
+  bunx prisma db push --config "$PRISMA_CONFIG_PATH"
 
-echo "Ensuring case-insensitive username uniqueness index..."
-cat > /tmp/username-unique.sql <<'SQL'
+  echo "Ensuring case-insensitive username uniqueness index..."
+  cat > /tmp/username-unique.sql <<'SQL'
 CREATE UNIQUE INDEX IF NOT EXISTS "users_username_lower_unique"
 ON "users" (LOWER("username"));
 SQL
-bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/username-unique.sql
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/username-unique.sql
 
-echo "Ensuring single-admin and single-author constraints..."
-cat > /tmp/single-slot-indexes.sql <<'SQL'
+  echo "Ensuring single-admin and single-author constraints..."
+  cat > /tmp/single-slot-indexes.sql <<'SQL'
 CREATE UNIQUE INDEX IF NOT EXISTS "users_admin_role_unique"
 ON "users" (role) WHERE role = 'admin';
 -- At most one user may hold the author badge. grantBadge stores it in the
@@ -70,6 +66,20 @@ ON "users" (badge) WHERE badge = 'author';
 CREATE UNIQUE INDEX IF NOT EXISTS "users_author_array_unique"
 ON "users" ((CASE WHEN 'author' = ANY(badges) THEN 'author' ELSE NULL END));
 SQL
-bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
+else
+  echo "No schema drift detected, database is in sync."
+fi
+
+# One-shot data backfills run here on every sync invocation. Each one guards
+# itself (marker table + advisory lock) so exactly zero or one of them does
+# work per deployment fleet, and failures never block app deploys: the next
+# sync retries until the marker lands.
+echo "Running one-shot backfills..."
+if bun /app/backfill.js; then
+  echo "Trending-score backfill step OK."
+else
+  echo "WARNING: trending-score backfill failed; it will retry on the next sync deploy." >&2
+fi
 
 echo "PRISMA_SYNC_OK: Prisma schema sync complete."
