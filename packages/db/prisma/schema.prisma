@@ -434,7 +434,9 @@ model Media {
   semantics         Json?
   pipelineVersion   String?
   processedAt       DateTime?
-  updatedAt         DateTime        @updatedAt
+  // Default(now()) lets db push backfill existing rows instead of refusing
+  // the migration; @updatedAt keeps Prisma refreshing it on every write.
+  updatedAt         DateTime        @default(now()) @updatedAt
   // ThumbHash LQIP data URL (~500 bytes) inlined into API responses.
   blurDataUrl       String?
 
