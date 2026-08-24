@@ -198,15 +198,20 @@ export async function processMediaVideo(input: {
           );
           void initSegment;
 
-          // Master playlist on the last pass.
-          if (index === rungs.length - 1) {
+          // Master playlist on the last pass. RESOLUTION must be concrete
+          // pixels: compute the even-aligned width from the source aspect.
+          if (index === rungs.length - 1 && probe.video) {
+            const aspect =
+              probe.video.width > 0 && probe.video.height > 0
+                ? probe.video.width / probe.video.height
+                : 16 / 9;
             const masterLines = [
               "#EXTM3U",
               "#EXT-X-VERSION:7",
-              ...rungs.map(
-                (entry) =>
-                  `#EXT-X-STREAM-INF:BANDWIDTH=${(entry.videoKbps + entry.audioKbps) * 1000},RESOLUTION=-2x${entry.height}\n${entry.variant}.m3u8`
-              ),
+              ...rungs.map((entry) => {
+                const width = Math.round((entry.height * aspect) / 2) * 2;
+                return `#EXT-X-STREAM-INF:BANDWIDTH=${(entry.videoKbps + entry.audioKbps) * 1000},RESOLUTION=${width}x${entry.height}\n${entry.variant}.m3u8`;
+              }),
             ].join("\n");
             await Bun.write(`${hlsDir}/master.m3u8`, `${masterLines}\n`);
           }
