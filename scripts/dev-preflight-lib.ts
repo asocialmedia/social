@@ -29,6 +29,7 @@ export type PreflightCheckKey =
   | "redis"
   | "asmob"
   | "openobserve"
+  | "clamav"
   | "portless";
 
 export type PreflightCheckState =
@@ -47,6 +48,7 @@ export const PREFLIGHT_CHECK_ORDER: {
   { key: "redis", label: "rd" },
   { key: "asmob", label: "obj" },
   { key: "openobserve", label: "ozo" },
+  { key: "clamav", label: "av" },
   { key: "portless", label: "ptl" },
 ];
 
@@ -57,11 +59,19 @@ export const DEFAULT_PREFLIGHT_CONFIG: PreflightConfig = {
     "redis-dev",
     "asmob-dev",
     "openobserve-dev",
+    "clamav-dev",
   ],
 };
 
 export function hasOpenObserveHealth(output: string) {
   return output.includes("ok");
+}
+
+// clamdcheck.sh (shipped in the official ClamAV image) PINGs the daemon on
+// localhost:3310 and exits non-zero when it does not answer. A silent daemon
+// with a live port would pass a TCP probe but still fail every scan.
+export function hasClamAvDaemonCheck(exitCode: number) {
+  return exitCode === 0;
 }
 
 export function hash(value: string) {

@@ -15,6 +15,7 @@ import {
   getMissingBuckets,
   getMissingServices,
   getUnhealthyServices,
+  hasClamAvDaemonCheck,
   hasOpenObserveHealth,
   hasRedisPong,
   hasSchemaTables,
@@ -307,6 +308,27 @@ async function assertOpenObserveReady() {
   }
 }
 
+async function assertClamAvReady() {
+  // Uses the image's own clamdcheck.sh so the check exercises the exact
+  // PING path the compose healthcheck and the media worker rely on.
+  const result = await runCmd([
+    "docker",
+    "compose",
+    "-f",
+    "docker/docker-compose.dev.yml",
+    "exec",
+    "-T",
+    "clamav-dev",
+    "clamdcheck.sh",
+  ]);
+
+  if (!hasClamAvDaemonCheck(result.exitCode)) {
+    fatal(
+      `ClamAV check failed: ${result.stderr || result.stdout || "clamd did not answer PING"}`
+    );
+  }
+}
+
 async function hasListenerOnPort(port: number) {
   const result = await runCmd(["ss", "-ltnH", `sport = :${port}`]);
   if (result.exitCode !== 0) {
@@ -515,6 +537,17 @@ async function run() {
     () => assertOpenObserveReady()
   );
   setCheckState("openobserve", openobserveStatus);
+  activeCheck = null;
+
+  activeCheck = "clamav";
+  setCheckState("clamav", "running");
+  const clamAvStatus = await withCache(
+    cache,
+    "clamav",
+    `${composeFingerprint}:${runtimeFingerprint}`,
+    () => assertClamAvReady()
+  );
+  setCheckState("clamav", clamAvStatus);
   activeCheck = null;
 
   activeCheck = "portless";
