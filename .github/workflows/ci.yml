@@ -419,8 +419,13 @@ jobs:
             echo "DOKPLOY_WORKER_APP_ID not configured; skipping worker deploy."
           fi
 
-      - name: Wait for deployment health check
+      # Fire-and-forget observability only. The edge blocks everything but
+      # app traffic, so GitHub runners can never reach the public health URL;
+      # Dokploy's own container healthcheck gates rollout. This probe must
+      # therefore never fail the workflow.
+      - name: Observe deployment health (non-blocking)
         if: success() && steps.deploy-targets.outputs.health_enabled == 'true'
+        continue-on-error: true
         env:
           HEALTH_URL: ${{ steps.deploy-targets.outputs.health_url }}
           HEALTH_INITIAL_DELAY: ${{ steps.deploy-targets.outputs.health_initial_delay }}
@@ -441,8 +446,7 @@ jobs:
             sleep "${HEALTH_RETRY_INTERVAL}"
           done
 
-          echo "Health check failed after ${HEALTH_RETRIES} attempts"
-          exit 1
+          echo "Health endpoint unreachable from the runner (expected when the edge blocks external traffic). Deployment continues via Dokploy's own healthcheck."
 
   cleanup-old-images:
     name: Cleanup old GHCR images

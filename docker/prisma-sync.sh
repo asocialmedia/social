@@ -43,12 +43,46 @@ if [ "$diff_status" -ne 2 ] && [ "$diff_status" -ne 0 ]; then
 fi
 
 # Prisma's enum-alter strategy fails when rows still carry a dropped value,
-# so unsupported media types are cleared before any schema sync. Only runs on
-# drift: a no-drift database cannot contain those values.
+# and its db push demands --accept-data-loss just to drop the enum VARIANTS.
+# Both hazards are handled here, manually and safely, before push:
+#   1) rows using unsupported media types are removed,
+#   2) the enum itself is swapped via rename-and-replace (zero data loss,
+#      no --accept-data-loss ever needed).
+# The whole step only runs on drift; a synced database cannot contain them.
 if [ "$diff_status" -eq 2 ]; then
-  echo "Removing unsupported media types ahead of schema sync..."
+  # Row cleanup and the MediaType swap share one explicit transaction: if the
+  # conversion fails, the deletion rolls back with it instead of leaving the
+  # database half-migrated.
+  echo "Removing unsupported media types and swapping legacy variants atomically..."
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
-DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
+BEGIN;
+
+DO $$
+DECLARE
+  legacy_variants INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO legacy_variants
+  FROM pg_enum e
+  JOIN pg_type t ON t.oid = e.enumtypid
+  WHERE t.typname = 'MediaType'
+    AND e.enumlabel IN ('DOCUMENT', 'CODE');
+
+  -- Everything is guarded: once the swap has run, the legacy literals are no
+  -- longer valid enum inputs at all, so an unguarded DELETE would fail to
+  -- parse on every subsequent sync.
+  IF legacy_variants > 0 THEN
+    DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
+
+    ALTER TYPE "MediaType" RENAME TO "MediaType_legacy";
+    CREATE TYPE "MediaType" AS ENUM ('IMAGE', 'VIDEO', 'AUDIO');
+    ALTER TABLE post_media ALTER COLUMN "type" DROP DEFAULT;
+    ALTER TABLE post_media ALTER COLUMN "type"
+      TYPE "MediaType" USING "type"::text::"MediaType";
+    DROP TYPE "MediaType_legacy";
+  END IF;
+END $$;
+
+COMMIT;
 SQL
 
   echo "Schema drift detected. Pushing Prisma schema..."

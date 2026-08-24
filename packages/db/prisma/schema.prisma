@@ -409,14 +409,97 @@ model Media {
   thumbnailHeight   Int?
   createdAt         DateTime  @default(now())
 
+  // ── Pipeline lifecycle (new media pipeline) ─────────────────────────────
+  // Legacy rows keep status UPLOADING with a legacy `key`; the serving route
+  // falls back to legacy columns whenever no derivatives exist, so old posts
+  // never break. New uploads always walk the state machine.
+  status            MediaStatus     @default(UPLOADING)
+  visibility        MediaVisibility @default(PUBLIC)
+  originalKey       String?
+  publishedKey      String?
+  claimedMime       String?
+  detectedMime      String?
+  originalName      String?
+  sha256            String?
+  phash             String?
+  rejectedReason    RejectionReason?
+  failureCode       String?
+  failureDetail     Json?
+  attempts          Int             @default(0)
+  techMetadata      Json?
+  exifStripped      Boolean         @default(false)
+  altText           String?
+  generatedAltText  String?
+  safety            Json?
+  semantics         Json?
+  pipelineVersion   String?
+  processedAt       DateTime?
+  updatedAt         DateTime        @updatedAt
+  // ThumbHash LQIP data URL (~500 bytes) inlined into API responses.
+  blurDataUrl       String?
+
+  derivatives MediaDerivative[]
+
   @@index([commentId])
+  @@index([status])
+  @@index([sha256])
+  @@index([postId])
+  @@index([userId, createdAt])
   @@map("post_media")
+}
+
+model MediaDerivative {
+  id              String   @id @default(cuid())
+  mediaId         String
+  media           Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  kind            String
+  variant         String   @default("default")
+  key             String
+  mimeType        String
+  width           Int?
+  height          Int?
+  sizeBytes       Int?
+  durationMs      Int?
+  pipelineVersion String
+  createdAt       DateTime @default(now())
+
+  @@unique([mediaId, kind, variant])
+  @@index([key])
+  @@map("post_media_derivatives")
 }
 
 enum MediaType {
   IMAGE
   VIDEO
   AUDIO
+  DOCUMENT
+}
+
+enum MediaStatus {
+  UPLOADING
+  QUARANTINED
+  SCANNING
+  PROCESSING
+  READY
+  FAILED
+  REJECTED
+  DELETED
+}
+
+enum RejectionReason {
+  MALWARE
+  MIME_MISMATCH
+  UNSUPPORTED_TYPE
+  TOO_LARGE
+  TOO_LONG
+  CORRUPT
+  POLICY
+}
+
+enum MediaVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
 }
 
 model Vote {
