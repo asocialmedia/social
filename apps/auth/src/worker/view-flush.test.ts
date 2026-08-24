@@ -3,37 +3,37 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { computeViewAura } from "./view-flush";
 
 describe("computeViewAura", () => {
-  test("no aura before the 50-view milestone", () => {
-    const result = computeViewAura(0, 49);
+  test("no aura before the first 10 views", () => {
+    const result = computeViewAura(0, 9);
     expect(result.aura).toBe(0);
-    expect(result.lastAwardedViewCount).toBe(49);
+    expect(result.lastAwardedViewCount).toBe(9);
   });
 
-  test("awards 10 aura when crossing 50 views", () => {
-    const result = computeViewAura(0, 50);
-    expect(result.aura).toBe(10);
-    expect(result.lastAwardedViewCount).toBe(50);
+  test("awards 1 aura when crossing 10 views", () => {
+    const result = computeViewAura(0, 10);
+    expect(result.aura).toBe(1);
+    expect(result.lastAwardedViewCount).toBe(10);
   });
 
-  test("awards aura per 50-view milestone crossed", () => {
+  test("awards aura per 10-view step crossed", () => {
     const result = computeViewAura(0, 130);
-    expect(result.aura).toBe(20); // 50, 100 = 2 milestones
+    expect(result.aura).toBe(13); // 13 full ten-view steps
   });
 
-  test("awards 100 aura at 1000 views", () => {
+  test("pays the 1K bonus alongside accrued steps at 1000 views", () => {
     const result = computeViewAura(0, 1000);
-    // 20 fifties (200) + 1 thousand (100) = 300
-    expect(result.aura).toBe(300);
+    // 100 steps (100) + 1K bonus (100) = 200
+    expect(result.aura).toBe(200);
   });
 
   test("does not re-award already-passed milestones", () => {
     const result = computeViewAura(120, 200);
-    // lastAwarded crossed 50 and 100; new count crosses 150 and 200 = 2 more
-    expect(result.aura).toBe(20);
+    // lastAwarded covered steps through 120; new count adds 8 more steps
+    expect(result.aura).toBe(8);
   });
 
   test("awards nothing when no milestone crossed", () => {
-    const result = computeViewAura(200, 210);
+    const result = computeViewAura(200, 209);
     expect(result.aura).toBe(0);
   });
 });
@@ -106,8 +106,8 @@ describe("flushViewDeltas", () => {
     // Only post-1 has a counter; missing-post has no counter value.
     expect(mockExec).toHaveBeenCalledTimes(2); // one pipeline for getdel, one for srem
     expect(result.flushedPosts).toBe(1);
-    // post-1 goes 40 -> 52 (12 new views), crossing 50 once = +10 aura
-    expect(result.auraAwarded).toBe(10);
+    // post-1 goes 40 -> 52 (12 new views), crossing the 50-view step once = +1
+    expect(result.auraAwarded).toBe(1);
 
     const postUpdate = executed.find(
       (entry): entry is { query: string; args: unknown[] } =>

@@ -56,11 +56,13 @@ export const MUTING_COST_AURA = 1;
 // rich-get-richer. The daily income cap bounds spam instead.
 export const COMMENT_CREATION_AURA = 1;
 
-// Post author award when someone else comments on their post.
-export const COMMENT_RECEIVED_AURA = 2;
+// Post author award per comment (eddie) on their post, and per reply for
+// both the parent-comment author and the post author. Cumulative: deep
+// threads keep paying the author.
+export const COMMENT_RECEIVED_AURA = 1;
 
 // Followed user award when gaining a follower.
-export const FOLLOW_GAINED_AURA = 4;
+export const FOLLOW_GAINED_AURA = 10;
 
 // Follower award for extending their network. Weighted like all engagement;
 // the daily cap bounds follow-and-unfollow churn farming.
@@ -99,12 +101,23 @@ export const POST_CREATION_MAX_AURA = 150;
 // milestone awards skip weighting/tapering/capping entirely and are the only
 // positive awards allowed to bypass the daily income cap.
 
-// View milestones preserve the originally shipped curve, centralized here:
-// +10 per full 50 views crossed, plus a +100 bonus per full 1000 views.
-export const VIEW_MILESTONE_STEP_VIEWS = 50;
-export const VIEW_MILESTONE_STEP_AURA = 10;
-export const VIEW_MILESTONE_KILO_BONUS_VIEWS = 1000;
-export const VIEW_MILESTONE_KILO_BONUS_AURA = 100;
+// View milestones: steady accrual (+1 per full 10 views) plus one-shot
+// bonus tiers alongside (1K -> +100, 10K -> +1000). Add tiers to grow the
+// ladder - they must be sorted ascending.
+export const VIEW_MILESTONE_STEP_VIEWS = 10;
+export const VIEW_MILESTONE_STEP_AURA = 1;
+export const VIEW_BONUS_TIERS = [
+  { aura: 100, threshold: 1000 },
+  { aura: 1000, threshold: 10_000 },
+] as const;
+
+// Appearing in the trending users card pays a flat profile award, deduped
+// to once per user per UTC day so repeated sidebar loads cannot re-print it.
+export const TRENDING_CARD_AURA = 100;
+
+// Being mentioned in a post pays the mentioned user. Unique per
+// (post, mentioned user) by schema, and subject to the receiver's daily cap.
+export const MENTION_RECEIVED_AURA = 10;
 
 // Share milestones are one-shot superlinear tiers (shares lack the steady
 // cadence views have): crossing each threshold grants `aura` once. Sorted

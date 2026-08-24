@@ -8,3 +8,4 @@ export * from "./config";
 export * from "./engine";
 export * from "./ledger";
 export * from "./signals";
+export * from "./trending-card";

@@ -166,6 +166,7 @@ export async function createComment(
 
     // Receiving a thoughtful reply is engagement: weighted by the
     // commenter's credibility and tapered per pair.
+    let postReceivedAmount = 0;
     if (receivedRecipientId && commenter) {
       const receivedAward = await applyWeightedAward(tx, {
         actor: { aura: commenter.aura, createdAt: commenter.createdAt },
@@ -182,9 +183,44 @@ export async function createComment(
       receivedAmount = receivedAward.amount;
     }
 
-    if (creationAmount !== 0 || receivedAmount !== 0) {
+    // Thread-cumulative award: a REPLY also pays the POST author (+1 per
+    // eddie anywhere in their thread), so deep conversations keep earning
+    // for the person who started them. Skipped when the post author is the
+    // commenter or already paid as the primary recipient - one person is
+    // paid once per eddie.
+    const isReply = Boolean(parent);
+    const postAuthorAlsoPaid =
+      isReply &&
+      post.userId !== params.userId &&
+      post.userId !== receivedRecipientId;
+
+    if (postAuthorAlsoPaid && commenter) {
+      const postAward = await applyWeightedAward(tx, {
+        actor: { aura: commenter.aura, createdAt: commenter.createdAt },
+        actorId: params.userId,
+        baseAmount: COMMENT_RECEIVED_AURA,
+        commentId: created.id,
+        now: new Date(),
+        postId: params.postId,
+        recipientId: post.userId,
+        subjectToDailyCap: true,
+        taperClass: "commentReceived",
+        type: "COMMENT_RECEIVED",
+      });
+      postReceivedAmount = postAward.amount;
+    }
+
+    if (
+      creationAmount !== 0 ||
+      receivedAmount !== 0 ||
+      postReceivedAmount !== 0
+    ) {
       await tx.comment.update({
-        data: { creationAura: creationAmount, receivedAura: receivedAmount },
+        data: {
+          creationAura: creationAmount,
+          postReceivedAura: postReceivedAmount,
+          receivedAura: receivedAmount,
+        },
         where: { id: created.id },
       });
     }
@@ -266,6 +302,7 @@ export async function softDeleteComment(
       id: true,
       parentId: true,
       postId: true,
+      postReceivedAura: true,
       receivedAura: true,
       userId: true,
     },
@@ -293,7 +330,11 @@ export async function softDeleteComment(
   // (created before the economy shipped) carry zeros and reverse nothing -
   // conservative under-refund by design.
   let affectedAuthorIds: string[] = [];
-  if (comment.creationAura !== 0 || comment.receivedAura !== 0) {
+  if (
+    comment.creationAura !== 0 ||
+    comment.receivedAura !== 0 ||
+    comment.postReceivedAura !== 0
+  ) {
     affectedAuthorIds = [comment.userId];
   }
 
@@ -317,34 +358,47 @@ export async function softDeleteComment(
     }
 
     if (comment.receivedAura !== 0) {
-      // The recipient was whoever the COMMENT_RECEIVED ledger row paid when
-      // the comment was created; the ledger, not a recomputation, stays the
-      // source of truth.
-      const receivedRow = await tx.auraLog.findFirst({
-        orderBy: { createdAt: "desc" },
-        where: {
-          commentId,
-          targetUserId: { not: null },
-          type: "COMMENT_RECEIVED",
-        },
-      });
-
-      if (receivedRow) {
-        await reverseExactAura(tx, {
-          commentId,
-          issuerId: comment.userId,
-          openAmount: comment.receivedAura,
-          postId: comment.postId,
-          recipientId: receivedRow.targetUserId ?? receivedRow.userId,
-          targetUserId: receivedRow.targetUserId ?? receivedRow.userId,
-          type: "COMMENT_RECEIVED",
+      // Primary recipient is deterministic from thread shape: the parent
+      // comment's author for a reply, else the post author - mirroring
+      // exactly who createComment paid.
+      let primaryRecipient = post.userId;
+      if (comment.parentId) {
+        const parent = await tx.comment.findUnique({
+          select: { userId: true },
+          where: { id: comment.parentId },
         });
-        if (
-          receivedRow.targetUserId &&
-          !affectedAuthorIds.includes(receivedRow.targetUserId)
-        ) {
-          affectedAuthorIds.push(receivedRow.targetUserId);
+        if (parent) {
+          primaryRecipient = parent.userId;
         }
+      }
+
+      await reverseExactAura(tx, {
+        commentId,
+        issuerId: comment.userId,
+        openAmount: comment.receivedAura,
+        postId: comment.postId,
+        recipientId: primaryRecipient,
+        targetUserId: primaryRecipient,
+        type: "COMMENT_RECEIVED",
+      });
+      if (!affectedAuthorIds.includes(primaryRecipient)) {
+        affectedAuthorIds.push(primaryRecipient);
+      }
+    }
+
+    if (comment.postReceivedAura !== 0 && post.userId !== userId) {
+      // The thread-cumulative award always belonged to the post author.
+      await reverseExactAura(tx, {
+        commentId,
+        issuerId: comment.userId,
+        openAmount: comment.postReceivedAura,
+        postId: comment.postId,
+        recipientId: post.userId,
+        targetUserId: post.userId,
+        type: "COMMENT_RECEIVED",
+      });
+      if (!affectedAuthorIds.includes(post.userId)) {
+        affectedAuthorIds.push(post.userId);
       }
     }
 

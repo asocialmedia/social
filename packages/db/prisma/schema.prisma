@@ -241,6 +241,13 @@ enum AuraType {
   // Shares are tracked per platform without a per-user actor, so like view
   // milestones these are attributed to aggregate attention, not one account.
   SHARE_MILESTONE
+  // Award to a user for being mentioned in someone's post. Unique per
+  // (post, mentioned user) by the Mention table.
+  MENTION_RECEIVED
+  // Flat daily award for appearing in the trending users card. Deduped per
+  // user per UTC day upstream; issuer and recipient are both the awarded
+  // user since the platform itself is the actor.
+  TRENDING_APPEARANCE
 }
 
 model PasswordResetToken {
@@ -515,11 +522,14 @@ model Comment {
   rootComments Comment[] @relation("CommentRoots")
   aura      Int       @default(0)
   // Open aura positions from this comment's creation: creationAura is what
-  // the commenter earned, receivedAura is what the post/parent author earned
-  // from receiving it. Soft-delete reverses exactly these; zero defaults
-  // keep legacy comments inert on deletion (conservative under-refund).
+  // the commenter earned, receivedAura is what the parent/post author earned
+  // as primary recipient, postReceivedAura is what the POST author earned
+  // when this comment was a reply (the thread-cumulative award). Soft-delete
+  // reverses exactly these; zero defaults keep legacy comments inert on
+  // deletion (conservative under-refund).
   creationAura Int    @default(0)
   receivedAura Int    @default(0)
+  postReceivedAura Int @default(0)
   deleted   Boolean   @default(false)
   attachments Media[]
   votes     CommentVote[]

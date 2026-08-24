@@ -50,6 +50,7 @@ export type AuraEventType =
   | "COMMENT_VOTE_REMOVED"
   | "FOLLOW_GAINED"
   | "FOLLOW_GIVEN"
+  | "MENTION_RECEIVED"
   | "MODERATION_PENALTY"
   | "MUTING_COST"
   | "POST_ATTACHMENT_BONUS"
@@ -59,7 +60,8 @@ export type AuraEventType =
   | "POST_VIEWS_MILESTONE"
   | "POST_VOTE"
   | "POST_VOTE_REMOVED"
-  | "SHARE_MILESTONE";
+  | "SHARE_MILESTONE"
+  | "TRENDING_APPEARANCE";
 
 // Interaction classes sharing a pairwise taper counter. The tables live in
 // config.TAPER_CLASSES; counted over positive award rows so reversals never

@@ -11,8 +11,7 @@ import {
   PAIR_TAPER_MIN_FACTOR,
   SHARE_MILESTONE_TIERS,
   VETERAN_AURA,
-  VIEW_MILESTONE_KILO_BONUS_AURA,
-  VIEW_MILESTONE_KILO_BONUS_VIEWS,
+  VIEW_BONUS_TIERS,
   VIEW_MILESTONE_STEP_AURA,
   VIEW_MILESTONE_STEP_VIEWS,
   VISIBILITY_NEGATIVE_DIVISOR,
@@ -169,28 +168,24 @@ export function computeViewMilestoneAura(
   lastAwardedViewCount: number,
   newTotalViews: number
 ): MilestoneAward {
-  // The shipped curve is periodic rather than one-shot thresholds: every
-  // full 50 views pays STEP_AURA, and every full 1000 views pays an extra
-  // KILO bonus on top.
+  // Steady accrual: every full VIEW_MILESTONE_STEP_VIEWS pays STEP_AURA.
   const prevSteps = Math.max(
     0,
     Math.floor(lastAwardedViewCount / VIEW_MILESTONE_STEP_VIEWS)
   );
   const newSteps = Math.floor(newTotalViews / VIEW_MILESTONE_STEP_VIEWS);
-  const prevKilos = Math.max(
-    0,
-    Math.floor(lastAwardedViewCount / VIEW_MILESTONE_KILO_BONUS_VIEWS)
-  );
-  const newKilos = Math.floor(newTotalViews / VIEW_MILESTONE_KILO_BONUS_VIEWS);
-
   const stepsCrossed = Math.max(0, newSteps - prevSteps);
-  const kilosCrossed = Math.max(0, newKilos - prevKilos);
+
+  // Plus one-shot bonus tiers alongside (1K -> +100, 10K -> +1000, ...).
+  const bonus = computeMilestoneAura(
+    VIEW_BONUS_TIERS,
+    lastAwardedViewCount,
+    newTotalViews
+  );
 
   return {
-    aura:
-      stepsCrossed * VIEW_MILESTONE_STEP_AURA +
-      kilosCrossed * VIEW_MILESTONE_KILO_BONUS_AURA,
-    tiersCrossed: stepsCrossed + kilosCrossed,
+    aura: stepsCrossed * VIEW_MILESTONE_STEP_AURA + bonus.aura,
+    tiersCrossed: stepsCrossed + bonus.tiersCrossed,
   };
 }
 

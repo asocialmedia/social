@@ -257,17 +257,19 @@ describe("computeMomentum", () => {
 });
 
 describe("milestones", () => {
-  test("view curve preserves the shipped periodic behavior", () => {
-    expect(computeViewMilestoneAura(0, 49).aura).toBe(0);
-    expect(computeViewMilestoneAura(0, 50).aura).toBe(10);
-    // Two full 50-view steps.
-    expect(computeViewMilestoneAura(0, 130).aura).toBe(20);
-    // 20 steps (200) + one kilo bonus (100).
-    expect(computeViewMilestoneAura(0, 1000).aura).toBe(300);
-    // Steps already awarded at 120 do not re-award; 150 and 200 crossings pay.
+  test("views accrue +1 per 10 views with one-shot bonus tiers alongside", () => {
+    expect(computeViewMilestoneAura(0, 9).aura).toBe(0);
+    expect(computeViewMilestoneAura(0, 10).aura).toBe(1);
+    // 13 full 10-view steps.
+    expect(computeViewMilestoneAura(0, 130).aura).toBe(13);
+    // 100 steps (100) + the 1K bonus (100).
+    expect(computeViewMilestoneAura(0, 1000).aura).toBe(200);
+    // 1000 steps (1000) + both bonuses (100 + 1000).
+    expect(computeViewMilestoneAura(0, 10_000).aura).toBe(2100);
+    // Steps already awarded at 120 do not re-award; 130..200 crossings pay.
     expect(computeViewMilestoneAura(120, 200)).toEqual({
-      aura: 20,
-      tiersCrossed: 2,
+      aura: 8,
+      tiersCrossed: 8,
     });
   });
 

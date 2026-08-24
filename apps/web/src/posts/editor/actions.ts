@@ -11,6 +11,7 @@ import {
   getPostDataInclude,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
+  MENTION_RECEIVED_AURA,
   POST_CREATION_AURA,
   POST_CREATION_MAX_AURA,
   postViewsCache,
@@ -254,16 +255,29 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
       if (validatedInput.mentions.length > 0) {
         await Promise.all(
-          validatedInput.mentions.map((userId) =>
-            tx.notification.create({
+          validatedInput.mentions.map(async (userId) => {
+            await tx.notification.create({
               data: {
                 issuerId: sessionData.user.id,
                 postId: post.id,
                 recipientId: userId,
                 type: "MENTION",
               },
-            })
-          )
+            });
+
+            // Being mentioned pays the mentioned user a flat award, unique
+            // per (post, user) by the Mention table and subject to their
+            // daily cap so mass-mention spam stays bounded.
+            await applyFlatAward(tx, {
+              actorId: sessionData.user.id,
+              baseAmount: MENTION_RECEIVED_AURA,
+              now: new Date(),
+              postId: post.id,
+              recipientId: userId,
+              subjectToDailyCap: true,
+              type: "MENTION_RECEIVED",
+            });
+          })
         );
 
         for (const userId of validatedInput.mentions) {

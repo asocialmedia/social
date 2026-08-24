@@ -160,12 +160,12 @@ describe("POST /api/users/[userId]/followers", () => {
     expect(res.status).toBe(200);
     expect(state.isFollowing).toBe(true);
     // FOLLOW_GAINED_AURA (4) at full veteran credibility; flat +1 stipend.
-    expect(state.followedAura).toBe(4);
+    expect(state.followedAura).toBe(10);
     expect(state.followerAura).toBe(1);
-    expect(state.followRow).toEqual({ gainedAura: 4, givenAura: 1 });
+    expect(state.followRow).toEqual({ gainedAura: 10, givenAura: 1 });
     expect(state.auraLogs).toEqual([
       {
-        amount: 4,
+        amount: 10,
         commentId: null,
         issuerId: FOLLOWER_ID,
         postId: null,

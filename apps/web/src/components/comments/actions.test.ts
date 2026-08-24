@@ -15,6 +15,7 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 
 // Open positions stored on the created comment row (what deletion unwinds).
 let storedCreationAura = 0;
+let storedPostReceivedAura = 0;
 let storedReceivedAura = 0;
 
 const state = {
@@ -38,6 +39,7 @@ function resetState() {
   state.createdParentId = undefined;
   state.createdRootId = undefined;
   storedCreationAura = 0;
+  storedPostReceivedAura = 0;
   storedReceivedAura = 0;
 }
 
@@ -82,11 +84,18 @@ const mockTx = {
       };
     },
     update: (args: {
-      data?: { creationAura?: number; receivedAura?: number };
+      data?: {
+        creationAura?: number;
+        postReceivedAura?: number;
+        receivedAura?: number;
+      };
       where: { id: string };
     }) => {
       if (args.data?.creationAura !== undefined) {
         storedCreationAura = args.data.creationAura;
+      }
+      if (args.data?.postReceivedAura !== undefined) {
+        storedPostReceivedAura = args.data.postReceivedAura;
       }
       if (args.data?.receivedAura !== undefined) {
         storedReceivedAura = args.data.receivedAura;
@@ -183,6 +192,7 @@ const mockPrisma = {
           id: COMMENT_ID,
           parentId: null,
           postId: POST_ID,
+          postReceivedAura: storedPostReceivedAura,
           receivedAura: storedReceivedAura,
           userId: COMMENTER_ID,
         });
@@ -246,6 +256,7 @@ describe("submitComment", () => {
           id: COMMENT_ID,
           parentId: null,
           postId: POST_ID,
+          postReceivedAura: storedPostReceivedAura,
           receivedAura: storedReceivedAura,
           userId: COMMENTER_ID,
         });
@@ -277,10 +288,12 @@ describe("submitComment", () => {
     expect(comment.id).toBe(COMMENT_ID);
     expect(state.commenterAura).toBe(1);
     // Weighted received award at full veteran credibility.
-    expect(state.authorAura).toBe(2);
-    // Stored positions match what was actually applied.
+    expect(state.authorAura).toBe(1);
+    // Stored positions match what was actually applied. Top-level comments
+    // have no separate post-author thread award (author IS the recipient).
     expect(storedCreationAura).toBe(1);
-    expect(storedReceivedAura).toBe(2);
+    expect(storedReceivedAura).toBe(1);
+    expect(storedPostReceivedAura).toBe(0);
     expect(state.auraLogs).toEqual([
       {
         amount: 1,
@@ -292,7 +305,7 @@ describe("submitComment", () => {
         userId: COMMENTER_ID,
       },
       {
-        amount: 2,
+        amount: 1,
         commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
@@ -351,10 +364,13 @@ describe("submitComment", () => {
     expect(state.createdRootId).toBe(PARENT_ID);
     // The commenter earns creation aura.
     expect(state.commenterAura).toBe(1);
-    // The parent's author (not the post author) earns the weighted received
-    // award.
-    expect(state.parentAuthorAura).toBe(2);
-    expect(state.authorAura).toBe(0);
+    // The parent's author earns the primary received award, and the post
+    // author ALSO earns the thread-cumulative award for the eddie in their
+    // thread.
+    expect(state.parentAuthorAura).toBe(1);
+    expect(state.authorAura).toBe(1);
+    expect(storedReceivedAura).toBe(1);
+    expect(storedPostReceivedAura).toBe(1);
     // The parent's author is notified on a reply, and the post author is also
     // notified when a thread on their post gets a reply (both differ here).
     expect(state.notifications).toEqual([
@@ -385,10 +401,13 @@ describe("submitComment", () => {
     });
 
     // The commenter (PARENT_AUTHOR_ID) earns the creation stipend in their own
-    // bucket; no received award is granted for self-replies.
+    // bucket; no primary received award is granted for self-replies - but the
+    // POST author still earns the thread-cumulative award for the eddie.
     expect(state.parentAuthorAura).toBe(1);
     expect(state.commenterAura).toBe(0);
-    expect(state.authorAura).toBe(0);
+    expect(state.authorAura).toBe(1);
+    expect(storedReceivedAura).toBe(0);
+    expect(storedPostReceivedAura).toBe(1);
     expect(state.notifications).toEqual([]);
   });
 
@@ -431,9 +450,9 @@ describe("deleteComment", () => {
 
   test("reverses exactly the stored positions of the deleted comment", async () => {
     storedCreationAura = 1;
-    storedReceivedAura = 2;
+    storedReceivedAura = 1;
     state.commenterAura = 1;
-    state.authorAura = 2;
+    state.authorAura = 1;
     state.notifications.push(
       {
         commentId: COMMENT_ID,
@@ -474,7 +493,7 @@ describe("deleteComment", () => {
         userId: COMMENTER_ID,
       },
       {
-        amount: -2,
+        amount: -1,
         commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
