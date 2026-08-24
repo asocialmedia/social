@@ -5,6 +5,7 @@
 
 import { createLogger } from "@asm/logger";
 
+import { getAuraSignalsForUsers } from "../aura/signals";
 import type { PostData } from "../client";
 import { getPostDataInclude } from "../client";
 import prisma from "../prisma";
@@ -218,6 +219,14 @@ export async function getPersonalizedFeedPage(options: {
   }
 
   const followedAuthorIds = new Set(profile.followedAuthorIds);
+
+  // Author reputation visibility (0.4..1) scales each candidate's final
+  // score. Fail-open: authors missing from the batch (over the cap or
+  // signal-less) default to neutral 1.
+  const authorSignals = await getAuraSignalsForUsers([
+    ...new Set(pool.map((post) => post.userId)),
+  ]);
+
   const scored: ScoredCandidate<CandidatePost>[] = pool.map((post) => {
     const candidate: CandidatePost = {
       aura: post.aura,
@@ -231,6 +240,8 @@ export async function getPersonalizedFeedPage(options: {
     return {
       post: candidate,
       score: scoreCandidate(candidate, profile, {
+        authorVisibilityWeight:
+          authorSignals.get(post.userId)?.visibilityWeight ?? 1,
         followedAuthorIds,
         now,
       }),

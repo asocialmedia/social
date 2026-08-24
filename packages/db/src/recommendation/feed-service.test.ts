@@ -7,16 +7,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000);
 
-type FindManyArgs = {
+interface FindManyArgs {
   include?: unknown;
   orderBy?: unknown;
   select?: unknown;
   take?: number;
   where?: unknown;
-};
+}
 
 let lastPoolArgs: FindManyArgs | null = null;
-let lastFullPostArgs: FindManyArgs | null = null;
+let _lastFullPostArgs: FindManyArgs | null = null;
 
 // Pool rows in the order the DB returns them: createdAt desc.
 let poolRows: {
@@ -39,7 +39,7 @@ const mockPrisma = {
   post: {
     findMany: mock((args?: FindManyArgs) => {
       if (args?.include) {
-        lastFullPostArgs = args;
+        _lastFullPostArgs = args;
         // Serve whichever ids the caller asks for, in map-retrievable form.
         const ids =
           typeof args.where === "object" &&

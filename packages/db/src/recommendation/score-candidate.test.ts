@@ -256,6 +256,29 @@ describe("scoreCandidate", () => {
     expect(byComments).toBe(byAura);
   });
 
+  test("author visibility weight scales the final score", () => {
+    const candidate = post({ aura: 12, commentCount: 3, tags: ["x"] });
+    const profile = buildUserProfile(signalsOf(["author-9", "comment", ["x"]]));
+    const options = { followedAuthorIds: new Set(["author-9"]), now: NOW };
+
+    const neutral = scoreCandidate(candidate, profile, options);
+    // A negative-balance author at the 0.4 visibility floor.
+    const penalized = scoreCandidate(candidate, profile, {
+      ...options,
+      authorVisibilityWeight: 0.4,
+    });
+
+    expect(penalized).toBeCloseTo(neutral * 0.4, 8);
+
+    // Unknown authors default to neutral weighting.
+    expect(scoreCandidate(candidate, profile, options)).toBe(
+      scoreCandidate(candidate, profile, {
+        ...options,
+        authorVisibilityWeight: undefined,
+      })
+    );
+  });
+
   test("is deterministic for identical inputs", () => {
     const candidate = post({ aura: 12, commentCount: 3, tags: ["x"] });
     const profile = buildUserProfile(signalsOf(["author-9", "comment", ["x"]]));

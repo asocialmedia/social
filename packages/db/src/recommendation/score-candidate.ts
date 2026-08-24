@@ -16,6 +16,11 @@ export interface CandidatePost {
 }
 
 export interface ScoreCandidateOptions {
+  // Author's aura visibility weight (0.4..1 from the reputation economy).
+  // Applied as a final multiplicative quality factor so negative-balance
+  // authors rank proportionally lower without any hard exclusion; defaults
+  // to neutral 1 when unknown.
+  authorVisibilityWeight?: number;
   followedAuthorIds?: ReadonlySet<string>;
   now?: Date;
 }
@@ -101,17 +106,18 @@ export function scoreCandidateComponents(
   return { authorAffinity, freshness, tagOverlap, traction };
 }
 
-// Who you know beats what you know beats how new it beats early traction.
+// Who you know beats what you know beats how new it beats early traction -
+// scaled by the author's reputation visibility weight when provided.
 export function scoreCandidate(
   post: CandidatePost,
   profile: UserProfile,
   options: ScoreCandidateOptions = {}
 ): number {
   const components = scoreCandidateComponents(post, profile, options);
-  return (
+  const base =
     components.authorAffinity * AUTHOR_AFFINITY_POINTS +
     components.tagOverlap * TAG_OVERLAP_POINTS +
     components.freshness * FRESHNESS_POINTS +
-    components.traction * TRACTION_POINTS
-  );
+    components.traction * TRACTION_POINTS;
+  return base * clamp01(options.authorVisibilityWeight ?? 1);
 }

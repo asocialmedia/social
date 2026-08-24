@@ -78,7 +78,7 @@ describe("trending snapshot cursors", () => {
     expect(
       snapshot.decodeTrendingCursor("cmsoxrlww0000m3vnr2xf0v6h")
     ).toBeNull();
-    expect(snapshot.decodeTrendingCursor(undefined)).toBeNull();
+    expect(snapshot.decodeTrendingCursor()).toBeNull();
     expect(snapshot.decodeTrendingCursor("")).toBeNull();
     expect(snapshot.decodeTrendingCursor("tz1.not-valid-base64!!!")).toBeNull();
     const wrongTypes = Buffer.from(

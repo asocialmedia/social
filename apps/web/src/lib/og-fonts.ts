@@ -10,26 +10,33 @@ let cached:
   | null
   | undefined;
 
-function tryLoadFont(file: string): Buffer | null {
-  const candidates = [
-    path.join(process.cwd(), "public", "fonts"),
-    path.join(process.cwd(), "apps", "web", "public", "fonts"),
-    path.join(process.cwd(), "..", "apps", "web", "public", "fonts"),
-  ];
+// The Docker build runs `next build apps/web` from the monorepo root, so
+// process.cwd() is "/app" there but "apps/web" locally (and the app dir when
+// run from within it). Try every plausible font directory so the route builds
+// and runs in both contexts.
+const FONT_CANDIDATES = [
+  path.join(process.cwd(), "public", "fonts"),
+  path.join(process.cwd(), "apps", "web", "public", "fonts"),
+  path.join(process.cwd(), "..", "apps", "web", "public", "fonts"),
+];
 
-  for (const dir of candidates) {
-    const candidate = path.join(dir, file);
+function tryLoadFont(file: string): Buffer | null {
+  for (const dir of FONT_CANDIDATES) {
+    // turbopackIgnore: the fonts live in public/fonts (shipped with the app),
+    // so these runtime lookups must not trigger whole-project tracing at
+    // build time - tracing here once pulled every stray file in the monorepo
+    // into the server bundle and broke unrelated routes.
+    const candidate = path.join(/* turbopackIgnore: true */ dir, file);
     try {
-      // Do not let Turbopack trace public/fonts at build time.
-      return readFileSync(candidate);
+      return readFileSync(/* turbopackIgnore: true */ candidate);
     } catch (error) {
+      // Only ENOENT means "candidate missing, keep probing". Anything else
+      // (permission, I/O) is a real failure worth surfacing.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        // Real I/O error — surface it; only ENOENT means “try the next dir”.
         throw error;
       }
     }
   }
-
   return null;
 }
 
@@ -55,6 +62,9 @@ function loadAllFonts(): {
   return cached;
 }
 
+// Font options for Satori OG cards, or null when the woff2 files are absent
+// (e.g. an image slimmed below public/fonts). Callers must degrade to the
+// default sans-serif stack instead of failing the card.
 export function getOgFontOptions():
   | {
       data: Buffer;

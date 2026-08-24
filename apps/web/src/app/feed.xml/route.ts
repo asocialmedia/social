@@ -27,7 +27,7 @@ export async function GET(): Promise<Response> {
       user: { select: { displayName: true, username: true } },
     },
     take: 50,
-    where: { isGust: false, moderated: false, user: { banned: false } },
+    where: { moderated: false, user: { banned: false } },
   });
 
   const items = posts

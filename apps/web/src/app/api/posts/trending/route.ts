@@ -41,8 +41,10 @@ export async function GET(request: Request) {
       });
       const byId = new Map(rows.map((row) => [row.id, row]));
 
-      const served: { entry: (typeof snapshot.entries)[number]; row: PostRow } =
-        [];
+      const served: {
+        entry: (typeof snapshot.entries)[number];
+        row: PostRow;
+      }[] = [];
       let consumedUpTo = -1;
       for (const [index, entry] of snapshot.entries.entries()) {
         if (served.length === pageSize) {
