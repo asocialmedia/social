@@ -162,8 +162,8 @@ export async function uploadMediaFile(
       // composer while the pipeline continues independently.
       throw new MediaUploadError("Still processing - check back in a moment");
     }
-    // oxlint-disable-next-line no-await-in-loop -- sequential status polling
-    await Bun.sleep(POLL_INTERVAL_MS);
+    // eslint-disable-next-line no-await-in-loop, no-promise-executor-return, promise/avoid-new -- sequential polling with sleep
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     if (options.signal?.aborted) {
       throw new MediaUploadError("Upload aborted");
     }
