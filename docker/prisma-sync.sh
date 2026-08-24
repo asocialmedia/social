@@ -57,6 +57,29 @@ if [ "$diff_status" -eq 2 ]; then
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
 BEGIN;
 
+-- Drop orphaned shadow enum types ("*_new") left behind by previously
+-- interrupted Prisma enum rebuilds. Without this, the next push fails on
+-- CREATE TYPE ... already exists, or worse, casts against a stale value set.
+-- Only types with zero column attachments are touched; anything still
+-- referenced is left alone so a genuinely in-progress swap never gets nuked.
+DO $$
+DECLARE
+  shadow_type TEXT;
+BEGIN
+  FOR shadow_type IN
+    SELECT t.typname
+    FROM pg_type t
+    WHERE t.typtype = 'e'
+      AND t.typname ~ '_new$'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_attribute a WHERE a.atttypid = t.oid
+      )
+  LOOP
+    RAISE NOTICE 'Dropping orphaned shadow enum type %', shadow_type;
+    EXECUTE format('DROP TYPE %I', shadow_type);
+  END LOOP;
+END $$;
+
 DO $$
 DECLARE
   legacy_variants INTEGER;
