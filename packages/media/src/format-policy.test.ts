@@ -1,0 +1,160 @@
+import { describe, expect, test } from "bun:test";
+
+import {
+  classifyImage,
+  planImageDerivatives,
+  planVideoOutputs,
+} from "./format-policy";
+
+describe("image classification", () => {
+  test("animation wins over alpha and entropy", () => {
+    expect(
+      classifyImage({
+        colorEntropy: 0.9,
+        hasAlpha: true,
+        height: 100,
+        isAnimated: true,
+        width: 100,
+      })
+    ).toBe("animated");
+  });
+
+  test("alpha sources are their own class", () => {
+    expect(
+      classifyImage({
+        colorEntropy: 0.9,
+        hasAlpha: true,
+        height: 100,
+        isAnimated: false,
+        width: 100,
+      })
+    ).toBe("alpha");
+  });
+
+  test("low color entropy means graphic", () => {
+    expect(
+      classifyImage({
+        colorEntropy: 0.1,
+        hasAlpha: false,
+        height: 100,
+        isAnimated: false,
+        width: 100,
+      })
+    ).toBe("graphic");
+    expect(
+      classifyImage({
+        colorEntropy: 0.8,
+        hasAlpha: false,
+        height: 100,
+        isAnimated: false,
+        width: 100,
+      })
+    ).toBe("photo");
+  });
+});
+
+describe("image derivative planning", () => {
+  const photo = {
+    colorEntropy: 0.9,
+    hasAlpha: false,
+    height: 2000,
+    isAnimated: false,
+    width: 1600,
+  };
+
+  test("never upscales: small sources get only smaller rungs", () => {
+    const plan = planImageDerivatives({
+      ...photo,
+      height: 500,
+      width: 500,
+    });
+    const widths = plan.map((d) => d.width);
+    for (const width of widths) {
+      expect(width).toBeLessThanOrEqual(500);
+    }
+    // thumb(320) + md-jpeg? no - md(800) exceeds source; thumb + its jpeg fallback.
+    expect(plan.some((d) => d.kind === "thumb" && d.variant === "webp")).toBe(
+      true
+    );
+    expect(plan.some((d) => d.kind === "lg")).toBe(false);
+  });
+
+  test("large photo gets the full ladder plus jpeg fallbacks", () => {
+    const plan = planImageDerivatives(photo);
+    const kinds = new Set(plan.map((d) => d.kind));
+    expect(kinds.has("thumb")).toBe(true);
+    expect(kinds.has("sm")).toBe(true);
+    expect(kinds.has("md")).toBe(true);
+    expect(kinds.has("lg")).toBe(true);
+    expect(kinds.has("orig-img")).toBe(true);
+    expect(plan.filter((d) => d.variant === "jpeg").map((d) => d.kind)).toEqual(
+      ["thumb", "md"]
+    );
+  });
+
+  test("huge originals do not produce an orig-img re-encode", () => {
+    const plan = planImageDerivatives({ ...photo, height: 4000, width: 3000 });
+    expect(plan.some((d) => d.kind === "orig-img")).toBe(false);
+  });
+
+  test("animated sources skip the orig re-encode (original bytes serve motion)", () => {
+    const plan = planImageDerivatives({
+      ...photo,
+      height: 500,
+      isAnimated: true,
+      width: 500,
+    });
+    expect(plan.some((d) => d.kind === "orig-img")).toBe(false);
+  });
+
+  test("degenerate dimensions produce nothing", () => {
+    expect(planImageDerivatives({ ...photo, height: 0, width: 0 })).toEqual([]);
+  });
+
+  test("aspect ratio preserved on every rung", () => {
+    const plan = planImageDerivatives(photo);
+    for (const d of plan) {
+      const expectedHeight = Math.max(
+        1,
+        Math.round((photo.height / photo.width) * d.width)
+      );
+      expect(d.height).toBe(expectedHeight);
+    }
+  });
+});
+
+describe("video output planning", () => {
+  test("short clips are progressive-only, no HLS overhead", () => {
+    const plan = planVideoOutputs({ durationSec: 30, srcHeight: 1080 });
+    expect(plan.progressiveMp4).toBe(true);
+    expect(plan.hls).toBe(false);
+    expect(plan.hlsLadder).toEqual([]);
+    expect(plan.poster).toBe(true);
+  });
+
+  test("long videos get HLS with a ladder capped at source height", () => {
+    const plan = planVideoOutputs({ durationSec: 600, srcHeight: 720 });
+    expect(plan.hls).toBe(true);
+    expect(plan.hlsLadder.map((r) => r.variant)).toEqual([
+      "360p",
+      "480p",
+      "720p",
+    ]);
+  });
+
+  test("4K source gets the full ladder including 1080p", () => {
+    const plan = planVideoOutputs({ durationSec: 120, srcHeight: 2160 });
+    expect(plan.hlsLadder.map((r) => r.variant)).toEqual([
+      "360p",
+      "480p",
+      "720p",
+      "1080p",
+    ]);
+  });
+
+  test("tiny-but-long sources still stream at the lowest rung", () => {
+    const plan = planVideoOutputs({ durationSec: 300, srcHeight: 144 });
+    expect(plan.hls).toBe(true);
+    expect(plan.hlsLadder.map((r) => r.variant)).toEqual(["360p"]);
+  });
+});
