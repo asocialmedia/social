@@ -199,6 +199,14 @@ function VerifyEmailContent() {
   );
   const verificationAttempted = useRef(false);
 
+  // A rejected or missing token fails immediately and is derived straight from
+  // the URL instead of being copied into state from an effect.
+  const paramToken = searchParams.get("token");
+  const paramError = searchParams.get("error");
+  const paramVerified = searchParams.get("verified");
+  const hasImmediateError =
+    Boolean(paramError) || (!paramToken && !paramVerified);
+
   const handleBackToLogin = useCallback(() => {
     router.push("/login");
   }, [router]);
@@ -219,9 +227,11 @@ function VerifyEmailContent() {
     }
 
     if (error) {
-      // eslint-disable-next-line react-compiler -- reflect the verification result in the UI
-      setStatus("error");
-    } else if (token && !verificationAttempted.current) {
+      // The failure screen is rendered directly from the params above;
+      // there is nothing to verify and nothing to store.
+      return;
+    }
+    if (token && !verificationAttempted.current) {
       verificationAttempted.current = true;
       (async () => {
         try {
@@ -271,14 +281,11 @@ function VerifyEmailContent() {
           setStatus("error");
         }
       })();
-    } else if (!token) {
-      setStatus("error");
     }
   }, [searchParams, router, verificationChannel]);
 
-  const error = searchParams.get("error");
-  const errorMessage = error
-    ? ERROR_MESSAGES[error as keyof typeof ERROR_MESSAGES]
+  const errorMessage = paramError
+    ? ERROR_MESSAGES[paramError as keyof typeof ERROR_MESSAGES]
     : "Invalid verification link";
 
   return (
@@ -302,7 +309,9 @@ function VerifyEmailContent() {
             initial={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.5 }}
           >
-            {status === "loading" && <VerificationAnimation />}
+            {!hasImmediateError && status === "loading" && (
+              <VerificationAnimation />
+            )}
 
             {status === "success" && (
               <motion.div
@@ -349,7 +358,7 @@ function VerifyEmailContent() {
               </motion.div>
             )}
 
-            {status === "error" && (
+            {(hasImmediateError || status === "error") && (
               <motion.div
                 animate={{ opacity: 1 }}
                 className="flex flex-col items-center space-y-4"

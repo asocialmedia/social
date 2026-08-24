@@ -45,10 +45,18 @@ import type {
 } from "react-hook-form";
 import { useCountdown } from "usehooks-ts";
 
-import { signUp } from "@/app/(auth)/signup/actions";
+import {
+  resendVerificationEmail,
+  sendVerificationLink,
+  signUp,
+} from "@/app/(auth)/signup/actions";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
 import { useSignupUrlState } from "@/hooks/use-signup-url-state";
+// Imported statically (it guards window access itself) so component bodies
+// never contain dynamic import() expressions, which React Compiler cannot
+// lower.
+import { authClient } from "@/lib/auth";
 import { useToast } from "@/lib/gooey-toast";
 
 import { PasswordStrengthChecker } from "./password-strength-checker";
@@ -85,6 +93,167 @@ function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
   } catch {
     return new Error(String(maybeError));
   }
+}
+
+interface OtpVerificationContext {
+  clearSignupState: () => void;
+  currentEmail: string;
+  fallbackEmail: string;
+  fallbackPassword: string;
+  invalidateOtpEntry: () => void;
+  notifyVerificationSuccess: () => void;
+  setIsVerifying: (isVerifying: boolean) => void;
+  toast: ReturnType<typeof useToast>["toast"];
+}
+
+// The verification request flow lives in this module-scoped helper so the
+// component body stays free of control flow React Compiler cannot lower
+// (`finally` clauses). It resolves once every expected outcome has been fully
+// handled and rejects only on unexpected failures.
+async function runOtpVerification(
+  otpValue: string,
+  context: OtpVerificationContext
+): Promise<void> {
+  const email = context.currentEmail || context.fallbackEmail;
+  // Verification runs through the web app's own proxy: the auth
+  // microservice only accepts the internal secret, which browsers cannot
+  // carry.
+  const res = await fetch("/api/verify-email", {
+    body: JSON.stringify({
+      email,
+      otp: otpValue,
+    }),
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+
+  const data = (await res.json().catch(() => ({}) as unknown)) as {
+    error?: string;
+    ok?: boolean;
+    remaining?: number;
+    resetTime?: number;
+    success?: boolean;
+  };
+
+  if (!(res.ok && data.ok && data.success)) {
+    const serverError = data.error || "Signup completion failed";
+
+    const rateLimitInfo = data;
+
+    let userFriendlyError = "Something went wrong. Please try again.";
+    let errorTitle = "Verification Failed";
+
+    if (serverError === "invalid-otp") {
+      userFriendlyError =
+        "The verification code is incorrect or has expired. Please check and try again.";
+      errorTitle = "Wrong Code";
+      context.invalidateOtpEntry();
+    } else if (serverError === "user-exists") {
+      userFriendlyError =
+        "An account with this email or username already exists.";
+      errorTitle = "Account Already Exists";
+      context.clearSignupState();
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 2000);
+    } else if (serverError === "no-pending-signup") {
+      userFriendlyError =
+        "Your verification session has expired. Please start the signup process again.";
+      errorTitle = "Session Expired";
+      context.clearSignupState();
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } else if (serverError === "rate-limited") {
+      const resetTime = rateLimitInfo?.resetTime;
+      const now = Math.floor(Date.now() / 1000);
+      const waitTime = resetTime
+        ? Math.max(0, Math.ceil((resetTime - now) / 60))
+        : 60;
+
+      userFriendlyError =
+        waitTime > 0
+          ? `You've been creating accounts too quickly. Please take a ${waitTime}-minute break and try again.`
+          : "Too many signup attempts. Please wait a moment and try again.";
+      errorTitle = "Rate Limited";
+      context.invalidateOtpEntry();
+    }
+
+    clientLog.error("OTP verification error:", serverError);
+    context.toast({
+      description: userFriendlyError,
+      duration: serverError === "rate-limited" ? 8000 : 5000,
+      title: errorTitle,
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const responsePassword = context.fallbackPassword;
+
+  if (email && responsePassword) {
+    try {
+      clientLog.log("Attempting auto-login after OTP verification");
+
+      const loginResult = await authClient.signIn.email({
+        callbackURL: "/",
+        email,
+        fetchOptions: {
+          onError: (ctx) => {
+            clientLog.error("Auto-login error:", ctx.error);
+            throw new Error(ctx.error.message || "Auto-login failed");
+          },
+          onSuccess: () => {
+            clientLog.log("Auto-login successful");
+          },
+        },
+        password: responsePassword,
+      });
+
+      if (loginResult?.data) {
+        clientLog.log("Auto-login completed successfully");
+        context.notifyVerificationSuccess();
+        context.setIsVerifying(true);
+        context.clearSignupState();
+        context.toast({
+          description:
+            "Your account has been created and you're now logged in.",
+          title: "Welcome to asocialmedia!",
+        });
+
+        // eslint-disable-next-line promise/avoid-new -- intentional sleep before redirect
+        await new Promise((resolve) => {
+          setTimeout(resolve, 500);
+        });
+        window.location.href = "/";
+        return;
+      }
+    } catch (signError) {
+      clientLog.error("Auto sign-in failed:", signError);
+      context.toast({
+        description:
+          "Your account has been created. Please log in to continue.",
+        title: "Account Created!",
+      });
+      context.clearSignupState();
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 1000);
+      return;
+    }
+  }
+
+  context.setIsVerifying(true);
+  context.clearSignupState();
+  context.toast({
+    description: "Your account has been created successfully. Please log in.",
+    title: "Welcome to asocialmedia!",
+  });
+  context.notifyVerificationSuccess();
+  setTimeout(() => {
+    window.location.href = "/login";
+  }, 1000);
 }
 
 export default function SignUpForm() {
@@ -188,6 +357,17 @@ export default function SignUpForm() {
     };
   }, [setIsVerifying, resetStore]);
 
+  // Clear the OTP input whenever the flow leaves the OTP panel. Uses React's
+  // documented adjust-state-during-render pattern so no effect-driven render
+  // is needed.
+  const [prevShowOTPPanel, setPrevShowOTPPanel] = useState(showOTPPanel);
+  if (prevShowOTPPanel !== showOTPPanel) {
+    setPrevShowOTPPanel(showOTPPanel);
+    if (!showOTPPanel) {
+      setOtp("");
+    }
+  }
+
   useEffect(() => {
     if (showOTPPanel && !showEmailVerification) {
       startCountdown();
@@ -196,8 +376,6 @@ export default function SignUpForm() {
       stopCountdown();
       resetCountdown();
       resetOtpResendCountdown();
-      // eslint-disable-next-line react-compiler -- clear OTP when leaving the OTP panel
-      setOtp("");
     }
   }, [
     showOTPPanel,
@@ -344,7 +522,6 @@ export default function SignUpForm() {
 
         if (result.success) {
           if (result.requiresEmailVerification === false) {
-            const { authClient } = await import("@/lib/auth");
             const loginResult = await authClient.signIn.email({
               callbackURL: "/",
               email: values.email,
@@ -363,23 +540,22 @@ export default function SignUpForm() {
                 title: "Welcome to asocialmedia!",
               });
               window.location.href = "/";
-              return;
+            } else {
+              toast({
+                description:
+                  "Your account is ready, please log in to continue.",
+                title: "Account Created!",
+              });
+              window.location.href = "/login";
             }
-
+          } else {
+            setOTPState(values.email);
+            setRateLimit("start", { isLimited: false });
             toast({
-              description: "Your account is ready, please log in to continue.",
-              title: "Account Created!",
+              description: "We've sent a verification code to your email.",
+              title: "Check Your Email!",
             });
-            window.location.href = "/login";
-            return;
           }
-
-          setOTPState(values.email);
-          setRateLimit("start", { isLimited: false });
-          toast({
-            description: "We've sent a verification code to your email.",
-            title: "Check Your Email!",
-          });
         } else if (result.rateLimited && result.rateLimitInfo) {
           setRateLimit("start", {
             isLimited: true,
@@ -426,10 +602,12 @@ export default function SignUpForm() {
           title: "Something went wrong!",
           variant: "destructive",
         });
-      } finally {
-        setIsLoading(false);
-        setStarting(false);
       }
+      // The catch above never rethrows and the try body has no early returns,
+      // so resetting here matches the previous `finally` semantics without
+      // unsupported compiler syntax.
+      setIsLoading(false);
+      setStarting(false);
     });
   };
 
@@ -438,151 +616,21 @@ export default function SignUpForm() {
       try {
         setVerifying(true);
         setOtpError(false);
-        const email = currentEmail || form.getValues("email");
-        // Verification runs through the web app's own proxy: the auth
-        // microservice only accepts the internal secret, which browsers cannot
-        // carry.
-        const res = await fetch("/api/verify-email", {
-          body: JSON.stringify({
-            email,
-            otp: otpValue,
-          }),
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          method: "POST",
-        });
-
-        const data = (await res.json().catch(() => ({}) as unknown)) as {
-          error?: string;
-          ok?: boolean;
-          remaining?: number;
-          resetTime?: number;
-          success?: boolean;
-        };
-
-        if (!(res.ok && data.ok && data.success)) {
-          const serverError = data.error || "Signup completion failed";
-
-          const rateLimitInfo = data;
-
-          let userFriendlyError = "Something went wrong. Please try again.";
-          let errorTitle = "Verification Failed";
-
-          if (serverError === "invalid-otp") {
-            userFriendlyError =
-              "The verification code is incorrect or has expired. Please check and try again.";
-            errorTitle = "Wrong Code";
+        await runOtpVerification(otpValue, {
+          clearSignupState,
+          currentEmail,
+          fallbackEmail: form.getValues("email"),
+          fallbackPassword: form.getValues("password"),
+          invalidateOtpEntry: () => {
             setOtpError(true);
             setOtp("");
-          } else if (serverError === "user-exists") {
-            userFriendlyError =
-              "An account with this email or username already exists.";
-            errorTitle = "Account Already Exists";
-            clearSignupState();
-            setTimeout(() => {
-              window.location.href = "/login";
-            }, 2000);
-          } else if (serverError === "no-pending-signup") {
-            userFriendlyError =
-              "Your verification session has expired. Please start the signup process again.";
-            errorTitle = "Session Expired";
-            clearSignupState();
-            setTimeout(() => {
-              window.location.reload();
-            }, 2000);
-          } else if (serverError === "rate-limited") {
-            const resetTime = rateLimitInfo?.resetTime;
-            const now = Math.floor(Date.now() / 1000);
-            const waitTime = resetTime
-              ? Math.max(0, Math.ceil((resetTime - now) / 60))
-              : 60;
-
-            userFriendlyError =
-              waitTime > 0
-                ? `You've been creating accounts too quickly. Please take a ${waitTime}-minute break and try again.`
-                : "Too many signup attempts. Please wait a moment and try again.";
-            errorTitle = "Rate Limited";
-            setOtpError(true);
-            setOtp("");
-          }
-
-          clientLog.error("OTP verification error:", serverError);
-          toast({
-            description: userFriendlyError,
-            duration: serverError === "rate-limited" ? 8000 : 5000,
-            title: errorTitle,
-            variant: "destructive",
-          });
-          return;
-        }
-
-        const responseEmail = email;
-        const responsePassword = form.getValues("password");
-
-        if (responseEmail && responsePassword) {
-          try {
-            clientLog.log("Attempting auto-login after OTP verification");
-            const { authClient } = await import("@/lib/auth");
-
-            const loginResult = await authClient.signIn.email({
-              callbackURL: "/",
-              email: responseEmail,
-              fetchOptions: {
-                onError: (ctx) => {
-                  clientLog.error("Auto-login error:", ctx.error);
-                  throw new Error(ctx.error.message || "Auto-login failed");
-                },
-                onSuccess: () => {
-                  clientLog.log("Auto-login successful");
-                },
-              },
-              password: responsePassword,
-            });
-
-            if (loginResult?.data) {
-              clientLog.log("Auto-login completed successfully");
-              verificationChannel.current?.postMessage("verification-success");
-              setIsVerifying(true);
-              clearSignupState();
-              toast({
-                description:
-                  "Your account has been created and you're now logged in.",
-                title: "Welcome to asocialmedia!",
-              });
-
-              // eslint-disable-next-line promise/avoid-new -- intentional sleep before redirect
-              await new Promise((resolve) => {
-                setTimeout(resolve, 500);
-              });
-              window.location.href = "/";
-              return;
-            }
-          } catch (signError) {
-            clientLog.error("Auto sign-in failed:", signError);
-            toast({
-              description:
-                "Your account has been created. Please log in to continue.",
-              title: "Account Created!",
-            });
-            clearSignupState();
-            setTimeout(() => {
-              window.location.href = "/login";
-            }, 1000);
-            return;
-          }
-        }
-
-        setIsVerifying(true);
-        clearSignupState();
-        toast({
-          description:
-            "Your account has been created successfully. Please log in.",
-          title: "Welcome to asocialmedia!",
+          },
+          notifyVerificationSuccess: () => {
+            verificationChannel.current?.postMessage("verification-success");
+          },
+          setIsVerifying,
+          toast,
         });
-        verificationChannel.current?.postMessage("verification-success");
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 1000);
       } catch (verificationError) {
         const message =
           verificationError instanceof Error
@@ -593,10 +641,12 @@ export default function SignUpForm() {
           title: "Verification Failed",
           variant: "destructive",
         });
-        throw verificationError;
-      } finally {
+        // Reset before rethrowing so the verifying state clears on the
+        // failure path too (replaces the previous `finally` clause).
         setVerifying(false);
+        throw verificationError;
       }
+      setVerifying(false);
     },
     [clearSignupState, currentEmail, form, setIsVerifying, setVerifying, toast]
   );
@@ -610,8 +660,6 @@ export default function SignUpForm() {
       return;
     }
     setResending(true);
-    const { sendVerificationLink } =
-      await import("@/app/(auth)/signup/actions");
     const res = await sendVerificationLink(
       currentEmail || form.getValues("email")
     );
@@ -659,8 +707,6 @@ export default function SignUpForm() {
     }
     setTooltipDismissed(true);
     setResending(true);
-    const { resendVerificationEmail } =
-      await import("@/app/(auth)/signup/actions");
     const result = await resendVerificationEmail(
       currentEmail || form.getValues("email")
     );
@@ -730,8 +776,6 @@ export default function SignUpForm() {
       return;
     }
     setResending(true);
-    const { resendVerificationEmail } =
-      await import("@/app/(auth)/signup/actions");
     const result = await resendVerificationEmail(
       currentEmail || form.getValues("email")
     );
@@ -775,8 +819,6 @@ export default function SignUpForm() {
   ]);
 
   const handleVerifyViaEmailLink = useCallback(async () => {
-    const { sendVerificationLink } =
-      await import("@/app/(auth)/signup/actions");
     const res = await sendVerificationLink(
       currentEmail || form.getValues("email")
     );

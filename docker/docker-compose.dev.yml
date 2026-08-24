@@ -178,7 +178,42 @@ services:
         aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket temp --versioning-configuration Status=Enabled || true
         aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-versioning --bucket backups --versioning-configuration Status=Enabled || true
 
+        # Browser-direct presigned uploads (POST /api/upload/initiate) need
+        # CORS on the uploads bucket: the browser PUTs straight to storage.
+        # Presigning signs against ASMOB_PUBLIC_ENDPOINT when configured, so
+        # allow both dev and public origins explicitly.
+        echo 'Applying CORS rules for presigned browser uploads...'
+        aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-cors --bucket uploads --cors-configuration '{
+          "CORSRules": [
+            {
+              "AllowedOrigins": ["https://social.localhost", "http://localhost:3000", "https://asocialmedia.cc", "https://www.asocialmedia.cc"],
+              "AllowedMethods": ["PUT", "HEAD", "GET"],
+              "AllowedHeaders": ["*"],
+              "ExposeHeaders": ["ETag", "Content-Length"],
+              "MaxAgeSeconds": 3600
+            }
+          ]
+        }' || true
+
         echo 'Object storage initialization complete!'
+
+  clamav-dev:
+    container_name: asmdev-clamav
+    image: clamav/clamav:latest
+    environment:
+      CLAMAV_MAX_FILE_SIZE: 300M
+      CLAMAV_MAX_STREAM_SIZE: 300M
+    volumes:
+      - clamav_data_dev:/var/lib/clamav
+    networks:
+      - dev_network
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
 
   openobserve-dev:
     container_name: asmdev-openobserve
@@ -220,3 +255,5 @@ volumes:
     name: asmdev-redisinsight-data
   openobserve_data_dev:
     name: asmdev-openobserve-data
+  clamav_data_dev:
+    name: asmdev-clamav-data

@@ -11,6 +11,14 @@ interface PopularTagsResponse {
   tags: Tag[];
 }
 
+// React Compiler cannot lower `throw` statements inside hook try blocks, so
+// response status checks live in this module-scoped helper.
+function ensureResponseOk(response: Response, message: string): void {
+  if (!response.ok) {
+    throw new Error(message);
+  }
+}
+
 export function useTags(postId?: string) {
   const queryClient = useQueryClient();
 
@@ -45,9 +53,7 @@ export function useTags(postId?: string) {
           return;
         }
         const res = await fetch(`/api/tags?q=${encodeURIComponent(query)}`);
-        if (!res.ok) {
-          throw new Error("Failed to fetch tags");
-        }
+        ensureResponseOk(res, "Failed to fetch tags");
         const data = await res.json();
         queryClient.setQueryData(["tagSuggestions"], data);
         return data;

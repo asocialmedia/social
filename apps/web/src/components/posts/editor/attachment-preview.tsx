@@ -50,6 +50,7 @@ const AttachmentPreviewInner = ({
     if (file && !existingPreviewUrl && !mediaUrl) {
       const url = URL.createObjectURL(file);
       // eslint-disable-next-line react-compiler -- object URLs must be created after mount
+      // oxlint-disable-next-line react/set-state-in-effect -- the blob URL only comes from the browser's object registry after mount (creating it during render would leak under StrictMode double-invoke), and the previous URL must stay revocable on file change
       setObjectUrl(url);
       return () => URL.revokeObjectURL(url);
     }

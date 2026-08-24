@@ -1,11 +1,9 @@
 "use client";
 
-// oxlint-disable react-compiler -- debounced suggestion fetching intentionally uses render-phase ref sync
-
 import type { UserData } from "@asm/db";
 import type { Editor } from "@tiptap/core";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 
@@ -41,6 +39,98 @@ function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
   };
 }
 
+interface SuggestionSearchers {
+  discardPendingResponses: () => void;
+  fetchTags: (query: string, excludedTags: string[]) => void;
+  fetchUsers: (query: string, excludedUserIds: string[]) => void;
+}
+
+// Tag and user suggestion searches share one stale-response guard: firing a
+// new query of either kind discards older in-flight responses, and closing
+// the popover makes every pending response unobservable. Already-selected
+// entries are passed in at call time so the searchers stay referentially
+// stable without mirroring props into refs.
+function createSuggestionSearchers(handlers: {
+  setLoading: (loading: boolean) => void;
+  setTags: (tags: string[]) => void;
+  setUsers: (users: UserData[]) => void;
+}): SuggestionSearchers {
+  let activeQuery = "";
+
+  const fetchTags = debounce(async (query: string, excludedTags: string[]) => {
+    activeQuery = query;
+    try {
+      const res = await fetch(`/api/tags?q=${encodeURIComponent(query)}`);
+      if (!res.ok) {
+        if (activeQuery === query) {
+          handlers.setLoading(false);
+        }
+        return;
+      }
+      const data = (await res.json()) as { tags: string[] };
+      if (activeQuery !== query) {
+        return;
+      }
+      handlers.setTags(
+        data.tags
+          .filter((tag) => !excludedTags.includes(tag))
+          .slice(0, MAX_SUGGESTIONS)
+      );
+      if (activeQuery === query) {
+        handlers.setLoading(false);
+      }
+    } catch {
+      handlers.setTags([]);
+      if (activeQuery === query) {
+        handlers.setLoading(false);
+      }
+    }
+  }, 250);
+
+  const fetchUsers = debounce(
+    async (query: string, excludedUserIds: string[]) => {
+      activeQuery = query;
+      try {
+        const res = await fetch(
+          `/api/users/search?q=${encodeURIComponent(query)}`
+        );
+        if (!res.ok) {
+          if (activeQuery === query) {
+            handlers.setLoading(false);
+          }
+          return;
+        }
+        const data = (await res.json()) as { users: UserData[] };
+        if (activeQuery !== query) {
+          return;
+        }
+        handlers.setUsers(
+          data.users
+            .filter((user) => !excludedUserIds.includes(user.id))
+            .slice(0, MAX_SUGGESTIONS)
+        );
+        if (activeQuery === query) {
+          handlers.setLoading(false);
+        }
+      } catch {
+        handlers.setUsers([]);
+        if (activeQuery === query) {
+          handlers.setLoading(false);
+        }
+      }
+    },
+    250
+  );
+
+  return {
+    discardPendingResponses: () => {
+      activeQuery = "";
+    },
+    fetchTags,
+    fetchUsers,
+  };
+}
+
 export const InlineSuggestions = ({
   editor,
   onSelectTag,
@@ -53,70 +143,14 @@ export const InlineSuggestions = ({
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const selectedTagNamesRef = useRef(selectedTagNames);
-  const selectedMentionIdsRef = useRef(selectedMentionIds);
-  const activeQueryRef = useRef("");
 
-  selectedTagNamesRef.current = selectedTagNames;
-  selectedMentionIdsRef.current = selectedMentionIds;
-
-  const fetchTags = useMemo(
+  const { discardPendingResponses, fetchTags, fetchUsers } = useMemo(
     () =>
-      debounce(async (q: string) => {
-        const requestQuery = q;
-        activeQueryRef.current = requestQuery;
-        try {
-          const res = await fetch(`/api/tags?q=${encodeURIComponent(q)}`);
-          if (!res.ok) {
-            return;
-          }
-          const data = (await res.json()) as { tags: string[] };
-          if (activeQueryRef.current !== requestQuery) {
-            return;
-          }
-          const filtered = data.tags
-            .filter((tag) => !selectedTagNamesRef.current.includes(tag))
-            .slice(0, MAX_SUGGESTIONS);
-          setTags(filtered);
-        } catch {
-          setTags([]);
-        } finally {
-          if (activeQueryRef.current === requestQuery) {
-            setLoading(false);
-          }
-        }
-      }, 250),
-    []
-  );
-
-  const fetchUsers = useMemo(
-    () =>
-      debounce(async (q: string) => {
-        const requestQuery = q;
-        activeQueryRef.current = requestQuery;
-        try {
-          const res = await fetch(
-            `/api/users/search?q=${encodeURIComponent(q)}`
-          );
-          if (!res.ok) {
-            return;
-          }
-          const data = (await res.json()) as { users: UserData[] };
-          if (activeQueryRef.current !== requestQuery) {
-            return;
-          }
-          const filtered = data.users
-            .filter((user) => !selectedMentionIdsRef.current.includes(user.id))
-            .slice(0, MAX_SUGGESTIONS);
-          setUsers(filtered);
-        } catch {
-          setUsers([]);
-        } finally {
-          if (activeQueryRef.current === requestQuery) {
-            setLoading(false);
-          }
-        }
-      }, 250),
+      createSuggestionSearchers({
+        setLoading,
+        setTags,
+        setUsers,
+      }),
     []
   );
 
@@ -124,8 +158,8 @@ export const InlineSuggestions = ({
     setSuggestion(null);
     setTags([]);
     setUsers([]);
-    activeQueryRef.current = "";
-  }, []);
+    discardPendingResponses();
+  }, [discardPendingResponses]);
 
   const replaceTrigger = useCallback(
     (insertText: string) => {
@@ -209,9 +243,9 @@ export const InlineSuggestions = ({
       setActiveIndex(0);
       setLoading(true);
       if (triggerType === "tag") {
-        fetchTags(query);
+        fetchTags(query, selectedTagNames);
       } else {
-        fetchUsers(query);
+        fetchUsers(query, selectedMentionIds);
       }
     };
 
@@ -221,7 +255,7 @@ export const InlineSuggestions = ({
       editor.off("update", handler);
       editor.off("selectionUpdate", handler);
     };
-  }, [editor, fetchTags, fetchUsers]);
+  }, [editor, fetchTags, fetchUsers, selectedMentionIds, selectedTagNames]);
 
   const handleItemSelect = useCallback(
     (item: SuggestionItem) => {

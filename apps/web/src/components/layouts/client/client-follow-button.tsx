@@ -95,6 +95,7 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
     const persistedState = followMap[userId];
     if (persistedState && persistedState.lastUpdated > Date.now() - 300_000) {
       // eslint-disable-next-line react-compiler -- restore persisted follow state from the store
+      // oxlint-disable-next-line react/set-state-in-effect -- adopting the shared follow map must happen after mount so SSR/hydration markup stays stable, and the freshness window is time-based so it cannot be derived during render
       setLocalState({
         followers: persistedState.followers,
         isFollowedByUser: persistedState.isFollowing,

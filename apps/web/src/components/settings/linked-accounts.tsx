@@ -97,6 +97,20 @@ const AccountCard = ({
   );
 };
 
+// React Compiler cannot lower `throw` statements inside component try blocks,
+// so the unlink request and its status check live in this module-scoped
+// helper.
+async function unlinkAccount(provider: string): Promise<void> {
+  const response = await fetch(`/api/auth/unlink/${provider}`, {
+    method: "POST",
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to unlink account");
+  }
+}
+
 export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
   const { toast } = useToast();
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
@@ -113,14 +127,7 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
     async (provider: string) => {
       setLoadingProvider(provider);
       try {
-        const response = await fetch(`/api/auth/unlink/${provider}`, {
-          method: "POST",
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to unlink account");
-        }
+        await unlinkAccount(provider);
 
         toast({
           description: `Your ${provider} account is no longer connected`,
@@ -135,9 +142,10 @@ export default function LinkedAccounts({ user, onLink }: LinkedAccountsProps) {
           title: "Couldn't Unlink",
           variant: "destructive",
         });
-      } finally {
-        setLoadingProvider(null);
       }
+      // The catch above never rethrows and the try body has no early returns,
+      // so resetting here matches the previous `finally` semantics.
+      setLoadingProvider(null);
     },
     [toast]
   );

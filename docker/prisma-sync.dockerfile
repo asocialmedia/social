@@ -3,7 +3,7 @@
 # Builder: bundles the one-shot trending-score backfill (scripts/
 # backfill-trending-scores.ts) into a single self-contained JS file so the
 # slim sync image can run it without the workspace or @asm/db resolution.
-FROM oven/bun:1.3.12 AS build
+FROM oven/bun:1.4 AS build
 WORKDIR /app
 
 # Workspace manifests first for lockfile-cached installs. postinstall is
@@ -33,7 +33,7 @@ RUN bun build scripts/backfill-trending-scores.ts \
       --tsconfig-override scripts/tsconfig.json \
       --external msgpackr-extract
 
-FROM oven/bun:1.3.12
+FROM oven/bun:1.4
 LABEL org.opencontainers.image.title="Asocialmedia Prisma Schema Sync" \
       org.opencontainers.image.description="One-shot container that syncs the Prisma schema to the internal PostgreSQL database" \
       org.opencontainers.image.vendor="Asocialmedia"

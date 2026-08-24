@@ -38,9 +38,12 @@ export default function KlipyGifPicker({
 
   // Fetch either trending (empty query) or search results. isLoading is only
   // toggled inside async callbacks, never synchronously in an effect body.
+  // The loading flag lives here (instead of the effect below) so the fetch
+  // always clears it once settled.
   const runFetch = useCallback(async () => {
     const trimmed = query.trim();
     const isSearch = trimmed.length > 0;
+    setIsLoading(true);
     try {
       const data = isSearch
         ? await kyInstance
@@ -60,6 +63,9 @@ export default function KlipyGifPicker({
         });
       }
     }
+    // The catch above never rethrows, so resetting here matches the previous
+    // `finally` semantics.
+    setIsLoading(false);
   }, [query, toast]);
 
   useEffect(() => {
@@ -69,14 +75,7 @@ export default function KlipyGifPicker({
     // Debounce the search; trending loads immediately when the query is empty.
     const timer = setTimeout(
       () => {
-        void (async () => {
-          setIsLoading(true);
-          try {
-            await runFetch();
-          } finally {
-            setIsLoading(false);
-          }
-        })();
+        void runFetch();
       },
       query.trim() ? 350 : 0
     );

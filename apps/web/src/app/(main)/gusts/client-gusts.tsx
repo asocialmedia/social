@@ -140,10 +140,16 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         }
       }
       setNewGustCount((previous) => Math.max(previous, count));
-    } finally {
+    } catch (error) {
+      // Reset before rethrowing so the refresh UI clears on the failure path
+      // too (replaces the previous `finally` clause).
       setIsRefreshing(false);
       setPullDistance(0);
+      throw error;
     }
+    setIsRefreshing(false);
+    setPullDistance(0);
+    // oxlint-disable-next-line react/memo-dependencies -- refetch is lexically captured; React Query guarantees it has a stable identity
   }, [isRefreshing, posts, refetch]);
 
   // Jump to the very first gust and clear the new-gust pill.
@@ -217,6 +223,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     };
     // posts.length gates this: the scroll container only exists once content
     // renders, and the effect must (re)attach after it mounts.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- posts.length intentionally re-runs this effect so the touch listeners attach once the scroll container mounts
   }, [isRefreshing, posts.length, pullDistance, refreshFeed]);
 
   // If ?id= was provided, jump straight to that gust once the feed is loaded:
@@ -236,8 +243,11 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       return;
     }
     lastJumpedPostIdRef.current = initialPostId;
-    // eslint-disable-next-line react-compiler -- sync activeIndex when jumping to initial gust via query param
-    setActiveIndex(idx);
+    // Deferred to a microtask so the effect body never calls setState
+    // synchronously while jumping to the ?id= gust.
+    queueMicrotask(() => {
+      setActiveIndex(idx);
+    });
     const container = containerRef.current;
     const el = itemRefs.current[idx];
     if (container && el) {
@@ -275,6 +285,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     return () => {
       observer.disconnect();
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- posts.length intentionally re-runs this effect so new gust cards get observed
   }, [posts.length]);
 
   // A bottom sentinel drives pagination instead of watching the last card, so

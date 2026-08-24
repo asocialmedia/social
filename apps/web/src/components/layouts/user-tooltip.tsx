@@ -8,8 +8,8 @@ import {
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
+import { useSyncExternalStore } from "react";
 import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -25,6 +25,22 @@ interface UserTooltipProps extends PropsWithChildren {
 
 const BIO_USERNAME_REGEX = /(?<username>@[a-zA-Z0-9_-]+)/;
 const BIO_HASHTAG_REGEX = /(?<hashtag>#[a-zA-Z0-9]+)/;
+
+// Viewport detection as an external store: the server snapshot renders the
+// tooltip variant so hydration matches, then the client snapshot flips to the
+// compact children on small screens. Resize events drive re-reads, replacing
+// the old setState-in-effect cascade.
+// oxlint-disable-next-line promise/prefer-await-to-callbacks -- useSyncExternalStore subscribe contract requires a callback API
+function subscribeToViewport(callback: () => void) {
+  window.addEventListener("resize", callback);
+  return () => {
+    window.removeEventListener("resize", callback);
+  };
+}
+
+const getIsMobileSnapshot = () => window.innerWidth < 768;
+
+const getServerIsMobile = () => false;
 
 function renderBioUsernameLink(match: string, key: number) {
   return (
@@ -52,22 +68,11 @@ function renderBioHashtagLink(match: string, key: number) {
 
 export default function UserTooltip({ children, user }: UserTooltipProps) {
   const { user: loggedInUser } = useSession();
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      // eslint-disable-next-line react-compiler -- detect the initial viewport size on mount
-      setIsMobile(window.innerWidth < 768);
-      const handleResize = () => {
-        setIsMobile(window.innerWidth < 768);
-      };
-
-      window.addEventListener("resize", handleResize);
-      return () => {
-        window.removeEventListener("resize", handleResize);
-      };
-    }
-  }, []);
+  const isMobile = useSyncExternalStore(
+    subscribeToViewport,
+    getIsMobileSnapshot,
+    getServerIsMobile
+  );
 
   const followerState: FollowerInfo = {
     followers: user._count?.followers ?? 0,

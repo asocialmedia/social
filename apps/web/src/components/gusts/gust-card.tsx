@@ -78,6 +78,17 @@ export const GustCard: React.FC<GustCardProps> = ({
   const burstIdRef = useRef(0);
   const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks the previous active flag so leaving playback resets the progress
+  // bar and buffering spinner during render instead of from a cascading effect.
+  const [prevIsActive, setPrevIsActive] = useState(isActive);
+
+  if (prevIsActive !== isActive) {
+    setPrevIsActive(isActive);
+    if (!isActive) {
+      setProgress(0);
+      setIsBuffering(false);
+    }
+  }
 
   const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
   const authorName = post.user.displayName || post.user.username;
@@ -122,12 +133,9 @@ export const GustCard: React.FC<GustCardProps> = ({
     } else {
       video.pause();
       // Reset the clip to the start so it never resumes mid-way when it
-      // becomes active again.
+      // becomes active again. The progress bar and buffering spinner are
+      // cleared by the render-phase adjustment above.
       video.currentTime = 0;
-      // eslint-disable-next-line react-compiler -- reset progress bar when video is inactive
-      setProgress(0);
-      // A paused clip can't be waiting for data, so clear the buffering spinner.
-      setIsBuffering(false);
     }
 
     return () => {

@@ -79,6 +79,23 @@ jobs:
             echo "Skipping bucket versioning updates"
           fi
 
+          # Browser-direct presigned uploads (POST /api/upload/initiate) PUT
+          # straight to storage from the browser, so the uploads bucket needs
+          # CORS for the app origins. Presigned URLs are signed against the
+          # public storage hostname; the browser Origin is the site itself.
+          echo "Applying CORS rules for presigned browser uploads on uploads bucket"
+          aws --endpoint-url "$RUSTFS_ENDPOINT" s3api put-bucket-cors --bucket uploads --cors-configuration '{
+            "CORSRules": [
+              {
+                "AllowedOrigins": ["https://asocialmedia.cc", "https://www.asocialmedia.cc"],
+                "AllowedMethods": ["PUT", "HEAD", "GET"],
+                "AllowedHeaders": ["*"],
+                "ExposeHeaders": ["ETag", "Content-Length"],
+                "MaxAgeSeconds": 3600
+              }
+            ]
+          }'
+
       - name: Verify RustFS buckets
         env:
           RUSTFS_ENDPOINT: ${{ secrets.RUSTFS_S3_ENDPOINT }}

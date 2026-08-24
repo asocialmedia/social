@@ -77,6 +77,7 @@ export default function CommentInput({
 
   useEffect(() => {
     adjustTextareaHeight();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- input intentionally triggers a height re-measure on every keystroke
   }, [input, adjustTextareaHeight]);
 
   const { toast } = useToast();

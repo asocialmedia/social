@@ -103,6 +103,9 @@ const PostContent: React.FC<PostContentProps> = ({
     if (post.content && post.content.length > 150) {
       updateOverflow();
     }
+    // isExpanded is a trigger only: expanding must re-measure even though
+    // the value itself is not read here.
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-measure on expand/collapse
   }, [isExpanded, post.content, updateOverflow]);
 
   return (
@@ -443,10 +446,13 @@ const PostCard: React.FC<PostCardProps> = ({
   const [showComments, setShowComments] = useState(detail);
   const [isExpanded, setIsExpanded] = useState(detail);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-compiler -- keep the editable post state in sync with the latest props
+  // Keep the editable post state in sync with the latest props during
+  // render instead of cascading through an effect.
+  const [prevInitialPost, setPrevInitialPost] = useState(initialPost);
+  if (prevInitialPost !== initialPost) {
+    setPrevInitialPost(initialPost);
     setPost(initialPost);
-  }, [initialPost]);
+  }
 
   const handleToggleComments = useCallback(() => {
     setShowComments((prev) => !prev);

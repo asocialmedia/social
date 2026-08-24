@@ -34,11 +34,33 @@ async function getMediaObject(mediaId: string) {
       key: true,
       mimeType: true,
       size: true,
+      status: true,
       thumbnailKey: true,
       type: true,
     },
     where: { id: mediaId },
   });
+}
+
+// Lifecycle gate. New-pipeline rows become publicly servable only once the
+// controlled pipeline reaches READY; quarantine/scan/processing states never
+// expose bytes. Legacy rows (created before the pipeline) carry their object
+// key in the old column and keep serving exactly as before so existing posts
+// are untouched; REJECTED/DELETED rows are dead in every generation.
+function isServableMedia(
+  media: Awaited<ReturnType<typeof getMediaObject>>
+): boolean {
+  if (!media) {
+    return false;
+  }
+  if (media.status === "REJECTED" || media.status === "DELETED") {
+    return false;
+  }
+  if (media.status === "READY") {
+    return true;
+  }
+  // Legacy fallback: pre-pipeline rows have a real key and no lifecycle.
+  return media.key.length > 0;
 }
 
 // Ownership columns are NOT immutable: a draft upload starts unlinked
@@ -108,6 +130,12 @@ export async function GET(
   const media = await getMediaObject(mediaId);
 
   if (!media) {
+    return new NextResponse("Media not found", { status: 404 });
+  }
+
+  // Lifecycle: bytes exist publicly only after the pipeline says so (or for
+  // legacy rows). Quarantined/scanning/processing content is never served.
+  if (!isServableMedia(media)) {
     return new NextResponse("Media not found", { status: 404 });
   }
 

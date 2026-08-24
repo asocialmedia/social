@@ -194,6 +194,7 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
     resolver: zodResolver(updateUserProfileSchema),
   });
 
+  // oxlint-disable-next-line react/incompatible-library -- react-hook-form watch handle is unmemoizable by design; compiler skips this component
   const watchedDisplayName = form.watch("displayName");
   const watchedBio = form.watch("bio");
 

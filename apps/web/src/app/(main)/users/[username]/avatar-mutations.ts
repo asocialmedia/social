@@ -64,6 +64,30 @@ interface UpdateProfileResponse {
   };
 }
 
+// React Compiler cannot lower `throw` statements inside hook try blocks, so
+// the profile request and its status check live in this module-scoped helper.
+async function requestProfileUpdate(
+  values: UpdateUserProfileValues,
+  userId: string
+): Promise<UpdateProfileResponse["user"]> {
+  const formData = new FormData();
+  formData.append("values", JSON.stringify(values));
+  formData.append("userId", userId);
+
+  const response = await fetch("/api/users/profile", {
+    body: formData,
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to update profile");
+  }
+
+  const data = (await response.json()) as UpdateProfileResponse;
+  return data.user;
+}
+
 export function useUpdateAvatarMutation() {
   const queryClient = useQueryClient();
 
@@ -335,22 +359,7 @@ export function useUpdateProfileMutation() {
   >({
     mutationFn: async ({ values, userId }: UpdateProfilePayload) => {
       try {
-        const formData = new FormData();
-        formData.append("values", JSON.stringify(values));
-        formData.append("userId", userId);
-
-        const response = await fetch("/api/users/profile", {
-          body: formData,
-          method: "POST",
-        });
-
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(error || "Failed to update profile");
-        }
-
-        const data = (await response.json()) as UpdateProfileResponse;
-        return data.user;
+        return await requestProfileUpdate(values, userId);
       } catch (error) {
         clientLog.error("Profile update error:", error);
         throw error;

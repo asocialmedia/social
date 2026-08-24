@@ -48,6 +48,14 @@ import { cn } from "@/lib/utils";
 
 const FALLBACK_THUMBNAIL = "/fallback.png";
 
+// React Compiler cannot lower `throw` statements inside component try blocks,
+// so response status checks live in this module-scoped helper.
+function ensureResponseOk(response: Response, message: string): void {
+  if (!response.ok) {
+    throw new Error(message);
+  }
+}
+
 interface ShareButtonProps {
   className?: string;
   defaultTab?: "social" | "link" | "qr" | "messages";
@@ -116,9 +124,7 @@ const ShareButton = ({
         method: "GET",
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      ensureResponseOk(response, `HTTP error! status: ${response.status}`);
 
       const data = await response.json();
       clientLog.log("Received share stats:", data);
@@ -136,15 +142,20 @@ const ShareButton = ({
         variant: "destructive",
       });
       setShareStats([]);
-    } finally {
-      setIsLoading(false);
     }
+    // The catch above never rethrows and the try body has no early returns,
+    // so resetting here matches the previous `finally` semantics.
+    setIsLoading(false);
   }, [isLoggedIn, postId]);
 
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-compiler -- fetchShareStats intentionally syncs the loading state
-      fetchShareStats();
+      // Deferred to a microtask so the effect body never calls setState
+      // synchronously (fetchShareStats flips isLoading before its first
+      // await).
+      queueMicrotask(() => {
+        fetchShareStats();
+      });
     }
   }, [isOpen, fetchShareStats]);
 
@@ -168,9 +179,7 @@ const ShareButton = ({
         method: "POST",
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      ensureResponseOk(response, `HTTP error! status: ${response.status}`);
 
       const data = await response.json();
       setShareStats((prev) =>
@@ -201,9 +210,7 @@ const ShareButton = ({
         method: "POST",
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      ensureResponseOk(response, `HTTP error! status: ${response.status}`);
 
       const data = await response.json();
       setShareStats((prev) =>

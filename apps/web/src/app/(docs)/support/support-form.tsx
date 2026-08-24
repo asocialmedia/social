@@ -34,6 +34,38 @@ async function uploadFile(file: File) {
   return response.json();
 }
 
+// React Compiler cannot lower `throw` statements inside component try blocks,
+// so the submit request and its status check live in this module-scoped
+// helper.
+async function submitSupportMessage(
+  fields: Record<
+    | "browser"
+    | "category"
+    | "email"
+    | "message"
+    | "os"
+    | "priority"
+    | "subject"
+    | "type",
+    string
+  >,
+  attachments: { key: string; name: string; type: string; url: string }[]
+): Promise<void> {
+  const response = await fetch("/api/support", {
+    body: JSON.stringify({
+      ...fields,
+      attachments,
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || "Failed to send message");
+  }
+}
+
 export default function SupportForm() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -86,19 +118,7 @@ export default function SupportForm() {
         })
       );
 
-      const response = await fetch("/api/support", {
-        body: JSON.stringify({
-          ...formData,
-          attachments: uploadedFiles,
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to send message");
-      }
+      await submitSupportMessage(formData, uploadedFiles);
 
       toast({
         description: "We'll get back to you as soon as we can!",
@@ -124,9 +144,10 @@ export default function SupportForm() {
         title: "Couldn't Send",
         variant: "destructive",
       });
-    } finally {
-      setLoading(false);
     }
+    // The catch above never rethrows and the try body has no early returns,
+    // so resetting here matches the previous `finally` semantics.
+    setLoading(false);
   };
 
   const validateFiles = (files: FileList): boolean => {

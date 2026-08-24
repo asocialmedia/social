@@ -157,7 +157,10 @@ const VideoPreview = ({
     return null;
   }, []);
 
-  const startPreview = useCallback(() => {
+  // Marks the preview as started and kicks off playback without touching
+  // layout state; the expanded height is applied from event handlers
+  // (handleLoadedMetadata) once the clip reports its dimensions.
+  const beginPreview = useCallback(() => {
     previewStartedRef.current = true;
     const video = containerRef.current?.querySelector("video");
     if (video) {
@@ -169,11 +172,15 @@ const VideoPreview = ({
         }
       })();
     }
+  }, []);
+
+  const startPreview = useCallback(() => {
+    beginPreview();
     const height = getExpandedHeight();
     if (height !== null) {
       setExpandedHeight(height);
     }
-  }, [getExpandedHeight]);
+  }, [beginPreview, getExpandedHeight]);
 
   const handleMouseEnter = useCallback(() => {
     if (autoPlay) {
@@ -312,9 +319,16 @@ const VideoPreview = ({
   );
 
   useEffect(() => {
-    if (autoPlay) {
-      startPreview();
+    if (!autoPlay) {
+      return;
     }
+    // Kick the preview off one frame later so the expanded-height state
+    // update stays off the effect's synchronous path; the clip itself starts
+    // essentially immediately.
+    const frame = requestAnimationFrame(() => {
+      startPreview();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [autoPlay, startPreview]);
 
   if (isFailed) {

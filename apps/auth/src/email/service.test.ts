@@ -105,12 +105,11 @@ describe("email service", () => {
     throwOnSend = false;
     returnErrorOnSend = false;
 
-    // We must manually set up the envs before importing
+    // We must manually set up the envs before importing. Plain assignment
+    // only: NODE_ENV arrives from the real environment, where Bun marks
+    // process.env descriptors non-configurable, so defineProperty throws.
     process.env.RESEND_API_KEY = "test_key";
-    Object.defineProperty(process.env, "NODE_ENV", {
-      value: "test",
-      writable: true,
-    });
+    process.env.NODE_ENV = "test";
     process.env.APP_URL = "https://social.localhost";
     process.env.DATABASE_URL = "postgresql://mock";
     process.env.POSTGRES_PRISMA_URL = "postgresql://mock";

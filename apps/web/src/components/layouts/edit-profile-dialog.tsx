@@ -127,6 +127,13 @@ export default function EditProfileDialog({
   const [croppedBanner, setCroppedBanner] = useState<Blob | null>(null);
   const [bannerRemoved, setBannerRemoved] = useState(false);
   const [avatarDeleted, setAvatarDeleted] = useState(false);
+  // Mirrors the last seen open/user pair so closing the dialog (or fresh
+  // profile data arriving behind it) clears transient editor state during
+  // render instead of from a cascading effect.
+  const [resetInputs, setResetInputs] = useState<{
+    open: boolean;
+    user: PrivateUserData;
+  } | null>(null);
   const avatarMutation = useUpdateAvatarMutation();
   const bannerMutation = useUpdateBannerMutation();
   const deleteBannerMutation = useDeleteBannerMutation();
@@ -138,6 +145,21 @@ export default function EditProfileDialog({
     profileMutation.isPending ||
     deleteBannerMutation.isPending ||
     deleteAvatarMutation.isPending;
+
+  if (
+    resetInputs === null ||
+    resetInputs.open !== open ||
+    resetInputs.user !== user
+  ) {
+    setResetInputs({ open, user });
+    if (!open) {
+      setCroppedAvatar(null);
+      setGifToCenter(null);
+      setCroppedBanner(null);
+      setBannerRemoved(false);
+      setAvatarDeleted(false);
+    }
+  }
 
   // Keep a stable object URL for the cropped preview and revoke it on change/unmount.
   const croppedAvatarUrl = useMemo(
@@ -162,14 +184,11 @@ export default function EditProfileDialog({
     [croppedAvatarUrl, croppedBannerUrl]
   );
 
+  // The form lives in react-hook-form's own store shared with the field
+  // components below, so its reset must stay imperative (post-render) rather
+  // than running during this component's render.
   useEffect(() => {
     if (!open) {
-      // eslint-disable-next-line react-compiler -- reset editor state when the dialog closes
-      setCroppedAvatar(null);
-      setGifToCenter(null);
-      setCroppedBanner(null);
-      setBannerRemoved(false);
-      setAvatarDeleted(false);
       form.reset({
         bio: user.bio || "",
         customDomain: user.customDomain ?? "",
@@ -180,7 +199,7 @@ export default function EditProfileDialog({
         twitterUsername: user.twitterUsername ?? "",
       });
     }
-  }, [open, user, form.reset, form]);
+  }, [open, user, form]);
 
   const checkForChanges = (values: UpdateUserProfileValues) => {
     const hasProfileChanges =

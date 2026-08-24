@@ -31,7 +31,7 @@ import Image from "next/image";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/spinner-3d";
@@ -50,6 +50,20 @@ import UserProfilePopover from "./left/user-profile-popover";
 interface LeftSidebarProps {
   userData: UserData | null;
 }
+
+// Hydration marker: false while rendering server markup, true once the client
+// has taken over. Lets the theme toggle read next-themes state without
+// mismatching SSR output, without a setState-in-effect cascade.
+const emptySubscribe = () => () => {
+  /* empty */
+};
+
+const useIsHydrated = () =>
+  useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
 
 interface NavItem {
   count?: number;
@@ -168,18 +182,13 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsHydrated();
   const { data: bookmarkCount } = useBookmarkCount();
   const { data: unreadNotificationCount } = useUnreadNotificationCount();
   const unreadMessageCount = useUnreadMessageCount();
   const { openSpotlight } = useSpotlight();
   const openComposer = useComposerStore((state) => state.openComposer);
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
-
-  useEffect(() => {
-    // eslint-disable-next-line react-compiler -- mark the theme as hydrated after first render
-    setMounted(true);
-  }, []);
 
   const handleToggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");

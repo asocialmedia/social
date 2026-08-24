@@ -25,9 +25,13 @@ export default function RedditSignInButton({
         newUserCallbackURL: `${base}/`,
         provider: "reddit",
       });
-    } finally {
+    } catch (error) {
+      // Reset before rethrowing so the callback runs on the failure path too
+      // (replaces the previous `finally` clause).
       onEnd?.();
+      throw error;
     }
+    onEnd?.();
   };
 
   return (

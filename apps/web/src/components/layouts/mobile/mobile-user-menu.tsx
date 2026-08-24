@@ -63,6 +63,14 @@ const menuVariants: Variants = {
   },
 };
 
+// React Compiler cannot lower `throw` statements inside component try blocks,
+// so response status checks live in this module-scoped helper.
+function ensureAvatarResponseOk(response: Response): void {
+  if (!response.ok) {
+    throw new Error("Failed to fetch avatar");
+  }
+}
+
 export const MobileUserMenu = ({
   isOpen,
   onCloseAction,
@@ -79,9 +87,7 @@ export const MobileUserMenu = ({
     queryFn: async () => {
       try {
         const response = await fetch(`/api/users/avatar/${user.id}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch avatar");
-        }
+        ensureAvatarResponseOk(response);
         const data = await response.json();
         return {
           key: data.key,

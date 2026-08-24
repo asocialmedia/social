@@ -421,6 +421,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
                   emailChangeRequested ||
                   (Boolean(user.email) &&
                     (!currentEmailCodeSent ||
+                      // oxlint-disable-next-line react/incompatible-library -- react-hook-form watch handle is unmemoizable by design; compiler skips this component
                       (emailForm.watch("otp")?.length ?? 0) < 6))
                 }
                 loading={emailMutation.isPending}

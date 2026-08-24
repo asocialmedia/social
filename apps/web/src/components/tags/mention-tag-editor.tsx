@@ -53,6 +53,14 @@ interface MentionTagEditorProps {
   postId?: string;
 }
 
+// React Compiler cannot lower `throw` statements inside hook try blocks, so
+// response status checks live in this module-scoped helper.
+function ensureResponseOk(response: Response, message: string): void {
+  if (!response.ok) {
+    throw new Error(message);
+  }
+}
+
 export const MentionTagEditor = ({
   postId,
   initialMentions,
@@ -80,9 +88,7 @@ export const MentionTagEditor = ({
         const res = await fetch(
           `/api/users/search?q=${encodeURIComponent(query)}`
         );
-        if (!res.ok) {
-          throw new Error("Failed to search users");
-        }
+        ensureResponseOk(res, "Failed to search users");
         const data = await res.json();
 
         setSuggestions(data.users);
@@ -93,9 +99,10 @@ export const MentionTagEditor = ({
           title: "No Luck Finding People",
           variant: "destructive",
         });
-      } finally {
-        setIsLoading(false);
       }
+      // The catch above never rethrows and the try body has no early returns,
+      // so resetting here matches the previous `finally` semantics.
+      setIsLoading(false);
     },
     [toast]
   );

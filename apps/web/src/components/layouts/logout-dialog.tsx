@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { LogOut } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { getRandomJoke } from "./constants/logout-messages";
 
@@ -24,13 +24,16 @@ export const LogoutDialog = ({
   open,
 }: LogoutDialogProps) => {
   const [logoutJoke, setLogoutJoke] = useState(getRandomJoke());
+  // Pick a fresh joke each time the dialog opens, adjusted during render
+  // instead of from a cascading effect.
+  const [prevOpen, setPrevOpen] = useState(open);
 
-  useEffect(() => {
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) {
-      // eslint-disable-next-line react-compiler -- pick a fresh joke each time the dialog opens
       setLogoutJoke(getRandomJoke());
     }
-  }, [open]);
+  }
 
   return (
     <Dialog onOpenChange={onCloseAction} open={open}>

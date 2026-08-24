@@ -230,9 +230,13 @@ export default function useMediaUpload() {
           }
         })
       );
-    } finally {
+    } catch (error) {
+      // Reset before rethrowing so the uploading flag clears on the failure
+      // path too (replaces the previous `finally` clause).
       setIsUploading(false);
+      throw error;
     }
+    setIsUploading(false);
   }
 
   const removeAttachment = useCallback((fileName: string) => {

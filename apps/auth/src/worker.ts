@@ -21,7 +21,6 @@ if (import.meta.main) {
     processPostDeleted,
     processNotificationCreated,
     processNotificationDeleted,
-    processMediaCleanup,
     processInactiveUsersSweep,
     processHnRefresh,
     processExpiredTokens,
@@ -133,16 +132,8 @@ if (import.meta.main) {
       { connection }
     );
 
-    const mediaWorker = new QueueWorker(
-      "media",
-      (job) => {
-        if (job.name === "media-cleanup") {
-          return processMediaCleanup(job.data, logger);
-        }
-        throw new Error(`Unknown media job: ${job.name}`);
-      },
-      { concurrency: 4, connection }
-    );
+    // The "media" queue is consumed by apps/media-processing since the
+    // pipeline worker split; auth no longer touches media jobs.
 
     const maintenanceWorker = new QueueWorker(
       "maintenance",
@@ -176,7 +167,7 @@ if (import.meta.main) {
       { connection }
     );
 
-    workers.push(contentWorker, mediaWorker, maintenanceWorker);
+    workers.push(contentWorker, maintenanceWorker);
 
     for (const worker of workers) {
       worker.on("failed", (job, error) => {

@@ -4,6 +4,13 @@ import { clientLog } from "@asm/config/debug";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
+// React Compiler cannot lower dynamic `import()` expressions inside hooks, so
+// the auth client is resolved through this plain module-scoped loader. The
+// load stays lazy: it only runs when a logout actually happens.
+function loadAuthClient() {
+  return import("@/lib/auth").then((module) => module.authClient);
+}
+
 export function useLogout() {
   const queryClient = useQueryClient();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
@@ -25,7 +32,7 @@ export function useLogout() {
     }
 
     try {
-      const { authClient } = await import("@/lib/auth");
+      const authClient = await loadAuthClient();
       await authClient.signOut({
         fetchOptions: { credentials: "include" },
       });

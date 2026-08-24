@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
@@ -92,6 +92,14 @@ function getShareThumbnail(
   return undefined;
 }
 
+// React Compiler cannot lower `throw` statements inside component try blocks,
+// so response status checks live in this module-scoped helper.
+function ensureResponseOk(response: Response, message: string): void {
+  if (!response.ok) {
+    throw new Error(message);
+  }
+}
+
 const MediaViewer = ({
   media,
   initialIndex = 0,
@@ -139,21 +147,38 @@ const MediaViewer = ({
   // clear it immediately to avoid an infinite skeleton. Error state resets per
   // item too. Moderated posts show the notice instead of media, so skip the
   // whole loading lifecycle.
-  useEffect(() => {
-    if (!isOpen) {
-      return;
+  // Implemented with React's adjust-state-during-render pattern (instead of an
+  // effect) because it only mirrors props/state into the loading flags.
+  const loadSyncInput = useMemo(
+    () => ({
+      currentIndex,
+      isOpen,
+      loadAttempt,
+      media,
+      moderated: Boolean(post?.moderated),
+    }),
+    [currentIndex, isOpen, loadAttempt, media, post?.moderated]
+  );
+  const [prevLoadSyncInput, setPrevLoadSyncInput] = useState<
+    typeof loadSyncInput | null
+  >(null);
+  if (prevLoadSyncInput === null || prevLoadSyncInput !== loadSyncInput) {
+    setPrevLoadSyncInput(loadSyncInput);
+    if (loadSyncInput.isOpen) {
+      if (loadSyncInput.moderated) {
+        // Force the load state off for moderated posts so the notice shows,
+        // never a stale spinner.
+        setIsLoading(false);
+        setMediaError(false);
+      } else {
+        setIsLoading(
+          hasAsyncLoad(loadSyncInput.media[loadSyncInput.currentIndex])
+        );
+        setMediaError(false);
+        setExplicitRevealed(false);
+      }
     }
-    if (post?.moderated) {
-      // eslint-disable-next-line react-compiler -- force-load state off for moderated posts so the notice shows, never a stale spinner
-      setIsLoading(false);
-      setMediaError(false);
-      return;
-    }
-    // eslint-disable-next-line react-compiler -- reset load state per item
-    setIsLoading(hasAsyncLoad(media[currentIndex]));
-    setMediaError(false);
-    setExplicitRevealed(false);
-  }, [isOpen, currentIndex, media, loadAttempt, post?.moderated]);
+  }
 
   // Fail-safe: if an async media item never fires its load event (e.g. the
   // storage range request stalls), surface the error state instead of leaving
@@ -171,9 +196,13 @@ const MediaViewer = ({
   }, [
     isOpen,
     isLoading,
+    // oxlint-disable react/exhaustive-effect-dependencies -- these inputs
+    // intentionally restart the load deadline; they are timer-reset triggers,
+    // not values read inside the effect body.
     currentIndex,
     loadAttempt,
     mediaProgressTick,
+    // oxlint-enable react/exhaustive-effect-dependencies
     post?.moderated,
   ]);
 
@@ -224,43 +253,39 @@ const MediaViewer = ({
   }, [currentMedia]);
 
   const handleDownload = async () => {
+    setIsDownloading(true);
     try {
-      setIsDownloading(true);
+      if (currentMedia) {
+        const response = await fetch(`/api/media/download/${currentMedia.id}`);
 
-      if (!currentMedia) {
+        if (response.status === 429) {
+          toast({
+            description: "Slow down a bit, then try again",
+            title: "Too Many Downloads",
+            variant: "destructive",
+          });
+        } else {
+          ensureResponseOk(response, "Failed to download file");
+
+          const blob = await response.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+
+          const a = document.createElement("a");
+          a.href = downloadUrl;
+          a.download = formatFileName(currentMedia.key);
+          document.body.append(a);
+          a.click();
+
+          window.URL.revokeObjectURL(downloadUrl);
+          a.remove();
+        }
+      } else {
         toast({
           description: "No file to download yet",
           title: "Download Failed",
           variant: "destructive",
         });
-        return;
       }
-      const response = await fetch(`/api/media/download/${currentMedia.id}`);
-
-      if (response.status === 429) {
-        toast({
-          description: "Slow down a bit, then try again",
-          title: "Too Many Downloads",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error("Failed to download file");
-      }
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = formatFileName(currentMedia.key);
-      document.body.append(a);
-      a.click();
-
-      window.URL.revokeObjectURL(downloadUrl);
-      a.remove();
     } catch (error) {
       clientLog.error("Download failed:", error);
       toast({
@@ -268,9 +293,10 @@ const MediaViewer = ({
         title: "Download Failed",
         variant: "destructive",
       });
-    } finally {
-      setIsDownloading(false);
     }
+    // The catch above never rethrows and the try body has no early returns,
+    // so resetting here matches the previous `finally` semantics.
+    setIsDownloading(false);
   };
 
   // eslint-disable-next-line react/no-unstable-nested-components -- DownloadButton uses parent component state and functions, making it reasonable to keep nested

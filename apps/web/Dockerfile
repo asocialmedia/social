@@ -10,8 +10,6 @@ RUN test -n "$NEXT_PUBLIC_URL" || (echo "NEXT_PUBLIC_URL build-arg is required" 
 RUN test -n "$NEXT_PUBLIC_AUTH_URL" || (echo "NEXT_PUBLIC_AUTH_URL build-arg is required" && exit 1)
 ENV NEXT_PUBLIC_URL=${NEXT_PUBLIC_URL}
 ENV NEXT_PUBLIC_AUTH_URL=${NEXT_PUBLIC_AUTH_URL}
-# Build in production mode so Next.js inlines process.env.NODE_ENV=production.
-# Setting it only in the runtime stage is too late for a production build.
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y openssl curl unzip && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://bun.sh/install | bash

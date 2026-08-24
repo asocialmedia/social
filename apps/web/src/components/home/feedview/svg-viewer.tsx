@@ -1,5 +1,3 @@
-// oxlint-disable react-compiler -- the nested Controls helper needs viewer state and the React Compiler rules reject it
-
 import { Button } from "@asm/ui/shadui/button";
 import { Slider } from "@asm/ui/shadui/slider";
 import {
@@ -26,6 +24,190 @@ interface SvgViewerProps {
   onLoad?: () => void;
   url: string;
 }
+
+interface SvgViewerControlsProps {
+  flipX: boolean;
+  flipY: boolean;
+  handleFlipX: () => void;
+  handleFlipY: () => void;
+  handleRotateLeft: () => void;
+  handleRotateRight: () => void;
+  handleScaleChange: (values: number[]) => void;
+  handleZoomIn: () => void;
+  handleZoomOut: () => void;
+  isFullscreen: boolean;
+  isMobile: boolean;
+  onDownload?: () => void;
+  resetView: () => void;
+  scale: number;
+  showControls: boolean;
+  toggleFullscreen: () => void;
+}
+
+// Declared at module scope so its identity is stable across renders; a nested
+// definition would remount every control button on each parent render.
+const SvgViewerControls = ({
+  flipX,
+  flipY,
+  handleFlipX,
+  handleFlipY,
+  handleRotateLeft,
+  handleRotateRight,
+  handleScaleChange,
+  handleZoomIn,
+  handleZoomOut,
+  isFullscreen,
+  isMobile,
+  onDownload,
+  resetView,
+  scale,
+  showControls,
+  toggleFullscreen,
+}: SvgViewerControlsProps) => {
+  let controlsClassName: string;
+  if (!isMobile) {
+    controlsClassName = "absolute top-4 right-4";
+  } else if (showControls) {
+    controlsClassName =
+      "fixed inset-x-0 bottom-0 mx-4 mb-4 transition-transform duration-300";
+  } else {
+    controlsClassName =
+      "fixed inset-x-0 bottom-0 mx-4 mb-4 translate-y-full transition-transform duration-300";
+  }
+
+  return (
+    <div
+      className={cn(
+        "bg-background/80 z-50 flex flex-col gap-4 rounded-lg p-4 backdrop-blur-sm",
+        controlsClassName
+      )}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <Button
+            className="bg-background/50 hover:bg-background/80"
+            onClick={handleZoomOut}
+            size={isMobile ? "sm" : "icon"}
+            variant="secondary"
+          >
+            <ZoomOut className={cn("h-4 w-4", isMobile && "mr-2")} />
+            {isMobile && "Zoom Out"}
+          </Button>
+          <Button
+            className="bg-background/50 hover:bg-background/80"
+            onClick={handleZoomIn}
+            size={isMobile ? "sm" : "icon"}
+            variant="secondary"
+          >
+            <ZoomIn className={cn("h-4 w-4", isMobile && "mr-2")} />
+            {isMobile && "Zoom In"}
+          </Button>
+        </div>
+        <Slider
+          className={isMobile ? "w-full" : "w-32"}
+          max={5}
+          min={0.1}
+          onValueChange={handleScaleChange}
+          step={0.1}
+          value={[scale]}
+        />
+      </div>
+
+      <div className={cn("flex gap-2", isMobile && "flex-wrap")}>
+        <Button
+          className="bg-background/50 hover:bg-background/80"
+          onClick={handleRotateLeft}
+          size={isMobile ? "sm" : "icon"}
+          variant="secondary"
+        >
+          <RotateCcw className={cn("h-4 w-4", isMobile && "mr-2")} />
+          {isMobile && "Rotate Left"}
+        </Button>
+        <Button
+          className="bg-background/50 hover:bg-background/80"
+          onClick={handleRotateRight}
+          size={isMobile ? "sm" : "icon"}
+          variant="secondary"
+        >
+          <RotateCw className={cn("h-4 w-4", isMobile && "mr-2")} />
+          {isMobile && "Rotate Right"}
+        </Button>
+        <Button
+          className={cn(
+            "bg-background/50 hover:bg-background/80",
+            flipX && "bg-primary/20"
+          )}
+          onClick={handleFlipX}
+          size={isMobile ? "sm" : "icon"}
+          variant="secondary"
+        >
+          <FlipHorizontal className={cn("h-4 w-4", isMobile && "mr-2")} />
+          {isMobile && "Flip H"}
+        </Button>
+        <Button
+          className={cn(
+            "bg-background/50 hover:bg-background/80",
+            flipY && "bg-primary/20"
+          )}
+          onClick={handleFlipY}
+          size={isMobile ? "sm" : "icon"}
+          variant="secondary"
+        >
+          <FlipVertical className={cn("h-4 w-4", isMobile && "mr-2")} />
+          {isMobile && "Flip V"}
+        </Button>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          className="bg-background/50 hover:bg-background/80"
+          onClick={toggleFullscreen}
+          size={isMobile ? "sm" : "icon"}
+          variant="secondary"
+        >
+          {isFullscreen ? (
+            <Minimize2 className={cn("h-4 w-4", isMobile && "mr-2")} />
+          ) : (
+            <Maximize2 className={cn("h-4 w-4", isMobile && "mr-2")} />
+          )}
+          {isMobile && (isFullscreen ? "Exit Fullscreen" : "Fullscreen")}
+        </Button>
+        <Button
+          className="bg-background/50 hover:bg-background/80"
+          onClick={resetView}
+          size={isMobile ? "sm" : "icon"}
+          variant="secondary"
+        >
+          <svg
+            className={cn("h-4 w-4", isMobile && "mr-2")}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M4 4v5h5M4 20v-5h5M20 4v5h-5M20 20v-5h-5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+            />
+          </svg>
+          {isMobile && "Reset"}
+        </Button>
+        {onDownload ? (
+          <Button
+            className="bg-background/50 hover:bg-background/80"
+            onClick={onDownload}
+            size={isMobile ? "sm" : "icon"}
+            variant="secondary"
+          >
+            <Download className={cn("h-4 w-4", isMobile && "mr-2")} />
+            {isMobile && "Download"}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+};
 
 export const SVGViewer = ({
   url,
@@ -209,153 +391,6 @@ export const SVGViewer = ({
     setFlipY((prev) => !prev);
   }, []);
 
-  // eslint-disable-next-line react/no-unstable-nested-components -- Controls uses parent state and is tightly coupled
-  const Controls = () => {
-    let controlsClassName: string;
-    if (!isMobile) {
-      controlsClassName = "absolute top-4 right-4";
-    } else if (showControls) {
-      controlsClassName =
-        "fixed inset-x-0 bottom-0 mx-4 mb-4 transition-transform duration-300";
-    } else {
-      controlsClassName =
-        "fixed inset-x-0 bottom-0 mx-4 mb-4 translate-y-full transition-transform duration-300";
-    }
-
-    return (
-      <div
-        className={cn(
-          "bg-background/80 z-50 flex flex-col gap-4 rounded-lg p-4 backdrop-blur-sm",
-          controlsClassName
-        )}
-      >
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            <Button
-              className="bg-background/50 hover:bg-background/80"
-              onClick={handleZoomOut}
-              size={isMobile ? "sm" : "icon"}
-              variant="secondary"
-            >
-              <ZoomOut className={cn("h-4 w-4", isMobile && "mr-2")} />
-              {isMobile && "Zoom Out"}
-            </Button>
-            <Button
-              className="bg-background/50 hover:bg-background/80"
-              onClick={handleZoomIn}
-              size={isMobile ? "sm" : "icon"}
-              variant="secondary"
-            >
-              <ZoomIn className={cn("h-4 w-4", isMobile && "mr-2")} />
-              {isMobile && "Zoom In"}
-            </Button>
-          </div>
-          <Slider
-            className={isMobile ? "w-full" : "w-32"}
-            max={5}
-            min={0.1}
-            onValueChange={handleScaleChange}
-            step={0.1}
-            value={[scale]}
-          />
-        </div>
-
-        <div className={cn("flex gap-2", isMobile && "flex-wrap")}>
-          <Button
-            className="bg-background/50 hover:bg-background/80"
-            onClick={handleRotateLeft}
-            size={isMobile ? "sm" : "icon"}
-            variant="secondary"
-          >
-            <RotateCcw className={cn("h-4 w-4", isMobile && "mr-2")} />
-            {isMobile && "Rotate Left"}
-          </Button>
-          <Button
-            className="bg-background/50 hover:bg-background/80"
-            onClick={handleRotateRight}
-            size={isMobile ? "sm" : "icon"}
-            variant="secondary"
-          >
-            <RotateCw className={cn("h-4 w-4", isMobile && "mr-2")} />
-            {isMobile && "Rotate Right"}
-          </Button>
-          <Button
-            className={cn(
-              "bg-background/50 hover:bg-background/80",
-              flipX && "bg-primary/20"
-            )}
-            onClick={handleFlipX}
-            size={isMobile ? "sm" : "icon"}
-            variant="secondary"
-          >
-            <FlipHorizontal className={cn("h-4 w-4", isMobile && "mr-2")} />
-            {isMobile && "Flip H"}
-          </Button>
-          <Button
-            className={cn(
-              "bg-background/50 hover:bg-background/80",
-              flipY && "bg-primary/20"
-            )}
-            onClick={handleFlipY}
-            size={isMobile ? "sm" : "icon"}
-            variant="secondary"
-          >
-            <FlipVertical className={cn("h-4 w-4", isMobile && "mr-2")} />
-            {isMobile && "Flip V"}
-          </Button>
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            className="bg-background/50 hover:bg-background/80"
-            onClick={toggleFullscreen}
-            size={isMobile ? "sm" : "icon"}
-            variant="secondary"
-          >
-            {isFullscreen ? (
-              <Minimize2 className={cn("h-4 w-4", isMobile && "mr-2")} />
-            ) : (
-              <Maximize2 className={cn("h-4 w-4", isMobile && "mr-2")} />
-            )}
-            {isMobile && (isFullscreen ? "Exit Fullscreen" : "Fullscreen")}
-          </Button>
-          <Button
-            className="bg-background/50 hover:bg-background/80"
-            onClick={resetView}
-            size={isMobile ? "sm" : "icon"}
-            variant="secondary"
-          >
-            <svg
-              className={cn("h-4 w-4", isMobile && "mr-2")}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M4 4v5h5M4 20v-5h5M20 4v5h-5M20 20v-5h-5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-              />
-            </svg>
-            {isMobile && "Reset"}
-          </Button>
-          {onDownload ? (
-            <Button
-              className="bg-background/50 hover:bg-background/80"
-              onClick={onDownload}
-              size={isMobile ? "sm" : "icon"}
-              variant="secondary"
-            >
-              <Download className={cn("h-4 w-4", isMobile && "mr-2")} />
-              {isMobile && "Download"}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div
       className={cn(
@@ -376,7 +411,24 @@ export const SVGViewer = ({
         </Button>
       )}
 
-      <Controls />
+      <SvgViewerControls
+        flipX={flipX}
+        flipY={flipY}
+        handleFlipX={handleFlipX}
+        handleFlipY={handleFlipY}
+        handleRotateLeft={handleRotateLeft}
+        handleRotateRight={handleRotateRight}
+        handleScaleChange={handleScaleChange}
+        handleZoomIn={handleZoomIn}
+        handleZoomOut={handleZoomOut}
+        isFullscreen={isFullscreen}
+        isMobile={isMobile}
+        onDownload={onDownload}
+        resetView={resetView}
+        scale={scale}
+        showControls={showControls}
+        toggleFullscreen={toggleFullscreen}
+      />
 
       <div
         className="relative h-full w-full flex-1 overflow-hidden"
