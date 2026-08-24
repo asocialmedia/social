@@ -204,6 +204,17 @@ function assertServicesHealthy(snapshots: ServiceSnapshot[]) {
   }
 }
 
+// Verifies the host-side TCP listener exists. Container healthchecks pass
+// even when the pasta port forward is dead, which is exactly how a fully
+// "green" preflight left dev servers with ECONNREFUSED.
+async function assertHostPortReady(port: number, label: string) {
+  if (!(await hasListenerOnPort(port))) {
+    fatal(
+      `${label} is not reachable on localhost:${port}. The container may be healthy but its port forward is stale - recreate it with 'podman rm -f <container> && bun run docker:dev'.`
+    );
+  }
+}
+
 async function assertPostgresSchemaReady() {
   const validate = await runCmd([
     "docker",
@@ -425,9 +436,11 @@ async function cleanupStaleDevServers() {
   await kill("turbo dev");
   await kill("portless social");
   await kill("portless auth");
+  await kill("portless media");
   await kill("bun --watch src/dev");
   await kill("src/server"); // the Bun.serve child inside the watcher
-  // Free the fixed auth port if a prior Bun.serve survived the watcher kill
+  // Free the fixed ports if a prior Bun.serve survived the watcher kill:
+  // 3000 web, 3001 auth, 3010 media-processing health.
   const killPort = async (port: number) => {
     try {
       await runCmd(["fuser", "-k", `${port}/tcp`]);
@@ -440,8 +453,7 @@ async function cleanupStaleDevServers() {
       // no listener on this port
     }
   };
-  await killPort(3000);
-  await killPort(3001);
+  await Promise.all([killPort(3000), killPort(3001), killPort(3010)]);
   // Also clear the Next.js dev lock that survives unclean exits and makes
   // `next dev` report "Another next dev server is already running" with a stale PID.
   await Promise.all(
@@ -501,7 +513,10 @@ async function run() {
     cache,
     "postgres",
     `${composeFingerprint}:${runtimeFingerprint}`,
-    () => assertPostgresSchemaReady()
+    async () => {
+      await assertHostPortReady(5433, "Postgres");
+      await assertPostgresSchemaReady();
+    }
   );
   setCheckState("postgres", postgresStatus);
   activeCheck = null;
@@ -512,7 +527,10 @@ async function run() {
     cache,
     "redis",
     `${composeFingerprint}:${runtimeFingerprint}`,
-    () => assertRedisReady()
+    async () => {
+      await assertHostPortReady(6379, "Redis");
+      await assertRedisReady();
+    }
   );
   setCheckState("redis", redisStatus);
   activeCheck = null;
@@ -523,7 +541,10 @@ async function run() {
     cache,
     "asmob",
     `${composeFingerprint}:${runtimeFingerprint}:${ASMOB_ACCESS_KEY}:${ASMOB_REGION}`,
-    () => assertBucketsReady()
+    async () => {
+      await assertHostPortReady(9090, "Object storage");
+      await assertBucketsReady();
+    }
   );
   setCheckState("asmob", asmobStatus);
   activeCheck = null;

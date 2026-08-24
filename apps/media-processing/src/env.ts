@@ -113,6 +113,13 @@ export const workerEnv = {
     return keys.CLAMAV_PORT;
   },
   get HEALTH_PORT() {
+    // Portless injects a dynamic PORT when running under `bun run dev`
+    // (media.localhost routes to whatever it assigned); production leaves
+    // PORT unset and falls back to the fixed container port.
+    const dynamicPort = Number(process.env.PORT);
+    if (Number.isInteger(dynamicPort) && dynamicPort > 0) {
+      return dynamicPort;
+    }
     return keys.MEDIA_HEALTH_PORT;
   },
   get REDIS_URL() {
