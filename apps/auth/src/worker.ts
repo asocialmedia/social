@@ -16,6 +16,7 @@ if (import.meta.main) {
   type QueueWorkerType = InstanceType<typeof QueueWorker>;
   const { consumeViewStream } = await import("./worker/view-flush");
   const { consumeShareStream } = await import("./worker/share-flush");
+  const { flushTrendingScores } = await import("./worker/trending-score-flush");
   const {
     processPostDeleted,
     processNotificationCreated,
@@ -155,6 +156,9 @@ if (import.meta.main) {
           }
           case "inactive-users": {
             return processInactiveUsersSweep(logger);
+          }
+          case "trending-scores": {
+            return flushTrendingScores(logger);
           }
           default: {
             throw new Error(`Unknown maintenance job: ${job.name}`);

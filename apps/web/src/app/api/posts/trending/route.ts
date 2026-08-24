@@ -22,7 +22,10 @@ export async function GET(request: Request) {
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
-    orderBy: [{ aura: "desc" }, { id: "desc" }],
+    // trendingScore is the time-decayed momentum score maintained by the
+    // worker's trending-score-flush job, so fresh high-momentum posts outrank
+    // stale all-time aura champions.
+    orderBy: [{ trendingScore: "desc" }, { id: "desc" }],
     take: pageSize + 1,
     where,
   });

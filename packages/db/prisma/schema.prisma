@@ -309,6 +309,7 @@ model Post {
   aura                 Int            @default(0)
   viewCount            Int            @default(0)
   lastAwardedViewCount Int            @default(0)
+  trendingScore        Float          @default(0)
   isGust               Boolean        @default(false)
   moderated            Boolean        @default(false)
   explicitContent      Boolean        @default(false)
@@ -328,6 +329,7 @@ model Post {
 
   @@index([isGust, createdAt])
   @@index([isGust, aura, id])
+  @@index([isGust, trendingScore, id])
   @@index([userId, isGust, createdAt])
   @@map("posts")
 }

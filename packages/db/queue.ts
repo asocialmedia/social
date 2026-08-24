@@ -221,9 +221,10 @@ export async function cancelMediaCleanup(mediaId: string): Promise<void> {
   await getQueue(MEDIA_QUEUE).remove(`media-cleanup-${mediaId}`);
 }
 
-// Schedules the repeatable maintenance jobs (HN cache refresh every 15 min, the
-// weekly expired-token sweep, and the daily unverified-user sweep). Idempotent:
-// re-running replaces the scheduler definition.
+// Schedules the repeatable maintenance jobs (HN cache refresh and the
+// trending-score recompute every 15 min, the weekly expired-token sweep, and
+// the daily unverified-user sweep). Idempotent: re-running replaces the
+// scheduler definition.
 export async function registerMaintenanceSchedulers(): Promise<void> {
   const queue = getQueue(MAINTENANCE_QUEUE);
   await queue.upsertJobScheduler("hn-refresh", { every: 15 * 60 * 1000 });
@@ -232,6 +233,9 @@ export async function registerMaintenanceSchedulers(): Promise<void> {
   });
   await queue.upsertJobScheduler("inactive-users", {
     every: 24 * 60 * 60 * 1000,
+  });
+  await queue.upsertJobScheduler("trending-scores", {
+    every: 15 * 60 * 1000,
   });
 }
 

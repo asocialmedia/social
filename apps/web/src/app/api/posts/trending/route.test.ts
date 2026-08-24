@@ -9,14 +9,16 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 }));
 
 interface PostRow {
-  aura: number;
   id: string;
+  trendingScore: number;
 }
 
+// p2 has the most all-time aura but a low decayed score; the feed must rank
+// by the worker-maintained momentum score, not raw aura.
 const posts: PostRow[] = [
-  { aura: 30, id: "p1" },
-  { aura: 80, id: "p2" },
-  { aura: 50, id: "p3" },
+  { id: "p1", trendingScore: 3.5 },
+  { id: "p2", trendingScore: 9.25 },
+  { id: "p3", trendingScore: 6 },
 ];
 
 let lastOrderBy: unknown;
@@ -34,7 +36,9 @@ const mockPrisma = {
       lastOrderBy = args.orderBy;
       lastTake = args.take;
       lastWhere = args.where;
-      const sorted = [...posts].toSorted((a, b) => b.aura - a.aura);
+      const sorted = [...posts].toSorted(
+        (a, b) => b.trendingScore - a.trendingScore
+      );
       return sorted.slice(0, args.take);
     },
   },
@@ -67,11 +71,11 @@ describe("GET /api/posts/trending", () => {
     expect(body.posts.map((p: PostRow) => p.id)).toEqual(["p2", "p3", "p1"]);
   });
 
-  test("orders posts by aura descending", async () => {
+  test("orders posts by time-decayed trending score descending", async () => {
     const res = await GET(new Request("http://localhost/api/posts/trending"));
 
     expect(res.status).toBe(200);
-    expect(lastOrderBy).toEqual([{ aura: "desc" }, { id: "desc" }]);
+    expect(lastOrderBy).toEqual([{ trendingScore: "desc" }, { id: "desc" }]);
 
     const body = await res.json();
     expect(body.posts.map((p: PostRow) => p.id)).toEqual(["p2", "p3", "p1"]);
@@ -80,8 +84,8 @@ describe("GET /api/posts/trending", () => {
 
   test("returns a nextCursor when there are more posts than the page size", async () => {
     const manyPosts = Array.from({ length: 25 }, (_, i) => ({
-      aura: 100 - i,
       id: `p${i}`,
+      trendingScore: 100 - i,
     }));
     mockPrisma.post.findMany = (args: {
       cursor?: { id: string };

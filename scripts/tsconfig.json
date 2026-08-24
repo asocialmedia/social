@@ -5,6 +5,12 @@
     "types": ["bun"],
     "declaration": false,
     "declarationMap": false,
-    "noEmit": true
+    "noEmit": true,
+    // The scripts/ folder sits outside the bun workspaces graph (apps/*,
+    // packages/*), so workspace packages never get node_modules links here.
+    // Map them by name so ops scripts can import shared code normally.
+    "paths": {
+      "@asm/db": ["../packages/db/index.ts"]
+    }
   }
 }

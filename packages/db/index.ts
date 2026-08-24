@@ -18,3 +18,4 @@ export * from "./src/redis";
 export * from "./src/reserved-usernames";
 export * from "./src/search";
 export * from "./src/storage";
+export * from "./src/trending-score";
