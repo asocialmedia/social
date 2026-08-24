@@ -178,15 +178,53 @@ export async function backfillTrendingScores(options: {
 
 // Deploy-safe entrypoint: marker-checked, lock-guarded, single-run. Returns
 // whether actual work happened so callers can log accordingly.
+
+const LOCK_WAIT_MS = 1000;
+const LOCK_MAX_WAIT_MS = 30_000;
+
+// pg_advisory_lock() returns void, which the pg driver adapter cannot
+// deserialize through $queryRaw ("Failed to deserialize column of type
+// 'void'"), so the try variant - which returns a real boolean - is used
+// instead, wrapped in a short bounded wait to preserve the old
+// lose-and-recheck behaviour across concurrent deploy containers.
+async function tryAcquireBackfillLock(): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ locked: boolean }[]>`
+    SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY}) AS locked
+  `;
+  return rows[0]?.locked === true;
+}
+
+async function acquireBackfillLock(): Promise<boolean> {
+  let waitedMs = 0;
+  while (true) {
+    // oxlint-disable-next-line no-await-in-loop -- polling is inherently sequential
+    const locked = await tryAcquireBackfillLock();
+    if (locked) {
+      return true;
+    }
+    if (waitedMs >= LOCK_MAX_WAIT_MS) {
+      return false;
+    }
+    // eslint-disable-next-line no-await-in-loop -- polling is inherently sequential
+    await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_MS));
+    waitedMs += LOCK_WAIT_MS;
+  }
+}
+
 export async function ensureTrendingScoresBackfilled(options: {
   force?: boolean;
   resumeAfterId?: string;
 }): Promise<{ ran: boolean; batches: number; postsUpdated: number }> {
   await ensureMarkerTable();
 
-  // Advisory lock across containers: the loser waits here, then sees the
+  // Advisory lock across containers: the loser polls briefly, then sees the
   // winner's marker and skips without touching data.
-  await prisma.$queryRaw`SELECT pg_advisory_lock(${ADVISORY_LOCK_KEY})`;
+  const locked = await acquireBackfillLock();
+  if (!locked) {
+    throw new Error(
+      "Could not acquire the backfill advisory lock within 30s - another container is likely mid-backfill. Retry shortly."
+    );
+  }
   try {
     if (!options.force && (await hasMarker(MARKER_NAME))) {
       console.log("[backfill] already completed previously, skipping");
@@ -199,7 +237,8 @@ export async function ensureTrendingScoresBackfilled(options: {
     await recordMarker(MARKER_NAME);
     return { ran: true, ...result };
   } finally {
-    await prisma.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
+    // pg_advisory_unlock returns boolean, so it deserializes cleanly too.
+    await prisma.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY}) AS unlocked`;
   }
 }
 
