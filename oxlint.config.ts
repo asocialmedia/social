@@ -11,16 +11,14 @@ export default defineConfig({
   ignorePatterns: core.ignorePatterns,
   overrides: [
     {
-      files: ["apps/web/src/**/*.{ts,tsx}"],
+      // Media-processing manipulates binary formats (bitstream hashing,
+      // waveform views, pixel packing) where bitwise operators are the
+      // domain language, and its job loops are ordered on purpose: ffmpeg
+      // ladders and S3 uploads run sequentially to bound CPU/memory.
+      files: ["apps/media-processing/**"],
       rules: {
-        "react/exhaustive-effect-dependencies": "warn",
-        "react/incompatible-library": "warn",
-        "react/memo-dependencies": "warn",
-        "react/no-deriving-state-in-effects": "warn",
-        "react/refs": "warn",
-        "react/set-state-in-effect": "warn",
-        "react/static-components": "warn",
-        "react/todo": "warn",
+        "eslint/no-await-in-loop": "off",
+        "eslint/no-bitwise": "off",
       },
     },
   ],

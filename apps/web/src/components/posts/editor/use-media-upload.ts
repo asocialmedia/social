@@ -3,7 +3,7 @@ import { Upload } from "lucide-react";
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
 
 import { useToast } from "@/lib/gooey-toast";
-import { validateFile } from "@/lib/utils/file-validation";
+import { uploadMediaFile } from "@/lib/media-upload-client";
 
 // A completed upload is persisted to sessionStorage so a refresh or a quick
 // navigation (e.g. scrolling the gusts feed) doesn't wipe the composer draft.
@@ -24,7 +24,6 @@ export interface Attachment {
 
 interface StoredAttachment {
   mediaId: string;
-  mediaUrl: string;
   name: string;
   type: string;
 }
@@ -48,7 +47,6 @@ function loadStoredAttachments(): Attachment[] {
     return (parsed.items ?? []).map((item) => ({
       isUploading: false,
       mediaId: item.mediaId,
-      mediaUrl: item.mediaUrl,
       name: item.name,
       progress: 100,
       type: item.type,
@@ -89,54 +87,6 @@ function clearStoredAttachments(): void {
   } catch {
     // Ignore
   }
-}
-
-// Uploads a single file via XHR so the caller receives real byte-level
-// progress (fetch has no upload progress API). Returns the media row and a
-// percentage that updates as the request body streams to the server.
-function uploadMedia(file: File, onProgress: (percent: number) => void) {
-  // oxlint-disable-next-line promise/avoid-new -- XHR needs a Promise wrapper
-  return new Promise<{ mediaId: string; url: string }>((resolve, reject) => {
-    try {
-      validateFile(file);
-    } catch (error: unknown) {
-      reject(error instanceof Error ? error : new Error("Upload failed"));
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/upload");
-
-    xhr.upload.addEventListener("progress", (event) => {
-      if (event.lengthComputable) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
-      }
-    });
-
-    xhr.addEventListener("load", () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const { mediaId, url } = JSON.parse(xhr.responseText) as {
-            mediaId: string;
-            url: string;
-          };
-          onProgress(100);
-          resolve({ mediaId, url });
-        } catch (error: unknown) {
-          reject(error instanceof Error ? error : new Error("Bad response"));
-        }
-      } else {
-        reject(new Error("Upload failed"));
-      }
-    });
-
-    xhr.addEventListener("error", () => reject(new Error("Upload failed")));
-    xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
-    xhr.send(formData);
-  });
 }
 
 export default function useMediaUpload() {
@@ -196,14 +146,17 @@ export default function useMediaUpload() {
       await Promise.all(
         files.map(async (file) => {
           try {
-            const result = await uploadMedia(file, (percent) => {
-              setAttachments((prev) =>
-                prev.map((attachment) =>
-                  attachment.file === file
-                    ? { ...attachment, progress: percent }
-                    : attachment
-                )
-              );
+            const result = await uploadMediaFile(file, {
+              onProgress: (percent) => {
+                setAttachments((prev) =>
+                  prev.map((attachment) =>
+                    attachment.file === file
+                      ? { ...attachment, progress: percent }
+                      : attachment
+                  )
+                );
+              },
+              purpose: "post",
             });
             setAttachments((prev) =>
               prev.map((attachment) =>
@@ -212,7 +165,6 @@ export default function useMediaUpload() {
                       ...attachment,
                       isUploading: false,
                       mediaId: result.mediaId,
-                      mediaUrl: result.url,
                     }
                   : attachment
               )

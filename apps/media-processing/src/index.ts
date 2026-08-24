@@ -23,6 +23,7 @@ if (import.meta.main) {
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
   const { Worker } = await import("bullmq");
   const { processMediaScan } = await import("./jobs/scan");
+  const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { workerEnv } = await import("./env");
 
@@ -44,9 +45,7 @@ if (import.meta.main) {
           return await processMediaCleanup(job.data as MediaCleanupJobData);
         }
         case MEDIA_JOB_NAMES.process: {
-          // Derivative generation lands in phase 2; until then no producer
-          // enqueues this name.
-          throw new Error(`Job not implemented yet: ${job.name}`);
+          return await processMedia(job.data as { mediaId: string });
         }
         case MEDIA_JOB_NAMES.deleteCascade: {
           throw new Error(`Job not implemented yet: ${job.name}`);

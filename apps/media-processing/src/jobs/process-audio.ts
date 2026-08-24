@@ -1,0 +1,265 @@
+// Audio processing: loudness-normalized Opus (primary) + AAC (fallback),
+// waveform peaks for players, cover-art extraction.
+
+import { prisma } from "@asm/db";
+import {
+  derivativeKey,
+  derivativeName,
+  MEDIA_PIPELINE_VERSION,
+  AUDIO_AAC_KBPS,
+  AUDIO_OPUS_KBPS,
+  AUDIO_TARGET_LUFS,
+} from "@asm/media";
+import type { MediaLimits } from "@asm/media";
+
+import { runFfmpeg, probeMedia } from "../ffmpeg";
+import { mediaLogger, withSpan } from "../log";
+import { getS3 } from "../s3";
+
+const WAVEFORM_POINTS = 200;
+
+export async function processMediaAudio(input: {
+  mediaId: string;
+  sourcePath: string;
+  limits: MediaLimits;
+}): Promise<void> {
+  await withSpan(
+    "job.media-process-audio",
+    async () => {
+      const s3 = getS3();
+      const probe = await probeMedia(input.sourcePath);
+      const derivatives: {
+        durationMs?: number;
+        key: string;
+        kind: string;
+        mimeType: string;
+        pipelineVersion: string;
+        sizeBytes?: number;
+        variant: string;
+      }[] = [];
+
+      // Single-pass EBU R128 loudnorm keeps every track at a consistent
+      // perceived loudness; two-pass accuracy is not worth the double decode.
+      const loudnormArgs = [
+        "-af",
+        `loudnorm=I=${AUDIO_TARGET_LUFS}:TP=-1.5:LRA=11`,
+      ];
+
+      // Opus in a WebM container: the modern default.
+      const opusPath = `${input.sourcePath}.opus.webm`;
+      await runFfmpeg(
+        [
+          "-i",
+          input.sourcePath,
+          ...loudnormArgs,
+          "-c:a",
+          "libopus",
+          "-b:a",
+          `${AUDIO_OPUS_KBPS}k`,
+          "-map_metadata",
+          "-1",
+          "-vn",
+          opusPath,
+        ],
+        input.limits.processingTimeoutMs
+      );
+      const opusKey = derivativeKey(
+        MEDIA_PIPELINE_VERSION,
+        input.mediaId,
+        derivativeName("audio", "opus", "webm")
+      );
+      await s3.write(opusKey, Bun.file(opusPath));
+      derivatives.push({
+        durationMs: Math.round(probe.durationSec * 1000),
+        key: opusKey,
+        kind: "audio",
+        mimeType: "audio/webm",
+        pipelineVersion: MEDIA_PIPELINE_VERSION,
+        sizeBytes: Bun.file(opusPath).size,
+        variant: "opus",
+      });
+
+      // AAC fallback for Safari/older WebViews.
+      const aacPath = `${input.sourcePath}.m4a`;
+      await runFfmpeg(
+        [
+          "-i",
+          input.sourcePath,
+          ...loudnormArgs,
+          "-c:a",
+          "aac",
+          "-b:a",
+          `${AUDIO_AAC_KBPS}k`,
+          "-map_metadata",
+          "-1",
+          "-vn",
+          aacPath,
+        ],
+        input.limits.processingTimeoutMs
+      );
+      const aacKey = derivativeKey(
+        MEDIA_PIPELINE_VERSION,
+        input.mediaId,
+        derivativeName("audio", "aac", "m4a")
+      );
+      await s3.write(aacKey, Bun.file(aacPath));
+      derivatives.push({
+        durationMs: Math.round(probe.durationSec * 1000),
+        key: aacKey,
+        kind: "audio",
+        mimeType: "audio/mp4",
+        pipelineVersion: MEDIA_PIPELINE_VERSION,
+        sizeBytes: Bun.file(aacPath).size,
+        variant: "aac",
+      });
+
+      // Embedded cover art, if present.
+      try {
+        const coverPath = `${input.sourcePath}-cover.jpg`;
+        let extractedCover = false;
+        await runFfmpeg(
+          [
+            "-i",
+            input.sourcePath,
+            "-an",
+            "-frames:v",
+            "1",
+            "-q:v",
+            "4",
+            coverPath,
+          ],
+          30_000
+        ).then(() => {
+          extractedCover = true;
+        });
+        if (extractedCover) {
+          const coverKey = derivativeKey(
+            MEDIA_PIPELINE_VERSION,
+            input.mediaId,
+            derivativeName("cover", "default", "jpg")
+          );
+          await s3.write(coverKey, Bun.file(coverPath));
+          derivatives.push({
+            key: coverKey,
+            kind: "cover",
+            mimeType: "image/jpeg",
+            pipelineVersion: MEDIA_PIPELINE_VERSION,
+            variant: "default",
+          });
+        }
+      } catch {
+        // Cover art is optional; absence is not a failure.
+      }
+
+      // Waveform peaks: decode mono 8kHz PCM and bucket maxima.
+      const peaks = await extractWaveformPeaks(
+        input.sourcePath,
+        probe.durationSec
+      );
+      const waveKey = derivativeKey(
+        MEDIA_PIPELINE_VERSION,
+        input.mediaId,
+        derivativeName("wave", "peaks", "json")
+      );
+      const waveLocalPath = `${input.sourcePath}-peaks.json`;
+      await Bun.write(
+        waveLocalPath,
+        JSON.stringify({
+          durationMs: Math.round(probe.durationSec * 1000),
+          peaks,
+        })
+      );
+      await s3.write(waveKey, Bun.file(waveLocalPath));
+      derivatives.push({
+        key: waveKey,
+        kind: "wave",
+        mimeType: "application/json",
+        pipelineVersion: MEDIA_PIPELINE_VERSION,
+        variant: "peaks",
+      });
+
+      await prisma.mediaDerivative.createMany({
+        data: derivatives.map((item) => ({ ...item, mediaId: input.mediaId })),
+        skipDuplicates: true,
+      });
+
+      if (probe.audio) {
+        await prisma.media.update({
+          data: {
+            techMetadata: {
+              audio: probe.audio,
+              durationSec: probe.durationSec,
+              targetLufs: AUDIO_TARGET_LUFS,
+            },
+          },
+          where: { id: input.mediaId },
+        });
+      }
+
+      mediaLogger.info(
+        { derivatives: derivatives.length, mediaId: input.mediaId },
+        "audio derivatives generated"
+      );
+    },
+    { "media.id": input.mediaId }
+  );
+}
+
+async function extractWaveformPeaks(
+  sourcePath: string,
+  durationSec: number
+): Promise<number[]> {
+  const sampleRate = 8000;
+  const proc = Bun.spawn(
+    [
+      "ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      sourcePath,
+      "-ac",
+      "1",
+      "-ar",
+      String(sampleRate),
+      "-f",
+      "s16le",
+      "-vcodec",
+      "pcm_s16le",
+      "pipe:1",
+    ],
+    { stderr: "ignore", stdin: "ignore", stdout: "pipe" }
+  );
+
+  const bytes = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+  await proc.exited;
+
+  const samples = new Int16Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength >> 1
+  );
+  const totalSamples = samples.length;
+  if (totalSamples === 0) {
+    return [];
+  }
+  const bucketSize = Math.max(1, Math.floor(totalSamples / WAVEFORM_POINTS));
+  const peaks: number[] = [];
+  for (
+    let start = 0;
+    start < totalSamples && peaks.length < WAVEFORM_POINTS;
+    start += bucketSize
+  ) {
+    let peak = 0;
+    const end = Math.min(start + bucketSize, totalSamples);
+    for (let i = start; i < end; i += 16) {
+      const value = Math.abs(samples[i]);
+      if (value > peak) {
+        peak = value;
+      }
+    }
+    peaks.push(Number((peak / 32_767).toFixed(3)));
+  }
+  void durationSec;
+  return peaks;
+}

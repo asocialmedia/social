@@ -4,6 +4,8 @@ import type {
   MessagePage,
 } from "@asm/db";
 
+import { uploadMediaFile } from "@/lib/media-upload-client";
+
 import {
   decryptMessage,
   encryptMessage,
@@ -233,31 +235,19 @@ export async function uploadMessageMedia(
   file: File,
   kind: "gif" | "image"
 ): Promise<MessageMediaUpload> {
-  const formData = new FormData();
-  formData.append("file", file);
   // Message attachments live inside E2EE ciphertext and can't be linked to a
-  // post, so the upload route must not schedule the orphaned-media cleanup.
-  formData.append("purpose", "message");
-  const response = await fetch("/api/upload", {
-    body: formData,
-    credentials: "same-origin",
-    method: "POST",
-  });
-  if (!response.ok) {
-    // Surface the server's real error instead of a fixed message so the user
-    // can act on rate limits, size limits, and the like.
-    throw await parseError(response);
+  // post, so the pipeline skips post-linking; they still go through the full
+  // scan -> publish lifecycle. The stored URL is the app proxy path, never a
+  // raw object-storage address.
+  const result = await uploadMediaFile(file, { purpose: "message" });
+  if (result.status === "REJECTED") {
+    throw new Error("Attachment was rejected by moderation scanning");
   }
-  const json = (await response.json()) as {
-    height: number | null;
-    url: string;
-    width: number | null;
-  };
   return {
-    height: json.height,
+    height: null,
     kind,
-    url: json.url,
-    width: json.width,
+    url: `/api/media/${result.mediaId}`,
+    width: null,
   };
 }
 

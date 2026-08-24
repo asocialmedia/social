@@ -3,7 +3,7 @@
 // type, enforces resource limits, and runs antivirus. Only scanned, verified
 // bytes are promoted out of quarantine.
 
-import { prisma } from "@asm/db";
+import { enqueueMediaProcess, prisma } from "@asm/db";
 import {
   MEDIA_PIPELINE_VERSION,
   publishedKey,
@@ -258,6 +258,19 @@ export function processMediaScan(
             where: { id: mediaId },
           });
         }
+
+        // Derivative generation follows publication asynchronously; the
+        // row is already READY and servable at this point.
+        void (async () => {
+          try {
+            await enqueueMediaProcess(mediaId);
+          } catch (error: unknown) {
+            mediaLogger.error(
+              { error: String(error), mediaId },
+              "process enqueue failed"
+            );
+          }
+        })();
 
         // The quarantine copy has served its purpose.
         await s3.delete(media.originalKey).catch(() => null);
