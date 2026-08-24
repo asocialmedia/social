@@ -1,15 +1,7 @@
-import {
-  FileAudioIcon,
-  FileCode,
-  FileIcon,
-  Pause,
-  Play,
-  X,
-} from "lucide-react";
+import { FileAudioIcon, FileIcon, Pause, Play, X } from "lucide-react";
 import Image from "next/image";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
-import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 
@@ -94,31 +86,6 @@ const AttachmentPreviewInner = ({
             sizes="(max-width: 768px) 100vw, 512px"
             src={objectUrl}
           />
-        </div>
-      );
-    }
-
-    if (
-      mimeType.startsWith("text/") ||
-      mimeType === "application/json" ||
-      mimeType === "application/xml"
-    ) {
-      const language = getLanguageFromFileName(fileName);
-      return (
-        <div className="bg-primary/5 w-full rounded-2xl p-6">
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center">
-              <FileCode className="text-primary h-full w-full" />
-            </div>
-            <div className="w-full max-w-[250px] space-y-1">
-              <p className="truncate text-center text-sm font-medium">
-                {formatFileName(fileName)}
-              </p>
-              <p className="text-muted-foreground text-center text-xs">
-                {language}
-              </p>
-            </div>
-          </div>
         </div>
       );
     }

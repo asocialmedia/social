@@ -41,7 +41,7 @@ const AURA_REWARDS = {
   MAX_TOTAL: POST_CREATION_MAX_AURA,
 };
 
-type AttachmentType = "IMAGE" | "VIDEO" | "AUDIO" | "CODE";
+type AttachmentType = "IMAGE" | "VIDEO" | "AUDIO";
 
 // Fire-and-forget wrapper so post creation never blocks on the badge check
 // enqueue; failures are logged, never surfaced to the author.
@@ -69,7 +69,6 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
 
   const typeCount: Record<AttachmentType, number> = {
     AUDIO: 0,
-    CODE: 0,
     IMAGE: 0,
     VIDEO: 0,
   };

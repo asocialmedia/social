@@ -416,7 +416,6 @@ enum MediaType {
   VIDEO
   AUDIO
   DOCUMENT
-  CODE
 }
 
 model Vote {

@@ -40,7 +40,6 @@ export async function GET(
           MediaType.IMAGE,
           MediaType.VIDEO,
           MediaType.AUDIO,
-          MediaType.CODE,
           MediaType.DOCUMENT,
         ],
       },

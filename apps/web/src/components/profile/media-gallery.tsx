@@ -3,7 +3,7 @@
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { FileAudioIcon, FileCode, FileIcon, Loader2 } from "lucide-react";
+import { FileAudioIcon, FileIcon, Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,7 +17,6 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
-import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -283,23 +282,6 @@ const renderMediaTile = (item: Media) => {
         <FileAudioIcon className="text-primary h-8 w-8" />
         <span className="text-muted-foreground max-w-full truncate text-[10px]">
           {formatFileName(item.key)}
-        </span>
-      </div>
-    );
-  }
-
-  if (item.type === "CODE") {
-    return (
-      <div
-        className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-        style={{ aspectRatio }}
-      >
-        <FileCode className="text-primary h-8 w-8" />
-        <span className="text-muted-foreground max-w-full truncate text-[10px] font-medium">
-          {formatFileName(item.key)}
-        </span>
-        <span className="text-muted-foreground/70 max-w-full truncate text-[9px] tracking-wide uppercase">
-          {getLanguageFromFileName(item.key)}
         </span>
       </div>
     );

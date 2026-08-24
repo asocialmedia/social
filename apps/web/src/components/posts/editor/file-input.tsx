@@ -1,10 +1,4 @@
-import {
-  FileAudioIcon,
-  FileCode,
-  FileIcon,
-  ImageIcon,
-  Video,
-} from "lucide-react";
+import { FileAudioIcon, FileIcon, ImageIcon, Video } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 
@@ -19,7 +13,7 @@ interface FileInputProps {
   videoOnly?: boolean;
 }
 
-type FileButtonType = "image" | "audio" | "document" | "code";
+type FileButtonType = "image" | "audio" | "document";
 
 interface FileButtonProps {
   accept: string;
@@ -28,11 +22,7 @@ interface FileButtonProps {
   disabled: boolean;
   handleFileSelect: (files: FileList | null) => void;
   hoveredButton: FileButtonType | null;
-  icon:
-    | typeof ImageIcon
-    | typeof FileAudioIcon
-    | typeof FileIcon
-    | typeof FileCode;
+  icon: typeof ImageIcon | typeof FileAudioIcon | typeof FileIcon;
   inputRef: (node: HTMLInputElement | null) => void;
   label: string;
   setHoveredButton: (button: FileButtonType | null) => void;
@@ -175,14 +165,6 @@ const FILE_BUTTONS: Omit<
     label: "Documents",
     type: "document",
   },
-  {
-    accept:
-      ".ts,.tsx,.js,.jsx,.html,.css,.scss,.less,.json,.md,.py,.java,.c,.cpp,.cs,.rb,.php,.rs,.go,.kt,.swift,.xml,.yaml,.yml,.sql",
-    buttonType: "code",
-    icon: FileCode,
-    label: "Code Files",
-    type: "code",
-  },
 ];
 
 export const FileInput = ({
@@ -193,7 +175,6 @@ export const FileInput = ({
 }: FileInputProps) => {
   const inputRefs = useRef<Record<FileButtonType, HTMLInputElement | null>>({
     audio: null,
-    code: null,
     document: null,
     image: null,
   });

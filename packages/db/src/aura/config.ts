@@ -86,7 +86,6 @@ export const HN_SHARE_BONUS_AURA = 15;
 // Per-type base plus per-item bonus, capped per type.
 export const ATTACHMENT_BONUSES = {
   AUDIO: { base: 25, max: 16, perItem: 8 },
-  CODE: { base: 15, max: 45, perItem: 15 },
   IMAGE: { base: 20, max: 25, perItem: 5 },
   VIDEO: { base: 40, max: 20, perItem: 10 },
 } as const;
