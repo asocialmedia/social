@@ -52,8 +52,8 @@ const getMediaUrl = (mediaId: string, download = false) =>
 const MEDIA_LOAD_TIMEOUT_MS = 12_000;
 
 // Only IMAGE / SVG / VIDEO gate rendering on an async onLoad/onLoadedData event.
-// DOCUMENT / AUDIO render immediately and have no load callback, so they must
-// never be left in a loading state or the skeleton would stay forever.
+// AUDIO renders immediately with no load callback, so it must never be left
+// in a loading state or the skeleton would stay forever.
 function hasAsyncLoad(media: Media | undefined): boolean {
   return (
     !!media &&
@@ -221,12 +221,6 @@ const MediaViewer = ({
     setLoadAttempt((attempt) => attempt + 1);
     setMediaError(false);
     setIsLoading(hasAsyncLoad(currentMedia));
-  }, [currentMedia]);
-
-  const handleOpenPdf = useCallback(() => {
-    if (currentMedia) {
-      window.open(`/api/media/${currentMedia.id}`, "_blank");
-    }
   }, [currentMedia]);
 
   const handleDownload = async () => {
@@ -411,31 +405,6 @@ const MediaViewer = ({
     </div>
   );
 
-  const renderDocumentMedia = (item: Media) => (
-    <div className="bg-background/50 flex flex-col items-center gap-4 rounded-lg p-8">
-      <div className="bg-primary/10 flex h-32 w-32 items-center justify-center rounded-full">
-        <FileIcon className="text-primary h-16 w-16" />
-      </div>
-      <p className="font-medium">{formatFileName(item.key)}</p>
-      <p className="text-muted-foreground text-sm">{item.mimeType}</p>
-      <div className="flex gap-4">
-        <Button
-          disabled={isDownloading}
-          onClick={handleDownload}
-          variant="secondary"
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Download
-        </Button>
-        {item.mimeType === "application/pdf" && (
-          <Button onClick={handleOpenPdf} variant="outline">
-            View PDF
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-
   const renderMedia = () => {
     if (!currentMedia) {
       return <p className="text-destructive">No media available</p>;
@@ -450,9 +419,6 @@ const MediaViewer = ({
       }
       case "AUDIO": {
         return renderAudioMedia(currentMedia);
-      }
-      case "DOCUMENT": {
-        return renderDocumentMedia(currentMedia);
       }
       default: {
         return <p className="text-destructive">Unsupported media type</p>;

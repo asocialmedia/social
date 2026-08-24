@@ -548,7 +548,7 @@ export default function PostEditor({
                         <FileInput
                           disabled={isUploading || attachments.length >= 5}
                           onFilesSelected={startUpload}
-                          types={["audio", "document"]}
+                          types={["audio"]}
                         />
                       </div>
                     </DropdownMenuContent>

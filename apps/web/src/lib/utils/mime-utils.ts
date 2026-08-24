@@ -142,72 +142,6 @@ export const FILE_CONFIGS: Record<string, FileTypeConfig> = {
   // Code
 
   // Documents
-  pdf: {
-    category: "DOCUMENT",
-    mime: "application/pdf",
-    tag: { bg: "bg-red-500/30", icon: "FileTextIcon", text: "text-red-100" },
-  },
-  doc: {
-    category: "DOCUMENT",
-    mime: "application/msword",
-    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
-  },
-  docx: {
-    category: "DOCUMENT",
-    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
-  },
-  xls: {
-    category: "DOCUMENT",
-    mime: "application/vnd.ms-excel",
-    tag: {
-      bg: "bg-green-500/30",
-      icon: "FileTextIcon",
-      text: "text-green-100",
-    },
-  },
-  xlsx: {
-    category: "DOCUMENT",
-    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    tag: {
-      bg: "bg-green-500/30",
-      icon: "FileTextIcon",
-      text: "text-green-100",
-    },
-  },
-  ppt: {
-    category: "DOCUMENT",
-    mime: "application/vnd.ms-powerpoint",
-    tag: {
-      bg: "bg-orange-500/30",
-      icon: "FileTextIcon",
-      text: "text-orange-100",
-    },
-  },
-  pptx: {
-    category: "DOCUMENT",
-    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    tag: {
-      bg: "bg-orange-500/30",
-      icon: "FileTextIcon",
-      text: "text-orange-100",
-    },
-  },
-  txt: {
-    category: "DOCUMENT",
-    mime: "text/plain",
-    tag: { bg: "bg-gray-500/30", icon: "FileTextIcon", text: "text-gray-100" },
-  },
-  rtf: {
-    category: "DOCUMENT",
-    mime: "application/rtf",
-    tag: { bg: "bg-gray-500/30", icon: "FileTextIcon", text: "text-gray-100" },
-  },
-  md: {
-    category: "DOCUMENT",
-    mime: "text/markdown",
-    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
-  },
 };
 
 export const getContentType = (filename: string): string => {
@@ -275,13 +209,6 @@ export const getFileType = (mimeType: string) => {
   if (mimeType.startsWith("audio/")) {
     return "audio";
   }
-  if (
-    mimeType.startsWith("text/") ||
-    mimeType === "application/json" ||
-    mimeType === "application/xml"
-  ) {
-    return "code";
-  }
   return "document";
 };
 
@@ -295,7 +222,7 @@ export const getFileCategory = (mimeType: string): FileCategory => {
   if (mimeType.startsWith("audio/")) {
     return "AUDIO";
   }
-  return "DOCUMENT";
+  throw new Error(`Unsupported media mime type: ${mimeType}`);
 };
 
 export const normalizeMimeType = (mimeType: string | undefined): string => {

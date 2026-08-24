@@ -1,10 +1,9 @@
 import { FILE_CONFIGS } from "../utils/mime-utils";
 
-export type FileCategory = "IMAGE" | "VIDEO" | "AUDIO" | "DOCUMENT";
+export type FileCategory = "IMAGE" | "VIDEO" | "AUDIO";
 
 export const maxFileSizes = {
   AUDIO: 20 * 1024 * 1024,
-  DOCUMENT: 200 * 1024 * 1024,
   IMAGE: 25 * 1024 * 1024,
   VIDEO: 250 * 1024 * 1024,
 } as const;

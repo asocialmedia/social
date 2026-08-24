@@ -36,12 +36,7 @@ export async function GET(
     where: {
       post: { userId },
       type: {
-        in: [
-          MediaType.IMAGE,
-          MediaType.VIDEO,
-          MediaType.AUDIO,
-          MediaType.DOCUMENT,
-        ],
+        in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
       },
     },
   });

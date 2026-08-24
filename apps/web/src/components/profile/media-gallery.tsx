@@ -287,23 +287,6 @@ const renderMediaTile = (item: Media) => {
     );
   }
 
-  if (item.type === "DOCUMENT") {
-    return (
-      <div
-        className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-        style={{ aspectRatio }}
-      >
-        <FileIcon className="text-primary h-8 w-8" />
-        <span className="text-muted-foreground max-w-full truncate text-[10px] font-medium">
-          {formatFileName(item.key)}
-        </span>
-        <span className="text-muted-foreground/70 max-w-full truncate text-[9px] tracking-wide uppercase">
-          {item.mimeType}
-        </span>
-      </div>
-    );
-  }
-
   if (item.type !== "IMAGE") {
     return renderGenericFileTile(item);
   }
