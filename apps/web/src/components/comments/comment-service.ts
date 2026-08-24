@@ -1,21 +1,21 @@
 import { createCommentSchema } from "@asm/auth/validation";
 import {
+  applyFlatAward,
+  applyWeightedAward,
   cancelMediaCleanup,
+  COMMENT_CREATION_AURA,
+  COMMENT_RECEIVED_AURA,
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
   getCommentDataInclude,
+  invalidateAuraSignals,
   prisma,
   publishCommentCreated,
   publishCommentDeleted,
+  reverseExactAura,
 } from "@asm/db";
 import type { CommentData } from "@asm/db";
 import { updateTag } from "next/cache";
-
-// Aura awarded for participating in comment threads. Commenting credits both
-// the commenter and the user they reply to (the post author for a top-level
-// comment, the parent comment's author for a reply).
-const COMMENT_CREATION_AURA = 1;
-const COMMENT_RECEIVED_AURA = 1;
 
 // Deleting a comment with replies would orphan the tree, so deletes are soft:
 // the row stays (so the thread structure survives) but the content is blanked
@@ -141,39 +141,57 @@ export async function createComment(
       include: getCommentDataInclude(params.userId),
     });
 
-    await tx.user.update({
-      data: { aura: { increment: COMMENT_CREATION_AURA } },
+    // Commenter's participation stipend: flat (not credibility-weighted, so
+    // earning never entrenches), but under the daily income cap.
+    const commenter = await tx.user.findUnique({
+      select: { aura: true, createdAt: true },
       where: { id: params.userId },
     });
+    let creationAmount = 0;
+    let receivedAmount = 0;
 
-    await tx.auraLog.create({
-      data: {
-        amount: COMMENT_CREATION_AURA,
+    if (commenter) {
+      const creationAward = await applyFlatAward(tx, {
+        actorId: params.userId,
+        baseAmount: COMMENT_CREATION_AURA,
         commentId: created.id,
-        issuerId: params.userId,
+        now: new Date(),
         postId: params.postId,
+        recipientId: params.userId,
+        subjectToDailyCap: true,
         type: "COMMENT_CREATION",
-        userId: params.userId,
-      },
-    });
+      });
+      creationAmount = creationAward.amount;
+    }
 
+    // Receiving a thoughtful reply is engagement: weighted by the
+    // commenter's credibility and tapered per pair.
+    if (receivedRecipientId && commenter) {
+      const receivedAward = await applyWeightedAward(tx, {
+        actor: { aura: commenter.aura, createdAt: commenter.createdAt },
+        actorId: params.userId,
+        baseAmount: COMMENT_RECEIVED_AURA,
+        commentId: created.id,
+        now: new Date(),
+        postId: params.postId,
+        recipientId: receivedRecipientId,
+        subjectToDailyCap: true,
+        taperClass: "commentReceived",
+        type: "COMMENT_RECEIVED",
+      });
+      receivedAmount = receivedAward.amount;
+    }
+
+    if (creationAmount !== 0 || receivedAmount !== 0) {
+      await tx.comment.update({
+        data: { creationAura: creationAmount, receivedAura: receivedAmount },
+        where: { id: created.id },
+      });
+    }
+
+    // Notifications are independent of aura: a zero-weighted award must not
+    // silence them.
     if (receivedRecipientId) {
-      await tx.user.update({
-        data: { aura: { increment: COMMENT_RECEIVED_AURA } },
-        where: { id: receivedRecipientId },
-      });
-
-      await tx.auraLog.create({
-        data: {
-          amount: COMMENT_RECEIVED_AURA,
-          commentId: created.id,
-          issuerId: params.userId,
-          postId: params.postId,
-          type: "COMMENT_RECEIVED",
-          userId: receivedRecipientId,
-        },
-      });
-
       await Promise.all(
         [...notificationRecipientIds].map(async (recipientId) => {
           await tx.notification.create({
@@ -198,6 +216,17 @@ export async function createComment(
 
     return created;
   });
+
+  // Fire-and-forget signal refresh; TTL is the correctness backstop.
+  const signalUserIds = [params.userId];
+  if (receivedRecipientId) {
+    signalUserIds.push(receivedRecipientId);
+  }
+  try {
+    await invalidateAuraSignals(signalUserIds);
+  } catch (error) {
+    console.error("Failed to invalidate aura signals:", error);
+  }
 
   // The media is now attached to a comment, so the abandoned-upload cleanup
   // jobs must not delete it.
@@ -232,7 +261,14 @@ export async function softDeleteComment(
   userId: string
 ): Promise<CommentData> {
   const comment = await prisma.comment.findUnique({
-    select: { id: true, parentId: true, postId: true, userId: true },
+    select: {
+      creationAura: true,
+      id: true,
+      parentId: true,
+      postId: true,
+      receivedAura: true,
+      userId: true,
+    },
     where: { id: commentId },
   });
 
@@ -253,19 +289,12 @@ export async function softDeleteComment(
     throw new Error("Post not found");
   }
 
-  const parent = comment.parentId
-    ? await prisma.comment.findUnique({
-        select: { userId: true },
-        where: { id: comment.parentId },
-      })
-    : null;
-
-  const isSelfComment = comment.userId === post.userId;
-  let receivedRecipientId: string | null = null;
-  if (parent) {
-    receivedRecipientId = parent.userId === userId ? null : parent.userId;
-  } else if (!isSelfComment) {
-    receivedRecipientId = post.userId;
+  // Deleting reverses exactly the stored open positions. Legacy comments
+  // (created before the economy shipped) carry zeros and reverse nothing -
+  // conservative under-refund by design.
+  let affectedAuthorIds: string[] = [];
+  if (comment.creationAura !== 0 || comment.receivedAura !== 0) {
+    affectedAuthorIds = [comment.userId];
   }
 
   const deletedComment = await prisma.$transaction(async (tx) => {
@@ -275,45 +304,47 @@ export async function softDeleteComment(
       where: { id: commentId },
     });
 
-    // Only reverse aura that was actually awarded (comments created before
-    // this feature shipped never earned any).
-    const wasAwarded = await tx.auraLog.findFirst({
-      where: { commentId, type: "COMMENT_CREATION" },
-    });
-
-    if (wasAwarded) {
-      await tx.user.update({
-        data: { aura: { decrement: COMMENT_CREATION_AURA } },
-        where: { id: userId },
+    if (comment.creationAura !== 0) {
+      await reverseExactAura(tx, {
+        commentId,
+        issuerId: comment.userId,
+        openAmount: comment.creationAura,
+        postId: comment.postId,
+        recipientId: comment.userId,
+        targetUserId: comment.userId,
+        type: "COMMENT_CREATION",
       });
+    }
 
-      await tx.auraLog.create({
-        data: {
-          amount: -COMMENT_CREATION_AURA,
+    if (comment.receivedAura !== 0) {
+      // The recipient was whoever the COMMENT_RECEIVED ledger row paid when
+      // the comment was created; the ledger, not a recomputation, stays the
+      // source of truth.
+      const receivedRow = await tx.auraLog.findFirst({
+        orderBy: { createdAt: "desc" },
+        where: {
           commentId,
-          issuerId: userId,
-          postId: comment.postId,
-          type: "COMMENT_CREATION",
-          userId,
+          targetUserId: { not: null },
+          type: "COMMENT_RECEIVED",
         },
       });
 
-      if (receivedRecipientId) {
-        await tx.user.update({
-          data: { aura: { decrement: COMMENT_RECEIVED_AURA } },
-          where: { id: receivedRecipientId },
+      if (receivedRow) {
+        await reverseExactAura(tx, {
+          commentId,
+          issuerId: comment.userId,
+          openAmount: comment.receivedAura,
+          postId: comment.postId,
+          recipientId: receivedRow.targetUserId ?? receivedRow.userId,
+          targetUserId: receivedRow.targetUserId ?? receivedRow.userId,
+          type: "COMMENT_RECEIVED",
         });
-
-        await tx.auraLog.create({
-          data: {
-            amount: -COMMENT_RECEIVED_AURA,
-            commentId,
-            issuerId: userId,
-            postId: comment.postId,
-            type: "COMMENT_RECEIVED",
-            userId: receivedRecipientId,
-          },
-        });
+        if (
+          receivedRow.targetUserId &&
+          !affectedAuthorIds.includes(receivedRow.targetUserId)
+        ) {
+          affectedAuthorIds.push(receivedRow.targetUserId);
+        }
       }
     }
 
@@ -341,6 +372,14 @@ export async function softDeleteComment(
 
     return softDeleted;
   });
+
+  if (affectedAuthorIds.length > 0) {
+    try {
+      await invalidateAuraSignals([...new Set(affectedAuthorIds)]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
+    }
+  }
 
   try {
     await publishCommentDeleted(comment.postId, deletedComment);

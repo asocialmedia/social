@@ -132,8 +132,31 @@ mock.module("@asm/db", () => ({
   POST_VIEWS_KEY_PREFIX: "post:views:",
   POST_VIEWS_SET: "posts:with:views",
   SYSTEM_MODERATION_USER_ID: "sys-zeph",
+  // Mirrors the ledger writer: docks the configured penalty and writes the
+  // audit row with the acting admin as issuer.
+  applyModerationPenalty: (
+    t: typeof tx,
+    args: { actorId: string; postId?: string | null; recipientId: string }
+  ) => {
+    t.user.update({
+      data: { aura: { decrement: 100 } },
+      where: { id: args.recipientId },
+    });
+    t.auraLog.create({
+      data: {
+        amount: -100,
+        issuerId: args.actorId,
+        postId: args.postId ?? null,
+        targetUserId: args.recipientId,
+        type: "MODERATION_PENALTY",
+        userId: args.recipientId,
+      },
+    });
+    return Promise.resolve({ amount: -100 });
+  },
   enqueuePostDeleted: mockNoop,
   getPostDataInclude: mockInclude,
+  invalidateAuraSignals: mockNoop,
   prisma: mockPrisma,
   redis: { del: mockNoop, srem: mockNoop },
   unreadNotificationCache: { increment: mockIncrementUnread },
@@ -211,6 +234,7 @@ describe("updatePostModeration", () => {
         amount: -100,
         issuerId: "admin-1",
         postId: POST_ID,
+        targetUserId: AUTHOR_ID,
         type: "MODERATION_PENALTY",
         userId: AUTHOR_ID,
       },

@@ -13,6 +13,10 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: COMMENTER_ID },
 }));
 
+// Open positions stored on the created comment row (what deletion unwinds).
+let storedCreationAura = 0;
+let storedReceivedAura = 0;
+
 const state = {
   auraLogs: [] as Record<string, unknown>[],
   authorAura: 0,
@@ -33,38 +37,72 @@ function resetState() {
   state.published = [];
   state.createdParentId = undefined;
   state.createdRootId = undefined;
+  storedCreationAura = 0;
+  storedReceivedAura = 0;
+}
+
+function addAura(userId: string, delta: number) {
+  if (userId === COMMENTER_ID) {
+    state.commenterAura += delta;
+  }
+  if (userId === AUTHOR_ID) {
+    state.authorAura += delta;
+  }
+  if (userId === PARENT_AUTHOR_ID) {
+    state.parentAuthorAura += delta;
+  }
 }
 
 const mockTx = {
   auraLog: {
+    // Real ledger helpers read pair history and daily income through these;
+    // zeroed fixtures mean awards land at full price under an empty cap.
+    aggregate: () => Promise.resolve({ _sum: { amount: 0 } }),
+    count: () => Promise.resolve(0),
     create: (args: { data: Record<string, unknown> }) => {
       state.auraLogs.push(args.data);
+      return Promise.resolve({});
     },
-    // Simulates that the deleted comment was created after this feature
-    // shipped and therefore earned aura.
-    findFirst: () => ({ id: "log-1" }),
+    // Deletion looks up who was paid COMMENT_RECEIVED for this comment.
+    findFirst: () =>
+      Promise.resolve({
+        id: "log-1",
+        targetUserId: AUTHOR_ID,
+        userId: AUTHOR_ID,
+      }),
   },
   comment: {
     create: (args: { data: Record<string, unknown> }) => {
       state.createdParentId = args.data.parentId as string | undefined;
       state.createdRootId = args.data.rootId as string | null | undefined;
-      return { id: COMMENT_ID, postId: POST_ID, userId: COMMENTER_ID };
+      return {
+        id: COMMENT_ID,
+        postId: POST_ID,
+        userId: COMMENTER_ID,
+      };
     },
-    delete: (args: { where: { id: string } }) => ({
-      id: args.where.id,
-      postId: POST_ID,
-      userId: COMMENTER_ID,
-    }),
-    update: (args: { where: { id: string } }) => ({
-      deleted: true,
-      id: args.where.id,
-      postId: POST_ID,
-      userId: COMMENTER_ID,
-    }),
+    update: (args: {
+      data?: { creationAura?: number; receivedAura?: number };
+      where: { id: string };
+    }) => {
+      if (args.data?.creationAura !== undefined) {
+        storedCreationAura = args.data.creationAura;
+      }
+      if (args.data?.receivedAura !== undefined) {
+        storedReceivedAura = args.data.receivedAura;
+      }
+      return Promise.resolve({
+        deleted: true,
+        id: args.where.id,
+        postId: POST_ID,
+        userId: COMMENTER_ID,
+      });
+    },
   },
   notification: {
     create: (args: { data: Record<string, unknown> }) => {
       state.notifications.push(args.data);
+      return Promise.resolve({});
     },
     deleteMany: (args: {
       where: {
@@ -92,6 +130,7 @@ const mockTx = {
           (postId === undefined || notification.postId === postId)
         );
       });
+      return Promise.resolve({});
     },
     findMany: (args: {
       select?: unknown;
@@ -100,33 +139,36 @@ const mockTx = {
         type?: { in: string[] };
       };
     }) =>
-      state.notifications.filter((notification) => {
-        const typeMatches = (args.where.type?.in ?? []).includes(
-          notification.type as string
-        );
-        return (
-          (args.where.commentId === undefined ||
-            notification.commentId === args.where.commentId) &&
-          typeMatches
-        );
-      }),
+      Promise.resolve(
+        state.notifications.filter((notification) => {
+          const typeMatches = (args.where.type?.in ?? []).includes(
+            notification.type as string
+          );
+          return (
+            (args.where.commentId === undefined ||
+              notification.commentId === args.where.commentId) &&
+            typeMatches
+          );
+        })
+      ),
   },
   user: {
+    findUnique: (args: { select?: Record<string, unknown> }) => {
+      const select = args.select ?? {};
+      if ("aura" in select && "createdAt" in select) {
+        // A maximally credible commenter: weighted awards land at full price.
+        return Promise.resolve({ aura: 12_000, createdAt: new Date(0) });
+      }
+      return Promise.resolve(null);
+    },
     update: (args: {
       data: { aura?: { decrement?: number; increment?: number } };
       where: { id: string };
     }) => {
       const delta =
         (args.data.aura?.increment ?? 0) - (args.data.aura?.decrement ?? 0);
-      if (args.where.id === COMMENTER_ID) {
-        state.commenterAura += delta;
-      }
-      if (args.where.id === AUTHOR_ID) {
-        state.authorAura += delta;
-      }
-      if (args.where.id === PARENT_AUTHOR_ID) {
-        state.parentAuthorAura += delta;
-      }
+      addAura(args.where.id, delta);
+      return Promise.resolve({});
     },
   },
 };
@@ -134,26 +176,26 @@ const mockTx = {
 const mockPrisma = {
   $transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
   comment: {
-    create: mockTx.comment.create,
-    delete: mockTx.comment.delete,
     findUnique: (args: { where: { id: string } } & { select?: unknown }) => {
       if (args.where.id === COMMENT_ID) {
-        return {
+        return Promise.resolve({
+          creationAura: storedCreationAura,
           id: COMMENT_ID,
           parentId: null,
           postId: POST_ID,
+          receivedAura: storedReceivedAura,
           userId: COMMENTER_ID,
-        };
+        });
       }
       if (args.where.id === PARENT_ID) {
-        return {
+        return Promise.resolve({
           id: PARENT_ID,
           postId: POST_ID,
           rootId: null,
           userId: PARENT_AUTHOR_ID,
-        };
+        });
       }
-      return null;
+      return Promise.resolve(null);
     },
     update: mockTx.comment.update,
   },
@@ -163,7 +205,9 @@ const mockPrisma = {
         select?: unknown;
       }
     ) =>
-      args.where.id === POST_ID ? { id: POST_ID, userId: AUTHOR_ID } : null,
+      args.where.id === POST_ID
+        ? Promise.resolve({ id: POST_ID, userId: AUTHOR_ID })
+        : Promise.resolve(null),
   },
 };
 
@@ -174,6 +218,7 @@ mock.module("@asm/db", () => ({
   enqueueNotificationCreated: mockPublish,
   enqueueNotificationDeleted: mockPublish,
   getCommentDataInclude: () => ({ user: true }),
+  invalidateAuraSignals: () => Promise.resolve(),
   prisma: mockPrisma,
   publishCommentCreated: mockPublish,
   publishCommentDeleted: mockPublish,
@@ -190,26 +235,30 @@ describe("submitComment", () => {
     resetState();
     mockGetSession.mockClear();
     mockPublish.mockClear();
+    // Restore the default lookup: one test below overrides it for a
+    // cross-post rejection scenario.
     mockPrisma.comment.findUnique = (
       args: { where: { id: string } } & { select?: unknown }
     ) => {
       if (args.where.id === COMMENT_ID) {
-        return {
+        return Promise.resolve({
+          creationAura: storedCreationAura,
           id: COMMENT_ID,
           parentId: null,
           postId: POST_ID,
+          receivedAura: storedReceivedAura,
           userId: COMMENTER_ID,
-        };
+        });
       }
       if (args.where.id === PARENT_ID) {
-        return {
+        return Promise.resolve({
           id: PARENT_ID,
           postId: POST_ID,
           rootId: null,
           userId: PARENT_AUTHOR_ID,
-        };
+        });
       }
-      return null;
+      return Promise.resolve(null);
     };
   });
 
@@ -222,26 +271,32 @@ describe("submitComment", () => {
     expect(state.auraLogs).toEqual([]);
   });
 
-  test("credits aura to the commenter and the post author", async () => {
+  test("credits the commenter stipend and a weighted award to the post author", async () => {
     const comment = await submitComment({ content: "nice post", post });
 
     expect(comment.id).toBe(COMMENT_ID);
     expect(state.commenterAura).toBe(1);
-    expect(state.authorAura).toBe(1);
+    // Weighted received award at full veteran credibility.
+    expect(state.authorAura).toBe(2);
+    // Stored positions match what was actually applied.
+    expect(storedCreationAura).toBe(1);
+    expect(storedReceivedAura).toBe(2);
     expect(state.auraLogs).toEqual([
       {
         amount: 1,
         commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
+        targetUserId: COMMENTER_ID,
         type: "COMMENT_CREATION",
         userId: COMMENTER_ID,
       },
       {
-        amount: 1,
+        amount: 2,
         commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
+        targetUserId: AUTHOR_ID,
         type: "COMMENT_RECEIVED",
         userId: AUTHOR_ID,
       },
@@ -263,16 +318,18 @@ describe("submitComment", () => {
 
     await submitComment({ content: "self comment", post: ownPost });
 
-    // The commenter is the post author here, so the creation reward lands on
+    // The commenter is the post author here, so the creation stipend lands on
     // the author and no COMMENT_RECEIVED reward is granted.
     expect(state.authorAura).toBe(1);
     expect(state.commenterAura).toBe(0);
+    expect(storedReceivedAura).toBe(0);
     expect(state.auraLogs).toEqual([
       {
         amount: 1,
         commentId: COMMENT_ID,
         issuerId: AUTHOR_ID,
         postId: POST_ID,
+        targetUserId: AUTHOR_ID,
         type: "COMMENT_CREATION",
         userId: AUTHOR_ID,
       },
@@ -294,8 +351,9 @@ describe("submitComment", () => {
     expect(state.createdRootId).toBe(PARENT_ID);
     // The commenter earns creation aura.
     expect(state.commenterAura).toBe(1);
-    // The parent's author (not the post author) earns the received aura.
-    expect(state.parentAuthorAura).toBe(1);
+    // The parent's author (not the post author) earns the weighted received
+    // award.
+    expect(state.parentAuthorAura).toBe(2);
     expect(state.authorAura).toBe(0);
     // The parent's author is notified on a reply, and the post author is also
     // notified when a thread on their post gets a reply (both differ here).
@@ -326,22 +384,22 @@ describe("submitComment", () => {
       post,
     });
 
-    expect(state.commenterAura).toBe(0);
-    // The commenter (PARENT_AUTHOR_ID) earns creation aura in their own bucket.
+    // The commenter (PARENT_AUTHOR_ID) earns the creation stipend in their own
+    // bucket; no received award is granted for self-replies.
     expect(state.parentAuthorAura).toBe(1);
+    expect(state.commenterAura).toBe(0);
     expect(state.authorAura).toBe(0);
     expect(state.notifications).toEqual([]);
   });
 
   test("a reply to a comment on another post is rejected", async () => {
     mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
-    mockPrisma.comment.findUnique = () =>
-      ({
-        id: PARENT_ID,
-        postId: "other-post",
-        rootId: null,
-        userId: PARENT_AUTHOR_ID,
-      }) as never;
+    mockPrisma.comment.findUnique = (() => ({
+      id: PARENT_ID,
+      postId: "other-post",
+      rootId: null,
+      userId: PARENT_AUTHOR_ID,
+    })) as never;
 
     await expect(
       submitComment({
@@ -371,9 +429,11 @@ describe("deleteComment", () => {
     mockGetSession.mockClear();
   });
 
-  test("revokes aura from the commenter and the post author", async () => {
+  test("reverses exactly the stored positions of the deleted comment", async () => {
+    storedCreationAura = 1;
+    storedReceivedAura = 2;
     state.commenterAura = 1;
-    state.authorAura = 1;
+    state.authorAura = 2;
     state.notifications.push(
       {
         commentId: COMMENT_ID,
@@ -409,14 +469,16 @@ describe("deleteComment", () => {
         commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
+        targetUserId: COMMENTER_ID,
         type: "COMMENT_CREATION",
         userId: COMMENTER_ID,
       },
       {
-        amount: -1,
+        amount: -2,
         commentId: COMMENT_ID,
         issuerId: COMMENTER_ID,
         postId: POST_ID,
+        targetUserId: AUTHOR_ID,
         type: "COMMENT_RECEIVED",
         userId: AUTHOR_ID,
       },
