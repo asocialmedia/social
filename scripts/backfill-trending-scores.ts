@@ -205,8 +205,8 @@ async function acquireBackfillLock(): Promise<boolean> {
     if (waitedMs >= LOCK_MAX_WAIT_MS) {
       return false;
     }
-    // eslint-disable-next-line no-await-in-loop -- polling is inherently sequential
-    await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_MS));
+    // oxlint-disable-next-line no-await-in-loop -- polling is inherently sequential
+    await Bun.sleep(LOCK_WAIT_MS);
     waitedMs += LOCK_WAIT_MS;
   }
 }
