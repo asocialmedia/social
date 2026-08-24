@@ -161,6 +161,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
 
       if (validatedInput.mentions.length > 0) {
+        // Self-mentions are dropped server-side: a crafted request could
+        // otherwise farm MENTION_RECEIVED aura (and self-notifications) by
+        // naming the author's own account, even though the UI never offers
+        // that option.
         const validUsers = await tx.user.findMany({
           select: { id: true },
           where: {
@@ -171,8 +175,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         });
 
         const validUserIds = new Set(validUsers.map((u) => u.id));
-        validatedInput.mentions = validatedInput.mentions.filter((id) =>
-          validUserIds.has(id)
+        validatedInput.mentions = validatedInput.mentions.filter(
+          (id) => id !== sessionData.user.id && validUserIds.has(id)
         );
       }
 

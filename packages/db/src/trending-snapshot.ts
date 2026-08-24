@@ -44,6 +44,16 @@ export interface TrendingSnapshotCursor {
   score: number;
 }
 
+// True when a raw cursor belongs to the snapshot scheme rather than a bare
+// post id. Callers falling back from an unusable snapshot to live Postgres
+// ordering must strip these before using the value as a Prisma id cursor -
+// a tz1-prefixed payload is never a valid post id.
+export function isTrendingSnapshotCursor(
+  raw: string | undefined | null
+): boolean {
+  return Boolean(raw && raw.startsWith(CURSOR_PREFIX));
+}
+
 // Wire shape inside the encoded payload (shortened keys keep cursors small).
 interface EncodedTrendingCursor {
   g: unknown;

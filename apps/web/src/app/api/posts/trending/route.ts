@@ -3,6 +3,7 @@ import {
   fetchTrendingSnapshotPage,
   getPostDataInclude,
   hydrateViewCounts,
+  isTrendingSnapshotCursor,
   prisma,
 } from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
@@ -37,7 +38,9 @@ export async function GET(request: Request) {
       const ids = snapshot.entries.map((entry) => entry.id);
       const rows = await prisma.post.findMany({
         include: getPostDataInclude(userId),
-        where: { id: { in: ids } },
+        // Gusts must never surface here even if the worker snapshotted one:
+        // the live fallback excludes them, so the snapshot path must too.
+        where: { id: { in: ids }, isGust: false },
       });
       const byId = new Map(rows.map((row) => [row.id, row]));
 
@@ -61,12 +64,13 @@ export async function GET(request: Request) {
 
       const hydrated = await hydrateViewCounts(served.map((item) => item.row));
       const lastServed = served.at(-1);
+      // Filtered entries shrink the page below pageSize without meaning the
+      // feed is over - as long as something was served and the pinned
+      // snapshot (or its overfetch slice) may hold more, keep paginating.
       const mightContinue =
         consumedUpTo < snapshot.entries.length - 1 || snapshot.possiblyMore;
       const nextCursor =
-        hydrated.length === pageSize &&
-        lastServed !== undefined &&
-        mightContinue
+        lastServed !== undefined && mightContinue
           ? encodeTrendingCursor({
               generation: snapshot.generation,
               postId: lastServed.entry.id,
@@ -92,8 +96,13 @@ export async function GET(request: Request) {
       ? { isGust: false, moderated: false }
       : { isGust: false };
 
+    // A snapshot-scheme cursor (tz1...) is not a post id: when its pinned
+    // generation expired mid-scroll, restart live ordering from the top
+    // instead of handing Prisma a nonexistent cursor anchor and failing.
+    const liveCursor = isTrendingSnapshotCursor(cursor) ? undefined : cursor;
+
     const posts = await prisma.post.findMany({
-      cursor: cursor ? { id: cursor } : undefined,
+      cursor: liveCursor ? { id: liveCursor } : undefined,
       include: getPostDataInclude(userId),
       // trendingScore is maintained by the worker's flush job; the id
       // tiebreak keeps equal scores deterministic.
