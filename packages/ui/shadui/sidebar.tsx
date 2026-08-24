@@ -27,6 +27,7 @@ const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
+// oxlint-disable-next-line no-redeclare -- context idiom: type shares its name with the runtime context
 interface SidebarContext {
   isMobile: boolean;
   open: boolean;
@@ -686,12 +687,16 @@ const SidebarMenuSkeleton = ({
 }: (React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) & { ref?: React.Ref<HTMLDivElement | null> }) => {
-  // Random width between 50 to 90%.
-  const width = React.useMemo(
-    // eslint-disable-next-line react-compiler -- random skeleton width is intentional
-    () => `${Math.floor(Math.random() * 40) + 50}%`,
-    []
-  );
+  // Stable pseudo-random width between 50 to 90% derived from the instance
+  // id: pure during render (no Math.random), yet varied across skeletons.
+  const reactId = React.useId();
+  const width = React.useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < reactId.length; i += 1) {
+      hash = (hash * 31 + (reactId.codePointAt(i) ?? 0)) % 100_000;
+    }
+    return `${(hash % 40) + 50}%`;
+  }, [reactId]);
 
   return (
     <div

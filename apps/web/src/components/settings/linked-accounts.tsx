@@ -4,7 +4,7 @@ import { Link2 } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 

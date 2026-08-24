@@ -12,13 +12,22 @@ const WEBP_HEAD = Buffer.from(
   Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBP", "latin1")
 );
 const MP4_HEAD = Buffer.from(
-  Buffer.from("\u0000\u0000\u0000\u0018ftypisom\u0000\u0000\u0002\u0000isomiso2", "latin1")
+  Buffer.from(
+    "\u0000\u0000\u0000\u0018ftypisom\u0000\u0000\u0002\u0000isomiso2",
+    "latin1"
+  )
 );
 const M4A_HEAD = Buffer.from(
-  Buffer.from("\u0000\u0000\u0000\u0018ftypM4A \u0000\u0000\u0000\u0000m4a ", "latin1")
+  Buffer.from(
+    "\u0000\u0000\u0000\u0018ftypM4A \u0000\u0000\u0000\u0000m4a ",
+    "latin1"
+  )
 );
 const MOV_HEAD = Buffer.from(
-  Buffer.from("\u0000\u0000\u0000\u0014ftypqt  \u0000\u0000\u0000\u0000qt  ", "latin1")
+  Buffer.from(
+    "\u0000\u0000\u0000\u0014ftypqt  \u0000\u0000\u0000\u0000qt  ",
+    "latin1"
+  )
 );
 const EBML_WEBM_HEAD = Buffer.concat([
   Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),

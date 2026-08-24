@@ -42,7 +42,7 @@ import {
   useUpdateBannerMutation,
   useUpdateProfileMutation,
 } from "@/app/(main)/users/[username]/avatar-mutations";
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { useToast } from "@/lib/gooey-toast";
 import { cn, isGifUrl } from "@/lib/utils";

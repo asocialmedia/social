@@ -35,7 +35,7 @@ export const SpotlightProvider = ({ children }: SpotlightProviderProps) => {
   const [open, setOpen] = useState(false);
   const [initialQuery, setInitialQuery] = useState("");
   const openRef = useRef(open);
-  // eslint-disable-next-line react-compiler -- ref must mirror the latest open state for the keydown handler
+  // oxlint-disable-next-line react/refs -- ref must mirror the latest open state for the keydown handler
   openRef.current = open;
 
   const openSpotlight = useCallback((query?: string) => {

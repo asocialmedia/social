@@ -20,7 +20,7 @@ import type { ClipboardEvent } from "react";
 import { useDropzone } from "react-dropzone";
 
 import { useSession } from "@/app/(main)/session-provider";
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import UserAvatar from "@/components/layouts/user-avatar";

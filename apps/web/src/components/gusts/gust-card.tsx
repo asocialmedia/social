@@ -253,10 +253,11 @@ export const GustCard: React.FC<GustCardProps> = ({
   }, [triggerPlayPauseIcon]);
 
   const spawnAuraBurst = useCallback((clientX: number, clientY: number) => {
-    const id = (burstIdRef.current += 1);
+    const nextId = burstIdRef.current + 1;
+    burstIdRef.current = nextId;
     setAuraBursts((prev) => [
       ...prev.slice(-6),
-      { id, x: clientX, y: clientY },
+      { id: nextId, x: clientX, y: clientY },
     ]);
     if (burstTimerRef.current) {
       clearTimeout(burstTimerRef.current);

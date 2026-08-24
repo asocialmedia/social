@@ -20,7 +20,7 @@ import Image from "next/image";
 import { useCallback, useRef, useState } from "react";
 
 import { useUpdateAvatarMutation } from "@/app/(main)/users/[username]/avatar-mutations";
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
 
 interface GifCenteringDialogProps {

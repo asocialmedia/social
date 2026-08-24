@@ -10,7 +10,7 @@ import { Trash2 } from "lucide-react";
 import type * as React from "react";
 import { useCallback } from "react";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { useDeletePostMutation } from "@/posts/mutations";
 
 interface DeletePostDialogProps {

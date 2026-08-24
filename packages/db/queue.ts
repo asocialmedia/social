@@ -221,6 +221,61 @@ export async function cancelMediaCleanup(mediaId: string): Promise<void> {
   await getQueue(MEDIA_QUEUE).remove(`media-cleanup-${mediaId}`);
 }
 
+// ── Media pipeline jobs ────────────────────────────────────────────────────
+// Each stage enqueues the next on success; stable jobIds per (media, stage)
+// make duplicate enqueues and worker-crash retries idempotent.
+
+const MEDIA_JOB_DEFAULTS = {
+  attempts: 3,
+  backoff: { delay: 5000, type: "exponential" as const },
+  removeOnComplete: 500,
+  removeOnFail: 2000,
+};
+
+function mediaJobOptions(stage: string, mediaId: string) {
+  return {
+    ...MEDIA_JOB_DEFAULTS,
+    jobId: `${stage}-${mediaId}`,
+  };
+}
+
+export async function enqueueMediaScan(
+  mediaId: string,
+  options?: { backfill?: boolean }
+): Promise<void> {
+  await getQueue(MEDIA_QUEUE).add(
+    "media-scan",
+    { backfill: options?.backfill ?? false, mediaId },
+    mediaJobOptions("scan", mediaId)
+  );
+}
+
+export async function enqueueMediaProcess(mediaId: string): Promise<void> {
+  await getQueue(MEDIA_QUEUE).add(
+    "media-process",
+    { mediaId },
+    mediaJobOptions("process", mediaId)
+  );
+}
+
+export async function enqueueMediaAnalyze(mediaId: string): Promise<void> {
+  await getQueue(MEDIA_QUEUE).add(
+    "media-analyze",
+    { mediaId },
+    mediaJobOptions("analyze", mediaId)
+  );
+}
+
+export async function enqueueMediaDeleteCascade(
+  mediaId: string
+): Promise<void> {
+  await getQueue(MEDIA_QUEUE).add(
+    "media-delete-cascade",
+    { mediaId },
+    { ...MEDIA_JOB_DEFAULTS, jobId: undefined, removeOnComplete: true }
+  );
+}
+
 // Schedules the repeatable maintenance jobs (HN cache refresh every 15 min,
 // the trending-score recompute + snapshot publish every 5 min, the weekly
 // expired-token sweep, and the daily unverified-user sweep). Idempotent:

@@ -22,7 +22,7 @@ import { useForm } from "react-hook-form";
 import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import AddEmailBanner from "@/components/settings/add-email-banner";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";

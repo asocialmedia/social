@@ -24,7 +24,7 @@ export const VerificationProvider = ({
 
   useEffect(() => {
     const channel = new BroadcastChannel("email-verification");
-    // eslint-disable-next-line react-compiler -- the channel is only available client-side after mount
+    // oxlint-disable-next-line react/set-state-in-effect -- the channel is only available client-side after mount
     setVerificationChannel(channel);
 
     return () => {

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { isAudioTechMetadata, isVideoTechMetadata, MEDIA_PIPELINE_VERSION } from './types';
-import type { AudioTechMetadata } from './types';
+import {
+  isAudioTechMetadata,
+  isVideoTechMetadata,
+  MEDIA_PIPELINE_VERSION,
+} from "./types";
+import type { AudioTechMetadata } from "./types";
 
 describe("tech metadata guards", () => {
   test("video guard accepts valid payloads and rejects junk", () => {

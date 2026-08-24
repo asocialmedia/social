@@ -10,7 +10,7 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { useCallback } from "react";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 
 import { useDeleteCommentMutation } from "./mutations";
 
