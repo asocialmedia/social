@@ -249,12 +249,25 @@ describe("fetchTrendingSnapshotPage", () => {
     expect(page).toBeNull();
   });
 
-  test("flags possiblyMore only when the fetch hit its limit", async () => {
-    zrevrangeResult = Array.from({ length: 40 }, (_, i) =>
+  test("flags possiblyMore only when the fetch hit its entry limit", async () => {
+    // WITHSCORES returns member/score tuples: 80 flattened elements are 40
+    // served entries, exactly at the 20-page + 20-overfetch limit.
+    zrevrangeResult = Array.from({ length: 80 }, (_, i) =>
       i % 2 === 0 ? `p${i / 2}` : String(100 - i / 2)
     );
     const page = await snapshot.fetchTrendingSnapshotPage({ pageSize: 20 });
+    expect(page?.entries.length).toBe(40);
     expect(page?.possiblyMore).toBe(true);
+
+    // 30 entries (60 tuples) is a full page but below the limit: more may
+    // still exist upstream, yet the fetch itself was not cut off...
+    zrevrangeResult = Array.from({ length: 60 }, (_, i) =>
+      i % 2 === 0 ? `q${i / 2}` : String(100 - i / 2)
+    );
+    const underLimit = await snapshot.fetchTrendingSnapshotPage({
+      pageSize: 20,
+    });
+    expect(underLimit?.possiblyMore).toBe(false);
 
     zrevrangeResult = ["p-only", "1"];
     const short = await snapshot.fetchTrendingSnapshotPage({ pageSize: 20 });

@@ -146,7 +146,7 @@ if (import.meta.main) {
 
     const maintenanceWorker = new QueueWorker(
       "maintenance",
-      (job) => {
+      async (job) => {
         switch (job.name) {
           case "hn-refresh": {
             return processHnRefresh();
@@ -158,7 +158,15 @@ if (import.meta.main) {
             return processInactiveUsersSweep(logger);
           }
           case "trending-scores": {
-            return flushTrendingScores(logger);
+            const startedAtMs = Date.now();
+            try {
+              return await flushTrendingScores(logger);
+            } finally {
+              logger.info(
+                { durationMs: Date.now() - startedAtMs },
+                "trending-scores job finished"
+              );
+            }
           }
           default: {
             throw new Error(`Unknown maintenance job: ${job.name}`);

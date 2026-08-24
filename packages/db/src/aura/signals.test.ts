@@ -108,7 +108,7 @@ describe("getAuraSignals caching", () => {
       visibilityWeight: 1,
     };
     let reads = 0;
-    configureFakes({ cached: null });
+    const calls = configureFakes({ cached: null });
     fakePrisma.user.findUnique = () => {
       reads += 1;
       return Promise.resolve({ aura: 4200, createdAt: new Date(0) });
@@ -118,6 +118,11 @@ describe("getAuraSignals caching", () => {
 
     const first = await getAuraSignalsForUsers(["u-cache"]);
     expect(first.get("u-cache")?.lifetimeAura).toBe(4200);
+    // The miss must have written the computed payload back to Redis.
+    expect(calls.cacheWrites).toHaveLength(1);
+    const [writeKey, writeValue] = (calls.cacheWrites[0] ?? "").split("=");
+    expect(writeKey).toBe("aura:signals:u-cache");
+    expect(JSON.parse(writeValue ?? "{}")).toEqual(first.get("u-cache"));
 
     // Second lookup hits the cache path: no additional ledger read.
     const before = reads;

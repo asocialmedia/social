@@ -241,6 +241,8 @@ enum AuraType {
   // Shares are tracked per platform without a per-user actor, so like view
   // milestones these are attributed to aggregate attention, not one account.
   SHARE_MILESTONE
+  // Author bonus for sharing a story to Hacker News at creation time.
+  HN_SHARE_BONUS
   // Award to a user for being mentioned in someone's post. Unique per
   // (post, mentioned user) by the Mention table.
   MENTION_RECEIVED

@@ -61,6 +61,8 @@ interface EncodedTrendingCursor {
   s: unknown;
 }
 
+const KNOWN_GENERATIONS = new Set<string>(["a", "b"]);
+
 // Applies the per-rank tiebreak for the entry at `rank` (0-based) of the
 // score-desc, id-asc ordered list. Exported for tests and publishers.
 export function withUniqueTiebreak(score: number, rank: number): number {
@@ -94,7 +96,10 @@ export function decodeTrendingCursor(
       typeof parsed.g !== "string" ||
       typeof parsed.i !== "string" ||
       typeof parsed.s !== "number" ||
-      Number.isNaN(parsed.s)
+      Number.isNaN(parsed.s) ||
+      // Unknown generations would silently construct keys that never exist
+      // and fall through to live ordering; reject them at the cursor layer.
+      !KNOWN_GENERATIONS.has(parsed.g)
     ) {
       return null;
     }
@@ -141,7 +146,12 @@ export async function publishTrendingSnapshot(
     pipeline.zadd(key, ...flat);
   }
   pipeline.expire(key, TRENDING_SNAPSHOT_TTL_SECONDS);
-  await pipeline.exec();
+  const results = await pipeline.exec();
+  if (!results || results.some(([error]) => error !== null)) {
+    // A partially written shadow must never go live: abort before flipping
+    // so readers keep the previous generation until the next publish.
+    throw new Error("trending snapshot pipeline failed");
+  }
 
   // Flip last: readers only ever see a fully written generation.
   await redis.set(
@@ -237,6 +247,7 @@ export async function fetchTrendingSnapshotPage(options: {
   return {
     entries,
     generation,
-    possiblyMore: flat.length >= limit,
+    // `entries` (not raw WITHSCORES tuples) is the served-member count.
+    possiblyMore: entries.length >= limit,
   };
 }

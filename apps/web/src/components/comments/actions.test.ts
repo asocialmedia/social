@@ -408,17 +408,28 @@ describe("submitComment", () => {
     expect(state.authorAura).toBe(1);
     expect(storedReceivedAura).toBe(0);
     expect(storedPostReceivedAura).toBe(1);
-    expect(state.notifications).toEqual([]);
+    // The post author is still notified: thread activity in their post earns
+    // them awareness (and aura) even when the reply targets its own parent.
+    expect(state.notifications).toEqual([
+      {
+        commentId: COMMENT_ID,
+        issuerId: PARENT_AUTHOR_ID,
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "COMMENT",
+      },
+    ]);
   });
 
   test("a reply to a comment on another post is rejected", async () => {
     mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
-    mockPrisma.comment.findUnique = (() => ({
-      id: PARENT_ID,
-      postId: "other-post",
-      rootId: null,
-      userId: PARENT_AUTHOR_ID,
-    })) as never;
+    mockPrisma.comment.findUnique = () =>
+      Promise.resolve({
+        id: PARENT_ID,
+        postId: "other-post",
+        rootId: null,
+        userId: PARENT_AUTHOR_ID,
+      });
 
     await expect(
       submitComment({

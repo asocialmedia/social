@@ -33,6 +33,9 @@ const PROFILE_CACHE_TTL_SECONDS = 900;
 const PROFILE_SIGNAL_WINDOW_DAYS = 30;
 const PROFILE_SIGNAL_WINDOW_MS =
   PROFILE_SIGNAL_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+// Per-signal cap on the profile query: a hyper-active user cannot turn the
+// profile build into an unbounded scan. Newest signals win.
+const PROFILE_SIGNALS_TAKE = 500;
 
 export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:";
 
@@ -77,19 +80,27 @@ export async function buildAndCacheProfile(
   const [votes, bookmarks, comments, commentVotes, followedAuthorIds] =
     await Promise.all([
       prisma.vote.findMany({
+        orderBy: { createdAt: "desc" },
         select: { post: AUTHOR_TAGS_SELECT },
+        take: PROFILE_SIGNALS_TAKE,
         where: { createdAt: { gte: since }, userId, value: { gt: 0 } },
       }),
       prisma.bookmark.findMany({
+        orderBy: { createdAt: "desc" },
         select: { post: AUTHOR_TAGS_SELECT },
+        take: PROFILE_SIGNALS_TAKE,
         where: { createdAt: { gte: since }, userId },
       }),
       prisma.comment.findMany({
+        orderBy: { createdAt: "desc" },
         select: { post: AUTHOR_TAGS_SELECT },
+        take: PROFILE_SIGNALS_TAKE,
         where: { createdAt: { gte: since }, deleted: false, userId },
       }),
       prisma.commentVote.findMany({
+        orderBy: { createdAt: "desc" },
         select: { comment: { select: { post: AUTHOR_TAGS_SELECT } } },
+        take: PROFILE_SIGNALS_TAKE,
         where: { createdAt: { gte: since }, userId },
       }),
       fetchFollowedAuthorIds(userId),

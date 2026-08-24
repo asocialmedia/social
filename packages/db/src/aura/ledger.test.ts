@@ -203,7 +203,13 @@ describe("applyWeightedAward", () => {
     const where = state.aggregateQueries[0] as Record<string, unknown>;
     expect(where).toMatchObject({
       amount: { gt: 0 },
-      type: { notIn: ["POST_VIEWS_MILESTONE", "SHARE_MILESTONE"] },
+      type: {
+        notIn: [
+          "POST_VIEWS_MILESTONE",
+          "SHARE_MILESTONE",
+          "TRENDING_APPEARANCE",
+        ],
+      },
       userId: RECIPIENT,
     });
     const dayStart = (where.createdAt as { gte: Date }).gte;

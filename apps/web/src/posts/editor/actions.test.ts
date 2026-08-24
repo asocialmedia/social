@@ -10,7 +10,7 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 
 const state = {
   auraAwards: [] as { recipientId: string; type: string }[],
-  mentionCreates: [] as unknown,
+  mentionCreates: [] as { userId: string }[],
   notifications: [] as { recipientId: string; type: string }[],
 };
 

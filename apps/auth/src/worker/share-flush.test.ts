@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Imported from the aura config source: the @asm/db barrel is mocked below,
+// so the mock cannot re-export its real values. Keeps tier math in one place.
+import { SHARE_MILESTONE_TIERS } from "../../../../packages/db/src/aura/config";
+
 describe("share stream flush", () => {
   const executedArgs: string[] = [];
 
@@ -38,17 +42,43 @@ describe("share stream flush", () => {
   }[] = [];
   let shareTotals: { _sum: { shares: number | null }; postId: string }[] = [];
 
+  // Set to false to simulate a lost compare-and-set race on every post.
+  let casWins = true;
+
   const mockTx = {
     auraLog: {
+      // CAS flow writes one ledger row per claimed award.
+      create: mock((args: { data: Record<string, unknown> }) => {
+        milestoneState.auraLogs.push(args.data);
+        return Promise.resolve({});
+      }),
       createMany: mock((args: { data: Record<string, unknown>[] }) => {
         milestoneState.auraLogs.push(...args.data);
         return { count: args.data.length };
       }),
     },
     post: {
-      update: mock((args: { data: Record<string, unknown> }) => {
-        milestoneState.postUpdates.push(args.data);
-      }),
+      findMany: mock(() => milestonePosts),
+      // Mirrors the real CAS semantics: matches only when the row still
+      // carries the previously read awarded count.
+      updateMany: mock(
+        (args: {
+          data: { lastAwardedShareCount: number };
+          where: { id: string; lastAwardedShareCount: number };
+        }) => {
+          if (!casWins) {
+            return Promise.resolve({ count: 0 });
+          }
+          milestoneState.postUpdates.push({
+            id: args.where.id,
+            ...args.data,
+          });
+          return Promise.resolve({ count: 1 });
+        }
+      ),
+    },
+    shareStats: {
+      groupBy: mock(() => shareTotals),
     },
     user: {
       update: mock(
@@ -74,11 +104,7 @@ describe("share stream flush", () => {
       }
       return 1;
     }),
-    post: {
-      findMany: mock(() => milestonePosts),
-    },
     shareStats: {
-      groupBy: mock(() => shareTotals),
       upsert: mock((args: unknown) => {
         upsertCalls.push(args);
         return { id: "share-1" };
@@ -90,18 +116,14 @@ describe("share stream flush", () => {
     SHARE_CONSUMER_PREFIX: "share-worker",
     SHARE_GROUP: "share-flush",
     SHARE_STREAM: "share:stream",
-    // Faithful tier math matching SHARE_MILESTONE_TIERS: the flush worker
-    // awards share milestones through it.
+    // Real tier table from config; no duplicated milestone literals here.
     computeShareMilestoneAura: (
       lastAwardedShareCount: number,
       newTotalShares: number
     ) => {
       let aura = 0;
       let tiersCrossed = 0;
-      for (const tier of [
-        { aura: 10, threshold: 25 },
-        { aura: 50, threshold: 250 },
-      ]) {
+      for (const tier of SHARE_MILESTONE_TIERS) {
         if (
           lastAwardedShareCount < tier.threshold &&
           newTotalShares >= tier.threshold
@@ -125,11 +147,15 @@ describe("share stream flush", () => {
     milestoneState.auraLogs.length = 0;
     milestoneState.postUpdates.length = 0;
     milestoneState.userUpdates.length = 0;
+    casWins = true;
     mockExec.mockClear();
     mockPrisma.$transaction.mockClear();
     mockPrisma.shareStats.upsert.mockClear();
+    mockTx.auraLog.create.mockClear();
     mockTx.auraLog.createMany.mockClear();
-    mockTx.post.update.mockClear();
+    mockTx.post.updateMany.mockClear();
+    mockTx.post.findMany.mockClear();
+    mockTx.shareStats.groupBy.mockClear();
     mockTx.user.update.mockClear();
     mockRedis.xack.mockClear();
   });
@@ -145,7 +171,9 @@ describe("share stream flush", () => {
       "share:stats:post-1:twitter",
       "share:clicks:post-1:twitter",
     ]);
-    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    // One transaction for the shareStats upserts plus one for the
+    // milestone claim/payout pass.
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
     expect(mockPrisma.shareStats.upsert).toHaveBeenCalledTimes(1);
 
     const upsert = upsertCalls[0] as {
@@ -207,7 +235,9 @@ describe("share stream flush", () => {
     expect(milestoneState.userUpdates).toEqual([
       { id: "author-1", increment: 10 },
     ]);
-    expect(milestoneState.postUpdates).toEqual([{ lastAwardedShareCount: 30 }]);
+    expect(milestoneState.postUpdates).toEqual([
+      { id: "post-1", lastAwardedShareCount: 30 },
+    ]);
     expect(milestoneState.auraLogs).toHaveLength(1);
     expect(milestoneState.auraLogs[0]).toMatchObject({
       amount: 10,
@@ -234,5 +264,24 @@ describe("share stream flush", () => {
 
     expect(milestoneState.userUpdates).toHaveLength(0);
     expect(milestoneState.auraLogs).toHaveLength(0);
+  });
+
+  test("a lost compare-and-set race skips payout and ledger", async () => {
+    mockExec.mockResolvedValueOnce([
+      [null, "30"],
+      [null, null],
+    ]);
+    milestonePosts = [
+      { id: "post-1", lastAwardedShareCount: 10, userId: "author-1" },
+    ];
+    shareTotals = [{ _sum: { shares: 30 }, postId: "post-1" }];
+    casWins = false;
+
+    const { flushShareDeltas } = await import("./share-flush");
+    await flushShareDeltas([{ platform: "twitter", postId: "post-1" }]);
+
+    expect(milestoneState.userUpdates).toHaveLength(0);
+    expect(milestoneState.auraLogs).toHaveLength(0);
+    expect(milestoneState.postUpdates).toHaveLength(0);
   });
 });

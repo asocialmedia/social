@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Imported directly from the aura config source: this file mocks the
+// @asm/db barrel wholesale, so its factory cannot re-export real values.
+import { MODERATION_PENALTY_AURA } from "../../../../packages/db/src/aura/config";
+
 const POST_ID = "post1";
 const AUTHOR_ID = "author1";
 const OTHER_USER_ID = "user2";
@@ -139,12 +143,12 @@ mock.module("@asm/db", () => ({
     args: { actorId: string; postId?: string | null; recipientId: string }
   ) => {
     t.user.update({
-      data: { aura: { decrement: 100 } },
+      data: { aura: { decrement: MODERATION_PENALTY_AURA } },
       where: { id: args.recipientId },
     });
     t.auraLog.create({
       data: {
-        amount: -100,
+        amount: -MODERATION_PENALTY_AURA,
         issuerId: args.actorId,
         postId: args.postId ?? null,
         targetUserId: args.recipientId,
@@ -231,7 +235,7 @@ describe("updatePostModeration", () => {
     expect(auraPenalties).toEqual([AUTHOR_ID]);
     expect(auraLogs).toEqual([
       {
-        amount: -100,
+        amount: -MODERATION_PENALTY_AURA,
         issuerId: "admin-1",
         postId: POST_ID,
         targetUserId: AUTHOR_ID,

@@ -42,19 +42,33 @@ if [ "$diff_status" -ne 2 ] && [ "$diff_status" -ne 0 ]; then
   exit "$diff_status"
 fi
 
+# Prisma's enum-alter strategy fails when rows still carry a dropped value,
+# so unsupported media types are cleared before any schema sync. Only runs on
+# drift: a no-drift database cannot contain those values.
 if [ "$diff_status" -eq 2 ]; then
+  echo "Removing unsupported media types ahead of schema sync..."
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
+DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
+SQL
+
   echo "Schema drift detected. Pushing Prisma schema..."
   bunx prisma db push --config "$PRISMA_CONFIG_PATH"
+else
+  echo "No schema drift detected, database is in sync."
+fi
 
-  echo "Ensuring case-insensitive username uniqueness index..."
-  cat > /tmp/username-unique.sql <<'SQL'
+# Index creation is idempotent and cheap, so it runs on EVERY invocation:
+# drift-based gating would leave freshly created databases missing these
+# until the next schema change.
+echo "Ensuring case-insensitive username uniqueness index..."
+cat > /tmp/username-unique.sql <<'SQL'
 CREATE UNIQUE INDEX IF NOT EXISTS "users_username_lower_unique"
 ON "users" (LOWER("username"));
 SQL
-  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/username-unique.sql
+bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/username-unique.sql
 
-  echo "Ensuring single-admin and single-author constraints..."
-  cat > /tmp/single-slot-indexes.sql <<'SQL'
+echo "Ensuring single-admin and single-author constraints..."
+cat > /tmp/single-slot-indexes.sql <<'SQL'
 CREATE UNIQUE INDEX IF NOT EXISTS "users_admin_role_unique"
 ON "users" (role) WHERE role = 'admin';
 -- At most one user may hold the author badge. grantBadge stores it in the
@@ -66,10 +80,7 @@ ON "users" (badge) WHERE badge = 'author';
 CREATE UNIQUE INDEX IF NOT EXISTS "users_author_array_unique"
 ON "users" ((CASE WHEN 'author' = ANY(badges) THEN 'author' ELSE NULL END));
 SQL
-  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
-else
-  echo "No schema drift detected, database is in sync."
-fi
+bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
 
 # One-shot data backfills run here on every sync invocation. Each one guards
 # itself (marker table + advisory lock) so exactly zero or one of them does

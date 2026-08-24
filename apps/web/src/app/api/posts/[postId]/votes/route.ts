@@ -1,17 +1,12 @@
 import {
-  AMPLIFY_RECEIVE_AURA,
-  applyWeightedAward,
-  chargeMutingCost,
-  decomposeVoteTransition,
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
   getPostDataInclude,
   invalidateAuraSignals,
-  MUTE_RECEIVE_AURA,
   prisma,
-  reverseExactAura,
+  settleVoteTransition,
 } from "@asm/db";
-import type { Prisma, PostData } from "@asm/db";
+import type { PostData } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/db-transactions";
 import { getSessionFromApi } from "@/lib/session";
@@ -22,132 +17,7 @@ interface VoteInfo {
   userVote: number;
 }
 
-// Open economy positions carried by a vote row. awardedAura is the signed net
-// author-side amount currently applied (+amplify gain / -mute loss);
-// mutingCostAura is the muter honesty cost currently charged (always <= 0).
-interface OpenPositions {
-  awardedAura: number;
-  mutingCostAura: number;
-}
-
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
-
-// Settles the economy events of one vote transition against the open
-// positions stored on the existing vote row, returning the new totals to
-// persist. Removals reverse EXACTLY what is standing (weighting made amounts
-// vary over time), applications go through the weighted/tapered/capped award
-// pipeline. Self-engagement is zeroed inside the engine; self-mutes still
-// pay the muting cost.
-// oxlint-disable no-await-in-loop -- transition components share running totals and must settle strictly in order
-async function settleVoteEconomy(
-  tx: Prisma.TransactionClient,
-  input: {
-    actor: { aura: number; createdAt: Date };
-    actorId: string;
-    newValue: number;
-    oldValue: number;
-    postId: string;
-    recipientId: string;
-    positions: OpenPositions;
-  }
-): Promise<OpenPositions> {
-  let totalAwarded = input.positions.awardedAura;
-  let totalCost = input.positions.mutingCostAura;
-  const now = new Date();
-
-  for (const component of decomposeVoteTransition(
-    input.oldValue,
-    input.newValue
-  )) {
-    switch (component.kind) {
-      case "REMOVE_AMPLIFY": {
-        // Refund exactly the amplify gain that was standing, never the mute
-        // loss half of the signed field (a vote applies only one side).
-        const standingAmplify = Math.max(0, totalAwarded);
-        if (standingAmplify !== 0) {
-          await reverseExactAura(tx, {
-            issuerId: input.actorId,
-            openAmount: standingAmplify,
-            postId: input.postId,
-            recipientId: input.recipientId,
-            type: "POST_VOTE_REMOVED",
-          });
-          totalAwarded -= standingAmplify;
-        }
-        break;
-      }
-      case "APPLY_AMPLIFY": {
-        const { amount } = await applyWeightedAward(tx, {
-          actor: input.actor,
-          actorId: input.actorId,
-          baseAmount: AMPLIFY_RECEIVE_AURA,
-          now,
-          postId: input.postId,
-          recipientId: input.recipientId,
-          subjectToDailyCap: true,
-          taperClass: "amplify",
-          type: "POST_VOTE",
-        });
-        totalAwarded += amount;
-        break;
-      }
-      case "APPLY_MUTE": {
-        const { amount } = await applyWeightedAward(tx, {
-          actor: input.actor,
-          actorId: input.actorId,
-          baseAmount: -MUTE_RECEIVE_AURA,
-          now,
-          postId: input.postId,
-          recipientId: input.recipientId,
-          subjectToDailyCap: false,
-          type: "POST_VOTE_REMOVED",
-        });
-        totalAwarded += amount;
-
-        // Every mute costs its issuer, even on their own content.
-        const { amount: costAmount } = await chargeMutingCost(tx, {
-          muterId: input.actorId,
-          postId: input.postId,
-        });
-        totalCost += costAmount;
-        break;
-      }
-      case "REMOVE_MUTE": {
-        // Give the author back exactly the mute loss that was standing...
-        const standingMute = Math.min(0, totalAwarded);
-        if (standingMute !== 0) {
-          await reverseExactAura(tx, {
-            issuerId: input.actorId,
-            openAmount: standingMute,
-            postId: input.postId,
-            recipientId: input.recipientId,
-            type: "POST_VOTE",
-          });
-        }
-        totalAwarded = Math.max(0, totalAwarded);
-
-        // ...and refund the muter's honesty cost in full.
-        if (totalCost !== 0) {
-          await reverseExactAura(tx, {
-            issuerId: input.actorId,
-            openAmount: totalCost,
-            postId: input.postId,
-            recipientId: input.actorId,
-            type: "MUTING_COST",
-          });
-          totalCost = 0;
-        }
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-  }
-
-  return { awardedAura: totalAwarded, mutingCostAura: totalCost };
-}
-// oxlint-enable no-await-in-loop
 
 export async function GET(
   _req: Request,
@@ -234,7 +104,7 @@ export async function POST(
 
       const oldValue = existingVote?.value ?? 0;
 
-      const positions = await settleVoteEconomy(tx, {
+      const positions = await settleVoteTransition(tx, {
         actor: { aura: actor.aura, createdAt: actor.createdAt },
         actorId: user.id,
         newValue: value,
@@ -245,6 +115,11 @@ export async function POST(
         },
         postId,
         recipientId: post.userId,
+        types: {
+          amplifyApplied: "POST_VOTE",
+          amplifyRemoved: "POST_VOTE_REMOVED",
+          muteApplied: "POST_VOTE_REMOVED",
+        },
       });
 
       if (value === 0) {
@@ -387,7 +262,7 @@ export async function DELETE(
 
       const oldValue = existingVote?.value ?? 0;
 
-      await settleVoteEconomy(tx, {
+      await settleVoteTransition(tx, {
         actor: { aura: actor.aura, createdAt: actor.createdAt },
         actorId: user.id,
         newValue: 0,
@@ -398,6 +273,11 @@ export async function DELETE(
         },
         postId,
         recipientId: post.userId,
+        types: {
+          amplifyApplied: "POST_VOTE",
+          amplifyRemoved: "POST_VOTE_REMOVED",
+          muteApplied: "POST_VOTE_REMOVED",
+        },
       });
 
       if (existingVote) {

@@ -24,8 +24,11 @@ export async function flushTrendingScores(
 ): Promise<TrendingScoreFlushResult> {
   const log = resolveLogger(logger);
   return await withSpan("trending-score-flush", async () => {
+    // One clock for the whole run: window math AND every score decay use
+    // the same instant so historical runs and tests stay deterministic.
+    const effectiveNow = now ?? new Date();
     const windowStart = new Date(
-      (now ?? new Date()).getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000
+      effectiveNow.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000
     );
     let cursorId: string | undefined;
     let batches = 0;
@@ -58,6 +61,7 @@ export async function flushTrendingScores(
           bookmarkCount: post._count.bookmarks,
           commentCount: post._count.comments,
           createdAt: post.createdAt,
+          now: effectiveNow,
           viewCount: post.viewCount,
         }),
       }));

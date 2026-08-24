@@ -5,7 +5,7 @@ import {
   DAILY_INCOME_CAP,
   FOLLOW_GAINED_AURA,
 } from "./config";
-import { computeWeightedAura } from "./engine";
+import { computeDailyCapFactor, computeWeightedAura } from "./engine";
 
 // Farming simulations over the pure award pipeline. Each scenario models what
 // a coordinated abuser would actually do and asserts the economy's response:
@@ -32,11 +32,7 @@ describe("self-engagement farming", () => {
     let income = 0;
     let awards = 0;
     while (awards < 500) {
-      const factor =
-        income < DAILY_INCOME_CAP
-          ? 1
-          : Math.max(0.15, DAILY_INCOME_CAP / income);
-      const award = Math.trunc(1 * factor);
+      const award = Math.trunc(1 * computeDailyCapFactor(income));
       if (award === 0) {
         break;
       }

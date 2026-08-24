@@ -154,8 +154,9 @@ describe("scoreCandidate", () => {
       EMPTY_PROFILE,
       { now: NOW }
     ).traction;
-    // Sublinear: 10x the aura does not come close to 10x the points.
-    expect(hundredX / tenX).toBeLessThan(10 * (10 / tenX));
+    // Sublinear: 10x the aura yields strictly less than 10x the points,
+    // asserted directly against the linear growth ratio.
+    expect(hundredX / tenX).toBeLessThan(10);
     expect(tenX).toBeGreaterThan(0);
     expect(hundredX).toBeGreaterThan(tenX);
   });

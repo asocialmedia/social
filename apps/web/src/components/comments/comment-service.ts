@@ -100,6 +100,11 @@ export async function createComment(
     notificationRecipientIds.add(post.userId);
   }
 
+  // Award amounts survive the transaction for post-commit signal refresh.
+  let creationAmount = 0;
+  let receivedAmount = 0;
+  let postReceivedAmount = 0;
+
   const comment = await prisma.$transaction(async (tx) => {
     // Eddies carry images and GIFs only, uploaded by the commenter. A crafted
     // request could attach another user's media, a video, or a stale id, so
@@ -147,8 +152,6 @@ export async function createComment(
       select: { aura: true, createdAt: true },
       where: { id: params.userId },
     });
-    let creationAmount = 0;
-    let receivedAmount = 0;
 
     if (commenter) {
       const creationAward = await applyFlatAward(tx, {
@@ -166,7 +169,6 @@ export async function createComment(
 
     // Receiving a thoughtful reply is engagement: weighted by the
     // commenter's credibility and tapered per pair.
-    let postReceivedAmount = 0;
     if (receivedRecipientId && commenter) {
       const receivedAward = await applyWeightedAward(tx, {
         actor: { aura: commenter.aura, createdAt: commenter.createdAt },
@@ -226,8 +228,9 @@ export async function createComment(
     }
 
     // Notifications are independent of aura: a zero-weighted award must not
-    // silence them.
-    if (receivedRecipientId) {
+    // silence them. The gate is the recipient set itself so self-replies
+    // still notify the post author when one exists.
+    if (notificationRecipientIds.size > 0) {
       await Promise.all(
         [...notificationRecipientIds].map(async (recipientId) => {
           await tx.notification.create({
@@ -253,13 +256,17 @@ export async function createComment(
     return created;
   });
 
-  // Fire-and-forget signal refresh; TTL is the correctness backstop.
-  const signalUserIds = [params.userId];
+  // Fire-and-forget signal refresh; TTL is the correctness backstop. The
+  // thread-cumulative award moves the post author's signals too.
+  const signalUserIds = new Set([params.userId]);
   if (receivedRecipientId) {
-    signalUserIds.push(receivedRecipientId);
+    signalUserIds.add(receivedRecipientId);
+  }
+  if (postReceivedAmount !== 0) {
+    signalUserIds.add(post.userId);
   }
   try {
-    await invalidateAuraSignals(signalUserIds);
+    await invalidateAuraSignals([...signalUserIds]);
   } catch (error) {
     console.error("Failed to invalidate aura signals:", error);
   }

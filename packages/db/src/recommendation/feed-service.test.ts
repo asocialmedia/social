@@ -29,7 +29,7 @@ let poolRows: {
   viewCount: number;
 }[] = [];
 
-const fullPostRows: Record<string, { id: string }> = {};
+let fullPostRows: Record<string, { id: string }> = {};
 
 const mockPrisma = {
   bookmark: { findMany: mock(() => []) },
@@ -90,9 +90,9 @@ describe("getPersonalizedFeedPage", () => {
     mockPrisma.comment.findMany.mockClear();
     mockPrisma.vote.findMany.mockClear();
     storedProfiles.set("fyp-profile:user-1", JSON.stringify(CACHED_PROFILE));
-    for (const [id, row] of Object.entries(fullPostRows)) {
-      fullPostRows[id] = row;
-    }
+    // Reset the include-fetch fixture so rows staged by one test cannot
+    // leak into later tests.
+    fullPostRows = {};
   });
 
   test("anchors page 2 at the oldest pool post, not the last served one", async () => {

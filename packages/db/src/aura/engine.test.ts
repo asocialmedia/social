@@ -73,18 +73,27 @@ describe("computeCredibility", () => {
     );
   });
 
-  test("is monotonically non-decreasing in both inputs", () => {
+  test("is monotonically non-decreasing in account age", () => {
     let previous = -Infinity;
-    for (let aura = -1000; aura <= 20_000; aura += 2100) {
-      for (let days = 0; days <= 180; days += 15) {
-        const value = computeCredibility({
-          accountAgeDays: days,
-          lifetimeAura: aura,
-        });
-        expect(value).toBeGreaterThanOrEqual(previous);
-        previous = value;
-      }
-      previous = -Infinity;
+    for (let days = 0; days <= 180; days += 15) {
+      const value = computeCredibility({
+        accountAgeDays: days,
+        lifetimeAura: 5000,
+      });
+      expect(value).toBeGreaterThanOrEqual(previous);
+      previous = value;
+    }
+  });
+
+  test("is monotonically non-decreasing in lifetime aura", () => {
+    let previous = -Infinity;
+    for (let aura = -1000; aura <= 20_000; aura += 1000) {
+      const value = computeCredibility({
+        accountAgeDays: 45,
+        lifetimeAura: aura,
+      });
+      expect(value).toBeGreaterThanOrEqual(previous);
+      previous = value;
     }
   });
 });

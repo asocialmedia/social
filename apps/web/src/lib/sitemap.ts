@@ -101,6 +101,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
     select: { createdAt: true, id: true },
     take: SITEMAP_URL_LIMIT,
     where: {
+      isGust: false,
       moderated: false,
       user: { banned: false },
     },

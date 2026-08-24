@@ -1,12 +1,10 @@
 import {
-  DAILY_CAP_FLOOR_RATIO,
-  DAILY_INCOME_CAP,
   MODERATION_PENALTY_AURA,
   MUTING_COST_AURA,
   PAIR_TAPER_WINDOW_DAYS,
   TAPER_CLASSES,
 } from "./config";
-import { computeWeightedAura } from "./engine";
+import { computeDailyCapFactor, computeWeightedAura } from "./engine";
 
 // The ONLY code paths allowed to mutate User.aura or write AuraLog rows live
 // in this file (plus the view-flush worker's batched raw-SQL path, which
@@ -50,6 +48,7 @@ export type AuraEventType =
   | "COMMENT_VOTE_REMOVED"
   | "FOLLOW_GAINED"
   | "FOLLOW_GIVEN"
+  | "HN_SHARE_BONUS"
   | "MENTION_RECEIVED"
   | "MODERATION_PENALTY"
   | "MUTING_COST"
@@ -182,12 +181,11 @@ export async function applyFlatAward(
       })
     : 0;
 
-  const capFactor =
-    input.subjectToDailyCap && recipientIncomeToday >= DAILY_INCOME_CAP
-      ? Math.max(DAILY_CAP_FLOOR_RATIO, DAILY_INCOME_CAP / recipientIncomeToday)
-      : 1;
-
-  const amount = Math.trunc(input.baseAmount * capFactor);
+  // Same soft-cap curve as weighted awards: untouched under the cap,
+  // decaying as CAP/income past it, floored at the trickle rate.
+  const amount = input.subjectToDailyCap
+    ? Math.trunc(input.baseAmount * computeDailyCapFactor(recipientIncomeToday))
+    : Math.trunc(input.baseAmount);
 
   if (amount === 0) {
     return { amount: 0 };
@@ -348,7 +346,9 @@ async function countPriorInteractions(
 }
 
 // Positive interpersonal + creation income received today (UTC), excluding
-// attention milestones. Drives the soft daily cap.
+// attention milestones AND platform recognition awards (trending card):
+// like milestones these bypass the daily cap entirely, so they must not
+// consume any of its budget either. Drives the soft daily cap.
 async function getEngagementIncomeToday(
   tx: Tx,
   input: { now: Date; recipientId: string }
@@ -360,7 +360,13 @@ async function getEngagementIncomeToday(
     where: {
       amount: { gt: 0 },
       createdAt: { gte: dayStart },
-      type: { notIn: ["POST_VIEWS_MILESTONE", "SHARE_MILESTONE"] },
+      type: {
+        notIn: [
+          "POST_VIEWS_MILESTONE",
+          "SHARE_MILESTONE",
+          "TRENDING_APPEARANCE",
+        ],
+      },
       userId: input.recipientId,
     },
   });

@@ -314,7 +314,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           postId: post.id,
           recipientId: sessionData.user.id,
           subjectToDailyCap: true,
-          type: "POST_ATTACHMENT_BONUS",
+          type: "HN_SHARE_BONUS",
         });
       }
 
@@ -359,8 +359,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     });
 
     // Signal refresh after commit; failures only cost cache freshness.
+    // Mentioned users earned aura too, so their signals refresh in the same
+    // call.
+    const signalUserIds = new Set([sessionData.user.id]);
+    for (const userId of validatedInput.mentions) {
+      signalUserIds.add(userId);
+    }
     try {
-      await invalidateAuraSignals([sessionData.user.id]);
+      await invalidateAuraSignals([...signalUserIds]);
     } catch (error) {
       console.error("Failed to invalidate aura signals:", error);
     }
