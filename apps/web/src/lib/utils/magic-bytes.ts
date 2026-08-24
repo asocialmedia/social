@@ -52,16 +52,6 @@ export function sniffFileSignature(
   const head = buffer.subarray(0, Math.min(buffer.length, 512));
 
   if (declaredMime.startsWith("image/")) {
-    if (declaredMime === "image/svg+xml") {
-      const text = head.toString("utf-8").trimStart();
-      const looksLikeSvg =
-        text.startsWith("<?xml") ||
-        text.startsWith("<svg") ||
-        text.startsWith("<!--");
-      return looksLikeSvg
-        ? { ok: true }
-        : { ok: false, reason: "File does not look like an SVG document" };
-    }
     const matched = IMAGE_SIGNATURES.some((check) => check(head));
     return matched
       ? { ok: true }
@@ -125,12 +115,6 @@ export function sniffFileSignature(
         : { ok: false, reason: "File content does not look like M4A" };
     }
     return { ok: true };
-  }
-
-  if (declaredMime === "application/pdf") {
-    return asciiAt(head, "%PDF", 0)
-      ? { ok: true }
-      : { ok: false, reason: "File content does not look like a PDF" };
   }
 
   // Office documents are zip containers.
