@@ -1,4 +1,9 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  getPersonalizedFeedPage,
+  getPostDataInclude,
+  hydrateViewCounts,
+  prisma,
+} from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
@@ -25,23 +30,44 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
-  const where: Prisma.PostWhereInput = excludeModerated
-    ? { isGust: false, moderated: false }
-    : { isGust: false };
-  const posts = await prisma.post.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
-    include: getPostDataInclude(userId),
-    orderBy: { createdAt: "desc" },
-    take: pageSize + 1,
-    where,
-  });
+  // Personalization only shapes the first page: signed-in users with no
+  // cursor get the ranked pool. The personalized page's anchor cursor hands
+  // control back to strict recency below, and every post it served is newer
+  // than that anchor, so deeper pages can never repeat a ranked post.
+  let data: PostsPage | null = null;
+  if (userId && !cursor) {
+    const personalized = await getPersonalizedFeedPage({
+      excludeModerated,
+      pageSize,
+      userId,
+    });
+    if (personalized.posts.length > 0) {
+      data = {
+        nextCursor: personalized.anchorCursor,
+        posts: await hydrateViewCounts(personalized.posts),
+      };
+    }
+  }
 
-  const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
-  const nextCursor = posts.length > pageSize ? posts[pageSize].id : null;
-  const data: PostsPage = {
-    nextCursor,
-    posts: hydrated,
-  };
+  if (!data) {
+    // Guests, cursor pages, and cold-start fallbacks all use plain recency.
+    const where: Prisma.PostWhereInput = excludeModerated
+      ? { isGust: false, moderated: false }
+      : { isGust: false };
+    const posts = await prisma.post.findMany({
+      cursor: cursor ? { id: cursor } : undefined,
+      include: getPostDataInclude(userId),
+      orderBy: { createdAt: "desc" },
+      take: pageSize + 1,
+      where,
+    });
+
+    const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
+    data = {
+      nextCursor: posts.length > pageSize ? posts[pageSize].id : null,
+      posts: hydrated,
+    };
+  }
 
   const responseHeaders = userId
     ? { "cache-control": "private, no-cache", vary: "Cookie" }
