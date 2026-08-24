@@ -47,9 +47,10 @@ const AUTHOR_TAGS_SELECT = {
 } as const;
 
 export interface PersonalizedFeedPage {
-  // Id of the last served post. The route uses it as the cursor for strict
-  // chronological continuation once the personalized pages run out, which
-  // guarantees page 2+ never repeats anything served here.
+  // Id of the OLDEST post in the candidate pool. The route uses it as the
+  // cursor for strict recency continuation: everything newer than this post
+  // was in the pool (so ranking already had its say), and everything older
+  // streams in gap-free, so page 1 -> page 2 can neither repeat nor skip.
   anchorCursor: string | null;
   posts: PostData[];
 }
@@ -163,6 +164,18 @@ async function getProfile(userId: string): Promise<CachedProfile> {
   return await buildAndCacheProfile(userId);
 }
 
+// Drops the cached taste profile so the next feed request rebuilds it from
+// fresh engagement. Best-effort by design: callers fire this after bookmark /
+// vote / comment mutations so a user's own actions shape their very next
+// feed load instead of waiting out the 15-minute TTL.
+export async function invalidateFypProfile(userId: string): Promise<void> {
+  try {
+    await redis.del(fypProfileKey(userId));
+  } catch (error) {
+    logger.warn({ error }, "fyp profile invalidation failed");
+  }
+}
+
 // Fetches the personalized first page for a signed-in user. Empty posts mean
 // there was nothing worth ranking; the caller falls back to recency.
 export async function getPersonalizedFeedPage(options: {
@@ -180,7 +193,7 @@ export async function getPersonalizedFeedPage(options: {
     prisma.post.findMany({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
-        _count: { select: { comments: true } },
+        _count: { select: { bookmarks: true, comments: true } },
         aura: true,
         createdAt: true,
         id: true,
@@ -209,6 +222,7 @@ export async function getPersonalizedFeedPage(options: {
     const candidate: CandidatePost = {
       aura: post.aura,
       authorId: post.userId,
+      bookmarkCount: post._count.bookmarks,
       commentCount: post._count.comments,
       createdAt: post.createdAt,
       id: post.id,
@@ -246,7 +260,11 @@ export async function getPersonalizedFeedPage(options: {
     .filter((post): post is PostData => post !== undefined);
 
   return {
-    anchorCursor: rankedIds.at(-1) ?? null,
+    // Oldest pool post, NOT the last served one: ranking drops pool members
+    // (page cutoff, diversity caps), so anchoring on served posts would let
+    // unserved newer posts fall between the pages forever. Everything newer
+    // than the oldest pool post was ranked; everything older streams in gap-free.
+    anchorCursor: pool.at(-1)?.id ?? null,
     posts: orderedPosts,
   };
 }

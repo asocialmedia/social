@@ -15,6 +15,7 @@ function post(patch: Partial<CandidatePost>): CandidatePost {
   return {
     aura: 0,
     authorId: "author-1",
+    bookmarkCount: 0,
     commentCount: 0,
     createdAt: hoursAgo(1),
     id: "p1",
@@ -233,6 +234,26 @@ describe("scoreCandidate", () => {
     expect(scoreCandidate(webPost, webUser, { now: NOW })).toBeGreaterThan(
       scoreCandidate(rustPost, webUser, { now: NOW })
     );
+  });
+
+  test("traction weights match the trending ranker (bookmark=5, comment=3)", () => {
+    // Identical aura-equivalent raw traction must yield identical scores,
+    // keeping For-You and trending in agreement on what engagement is worth.
+    const byAura = scoreCandidateComponents(post({ aura: 15 }), EMPTY_PROFILE, {
+      now: NOW,
+    }).traction;
+    const byBookmarks = scoreCandidateComponents(
+      post({ bookmarkCount: 3 }),
+      EMPTY_PROFILE,
+      { now: NOW }
+    ).traction;
+    const byComments = scoreCandidateComponents(
+      post({ commentCount: 5 }),
+      EMPTY_PROFILE,
+      { now: NOW }
+    ).traction;
+    expect(byBookmarks).toBe(byAura);
+    expect(byComments).toBe(byAura);
   });
 
   test("is deterministic for identical inputs", () => {

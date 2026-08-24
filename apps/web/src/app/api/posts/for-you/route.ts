@@ -11,6 +11,18 @@ import { getSessionFromApi } from "@/lib/session";
 // A valid take value is a positive integer only (no partial-prefix parsing).
 const TAKE_PATTERN = /^[1-9]\d*$/;
 
+// Prisma rejects cursors whose row no longer exists (P2025). A feed cursor can
+// outlive its post — deleted between pages, or moderated away — and a stale
+// anchor must degrade to a fresh page instead of 500ing the scroll.
+function isMissingCursorError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2025"
+  );
+}
+
 export async function GET(request: Request) {
   // Guests can browse the public feed; per-user fields simply resolve to empty.
   const session = await getSessionFromApi();
@@ -32,8 +44,8 @@ export async function GET(request: Request) {
 
   // Personalization only shapes the first page: signed-in users with no
   // cursor get the ranked pool. The personalized page's anchor cursor hands
-  // control back to strict recency below, and every post it served is newer
-  // than that anchor, so deeper pages can never repeat a ranked post.
+  // control back to strict recency below; it points at the oldest candidate
+  // pool post, so page 2 resumes gap-free right where the pool ended.
   let data: PostsPage | null = null;
   if (userId && !cursor) {
     const personalized = await getPersonalizedFeedPage({
@@ -54,13 +66,29 @@ export async function GET(request: Request) {
     const where: Prisma.PostWhereInput = excludeModerated
       ? { isGust: false, moderated: false }
       : { isGust: false };
-    const posts = await prisma.post.findMany({
-      cursor: cursor ? { id: cursor } : undefined,
-      include: getPostDataInclude(userId),
-      orderBy: { createdAt: "desc" },
-      take: pageSize + 1,
-      where,
-    });
+
+    let posts;
+    try {
+      posts = await prisma.post.findMany({
+        cursor: cursor ? { id: cursor } : undefined,
+        include: getPostDataInclude(userId),
+        orderBy: { createdAt: "desc" },
+        take: pageSize + 1,
+        where,
+      });
+    } catch (error) {
+      if (!isMissingCursorError(error)) {
+        throw error;
+      }
+      // The anchor post vanished mid-scroll; restart the feed from the top
+      // rather than failing the request.
+      posts = await prisma.post.findMany({
+        include: getPostDataInclude(userId),
+        orderBy: { createdAt: "desc" },
+        take: pageSize + 1,
+        where,
+      });
+    }
 
     const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
     data = {

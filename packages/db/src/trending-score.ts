@@ -26,6 +26,9 @@ const MS_PER_HOUR = 3_600_000;
 // Pure time-decayed momentum score for a single post. Higher is hotter.
 // Deterministic: callers pass `now` explicitly (worker jobs, backfills, tests);
 // production call sites that omit it get the current wall clock.
+// Signed on purpose: a net-negative post scores BELOW every zero-engagement
+// post and only decays back toward neutral as it ages, so downvote-bait sinks
+// instead of tying with ignored posts.
 export function computeTrendingScore(input: TrendingScoreInput): number {
   const now = input.now ?? new Date();
   const ageHours = Math.max(
@@ -39,7 +42,5 @@ export function computeTrendingScore(input: TrendingScoreInput): number {
     input.bookmarkCount * BOOKMARK_WEIGHT +
     input.viewCount * VIEW_WEIGHT;
 
-  // Aura can go negative on downvoted posts; a net-negative post must never
-  // trend, so clamp the aggregate at zero rather than letting it leak below.
-  return Math.max(0, engagement) / (ageHours + AGE_FLOOR_HOURS) ** AGE_EXPONENT;
+  return engagement / (ageHours + AGE_FLOOR_HOURS) ** AGE_EXPONENT;
 }

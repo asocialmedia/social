@@ -8,6 +8,7 @@ import type { UserProfile } from "./profile";
 export interface CandidatePost {
   aura: number;
   authorId: string;
+  bookmarkCount: number;
   commentCount: number;
   createdAt: Date;
   id: string;
@@ -39,8 +40,14 @@ const FOLLOWED_AUTHOR_BASELINE = 0.4;
 const TAG_OVERLAP_SATURATION = 0.3;
 // Freshness decays exponentially, halving every FRESHNESS_HALF_LIFE_HOURS.
 const FRESHNESS_HALF_LIFE_HOURS = 12;
-// Combined (aura + comments) at which early traction saturates its band.
-const TRACTION_SATURATION_COUNT = 150;
+// Early-traction weights mirror the trending score's signal weights
+// (comment = 3 aura, bookmark = 5 aura) so both rankers agree on how much
+// each engagement kind matters. Views are excluded: passive and gameable,
+// they would stretch the log band without adding signal.
+const TRACTION_COMMENT_WEIGHT = 3;
+const TRACTION_BOOKMARK_WEIGHT = 5;
+// Aura-equivalent traction at which the band saturates.
+const TRACTION_SATURATION_COUNT = 300;
 
 const AUTHOR_AFFINITY_POINTS = 40;
 const TAG_OVERLAP_POINTS = 30;
@@ -83,7 +90,10 @@ export function scoreCandidateComponents(
   );
   const freshness = clamp01(0.5 ** (ageHours / FRESHNESS_HALF_LIFE_HOURS));
 
-  const tractionRaw = Math.max(0, post.aura) + Math.max(0, post.commentCount);
+  const tractionRaw =
+    Math.max(0, post.aura) +
+    Math.max(0, post.commentCount) * TRACTION_COMMENT_WEIGHT +
+    Math.max(0, post.bookmarkCount) * TRACTION_BOOKMARK_WEIGHT;
   const traction = clamp01(
     Math.log1p(tractionRaw) / Math.log1p(TRACTION_SATURATION_COUNT)
   );

@@ -1,4 +1,4 @@
-import { getCommentDataInclude, prisma } from "@asm/db";
+import { getCommentDataInclude, invalidateFypProfile, prisma } from "@asm/db";
 import type { CommentsPage } from "@asm/db";
 
 import { createComment } from "@/components/comments/comment-service";
@@ -28,6 +28,10 @@ export async function POST(
       postId,
       userId: user.id,
     });
+    // Best-effort: the commenter's own new engagement should shape their next
+    // For-You load instead of aging out with the 15-minute profile TTL. Never
+    // rejects (internally swallowed), so fire-and-forget is safe.
+    void invalidateFypProfile(user.id);
     return Response.json(comment);
   } catch (error) {
     const message =

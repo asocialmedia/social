@@ -34,7 +34,7 @@ describe("computeTrendingScore", () => {
     expect(score).toBeCloseTo(21 / 2 ** 1.5, 10);
   });
 
-  test("clamps net-negative engagement to 0 so downvoted posts never trend", () => {
+  test("sinks net-negative posts below every zero-engagement post", () => {
     const score = computeTrendingScore({
       aura: -50,
       bookmarkCount: 0,
@@ -43,10 +43,25 @@ describe("computeTrendingScore", () => {
       now: NOW,
       viewCount: 0,
     });
-    expect(score).toBe(0);
+    expect(score).toBeLessThan(0);
+    // Gravity still applies to the magnitude: -50 / (1h + 2h)^1.5.
+    expect(score).toBeCloseTo(-50 / 3 ** 1.5, 10);
   });
 
-  test("negative aura is offset by stronger positive signals before clamping", () => {
+  test("a downvoted post ranks below an ignored post of the same age", () => {
+    const scoreOf = (aura: number) =>
+      computeTrendingScore({
+        aura,
+        bookmarkCount: 0,
+        commentCount: 0,
+        createdAt: hoursAgo(3),
+        now: NOW,
+        viewCount: 40,
+      });
+    expect(scoreOf(-30)).toBeLessThan(scoreOf(0));
+  });
+
+  test("negative aura is offset by stronger positive signals before sinking", () => {
     const score = computeTrendingScore({
       aura: -5,
       bookmarkCount: 2,

@@ -133,6 +133,35 @@ describe("GET /api/posts/for-you", () => {
     expect(body.nextCursor).toBeNull();
   });
 
+  test("recovers instead of 500ing when the cursor post was deleted", async () => {
+    // First attempt hits Prisma's P2025 (cursor row gone); the retry runs
+    // cursor-less and serves the top of the feed.
+    mockPrisma.post.findMany.mockImplementationOnce(() => {
+      throw Object.assign(new Error("Record not found"), { code: "P2025" });
+    });
+
+    const res = await GET(
+      new Request("http://localhost/api/posts/for-you?cursor=deleted-post")
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.posts.map((p: PostRow) => p.id)).toEqual([
+      "chrono-2",
+      "chrono-1",
+    ]);
+    expect(body.nextCursor).toBeNull();
+  });
+
+  test("still surfaces unexpected database errors", async () => {
+    mockPrisma.post.findMany.mockImplementationOnce(() => {
+      throw new Error("connection refused");
+    });
+    await expect(
+      GET(new Request("http://localhost/api/posts/for-you?cursor=whatever"))
+    ).rejects.toThrow("connection refused");
+  });
+
   test("falls back to recency when the personalized pool is empty", async () => {
     mockGetPersonalizedFeedPage.mockResolvedValueOnce({
       anchorCursor: null,
