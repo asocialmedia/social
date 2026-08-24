@@ -8,9 +8,7 @@ import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 import { env } from "../../env";
-import { validateFile } from "./utils/file-validation";
 import { sniffFileSignature } from "./utils/magic-bytes";
-import { getContentType, getFileConfigFromMime } from "./utils/mime-utils";
 
 // Client-fixable upload rejections (type, size, content signature). Routes
 // map this to a 4xx response instead of a 500 so the browser shows the
@@ -125,88 +123,6 @@ export const generatePresignedUrl = async (key: string) => {
   }
 
   return url;
-};
-
-// buffer lets callers read the file bytes once and reuse them (e.g. the upload
-// route also feeds the same buffer to video thumbnail extraction), halving peak
-// memory for large uploads instead of reading the whole file twice.
-export const uploadToAsmob = async (
-  file: File,
-  userId: string,
-  buffer?: Buffer
-) => {
-  if (!(file && userId)) {
-    throw new Error("File and userId are required");
-  }
-
-  try {
-    console.log("Starting upload:", {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-    });
-
-    validateFile(file);
-
-    const bucketOk = await validateBucket();
-    if (!bucketOk) {
-      throw new Error(`Object storage bucket "${ASMOB_BUCKET}" does not exist`);
-    }
-
-    const fileConfig = getFileConfigFromMime(file.type);
-    if (!fileConfig) {
-      throw new Error(`Unsupported file type: ${file.name} (${file.type})`);
-    }
-    const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
-    const uniquePrefix = `${Date.now()}-${crypto.randomUUID()}`;
-    const key = `${userId}/${uniquePrefix}-${cleanFileName}`;
-    const extension = file.name.split(".").pop()?.toLowerCase() || "";
-
-    let fileBuffer: Buffer;
-    try {
-      if (buffer) {
-        fileBuffer = buffer;
-      } else {
-        const arrayBuffer = await file.arrayBuffer();
-        fileBuffer = Buffer.from(arrayBuffer);
-      }
-    } catch (error) {
-      console.error("Buffer conversion error:", error);
-      throw new Error("Failed to process file data", { cause: error });
-    }
-
-    await asmobClient.send(
-      new PutObjectCommand({
-        Body: fileBuffer,
-        Bucket: ASMOB_BUCKET,
-        ContentType: getContentType(file.name),
-        Key: key,
-        Metadata: {
-          category: fileConfig.category,
-          fileType: extension,
-          originalName: file.name,
-          uploadedAt: new Date().toISOString(),
-          userId,
-        },
-      })
-    );
-
-    const url = getPublicUrl(key);
-
-    return {
-      extension,
-      key,
-      mimeType: file.type,
-      originalName: file.name,
-      size: file.size,
-      tag: fileConfig.tag,
-      type: fileConfig.category,
-      url,
-    };
-  } catch (error) {
-    console.error("Object storage upload error:", error);
-    throw error;
-  }
 };
 
 export const checkFileExists = async (key: string) => {

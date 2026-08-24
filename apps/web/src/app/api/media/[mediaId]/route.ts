@@ -33,6 +33,7 @@ async function getMediaObject(mediaId: string) {
       id: true,
       key: true,
       mimeType: true,
+      publishedKey: true,
       size: true,
       status: true,
       thumbnailKey: true,
@@ -59,8 +60,17 @@ function isServableMedia(
   if (media.status === "READY") {
     return true;
   }
-  // Legacy fallback: pre-pipeline rows have a real key and no lifecycle.
-  return media.key.length > 0;
+  // Pipeline rows published before derivatives existed serve their
+  // published original; pre-pipeline rows fall back to the legacy key.
+  return Boolean(media.publishedKey) || media.key.length > 0;
+}
+
+// Resolution order matters after legacy GC retires the old object: prefer
+// the pipeline's content-hashed original, then fall back to the legacy key.
+function resolveObjectKey(
+  media: NonNullable<Awaited<ReturnType<typeof getMediaObject>>>
+): string {
+  return media.publishedKey || media.key;
 }
 
 // Ownership columns are NOT immutable: a draft upload starts unlinked
@@ -184,7 +194,9 @@ export async function GET(
     // Video thumbnails live under their own key; serving them through this
     // route keeps the bucket private while giving every consumer one URL.
     const objectKey =
-      isThumbnail && media.thumbnailKey ? media.thumbnailKey : media.key;
+      isThumbnail && media.thumbnailKey
+        ? media.thumbnailKey
+        : resolveObjectKey(media);
     // Browsers ask for a byte range when loading <video>/<audio> and when
     // seeking. Forward the request to storage so only the requested chunk is
     // transferred instead of the whole file on every interaction. Thumbnails

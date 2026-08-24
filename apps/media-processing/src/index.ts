@@ -27,6 +27,7 @@ if (import.meta.main) {
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analyze");
   const { workerEnv } = await import("./env");
+  const { registerBackfillSchedulers } = await import("./backfill");
 
   let running = true;
 
@@ -93,6 +94,9 @@ if (import.meta.main) {
     }
   });
 
+  // Self-healing backfill watchdog + legacy object GC (daily sweeps).
+  const sweepWorker = await registerBackfillSchedulers(bullConnection());
+
   mediaWorker.on("completed", (job) => {
     mediaLogger.debug({ jobId: job.id, name: job.name }, "media job completed");
   });
@@ -115,7 +119,7 @@ if (import.meta.main) {
     running = false;
     mediaLogger.info({}, "media-processing shutting down");
     healthServer.stop(true);
-    await Promise.allSettled([mediaWorker.close()]);
+    await Promise.allSettled([mediaWorker.close(), sweepWorker.close()]);
     await (telemetry as Telemetry).shutdown().catch(() => null);
     process.exit(0);
   };

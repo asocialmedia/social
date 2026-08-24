@@ -15,7 +15,7 @@ export class ClamAvUnavailableError extends Error {
   override name = "ClamAvUnavailableError";
 }
 
-function parseResponse(raw: string): ClamAvVerdict {
+export function parseResponse(raw: string): ClamAvVerdict {
   // Responses look like "stream: OK\0" or "stream: Eicar-Signature FOUND\0".
   const trimmed = raw.replaceAll("\0", "").trim();
   if (/^stream: OK$/i.test(trimmed) || /^OK$/i.test(trimmed)) {

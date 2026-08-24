@@ -53,7 +53,7 @@ interface FfprobeOutput {
   };
 }
 
-function parseRate(rate: string | undefined): number {
+export function parseRate(rate: string | undefined): number {
   if (!rate) {
     return 0;
   }

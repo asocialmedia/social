@@ -1,9 +1,13 @@
 import { prisma } from "@asm/db";
-import { hlsBaseFromMasterKey, isSafeHlsFilename } from "@asm/media";
+import { hlsBaseFromMasterKey } from "@asm/media";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { decideMediaAccess } from "@/lib/media-access";
+import {
+  DERIVATIVE_MIME_BY_EXT,
+  parseVariantRequest,
+} from "@/lib/media-variants";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
 import { getWebLogger } from "@/lib/otel";
 import { getSessionFromApi } from "@/lib/session";
@@ -14,42 +18,6 @@ import { getSessionFromApi } from "@/lib/session";
 //   audio     audio-opus (webm), audio-aac (m4a), wave-peaks.json
 // Derivatives exist only for READY media; the lookup doubles as the lifecycle
 // gate. Object keys never reach the client.
-
-const DERIVATIVE_MIME_BY_EXT: Record<string, string> = {
-  jpg: "image/jpeg",
-  json: "application/json",
-  m3u8: "application/vnd.apple.mpegurl",
-  m4a: "audio/mp4",
-  m4s: "video/iso.segment",
-  mp4: "video/mp4",
-  webm: "audio/webm",
-  webp: "image/webp",
-};
-
-function parseVariantRequest(
-  segments: string[]
-): { kind: string; variant: string } | { hlsFile: string } | null {
-  const path = segments.join("/");
-  if (!path || path.length > 200) {
-    return null;
-  }
-  if (path.startsWith("hls/")) {
-    const file = path.slice(4);
-    return isSafeHlsFilename(file) ? { hlsFile: file } : null;
-  }
-  const match = path.match(
-    /^(?<kind>[a-z-]+)-(?<variant>[a-z0-9]+)\.(?<ext>webp|jpg|json)$/
-  );
-  if (match?.groups) {
-    return { kind: match.groups.kind, variant: match.groups.variant };
-  }
-  // Single-segment names without variant: poster.jpg, cover.jpg
-  const simple = path.match(/^(?<kind>[a-z]+)\.(?<ext>jpg)$/);
-  if (simple?.groups) {
-    return { kind: simple.groups.kind, variant: "default" };
-  }
-  return null;
-}
 
 export async function GET(
   request: Request,
