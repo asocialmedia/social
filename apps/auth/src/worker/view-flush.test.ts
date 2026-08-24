@@ -106,8 +106,8 @@ describe("flushViewDeltas", () => {
     // Only post-1 has a counter; missing-post has no counter value.
     expect(mockExec).toHaveBeenCalledTimes(2); // one pipeline for getdel, one for srem
     expect(result.flushedPosts).toBe(1);
-    // post-1 goes 40 -> 52 (12 new views), crossing the 50-view step once = +1
-    expect(result.auraAwarded).toBe(1);
+    // post-1 goes 0-awarded -> 52 total views: five full 10-view steps = +5
+    expect(result.auraAwarded).toBe(5);
 
     const postUpdate = executed.find(
       (entry): entry is { query: string; args: unknown[] } =>

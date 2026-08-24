@@ -1,7 +1,6 @@
 import type { TransactionClient } from "../../prisma/generated/prisma/internal/prismaNamespace";
 import prisma from "../prisma";
 import { redis } from "../redis";
-
 import { TRENDING_CARD_AURA } from "./config";
 import { invalidateAuraSignals } from "./signals";
 
@@ -18,53 +17,56 @@ function trendingCardKey(userId: string, now: Date): string {
   return `${TRENDING_CARD_KEY_PREFIX}${utcDay}:${userId}`;
 }
 
+async function awardOnce(userId: string, now: Date): Promise<boolean> {
+  try {
+    const claimed = await redis.set(
+      trendingCardKey(userId, now),
+      "1",
+      "EX",
+      // Two days of TTL comfortably covers the UTC-day dedupe window.
+      172_800,
+      "NX"
+    );
+    if (claimed !== "OK") {
+      return false;
+    }
+  } catch {
+    // Redis unavailable: skip rather than risk double-paying.
+    return false;
+  }
+
+  try {
+    await prisma.$transaction(async (tx: TransactionClient) => {
+      await tx.user.update({
+        data: { aura: { increment: TRENDING_CARD_AURA } },
+        where: { id: userId },
+      });
+      await tx.auraLog.create({
+        data: {
+          amount: TRENDING_CARD_AURA,
+          issuerId: userId,
+          targetUserId: userId,
+          type: "TRENDING_APPEARANCE",
+          userId,
+        },
+      });
+    });
+  } catch {
+    // Balance write failed: release nothing - the claim stands for today,
+    // which errs conservative (under-pay) instead of double-paying.
+    return false;
+  }
+
+  await invalidateAuraSignals([userId]);
+  return true;
+}
+
 export async function awardTrendingCardPresence(
   userIds: string[],
   now: Date = new Date()
 ): Promise<number> {
-  let awardedCount = 0;
-
-  for (const userId of userIds) {
-    try {
-      const claimed = await redis.set(
-        trendingCardKey(userId, now),
-        "1",
-        "EX",
-        // Two days of TTL comfortably covers the UTC-day dedupe window.
-        172_800,
-        "NX"
-      );
-      if (claimed !== "OK") {
-        continue;
-      }
-    } catch {
-      // Redis unavailable: skip rather than risk double-paying.
-      continue;
-    }
-
-    try {
-      await prisma.$transaction(async (tx: TransactionClient) => {
-        await tx.user.update({
-          data: { aura: { increment: TRENDING_CARD_AURA } },
-          where: { id: userId },
-        });
-        await tx.auraLog.create({
-          data: {
-            amount: TRENDING_CARD_AURA,
-            issuerId: userId,
-            targetUserId: userId,
-            type: "TRENDING_APPEARANCE",
-            userId,
-          },
-        });
-      });
-      awardedCount += 1;
-      await invalidateAuraSignals([userId]);
-    } catch {
-      // Balance write failed: release nothing - the claim stands for today,
-      // which errs conservative (under-pay) instead of double-paying.
-    }
-  }
-
-  return awardedCount;
+  const results = await Promise.all(
+    userIds.map((userId) => awardOnce(userId, now))
+  );
+  return results.filter(Boolean).length;
 }
