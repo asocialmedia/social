@@ -5,6 +5,7 @@ import {
   SHARE_CONSUMER_PREFIX,
   SHARE_GROUP,
   SHARE_STREAM,
+  computeShareMilestoneAura,
 } from "@asm/db";
 
 import { resolveLogger, withSpan } from "./log";
@@ -21,6 +22,87 @@ interface ShareDelta {
   platform: string;
   postId: string;
   shares: number;
+}
+
+// Awards view-style attention milestones when a post's TOTAL share count
+// crosses a tier. Shares carry no per-user actor (they are aggregated per
+// platform), so like view milestones these are attributed to aggregate
+// attention, bypass weighting/tapering/capping, and are fully ledgered.
+async function awardShareMilestones(
+  postIds: string[],
+  log: WorkerLogger
+): Promise<void> {
+  if (postIds.length === 0) {
+    return;
+  }
+
+  // Everything happens inside one transaction: reads, the compare-and-set on
+  // lastAwardedShareCount, and the payouts. A concurrent flush either wins
+  // the CAS (and pays) or sees stale counts and skips - never both.
+  await prisma.$transaction(async (tx) => {
+    const posts = await tx.post.findMany({
+      select: { id: true, lastAwardedShareCount: true, userId: true },
+      where: { id: { in: postIds } },
+    });
+
+    const totals = await tx.shareStats.groupBy({
+      _sum: { shares: true },
+      by: ["postId"],
+      where: { postId: { in: postIds } },
+    });
+    const totalByPost = new Map(
+      totals.map((row) => [row.postId, row._sum.shares ?? 0])
+    );
+
+    let claimed = 0;
+    for (const post of posts) {
+      const totalShares = totalByPost.get(post.id) ?? 0;
+      const { aura } = computeShareMilestoneAura(
+        post.lastAwardedShareCount,
+        totalShares
+      );
+      if (aura <= 0) {
+        continue;
+      }
+
+      // Compare-and-set: only the flush that transitions THIS previously
+      // awarded count may pay for it. Losers skip without double-paying.
+      // oxlint-disable-next-line no-await-in-loop -- each claim must settle before evaluating the next post's award against committed state
+      const claimedRow = await tx.post.updateMany({
+        data: { lastAwardedShareCount: totalShares },
+        where: {
+          id: post.id,
+          lastAwardedShareCount: post.lastAwardedShareCount,
+        },
+      });
+      if (claimedRow.count !== 1) {
+        continue;
+      }
+
+      // Attention milestones are the only positive awards allowed to bypass
+      // the daily income cap, so they increment directly here (mirroring
+      // view-flush's batched raw-SQL path).
+      // oxlint-disable-next-line no-await-in-loop -- sequential within the claiming transaction by design
+      await tx.user.update({
+        data: { aura: { increment: aura } },
+        where: { id: post.userId },
+      });
+      // oxlint-disable-next-line no-await-in-loop -- ledger row pairs with the payout above
+      await tx.auraLog.create({
+        data: {
+          amount: aura,
+          issuerId: post.userId,
+          postId: post.id,
+          targetUserId: post.userId,
+          type: "SHARE_MILESTONE",
+          userId: post.userId,
+        },
+      });
+      claimed += 1;
+    }
+
+    log.info({ awardedPosts: claimed }, "share milestones awarded");
+  });
 }
 
 // Reads and clears the buffered share/click counters for a post+platform and
@@ -71,6 +153,11 @@ export async function flushShareDeltas(
             where: { postId_platform: { platform, postId } },
           })
         )
+      );
+
+      await awardShareMilestones(
+        [...new Set(deltas.map((delta) => delta.postId))],
+        log
       );
 
       log.info(

@@ -47,11 +47,6 @@ export const FILE_CONFIGS: Record<string, FileTypeConfig> = {
     mime: "image/heif",
     tag: { bg: "bg-indigo-500/30", icon: "ImageIcon", text: "text-indigo-100" },
   },
-  svg: {
-    category: "IMAGE",
-    mime: "image/svg+xml",
-    tag: { bg: "bg-orange-500/30", icon: "ImageIcon", text: "text-orange-100" },
-  },
   tiff: {
     category: "IMAGE",
     mime: "image/tiff",
@@ -140,149 +135,8 @@ export const FILE_CONFIGS: Record<string, FileTypeConfig> = {
   },
 
   // Code
-  js: {
-    category: "CODE",
-    mime: "text/javascript",
-    tag: { bg: "bg-yellow-500/30", icon: "CodeIcon", text: "text-yellow-100" },
-  },
-  ts: {
-    category: "CODE",
-    mime: "text/typescript",
-    tag: { bg: "bg-blue-500/30", icon: "CodeIcon", text: "text-blue-100" },
-  },
-  jsx: {
-    category: "CODE",
-    mime: "text/jsx",
-    tag: { bg: "bg-cyan-500/30", icon: "CodeIcon", text: "text-cyan-100" },
-  },
-  tsx: {
-    category: "CODE",
-    mime: "text/tsx",
-    tag: { bg: "bg-cyan-500/30", icon: "CodeIcon", text: "text-cyan-100" },
-  },
-  py: {
-    category: "CODE",
-    mime: "text/x-python",
-    tag: { bg: "bg-green-500/30", icon: "CodeIcon", text: "text-green-100" },
-  },
-  java: {
-    category: "CODE",
-    mime: "text/x-java",
-    tag: { bg: "bg-red-500/30", icon: "CodeIcon", text: "text-red-100" },
-  },
-  cpp: {
-    category: "CODE",
-    mime: "text/x-cpp",
-    tag: { bg: "bg-blue-500/30", icon: "CodeIcon", text: "text-blue-100" },
-  },
-  c: {
-    category: "CODE",
-    mime: "text/x-c",
-    tag: { bg: "bg-blue-500/30", icon: "CodeIcon", text: "text-blue-100" },
-  },
-  cs: {
-    category: "CODE",
-    mime: "text/x-csharp",
-    tag: { bg: "bg-purple-500/30", icon: "CodeIcon", text: "text-purple-100" },
-  },
-  rb: {
-    category: "CODE",
-    mime: "text/x-ruby",
-    tag: { bg: "bg-red-500/30", icon: "CodeIcon", text: "text-red-100" },
-  },
-  php: {
-    category: "CODE",
-    mime: "text/x-php",
-    tag: { bg: "bg-purple-500/30", icon: "CodeIcon", text: "text-purple-100" },
-  },
-  go: {
-    category: "CODE",
-    mime: "text/x-go",
-    tag: { bg: "bg-cyan-500/30", icon: "CodeIcon", text: "text-cyan-100" },
-  },
-  rs: {
-    category: "CODE",
-    mime: "text/x-rust",
-    tag: { bg: "bg-orange-500/30", icon: "CodeIcon", text: "text-orange-100" },
-  },
-  swift: {
-    category: "CODE",
-    mime: "text/x-swift",
-    tag: { bg: "bg-orange-500/30", icon: "CodeIcon", text: "text-orange-100" },
-  },
-  kt: {
-    category: "CODE",
-    mime: "text/x-kotlin",
-    tag: { bg: "bg-purple-500/30", icon: "CodeIcon", text: "text-purple-100" },
-  },
 
   // Documents
-  pdf: {
-    category: "DOCUMENT",
-    mime: "application/pdf",
-    tag: { bg: "bg-red-500/30", icon: "FileTextIcon", text: "text-red-100" },
-  },
-  doc: {
-    category: "DOCUMENT",
-    mime: "application/msword",
-    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
-  },
-  docx: {
-    category: "DOCUMENT",
-    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
-  },
-  xls: {
-    category: "DOCUMENT",
-    mime: "application/vnd.ms-excel",
-    tag: {
-      bg: "bg-green-500/30",
-      icon: "FileTextIcon",
-      text: "text-green-100",
-    },
-  },
-  xlsx: {
-    category: "DOCUMENT",
-    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    tag: {
-      bg: "bg-green-500/30",
-      icon: "FileTextIcon",
-      text: "text-green-100",
-    },
-  },
-  ppt: {
-    category: "DOCUMENT",
-    mime: "application/vnd.ms-powerpoint",
-    tag: {
-      bg: "bg-orange-500/30",
-      icon: "FileTextIcon",
-      text: "text-orange-100",
-    },
-  },
-  pptx: {
-    category: "DOCUMENT",
-    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    tag: {
-      bg: "bg-orange-500/30",
-      icon: "FileTextIcon",
-      text: "text-orange-100",
-    },
-  },
-  txt: {
-    category: "DOCUMENT",
-    mime: "text/plain",
-    tag: { bg: "bg-gray-500/30", icon: "FileTextIcon", text: "text-gray-100" },
-  },
-  rtf: {
-    category: "DOCUMENT",
-    mime: "application/rtf",
-    tag: { bg: "bg-gray-500/30", icon: "FileTextIcon", text: "text-gray-100" },
-  },
-  md: {
-    category: "DOCUMENT",
-    mime: "text/markdown",
-    tag: { bg: "bg-blue-500/30", icon: "FileTextIcon", text: "text-blue-100" },
-  },
 };
 
 export const getContentType = (filename: string): string => {
@@ -319,23 +173,34 @@ export const shouldDisplayInline = (mimeType: string) => {
   return inlineTypes.some((type) => mimeType.startsWith(type));
 };
 
-// Types that must never be served inline from our origin, no matter what the
-// client asks for. Browsers actively execute or render these when navigated
-// to: SVG can carry scripts (same-origin XSS), and text/* covers HTML/JS
-// payloads. They are delivered as downloads instead.
-export const shouldForceAttachment = (mimeType: string) => {
+// Media types with NO support at any level - not inline, not download. SVG
+// carries scripts (same-origin XSS), text/* covers HTML/JS payloads, PDFs and
+// code files have no viewer by product decision. Serving routes reject these
+// outright instead of attaching them.
+const BLOCKED_MIME_EXACT = new Set([
+  "application/json",
+  "application/pdf",
+  "application/xml",
+  "application/javascript",
+  "application/x-javascript",
+  "application/ecmascript",
+  "image/svg+xml",
+]);
+
+export const isBlockedMediaMime = (
+  mimeType: string | null | undefined
+): boolean => {
   if (!mimeType) {
     return true;
   }
-  if (mimeType === "image/svg+xml") {
+  return BLOCKED_MIME_EXACT.has(mimeType) || mimeType.startsWith("text/");
+};
+
+// Types that upload fine but must never render inline from our origin:
+// heic/heif are not universally renderable, so they download by default.
+export const shouldForceAttachment = (mimeType: string) => {
+  if (!mimeType) {
     return true;
-  }
-  if (mimeType.startsWith("text/")) {
-    return true;
-  }
-  if (mimeType === "image/heic" || mimeType === "image/heif") {
-    // Not universally renderable; downloading is the friendlier default.
-    return false;
   }
   return false;
 };
@@ -350,13 +215,6 @@ export const getFileType = (mimeType: string) => {
   if (mimeType.startsWith("audio/")) {
     return "audio";
   }
-  if (
-    mimeType.startsWith("text/") ||
-    mimeType === "application/json" ||
-    mimeType === "application/xml"
-  ) {
-    return "code";
-  }
   return "document";
 };
 
@@ -370,14 +228,7 @@ export const getFileCategory = (mimeType: string): FileCategory => {
   if (mimeType.startsWith("audio/")) {
     return "AUDIO";
   }
-  if (
-    mimeType.startsWith("text/") ||
-    mimeType === "application/json" ||
-    mimeType === "application/xml"
-  ) {
-    return "CODE";
-  }
-  return "DOCUMENT";
+  throw new Error(`Unsupported media mime type: ${mimeType}`);
 };
 
 export const normalizeMimeType = (mimeType: string | undefined): string => {

@@ -13,11 +13,9 @@ const WEBP = Buffer.concat([
 ]);
 const MP4 = Buffer.concat([Buffer.alloc(4), Buffer.from("ftypisom", "latin1")]);
 const WEBM = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
-const PDF = Buffer.from("%PDF-1.7", "latin1");
+
 const ZIP = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
-const SVG = Buffer.from(
-  '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>'
-);
+
 const SHELL = Buffer.from("#!/bin/sh\nrm -rf /\n");
 
 describe("sniffFileSignature", () => {
@@ -37,13 +35,12 @@ describe("sniffFileSignature", () => {
 
   test("rejects image bytes declared as a different family", () => {
     expect(sniffFileSignature(PNG, "video/mp4").ok).toBe(false);
-    expect(sniffFileSignature(JPEG, "application/pdf").ok).toBe(false);
   });
 
-  test("accepts SVG documents and rejects binary masquerading as SVG", () => {
-    expect(sniffFileSignature(SVG, "image/svg+xml").ok).toBe(true);
-    expect(sniffFileSignature(PNG, "image/svg+xml").ok).toBe(false);
-  });
+  // SVG and PDF have no support at any level (uploads are rejected by the
+  // mime allowlist before sniffing ever runs), so the sniffer no longer
+  // carries special cases for them - their declared mimes fall through to
+  // the lenient unknown-type path.
 
   test("validates video containers", () => {
     expect(sniffFileSignature(MP4, "video/mp4").ok).toBe(true);
@@ -52,15 +49,13 @@ describe("sniffFileSignature", () => {
     expect(sniffFileSignature(JPEG, "video/mp4").ok).toBe(false);
   });
 
-  test("validates pdf and office containers", () => {
-    expect(sniffFileSignature(PDF, "application/pdf").ok).toBe(true);
+  test("validates office containers", () => {
     expect(
       sniffFileSignature(
         ZIP,
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       ).ok
     ).toBe(true);
-    expect(sniffFileSignature(GIF, "application/pdf").ok).toBe(false);
   });
 
   test("is lenient for text/code and unknown types", () => {

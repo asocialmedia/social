@@ -3,10 +3,17 @@
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createGustSchema, createPostSchema } from "@asm/auth/validation";
 import {
+  applyFlatAward,
+  ATTACHMENT_BONUSES,
   cancelMediaCleanup,
   enqueueNotificationCreated,
   enqueueShitposterCheck,
   getPostDataInclude,
+  HN_SHARE_BONUS_AURA,
+  invalidateAuraSignals,
+  MENTION_RECEIVED_AURA,
+  POST_CREATION_AURA,
+  POST_CREATION_MAX_AURA,
   postViewsCache,
   prisma,
   tagCache,
@@ -25,35 +32,16 @@ type ExtendedCreatePostInput = CreatePostInput & {
   };
 };
 
+// Creation rewards come from the aura economy config - the single tuning
+// surface for every aura constant (see packages/db/src/aura/config.ts).
 const AURA_REWARDS = {
-  ATTACHMENTS: {
-    AUDIO: {
-      BASE: 25,
-      MAX_BONUS: 16,
-      PER_ITEM: 8,
-    },
-    CODE: {
-      BASE: 15,
-      MAX_BONUS: 45,
-      PER_ITEM: 15,
-    },
-    IMAGE: {
-      BASE: 20,
-      MAX_BONUS: 25,
-      PER_ITEM: 5,
-    },
-    VIDEO: {
-      BASE: 40,
-      MAX_BONUS: 20,
-      PER_ITEM: 10,
-    },
-  },
-  BASE_POST: 10,
-  HN_SHARE: 15,
-  MAX_TOTAL: 150,
+  ATTACHMENTS: ATTACHMENT_BONUSES,
+  BASE_POST: POST_CREATION_AURA,
+  HN_SHARE: HN_SHARE_BONUS_AURA,
+  MAX_TOTAL: POST_CREATION_MAX_AURA,
 };
 
-type AttachmentType = "IMAGE" | "VIDEO" | "AUDIO" | "CODE";
+type AttachmentType = "IMAGE" | "VIDEO" | "AUDIO";
 
 // Fire-and-forget wrapper so post creation never blocks on the badge check
 // enqueue; failures are logged, never surfaced to the author.
@@ -81,7 +69,6 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
 
   const typeCount: Record<AttachmentType, number> = {
     AUDIO: 0,
-    CODE: 0,
     IMAGE: 0,
     VIDEO: 0,
   };
@@ -96,8 +83,8 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
   for (const [type, count] of Object.entries(typeCount)) {
     if (count > 0) {
       const config = AURA_REWARDS.ATTACHMENTS[type as AttachmentType];
-      const baseReward = config.BASE;
-      const bonusReward = Math.min(count * config.PER_ITEM, config.MAX_BONUS);
+      const baseReward = config.base;
+      const bonusReward = Math.min(count * config.perItem, config.max);
       totalAura += baseReward + bonusReward;
     }
   }
@@ -173,6 +160,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       }
 
       if (validatedInput.mentions.length > 0) {
+        // Self-mentions are dropped server-side: a crafted request could
+        // otherwise farm MENTION_RECEIVED aura (and self-notifications) by
+        // naming the author's own account, even though the UI never offers
+        // that option.
         const validUsers = await tx.user.findMany({
           select: { id: true },
           where: {
@@ -183,8 +174,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         });
 
         const validUserIds = new Set(validUsers.map((u) => u.id));
-        validatedInput.mentions = validatedInput.mentions.filter((id) =>
-          validUserIds.has(id)
+        validatedInput.mentions = validatedInput.mentions.filter(
+          (id) => id !== sessionData.user.id && validUserIds.has(id)
         );
       }
 
@@ -267,16 +258,29 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
       if (validatedInput.mentions.length > 0) {
         await Promise.all(
-          validatedInput.mentions.map((userId) =>
-            tx.notification.create({
+          validatedInput.mentions.map(async (userId) => {
+            await tx.notification.create({
               data: {
                 issuerId: sessionData.user.id,
                 postId: post.id,
                 recipientId: userId,
                 type: "MENTION",
               },
-            })
-          )
+            });
+
+            // Being mentioned pays the mentioned user a flat award, unique
+            // per (post, user) by the Mention table and subject to their
+            // daily cap so mass-mention spam stays bounded.
+            await applyFlatAward(tx, {
+              actorId: sessionData.user.id,
+              baseAmount: MENTION_RECEIVED_AURA,
+              now: new Date(),
+              postId: post.id,
+              recipientId: userId,
+              subjectToDailyCap: true,
+              type: "MENTION_RECEIVED",
+            });
+          })
         );
 
         for (const userId of validatedInput.mentions) {
@@ -289,30 +293,28 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         }
       }
 
-      await tx.user.update({
-        data: { aura: { increment: auraReward } },
-        where: { id: sessionData.user.id },
-      });
-
-      await tx.auraLog.create({
-        data: {
-          amount: AURA_REWARDS.BASE_POST,
-          issuerId: sessionData.user.id,
-          postId: post.id,
-          type: "POST_CREATION",
-          userId: sessionData.user.id,
-        },
+      // Creation income is flat but daily-cap subject, so posting farms are
+      // bounded. Sequential calls inside this transaction see each other's
+      // income, so the cap applies cumulatively across base + bonuses.
+      await applyFlatAward(tx, {
+        actorId: sessionData.user.id,
+        baseAmount: AURA_REWARDS.BASE_POST,
+        now: new Date(),
+        postId: post.id,
+        recipientId: sessionData.user.id,
+        subjectToDailyCap: true,
+        type: "POST_CREATION",
       });
 
       if (input.hnStory) {
-        await tx.auraLog.create({
-          data: {
-            amount: AURA_REWARDS.HN_SHARE,
-            issuerId: sessionData.user.id,
-            postId: post.id,
-            type: "POST_ATTACHMENT_BONUS",
-            userId: sessionData.user.id,
-          },
+        await applyFlatAward(tx, {
+          actorId: sessionData.user.id,
+          baseAmount: AURA_REWARDS.HN_SHARE,
+          now: new Date(),
+          postId: post.id,
+          recipientId: sessionData.user.id,
+          subjectToDailyCap: true,
+          type: "HN_SHARE_BONUS",
         });
       }
 
@@ -321,14 +323,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         AURA_REWARDS.BASE_POST -
         (input.hnStory ? AURA_REWARDS.HN_SHARE : 0);
       if (attachmentBonus > 0) {
-        await tx.auraLog.create({
-          data: {
-            amount: attachmentBonus,
-            issuerId: sessionData.user.id,
-            postId: post.id,
-            type: "POST_ATTACHMENT_BONUS",
-            userId: sessionData.user.id,
-          },
+        await applyFlatAward(tx, {
+          actorId: sessionData.user.id,
+          baseAmount: attachmentBonus,
+          now: new Date(),
+          postId: post.id,
+          recipientId: sessionData.user.id,
+          subjectToDailyCap: true,
+          type: "POST_ATTACHMENT_BONUS",
         });
       }
 
@@ -355,6 +357,19 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
       return completePost;
     });
+
+    // Signal refresh after commit; failures only cost cache freshness.
+    // Mentioned users earned aura too, so their signals refresh in the same
+    // call.
+    const signalUserIds = new Set([sessionData.user.id]);
+    for (const userId of validatedInput.mentions) {
+      signalUserIds.add(userId);
+    }
+    try {
+      await invalidateAuraSignals([...signalUserIds]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
+    }
 
     // The worker checks whether this post (or gust) pushed the author over the
     // shitposter threshold inside the rolling window and grants the badge. The

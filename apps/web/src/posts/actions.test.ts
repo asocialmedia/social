@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Imported directly from the aura config source: this file mocks the
+// @asm/db barrel wholesale, so its factory cannot re-export real values.
+import { MODERATION_PENALTY_AURA } from "../../../../packages/db/src/aura/config";
+
 const POST_ID = "post1";
 const AUTHOR_ID = "author1";
 const OTHER_USER_ID = "user2";
@@ -132,8 +136,31 @@ mock.module("@asm/db", () => ({
   POST_VIEWS_KEY_PREFIX: "post:views:",
   POST_VIEWS_SET: "posts:with:views",
   SYSTEM_MODERATION_USER_ID: "sys-zeph",
+  // Mirrors the ledger writer: docks the configured penalty and writes the
+  // audit row with the acting admin as issuer.
+  applyModerationPenalty: (
+    t: typeof tx,
+    args: { actorId: string; postId?: string | null; recipientId: string }
+  ) => {
+    t.user.update({
+      data: { aura: { decrement: MODERATION_PENALTY_AURA } },
+      where: { id: args.recipientId },
+    });
+    t.auraLog.create({
+      data: {
+        amount: -MODERATION_PENALTY_AURA,
+        issuerId: args.actorId,
+        postId: args.postId ?? null,
+        targetUserId: args.recipientId,
+        type: "MODERATION_PENALTY",
+        userId: args.recipientId,
+      },
+    });
+    return Promise.resolve({ amount: -100 });
+  },
   enqueuePostDeleted: mockNoop,
   getPostDataInclude: mockInclude,
+  invalidateAuraSignals: mockNoop,
   prisma: mockPrisma,
   redis: { del: mockNoop, srem: mockNoop },
   unreadNotificationCache: { increment: mockIncrementUnread },
@@ -208,9 +235,10 @@ describe("updatePostModeration", () => {
     expect(auraPenalties).toEqual([AUTHOR_ID]);
     expect(auraLogs).toEqual([
       {
-        amount: -100,
+        amount: -MODERATION_PENALTY_AURA,
         issuerId: "admin-1",
         postId: POST_ID,
+        targetUserId: AUTHOR_ID,
         type: "MODERATION_PENALTY",
         userId: AUTHOR_ID,
       },

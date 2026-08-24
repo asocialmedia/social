@@ -21,7 +21,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
 import FollowButton from "@/components/layouts/follow-button";
-import { MediaViewerSkeleton } from "@/components/layouts/skeletons/media-viewer-skeleton";
 import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
@@ -32,14 +31,12 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
-import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
-import { CodePreview } from "./code-preview";
 import { CustomVideoPlayer } from "./custom-video-player";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import RelatedPosts from "./related-posts";
@@ -55,8 +52,8 @@ const getMediaUrl = (mediaId: string, download = false) =>
 const MEDIA_LOAD_TIMEOUT_MS = 12_000;
 
 // Only IMAGE / SVG / VIDEO gate rendering on an async onLoad/onLoadedData event.
-// CODE / DOCUMENT / AUDIO render immediately and have no load callback, so they
-// must never be left in a loading state or the skeleton would stay forever.
+// AUDIO renders immediately with no load callback, so it must never be left
+// in a loading state or the skeleton would stay forever.
 function hasAsyncLoad(media: Media | undefined): boolean {
   return (
     !!media &&
@@ -224,12 +221,6 @@ const MediaViewer = ({
     setLoadAttempt((attempt) => attempt + 1);
     setMediaError(false);
     setIsLoading(hasAsyncLoad(currentMedia));
-  }, [currentMedia]);
-
-  const handleOpenPdf = useCallback(() => {
-    if (currentMedia) {
-      window.open(`/api/media/${currentMedia.id}`, "_blank");
-    }
   }, [currentMedia]);
 
   const handleDownload = async () => {
@@ -414,64 +405,6 @@ const MediaViewer = ({
     </div>
   );
 
-  const renderCodeMedia = (item: Media) => (
-    <div className="bg-background/50 w-full max-w-4xl rounded-lg p-4">
-      {isLoading ? (
-        <MediaViewerSkeleton type="CODE" />
-      ) : (
-        <>
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="font-medium">{formatFileName(item.key)}</p>
-              <p className="text-muted-foreground text-sm">
-                {getLanguageFromFileName(item.key)}
-              </p>
-            </div>
-            <Button
-              disabled={isDownloading}
-              onClick={handleDownload}
-              variant="secondary"
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Download
-            </Button>
-          </div>
-          <CodePreview
-            className="shadow-lg"
-            fileName={formatFileName(item.key)}
-            language={getLanguageFromFileName(item.key)}
-            mediaId={item.id}
-          />
-        </>
-      )}
-    </div>
-  );
-
-  const renderDocumentMedia = (item: Media) => (
-    <div className="bg-background/50 flex flex-col items-center gap-4 rounded-lg p-8">
-      <div className="bg-primary/10 flex h-32 w-32 items-center justify-center rounded-full">
-        <FileIcon className="text-primary h-16 w-16" />
-      </div>
-      <p className="font-medium">{formatFileName(item.key)}</p>
-      <p className="text-muted-foreground text-sm">{item.mimeType}</p>
-      <div className="flex gap-4">
-        <Button
-          disabled={isDownloading}
-          onClick={handleDownload}
-          variant="secondary"
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Download
-        </Button>
-        {item.mimeType === "application/pdf" && (
-          <Button onClick={handleOpenPdf} variant="outline">
-            View PDF
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-
   const renderMedia = () => {
     if (!currentMedia) {
       return <p className="text-destructive">No media available</p>;
@@ -486,12 +419,6 @@ const MediaViewer = ({
       }
       case "AUDIO": {
         return renderAudioMedia(currentMedia);
-      }
-      case "CODE": {
-        return renderCodeMedia(currentMedia);
-      }
-      case "DOCUMENT": {
-        return renderDocumentMedia(currentMedia);
       }
       default: {
         return <p className="text-destructive">Unsupported media type</p>;

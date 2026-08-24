@@ -1,17 +1,20 @@
 import { debugLog } from "@asm/config/debug";
 import {
+  applyFlatAward,
+  applyWeightedAward,
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
+  FOLLOW_GAINED_AURA,
+  FOLLOW_GIVEN_AURA,
   followerInfoCache,
+  invalidateAuraSignals,
   prisma,
+  reverseExactAura,
 } from "@asm/db";
 import type { FollowerInfo } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
 import { suggestedUsersCache } from "@/lib/suggested-users-cache";
-
-const FOLLOW_AURA_REWARD = 5;
-const FOLLOW_GIVEN_AURA_REWARD = 1;
 
 export async function POST(
   _req: Request,
@@ -31,8 +34,8 @@ export async function POST(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Self-follows would farm +6 aura and inflate the follower count with no
-    // social meaning; the bookmark route applies the same anti-farming rule.
+    // Self-follows would inflate aura and the follower count with no social
+    // meaning; the bookmark route applies the same anti-farming rule.
     if (userId === loggedInUser.id) {
       return Response.json(
         { error: "You cannot follow yourself" },
@@ -53,13 +56,6 @@ export async function POST(
       });
 
       if (!existingFollow) {
-        await tx.follow.create({
-          data: {
-            followerId: loggedInUser.id,
-            followingId: userId,
-          },
-        });
-
         await tx.notification.create({
           data: {
             issuerId: loggedInUser.id,
@@ -72,32 +68,45 @@ export async function POST(
           console.error("Failed to enqueue follow notification event:", error);
         });
 
-        await tx.user.update({
-          data: { aura: { increment: FOLLOW_AURA_REWARD } },
-          where: { id: userId },
-        });
-
-        await tx.auraLog.create({
-          data: {
-            amount: FOLLOW_AURA_REWARD,
-            issuerId: loggedInUser.id,
-            type: "FOLLOW_GAINED",
-            userId,
-          },
-        });
-
-        // The follower also earns aura for building their network.
-        await tx.user.update({
-          data: { aura: { increment: FOLLOW_GIVEN_AURA_REWARD } },
+        // Gaining a follower is weighted by the FOLLOWER's credibility: a
+        // veteran's follow means more than a throwaway's, and follow rings
+        // taper per pair like every engagement class.
+        let gainedAmount = 0;
+        const follower = await tx.user.findUnique({
+          select: { aura: true, createdAt: true },
           where: { id: loggedInUser.id },
         });
+        if (follower) {
+          const awarded = await applyWeightedAward(tx, {
+            actor: { aura: follower.aura, createdAt: follower.createdAt },
+            actorId: loggedInUser.id,
+            baseAmount: FOLLOW_GAINED_AURA,
+            now: new Date(),
+            recipientId: userId,
+            subjectToDailyCap: true,
+            taperClass: "follow",
+            type: "FOLLOW_GAINED",
+          });
+          gainedAmount = awarded.amount;
+        }
 
-        await tx.auraLog.create({
+        // Network-building credit for the follower themselves: flat stipend
+        // under their own daily cap, so mass-following churn is bounded.
+        const { amount: givenAmount } = await applyFlatAward(tx, {
+          actorId: loggedInUser.id,
+          baseAmount: FOLLOW_GIVEN_AURA,
+          now: new Date(),
+          recipientId: loggedInUser.id,
+          subjectToDailyCap: true,
+          type: "FOLLOW_GIVEN",
+        });
+
+        await tx.follow.create({
           data: {
-            amount: FOLLOW_GIVEN_AURA_REWARD,
-            issuerId: loggedInUser.id,
-            type: "FOLLOW_GIVEN",
-            userId: loggedInUser.id,
+            followerId: loggedInUser.id,
+            followingId: userId,
+            gainedAura: gainedAmount,
+            givenAura: givenAmount,
           },
         });
       }
@@ -132,6 +141,11 @@ export async function POST(
     };
 
     await followerInfoCache.invalidate(params.userId);
+    try {
+      await invalidateAuraSignals([params.userId, loggedInUser.id]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
+    }
 
     return Response.json(followerInfo);
   } catch (error) {
@@ -220,6 +234,9 @@ export async function DELETE(
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      // Read the stored open positions before deleting: unfollowing reverses
+      // exactly what this follow awarded. Legacy follows carry zeros and
+      // reverse nothing - conservative under-refund by design.
       const existingFollow = await tx.follow.findUnique({
         where: {
           followerId_followingId: {
@@ -254,39 +271,23 @@ export async function DELETE(
           );
         });
 
-        await tx.user.update({
-          data: { aura: { decrement: FOLLOW_AURA_REWARD } },
-          where: { id: userId },
-        });
-
-        await tx.auraLog.create({
-          data: {
-            amount: -FOLLOW_AURA_REWARD,
+        if (existingFollow.gainedAura !== 0) {
+          await reverseExactAura(tx, {
             issuerId: loggedInUser.id,
+            openAmount: existingFollow.gainedAura,
+            recipientId: userId,
+            targetUserId: userId,
             type: "FOLLOW_GAINED",
-            userId,
-          },
-        });
-
-        // Reverse the follower aura only if it was ever granted (follows
-        // created before FOLLOW_GIVEN shipped never earned it).
-        const givenLog = await tx.auraLog.findFirst({
-          where: { type: "FOLLOW_GIVEN", userId: loggedInUser.id },
-        });
-
-        if (givenLog) {
-          await tx.user.update({
-            data: { aura: { decrement: FOLLOW_GIVEN_AURA_REWARD } },
-            where: { id: loggedInUser.id },
           });
+        }
 
-          await tx.auraLog.create({
-            data: {
-              amount: -FOLLOW_GIVEN_AURA_REWARD,
-              issuerId: loggedInUser.id,
-              type: "FOLLOW_GIVEN",
-              userId: loggedInUser.id,
-            },
+        if (existingFollow.givenAura !== 0) {
+          await reverseExactAura(tx, {
+            issuerId: loggedInUser.id,
+            openAmount: existingFollow.givenAura,
+            recipientId: loggedInUser.id,
+            targetUserId: loggedInUser.id,
+            type: "FOLLOW_GIVEN",
           });
         }
       }
@@ -295,6 +296,7 @@ export async function DELETE(
         select: {
           _count: { select: { followers: true } },
           displayName: true,
+          id: true,
           username: true,
         },
         where: { id: userId },
@@ -321,6 +323,11 @@ export async function DELETE(
       followerInfoCache.invalidate(userId),
       suggestedUsersCache.invalidateForUser(userId),
     ]);
+    try {
+      await invalidateAuraSignals([userId, loggedInUser.id]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
+    }
 
     return Response.json(followerInfo);
   } catch (error) {

@@ -1,8 +1,10 @@
 "use server";
 
 import {
+  applyModerationPenalty,
   enqueuePostDeleted,
   getPostDataInclude,
+  invalidateAuraSignals,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
@@ -20,9 +22,8 @@ export interface PostModerationChanges {
 }
 
 // Aura docked from the author the first time their post is marked as
-// moderated. The penalty is one-way: unmoderating restores the content but
-// never refunds the aura.
-const MODERATION_AURA_PENALTY = 100;
+// moderated, applied through the ledger (applyModerationPenalty). The penalty
+// is one-way: unmoderating restores the content but never refunds the aura.
 
 // Admins can moderate any post; the author can flag their own. Both flags are
 // reversible - a moderated post stays in the DB and can be restored, and the
@@ -118,20 +119,13 @@ export async function updatePostModeration(
     }
 
     // The moderation aura penalty is applied exactly once, on the transactionally
-    // confirmed false->true transition. Unmoderating never refunds it.
+    // confirmed false->true transition, through the audited ledger writer.
+    // Unmoderating never refunds it.
     if (confirmedModerated) {
-      await tx.user.update({
-        data: { aura: { increment: -MODERATION_AURA_PENALTY } },
-        where: { id: post.userId },
-      });
-      await tx.auraLog.create({
-        data: {
-          amount: -MODERATION_AURA_PENALTY,
-          issuerId: session.user.id,
-          postId: id,
-          type: "MODERATION_PENALTY",
-          userId: post.userId,
-        },
+      await applyModerationPenalty(tx, {
+        actorId: session.user.id,
+        postId: id,
+        recipientId: post.userId,
       });
     }
 
@@ -171,6 +165,15 @@ export async function updatePostModeration(
       await unreadNotificationCache.increment(post.userId);
     } catch (error) {
       console.error("Failed to increment unread notification count:", error);
+    }
+  }
+
+  if (confirmedModerated) {
+    // Signal refresh after commit; failures only cost cache freshness.
+    try {
+      await invalidateAuraSignals([post.userId]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
     }
   }
 

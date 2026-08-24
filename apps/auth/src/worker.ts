@@ -16,6 +16,7 @@ if (import.meta.main) {
   type QueueWorkerType = InstanceType<typeof QueueWorker>;
   const { consumeViewStream } = await import("./worker/view-flush");
   const { consumeShareStream } = await import("./worker/share-flush");
+  const { flushTrendingScores } = await import("./worker/trending-score-flush");
   const {
     processPostDeleted,
     processNotificationCreated,
@@ -145,7 +146,7 @@ if (import.meta.main) {
 
     const maintenanceWorker = new QueueWorker(
       "maintenance",
-      (job) => {
+      async (job) => {
         switch (job.name) {
           case "hn-refresh": {
             return processHnRefresh();
@@ -155,6 +156,17 @@ if (import.meta.main) {
           }
           case "inactive-users": {
             return processInactiveUsersSweep(logger);
+          }
+          case "trending-scores": {
+            const startedAtMs = Date.now();
+            try {
+              return await flushTrendingScores(logger);
+            } finally {
+              logger.info(
+                { durationMs: Date.now() - startedAtMs },
+                "trending-scores job finished"
+              );
+            }
           }
           default: {
             throw new Error(`Unknown maintenance job: ${job.name}`);

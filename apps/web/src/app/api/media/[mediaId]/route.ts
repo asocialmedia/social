@@ -13,6 +13,7 @@ import { getWebLogger } from "@/lib/otel";
 import { getSessionFromApi } from "@/lib/session";
 import {
   getContentDisposition,
+  isBlockedMediaMime,
   shouldDisplayInline,
   shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
@@ -49,6 +50,7 @@ async function getMediaOwnership(mediaId: string) {
   return await prisma.media.findUnique({
     select: {
       commentId: true,
+      mimeType: true,
       postId: true,
       userId: true,
     },
@@ -125,6 +127,12 @@ export async function GET(
       decision.status === 401 ? "Unauthorized" : "Media not found",
       { status: decision.status }
     );
+  }
+
+  // SVG / PDF / code payloads have no support at any level - not inline, not
+  // download. Reject before touching storage.
+  if (isBlockedMediaMime(ownership.mimeType)) {
+    return new NextResponse("Unsupported media type", { status: 415 });
   }
 
   try {

@@ -93,9 +93,8 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
   }));
 }
 
-// Mirrors the public global-feed filter (see api/posts/for-you): gusts and
-// moderated posts never appear in a feed, so they must not appear in the
-// sitemap either.
+// Gusts are public, viewable pages and their owner wants them indexed;
+// moderated posts are hidden from every feed surface, so they stay out.
 async function getPostEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.post.findMany({
     orderBy: { createdAt: "desc" },
@@ -166,7 +165,7 @@ export async function getSitemapLastModified(
       const latest = await prisma.post.findFirst({
         orderBy: { createdAt: "desc" },
         select: { createdAt: true },
-        where: { isGust: false, moderated: false },
+        where: { moderated: false },
       });
       return latest?.createdAt;
     }

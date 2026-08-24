@@ -154,6 +154,9 @@ export const uploadToAsmob = async (
     }
 
     const fileConfig = getFileConfigFromMime(file.type);
+    if (!fileConfig) {
+      throw new Error(`Unsupported file type: ${file.name} (${file.type})`);
+    }
     const cleanFileName = file.name.replaceAll(/[^a-zA-Z0-9.-]/g, "_");
     const uniquePrefix = `${Date.now()}-${crypto.randomUUID()}`;
     const key = `${userId}/${uniquePrefix}-${cleanFileName}`;
@@ -179,7 +182,7 @@ export const uploadToAsmob = async (
         ContentType: getContentType(file.name),
         Key: key,
         Metadata: {
-          category: fileConfig?.category || "DOCUMENT",
+          category: fileConfig.category,
           fileType: extension,
           originalName: file.name,
           uploadedAt: new Date().toISOString(),
@@ -196,8 +199,8 @@ export const uploadToAsmob = async (
       mimeType: file.type,
       originalName: file.name,
       size: file.size,
-      tag: fileConfig?.tag,
-      type: fileConfig?.category || "DOCUMENT",
+      tag: fileConfig.tag,
+      type: fileConfig.category,
       url,
     };
   } catch (error) {

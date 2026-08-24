@@ -1,12 +1,15 @@
+import {
+  applyFlatAward,
+  applyWeightedAward,
+  BOOKMARK_GIVEN_AURA,
+  BOOKMARK_RECEIVED_AURA,
+  invalidateAuraSignals,
+  prisma,
+  reverseExactAura,
+} from "@asm/db";
 import type { BookmarkInfo } from "@asm/db";
-import { prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/session";
-
-// Aura awarded for curating content. Bookmarking credits both the bookmarker
-// and (unless it is their own post) the post author.
-const BOOKMARKED_AURA = 1;
-const BOOKMARK_RECEIVED_AURA = 1;
 
 export async function GET(
   _req: Request,
@@ -66,6 +69,7 @@ export async function POST(
   // Self-bookmarks are recorded but never award aura, to prevent users from
   // farming reputation on their own posts.
   const isSelfBookmark = post.userId === user.id;
+  let affectedAuthorId: string | null = null;
 
   await prisma.$transaction(async (tx) => {
     // Skip when already bookmarked so repeated calls (double-clicks, retries)
@@ -80,40 +84,63 @@ export async function POST(
       return;
     }
 
-    await tx.bookmark.create({ data: { postId, userId: user.id } });
+    if (isSelfBookmark) {
+      await tx.bookmark.create({ data: { postId, userId: user.id } });
+    } else {
+      affectedAuthorId = post.userId;
 
-    if (!isSelfBookmark) {
-      await tx.user.update({
-        data: { aura: { increment: BOOKMARKED_AURA } },
+      // Curation credit for the bookmarker: flat stipend under the daily cap.
+      const { amount: givenAmount } = await applyFlatAward(tx, {
+        actorId: user.id,
+        baseAmount: BOOKMARK_GIVEN_AURA,
+        now: new Date(),
+        postId,
+        recipientId: user.id,
+        subjectToDailyCap: true,
+        type: "POST_BOOKMARKED",
+      });
+
+      // Recognition for the creator: weighted by the bookmarker's
+      // credibility - the strongest deliberate signal, priced above an
+      // amplify, tapered per pair like every engagement class.
+      const actor = await tx.user.findUnique({
+        select: { aura: true, createdAt: true },
         where: { id: user.id },
       });
-
-      await tx.auraLog.create({
-        data: {
-          amount: BOOKMARKED_AURA,
-          issuerId: user.id,
+      let receivedAmount = 0;
+      if (actor) {
+        const awarded = await applyWeightedAward(tx, {
+          actor: { aura: actor.aura, createdAt: actor.createdAt },
+          actorId: user.id,
+          baseAmount: BOOKMARK_RECEIVED_AURA,
+          now: new Date(),
           postId,
-          type: "POST_BOOKMARKED",
-          userId: user.id,
-        },
-      });
-
-      await tx.user.update({
-        data: { aura: { increment: BOOKMARK_RECEIVED_AURA } },
-        where: { id: post.userId },
-      });
-
-      await tx.auraLog.create({
-        data: {
-          amount: BOOKMARK_RECEIVED_AURA,
-          issuerId: user.id,
-          postId,
+          recipientId: post.userId,
+          subjectToDailyCap: true,
+          taperClass: "bookmark",
           type: "POST_BOOKMARK_RECEIVED",
-          userId: post.userId,
+        });
+        receivedAmount = awarded.amount;
+      }
+
+      await tx.bookmark.create({
+        data: {
+          authorAura: receivedAmount,
+          bookmarkerAura: givenAmount,
+          postId,
+          userId: user.id,
         },
       });
     }
   });
+
+  if (affectedAuthorId) {
+    try {
+      await invalidateAuraSignals([affectedAuthorId, user.id]);
+    } catch (error) {
+      console.error("Failed to invalidate aura signals:", error);
+    }
+  }
 
   return Response.json({ success: true });
 }
@@ -141,62 +168,56 @@ export async function DELETE(
   const isSelfBookmark = post.userId === user.id;
 
   await prisma.$transaction(async (tx) => {
-    // The authoritative gate is the delete itself, not a prior read: under
-    // READ COMMITTED two concurrent unbookmarks can both observe the row as
-    // present, but only the transaction whose deleteMany removes exactly one
-    // row performed the logical unbookmark and may reverse aura.
+    // Read the stored open positions before the authoritative delete: the
+    // deleteMany count decides WHO performed the logical unbookmark, and the
+    // stored positions say exactly how much to unwind. Legacy bookmarks
+    // (created before the economy shipped) carry zeros and reverse nothing -
+    // conservative by design.
+    const bookmark = await tx.bookmark.findUnique({
+      select: { authorAura: true, bookmarkerAura: true },
+      where: { userId_postId: { postId, userId: user.id } },
+    });
+
+    // The delete itself is the gate: under READ COMMITTED two concurrent
+    // unbookmarks can both observe the row as present, but only the
+    // transaction whose deleteMany removes exactly one row performed the
+    // logical unbookmark and may reverse aura.
     const { count } = await tx.bookmark.deleteMany({
       where: { postId, userId: user.id },
     });
 
-    if (count !== 1) {
+    if (count !== 1 || !bookmark || isSelfBookmark) {
       return;
     }
 
-    // Only reverse aura when the bookmark actually existed and was awarded
-    // (bookmarks created before this feature shipped never earned it).
-    if (!isSelfBookmark) {
-      const wasAwarded = await tx.auraLog.findFirst({
-        where: {
-          postId,
-          type: "POST_BOOKMARKED",
-          userId: user.id,
-        },
+    if (bookmark.bookmarkerAura !== 0) {
+      await reverseExactAura(tx, {
+        issuerId: user.id,
+        openAmount: bookmark.bookmarkerAura,
+        postId,
+        recipientId: user.id,
+        targetUserId: user.id,
+        type: "POST_BOOKMARKED",
       });
+    }
 
-      if (wasAwarded) {
-        await tx.user.update({
-          data: { aura: { decrement: BOOKMARKED_AURA } },
-          where: { id: user.id },
-        });
-
-        await tx.auraLog.create({
-          data: {
-            amount: -BOOKMARKED_AURA,
-            issuerId: user.id,
-            postId,
-            type: "POST_BOOKMARKED",
-            userId: user.id,
-          },
-        });
-
-        await tx.user.update({
-          data: { aura: { decrement: BOOKMARK_RECEIVED_AURA } },
-          where: { id: post.userId },
-        });
-
-        await tx.auraLog.create({
-          data: {
-            amount: -BOOKMARK_RECEIVED_AURA,
-            issuerId: user.id,
-            postId,
-            type: "POST_BOOKMARK_RECEIVED",
-            userId: post.userId,
-          },
-        });
-      }
+    if (bookmark.authorAura !== 0) {
+      await reverseExactAura(tx, {
+        issuerId: user.id,
+        openAmount: bookmark.authorAura,
+        postId,
+        recipientId: post.userId,
+        targetUserId: post.userId,
+        type: "POST_BOOKMARK_RECEIVED",
+      });
     }
   });
+
+  try {
+    await invalidateAuraSignals([post.userId, user.id]);
+  } catch (error) {
+    console.error("Failed to invalidate aura signals:", error);
+  }
 
   return Response.json({ success: true });
 }

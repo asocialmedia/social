@@ -3,6 +3,7 @@ node_modules
 .pnp
 .pnp.js
 strix_runs/
+.claude
 
 # Local env files
 .dev-init
@@ -23,6 +24,7 @@ coverage
 
 # Vercel
 .vercel
+docs/
 
 # Build Outputs
 .next/

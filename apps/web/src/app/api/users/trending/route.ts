@@ -1,4 +1,5 @@
 import {
+  awardTrendingCardPresence,
   getUserDataSelect,
   prisma,
   redis,
@@ -11,6 +12,19 @@ import { getSessionFromApi } from "@/lib/session";
 // contain sensitive fields and must not be served.
 const TRENDING_USERS_CACHE_KEY = "trending:users:global:v2";
 const TRENDING_USERS_TTL = 60;
+
+// Appearing in the card pays once per user per UTC day; the helper's Redis
+// claim dedupes all the repeat sidebar loads.
+async function payTrendingCard(userIds: string[]): Promise<void> {
+  if (userIds.length === 0) {
+    return;
+  }
+  try {
+    await awardTrendingCardPresence(userIds);
+  } catch {
+    // Recognition is best-effort; never fail the card over it.
+  }
+}
 
 export async function GET() {
   try {
@@ -28,6 +42,7 @@ export async function GET() {
           const visible = parsed.filter(
             (u) => u.id !== SYSTEM_MODERATION_USER_ID
           );
+          await payTrendingCard(visible.map((u) => u.id));
           return Response.json(visible, {
             headers: {
               "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
@@ -60,6 +75,8 @@ export async function GET() {
         ],
       },
     });
+
+    await payTrendingCard(trendingUsers.map((u) => u.id));
 
     // Populate the guest cache
     if (!userId && trendingUsers.length > 0) {

@@ -37,19 +37,29 @@ bunx prisma migrate diff --from-config-datasource --to-schema "$SCHEMA_PATH" --e
 diff_status=$?
 set -e
 
-if [ "$diff_status" -eq 0 ]; then
-  echo "PRISMA_SYNC_OK: no schema drift detected, database is in sync."
-  exit 0
-fi
-
-if [ "$diff_status" -ne 2 ]; then
+if [ "$diff_status" -ne 2 ] && [ "$diff_status" -ne 0 ]; then
   echo "Schema drift check failed with exit code ${diff_status}."
   exit "$diff_status"
 fi
 
-echo "Schema drift detected. Pushing Prisma schema..."
-bunx prisma db push --config "$PRISMA_CONFIG_PATH"
+# Prisma's enum-alter strategy fails when rows still carry a dropped value,
+# so unsupported media types are cleared before any schema sync. Only runs on
+# drift: a no-drift database cannot contain those values.
+if [ "$diff_status" -eq 2 ]; then
+  echo "Removing unsupported media types ahead of schema sync..."
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
+DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
+SQL
 
+  echo "Schema drift detected. Pushing Prisma schema..."
+  bunx prisma db push --config "$PRISMA_CONFIG_PATH"
+else
+  echo "No schema drift detected, database is in sync."
+fi
+
+# Index creation is idempotent and cheap, so it runs on EVERY invocation:
+# drift-based gating would leave freshly created databases missing these
+# until the next schema change.
 echo "Ensuring case-insensitive username uniqueness index..."
 cat > /tmp/username-unique.sql <<'SQL'
 CREATE UNIQUE INDEX IF NOT EXISTS "users_username_lower_unique"
@@ -71,5 +81,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS "users_author_array_unique"
 ON "users" ((CASE WHEN 'author' = ANY(badges) THEN 'author' ELSE NULL END));
 SQL
 bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
+
+# One-shot data backfills run here on every sync invocation. Each one guards
+# itself (marker table + advisory lock) so exactly zero or one of them does
+# work per deployment fleet, and failures never block app deploys: the next
+# sync retries until the marker lands.
+echo "Running one-shot backfills..."
+if bun /app/backfill.js; then
+  echo "Trending-score backfill step OK."
+else
+  echo "WARNING: trending-score backfill failed; it will retry on the next sync deploy." >&2
+fi
 
 echo "PRISMA_SYNC_OK: Prisma schema sync complete."

@@ -4,14 +4,7 @@
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import {
-  FileAudioIcon,
-  FileCode,
-  FileIcon,
-  Pause,
-  Play,
-  VolumeX,
-} from "lucide-react";
+import { FileAudioIcon, Pause, Play, VolumeX } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -19,7 +12,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
-import { getLanguageFromFileName } from "@/lib/codefile-extensions";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -131,59 +123,6 @@ const GridImagePreview = ({
     </div>
   );
 };
-
-const renderFilePreview = (
-  m: Media,
-  isSmall: boolean,
-  icon: React.ReactNode
-) => (
-  <div className="relative w-full">
-    <div
-      className={cn(
-        "bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105",
-        isSmall ? "" : "min-h-40"
-      )}
-    >
-      <div className="flex h-full flex-col items-center justify-center gap-2">
-        <div className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}>
-          {icon}
-        </div>
-        {!isSmall && (
-          <p className="max-w-full truncate text-sm font-medium">
-            {formatFileName(m.key)}
-          </p>
-        )}
-      </div>
-    </div>
-  </div>
-);
-
-const renderCodePreview = (m: Media, isSmall: boolean) => (
-  <div className="relative w-full">
-    <div
-      className={cn(
-        "bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105",
-        isSmall ? "" : "min-h-40"
-      )}
-    >
-      <div className="flex h-full flex-col items-center justify-center gap-2">
-        <FileCode
-          className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}
-        />
-        {!isSmall && (
-          <div className="flex flex-col items-center">
-            <p className="max-w-full truncate text-sm font-medium">
-              {formatFileName(m.key)}
-            </p>
-            <p className="text-muted-foreground text-xs">
-              {getLanguageFromFileName(m.key)}
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  </div>
-);
 
 const VideoPreview = ({
   autoPlay = false,
@@ -619,6 +558,34 @@ const SingleImagePreview = ({
   );
 };
 
+const renderFilePreview = (
+  m: Media,
+  isSmall: boolean,
+  icon: React.ReactNode
+) => (
+  <div className="relative w-full">
+    <div
+      className={cn(
+        "bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105",
+        isSmall ? "" : "min-h-40"
+      )}
+    >
+      <div className="flex h-full flex-col items-center justify-center gap-2">
+        <div className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}>
+          {icon}
+        </div>
+        {!isSmall && (
+          <div className="flex flex-col items-center">
+            <p className="max-w-full truncate text-sm font-medium">
+              {formatFileName(m.key)}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
 export const MediaPreviews = ({
   attachments,
   autoPlayVideos = false,
@@ -732,12 +699,6 @@ export const MediaPreviews = ({
       }
       case "AUDIO": {
         return renderFilePreview(m, isSmall, <FileAudioIcon />);
-      }
-      case "CODE": {
-        return renderCodePreview(m, isSmall);
-      }
-      case "DOCUMENT": {
-        return renderFilePreview(m, isSmall, <FileIcon />);
       }
       default: {
         return null;

@@ -1,7 +1,9 @@
 import {
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
+  invalidateAuraSignals,
   prisma,
+  settleVoteTransition,
 } from "@asm/db";
 import type { CommentVoteInfo } from "@asm/db";
 
@@ -58,9 +60,10 @@ export async function POST(
     return Response.json({ error: "Invalid vote value" }, { status: 400 });
   }
 
+  let affectedAuthorId: string | null = null;
   try {
     // Serializable + retry so a concurrent vote re-reads committed state
-    // instead of double-applying the aura delta.
+    // instead of double-applying an aura delta.
     const result = await runSerializableTransaction(async (tx) => {
       const comment = await tx.comment.findUnique({
         select: { aura: true, id: true, postId: true, userId: true },
@@ -70,10 +73,40 @@ export async function POST(
         return null;
       }
 
-      const existingVote = await tx.commentVote.findUnique({
-        where: { userId_commentId: { commentId, userId: user.id } },
+      const [existingVote, actor] = await Promise.all([
+        tx.commentVote.findUnique({
+          where: { userId_commentId: { commentId, userId: user.id } },
+        }),
+        tx.user.findUnique({
+          select: { aura: true, createdAt: true },
+          where: { id: user.id },
+        }),
+      ]);
+      if (!actor) {
+        return null;
+      }
+
+      const oldValue = existingVote?.value ?? 0;
+      affectedAuthorId = comment.userId;
+
+      const positions = await settleVoteTransition(tx, {
+        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actorId: user.id,
+        commentId,
+        newValue: value,
+        oldValue,
+        positions: {
+          awardedAura: existingVote?.awardedAura ?? 0,
+          mutingCostAura: existingVote?.mutingCostAura ?? 0,
+        },
+        postId: comment.postId,
+        recipientId: comment.userId,
+        types: {
+          amplifyApplied: "COMMENT_VOTE",
+          amplifyRemoved: "COMMENT_VOTE_REMOVED",
+          muteApplied: "COMMENT_VOTE_REMOVED",
+        },
       });
-      const oldValue = existingVote?.value || 0;
 
       if (value === 0) {
         if (existingVote) {
@@ -83,44 +116,38 @@ export async function POST(
         }
       } else {
         await tx.commentVote.upsert({
-          create: { commentId, userId: user.id, value },
-          update: { value },
+          create: {
+            awardedAura: positions.awardedAura,
+            commentId,
+            mutingCostAura: positions.mutingCostAura,
+            userId: user.id,
+            value,
+          },
+          update: {
+            awardedAura: positions.awardedAura,
+            mutingCostAura: positions.mutingCostAura,
+            value,
+          },
           where: { userId_commentId: { commentId, userId: user.id } },
         });
       }
 
-      // Aura follows the vote score: amplifying (+1) credits aura, muting (-1)
-      // or removing a vote debits it. Self-votes award aura too - an amplify
-      // on your own eddy still represents reputation for that content.
-      const isSelfVote = comment.userId === user.id;
+      // Raw score keeps +-1-per-vote semantics; only User.aura is weighted.
       const auraDelta = value - oldValue;
       if (auraDelta !== 0) {
-        await Promise.all([
-          tx.comment.update({
-            data: { aura: { increment: auraDelta } },
-            where: { id: commentId },
-          }),
-          tx.user.update({
-            data: { aura: { increment: auraDelta } },
-            where: { id: comment.userId },
-          }),
-        ]);
-
-        await tx.auraLog.create({
-          data: {
-            amount: auraDelta,
-            commentId,
-            issuerId: user.id,
-            postId: comment.postId,
-            type: auraDelta > 0 ? "COMMENT_VOTE" : "COMMENT_VOTE_REMOVED",
-            userId: comment.userId,
-          },
+        await tx.comment.update({
+          data: { aura: { increment: auraDelta } },
+          where: { id: commentId },
         });
       }
 
       // Only notify others, never yourself.
+      const isSelfVote = comment.userId === user.id;
+      let wasAmplified = false;
+      let wasAmplifyRemoved = false;
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
+          wasAmplified = true;
           await tx.notification.create({
             data: {
               commentId,
@@ -137,10 +164,12 @@ export async function POST(
             );
           });
         } else if (value !== 1 && oldValue === 1) {
+          wasAmplifyRemoved = true;
           await tx.notification.deleteMany({
             where: {
               commentId,
               issuerId: user.id,
+              postId: comment.postId,
               recipientId: comment.userId,
               type: "AMPLIFY",
             },
@@ -163,13 +192,23 @@ export async function POST(
         aura: updated?.aura ?? comment.aura,
         postId: comment.postId,
         userVote: value === 0 ? 0 : value,
-        wasAmplified: value === 1 && oldValue !== 1 && !isSelfVote,
-        wasAmplifyRemoved: value !== 1 && oldValue === 1 && !isSelfVote,
+        wasAmplified,
+        wasAmplifyRemoved,
       };
     });
 
     if (!result) {
       return Response.json({ error: "Comment not found" }, { status: 404 });
+    }
+
+    if (affectedAuthorId) {
+      // Fire-and-forget: signals serve ranking heuristics and fall back to a
+      // TTL refresh, so a failed invalidation only costs freshness.
+      try {
+        await invalidateAuraSignals([affectedAuthorId, user.id]);
+      } catch (error) {
+        console.error("Failed to invalidate aura signals:", error);
+      }
     }
 
     const voteInfo: CommentVoteInfo = {
@@ -205,10 +244,39 @@ export async function DELETE(
         return null;
       }
 
-      const existingVote = await tx.commentVote.findUnique({
-        where: { userId_commentId: { commentId, userId: user.id } },
+      const [existingVote, actor] = await Promise.all([
+        tx.commentVote.findUnique({
+          where: { userId_commentId: { commentId, userId: user.id } },
+        }),
+        tx.user.findUnique({
+          select: { aura: true, createdAt: true },
+          where: { id: user.id },
+        }),
+      ]);
+      if (!actor) {
+        return null;
+      }
+
+      const oldValue = existingVote?.value ?? 0;
+
+      await settleVoteTransition(tx, {
+        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actorId: user.id,
+        commentId,
+        newValue: 0,
+        oldValue,
+        positions: {
+          awardedAura: existingVote?.awardedAura ?? 0,
+          mutingCostAura: existingVote?.mutingCostAura ?? 0,
+        },
+        postId: comment.postId,
+        recipientId: comment.userId,
+        types: {
+          amplifyApplied: "COMMENT_VOTE",
+          amplifyRemoved: "COMMENT_VOTE_REMOVED",
+          muteApplied: "COMMENT_VOTE_REMOVED",
+        },
       });
-      const oldValue = existingVote?.value || 0;
 
       if (existingVote) {
         await tx.commentVote.delete({
@@ -216,48 +284,22 @@ export async function DELETE(
         });
       }
 
-      const isSelfVote = comment.userId === user.id;
-
-      if (oldValue !== 0) {
-        // Only reverse aura that was actually awarded.
-        const wasAwarded = await tx.auraLog.findFirst({
-          where: {
-            commentId,
-            issuerId: user.id,
-            type: { in: ["COMMENT_VOTE", "COMMENT_VOTE_REMOVED"] },
-          },
+      const auraDelta = 0 - oldValue;
+      if (auraDelta !== 0) {
+        await tx.comment.update({
+          data: { aura: { decrement: oldValue } },
+          where: { id: commentId },
         });
-
-        if (wasAwarded) {
-          await Promise.all([
-            tx.comment.update({
-              data: { aura: { decrement: oldValue } },
-              where: { id: commentId },
-            }),
-            tx.user.update({
-              data: { aura: { decrement: oldValue } },
-              where: { id: comment.userId },
-            }),
-          ]);
-
-          await tx.auraLog.create({
-            data: {
-              amount: -oldValue,
-              commentId,
-              issuerId: user.id,
-              postId: comment.postId,
-              type: "COMMENT_VOTE_REMOVED",
-              userId: comment.userId,
-            },
-          });
-        }
       }
 
+      // Only notify others, never yourself.
+      const isSelfVote = comment.userId === user.id;
       if (oldValue === 1 && !isSelfVote) {
         await tx.notification.deleteMany({
           where: {
             commentId,
             issuerId: user.id,
+            postId: comment.postId,
             recipientId: comment.userId,
             type: "AMPLIFY",
           },

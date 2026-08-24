@@ -8,6 +8,7 @@ import { getWebLogger } from "@/lib/otel";
 import { getSessionFromApi } from "@/lib/session";
 import {
   getContentDisposition,
+  isBlockedMediaMime,
   shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
 
@@ -46,6 +47,12 @@ export async function GET(
       decision.status === 401 ? "Unauthorized" : "Media not found",
       { status: decision.status }
     );
+  }
+
+  // SVG / PDF / code payloads have no support at any level - downloads are
+  // rejected too, not just inline rendering.
+  if (isBlockedMediaMime(media.mimeType)) {
+    return new NextResponse("Unsupported media type", { status: 415 });
   }
 
   try {

@@ -29,9 +29,10 @@ describe("event-driven worker integration", () => {
     await ensureStreamGroups();
   });
 
-  test("computeViewAura awards 10 aura at the 50-view milestone", () => {
+  test("computeViewAura awards 5 aura at the 50-view milestone", () => {
+    // Retuned curve: +1 per full 10 views, so 50 views pays 5.
     const { aura } = computeViewAura(0, 50);
-    expect(aura).toBe(10);
+    expect(aura).toBe(5);
   });
 
   test("postViewsCache increments a counter and enqueues a stream event", async () => {

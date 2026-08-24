@@ -514,6 +514,7 @@ jobs:
               'docker/prisma-package.json',
               'docker/prisma-sync.dockerfile',
               'docker/prisma-sync.sh',
+              'scripts/backfill-trending-scores.ts',
             ]
             const prismaPrefixes = ['packages/db/']
             const triggerFiles = new Set(['bun.lock', 'package.json', 'turbo.json', 'tsconfig.json'])
