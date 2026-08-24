@@ -1,6 +1,6 @@
 {
   "name": "@asm/web",
-  "version": "1.2.48",
+  "version": "1.2.54",
   "private": true,
   "description": "asocialmedia Web App",
   "license": "AGPL-3.0",
@@ -16,6 +16,7 @@
     "@asm/config": "workspace:*",
     "@asm/db": "workspace:*",
     "@asm/logger": "workspace:*",
+    "@asm/media": "workspace:*",
     "@asm/next": "workspace:*",
     "@asm/ui": "workspace:*",
     "@aws-sdk/client-s3": "^3.1109.0",
@@ -68,8 +69,10 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@types/bun": "^1.4.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "bun-types": "^1.4.0",
     "prisma": "7.9.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
