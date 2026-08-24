@@ -342,6 +342,10 @@ model Post {
   aura                 Int            @default(0)
   viewCount            Int            @default(0)
   lastAwardedViewCount Int            @default(0)
+  // Highest share total already paid out for SHARE_MILESTONE aura. The
+  // share-flush worker reads and advances it under a CAS so concurrent
+  // flushes never double-award (see apps/auth/src/worker/share-flush.ts).
+  lastAwardedShareCount Int           @default(0)
   trendingScore        Float          @default(0)
   isGust               Boolean        @default(false)
   moderated            Boolean        @default(false)
@@ -379,6 +383,19 @@ model PostVisit {
   @@index([userId, visitedAt])
   @@index([postId])
   @@map("post_visits")
+}
+
+// Ops bookkeeping for one-shot data backfills (guarded runs that must happen
+// exactly once across a deployment fleet). The table is created and consumed
+// by scripts/backfill-trending-scores.ts and docker/prisma-sync.sh; it is
+// declared here with @@ignore purely so `prisma db push` never drops it as an
+// unknown table. It intentionally emits no client types.
+model BackfillMarker {
+  name        String   @id
+  completedAt DateTime @default(now()) @map("completed_at")
+
+  @@map("backfill_markers")
+  @@ignore
 }
 
 model Tag {

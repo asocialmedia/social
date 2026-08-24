@@ -300,7 +300,7 @@ export default function SupportForm() {
             <motion.div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
               <motion.div
                 animate={{ width: `${(step / 3) * 100}%` }}
-                className="h-full bg-gradient-to-r from-[#ff9500] to-[#e65500]"
+                className="h-full bg-linear-to-r from-[#ff9500] to-[#e65500]"
                 initial={{ width: "33.33%" }}
                 transition={{ duration: 0.3 }}
               />
