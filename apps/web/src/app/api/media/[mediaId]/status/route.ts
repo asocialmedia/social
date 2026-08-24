@@ -19,11 +19,13 @@ export async function GET(
 
   const media = await prisma.media.findUnique({
     select: {
+      altText: true,
       commentId: true,
       failureCode: true,
       id: true,
       postId: true,
       rejectedReason: true,
+      safety: true,
       status: true,
       userId: true,
     },
@@ -43,6 +45,11 @@ export async function GET(
   }
 
   return NextResponse.json({
+    altText: media.altText ?? null,
+    explicit:
+      session?.user && session.user.id === media.userId
+        ? ((media.safety as { explicit?: boolean } | null)?.explicit ?? null)
+        : null,
     failureCode: media.failureCode ?? null,
     mediaId: media.id,
     // Rejected rows report their reason only to the owner, who is the only

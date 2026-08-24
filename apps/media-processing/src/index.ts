@@ -25,6 +25,7 @@ if (import.meta.main) {
   const { processMediaScan } = await import("./jobs/scan");
   const { processMedia } = await import("./jobs/process");
   const { processMediaCleanup } = await import("./jobs/cleanup");
+  const { processMediaAnalyze } = await import("./jobs/analyze");
   const { workerEnv } = await import("./env");
 
   let running = true;
@@ -46,6 +47,9 @@ if (import.meta.main) {
         }
         case MEDIA_JOB_NAMES.process: {
           return await processMedia(job.data as { mediaId: string });
+        }
+        case MEDIA_JOB_NAMES.analyze: {
+          return await processMediaAnalyze(job.data as { mediaId: string });
         }
         case MEDIA_JOB_NAMES.deleteCascade: {
           throw new Error(`Job not implemented yet: ${job.name}`);
