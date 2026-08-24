@@ -69,7 +69,7 @@ export function encodeTrendingCursor(cursor: TrendingSnapshotCursor): string {
 }
 
 export function decodeTrendingCursor(
-  raw: string | undefined | null
+  raw?: string | null
 ): TrendingSnapshotCursor | null {
   if (!raw || !raw.startsWith(CURSOR_PREFIX)) {
     return null;

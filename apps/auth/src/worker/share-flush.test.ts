@@ -23,13 +23,62 @@ describe("share stream flush", () => {
   };
 
   const upsertCalls: unknown[] = [];
+  const milestoneState = {
+    auraLogs: [] as Record<string, unknown>[],
+    postUpdates: [] as Record<string, unknown>[],
+    userUpdates: [] as { id: string; increment: number }[],
+  };
+
+  // Configurable fixtures for the milestone path; empty by default so the
+  // plain flush tests exercise "no milestones crossed".
+  let milestonePosts: {
+    id: string;
+    lastAwardedShareCount: number;
+    userId: string;
+  }[] = [];
+  let shareTotals: { _sum: { shares: number | null }; postId: string }[] = [];
+
+  const mockTx = {
+    auraLog: {
+      createMany: mock((args: { data: Record<string, unknown>[] }) => {
+        milestoneState.auraLogs.push(...args.data);
+        return { count: args.data.length };
+      }),
+    },
+    post: {
+      update: mock((args: { data: Record<string, unknown> }) => {
+        milestoneState.postUpdates.push(args.data);
+      }),
+    },
+    user: {
+      update: mock(
+        (args: {
+          data: { aura: { increment: number } };
+          where: { id: string };
+        }) => {
+          milestoneState.userUpdates.push({
+            id: args.where.id,
+            increment: args.data.aura.increment,
+          });
+        }
+      ),
+    },
+  };
 
   const mockPrisma = {
     $transaction: mock(async (ops: unknown[]) => {
-      await Promise.all(ops as Promise<unknown>[]);
+      if (Array.isArray(ops)) {
+        await Promise.all(ops as Promise<unknown>[]);
+      } else if (typeof ops === "function") {
+        await (ops as (tx: typeof mockTx) => Promise<unknown>)(mockTx);
+      }
       return 1;
     }),
+    post: {
+      findMany: mock(() => milestonePosts),
+    },
     shareStats: {
+      groupBy: mock(() => shareTotals),
       upsert: mock((args: unknown) => {
         upsertCalls.push(args);
         return { id: "share-1" };
@@ -41,6 +90,28 @@ describe("share stream flush", () => {
     SHARE_CONSUMER_PREFIX: "share-worker",
     SHARE_GROUP: "share-flush",
     SHARE_STREAM: "share:stream",
+    // Faithful tier math matching SHARE_MILESTONE_TIERS: the flush worker
+    // awards share milestones through it.
+    computeShareMilestoneAura: (
+      lastAwardedShareCount: number,
+      newTotalShares: number
+    ) => {
+      let aura = 0;
+      let tiersCrossed = 0;
+      for (const tier of [
+        { aura: 10, threshold: 25 },
+        { aura: 50, threshold: 250 },
+      ]) {
+        if (
+          lastAwardedShareCount < tier.threshold &&
+          newTotalShares >= tier.threshold
+        ) {
+          aura += tier.aura;
+          tiersCrossed += 1;
+        }
+      }
+      return { aura, tiersCrossed };
+    },
     getBlockingRedisClient: () => mockRedis,
     prisma: mockPrisma,
     redis: mockRedis,
@@ -49,9 +120,17 @@ describe("share stream flush", () => {
   beforeEach(() => {
     executedArgs.length = 0;
     upsertCalls.length = 0;
+    milestonePosts = [];
+    shareTotals = [];
+    milestoneState.auraLogs.length = 0;
+    milestoneState.postUpdates.length = 0;
+    milestoneState.userUpdates.length = 0;
     mockExec.mockClear();
     mockPrisma.$transaction.mockClear();
     mockPrisma.shareStats.upsert.mockClear();
+    mockTx.auraLog.createMany.mockClear();
+    mockTx.post.update.mockClear();
+    mockTx.user.update.mockClear();
     mockRedis.xack.mockClear();
   });
 
@@ -110,5 +189,50 @@ describe("share stream flush", () => {
 
     expect(result).toBe(0);
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  test("crossing a share milestone awards the author and ledgers it", async () => {
+    mockExec.mockResolvedValueOnce([
+      [null, "30"],
+      [null, "0"],
+    ]);
+    milestonePosts = [
+      { id: "post-1", lastAwardedShareCount: 0, userId: "author-1" },
+    ];
+    shareTotals = [{ _sum: { shares: 30 }, postId: "post-1" }];
+
+    const { flushShareDeltas } = await import("./share-flush");
+    await flushShareDeltas([{ platform: "twitter", postId: "post-1" }]);
+
+    expect(milestoneState.userUpdates).toEqual([
+      { id: "author-1", increment: 10 },
+    ]);
+    expect(milestoneState.postUpdates).toEqual([{ lastAwardedShareCount: 30 }]);
+    expect(milestoneState.auraLogs).toHaveLength(1);
+    expect(milestoneState.auraLogs[0]).toMatchObject({
+      amount: 10,
+      issuerId: "author-1",
+      postId: "post-1",
+      targetUserId: "author-1",
+      type: "SHARE_MILESTONE",
+      userId: "author-1",
+    });
+  });
+
+  test("no milestone fires below the first tier", async () => {
+    mockExec.mockResolvedValueOnce([
+      [null, "5"],
+      [null, null],
+    ]);
+    milestonePosts = [
+      { id: "post-1", lastAwardedShareCount: 0, userId: "author-1" },
+    ];
+    shareTotals = [{ _sum: { shares: 5 }, postId: "post-1" }];
+
+    const { flushShareDeltas } = await import("./share-flush");
+    await flushShareDeltas([{ platform: "twitter", postId: "post-1" }]);
+
+    expect(milestoneState.userUpdates).toHaveLength(0);
+    expect(milestoneState.auraLogs).toHaveLength(0);
   });
 });

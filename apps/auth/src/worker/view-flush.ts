@@ -7,6 +7,7 @@ import {
   VIEWS_CONSUMER_PREFIX,
   VIEWS_GROUP,
   VIEWS_STREAM,
+  computeViewMilestoneAura,
 } from "@asm/db";
 
 import { resolveLogger, withSpan } from "./log";
@@ -15,26 +16,14 @@ import type { WorkerLogger } from "./log";
 const BATCH_SIZE = 500;
 const BLOCK_MS = 2000;
 
-const FIFTY_VIEWS_THRESHOLD = 50;
-const FIFTY_VIEWS_AURA = 10;
-const THOUSAND_VIEWS_THRESHOLD = 1000;
-const THOUSAND_VIEWS_AURA = 100;
-
-// Aura is awarded per milestone crossed between the last awarded view count
-// and the new total. Exporting for tests.
+// Aura is awarded per milestone tier crossed between the last awarded view
+// count and the new total. The tier table lives in the aura economy config;
+// this wrapper keeps the historical return shape for callers and tests.
 export function computeViewAura(
   lastAwarded: number,
   newTotal: number
 ): { aura: number; lastAwardedViewCount: number } {
-  const prevFifties = Math.floor(lastAwarded / FIFTY_VIEWS_THRESHOLD);
-  const newFifties = Math.floor(newTotal / FIFTY_VIEWS_THRESHOLD);
-  const prevThousands = Math.floor(lastAwarded / THOUSAND_VIEWS_THRESHOLD);
-  const newThousands = Math.floor(newTotal / THOUSAND_VIEWS_THRESHOLD);
-
-  const aura =
-    (newFifties - prevFifties) * FIFTY_VIEWS_AURA +
-    (newThousands - prevThousands) * THOUSAND_VIEWS_AURA;
-
+  const { aura } = computeViewMilestoneAura(lastAwarded, newTotal);
   return { aura, lastAwardedViewCount: newTotal };
 }
 
@@ -175,6 +164,7 @@ export async function flushViewDeltas(
                 amount: u.auraDelta,
                 issuerId: u.userId,
                 postId: u.id,
+                targetUserId: u.userId,
                 type: "POST_VIEWS_MILESTONE",
                 userId: u.userId,
               })),

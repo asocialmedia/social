@@ -5,6 +5,7 @@ import {
   SHARE_CONSUMER_PREFIX,
   SHARE_GROUP,
   SHARE_STREAM,
+  computeShareMilestoneAura,
 } from "@asm/db";
 
 import { resolveLogger, withSpan } from "./log";
@@ -21,6 +22,102 @@ interface ShareDelta {
   platform: string;
   postId: string;
   shares: number;
+}
+
+// Awards view-style attention milestones when a post's TOTAL share count
+// crosses a tier. Shares carry no per-user actor (they are aggregated per
+// platform), so like view milestones these are attributed to aggregate
+// attention, bypass weighting/tapering/capping, and are fully ledgered.
+async function awardShareMilestones(
+  postIds: string[],
+  log: WorkerLogger
+): Promise<void> {
+  if (postIds.length === 0) {
+    return;
+  }
+
+  const posts = await prisma.post.findMany({
+    select: { id: true, lastAwardedShareCount: true, userId: true },
+    where: { id: { in: postIds } },
+  });
+
+  const totals = await prisma.shareStats.groupBy({
+    _sum: { shares: true },
+    by: ["postId"],
+    where: { postId: { in: postIds } },
+  });
+  const totalByPost = new Map(
+    totals.map((row) => [row.postId, row._sum.shares ?? 0])
+  );
+
+  const awards: {
+    aura: number;
+    lastAwardedShareCount: number;
+    postId: string;
+    userId: string;
+  }[] = [];
+
+  for (const post of posts) {
+    const totalShares = totalByPost.get(post.id) ?? 0;
+    const { aura } = computeShareMilestoneAura(
+      post.lastAwardedShareCount,
+      totalShares
+    );
+    if (aura > 0) {
+      awards.push({
+        aura,
+        lastAwardedShareCount: totalShares,
+        postId: post.id,
+        userId: post.userId,
+      });
+    }
+  }
+
+  if (awards.length === 0) {
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await Promise.all(
+      awards.map((award) =>
+        tx.post.update({
+          data: { lastAwardedShareCount: award.lastAwardedShareCount },
+          where: { id: award.postId },
+        })
+      )
+    );
+
+    // Attention milestones are the only positive awards allowed to bypass the
+    // daily income cap, so they increment directly here (mirroring
+    // view-flush's batched raw-SQL path).
+    await Promise.all(
+      awards.map((award) =>
+        tx.user.update({
+          data: { aura: { increment: award.aura } },
+          where: { id: award.userId },
+        })
+      )
+    );
+
+    await tx.auraLog.createMany({
+      data: awards.map((award) => ({
+        amount: award.aura,
+        issuerId: award.userId,
+        postId: award.postId,
+        targetUserId: award.userId,
+        type: "SHARE_MILESTONE",
+        userId: award.userId,
+      })),
+    });
+  });
+
+  log.info(
+    {
+      awardedPosts: awards.length,
+      totalAura: awards.reduce((sum, award) => sum + award.aura, 0),
+    },
+    "share milestones awarded"
+  );
 }
 
 // Reads and clears the buffered share/click counters for a post+platform and
@@ -71,6 +168,11 @@ export async function flushShareDeltas(
             where: { postId_platform: { platform, postId } },
           })
         )
+      );
+
+      await awardShareMilestones(
+        [...new Set(deltas.map((delta) => delta.postId))],
+        log
       );
 
       log.info(

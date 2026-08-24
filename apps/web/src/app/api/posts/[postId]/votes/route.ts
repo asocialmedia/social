@@ -1,10 +1,17 @@
 import {
+  AMPLIFY_RECEIVE_AURA,
+  applyWeightedAward,
+  chargeMutingCost,
+  decomposeVoteTransition,
   enqueueNotificationCreated,
   enqueueNotificationDeleted,
   getPostDataInclude,
+  invalidateAuraSignals,
+  MUTE_RECEIVE_AURA,
   prisma,
+  reverseExactAura,
 } from "@asm/db";
-import type { PostData } from "@asm/db";
+import type { Prisma, PostData } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/db-transactions";
 import { getSessionFromApi } from "@/lib/session";
@@ -15,7 +22,132 @@ interface VoteInfo {
   userVote: number;
 }
 
+// Open economy positions carried by a vote row. awardedAura is the signed net
+// author-side amount currently applied (+amplify gain / -mute loss);
+// mutingCostAura is the muter honesty cost currently charged (always <= 0).
+interface OpenPositions {
+  awardedAura: number;
+  mutingCostAura: number;
+}
+
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
+
+// Settles the economy events of one vote transition against the open
+// positions stored on the existing vote row, returning the new totals to
+// persist. Removals reverse EXACTLY what is standing (weighting made amounts
+// vary over time), applications go through the weighted/tapered/capped award
+// pipeline. Self-engagement is zeroed inside the engine; self-mutes still
+// pay the muting cost.
+// oxlint-disable no-await-in-loop -- transition components share running totals and must settle strictly in order
+async function settleVoteEconomy(
+  tx: Prisma.TransactionClient,
+  input: {
+    actor: { aura: number; createdAt: Date };
+    actorId: string;
+    newValue: number;
+    oldValue: number;
+    postId: string;
+    recipientId: string;
+    positions: OpenPositions;
+  }
+): Promise<OpenPositions> {
+  let totalAwarded = input.positions.awardedAura;
+  let totalCost = input.positions.mutingCostAura;
+  const now = new Date();
+
+  for (const component of decomposeVoteTransition(
+    input.oldValue,
+    input.newValue
+  )) {
+    switch (component.kind) {
+      case "REMOVE_AMPLIFY": {
+        // Refund exactly the amplify gain that was standing, never the mute
+        // loss half of the signed field (a vote applies only one side).
+        const standingAmplify = Math.max(0, totalAwarded);
+        if (standingAmplify !== 0) {
+          await reverseExactAura(tx, {
+            issuerId: input.actorId,
+            openAmount: standingAmplify,
+            postId: input.postId,
+            recipientId: input.recipientId,
+            type: "POST_VOTE_REMOVED",
+          });
+          totalAwarded -= standingAmplify;
+        }
+        break;
+      }
+      case "APPLY_AMPLIFY": {
+        const { amount } = await applyWeightedAward(tx, {
+          actor: input.actor,
+          actorId: input.actorId,
+          baseAmount: AMPLIFY_RECEIVE_AURA,
+          now,
+          postId: input.postId,
+          recipientId: input.recipientId,
+          subjectToDailyCap: true,
+          taperClass: "amplify",
+          type: "POST_VOTE",
+        });
+        totalAwarded += amount;
+        break;
+      }
+      case "APPLY_MUTE": {
+        const { amount } = await applyWeightedAward(tx, {
+          actor: input.actor,
+          actorId: input.actorId,
+          baseAmount: -MUTE_RECEIVE_AURA,
+          now,
+          postId: input.postId,
+          recipientId: input.recipientId,
+          subjectToDailyCap: false,
+          type: "POST_VOTE_REMOVED",
+        });
+        totalAwarded += amount;
+
+        // Every mute costs its issuer, even on their own content.
+        const { amount: costAmount } = await chargeMutingCost(tx, {
+          muterId: input.actorId,
+          postId: input.postId,
+        });
+        totalCost += costAmount;
+        break;
+      }
+      case "REMOVE_MUTE": {
+        // Give the author back exactly the mute loss that was standing...
+        const standingMute = Math.min(0, totalAwarded);
+        if (standingMute !== 0) {
+          await reverseExactAura(tx, {
+            issuerId: input.actorId,
+            openAmount: standingMute,
+            postId: input.postId,
+            recipientId: input.recipientId,
+            type: "POST_VOTE",
+          });
+        }
+        totalAwarded = Math.max(0, totalAwarded);
+
+        // ...and refund the muter's honesty cost in full.
+        if (totalCost !== 0) {
+          await reverseExactAura(tx, {
+            issuerId: input.actorId,
+            openAmount: totalCost,
+            postId: input.postId,
+            recipientId: input.actorId,
+            type: "MUTING_COST",
+          });
+          totalCost = 0;
+        }
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+
+  return { awardedAura: totalAwarded, mutingCostAura: totalCost };
+}
+// oxlint-enable no-await-in-loop
 
 export async function GET(
   _req: Request,
@@ -87,10 +219,33 @@ export async function POST(
         return null;
       }
 
-      const existingVote = await tx.vote.findUnique({
-        where: { userId_postId: { postId, userId: user.id } },
+      const [existingVote, actor] = await Promise.all([
+        tx.vote.findUnique({
+          where: { userId_postId: { postId, userId: user.id } },
+        }),
+        tx.user.findUnique({
+          select: { aura: true, createdAt: true },
+          where: { id: user.id },
+        }),
+      ]);
+      if (!actor) {
+        return null;
+      }
+
+      const oldValue = existingVote?.value ?? 0;
+
+      const positions = await settleVoteEconomy(tx, {
+        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actorId: user.id,
+        newValue: value,
+        oldValue,
+        positions: {
+          awardedAura: existingVote?.awardedAura ?? 0,
+          mutingCostAura: existingVote?.mutingCostAura ?? 0,
+        },
+        postId,
+        recipientId: post.userId,
       });
-      const oldValue = existingVote?.value || 0;
 
       if (value === 0) {
         if (existingVote) {
@@ -100,42 +255,34 @@ export async function POST(
         }
       } else {
         await tx.vote.upsert({
-          create: { postId, userId: user.id, value },
-          update: { value },
+          create: {
+            awardedAura: positions.awardedAura,
+            mutingCostAura: positions.mutingCostAura,
+            postId,
+            userId: user.id,
+            value,
+          },
+          update: {
+            awardedAura: positions.awardedAura,
+            mutingCostAura: positions.mutingCostAura,
+            value,
+          },
           where: { userId_postId: { postId, userId: user.id } },
         });
       }
 
-      // Aura follows the vote score: amplifying (+1) credits aura, muting (-1)
-      // or removing a vote debits it. Self-votes award aura too - an amplify
-      // on your own post still represents reputation for that content.
-      const isSelfVote = post.userId === user.id;
+      // Raw score keeps +-1-per-vote semantics; only User.aura is weighted.
       const auraDelta = value - oldValue;
       if (auraDelta !== 0) {
         auraChanged = true;
-        await Promise.all([
-          tx.post.update({
-            data: { aura: { increment: auraDelta } },
-            where: { id: postId },
-          }),
-          tx.user.update({
-            data: { aura: { increment: auraDelta } },
-            where: { id: post.userId },
-          }),
-        ]);
-
-        await tx.auraLog.create({
-          data: {
-            amount: auraDelta,
-            issuerId: user.id,
-            postId,
-            type: auraDelta > 0 ? "POST_VOTE" : "POST_VOTE_REMOVED",
-            userId: post.userId,
-          },
+        await tx.post.update({
+          data: { aura: { increment: auraDelta } },
+          where: { id: postId },
         });
       }
 
       // Only notify others, never yourself.
+      const isSelfVote = post.userId === user.id;
       if (!isSelfVote) {
         if (value === 1 && oldValue !== 1) {
           await tx.notification.create({
@@ -182,6 +329,13 @@ export async function POST(
 
     if (auraChanged) {
       await suggestedUsersCache.invalidateForUser(result.userId);
+      // Fire-and-forget: signals serve ranking heuristics and fall back to a
+      // TTL refresh, so a failed invalidation only costs freshness.
+      try {
+        await invalidateAuraSignals([result.userId, user.id]);
+      } catch (error) {
+        console.error("Failed to invalidate aura signals:", error);
+      }
     }
 
     const voteInfo: VoteInfo = {
@@ -218,10 +372,33 @@ export async function DELETE(
         return null;
       }
 
-      const existingVote = await tx.vote.findUnique({
-        where: { userId_postId: { postId, userId: user.id } },
+      const [existingVote, actor] = await Promise.all([
+        tx.vote.findUnique({
+          where: { userId_postId: { postId, userId: user.id } },
+        }),
+        tx.user.findUnique({
+          select: { aura: true, createdAt: true },
+          where: { id: user.id },
+        }),
+      ]);
+      if (!actor) {
+        return null;
+      }
+
+      const oldValue = existingVote?.value ?? 0;
+
+      await settleVoteEconomy(tx, {
+        actor: { aura: actor.aura, createdAt: actor.createdAt },
+        actorId: user.id,
+        newValue: 0,
+        oldValue,
+        positions: {
+          awardedAura: existingVote?.awardedAura ?? 0,
+          mutingCostAura: existingVote?.mutingCostAura ?? 0,
+        },
+        postId,
+        recipientId: post.userId,
       });
-      const oldValue = existingVote?.value || 0;
 
       if (existingVote) {
         await tx.vote.delete({
@@ -229,43 +406,17 @@ export async function DELETE(
         });
       }
 
-      const isSelfVote = post.userId === user.id;
-      if (oldValue !== 0) {
-        // Only reverse aura that was actually awarded (votes placed while the
-        // self-vote guard was active never earned any).
-        const wasAwarded = await tx.auraLog.findFirst({
-          where: {
-            issuerId: user.id,
-            postId,
-            type: { in: ["POST_VOTE", "POST_VOTE_REMOVED"] },
-          },
+      const auraDelta = 0 - oldValue;
+      if (auraDelta !== 0) {
+        auraChanged = true;
+        await tx.post.update({
+          data: { aura: { increment: auraDelta } },
+          where: { id: postId },
         });
-
-        if (wasAwarded) {
-          auraChanged = true;
-          await Promise.all([
-            tx.post.update({
-              data: { aura: { decrement: oldValue } },
-              where: { id: postId },
-            }),
-            tx.user.update({
-              data: { aura: { decrement: oldValue } },
-              where: { id: post.userId },
-            }),
-          ]);
-
-          await tx.auraLog.create({
-            data: {
-              amount: -oldValue,
-              issuerId: user.id,
-              postId,
-              type: "POST_VOTE_REMOVED",
-              userId: post.userId,
-            },
-          });
-        }
       }
 
+      // Only notify others, never yourself.
+      const isSelfVote = post.userId === user.id;
       if (oldValue === 1 && !isSelfVote) {
         await tx.notification.deleteMany({
           where: {
@@ -295,6 +446,11 @@ export async function DELETE(
 
     if (auraChanged) {
       await suggestedUsersCache.invalidateForUser(result.userId);
+      try {
+        await invalidateAuraSignals([result.userId, user.id]);
+      } catch (error) {
+        console.error("Failed to invalidate aura signals:", error);
+      }
     }
 
     const voteInfo: VoteInfo = {
