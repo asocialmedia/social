@@ -58,6 +58,18 @@ export { detectContent, verifyDeclaredMatchesContent } from "./magic";
 export type { ContentDetection } from "./magic";
 
 export {
+  KNOWN_AI_GENERATORS,
+  SYNTHETIC_DIGITAL_SOURCE_TYPES,
+  detectAiFromManifestStore,
+  isStampableForC2Pa,
+} from "./provenance";
+export type {
+  AiEvidence,
+  AiProvenanceVerdict,
+  MediaAiProvenance,
+} from "./provenance";
+
+export {
   AUDIO_AAC_KBPS,
   AUDIO_OPUS_KBPS,
   AUDIO_TARGET_LUFS,

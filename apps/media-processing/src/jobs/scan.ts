@@ -3,9 +3,10 @@
 // type, enforces resource limits, and runs antivirus. Only scanned, verified
 // bytes are promoted out of quarantine.
 
-import { enqueueMediaProcess, prisma } from "@asm/db";
+import { enqueueMediaProcess, Prisma, prisma } from "@asm/db";
 import {
   MEDIA_PIPELINE_VERSION,
+  isStampableForC2Pa,
   publishedKey,
   sanitizeExtension,
   verifyDeclaredMatchesContent,
@@ -15,6 +16,8 @@ import type { MediaScanJobData } from "@asm/media";
 import { scanStream, ClamAvUnavailableError } from "../clamav";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
+import { inspectAssetProvenance } from "../provenance/reader";
+import { stampAiGenerated } from "../provenance/stamp";
 import { getS3 } from "../s3";
 
 const SCAN_LIMITS = resolveWorkerMediaLimits();
@@ -114,6 +117,7 @@ export function processMediaScan(
       }
 
       const tempPath = `/tmp/asm-scan-${mediaId}-${crypto.randomUUID()}`;
+      const stampedPath = `${tempPath}-c2pa`;
 
       try {
         const s3 = getS3();
@@ -175,6 +179,25 @@ export function processMediaScan(
         }
         const { detected } = verification;
 
+        // 3b. Provenance: classify embedded C2PA manifests for AI-generation
+        // signals (generator identity, digitalSourceTypes, metadata labels).
+        // Best-effort - assets without manifests are the common case and
+        // inspection failures never block publication.
+        const provenance = await inspectAssetProvenance(
+          tempPath,
+          detected.mime
+        );
+        if (provenance?.verdict.aiGenerated) {
+          mediaLogger.info(
+            {
+              evidence: provenance.verdict.evidence.length,
+              generators: provenance.verdict.generators,
+              mediaId,
+            },
+            "upload classified as AI-generated"
+          );
+        }
+
         // 4. Antivirus. Fail-closed when a scanner is configured but
         // unreachable: unscanned bytes never get published.
         let scanned = false;
@@ -228,10 +251,46 @@ export function processMediaScan(
 
         const extension = sanitizeExtension(detected.mime.split("/")[1]);
         const targetKey = publishedKey(media.id, extension, sha256);
-        await s3.write(targetKey, Bun.file(tempPath));
+
+        // 4b. Stamp AI-flagged assets with our own signed manifest before
+        // they leave quarantine. Falls back to the raw bytes whenever no
+        // signing identity is configured, the format can't carry an
+        // embedded manifest, or stamping fails - detection stays recorded.
+        let publishPath = tempPath;
+        let stamped = false;
+        if (
+          provenance?.verdict.aiGenerated &&
+          workerEnv.C2PA_STAMP_ENABLED &&
+          isStampableForC2Pa(detected.mime)
+        ) {
+          try {
+            stamped = await stampAiGenerated(tempPath, stampedPath, {
+              detectionReason: provenance.verdict.evidence[0]?.detail ?? "ai",
+              mediaId,
+            });
+            if (stamped) {
+              publishPath = stampedPath;
+            }
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId },
+              "C2PA stamping failed; publishing unstamped"
+            );
+          }
+        }
+
+        await s3.write(targetKey, Bun.file(publishPath));
 
         const secondFlip = await prisma.media.updateMany({
           data: {
+            aiGenerated: provenance ? provenance.verdict.aiGenerated : null,
+            aiProvenance: provenance
+              ? (structuredClone({
+	...provenance.verdict,
+	detectedAt: new Date().toISOString(),
+	stamped
+}) as object)
+              : Prisma.DbNull,
             detectedMime: detected.mime,
             // EXIF stripping happens during derivative generation (phase 2);
             // at this point the verified original is served as-is.
@@ -246,6 +305,15 @@ export function processMediaScan(
               avScanned: scanned,
               container: detected.container,
               family: detected.family,
+              ...(provenance
+                ? {
+                    c2pa: {
+                      claimGenerator: provenance.claimGenerator,
+                      generators: provenance.verdict.generators,
+                      manifestCount: provenance.verdict.c2paPresent ? 1 : 0,
+                    },
+                  }
+                : {}),
             },
           },
           where: { id: mediaId, status: "PROCESSING" },
@@ -301,7 +369,7 @@ export function processMediaScan(
         });
         throw error;
       } finally {
-        await Bun.$`rm -f ${tempPath}`.quiet().catch(() => null);
+        await Bun.$`rm -f ${tempPath} ${stampedPath}`.quiet().catch(() => null);
       }
     },
     { "media.id": mediaId }

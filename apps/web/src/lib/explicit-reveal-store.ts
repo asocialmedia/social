@@ -3,31 +3,44 @@ import { useSyncExternalStore } from "react";
 // Cross-surface memory for dismissed explicit-content gates, keyed by post
 // id. The feed card, post page, and fullscreen media page all render their
 // own gate instance; without shared state the user would confirm "Continue"
-// once per surface. Session-scoped on purpose: a fresh browser session
-// re-gates explicit media, which is the expected safety behaviour.
+// once per surface.
+//
+// Reveals EXPIRE: this is a warning gate, not a preference. After
+// EXPLICIT_REVEAL_TTL_MS the blur re-arms and the user must confirm again.
+// Session-scoped storage also means a fresh browser session re-gates.
 
 const STORAGE_KEY = "asm-explicit-revealed";
 
-let revealedIds: Set<string> | null = null;
+// How long a dismissal stays honored before the gate re-arms.
+export const EXPLICIT_REVEAL_TTL_MS = 30 * 60 * 1000;
+
+// postId -> reveal timestamp (ms epoch).
+let revealedIds: Record<string, number> | null = null;
 const listeners = new Set<() => void>();
 
-function load(): Set<string> {
+function load(): Record<string, number> {
   if (revealedIds) {
     return revealedIds;
   }
-  let loaded: Set<string>;
+  let loaded: Record<string, number>;
   if (typeof window === "undefined") {
-    loaded = new Set();
+    loaded = {};
   } else {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
-      loaded = new Set(raw ? (JSON.parse(raw) as string[]) : []);
+      loaded = raw ? (JSON.parse(raw) as Record<string, number>) : {};
     } catch {
-      loaded = new Set();
+      loaded = {};
     }
   }
   revealedIds = loaded;
   return loaded;
+}
+
+function isFresh(revealedAt: number | undefined): boolean {
+  return (
+    revealedAt !== undefined && Date.now() - revealedAt < EXPLICIT_REVEAL_TTL_MS
+  );
 }
 
 function persist(): void {
@@ -35,7 +48,7 @@ function persist(): void {
     return;
   }
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...revealedIds]));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(revealedIds));
   } catch {
     // Storage unavailable (private mode/quota): in-memory only.
   }
@@ -50,15 +63,15 @@ export function isExplicitRevealed(postId: string | null | undefined): boolean {
   if (!postId) {
     return false;
   }
-  return load().has(postId);
+  return isFresh(load()[postId]);
 }
 
 export function revealExplicit(postId: string): void {
   const ids = load();
-  if (ids.has(postId)) {
+  if (isFresh(ids[postId])) {
     return;
   }
-  ids.add(postId);
+  ids[postId] = Date.now();
   persist();
   for (const listener of listeners) {
     listener();
@@ -70,7 +83,7 @@ export function useExplicitRevealed(
 ): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => (postId ? load().has(postId) : false),
+    () => (postId ? isFresh(load()[postId]) : false),
     () => false
   );
 }

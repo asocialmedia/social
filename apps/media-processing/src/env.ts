@@ -24,6 +24,9 @@ export const keys = createEnv({
     CLAMAV_PORT: process.env.CLAMAV_PORT,
     DATABASE_URL: process.env.DATABASE_URL,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
+    MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
+    MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
@@ -58,6 +61,9 @@ export const keys = createEnv({
     // MEDIA_REQUIRE_CLAMAV=0 turns that warning off entirely.
     CLAMAV_HOST: z.string().optional(),
     CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+    // Provenance stamping identity. Unset (the default) disables embedding
+    // signed C2PA manifests - AI detection still records to the database.
+    // Generate a dev pair via `bun scripts/generate-c2pa-cert.ts`.
     DATABASE_URL: z
       .url()
       .default(
@@ -66,6 +72,9 @@ export const keys = createEnv({
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
+    MEDIA_C2PA_CERT_PATH: z.string().min(1).optional(),
+    MEDIA_C2PA_KEY_PATH: z.string().min(1).optional(),
+    MEDIA_C2PA_STAMP: z.enum(["0", "1"]).default("1"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
     MEDIA_MAX_AUDIO_BYTES: numericOverride,
@@ -105,6 +114,15 @@ export const workerEnv = {
   },
   get ASMOB_ENDPOINT() {
     return keys.ASMOB_ENDPOINT;
+  },
+  get C2PA_CERT_PATH() {
+    return keys.MEDIA_C2PA_CERT_PATH;
+  },
+  get C2PA_KEY_PATH() {
+    return keys.MEDIA_C2PA_KEY_PATH;
+  },
+  get C2PA_STAMP_ENABLED() {
+    return keys.MEDIA_C2PA_STAMP === "1";
   },
   get CLAMAV_HOST() {
     return keys.CLAMAV_HOST;

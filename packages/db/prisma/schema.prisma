@@ -452,6 +452,12 @@ model Media {
   generatedAltText  String?
   safety            Json?
   semantics         Json?
+  // Content provenance (C2PA): AI-generation classification recorded by the
+  // scan stage. Null means never inspected (legacy/pre-pipeline rows). The
+  // row flag is authoritative - embedded manifests can be stripped, this
+  // cannot, and it survives re-uploads of the same media id.
+  aiGenerated       Boolean?
+  aiProvenance      Json?
   pipelineVersion   String?
   processedAt       DateTime?
   // Default(now()) lets db push backfill existing rows instead of refusing
