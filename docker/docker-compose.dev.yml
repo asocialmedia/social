@@ -204,7 +204,7 @@ services:
       # INSTREAM cap must exceed the largest upload (250MB default). The
       # image's /init only honors CLAMD_CONF_<ParamName> variables; the
       # CLAMAV_MAX_* names are silently ignored.
-      CLAMD_CONF_MaxStreamSize: 300M
+      CLAMD_CONF_StreamMaxLength: 300M
       CLAMD_CONF_MaxFileSize: 300M
     ports:
       - "3310:3310"
