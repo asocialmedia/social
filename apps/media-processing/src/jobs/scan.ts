@@ -286,10 +286,10 @@ export function processMediaScan(
             aiGenerated: provenance ? provenance.verdict.aiGenerated : null,
             aiProvenance: provenance
               ? (structuredClone({
-	...provenance.verdict,
-	detectedAt: new Date().toISOString(),
-	stamped
-}) as object)
+                  ...provenance.verdict,
+                  detectedAt: new Date().toISOString(),
+                  stamped,
+                }) as object)
               : Prisma.DbNull,
             detectedMime: detected.mime,
             // EXIF stripping happens during derivative generation (phase 2);

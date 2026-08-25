@@ -36,7 +36,7 @@ import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { getMediaProxyUrl, getMediaVariantUrl } from "@/lib/utils/image-url";
 
 import { CustomVideoPlayer } from "./custom-video-player";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
@@ -82,7 +82,10 @@ function getShareThumbnail(
   currentMedia: Media | undefined
 ): string | undefined {
   if (currentMedia) {
-    return getMediaProxyUrl(currentMedia);
+    if (currentMedia.mimeType === "image/gif") {
+      return getMediaProxyUrl(currentMedia);
+    }
+    return getMediaVariantUrl(currentMedia.id, "lg-webp.webp");
   }
   if (post?.attachments[0]) {
     return getMediaProxyUrl(post.attachments[0]);

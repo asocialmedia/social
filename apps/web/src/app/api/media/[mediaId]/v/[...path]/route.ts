@@ -33,7 +33,16 @@ export async function GET(
   // Ownership/visibility is read fresh (never cached), mirroring the main
   // serving route.
   const ownership = await prisma.media.findUnique({
-    select: { commentId: true, postId: true, status: true, userId: true },
+    select: {
+      commentId: true,
+      detectedMime: true,
+      key: true,
+      mimeType: true,
+      postId: true,
+      publishedKey: true,
+      status: true,
+      userId: true,
+    },
     where: { id: mediaId },
   });
   if (!ownership || ownership.status !== "READY") {
@@ -76,13 +85,27 @@ export async function GET(
       objectKey = derivative?.key ?? null;
     }
 
-    if (!objectKey) {
-      return new NextResponse("Not found", { status: 404 });
+    let mimeType: string;
+    if (objectKey) {
+      const extension = objectKey.split(".").pop()?.toLowerCase() ?? "";
+      mimeType =
+        DERIVATIVE_MIME_BY_EXT[extension] ?? "application/octet-stream";
+    } else {
+      // Graceful fallback: READY media without the requested derivative
+      // (legacy rows, GIFs, exotic formats) serves its published original
+      // instead of 404ing, so callers can always point at a variant URL.
+      if (ownership.status !== "READY") {
+        return new NextResponse("Not found", { status: 404 });
+      }
+      objectKey = ownership.publishedKey ?? (ownership.key || null);
+      if (!objectKey) {
+        return new NextResponse("Not found", { status: 404 });
+      }
+      mimeType =
+        ownership.detectedMime ??
+        ownership.mimeType ??
+        "application/octet-stream";
     }
-
-    const extension = objectKey.split(".").pop()?.toLowerCase() ?? "";
-    const mimeType =
-      DERIVATIVE_MIME_BY_EXT[extension] ?? "application/octet-stream";
 
     const response = await asmobClient.send(
       new GetObjectCommand({

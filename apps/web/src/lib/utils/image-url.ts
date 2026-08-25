@@ -91,14 +91,27 @@ export function toAppProxyUrl(url: string | null | undefined): string {
   return rewriteAsmobUrl(url);
 }
 
-// App proxy URL for a media object. Videos always request the thumbnail URL
-// (?thumb=1) so image callers receive a poster image/placeholder instead of
-// downloading multi-megabyte video streams.
+// App proxy URL for a media object. Images request the 800px WebP feed
+// derivative (the variant route falls back to the original for legacy rows
+// and animated GIFs); videos always request the poster URL (?thumb=1) so
+// image callers receive a frame instead of multi-megabyte video streams.
 export function getMediaProxyUrl(media: {
   id: string;
   type?: string;
+  mimeType?: string;
   thumbnailKey?: string | null;
 }): string {
-  const thumbnail = media.type === "VIDEO" ? "?thumb=1" : "";
-  return `/api/media/${media.id}${thumbnail}`;
+  if (media.type === "VIDEO") {
+    return `/api/media/${media.id}?thumb=1`;
+  }
+  if (media.mimeType === "image/gif") {
+    return `/api/media/${media.id}`;
+  }
+  return getMediaVariantUrl(media.id, "md-webp.webp");
+}
+
+// Optimized derivative URL. The serving route falls back to the published
+// original when the derivative does not exist, so this is always safe.
+export function getMediaVariantUrl(mediaId: string, variant: string): string {
+  return `/api/media/${mediaId}/v/${variant}`;
 }
