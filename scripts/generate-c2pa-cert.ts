@@ -25,7 +25,7 @@ await mkdir(outDir, { recursive: true });
 // Dev root CA.
 await $`openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
   -keyout ${caKey} -out ${caCert} -days 3650 -nodes \
-  -subj "/CN=asm.social provenance dev CA/O=aSocialMedia" \
+  -subj "/CN=asocialmedia.cc provenance dev CA/O=aSocialMedia" \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "keyUsage=critical,keyCertSign,cRLSign"`;
 
@@ -35,7 +35,7 @@ await $`openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
 // (1.3.6.1.4.1.62558.2.1) alongside or instead of it.
 await $`openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
   -keyout ${keyPath} -out ${csrPath} -nodes \
-  -subj "/CN=asm.social media pipeline (dev)/O=aSocialMedia" \
+  -subj "/CN=asocialmedia.cc media pipeline (dev)/O=aSocialMedia" \
   -addext "basicConstraints=critical,CA:FALSE" \
   -addext "keyUsage=critical,digitalSignature" \
   -addext "extendedKeyUsage=critical,codeSigning,1.3.6.1.4.1.62558.2.1"`;

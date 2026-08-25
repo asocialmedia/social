@@ -3,7 +3,7 @@
 // chain (Firefly/DALL-E/etc.) is preserved as a parent ingredient, and two
 // assertions are layered on top -
 //
-//   com.asocialmedia.provenance     platform-private classification record
+//   cc.asocialmedia.provenance      platform-private classification record
 //   stds.schema-org.CustomMetadata  standards-based "AI Generated" label
 //
 // The signature makes stripping detectable (the file stops validating) but
@@ -12,6 +12,7 @@
 import { MEDIA_PIPELINE_VERSION } from "@asm/media";
 import { Builder, Reader } from "@contentauth/c2pa-node";
 
+import { workerEnv } from "../env";
 import { mediaLogger } from "../log";
 import { loadProvenanceSigner } from "./signer";
 
@@ -64,11 +65,18 @@ export async function stampAiGenerated(
   builder.setIntent("edit");
 
   const flaggedAt = new Date().toISOString();
-  builder.addAssertion("com.asocialmedia.provenance", {
+  // Identity fields derive from NEXT_PUBLIC_URL so dev stamps carry
+  // social.localhost and prod carries the real origin. The custom assertion
+  // LABEL stays fixed, though: it names this assertion's schema (reverse-DNS
+  // of the production domain) and must not drift between environments.
+  const baseUrl = workerEnv.PUBLIC_BASE_URL;
+  const siteHost = new URL(baseUrl).hostname.replace(/^www\./u, "");
+  // Custom labels use reverse-DNS of our domain per the C2PA spec.
+  builder.addAssertion("cc.asocialmedia.provenance", {
     aiGenerated: true,
     detectionReason: context.detectionReason,
     flaggedAt,
-    flaggedBy: `asm.social media pipeline v${MEDIA_PIPELINE_VERSION}`,
+    flaggedBy: `${siteHost} media pipeline v${MEDIA_PIPELINE_VERSION}`,
     mediaId: context.mediaId,
   });
   // The "AI Generated" name doubles as a re-detection hook: a stamped file
@@ -79,9 +87,9 @@ export async function stampAiGenerated(
     additionalType:
       "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
     dateModified: flaggedAt,
-    identifier: `asm.social:media:${context.mediaId}`,
+    identifier: `${baseUrl}/media/${context.mediaId}`,
     name: "AI Generated",
-    publisher: "asm.social",
+    publisher: siteHost,
   });
 
   await builder.sign(signer, { path: inputPath }, { path: outputPath });

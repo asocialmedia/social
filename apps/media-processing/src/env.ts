@@ -27,6 +27,7 @@ export const keys = createEnv({
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
     MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
+    MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
@@ -40,6 +41,9 @@ export const keys = createEnv({
     MEDIA_SCAN_CONCURRENCY: process.env.MEDIA_SCAN_CONCURRENCY,
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
+    // Same public origin the web app publishes; the worker needs it to write
+    // absolute provenance identifiers into stamped manifests.
+    NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
     NODE_ENV: process.env.NODE_ENV,
     OPENOBSERVE_LOG_STREAM: process.env.OPENOBSERVE_LOG_STREAM,
     OPENOBSERVE_METRIC_STREAM: process.env.OPENOBSERVE_METRIC_STREAM,
@@ -75,6 +79,10 @@ export const keys = createEnv({
     MEDIA_C2PA_CERT_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_KEY_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_STAMP: z.enum(["0", "1"]).default("1"),
+    // RFC 3161 timestamp authority. With short-lived signing certs (the free
+    // SSL.com tier expires yearly), timestamps are what keep OLD manifests
+    // valid after expiry - without one every historical stamp ages badly.
+    MEDIA_C2PA_TSA_URL: z.url().optional(),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
     MEDIA_MAX_AUDIO_BYTES: numericOverride,
@@ -87,6 +95,7 @@ export const keys = createEnv({
     MEDIA_SCAN_CONCURRENCY: z.coerce.number().int().positive().default(4),
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
+    NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
@@ -124,6 +133,9 @@ export const workerEnv = {
   get C2PA_STAMP_ENABLED() {
     return keys.MEDIA_C2PA_STAMP === "1";
   },
+  get C2PA_TSA_URL() {
+    return keys.MEDIA_C2PA_TSA_URL;
+  },
   get CLAMAV_HOST() {
     return keys.CLAMAV_HOST;
   },
@@ -139,6 +151,9 @@ export const workerEnv = {
       return dynamicPort;
     }
     return keys.MEDIA_HEALTH_PORT;
+  },
+  get PUBLIC_BASE_URL() {
+    return keys.NEXT_PUBLIC_URL;
   },
   get REDIS_URL() {
     return keys.REDIS_URL;

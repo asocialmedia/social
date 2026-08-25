@@ -96,7 +96,7 @@ describe("detectAiFromManifestStore", () => {
       manifests: {
         active: {
           assertions: [],
-          claim_generator: "asm.social media pipeline v1",
+          claim_generator: "asocialmedia.cc media pipeline v1",
         },
         parent: {
           assertions: [],

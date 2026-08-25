@@ -28,7 +28,14 @@ export async function loadProvenanceSigner(): Promise<LocalSigner | null> {
       readFile(certPath),
       readFile(keyPath),
     ]);
-    return LocalSigner.newSigner(certificate, privateKey, "es256");
+    // The optional RFC 3161 TSA keeps signatures verifiable after the cert
+    // expires - essential for short-lived (e.g. free-tier) credentials.
+    return LocalSigner.newSigner(
+      certificate,
+      privateKey,
+      "es256",
+      workerEnv.C2PA_TSA_URL
+    );
   })();
 
   try {
