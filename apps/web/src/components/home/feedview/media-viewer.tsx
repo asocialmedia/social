@@ -113,42 +113,17 @@ const MediaViewer = ({
   const { user: sessionUser } = useSession();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  // Set when the media element errors or the load times out, so the content
-  // area shows a retry button instead of an endless skeleton. `loadAttempt`
-  // remounts the media element on retry.
-  const [mediaError, setMediaError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   const currentMedia = media[currentIndex];
 
-  // Bumped on every video timeupdate so the load deadline below resets while
-  // bytes keep flowing; a stalled clip stops bumping it and times out. Updates
-  // are ignored once loading has finished so the timeout effect is not
-  // needlessly recreated for the lifetime of the clip.
-  const isLoadingRef = useRef(isLoading);
-  useEffect(() => {
-    isLoadingRef.current = isLoading;
-  }, [isLoading]);
-  const [mediaProgressTick, setMediaProgressTick] = useState(0);
-  const handleMediaProgress = useCallback(() => {
-    if (!isLoadingRef.current) {
-      return;
-    }
-    setMediaProgressTick((tick) => tick + 1);
-  }, []);
-
-  // Tracks whether the explicit-content gate has been dismissed so the loading
-  // spinner / retry overlay don't cover the gate's Continue prompt.
-  const [explicitRevealed, setExplicitRevealed] = useState(false);
-
-  // Sync isLoading with the current item. Async media (image/video/svg) flip it
-  // off via their onLoad/onLoadedData; everything else has no such event, so
-  // clear it immediately to avoid an infinite skeleton. Error state resets per
-  // item too. Moderated posts show the notice instead of media, so skip the
-  // whole loading lifecycle.
-  // Implemented with React's adjust-state-during-render pattern (instead of an
-  // effect) because it only mirrors props/state into the loading flags.
+  // Describes everything the loading flags derive from. Computed BEFORE the
+  // states it seeds so they can initialize from the first value: this makes
+  // the mount render (including SSR) correct with zero sync passes, which the
+  // previous null-initialized adjust-during-render block could not do - on the
+  // server setState is a no-op, its null guard never converged, and every
+  // server render pass re-fired the sync forever (the "too many re-renders"
+  // crash on /posts/[id]/media/[index]).
   const loadSyncInput = useMemo(
     () => ({
       currentIndex,
@@ -159,11 +134,30 @@ const MediaViewer = ({
     }),
     [currentIndex, isOpen, loadAttempt, media, post?.moderated]
   );
-  const [prevLoadSyncInput, setPrevLoadSyncInput] = useState<
-    typeof loadSyncInput | null
-  >(null);
-  if (prevLoadSyncInput === null || prevLoadSyncInput !== loadSyncInput) {
-    console.log("[mv] SYNC BLOCK FIRES");
+
+  // Sync isLoading with the current item. Async media (image/video/svg) flip it
+  // off via their onLoad/onLoadedData; everything else has no such event, so
+  // clear it immediately to avoid an infinite skeleton. Error state resets per
+  // item too. Moderated posts show the notice instead of media, so skip the
+  // whole loading lifecycle.
+  // Initialized from the first loadSyncInput; the adjust-during-render block
+  // below then only runs when the input genuinely changes (client-side item
+  // navigation), never on mount or during SSR.
+  const [isLoading, setIsLoading] = useState(
+    () =>
+      loadSyncInput.isOpen &&
+      !loadSyncInput.moderated &&
+      hasAsyncLoad(loadSyncInput.media[loadSyncInput.currentIndex])
+  );
+  // Set when the media element errors or the load times out, so the content
+  // area shows a retry button instead of an endless skeleton. `loadAttempt`
+  // remounts the media element on retry.
+  const [mediaError, setMediaError] = useState(false);
+  // Tracks whether the explicit-content gate has been dismissed so the loading
+  // spinner / retry overlay don't cover the gate's Continue prompt.
+  const [explicitRevealed, setExplicitRevealed] = useState(false);
+  const [prevLoadSyncInput, setPrevLoadSyncInput] = useState(loadSyncInput);
+  if (prevLoadSyncInput !== loadSyncInput) {
     setPrevLoadSyncInput(loadSyncInput);
     if (loadSyncInput.isOpen) {
       if (loadSyncInput.moderated) {
@@ -180,6 +174,22 @@ const MediaViewer = ({
       }
     }
   }
+
+  // Bumped on every video timeupdate so the load deadline below resets while
+  // bytes keep flowing; a stalled clip stops bumping it and times out. Updates
+  // are ignored once loading has finished so the timeout effect is not
+  // needlessly recreated for the lifetime of the clip.
+  const isLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+  const [mediaProgressTick, setMediaProgressTick] = useState(0);
+  const handleMediaProgress = useCallback(() => {
+    if (!isLoadingRef.current) {
+      return;
+    }
+    setMediaProgressTick((tick) => tick + 1);
+  }, []);
 
   // Fail-safe: if an async media item never fires its load event (e.g. the
   // storage range request stalls), surface the error state instead of leaving
