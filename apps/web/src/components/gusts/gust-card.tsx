@@ -375,6 +375,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           );
           return post.explicitContent ? (
             <ExplicitContentGate
+              revealKey={post.id}
               blurClassName="rounded-2xl lg:rounded-3xl"
               className="h-full w-full"
               label="This gust has explicit media."

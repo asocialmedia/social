@@ -6,6 +6,10 @@ import Image from "next/image";
 import type * as React from "react";
 import { useState } from "react";
 
+import {
+  revealExplicit,
+  useExplicitRevealed,
+} from "@/lib/explicit-reveal-store";
 import { cn } from "@/lib/utils";
 
 // Blurs wrapped media behind a "this content has explicit media" gate with a
@@ -25,6 +29,11 @@ const ExplicitContentGate: React.FC<{
   compact?: boolean;
   label?: string;
   onReveal?: () => void;
+  // When set (usually the post id), the dismissal is shared across every
+  // surface rendering the same post - feed card, post page, and the
+  // fullscreen media page - so Continue is confirmed once, not per mount.
+  // Without a key the gate falls back to per-mount local state.
+  revealKey?: string;
 }> = ({
   children,
   className,
@@ -32,11 +41,18 @@ const ExplicitContentGate: React.FC<{
   compact = false,
   label = "This post has explicit media.",
   onReveal,
+  revealKey,
 }) => {
-  const [revealed, setRevealed] = useState(false);
+  const [localRevealed, setLocalRevealed] = useState(false);
+  const sharedRevealed = useExplicitRevealed(revealKey);
+  const revealed = revealKey ? sharedRevealed : localRevealed;
 
   const handleContinue = () => {
-    setRevealed(true);
+    if (revealKey) {
+      revealExplicit(revealKey);
+    } else {
+      setLocalRevealed(true);
+    }
     onReveal?.();
   };
 
@@ -122,7 +138,7 @@ const ExplicitContentGate: React.FC<{
       <div
         aria-hidden={revealed ? undefined : true}
         className={cn(
-          "w-full transition-[filter,opacity,transform] duration-200",
+          "h-full w-full transition-[filter,opacity,transform] duration-200",
           childrenClass,
           !revealed && blurClassName
         )}

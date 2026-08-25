@@ -84,6 +84,7 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
           {post.explicitContent ? (
             <ExplicitContentGate
+              revealKey={post.id}
               className="h-full w-full"
               compact
               label="Explicit"

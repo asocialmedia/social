@@ -177,14 +177,40 @@ export async function GET(
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
     const isThumbnail = url.searchParams.get("thumb") === "1";
-    if (isThumbnail && media.type === "VIDEO" && !media.thumbnailKey) {
-      // Return a lightweight SVG placeholder thumbnail when no stored video frame exists
-      // so image renderers never download multi-megabyte video streams pretending to be images.
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
-      return new NextResponse(svg, {
+    if (isThumbnail && media.type === "VIDEO") {
+      // Pipeline videos keep their scene-aware poster as a derivative;
+      // legacy videos keep the old thumbnailKey column. Serve whichever
+      // exists so feed cards get a real frame, and only fall back to the
+      // lightweight placeholder SVG when neither does (image renderers must
+      // never download multi-megabyte video streams pretending to be images).
+      let posterKey: string | null = media.thumbnailKey;
+      if (!posterKey && media.status === "READY") {
+        const poster = await prisma.mediaDerivative.findFirst({
+          select: { key: true },
+          where: { kind: "poster", mediaId },
+        });
+        posterKey = poster?.key ?? null;
+      }
+      if (!posterKey) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
+        return new NextResponse(svg, {
+          headers: {
+            "Cache-Control": "public, max-age=60",
+            "Content-Type": "image/svg+xml",
+            "X-Content-Type-Options": "nosniff",
+          },
+          status: 200,
+        });
+      }
+      const posterObject = await asmobClient.send(
+        new GetObjectCommand({ Bucket: ASMOB_BUCKET, Key: posterKey })
+      );
+      return new NextResponse(posterObject.Body as ReadableStream, {
         headers: {
-          "Cache-Control": "public, max-age=60",
-          "Content-Type": "image/svg+xml",
+          "Cache-Control": ownership.postId
+            ? "public, max-age=31536000, immutable"
+            : "private, max-age=86400",
+          "Content-Type": "image/jpeg",
           "X-Content-Type-Options": "nosniff",
         },
         status: 200,

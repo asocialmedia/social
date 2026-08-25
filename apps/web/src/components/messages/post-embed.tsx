@@ -145,6 +145,7 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
           >
             {data.explicitContent ? (
               <ExplicitContentGate
+                revealKey={data.id}
                 className="h-full w-full"
                 compact
                 label="Explicit"

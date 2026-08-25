@@ -31,6 +31,7 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { useExplicitRevealed } from "@/lib/explicit-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation";
@@ -153,9 +154,10 @@ const MediaViewer = ({
   // area shows a retry button instead of an endless skeleton. `loadAttempt`
   // remounts the media element on retry.
   const [mediaError, setMediaError] = useState(false);
-  // Tracks whether the explicit-content gate has been dismissed so the loading
-  // spinner / retry overlay don't cover the gate's Continue prompt.
-  const [explicitRevealed, setExplicitRevealed] = useState(false);
+  // Whether the explicit-content gate has been dismissed for this post.
+  // Shared across surfaces (feed card, post page, media page) via the reveal
+  // store, so Continue is confirmed once per session, not once per mount.
+  const explicitRevealed = useExplicitRevealed(post?.id);
   const [prevLoadSyncInput, setPrevLoadSyncInput] = useState(loadSyncInput);
   if (prevLoadSyncInput !== loadSyncInput) {
     setPrevLoadSyncInput(loadSyncInput);
@@ -164,14 +166,12 @@ const MediaViewer = ({
         // Force the load state off for moderated posts so the notice shows,
         // never a stale spinner.
         setIsLoading(false);
-        setMediaError(false);
       } else {
         setIsLoading(
           hasAsyncLoad(loadSyncInput.media[loadSyncInput.currentIndex])
         );
-        setMediaError(false);
-        setExplicitRevealed(false);
       }
+      setMediaError(false);
     }
   }
 
@@ -586,7 +586,7 @@ const MediaViewer = ({
               return (
                 <ExplicitContentGate
                   className="h-full w-full"
-                  onReveal={() => setExplicitRevealed(true)}
+                  revealKey={post?.id}
                 >
                   {renderMedia()}
                 </ExplicitContentGate>

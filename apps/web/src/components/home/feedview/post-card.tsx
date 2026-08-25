@@ -271,7 +271,7 @@ const PostContent: React.FC<PostContentProps> = ({
             {!!post.attachments.length && (
               <div className="mt-2.5 max-w-full overflow-hidden">
                 {post.explicitContent ? (
-                  <ExplicitContentGate>
+                  <ExplicitContentGate revealKey={post.id}>
                     <MediaPreviews
                       attachments={post.attachments}
                       autoPlayVideos={detail}

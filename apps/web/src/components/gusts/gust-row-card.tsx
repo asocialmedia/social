@@ -89,6 +89,7 @@ const GustRowCard: React.FC<{
       <div className="relative aspect-[9/16] h-40 shrink-0 overflow-hidden rounded-xl bg-black">
         {post.explicitContent ? (
           <ExplicitContentGate
+            revealKey={post.id}
             className="h-full w-full"
             compact
             label="Explicit"
