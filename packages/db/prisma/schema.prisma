@@ -286,6 +286,7 @@ model Account {
   userId                String
   accountId             String
   providerId            String
+  issuer                String    @default("")
   accessToken           String?
   refreshToken          String?
   accessTokenExpiresAt  DateTime?
@@ -297,6 +298,8 @@ model Account {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([issuer, accountId])
 
   @@unique([providerId, accountId])
   @@map("accounts")

@@ -203,6 +203,8 @@ services:
     environment:
       CLAMAV_MAX_FILE_SIZE: 300M
       CLAMAV_MAX_STREAM_SIZE: 300M
+    ports:
+      - "3310:3310"
     volumes:
       - clamav_data_dev:/var/lib/clamav
     networks:

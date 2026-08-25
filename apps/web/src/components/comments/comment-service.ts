@@ -15,6 +15,7 @@ import {
   reverseExactAura,
 } from "@asm/db";
 import type { CommentData } from "@asm/db";
+import { CLAIMABLE_STATUSES } from "@asm/media";
 import { updateTag } from "next/cache";
 
 // Deleting a comment with replies would orphan the tree, so deletes are soft:
@@ -112,7 +113,13 @@ export async function createComment(
     // and that the returned set exactly matches what was asked for.
     if (mediaIdsValidated.length > 0) {
       const attachedMedia = await tx.media.findMany({
-        select: { id: true, mimeType: true, type: true, userId: true },
+        select: {
+          id: true,
+          mimeType: true,
+          status: true,
+          type: true,
+          userId: true,
+        },
         where: { id: { in: mediaIdsValidated } },
       });
       const foundIds = new Set(attachedMedia.map((m) => m.id));
@@ -125,7 +132,9 @@ export async function createComment(
           media.type === "VIDEO" ||
           !media.mimeType.startsWith("image/") ||
           media.mimeType === "image/svg+xml" ||
-          (media.userId !== null && media.userId !== params.userId)
+          (media.userId !== null && media.userId !== params.userId) ||
+          // Rejected/failed/deleted uploads must never ride into a comment.
+          !CLAIMABLE_STATUSES.includes(media.status)
       );
       if (disallowed) {
         throw new Error("Eddies support images and GIFs only");

@@ -25,7 +25,9 @@ export function parseResponse(raw: string): ClamAvVerdict {
   if (found?.groups?.signature) {
     return { clean: false, signature: found.groups.signature };
   }
-  throw new Error(`Unrecognized clamd response: ${trimmed.slice(0, 200)}`);
+  throw new ClamAvUnavailableError(
+    `Unrecognized clamd response: ${trimmed.slice(0, 200)}`
+  );
 }
 
 export async function scanStream(
@@ -40,20 +42,29 @@ export async function scanStream(
   const responseChunks: Uint8Array[] = [];
   let failure: Error | null = null;
 
-  const socket = await Bun.connect({
-    hostname: workerEnv.CLAMAV_HOST,
-    port: workerEnv.CLAMAV_PORT,
-    socket: {
-      data(_socket, chunk) {
-        responseChunks.push(new Uint8Array(chunk));
+  let socket;
+  try {
+    socket = await Bun.connect({
+      hostname: workerEnv.CLAMAV_HOST,
+      port: workerEnv.CLAMAV_PORT,
+      socket: {
+        data(_socket, chunk) {
+          responseChunks.push(new Uint8Array(chunk));
+        },
+        error(_socket, error) {
+          failure = new ClamAvUnavailableError(
+            `clamd socket error: ${String(error)}`
+          );
+        },
       },
-      error(_socket, error) {
-        failure = new ClamAvUnavailableError(
-          `clamd socket error: ${String(error)}`
-        );
-      },
-    },
-  });
+    });
+  } catch (error) {
+    // Connect refusal/timeouts are scanner-availability problems, never
+    // evidence about the file being scanned.
+    throw new ClamAvUnavailableError(
+      `clamd unreachable at ${workerEnv.CLAMAV_HOST}:${workerEnv.CLAMAV_PORT}: ${String(error)}`
+    );
+  }
 
   const reader = source.getReader();
   try {

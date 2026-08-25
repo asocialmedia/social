@@ -18,6 +18,7 @@ import {
   prisma,
   tagCache,
 } from "@asm/db";
+import { CLAIMABLE_STATUSES } from "@asm/media";
 import { updateTag } from "next/cache";
 
 type ExtendedCreatePostInput = CreatePostInput & {
@@ -136,12 +137,13 @@ export async function submitPost(input: ExtendedCreatePostInput) {
             commentId: true,
             id: true,
             postId: true,
+            status: true,
             userId: true,
           },
           where: { id: { in: validatedInput.mediaIds } },
         });
         const foundIds = new Set(attachedMedia.map((m) => m.id));
-        const allOwnedAndUnclaimed =
+        const allOwnedUnclaimedAndClaimable =
           attachedMedia.length === validatedInput.mediaIds.length &&
           validatedInput.mediaIds.every(
             (id) =>
@@ -151,10 +153,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   m.id === id &&
                   m.userId === sessionData.user.id &&
                   m.postId === null &&
-                  m.commentId === null
+                  m.commentId === null &&
+                  // Rejected, deleted, and failed media can never ride into
+                  // a post; claimable statuses come from the pipeline
+                  // contract so serving gates and this check cannot drift.
+                  CLAIMABLE_STATUSES.includes(m.status)
               )
           );
-        if (!allOwnedAndUnclaimed) {
+        if (!allOwnedUnclaimedAndClaimable) {
           throw new Error("One or more attachments are invalid");
         }
       }
