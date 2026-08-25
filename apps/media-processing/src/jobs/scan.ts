@@ -56,8 +56,10 @@ async function rejectMedia(
     select: { originalKey: true, size: true, userId: true },
     where: { id: mediaId },
   });
-  if (row?.originalKey) {
-    // Quarantined rejected bytes never linger.
+  // Quarantined rejected bytes never linger - but ONLY true quarantine
+  // copies. Backfilled legacy rows point originalKey at the live serving
+  // object; deleting that on a rejection would break every post using it.
+  if (row?.originalKey?.startsWith("quarantine/")) {
     try {
       await getS3().delete(row.originalKey);
     } catch (error) {
@@ -150,12 +152,16 @@ export function processMediaScan(
         const sha256 = hasher.digest("hex");
 
         // 3. Content-based type detection; declared MIME is untrusted.
+        // Legacy (pre-pipeline) rows carry no claimedMime - their original
+        // upload MIME lives in the legacy mimeType column and is the best
+        // available declaration for the backfill path.
+        const declaredMime = media.claimedMime ?? media.mimeType ?? "";
         const headBuffer = Buffer.from(
           await Bun.file(tempPath).slice(0, 512).arrayBuffer()
         );
         const verification = verifyDeclaredMatchesContent(
           headBuffer,
-          media.claimedMime ?? ""
+          declaredMime
         );
         if (!verification.ok || !verification.detected) {
           return await rejectMedia(

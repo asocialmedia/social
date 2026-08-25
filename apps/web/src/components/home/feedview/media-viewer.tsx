@@ -163,6 +163,7 @@ const MediaViewer = ({
     typeof loadSyncInput | null
   >(null);
   if (prevLoadSyncInput === null || prevLoadSyncInput !== loadSyncInput) {
+    console.log("[mv] SYNC BLOCK FIRES");
     setPrevLoadSyncInput(loadSyncInput);
     if (loadSyncInput.isOpen) {
       if (loadSyncInput.moderated) {
