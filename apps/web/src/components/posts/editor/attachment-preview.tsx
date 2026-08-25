@@ -5,6 +5,7 @@ import {
   FilmIcon,
   Pause,
   Play,
+  RefreshCw,
   Volume2,
   VolumeX,
   X,
@@ -28,6 +29,7 @@ const STAGE_FILL_FRACTION: Record<Exclude<UploadStage, "uploading">, number> = {
 
 interface AttachmentPreviewProps {
   attachment: {
+    error?: string;
     file?: File;
     isUploading: boolean;
     mediaId?: string;
@@ -41,6 +43,7 @@ interface AttachmentPreviewProps {
   isGust?: boolean;
   onCancelClick?: () => void;
   onRemoveClick: () => void;
+  onRetryClick?: () => void;
 }
 
 const PROGRESS_BAR_3D =
@@ -58,6 +61,7 @@ function formatVideoTime(seconds: number): string {
 
 const AttachmentPreviewInner = ({
   attachment: {
+    error,
     file,
     isUploading,
     mediaId,
@@ -71,6 +75,7 @@ const AttachmentPreviewInner = ({
   isGust = false,
   onCancelClick,
   onRemoveClick,
+  onRetryClick,
 }: AttachmentPreviewProps) => {
   const [objectUrl, setObjectUrl] = useState<string>(
     existingPreviewUrl || mediaUrl || ""
@@ -135,7 +140,7 @@ const AttachmentPreviewInner = ({
       // Not-yet-servable (mid-pipeline) or failed load: neutral placeholder
       // keeps the tile - and its progress bar - on screen.
       return (
-        <div className="bg-primary/5 relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden rounded-2xl">
+        <div className="apple-panel relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-2xl">
           <Image
             alt={fileName}
             className="h-full w-full object-cover opacity-50"
@@ -148,7 +153,7 @@ const AttachmentPreviewInner = ({
 
     if (mimeType.startsWith("image")) {
       return (
-        <div className="bg-primary/5 relative flex aspect-[16/9] w-full items-center justify-center overflow-hidden rounded-2xl">
+        <div className="apple-panel relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-2xl">
           <Image
             alt={fileName}
             className="h-full w-full rounded-2xl object-cover"
@@ -175,9 +180,9 @@ const AttachmentPreviewInner = ({
       return (
         <div
           className={cn(
-            "bg-primary/5 group/video relative overflow-hidden rounded-2xl",
+            "apple-panel group/video relative overflow-hidden rounded-2xl",
             isGust
-              ? "mx-auto aspect-[9/16] w-full max-w-xs"
+              ? "mx-auto aspect-9/16 w-full max-w-xs"
               : "aspect-video w-full"
           )}
         >
@@ -190,7 +195,7 @@ const AttachmentPreviewInner = ({
           )}
           {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded preview, no caption source available */}
           <video
-            className="absolute inset-0 z-[1] h-full w-full object-cover"
+            className="absolute inset-0 z-1 h-full w-full object-cover"
             loop
             muted={isMuted}
             onLoadedData={() => setHasFirstFrame(true)}
@@ -213,14 +218,14 @@ const AttachmentPreviewInner = ({
           </video>
 
           {/* File name chip, top-left for context at a glance */}
-          <span className="pointer-events-none absolute top-2 left-2 z-10 flex h-7 max-w-[70%] items-center rounded-full bg-black/50 px-2 text-xs text-white/90 backdrop-blur-md">
+          <span className="rail-3d-btn pointer-events-none absolute top-2 left-2 z-10 flex h-7 max-w-[70%] items-center rounded-full px-2.5 text-xs font-medium">
             <span className="truncate">{formatFileName(fileName)}</span>
           </span>
 
-          {/* Mute toggle, bottom-left - mirrors the feed player layout */}
+          {/* Mute toggle, bottom-left - 3D dual-border glass over video */}
           <button
             aria-label={isMuted ? "Unmute video" : "Mute video"}
-            className="absolute bottom-2 left-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-0 bg-black/50 p-0 text-white transition-colors hover:bg-black/65"
+            className="rail-3d-btn absolute bottom-2 left-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full p-0"
             onClick={handleToggleMute}
             type="button"
           >
@@ -231,9 +236,8 @@ const AttachmentPreviewInner = ({
             )}
           </button>
 
-          {/* Play/pause + duration cluster, bottom-right - mirrors the feed
-              player's compact controls instead of a giant center overlay. */}
-          <div className="absolute right-2 bottom-2 z-10 flex h-7 items-center gap-1.5 rounded-full bg-black/50 px-1.5 backdrop-blur-sm">
+          {/* Play/pause + duration cluster, bottom-right - 3D dual-border glass */}
+          <div className="rail-3d-btn absolute right-2 bottom-2 z-10 flex h-7 items-center gap-1.5 rounded-full px-1.5">
             <button
               aria-label={isPlaying ? "Pause video" : "Play video"}
               className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-white transition-colors hover:text-white/80"
@@ -256,12 +260,12 @@ const AttachmentPreviewInner = ({
 
     if (mimeType.startsWith("audio")) {
       return (
-        <div className="bg-primary/5 w-full rounded-2xl p-6">
+        <div className="apple-panel w-full rounded-2xl p-6">
           <div className="flex flex-col items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center">
               <FileAudioIcon className="text-primary h-full w-full" />
             </div>
-            <div className="w-full max-w-[250px] px-2">
+            <div className="w-full max-w-62.5 px-2">
               <p className="truncate text-center text-sm font-medium">
                 {formatFileName(fileName)}
               </p>
@@ -277,12 +281,12 @@ const AttachmentPreviewInner = ({
     }
 
     return (
-      <div className="bg-primary/5 w-full rounded-2xl p-6">
+      <div className="apple-panel w-full rounded-2xl p-6">
         <div className="flex flex-col items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center">
             <FileIcon className="text-primary h-full w-full" />
           </div>
-          <div className="w-full max-w-[250px] space-y-1">
+          <div className="w-full max-w-62.5 space-y-1">
             <p className="truncate text-center text-sm font-medium">
               {formatFileName(fileName)}
             </p>
@@ -295,69 +299,119 @@ const AttachmentPreviewInner = ({
     );
   };
 
+  // Dim the asset while uploading or when it has failed (so the retry bar pops)
+  const hasError = Boolean(error);
+
+  let errorTitle: string;
+  // oxlint-disable unicorn/prefer-ternary -- nested ternary is banned, keep explicit if/else for error title
+  if (error?.includes("Still processing")) {
+    if (stage) {
+      errorTitle = `Timed out at ${stageText(stage).toLowerCase()} - retry to continue`;
+    } else {
+      errorTitle = "Timed out at processing - retry to continue";
+    }
+  } else {
+    errorTitle = error || "Upload failed";
+  }
+  // oxlint-enable unicorn/prefer-ternary
+
+  let actionBar: React.ReactNode;
+  if (isUploading) {
+    actionBar = (
+      <div className="mt-2 flex items-center gap-3">
+        <div
+          className={cn(
+            "relative h-2 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10",
+            PROGRESS_BAR_3D
+          )}
+        >
+          <div
+            className={cn(
+              "asm-progress-fill relative h-full overflow-hidden rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500] transition-[width] duration-500 ease-out",
+              stage !== "uploading" && "asm-progress-active"
+            )}
+            style={{
+              width:
+                stage === "uploading"
+                  ? `${progress ?? 0}%`
+                  : `${(STAGE_FILL_FRACTION[stage ?? "queued"] ?? 0.45) * 100}%`,
+            }}
+          >
+            {stage === "uploading" ? null : (
+              <span aria-hidden className="asm-progress-shine" />
+            )}
+          </div>
+        </div>
+        <span className="text-muted-foreground shrink-0 text-xs font-semibold tabular-nums">
+          {stage === "uploading" ? `${progress ?? 0}%` : stageText(stage)}
+        </span>
+        <button
+          aria-label="Cancel upload"
+          className="icon-btn-3d icon-btn-3d-danger flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0"
+          onClick={onCancelClick}
+          type="button"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    );
+  } else if (hasError) {
+    actionBar = (
+      <div className="border-destructive/15 bg-destructive/6 dark:border-destructive/20 dark:bg-destructive/10 mt-2 flex items-center gap-2 rounded-xl border p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.6),inset_0_1px_1px_rgba(255,255,255,0.8),0_1px_2px_rgba(0,0,0,0.06)]">
+        <div className="min-w-0 flex-1">
+          <p className="text-destructive truncate text-xs font-semibold">
+            {errorTitle}
+          </p>
+          {stage ? (
+            <p className="text-muted-foreground truncate text-[11px]">
+              Failed at {stageText(stage).toLowerCase()} · will resume where it
+              left off
+            </p>
+          ) : null}
+        </div>
+        <button
+          aria-label="Retry upload"
+          className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-3 text-xs font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] transition-all hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px"
+          onClick={onRetryClick}
+          type="button"
+        >
+          <RefreshCw className="size-3.5" />
+          Retry
+        </button>
+        <button
+          aria-label="Remove attachment"
+          className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0"
+          onClick={onRemoveClick}
+          type="button"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    );
+  } else {
+    actionBar = (
+      <button
+        aria-label="Remove attachment"
+        className="icon-btn-3d absolute top-3 right-3 z-20 flex h-8 w-8 items-center justify-center rounded-full p-0 focus-visible:ring-2 focus-visible:ring-offset-2"
+        onClick={onRemoveClick}
+        type="button"
+      >
+        <X size={16} />
+      </button>
+    );
+  }
+
   return (
     <div className="relative w-full">
-      {/* Dim the asset while it is still uploading */}
       <div
         className={cn(
           "transition-opacity duration-200",
-          isUploading && "opacity-50"
+          (isUploading || hasError) && "opacity-60"
         )}
       >
         {renderPreview()}
       </div>
-
-      {/* Single progress bar with a live stage label. Byte percentage while
-          uploading; after that the fill advances per COMPLETED pipeline
-          stage (real server states) with a sliding shine on the active
-          segment - no fake percentages, no full-bar blinking. */}
-      {isUploading ? (
-        <div className="mt-2 flex items-center gap-3">
-          <div
-            className={cn(
-              "relative h-2 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10",
-              PROGRESS_BAR_3D
-            )}
-          >
-            <div
-              className={cn(
-                "asm-progress-fill relative h-full overflow-hidden rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500] transition-[width] duration-500 ease-out",
-                stage !== "uploading" && "asm-progress-active"
-              )}
-              style={{
-                width:
-                  stage === "uploading"
-                    ? `${progress ?? 0}%`
-                    : `${(STAGE_FILL_FRACTION[stage ?? "queued"] ?? 0.45) * 100}%`,
-              }}
-            >
-              {stage === "uploading" ? null : (
-                <span aria-hidden className="asm-progress-shine" />
-              )}
-            </div>
-          </div>
-          <span className="text-muted-foreground shrink-0 text-xs font-semibold tabular-nums">
-            {stage === "uploading" ? `${progress ?? 0}%` : stageText(stage)}
-          </span>
-          <button
-            aria-label="Cancel upload"
-            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 rounded-full p-1 transition-colors"
-            onClick={onCancelClick}
-            type="button"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      ) : (
-        <button
-          aria-label="Remove attachment"
-          className="bg-foreground text-background hover:bg-foreground/60 focus:ring-primary absolute top-3 right-3 z-20 rounded-full p-1.5 transition-colors focus:ring-2 focus:outline-hidden"
-          onClick={onRemoveClick}
-          type="button"
-        >
-          <X size={20} />
-        </button>
-      )}
+      {actionBar}
     </div>
   );
 };

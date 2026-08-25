@@ -125,6 +125,7 @@ export default function PostEditor({
     removeAttachment,
     reorderAttachments,
     reset: resetMediaUploads,
+    retryUpload,
   } = useMediaUpload();
 
   // Shared contract with the server-side cap in submitPost.
@@ -143,8 +144,10 @@ export default function PostEditor({
   const attachmentOptionsDisabled = isUploading || capacityFull;
   // Media-only posts are publishable: a completed attachment satisfies the
   // caption requirement (server schema enforces "text or attachment" too).
+  const hasUploadError = attachments.some((a) => Boolean(a.error));
   const hasPublishableMedia =
-    attachments.length > 0 && attachments.every((a) => !a.isUploading);
+    attachments.length > 0 &&
+    attachments.every((a) => !a.isUploading && !a.error);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -285,6 +288,15 @@ export default function PostEditor({
       .map((a) => a.mediaId)
       .filter((id): id is string => Boolean(id));
 
+    if (hasUploadError) {
+      toast({
+        description: "Retry or remove failed uploads before posting",
+        title: "Upload Incomplete",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isGust && gustMediaIds.length === 0) {
       return;
     }
@@ -347,6 +359,7 @@ export default function PostEditor({
     input,
     attachments,
     hasPublishableMedia,
+    hasUploadError,
     selectedTags,
     selectedMentions,
     mutation,
@@ -359,6 +372,7 @@ export default function PostEditor({
     gustCaptionExceeded,
     hasGustVideo,
     router,
+    toast,
   ]);
 
   useEffect(() => {
@@ -479,7 +493,7 @@ export default function PostEditor({
               {isDragActive ? (
                 <motion.div
                   animate={{ opacity: 1 }}
-                  className="bg-primary/10 absolute inset-0 flex items-center justify-center rounded-2xl backdrop-blur-sm"
+                  className="apple-panel border-primary/30 absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed bg-[hsl(var(--background-alt))]/90 backdrop-blur-sm"
                   exit={{ opacity: 0 }}
                   initial={{ opacity: 0 }}
                 >
@@ -669,6 +683,7 @@ export default function PostEditor({
                   disabled={
                     !(input.trim() || isHnSharing || hasPublishableMedia) ||
                     isUploading ||
+                    hasUploadError ||
                     (isGust && gustCaptionExceeded) ||
                     (isGust && !hasGustVideo)
                   }
@@ -719,6 +734,7 @@ export default function PostEditor({
               isGust={isGust}
               removeAttachment={removeAttachment}
               reorderAttachments={reorderAttachments}
+              retryUpload={retryUpload}
             />
           </motion.div>
         )}
@@ -733,6 +749,7 @@ interface AttachmentPreviewsProps {
   isGust: boolean;
   removeAttachment: (fileName: string) => void;
   reorderAttachments: (ordered: Attachment[]) => void;
+  retryUpload: (fileName: string) => void;
 }
 
 const attachmentKeyOf = (attachment: Attachment, index: number): string =>
@@ -749,6 +766,7 @@ const SortableAttachment = ({
   isGust,
   onCancelClick,
   onRemoveClick,
+  onRetryClick,
 }: {
   attachment: Attachment;
   canReorder: boolean;
@@ -756,6 +774,7 @@ const SortableAttachment = ({
   isGust: boolean;
   onCancelClick: () => void;
   onRemoveClick: () => void;
+  onRetryClick: () => void;
 }) => {
   const id = attachmentKeyOf(attachment, index);
   const {
@@ -786,7 +805,7 @@ const SortableAttachment = ({
             {...attributes}
             {...listeners}
             aria-label="Drag to reorder"
-            className="bg-background/90 text-muted-foreground hover:text-foreground absolute top-2 left-2 z-20 cursor-grab rounded-full p-1.5 opacity-0 shadow-md backdrop-blur-sm transition-opacity duration-200 group-hover/reorder:opacity-100 active:cursor-grabbing"
+            className="icon-btn-3d absolute top-2 left-2 z-20 flex h-7 w-7 cursor-grab items-center justify-center rounded-full p-0 opacity-0 transition-opacity duration-200 group-hover/reorder:opacity-100 active:cursor-grabbing"
             type="button"
           >
             <GripVertical className="size-4" />
@@ -797,6 +816,7 @@ const SortableAttachment = ({
           isGust={isGust}
           onCancelClick={onCancelClick}
           onRemoveClick={onRemoveClick}
+          onRetryClick={onRetryClick}
         />
       </div>
     </div>
@@ -809,6 +829,7 @@ const AttachmentPreviews = ({
   isGust,
   removeAttachment,
   reorderAttachments,
+  retryUpload,
 }: AttachmentPreviewsProps) => {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -822,6 +843,13 @@ const AttachmentPreviews = ({
       removeAttachment(attachment.file?.name ?? attachment.name ?? "");
     },
     [removeAttachment]
+  );
+
+  const handleRetryClick = useCallback(
+    (attachment: Attachment) => () => {
+      retryUpload(attachment.file?.name ?? attachment.name ?? "");
+    },
+    [retryUpload]
   );
 
   const ids = attachments.map((a, i) => attachmentKeyOf(a, i));
@@ -895,6 +923,7 @@ const AttachmentPreviews = ({
                     cancelUpload(attachment.file?.name ?? attachment.name ?? "")
                   }
                   onRemoveClick={handleRemoveClick(attachment)}
+                  onRetryClick={handleRetryClick(attachment)}
                 />
               </motion.div>
             );

@@ -24,6 +24,7 @@ const STORAGE_KEY = "asm-composer-attachments";
 const STORAGE_VERSION = 1;
 
 export interface Attachment {
+  error?: string;
   file?: File;
   isUploading: boolean;
   mediaId?: string;
@@ -143,6 +144,7 @@ interface ComposerAttachmentState {
   removeAttachment: (fileName: string) => void;
   reorderAttachments: (ordered: Attachment[]) => void;
   reset: () => void;
+  retryUpload: (fileName: string) => Promise<void>;
   startUpload: (incomingFiles: File[]) => Promise<void>;
 }
 
@@ -248,6 +250,192 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       clearStoredAttachments();
       set({ attachments: [], isUploading: false });
     },
+    retryUpload: async (fileName) => {
+      const target = get().attachments.find(
+        (a) => (a.file?.name ?? a.name) === fileName
+      );
+      if (!target || target.isUploading || get().isUploading) {
+        return;
+      }
+      const { file, mediaId, stage: lastStage } = target;
+
+      // If we already have a mediaId and the failure was past the byte upload
+      // (queued/scanning/processing or timeout), resume by re-watching the
+      // pipeline instead of re-uploading bytes.
+      const canResumeWatch =
+        Boolean(mediaId) &&
+        lastStage !== "uploading" &&
+        (target.resuming || target.error?.includes("Still processing"));
+
+      if (canResumeWatch && mediaId) {
+        set({ isUploading: true });
+        commit(
+          get().attachments.map((a) =>
+            (a.file?.name ?? a.name) === fileName
+              ? { ...a, error: undefined, isUploading: true, resuming: true }
+              : a
+          )
+        );
+        try {
+          const outcome = await watchMediaStatus(mediaId, {
+            onStage: (stage) => {
+              set({
+                attachments: get().attachments.map((a) =>
+                  (a.file?.name ?? a.name) === fileName ? { ...a, stage } : a
+                ),
+              });
+            },
+          });
+          if (outcome.status === "READY") {
+            commit(
+              get().attachments.map((a) =>
+                (a.file?.name ?? a.name) === fileName
+                  ? {
+                      ...a,
+                      error: undefined,
+                      isUploading: false,
+                      resuming: false,
+                      stage: undefined,
+                    }
+                  : a
+              )
+            );
+            persistAttachments(get().attachments);
+          } else if (outcome.status === "REJECTED") {
+            toast({
+              description: "An attachment was rejected by the pipeline.",
+              title: "Attachment Removed",
+              variant: "destructive",
+            });
+            commit(
+              get().attachments.filter(
+                (a) => (a.file?.name ?? a.name) !== fileName
+              )
+            );
+          } else {
+            // DETACHED again - keep retryable
+            commit(
+              get().attachments.map((a) =>
+                (a.file?.name ?? a.name) === fileName
+                  ? {
+                      ...a,
+                      error: "Still processing - check back in a moment",
+                      isUploading: false,
+                    }
+                  : a
+              )
+            );
+          }
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : "Watch failed";
+          commit(
+            get().attachments.map((a) =>
+              (a.file?.name ?? a.name) === fileName
+                ? { ...a, error: message, isUploading: false }
+                : a
+            )
+          );
+        } finally {
+          set({ isUploading: false });
+        }
+        return;
+      }
+
+      // Otherwise re-upload the original bytes (failed during initiate/PUT/finalize)
+      if (!file) {
+        toast({
+          description: "Original file unavailable - please re-select it",
+          title: "Retry Failed",
+          variant: "destructive",
+        });
+        return;
+      }
+      const controller = new AbortController();
+      controllers.set(file.name, controller);
+      set({ isUploading: true });
+      commit(
+        get().attachments.map((a) =>
+          (a.file?.name ?? a.name) === fileName
+            ? {
+                ...a,
+                error: undefined,
+                isUploading: true,
+                progress: 0,
+                stage: "uploading" as UploadStage,
+              }
+            : a
+        )
+      );
+      try {
+        const result = await uploadMediaFile(file, {
+          onProgress: (percent) => {
+            set({
+              attachments: get().attachments.map((a) =>
+                (a.file?.name ?? a.name) === fileName
+                  ? { ...a, progress: percent }
+                  : a
+              ),
+            });
+          },
+          onStage: (stage) => {
+            set({
+              attachments: get().attachments.map((a) =>
+                (a.file?.name ?? a.name) === fileName ? { ...a, stage } : a
+              ),
+            });
+          },
+          purpose: "post",
+          signal: controller.signal,
+        });
+        commit(
+          get().attachments.map((a) =>
+            (a.file?.name ?? a.name) === fileName
+              ? {
+                  ...a,
+                  error: undefined,
+                  isUploading: false,
+                  mediaId: result.mediaId,
+                  mediaUrl: `/api/media/${result.mediaId}`,
+                  stage: undefined,
+                }
+              : a
+          )
+        );
+        persistAttachments(get().attachments);
+      } catch (error: unknown) {
+        controllers.delete(file.name);
+        if (controller.signal.aborted) {
+          dropAttachment(file.name);
+          return;
+        }
+        clientLog.error("Retry failed:", error);
+        const message =
+          error instanceof Error ? error.message : "Upload failed";
+        const isTimeout = message.includes("Still processing");
+        toast({
+          description: isTimeout
+            ? "Still processing - you can retry again"
+            : "Retry failed - try again?",
+          title: isTimeout ? "Processing Delayed" : "Upload Failed",
+          variant: "destructive",
+        });
+        commit(
+          get().attachments.map((a) =>
+            (a.file?.name ?? a.name) === fileName
+              ? {
+                  ...a,
+                  error: message,
+                  isUploading: false,
+                  resuming: isTimeout ? true : undefined,
+                }
+              : a
+          )
+        );
+      }
+      controllers.delete(file.name);
+      set({ isUploading: false });
+    },
     startUpload: async (incomingFiles) => {
       const { attachments, isUploading } = get();
       if (isUploading) {
@@ -338,12 +526,30 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
               return;
             }
             clientLog.error("Upload failed:", error);
+            const message =
+              error instanceof Error ? error.message : "Upload failed";
+            const isTimeout = message.includes("Still processing");
             toast({
-              description: "Couldn't upload that file, try again?",
-              title: "Upload Failed",
+              description: isTimeout
+                ? "Upload timed out - tap retry to continue where it left off"
+                : "Couldn't upload that file, try again?",
+              title: isTimeout ? "Processing Delayed" : "Upload Failed",
               variant: "destructive",
             });
-            dropAttachment(file.name);
+            // Keep the tile for retry instead of dropping it - preserve the
+            // file so retry can resume from the last stage (re-upload or re-watch).
+            commit(
+              get().attachments.map((a) =>
+                a.file === file
+                  ? {
+                      ...a,
+                      error: message,
+                      isUploading: false,
+                      resuming: isTimeout ? true : undefined,
+                    }
+                  : a
+              )
+            );
           }
           controllers.delete(file.name);
         })
