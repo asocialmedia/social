@@ -6,9 +6,7 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import { cn, isGifUrl } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
-
-const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
 
 interface CommentMediaProps {
   media: Media;
@@ -57,7 +55,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
           playsInline
           poster={getMediaProxyUrl(media)}
           preload="metadata"
-          src={getMediaUrl(media.id)}
+          src={getMediaVideoUrl(media.id)}
         />
       </div>
     );
@@ -79,7 +77,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
           onError={handleError}
           onLoad={handleLoad}
           sizes="(max-width: 640px) 100vw, 384px"
-          src={getMediaUrl(media.id)}
+          src={getMediaProxyUrl(media)}
           unoptimized
           width={media.width ?? 640}
         />

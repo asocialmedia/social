@@ -8,7 +8,11 @@ import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
 } from "@/lib/media-variants";
-import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
+import {
+  ASMOB_BUCKET,
+  asmobClient,
+  generatePresignedUrl,
+} from "@/lib/object-storage";
 import { getWebLogger } from "@/lib/otel";
 import { getSessionFromApi } from "@/lib/session";
 
@@ -17,7 +21,32 @@ import { getSessionFromApi } from "@/lib/session";
 //   video     poster, mp4-h264, hls/master.m3u8, hls/<segments>
 //   audio     audio-opus (webm), audio-aac (m4a), wave-peaks.json
 // Derivatives exist only for READY media; the lookup doubles as the lifecycle
-// gate. Object keys never reach the client.
+// gate. Object keys never reach the client. Byte ranges are honored so
+// <video> playback through a variant URL can seek without downloading the
+// whole derivative.
+
+// rustfs rejects SigV4 requests that sign a Range header, so ranged reads go
+// through a presigned URL with Range applied at fetch time instead of through
+// the SDK client. Same workaround as the main serving route.
+async function fetchRange(
+  objectKey: string,
+  range: string,
+  signal: AbortSignal
+): Promise<Response> {
+  const presignedUrl = await generatePresignedUrl(objectKey);
+  return await fetch(presignedUrl, { headers: { Range: range }, signal });
+}
+
+function buildRangeNotSatisfiable(
+  contentRangeHeader?: string | null
+): NextResponse {
+  const headers = new Headers();
+  headers.set("Accept-Ranges", "bytes");
+  if (contentRangeHeader) {
+    headers.set("Content-Range", contentRangeHeader);
+  }
+  return new NextResponse("Range Not Satisfiable", { headers, status: 416 });
+}
 
 export async function GET(
   request: Request,
@@ -107,45 +136,74 @@ export async function GET(
         "application/octet-stream";
     }
 
-    const response = await asmobClient.send(
-      new GetObjectCommand({
-        Bucket: ASMOB_BUCKET,
-        Key: objectKey,
-      })
-    );
-    if (!response.Body) {
-      return new NextResponse("Not found", { status: 404 });
-    }
+    const range = request.headers.get("range") || undefined;
 
+    let body: ReadableStream<Uint8Array>;
+    let status = 200;
     const headers = new Headers();
-    headers.set("Content-Type", response.ContentType ?? mimeType);
+    headers.set("Content-Type", mimeType);
     headers.set(
       "Cache-Control",
       ownership.postId
         ? "public, max-age=31536000, immutable"
         : "private, max-age=86400"
     );
-    headers.set("X-Content-Type-Options", "nosniff");
-    if (response.ContentLength) {
-      headers.set("Content-Length", String(response.ContentLength));
-    }
     // HLS playlists must not be cached aggressively by shared caches so
     // takedowns propagate quickly; segments are content-addressed anyway.
     if (objectKey.endsWith(".m3u8")) {
       headers.set("Cache-Control", "public, max-age=60");
     }
+    headers.set("Accept-Ranges", "bytes");
+    headers.set("X-Content-Type-Options", "nosniff");
 
-    const body =
-      "transformToWebStream" in (response.Body as object)
-        ? (
-            response.Body as unknown as {
-              transformToWebStream: () => ReadableStream;
-            }
-          ).transformToWebStream()
-        : (response.Body as ReadableStream);
+    if (range) {
+      const upstream = await fetchRange(objectKey, range, request.signal);
+      if (upstream.status === 416) {
+        return buildRangeNotSatisfiable(upstream.headers.get("content-range"));
+      }
+      const contentRange = upstream.headers.get("content-range");
+      if (!upstream.ok || upstream.status !== 206 || !contentRange) {
+        throw new Error(
+          `Storage range request failed: status=${upstream.status}`
+        );
+      }
+      headers.set("Content-Range", contentRange);
+      const contentLength = Number(upstream.headers.get("content-length") || 0);
+      if (contentLength > 0) {
+        headers.set("Content-Length", String(contentLength));
+      }
+      body = upstream.body as ReadableStream<Uint8Array>;
+      status = 206;
+    } else {
+      const response = await asmobClient.send(
+        new GetObjectCommand({
+          Bucket: ASMOB_BUCKET,
+          Key: objectKey,
+        })
+      );
+      if (!response.Body) {
+        return new NextResponse("Not found", { status: 404 });
+      }
+      if (response.ContentLength) {
+        headers.set("Content-Length", String(response.ContentLength));
+      }
+      body =
+        "transformToWebStream" in (response.Body as object)
+          ? (
+              response.Body as unknown as {
+                transformToWebStream: () => ReadableStream<Uint8Array>;
+              }
+            ).transformToWebStream()
+          : (response.Body as ReadableStream<Uint8Array>);
+    }
 
-    return new NextResponse(body, { headers });
+    return new NextResponse(body, { headers, status });
   } catch (error) {
+    // Client disconnected mid-stream (seek, scroll away, close): the request
+    // is already gone, so answer with a bare 499 instead of a scary 500.
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return new Response(null, { status: 499 });
+    }
     const logger = getWebLogger();
     if (logger) {
       logger.error({ error, mediaId }, "variant proxy error");

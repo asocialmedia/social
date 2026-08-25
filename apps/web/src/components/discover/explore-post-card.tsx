@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData } from "@asm/db";
+import type { Media, PostData } from "@asm/db";
 import noMediaImage from "@assets/general/nomedia.png";
 import { Clapperboard, Play } from "lucide-react";
 import Image from "next/image";
@@ -15,11 +15,9 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import { cn } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
-const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
-
 const DEFAULT_ASPECT = 4 / 5;
 
-const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
+const ExplorePostImage: React.FC<{ media: Media }> = ({ media }) => {
   const [isImageLoading, setIsImageLoading] = useState(true);
   const [isImageFailed, setIsImageFailed] = useState(false);
 
@@ -54,7 +52,9 @@ const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
         }}
         onLoad={() => setIsImageLoading(false)}
         sizes="(max-width: 768px) 50vw, 300px"
-        src={getMediaUrl(mediaId)}
+        // 800px WebP derivative with server-side fallback to the original;
+        // GIFs keep their animated bytes via the proxy URL.
+        src={getMediaProxyUrl(media)}
         unoptimized
       />
     </>
@@ -129,7 +129,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
 
   let mediaContent: React.ReactNode = null;
   if (media?.type === "IMAGE") {
-    mediaContent = <ExplorePostImage mediaId={media.id} />;
+    mediaContent = <ExplorePostImage media={media} />;
   } else if (media) {
     mediaContent = <ExplorePostVideo media={media} />;
   }

@@ -57,6 +57,9 @@ export {
 export { detectContent, verifyDeclaredMatchesContent } from "./magic";
 export type { ContentDetection } from "./magic";
 
+export { stripImageMetadata } from "./strip-metadata";
+export type { StripOutcome } from "./strip-metadata";
+
 export {
   KNOWN_AI_GENERATORS,
   SYNTHETIC_DIGITAL_SOURCE_TYPES,

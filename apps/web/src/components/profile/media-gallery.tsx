@@ -19,7 +19,7 @@ import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
 
 // Full skeleton grid with the login prompt centered on top. Shared between the
 // desktop locked sidebar and the mobile media tab so guests see the same look.
@@ -144,8 +144,6 @@ const SKELETON_ASPECTS = [4 / 5, 3 / 4, 1, 4 / 5, 3 / 4, 1, 4 / 5, 3 / 4];
 
 const SKELETON_KEYS = Array.from({ length: 8 }, (_, i) => `skeleton-${i}`);
 
-const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
-
 // Matches the hover preview delay used by video thumbnails in the post feed.
 const VIDEO_HOVER_DELAY = 350;
 
@@ -241,7 +239,9 @@ const VideoTile = ({
         playsInline
         preload="none"
         ref={videoRef}
-        src={isHovered ? getMediaUrl(item.id) : undefined}
+        // Playback prefers the progressive MP4 derivative; the variant
+        // route falls back to the published original when none exists.
+        src={isHovered ? getMediaVideoUrl(item.id) : undefined}
       />
       {/* Thumbnail overlay crossfades out once playback actually starts */}
       <Image
@@ -343,7 +343,7 @@ const ImageTile = ({
         }}
         onLoad={() => setIsLoading(false)}
         sizes="176px"
-        src={getMediaUrl(item.id)}
+        src={getMediaProxyUrl(item)}
         unoptimized
       />
       <div className="absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10" />

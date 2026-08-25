@@ -12,9 +12,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
+import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
@@ -114,12 +115,19 @@ const GridImagePreview = ({
         onLoad={() => setIsLoading(false)}
         // Media is served through our /api/media proxy; the image optimizer
         // rejects same-origin /api/ URLs, so serve the stored bytes directly.
+        // getMediaProxyUrl prefers the 800px WebP derivative (GIFs keep their
+        // original bytes for animation); the variant route falls back to the
+        // published original when no derivative exists yet.
         sizes="(max-width: 768px) 50vw, 33vw"
-        src={getMediaUrl(media.id)}
+        src={getMediaProxyUrl(media)}
         style={{ objectFit: "cover" }}
         unoptimized
       />
       <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+      <AiGeneratedBadge
+        className="absolute bottom-2 left-2 z-10"
+        media={media}
+      />
     </div>
   );
 };
@@ -372,7 +380,7 @@ const VideoPreview = ({
         onTimeUpdate={handleTimeUpdate}
         playsInline
         preload={autoPlay ? "metadata" : "none"}
-        src={isHovered || autoPlay ? getMediaUrl(media.id) : undefined}
+        src={isHovered || autoPlay ? getMediaVideoUrl(media.id) : undefined}
       />
       <Image
         alt="Video preview"
@@ -450,6 +458,11 @@ const VideoPreview = ({
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
+      {/* Always visible (unlike the hover pills) so provenance never hides. */}
+      <AiGeneratedBadge
+        className="absolute bottom-11 left-2 z-10"
+        media={media}
+      />
       <div className="pointer-events-none absolute inset-0 z-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
   );
@@ -492,11 +505,13 @@ const SingleImagePreview = ({
       }
     };
     img.addEventListener("load", handleLoad);
-    img.src = getMediaUrl(media.id);
+    // The 800px derivative keeps the source aspect ratio, which is all this
+    // measurement needs; the variant route falls back to the original.
+    img.src = getMediaProxyUrl(media);
     return () => {
       img.removeEventListener("load", handleLoad);
     };
-  }, [media.id, natural, hasStoredDims]);
+  }, [media, natural, hasStoredDims]);
 
   const dims = natural;
 
@@ -549,11 +564,15 @@ const SingleImagePreview = ({
         }}
         onLoad={() => setIsLoading(false)}
         sizes="(max-width: 768px) 100vw, 640px"
-        src={getMediaUrl(media.id)}
+        src={getMediaProxyUrl(media)}
         // Media is served through our /api/media proxy; the image optimizer
         // rejects same-origin /api/ URLs, so serve the stored bytes directly.
         unoptimized
         width={dims?.w ?? 640}
+      />
+      <AiGeneratedBadge
+        className="absolute bottom-2 left-2 z-10"
+        media={media}
       />
     </div>
   );

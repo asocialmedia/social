@@ -115,3 +115,12 @@ export function getMediaProxyUrl(media: {
 export function getMediaVariantUrl(mediaId: string, variant: string): string {
   return `/api/media/${mediaId}/v/${variant}`;
 }
+
+// Playback URL for video: prefers the pipeline's progressive MP4 derivative
+// (H.264 + AAC faststart, metadata-stripped). The variant route falls back
+// to the published original when no MP4 exists (long-form sources that only
+// got an HLS ladder), so the URL is always playable-safe for uploads whose
+// original was browser-compatible in the first place.
+export function getMediaVideoUrl(mediaId: string): string {
+  return getMediaVariantUrl(mediaId, "mp4-h264.mp4");
+}

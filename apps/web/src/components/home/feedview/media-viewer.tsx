@@ -24,6 +24,7 @@ import FollowButton from "@/components/layouts/follow-button";
 import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
@@ -36,7 +37,11 @@ import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
-import { getMediaProxyUrl, getMediaVariantUrl } from "@/lib/utils/image-url";
+import {
+  getMediaProxyUrl,
+  getMediaVariantUrl,
+  getMediaVideoUrl,
+} from "@/lib/utils/image-url";
 
 import { CustomVideoPlayer } from "./custom-video-player";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
@@ -46,6 +51,16 @@ import { SVGViewer } from "./svg-viewer";
 
 const getMediaUrl = (mediaId: string, download = false) =>
   `/api/media/${mediaId}${download ? "?download=true" : ""}`;
+
+// Fullscreen display URL for an image: prefers the 1200px WebP derivative
+// and lets the variant route fall back to the published original. Animated
+// GIFs must keep their original bytes to stay animated.
+function getViewerImageUrl(media: Media): string {
+  if (media.mimeType === "image/gif") {
+    return getMediaProxyUrl(media);
+  }
+  return getMediaVariantUrl(media.id, "lg-webp.webp");
+}
 
 // If async media (image/video/svg) hasn't fired its load event within this
 // window, the viewer gives up waiting and shows the retry state instead of
@@ -397,7 +412,7 @@ const MediaViewer = ({
           priority
           quality={100}
           sizes="95vw"
-          src={getMediaUrl(item.id)}
+          src={getViewerImageUrl(item)}
           unoptimized
         />
       </div>
@@ -422,7 +437,7 @@ const MediaViewer = ({
         onPlaying={handleMediaLoaded}
         onProgress={handleMediaProgress}
         poster={getMediaProxyUrl(item)}
-        src={getMediaUrl(item.id)}
+        src={getMediaVideoUrl(item.id)}
       />
     </div>
   );
@@ -577,6 +592,12 @@ const MediaViewer = ({
         {renderMobileHeader()}
 
         <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
+          {currentMedia ? (
+            <AiGeneratedBadge
+              className="absolute bottom-4 left-4 z-50"
+              media={currentMedia}
+            />
+          ) : null}
           {(() => {
             if (post?.moderated) {
               return (

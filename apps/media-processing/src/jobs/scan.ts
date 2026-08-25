@@ -9,6 +9,7 @@ import {
   isStampableForC2Pa,
   publishedKey,
   sanitizeExtension,
+  stripImageMetadata,
   verifyDeclaredMatchesContent,
 } from "@asm/media";
 import type { MediaScanJobData } from "@asm/media";
@@ -33,6 +34,15 @@ type RejectionReasonCode =
   | "MIME_MISMATCH"
   | "TOO_LARGE"
   | "UNSUPPORTED_TYPE";
+
+// Static raster formats whose metadata containers (EXIF GPS, XMP, IPTC,
+// PNG text) get structurally stripped before publication. Animated sources
+// and everything else publish their scanned bytes untouched.
+const METADATA_STRIPABLE_MIMES: ReadonlySet<string> = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 async function refundStorageQuota(
   userId: string | null,
@@ -117,19 +127,19 @@ export function processMediaScan(
       }
 
       const tempPath = `/tmp/asm-scan-${mediaId}-${crypto.randomUUID()}`;
+      const strippedPath = `${tempPath}-stripped`;
       const stampedPath = `${tempPath}-c2pa`;
 
       try {
         const s3 = getS3();
         const source = s3.file(media.originalKey).stream();
 
-        // 1. Stream once: content hash + local copy for the scanner.
-        const hasher = new Bun.CryptoHasher("sha256");
+        // 1. Stream once into a local copy for the scanner, counting bytes.
         let totalBytes = 0;
         const writer = Bun.file(tempPath).writer();
         const reader = source.getReader();
-        // Streaming is inherently sequential: the hash requires ordered
-        // bytes, so parallel collection would be incorrect here.
+        // Streaming is inherently sequential; parallel collection would
+        // reorder the copy.
         // oxlint-disable-next-line no-await-in-loop -- ordered stream consumption
         for (;;) {
           // oxlint-disable-next-line no-await-in-loop -- ordered stream consumption
@@ -137,7 +147,6 @@ export function processMediaScan(
           if (done) {
             break;
           }
-          hasher.update(value);
           totalBytes += value.byteLength;
           writer.write(value);
         }
@@ -153,7 +162,6 @@ export function processMediaScan(
             `declared ${media.size} bytes, stored ${totalBytes}`
           );
         }
-        const sha256 = hasher.digest("hex");
 
         // 3. Content-based type detection; declared MIME is untrusted.
         // Legacy (pre-pipeline) rows carry no claimedMime - their original
@@ -238,7 +246,7 @@ export function processMediaScan(
           );
         }
 
-        // 5. Publish: promote the verified original into the media prefix,
+        // 4b. Publish gate: promote verified bytes into the media prefix,
         // then flip SCANNING -> PROCESSING -> READY with conditional updates
         // so a concurrent mutation can never publish twice.
         const firstFlip = await prisma.media.updateMany({
@@ -250,13 +258,39 @@ export function processMediaScan(
         }
 
         const extension = sanitizeExtension(detected.mime.split("/")[1]);
-        const targetKey = publishedKey(media.id, extension, sha256);
 
-        // 4b. Stamp AI-flagged assets with our own signed manifest before
-        // they leave quarantine. Falls back to the raw bytes whenever no
-        // signing identity is configured, the format can't carry an
-        // embedded manifest, or stamping fails - detection stays recorded.
+        // 5. Lossless metadata strip: EXIF (GPS!), XMP, IPTC and PNG text
+        // containers never leave quarantine attached to served bytes. The
+        // rewrite is structural, so pixels are untouched; ICC color profiles
+        // and any C2PA/JUMBF provenance chain survive. Failure publishes the
+        // scanned bytes unmodified rather than blocking the upload.
         let publishPath = tempPath;
+        let exifStripped = false;
+        if (METADATA_STRIPABLE_MIMES.has(detected.mime)) {
+          try {
+            const sourceBytes = new Uint8Array(
+              await Bun.file(tempPath).arrayBuffer()
+            );
+            const outcome = stripImageMetadata(sourceBytes);
+            if (outcome?.stripped) {
+              await Bun.write(strippedPath, outcome.bytes);
+              publishPath = strippedPath;
+              exifStripped = true;
+            }
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId },
+              "metadata stripping failed; publishing unmodified"
+            );
+          }
+        }
+
+        // 6. Stamp AI-flagged assets with our own signed manifest before
+        // they leave quarantine. Runs on the stripped file so the embedded
+        // manifest is the only metadata added back. Falls back to the
+        // current bytes whenever no signing identity is configured, the
+        // format can't carry an embedded manifest, or stamping fails -
+        // detection stays recorded.
         let stamped = false;
         if (
           provenance?.verdict.aiGenerated &&
@@ -264,7 +298,7 @@ export function processMediaScan(
           isStampableForC2Pa(detected.mime)
         ) {
           try {
-            stamped = await stampAiGenerated(tempPath, stampedPath, {
+            stamped = await stampAiGenerated(publishPath, stampedPath, {
               detectionReason: provenance.verdict.evidence[0]?.detail ?? "ai",
               mediaId,
             });
@@ -279,6 +313,17 @@ export function processMediaScan(
           }
         }
 
+        // 7. Hash the exact bytes being published (post strip/stamp) so the
+        // stored digest and content-hashed key describe the served object,
+        // then promote it out of quarantine.
+        const publishHasher = new Bun.CryptoHasher("sha256");
+        for await (const chunk of Bun.file(publishPath).stream()) {
+          publishHasher.update(chunk);
+        }
+        const sha256 = publishHasher.digest("hex");
+
+        const targetKey = publishedKey(media.id, extension, sha256);
+
         await s3.write(targetKey, Bun.file(publishPath));
 
         const secondFlip = await prisma.media.updateMany({
@@ -292,9 +337,10 @@ export function processMediaScan(
                 }) as object)
               : Prisma.DbNull,
             detectedMime: detected.mime,
-            // EXIF stripping happens during derivative generation (phase 2);
-            // at this point the verified original is served as-is.
-            exifStripped: false,
+            // True when the published original had its metadata containers
+            // structurally removed above; derivatives are always stripped
+            // by re-encoding regardless.
+            exifStripped,
             pipelineVersion: MEDIA_PIPELINE_VERSION,
             processedAt: new Date(),
             publishedKey: targetKey,
@@ -369,7 +415,9 @@ export function processMediaScan(
         });
         throw error;
       } finally {
-        await Bun.$`rm -f ${tempPath} ${stampedPath}`.quiet().catch(() => null);
+        await Bun.$`rm -f ${tempPath} ${strippedPath} ${stampedPath}`
+          .quiet()
+          .catch(() => null);
       }
     },
     { "media.id": mediaId }

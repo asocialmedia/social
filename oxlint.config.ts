@@ -14,8 +14,10 @@ export default defineConfig({
       // Media-processing manipulates binary formats (bitstream hashing,
       // waveform views, pixel packing) where bitwise operators are the
       // domain language, and its job loops are ordered on purpose: ffmpeg
-      // ladders and S3 uploads run sequentially to bound CPU/memory.
-      files: ["apps/media-processing/**"],
+      // ladders and S3 uploads run sequentially to bound CPU/memory. The
+      // shared media package earns the same exemption for its container
+      // parsers (JPEG/PNG/WebP metadata stripping walk byte structures).
+      files: ["apps/media-processing/**", "packages/media/**"],
       rules: {
         "eslint/no-await-in-loop": "off",
         "eslint/no-bitwise": "off",

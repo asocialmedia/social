@@ -21,9 +21,10 @@ const HLS_PREFIX = "hls/";
 // Single-segment names without a variant suffix: poster.jpg, cover.jpg
 const SIMPLE_NAME_RE = /^(?<kind>[a-z]+)\.(?<ext>jpg)$/;
 
-// kind-variant.ext where kind is lowercase-dash, variant is alphanumeric.
+// kind-variant.ext where kind is lowercase-dash-digit (mp4), variant is
+// alphanumeric.
 const QUALIFIED_NAME_RE =
-  /^(?<kind>[a-z][a-z-]*)-(?<variant>[a-z0-9]+)\.(?<ext>webp|jpg|json)$/;
+  /^(?<kind>[a-z][a-z0-9-]*)-(?<variant>[a-z0-9]+)\.(?<ext>webp|jpg|json|mp4|m4a|webm)$/;
 
 // HLS segment filenames must be flat, short, extension-restricted tokens so
 // the storage key can be rebuilt from the stored master key without trusting

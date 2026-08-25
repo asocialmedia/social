@@ -4,6 +4,8 @@ import {
   DEFAULT_AVATARS,
   getDefaultAvatar,
   getMediaProxyUrl,
+  getMediaVariantUrl,
+  getMediaVideoUrl,
   getSecureImageUrl,
   toAppProxyUrl,
 } from "./image-url";
@@ -95,13 +97,47 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
         type: "VIDEO",
       })
     ).toBe("/api/media/media123?thumb=1");
+  });
 
+  test("feed images request the 800px WebP derivative through the variant route", () => {
     expect(
       getMediaProxyUrl({
         id: "media456",
+        mimeType: "image/jpeg",
         thumbnailKey: null,
         type: "IMAGE",
       })
-    ).toBe("/api/media/media456");
+    ).toBe("/api/media/media456/v/md-webp.webp");
+
+    expect(
+      getMediaProxyUrl({
+        id: "media789",
+        mimeType: "image/png",
+        thumbnailKey: null,
+        type: "IMAGE",
+      })
+    ).toBe("/api/media/media789/v/md-webp.webp");
+  });
+
+  test("animated GIFs bypass the variant route so their animation survives", () => {
+    expect(
+      getMediaProxyUrl({
+        id: "mediaGif",
+        mimeType: "image/gif",
+        thumbnailKey: null,
+        type: "IMAGE",
+      })
+    ).toBe("/api/media/mediaGif");
+  });
+
+  test("video playback prefers the progressive MP4 derivative", () => {
+    expect(getMediaVideoUrl("mediaVid")).toBe(
+      "/api/media/mediaVid/v/mp4-h264.mp4"
+    );
+    // Variant URLs are always safe: the route falls back to the published
+    // original when the derivative has not been generated.
+    expect(getMediaVariantUrl("mediaX", "lg-webp.webp")).toBe(
+      "/api/media/mediaX/v/lg-webp.webp"
+    );
   });
 });

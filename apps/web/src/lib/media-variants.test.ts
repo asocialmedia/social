@@ -22,6 +22,21 @@ describe("variant request parsing", () => {
     });
   });
 
+  test("audio/video derivative names parse to their DB kinds", () => {
+    expect(parseVariantRequest(["mp4-h264.mp4"])).toEqual({
+      kind: "mp4",
+      variant: "h264",
+    });
+    expect(parseVariantRequest(["audio-aac.m4a"])).toEqual({
+      kind: "audio",
+      variant: "aac",
+    });
+    expect(parseVariantRequest(["audio-opus.webm"])).toEqual({
+      kind: "audio",
+      variant: "opus",
+    });
+  });
+
   test("simple poster/cover names map to the default variant", () => {
     expect(parseVariantRequest(["poster.jpg"])).toEqual({
       kind: "poster",
