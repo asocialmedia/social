@@ -27,24 +27,44 @@ export async function processPostDeleted(
   await withSpan(
     "job.post-deleted",
     async () => {
-      // Load all attachments of the deleted post, delete their objects (plus
-      // any video thumbnail frames), then the rows. Fixes the orphaned-media
-      // leak caused by onDelete: SetNull.
+      // Load all attachments of the deleted post and every storage object
+      // they reference - quarantine leftovers, the published original,
+      // legacy raw keys/thumbnail frames, and all pipeline derivatives -
+      // then delete the rows. Fixes both the orphaned-media leak caused by
+      // onDelete: SetNull and the derivative/original objects earlier
+      // versions of this job left behind in storage.
       const media = await prisma.media.findMany({
-        select: { id: true, key: true, thumbnailKey: true },
+        select: {
+          derivatives: { select: { key: true } },
+          id: true,
+          key: true,
+          originalKey: true,
+          publishedKey: true,
+          thumbnailKey: true,
+        },
         where: { postId },
       });
 
-      await Promise.allSettled(
-        media.map(async (m) => {
-          if (m.key) {
-            await deleteObject(m.key);
+      const objectKeys = new Set<string>();
+      for (const m of media) {
+        for (const key of [
+          m.key,
+          m.originalKey,
+          m.publishedKey,
+          m.thumbnailKey,
+        ]) {
+          if (key && key.length > 0) {
+            objectKeys.add(key);
           }
-          if (m.thumbnailKey) {
-            await deleteObject(m.thumbnailKey);
-          }
-        })
-      );
+        }
+        for (const derivative of m.derivatives) {
+          objectKeys.add(derivative.key);
+        }
+      }
+
+      // Objects are content-addressed per media id, so cross-post sharing
+      // is impossible; deleting by unique keys cannot take out a neighbor.
+      await Promise.allSettled([...objectKeys].map((key) => deleteObject(key)));
 
       await prisma.media.deleteMany({
         where: { id: { in: media.map((m) => m.id) } },
@@ -56,7 +76,10 @@ export async function processPostDeleted(
         redis.del(`${POST_VIEWS_KEY_PREFIX}${postId}`),
       ]);
 
-      log.info({ mediaDeleted: media.length, postId }, "post media cleaned");
+      log.info(
+        { mediaDeleted: media.length, objectsDeleted: objectKeys.size, postId },
+        "post media cleaned"
+      );
     },
     { "post.id": postId }
   );

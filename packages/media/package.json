@@ -1,6 +1,6 @@
 {
   "name": "@asm/media",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "private": true,
   "description": "Shared media pipeline contracts: lifecycle state machine, storage layout, limits, content detection, derivative policy",
   "license": "AGPL-3.0",

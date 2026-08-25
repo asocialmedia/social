@@ -49,7 +49,9 @@ export async function generateMetadata(
       const url = absoluteUrl(canonical);
 
       const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
-      const videoThumb = videoMedia?.thumbnailKey
+      // ?thumb=1 always resolves server-side: poster derivative for
+      // pipeline videos, legacy thumbnail frame otherwise.
+      const videoThumb = videoMedia
         ? absoluteUrl(`/api/media/${videoMedia.id}?thumb=1`)
         : null;
       const ogImageUrl =

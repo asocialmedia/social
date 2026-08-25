@@ -5,9 +5,11 @@
 
 import { enqueueMediaProcess, Prisma, prisma } from "@asm/db";
 import {
+  MEDIA_ENCODER_VERSION,
   MEDIA_PIPELINE_VERSION,
   isStampableForC2Pa,
   publishedKey,
+  readJpegExifOrientation,
   sanitizeExtension,
   stripImageMetadata,
   verifyDeclaredMatchesContent,
@@ -109,6 +111,13 @@ export function processMediaScan(
       if (!media || !media.originalKey) {
         return { detail: "row or object key missing", outcome: "skipped" };
       }
+      // Legacy rows migrating through the backfill sweep are recognized by
+      // their live serving key (new uploads keep key="" until publish).
+      // These bytes have been served publicly for years, so verification is
+      // tolerant below: a sloppy historical mimeType or size column must
+      // never flip a working post's attachment into REJECTED.
+      const isLegacyBackfillRow =
+        media.pipelineVersion === null && media.key.length > 0;
       if (["DELETED", "REJECTED", "READY"].includes(media.status)) {
         return { detail: `status ${media.status}`, outcome: "skipped" };
       }
@@ -153,13 +162,21 @@ export function processMediaScan(
         await writer.end();
         reader.releaseLock();
 
-        // 2. Reality check on size before anything else.
+        // 2. Reality check on size before anything else. Backfilled legacy
+        // rows adopt the actual stored size instead of rejecting - the
+        // bytes on storage are by definition what has been serving.
         if (totalBytes <= 0 || totalBytes !== media.size) {
-          return await rejectMedia(
-            mediaId,
-            "CORRUPT",
-            "size-mismatch",
-            `declared ${media.size} bytes, stored ${totalBytes}`
+          if (!isLegacyBackfillRow || totalBytes <= 0) {
+            return await rejectMedia(
+              mediaId,
+              "CORRUPT",
+              "size-mismatch",
+              `declared ${media.size} bytes, stored ${totalBytes}`
+            );
+          }
+          mediaLogger.warn(
+            { declared: media.size, mediaId, stored: totalBytes },
+            "legacy backfill size mismatch tolerated"
           );
         }
 
@@ -175,14 +192,36 @@ export function processMediaScan(
           headBuffer,
           declaredMime
         );
-        if (!verification.ok || !verification.detected) {
+        if (!verification.detected) {
+          // Undetectable bytes are rejected even for legacy rows - fail
+          // closed when the content type is unknown.
           return await rejectMedia(
             mediaId,
-            verification.reason === "MIME_MISMATCH"
-              ? "MIME_MISMATCH"
-              : "UNSUPPORTED_TYPE",
+            "UNSUPPORTED_TYPE",
             "content-mismatch",
             verification.reason ?? "unrecognized content"
+          );
+        }
+        if (!verification.ok) {
+          // Detection succeeded but disagrees with the declaration. New
+          // uploads treat that as a rejection signal; legacy rows adopt the
+          // detected type instead - a sloppy historical mimeType must never
+          // 404 a post attachment that has been serving for years.
+          if (!isLegacyBackfillRow) {
+            return await rejectMedia(
+              mediaId,
+              "MIME_MISMATCH",
+              "content-mismatch",
+              verification.reason ?? "declared type does not match content"
+            );
+          }
+          mediaLogger.warn(
+            {
+              declaredMime,
+              detectedMime: verification.detected.mime,
+              mediaId,
+            },
+            "legacy backfill mime mismatch tolerated"
           );
         }
         const { detected } = verification;
@@ -266,11 +305,47 @@ export function processMediaScan(
         // scanned bytes unmodified rather than blocking the upload.
         let publishPath = tempPath;
         let exifStripped = false;
+        let capturedOrientation: number | undefined;
         if (METADATA_STRIPABLE_MIMES.has(detected.mime)) {
           try {
             const sourceBytes = new Uint8Array(
               await Bun.file(tempPath).arrayBuffer()
             );
+            if (detected.mime === "image/jpeg" && sourceBytes.length > 4) {
+              // Locate the EXIF APP1 segment so readJpegExifOrientation sees
+              // the payload rather than the SOI.
+              for (let pos = 2; pos + 4 < sourceBytes.length;) {
+                if (sourceBytes[pos] !== 0xff) {
+                  break;
+                }
+                const marker = sourceBytes[pos + 1] ?? 0;
+                if (marker === 0xd9 || marker === 0xda) {
+                  break;
+                }
+                if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+                  pos += 2;
+                  continue;
+                }
+                const segLen =
+                  ((sourceBytes[pos + 2] ?? 0) << 8) |
+                  (sourceBytes[pos + 3] ?? 0);
+                if (segLen < 2 || pos + 2 + segLen > sourceBytes.length) {
+                  break;
+                }
+                if (marker === 0xe1) {
+                  const orientation = readJpegExifOrientation(
+                    sourceBytes,
+                    pos + 4,
+                    pos + 2 + segLen
+                  );
+                  if (orientation > 1) {
+                    capturedOrientation = orientation;
+                  }
+                  break;
+                }
+                pos += 2 + segLen;
+              }
+            }
             const outcome = stripImageMetadata(sourceBytes);
             if (outcome?.stripped) {
               await Bun.write(strippedPath, outcome.bytes);
@@ -324,6 +399,29 @@ export function processMediaScan(
 
         const targetKey = publishedKey(media.id, extension, sha256);
 
+        // Platform-level metadata is attached to the DB record here, at the
+        // moment verified bytes leave quarantine - never embedded into the
+        // binary, which any downstream re-upload could strip. The database
+        // row is the authoritative provenance source. The duplicate lookup
+        // is a detection signal only (same SHA-256 = byte-identical upload);
+        // it says nothing about ownership.
+        const [uploader, existingDuplicate] = await Promise.all([
+          media.userId
+            ? prisma.user.findUnique({
+                select: { displayName: true },
+                where: { id: media.userId },
+              })
+            : Promise.resolve(null),
+          prisma.media.findFirst({
+            select: { id: true },
+            where: {
+              id: { not: mediaId },
+              publishedKey: { not: null },
+              sha256,
+            },
+          }),
+        ]);
+
         await s3.write(targetKey, Bun.file(publishPath));
 
         const secondFlip = await prisma.media.updateMany({
@@ -340,8 +438,11 @@ export function processMediaScan(
             // True when the published original had its metadata containers
             // structurally removed above; derivatives are always stripped
             // by re-encoding regardless.
+            duplicateOf: existingDuplicate?.id ?? null,
+            encoderVersion: MEDIA_ENCODER_VERSION,
             exifStripped,
             pipelineVersion: MEDIA_PIPELINE_VERSION,
+            platform: "asocialmedia.cc",
             processedAt: new Date(),
             publishedKey: targetKey,
             sha256,
@@ -351,6 +452,9 @@ export function processMediaScan(
               avScanned: scanned,
               container: detected.container,
               family: detected.family,
+              ...(capturedOrientation
+                ? { orientation: capturedOrientation }
+                : {}),
               ...(provenance
                 ? {
                     c2pa: {
@@ -361,6 +465,7 @@ export function processMediaScan(
                   }
                 : {}),
             },
+            uploaderDisplayName: uploader?.displayName ?? null,
           },
           where: { id: mediaId, status: "PROCESSING" },
         });

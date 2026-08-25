@@ -78,16 +78,13 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
-// Images always render in the card; videos render when the uploader stored a
-// thumbnail frame (served via ?thumb=1). For the shareable media route the
-// index param selects a specific attachment.
+// Images always render in the card; videos render through the ?thumb=1
+// proxy, which resolves to the pipeline's poster derivative (or a legacy
+// stored frame) - so every video attachment is previewable.
 function isCardPreviewable(
   media: PostCardData["attachments"][number]
 ): boolean {
-  return (
-    media.type.toLowerCase().startsWith("image") ||
-    (media.type === "VIDEO" && Boolean(media.thumbnailKey))
-  );
+  return media.type.toLowerCase().startsWith("image") || media.type === "VIDEO";
 }
 
 function getCardMedia(

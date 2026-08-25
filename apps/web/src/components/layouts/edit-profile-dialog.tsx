@@ -238,7 +238,6 @@ export default function EditProfileDialog({
     if (file) {
       await avatarMutation.mutateAsync({
         file,
-        oldAvatarKey: user.avatarKey || undefined,
         userId: user.id,
       });
     }
@@ -739,7 +738,7 @@ const AvatarInput = ({
   src,
   onImageCropped,
   onGifSelected,
-  form,
+  form: _form,
   isDeleted,
   onDelete,
   isUploading,
@@ -912,12 +911,7 @@ const AvatarInput = ({
 
       {gifToCenter ? (
         <GifCenteringDialog
-          currentValues={{
-            bio: form.getValues("bio"),
-            displayName: form.getValues("displayName"),
-            oldAvatarKey: user.avatarKey || undefined,
-            userId: user.id,
-          }}
+          currentValues={{ userId: user.id }}
           gifFile={gifToCenter}
           onClose={handleGifClose}
         />

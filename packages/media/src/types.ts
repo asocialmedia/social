@@ -29,10 +29,11 @@ export type RejectionReason =
 
 export type MediaVisibility = "PUBLIC" | "UNLISTED" | "PRIVATE";
 
-export const MEDIA_PIPELINE_VERSION = "1";
+export const MEDIA_PIPELINE_VERSION = "2";
 
-// Bumped when encoder settings change materially; recorded per derivative.
-export const MEDIA_ENCODER_VERSION = "enc-2026-08";
+// Bumped when encoder settings change materially; recorded per derivative
+// and on the Media row's encoderVersion.
+export const MEDIA_ENCODER_VERSION = "enc-2026-09";
 
 export interface DetectedContent {
   family: MediaType;

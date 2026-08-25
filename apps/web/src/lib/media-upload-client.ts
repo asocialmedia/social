@@ -13,6 +13,10 @@ export type UploadStatus =
   | "FAILED"
   | "REJECTED";
 
+// User-facing pipeline phases surfaced in the composer progress UI. Derived
+// from real poll statuses - never simulated.
+export type UploadStage = "uploading" | "queued" | "scanning" | "processing";
+
 export interface CompletedUpload {
   mediaId: string;
   rejectedReason?: string | null;
@@ -98,13 +102,19 @@ function putToPresignedUrl(
 export async function uploadMediaFile(
   file: File,
   options: {
-    purpose?: "comment" | "message" | "post";
+    purpose?: "avatar" | "comment" | "message" | "post";
     signal?: AbortSignal;
     onProgress?: (percent: number) => void;
+    onStage?: (stage: UploadStage) => void;
   } = {}
 ): Promise<CompletedUpload> {
   const report =
     options.onProgress ??
+    (() => {
+      /* empty */
+    });
+  const reportStage =
+    options.onStage ??
     (() => {
       /* empty */
     });
@@ -152,6 +162,8 @@ export async function uploadMediaFile(
   if (!finalizeResponse.ok) {
     throw new MediaUploadError(await parseErrorMessage(finalizeResponse));
   }
+  // Bytes are in quarantine; the pipeline owns the file from here.
+  reportStage("queued");
 
   // Poll until the pipeline reaches a terminal state.
   const deadline = Date.now() + POLL_TIMEOUT_MS;
@@ -179,6 +191,13 @@ export async function uploadMediaFile(
       rejectedReason?: string | null;
       status: UploadStatus;
     };
+    // Real pipeline stages drive the composer's progress UI - each status
+    // maps to a user-visible phase, nothing here is simulated.
+    if (state.status === "SCANNING") {
+      reportStage("scanning");
+    } else if (state.status === "PROCESSING") {
+      reportStage("processing");
+    }
     if (TERMINAL_POLL_STATUSES.has(state.status)) {
       if (state.status === "READY") {
         return { mediaId, status: "READY" };

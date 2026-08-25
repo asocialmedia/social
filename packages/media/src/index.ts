@@ -29,7 +29,12 @@ export type {
 } from "./types";
 export { isAudioTechMetadata, isVideoTechMetadata } from "./types";
 
-export { DEFAULT_LIMITS, maxBytesForType, resolveMediaLimits } from "./limits";
+export {
+  DEFAULT_LIMITS,
+  MAX_POST_ATTACHMENTS,
+  maxBytesForType,
+  resolveMediaLimits,
+} from "./limits";
 export type { MediaLimits } from "./limits";
 
 export {
@@ -57,8 +62,14 @@ export {
 export { detectContent, verifyDeclaredMatchesContent } from "./magic";
 export type { ContentDetection } from "./magic";
 
-export { stripImageMetadata } from "./strip-metadata";
+export { readJpegExifOrientation, stripImageMetadata } from "./strip-metadata";
 export type { StripOutcome } from "./strip-metadata";
+
+export {
+  hammingDistanceHex,
+  isLikelyDuplicateHash,
+  PHASH_MATCH_DISTANCE,
+} from "./perceptual-hash";
 
 export {
   KNOWN_AI_GENERATORS,

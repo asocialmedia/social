@@ -16,6 +16,8 @@ export interface ProbeResult {
     frameRateMode: "CFR" | "VFR" | "unknown";
     bitrateKbps: number;
     pixelFormat: string;
+    colorSpace?: string;
+    colorTransfer?: string;
     rotation: number;
   } | null;
   audio: {
@@ -28,19 +30,21 @@ export interface ProbeResult {
 }
 
 interface FfprobeStream {
-  codec_type?: string;
-  codec_name?: string;
-  width?: number;
-  height?: number;
   avg_frame_rate?: string;
+  bit_rate?: string;
+  channels?: number;
+  codec_name?: string;
+  codec_type?: string;
+  color_space?: string;
+  color_transfer?: string;
+  disposition?: Record<string, number>;
+  height?: number;
+  pix_fmt?: string;
   r_frame_rate?: string;
   sample_aspect_ratio?: string;
-  pix_fmt?: string;
-  bit_rate?: string;
   sample_rate?: string;
-  channels?: number;
   tags?: Record<string, string>;
-  disposition?: Record<string, number>;
+  width?: number;
 }
 
 interface FfprobeOutput {
@@ -138,6 +142,8 @@ export async function probeMedia(inputPath: string): Promise<ProbeResult> {
         ? {
             bitrateKbps: Math.round(Number(realVideo.bit_rate ?? 0) / 1000),
             codec: realVideo.codec_name ?? "unknown",
+            colorSpace: realVideo.color_space ?? undefined,
+            colorTransfer: realVideo.color_transfer ?? undefined,
             fps,
             frameRateMode,
             height: realVideo.height,

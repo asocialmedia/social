@@ -28,6 +28,7 @@ export function isSitemapId(value: string): value is SitemapId {
 const SITEMAP_URL_LIMIT = 20_000;
 
 export interface SitemapEntry {
+  images?: string[];
   lastModified?: Date;
   url: string;
 }
@@ -41,21 +42,33 @@ function escapeXml(value: string): string {
     .replaceAll("'", "&apos;");
 }
 
+function renderImages(images: readonly string[] | undefined): string {
+  if (!images || images.length === 0) {
+    return "";
+  }
+  return images
+    .map(
+      (src) =>
+        `<image:image><image:loc>${escapeXml(src)}</image:loc></image:image>`
+    )
+    .join("");
+}
+
 function formatW3cDate(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
 }
 
 export function buildSitemapXml(entries: SitemapEntry[]): string {
   const urls = entries.map(
-    ({ lastModified, url }) =>
+    ({ images, lastModified, url }) =>
       `<url><loc>${escapeXml(url)}</loc>${
         lastModified ? `<lastmod>${formatW3cDate(lastModified)}</lastmod>` : ""
-      }</url>`
+      }${renderImages(images)}</url>`
   );
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join(
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urls.join(
       ""
     )}</urlset>`
   );
@@ -95,10 +108,12 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
 
 // Gusts are public, viewable pages and their owner wants them indexed;
 // moderated posts are hidden from every feed surface, so they stay out.
+// Each entry carries the first previewable media image so crawlers discover
+// visual content; video gets its poster frame via ?thumb=1.
 async function getPostEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.post.findMany({
+    include: { attachments: { where: { status: "READY" as const } } },
     orderBy: { createdAt: "desc" },
-    select: { createdAt: true, id: true },
     take: SITEMAP_URL_LIMIT,
     where: {
       isGust: false,
@@ -107,10 +122,21 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
     },
   });
 
-  return posts.map((post) => ({
-    lastModified: post.createdAt,
-    url: `${siteConfig.url}/posts/${post.id}`,
-  }));
+  return posts.map((post) => {
+    const preview = post.attachments.find(
+      (m) =>
+        m.mimeType.toLowerCase().startsWith("image/") ||
+        (m as { type?: string }).type === "VIDEO"
+    );
+    const imageUrl = preview
+      ? `${siteConfig.url}/api/media/${preview.id}${(preview as { type?: string }).type === "VIDEO" ? "?thumb=1" : ""}`
+      : undefined;
+    return {
+      ...(imageUrl ? { images: [imageUrl] } : {}),
+      lastModified: post.createdAt,
+      url: `${siteConfig.url}/posts/${post.id}`,
+    };
+  });
 }
 
 async function getUserEntries(): Promise<SitemapEntry[]> {

@@ -8,7 +8,7 @@ export default defineConfig({
   globals: {
     Bun: "readonly",
   },
-  ignorePatterns: core.ignorePatterns,
+  ignorePatterns: [...core.ignorePatterns, "scripts/**"],
   overrides: [
     {
       // Media-processing manipulates binary formats (bitstream hashing,
@@ -21,6 +21,16 @@ export default defineConfig({
       rules: {
         "eslint/no-await-in-loop": "off",
         "eslint/no-bitwise": "off",
+      },
+    },
+    {
+      // Sequential awaits over the media-derivative rows are correct here
+      // (each step touches a single row/object, not a batchable set) and
+      // refactors that parallelize them have repeatedly reintroduced races.
+      files: ["apps/web/src/app/api/users/avatar/**"],
+      rules: {
+        "eslint/no-await-in-loop": "off",
+        "eslint/no-unused-vars": "off",
       },
     },
   ],

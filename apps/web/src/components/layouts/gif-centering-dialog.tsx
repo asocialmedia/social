@@ -25,10 +25,7 @@ import { useToast } from "@/lib/gooey-toast";
 
 interface GifCenteringDialogProps {
   currentValues: {
-    displayName: string;
-    bio: string;
     userId: string;
-    oldAvatarKey?: string | null;
   };
   gifFile: File;
   onClose: () => void;
@@ -108,7 +105,6 @@ export default function GifCenteringDialog({
 
       await mutation.mutateAsync({
         file,
-        oldAvatarKey: currentValues.oldAvatarKey || undefined,
         userId: currentValues.userId,
       });
 

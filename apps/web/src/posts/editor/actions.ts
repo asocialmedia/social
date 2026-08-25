@@ -18,8 +18,10 @@ import {
   prisma,
   tagCache,
 } from "@asm/db";
-import { CLAIMABLE_STATUSES } from "@asm/media";
+import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
 import { updateTag } from "next/cache";
+
+import { getModerationSystemUserId } from "@/lib/system-moderation-user";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -126,6 +128,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     );
 
     const newPost = await prisma.$transaction(async (tx) => {
+      // Server-side hard stop matching the composer's client cap: a crafted
+      // request bypassing the UI must not publish more than the contract
+      // allows.
+      if (validatedInput.mediaIds.length > MAX_POST_ATTACHMENTS) {
+        throw new Error(
+          `A post can hold at most ${MAX_POST_ATTACHMENTS} attachments`
+        );
+      }
       // Attachments must be owned by the caller and unclaimed: a crafted
       // mediaId could otherwise drag another user's comment attachment (or an
       // owner-only draft) into a public post, and the post-deletion worker
@@ -228,8 +238,21 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         },
       });
 
-      // The media is now attached to a post, so the abandoned-upload cleanup
-      // jobs must not delete it.
+      // Publish confirmation from Zeph, the platform persona: lands in the
+      // author's notifications the moment their fleet/gust goes live. Same
+      // transaction as the post row so a confirmed post always has its
+      // receipt.
+      const zephUserId = await getModerationSystemUserId();
+      await tx.notification.create({
+        data: {
+          issuerId: zephUserId,
+          postId: post.id,
+          recipientId: sessionData.user.id,
+          type: "PUBLISHED",
+        },
+      });
+
+      // The media is now attached to a post, so the abandoned-upload cleanup      // jobs must not delete it.
       for (const mediaId of validatedInput.mediaIds) {
         cancelMediaCleanup(mediaId).catch((error: unknown) => {
           console.error(

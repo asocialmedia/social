@@ -15,7 +15,12 @@ import { useMediaQuery } from "usehooks-ts";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
-import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
+import {
+  getMediaImageSrcSet,
+  getMediaImageUrl,
+  getMediaProxyUrl,
+  getMediaVideoUrl,
+} from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
 
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
@@ -100,28 +105,25 @@ const GridImagePreview = ({
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse" />
       ) : null}
-      <Image
+      {/* eslint-disable-next-line @next/next/no-img-element -- srcSet is required for responsive delivery; Next Image does not expose it with unoptimized proxy URLs */}
+      <img
         alt="Attachment"
         className={cn(
           getCommonClasses(isSmall),
-          "transition-opacity duration-300",
+          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
           isLoading ? "opacity-0" : "opacity-100"
         )}
-        fill
+        decoding="async"
+        loading="lazy"
         onError={() => {
           setIsFailed(true);
           setIsLoading(false);
         }}
         onLoad={() => setIsLoading(false)}
-        // Media is served through our /api/media proxy; the image optimizer
-        // rejects same-origin /api/ URLs, so serve the stored bytes directly.
-        // getMediaProxyUrl prefers the 800px WebP derivative (GIFs keep their
-        // original bytes for animation); the variant route falls back to the
-        // published original when no derivative exists yet.
         sizes="(max-width: 768px) 50vw, 33vw"
         src={getMediaProxyUrl(media)}
+        srcSet={getMediaImageSrcSet(media)}
         style={{ objectFit: "cover" }}
-        unoptimized
       />
       <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
       <AiGeneratedBadge
@@ -505,9 +507,7 @@ const SingleImagePreview = ({
       }
     };
     img.addEventListener("load", handleLoad);
-    // The 800px derivative keeps the source aspect ratio, which is all this
-    // measurement needs; the variant route falls back to the original.
-    img.src = getMediaProxyUrl(media);
+    img.src = getMediaImageUrl(media, "lg-webp.webp");
     return () => {
       img.removeEventListener("load", handleLoad);
     };
@@ -548,7 +548,8 @@ const SingleImagePreview = ({
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse rounded-xl" />
       ) : null}
-      <Image
+      {/* eslint-disable-next-line @next/next/no-img-element -- srcSet responsive delivery requires a plain img; Next Image does not expose it with unoptimized proxy URLs */}
+      <img
         alt="Attachment"
         className={cn(
           "rounded-xl object-contain transition-opacity duration-300",
@@ -557,17 +558,17 @@ const SingleImagePreview = ({
             : "h-auto w-full",
           isLoading ? "opacity-0" : "opacity-100"
         )}
+        decoding="async"
         height={dims?.h ?? 600}
+        loading="lazy"
         onError={() => {
           setIsFailed(true);
           setIsLoading(false);
         }}
         onLoad={() => setIsLoading(false)}
         sizes="(max-width: 768px) 100vw, 640px"
-        src={getMediaProxyUrl(media)}
-        // Media is served through our /api/media proxy; the image optimizer
-        // rejects same-origin /api/ URLs, so serve the stored bytes directly.
-        unoptimized
+        src={getMediaImageUrl(media, "lg-webp.webp")}
+        srcSet={getMediaImageSrcSet(media)}
         width={dims?.w ?? 640}
       />
       <AiGeneratedBadge

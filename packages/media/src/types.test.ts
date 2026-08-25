@@ -49,6 +49,6 @@ describe("tech metadata guards", () => {
   });
 
   test("pipeline version is pinned so reprocessing decisions stay stable", () => {
-    expect(MEDIA_PIPELINE_VERSION).toBe("1");
+    expect(MEDIA_PIPELINE_VERSION).toBe("2");
   });
 });

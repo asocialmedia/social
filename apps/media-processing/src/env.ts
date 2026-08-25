@@ -24,6 +24,7 @@ export const keys = createEnv({
     CLAMAV_PORT: process.env.CLAMAV_PORT,
     DATABASE_URL: process.env.DATABASE_URL,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    MEDIA_BACKFILL_ENABLED: process.env.MEDIA_BACKFILL_ENABLED,
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
     MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
@@ -31,6 +32,7 @@ export const keys = createEnv({
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
+    MEDIA_LEGACY_GC_ENABLED: process.env.MEDIA_LEGACY_GC_ENABLED,
     MEDIA_MAX_AUDIO_BYTES: process.env.MEDIA_MAX_AUDIO_BYTES,
     MEDIA_MAX_IMAGE_BYTES: process.env.MEDIA_MAX_IMAGE_BYTES,
     MEDIA_MAX_REQUEST_BYTES: process.env.MEDIA_MAX_REQUEST_BYTES,
@@ -76,6 +78,11 @@ export const keys = createEnv({
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
+    // Migration sweeps. Backfill converts legacy rows into the pipeline
+    // (safe by design: live posts keep serving until READY). Legacy GC
+    // deletes superseded raw objects and is therefore opt-in - flip it on
+    // only after the migration has been verified in production.
+    MEDIA_BACKFILL_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_C2PA_CERT_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_KEY_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_STAMP: z.enum(["0", "1"]).default("1"),
@@ -85,6 +92,7 @@ export const keys = createEnv({
     MEDIA_C2PA_TSA_URL: z.url().optional(),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
+    MEDIA_LEGACY_GC_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_MAX_AUDIO_BYTES: numericOverride,
     MEDIA_MAX_IMAGE_BYTES: numericOverride,
     MEDIA_MAX_REQUEST_BYTES: numericOverride,
@@ -124,6 +132,9 @@ export const workerEnv = {
   get ASMOB_ENDPOINT() {
     return keys.ASMOB_ENDPOINT;
   },
+  get BACKFILL_ENABLED() {
+    return keys.MEDIA_BACKFILL_ENABLED === "1";
+  },
   get C2PA_CERT_PATH() {
     return keys.MEDIA_C2PA_CERT_PATH;
   },
@@ -151,6 +162,9 @@ export const workerEnv = {
       return dynamicPort;
     }
     return keys.MEDIA_HEALTH_PORT;
+  },
+  get LEGACY_GC_ENABLED() {
+    return keys.MEDIA_LEGACY_GC_ENABLED === "1";
   },
   get PUBLIC_BASE_URL() {
     return keys.NEXT_PUBLIC_URL;

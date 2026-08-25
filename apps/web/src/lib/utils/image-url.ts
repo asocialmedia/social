@@ -104,10 +104,22 @@ export function getMediaProxyUrl(media: {
   if (media.type === "VIDEO") {
     return `/api/media/${media.id}?thumb=1`;
   }
+  return getMediaImageUrl(media, "md-webp.webp");
+}
+
+// Display URL for a raster image at a chosen derivative size (e.g.
+// lg-webp.webp, orig-img-webp.webp). The variant route falls back to the
+// published original whenever the derivative does not exist - small sources
+// never produce larger ladder rungs - so any size request is safe. Animated
+// GIFs bypass variants entirely so their animation survives.
+export function getMediaImageUrl(
+  media: { id: string; mimeType?: string | null },
+  variant: string
+): string {
   if (media.mimeType === "image/gif") {
     return `/api/media/${media.id}`;
   }
-  return getMediaVariantUrl(media.id, "md-webp.webp");
+  return getMediaVariantUrl(media.id, variant);
 }
 
 // Optimized derivative URL. The serving route falls back to the published
@@ -123,4 +135,27 @@ export function getMediaVariantUrl(mediaId: string, variant: string): string {
 // original was browser-compatible in the first place.
 export function getMediaVideoUrl(mediaId: string): string {
   return getMediaVariantUrl(mediaId, "mp4-h264.mp4");
+}
+
+// srcset for responsive delivery: the browser picks the smallest rung that
+// covers its viewport width × devicePixelRatio. Each variant URL is safe on
+// its own (fallback to the original for small sources), so listing every
+// ladder rung is always correct even before derivatives exist.
+const IMAGE_SRCSET_VARIANTS: readonly [string, number][] = [
+  ["thumb-webp.webp", 320],
+  ["sm-webp.webp", 640],
+  ["md-webp.webp", 800],
+  ["lg-webp.webp", 1200],
+];
+
+export function getMediaImageSrcSet(media: {
+  id: string;
+  mimeType?: string | null;
+}): string | undefined {
+  if (media.mimeType === "image/gif") {
+    return undefined;
+  }
+  return IMAGE_SRCSET_VARIANTS.map(
+    ([variant, width]) => `${getMediaVariantUrl(media.id, variant)} ${width}w`
+  ).join(", ");
 }

@@ -9,7 +9,7 @@ import { getSessionFromApi } from "@/lib/session";
 // authorization, quota, and policy checks plus the database row creation.
 const initiateSchema = z.object({
   name: z.string().min(1).max(255),
-  purpose: z.enum(["post", "comment", "message"]).nullish(),
+  purpose: z.enum(["avatar", "comment", "message", "post"]).nullish(),
   size: z.number().int().positive(),
   type: z.string().min(3).max(100),
 });

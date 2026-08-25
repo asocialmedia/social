@@ -14,7 +14,7 @@
 import { prisma } from "@asm/db";
 import { Worker } from "bullmq";
 
-import { resolveWorkerMediaLimits } from "./env";
+import { resolveWorkerMediaLimits, workerEnv } from "./env";
 import { mediaLogger } from "./log";
 import { getS3 } from "./s3";
 
@@ -27,6 +27,11 @@ async function enqueueScanForLegacyRow(mediaId: string): Promise<void> {
 }
 
 export async function backfillSweep(): Promise<{ enqueued: number }> {
+  // Kill switch: MEDIA_BACKFILL_ENABLED=0 stops converting legacy rows
+  // without redeploying (the scheduler stays registered but no-ops).
+  if (!workerEnv.BACKFILL_ENABLED) {
+    return { enqueued: 0 };
+  }
   // Legacy rows: created before the pipeline, still UPLOADING with a real
   // object key and never rejected/deleted.
   const candidates = await prisma.media.findMany({
@@ -71,6 +76,13 @@ export async function backfillSweep(): Promise<{ enqueued: number }> {
 }
 
 export async function legacyGcSweep(): Promise<{ deletedObjects: number }> {
+  // Opt-in destruction: MEDIA_LEGACY_GC_ENABLED must be set to "1" before
+  // any object is deleted, and the retention window must be positive. This
+  // keeps a fresh production deployment read-only until the migration has
+  // been verified and retention is chosen deliberately.
+  if (!workerEnv.LEGACY_GC_ENABLED) {
+    return { deletedObjects: 0 };
+  }
   const limits = resolveWorkerMediaLimits();
   if (limits.originalRetentionDays <= 0) {
     return { deletedObjects: 0 }; // Retention disabled: keep everything.

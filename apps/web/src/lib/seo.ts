@@ -69,26 +69,16 @@ export function postDescription(post: PostData): string {
 // Media objects live in private object storage and are streamed through the
 // app's /api/media proxy, so image URLs in metadata must point at the proxy
 // path rather than the stored bucket URL. Videos are previewable too: the
-// uploader stores a 2s thumbnail frame that is served via ?thumb=1.
-function toMediaProxyUrl(media: {
-  id: string;
-  type: string;
-  thumbnailKey?: string | null;
-}): string {
-  const thumbnail =
-    media.type === "VIDEO" && media.thumbnailKey ? "?thumb=1" : "";
+// proxy resolves ?thumb=1 to the pipeline's scene-aware poster derivative
+// (legacy rows fall back to their stored thumbnail frame), so crawlers get
+// a real frame instead of video bytes.
+function toMediaProxyUrl(media: { id: string; type: string }): string {
+  const thumbnail = media.type === "VIDEO" ? "?thumb=1" : "";
   return `/api/media/${media.id}${thumbnail}`;
 }
 
-// Images always work for crawlers; videos work when a thumbnail was stored.
-function isPreviewable(media: {
-  type: string;
-  thumbnailKey?: string | null;
-}): boolean {
-  return (
-    media.type.toLowerCase().startsWith("image") ||
-    (media.type === "VIDEO" && Boolean(media.thumbnailKey))
-  );
+function isPreviewable(media: { type: string }): boolean {
+  return media.type.toLowerCase().startsWith("image") || media.type === "VIDEO";
 }
 
 // First previewable attachment of a post, absolute, or null when the post has

@@ -13,7 +13,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import { cn } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const DEFAULT_ASPECT = 4 / 5;
 
@@ -39,23 +39,23 @@ const ExplorePostImage: React.FC<{ media: Media }> = ({ media }) => {
       {isImageLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse" />
       ) : null}
-      <Image
+      {/* eslint-disable-next-line @next/next/no-img-element -- srcSet for responsive explore tiles */}
+      <img
         alt="Post media"
         className={cn(
-          "object-cover transition-all duration-300 group-hover:scale-105",
+          "absolute inset-0 h-full w-full object-cover transition-all duration-300 group-hover:scale-105",
           isImageLoading ? "opacity-0" : "opacity-100"
         )}
-        fill
+        decoding="async"
+        loading="lazy"
         onError={() => {
           setIsImageFailed(true);
           setIsImageLoading(false);
         }}
         onLoad={() => setIsImageLoading(false)}
         sizes="(max-width: 768px) 50vw, 300px"
-        // 800px WebP derivative with server-side fallback to the original;
-        // GIFs keep their animated bytes via the proxy URL.
         src={getMediaProxyUrl(media)}
-        unoptimized
+        srcSet={getMediaImageSrcSet(media)}
       />
     </>
   );

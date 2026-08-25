@@ -6,7 +6,11 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import { cn, isGifUrl } from "@/lib/utils";
-import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
+import {
+  getMediaImageSrcSet,
+  getMediaProxyUrl,
+  getMediaVideoUrl,
+} from "@/lib/utils/image-url";
 
 interface CommentMediaProps {
   media: Media;
@@ -67,18 +71,21 @@ export function CommentMedia({ media }: CommentMediaProps) {
         <div className="animate-shimmer from-muted/50 via-muted to-muted/50 h-72 w-full rounded-lg bg-gradient-to-r bg-[length:200%_100%]" />
       ) : null}
       <div className="relative overflow-hidden rounded-lg">
-        <Image
+        {/* eslint-disable-next-line @next/next/no-img-element -- srcSet responsive image; Next Image does not expose it with unoptimized proxy URLs */}
+        <img
           alt="Attachment"
           className={cn(
             "max-h-72 w-auto rounded-lg object-contain",
             isLoading && "invisible"
           )}
+          decoding="async"
           height={media.height ?? 480}
+          loading="lazy"
           onError={handleError}
           onLoad={handleLoad}
           sizes="(max-width: 640px) 100vw, 384px"
           src={getMediaProxyUrl(media)}
-          unoptimized
+          srcSet={getMediaImageSrcSet(media)}
           width={media.width ?? 640}
         />
       </div>

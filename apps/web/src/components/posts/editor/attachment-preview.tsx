@@ -1,8 +1,19 @@
-import { FileAudioIcon, FileIcon, Pause, Play, X } from "lucide-react";
+import {
+  Check,
+  FileAudioIcon,
+  FileIcon,
+  Loader2,
+  Pause,
+  Play,
+  ScanSearch,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { formatFileName } from "@/lib/format-file-name";
+import type { UploadStage } from "@/lib/media-upload-client";
 import { cn } from "@/lib/utils";
 
 interface AttachmentPreviewProps {
@@ -13,9 +24,11 @@ interface AttachmentPreviewProps {
     name?: string;
     previewUrl?: string;
     progress?: number;
+    stage?: UploadStage;
     type?: string;
   };
   isGust?: boolean;
+  onCancelClick?: () => void;
   onRemoveClick: () => void;
 }
 
@@ -30,9 +43,11 @@ const AttachmentPreviewInner = ({
     name,
     progress,
     previewUrl: existingPreviewUrl,
+    stage,
     type: fileType,
   },
   isGust = false,
+  onCancelClick,
   onRemoveClick,
 }: AttachmentPreviewProps) => {
   const [objectUrl, setObjectUrl] = useState<string>(
@@ -200,23 +215,39 @@ const AttachmentPreviewInner = ({
         {renderPreview()}
       </div>
 
-      {/* 3D progress bar below the asset while uploading */}
+      {/* Pipeline status below the asset while it works: real byte progress
+          during upload, then the actual server stages from the status poll.
+          Nothing here is simulated - each phase flip comes from the API. */}
       {isUploading ? (
         <div className="mt-2 flex items-center gap-3">
-          <div
-            className={cn(
-              "relative h-2 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10",
-              PROGRESS_BAR_3D
-            )}
+          {stage === "uploading" ? (
+            <>
+              <div
+                className={cn(
+                  "relative h-2 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10",
+                  PROGRESS_BAR_3D
+                )}
+              >
+                <div
+                  className="h-full rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500] transition-[width] duration-150 ease-linear"
+                  style={{ width: `${progress ?? 0}%` }}
+                />
+              </div>
+              <span className="text-muted-foreground w-9 text-right text-xs font-semibold tabular-nums">
+                {progress ?? 0}%
+              </span>
+            </>
+          ) : (
+            <StageStepper stage={stage} />
+          )}
+          <button
+            aria-label="Cancel upload"
+            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 rounded-full p-1 transition-colors"
+            onClick={onCancelClick}
+            type="button"
           >
-            <div
-              className="h-full rounded-full bg-linear-to-r from-[#ff9500] to-[#e65500] transition-[width] duration-150 ease-linear"
-              style={{ width: `${progress ?? 0}%` }}
-            />
-          </div>
-          <span className="text-muted-foreground w-9 text-right text-xs font-semibold tabular-nums">
-            {progress ?? 0}%
-          </span>
+            <X className="size-4" />
+          </button>
         </div>
       ) : (
         <button
@@ -228,6 +259,51 @@ const AttachmentPreviewInner = ({
           <X size={20} />
         </button>
       )}
+    </div>
+  );
+};
+
+/** Compact pipeline readout: Upload → Scan → Process, driven by real poll
+ * statuses. Completed steps tick, the active step spins, pending ones dim. */
+const StageStepper = ({ stage }: { stage?: UploadStage }) => {
+  const steps = [
+    { icon: UploadCloud, key: "uploaded", label: "Uploaded" },
+    { icon: ScanSearch, key: "scanning", label: "Scanning" },
+    { icon: Loader2, key: "processing", label: "Processing" },
+  ] as const;
+  let activeIndex = 0;
+  if (stage === "queued" || stage === "scanning") {
+    activeIndex = 1;
+  } else if (stage === "processing") {
+    activeIndex = 2;
+  }
+
+  return (
+    <div className="bg-muted/60 flex h-7 flex-1 items-center gap-1 rounded-full px-2">
+      {steps.map((step, index) => {
+        const isDone = index < activeIndex;
+        const isActive = index === activeIndex;
+        const Icon = step.icon;
+        return (
+          <span
+            className={cn(
+              "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
+              isDone && "text-primary",
+              !isActive && !isDone && "text-muted-foreground/40"
+            )}
+            key={step.key}
+          >
+            {isDone ? (
+              <Check className="size-3" />
+            ) : (
+              <Icon className={cn("size-3", isActive && "animate-spin")} />
+            )}
+            <span className={cn(!isActive && "hidden sm:inline")}>
+              {step.label}
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 };

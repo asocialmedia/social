@@ -93,6 +93,8 @@ export async function processMediaVideo(input: {
       ).placeholder();
 
       // 2. Progressive MP4 (social clips): H.264 High + AAC, faststart.
+      // CRF 20 keeps re-encoded clips visually transparent next to the
+      // original upload; CRF 23 reads as noticeably softer on phones.
       if (
         plan.progressiveMp4 &&
         probe.video.height <= PROGRESSIVE_MAX_HEIGHT &&
@@ -109,7 +111,7 @@ export async function processMediaVideo(input: {
             "-preset",
             "veryfast",
             "-crf",
-            "23",
+            "20",
             "-maxrate",
             `${Math.min(probe.formatBitrateKbps || 5000, 6000)}k`,
             "-bufsize",
@@ -249,19 +251,37 @@ export async function processMediaVideo(input: {
         skipDuplicates: true,
       });
 
+      const existing = await prisma.media.findUnique({
+        select: { techMetadata: true },
+        where: { id: input.mediaId },
+      });
+      const baseTech =
+        existing?.techMetadata &&
+        typeof existing.techMetadata === "object" &&
+        !Array.isArray(existing.techMetadata)
+          ? (existing.techMetadata as Record<string, unknown>)
+          : {};
+
       await prisma.media.update({
         data: {
           blurDataUrl,
+          hasHls: plan.hls,
           height: probe.video.height,
           phash: await computePosterHash(input.sourcePath, probe),
           techMetadata: {
+            ...baseTech,
             audio: probe.audio ?? undefined,
+            bitrateKbps: probe.formatBitrateKbps,
+            colorSpace: probe.video.colorSpace ?? undefined,
+            colorTransfer: probe.video.colorTransfer ?? undefined,
             durationSec: probe.durationSec,
             fps: probe.video.fps,
             frameRateMode: probe.video.frameRateMode,
+            hdr: probe.video.colorTransfer === "smpte2084",
             pixelFormat: probe.video.pixelFormat,
+            videoBitrateKbps: probe.video.bitrateKbps,
             videoCodec: probe.video.codec,
-          },
+          } as object,
           width: probe.video.width,
         },
         where: { id: input.mediaId },

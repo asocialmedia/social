@@ -3,6 +3,7 @@ import { clientLog } from "@asm/config/debug";
 import type { PrivateUserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { uploadMediaFile } from "@/lib/media-upload-client";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UpdateProfilePayload {
@@ -12,7 +13,6 @@ interface UpdateProfilePayload {
 
 interface UpdateAvatarPayload {
   file: File;
-  oldAvatarKey?: string;
   userId: string;
 }
 
@@ -24,7 +24,7 @@ interface UpdateBannerPayload {
 
 interface UpdateAvatarResponse {
   avatar: {
-    key: string;
+    key: string | null;
     url: string;
   };
 }
@@ -97,16 +97,23 @@ export function useUpdateAvatarMutation() {
     UpdateAvatarPayload,
     AvatarMutationContext
   >({
-    mutationFn: async ({ file, userId, oldAvatarKey }: UpdateAvatarPayload) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userId", userId);
-      if (oldAvatarKey) {
-        formData.append("oldAvatarKey", oldAvatarKey);
+    mutationFn: async ({ file }: UpdateAvatarPayload) => {
+      // Bytes go directly to object storage through the presigned PUT and are
+      // quarantined, scanned, and processed by the pipeline before the row
+      // reaches READY - this hook then links the finished Media row.
+      const upload = await uploadMediaFile(file, { purpose: "avatar" });
+      if (upload.status === "REJECTED") {
+        throw new Error(
+          upload.rejectedReason === "MALWARE"
+            ? "That file failed the security scan"
+            : "That file was rejected"
+        );
       }
 
       const response = await fetch("/api/users/avatar", {
-        body: formData,
+        body: JSON.stringify({ mediaId: upload.mediaId }),
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         method: "POST",
       });
 

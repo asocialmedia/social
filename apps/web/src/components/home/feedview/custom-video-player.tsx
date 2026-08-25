@@ -6,6 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
+import type Hls from "hls.js";
 import {
   FastForward,
   Maximize,
@@ -27,6 +28,7 @@ interface CustomVideoPlayerProps {
   autoPlay?: boolean;
   captions?: { src: string; label: string; srclang: string }[];
   className?: string;
+  hlsSrc?: string;
   onError: () => void;
   onLoadedData: () => void;
   onPlaying?: () => void;
@@ -40,6 +42,15 @@ type KeyboardControls = Record<string, () => void>;
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const EMPTY_CAPTIONS: { src: string; label: string; srclang: string }[] = [];
+
+async function getHlsConstructor(): Promise<typeof Hls | null> {
+  try {
+    const mod = await import("hls.js");
+    return mod.default;
+  } catch {
+    return null;
+  }
+}
 
 function formatTime(time: number) {
   const minutes = Math.floor(time / 60);
@@ -75,6 +86,7 @@ const GlassIconButton: React.FC<{
 
 export const CustomVideoPlayer = ({
   autoPlay = false,
+  hlsSrc,
   src,
   onLoadedData,
   onError,
@@ -100,8 +112,12 @@ export const CustomVideoPlayer = ({
   const [isBuffering, setIsBuffering] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
 
+  const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
+
   useEffect(
     () => () => {
+      hlsInstanceRef.current?.destroy();
+      hlsInstanceRef.current = null;
       const video = videoRef.current;
       if (video) {
         try {
@@ -118,6 +134,40 @@ export const CustomVideoPlayer = ({
     },
     []
   );
+
+  // Prefer an adaptive HLS stream when the pipeline generated one.
+  // Safari plays HLS natively; everywhere else a 40 kB hls.js bundle
+  // covers it without touching the progressive MP4 fallback.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !hlsSrc) {
+      return;
+    }
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      if (video.src !== hlsSrc) {
+        video.src = hlsSrc;
+      }
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const HlsCtor = await getHlsConstructor();
+      if (cancelled || !video || !HlsCtor || !HlsCtor.isSupported()) {
+        return;
+      }
+      hlsInstanceRef.current?.destroy();
+      const hls = new HlsCtor({ enableWorker: true });
+      hlsInstanceRef.current = hls;
+      hls.loadSource(hlsSrc);
+      hls.attachMedia(video);
+    })();
+
+    return () => {
+      cancelled = true;
+      hlsInstanceRef.current?.destroy();
+      hlsInstanceRef.current = null;
+    };
+  }, [hlsSrc]);
 
   // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
   // block unmuted autoplay until the user interacts, so start muted and mirror

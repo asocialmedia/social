@@ -1,6 +1,7 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import { MAX_POST_ATTACHMENTS } from "@asm/media";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,11 +9,31 @@ import {
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
+import type { DragEndEvent } from "@dnd-kit/core";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  rectSortingStrategy,
+  SortableContext,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useQuery } from "@tanstack/react-query";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
-import { Clapperboard, Hash, MoreHorizontal, X } from "lucide-react";
+import {
+  Clapperboard,
+  GripVertical,
+  Hash,
+  MoreHorizontal,
+  X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -63,6 +84,17 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
+/** Chip color for the n/10 counter: neutral, amber near the cap, red at it. */
+function capacityChipClass(count: number, full: boolean): string {
+  if (full) {
+    return "bg-destructive/10 text-destructive";
+  }
+  if (count >= MAX_POST_ATTACHMENTS - 3) {
+    return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+  }
+  return "bg-muted";
+}
+
 export default function PostEditor({
   variant = "feed",
 }: {
@@ -88,10 +120,21 @@ export default function PostEditor({
   const {
     startUpload,
     attachments,
+    cancelUpload,
     isUploading,
     removeAttachment,
+    reorderAttachments,
     reset: resetMediaUploads,
   } = useMediaUpload();
+
+  // Shared contract with the server-side cap in submitPost.
+  const capacityFull = attachments.length >= MAX_POST_ATTACHMENTS;
+  // Two or more media items form a "group": mixed-mode options (GIFs, audio,
+  // gust switching) lock because a group post is image/video-only, and the
+  // lock holds after uploading finishes, not just during it. A single video
+  // keeps the switcher live so it can still be published as a gust.
+  const isGroupMedia = attachments.length > 1;
+  const attachmentOptionsDisabled = isUploading || capacityFull;
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -354,7 +397,7 @@ export default function PostEditor({
         <div className="w-full min-w-0">
           {/* Mobile-only mode switcher above the editor so the Post button stays on screen */}
           <div className="mb-3 flex md:hidden">
-            <ModeToggle isGust={isGust} />
+            <ModeToggle disabled={isGroupMedia} isGust={isGust} />
           </div>
           {(selectedTags.length > 0 || selectedMentions.length > 0) && (
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -504,7 +547,7 @@ export default function PostEditor({
                   whileTap={{ scale: 0.98 }}
                 >
                   <FileInput
-                    disabled={isUploading || attachments.length >= 5}
+                    disabled={attachmentOptionsDisabled}
                     onFilesSelected={startUpload}
                     types={["image"]}
                     videoOnly={isGust}
@@ -521,10 +564,10 @@ export default function PostEditor({
                         aria-label="More attachment options"
                         className={cn(
                           "pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                          (isUploading || attachments.length >= 5) &&
+                          attachmentOptionsDisabled &&
                             "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
                         )}
-                        disabled={isUploading || attachments.length >= 5}
+                        disabled={attachmentOptionsDisabled}
                         type="button"
                       >
                         <MoreHorizontal className="size-5" size={20} />
@@ -536,7 +579,7 @@ export default function PostEditor({
                     >
                       <DropdownMenuItem
                         className="pill-3d-hover rounded-md px-2 py-2"
-                        disabled={isUploading || attachments.length >= 5}
+                        disabled={attachmentOptionsDisabled || isGroupMedia}
                         onClick={() => setGifPickerOpen((prev) => !prev)}
                       >
                         <span className="flex items-center gap-3">
@@ -546,7 +589,7 @@ export default function PostEditor({
                       </DropdownMenuItem>
                       <div className="flex items-center px-1 py-1">
                         <FileInput
-                          disabled={isUploading || attachments.length >= 5}
+                          disabled={attachmentOptionsDisabled || isGroupMedia}
                           onFilesSelected={startUpload}
                           types={["audio"]}
                         />
@@ -563,7 +606,7 @@ export default function PostEditor({
                   whileTap={{ scale: 0.98 }}
                 >
                   <FileInput
-                    disabled={isUploading || attachments.length >= 5}
+                    disabled={attachmentOptionsDisabled}
                     onFilesSelected={startUpload}
                     videoOnly={isGust}
                   />
@@ -574,10 +617,10 @@ export default function PostEditor({
                     className={cn(
                       "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
                       gifPickerOpen && "text-primary",
-                      (isUploading || attachments.length >= 5) &&
+                      (attachmentOptionsDisabled || isGroupMedia) &&
                         "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
                     )}
-                    disabled={isUploading || attachments.length >= 5}
+                    disabled={attachmentOptionsDisabled || isGroupMedia}
                     onClick={() => setGifPickerOpen((prev) => !prev)}
                     type="button"
                     whileHover={{ scale: 1.02 }}
@@ -601,7 +644,7 @@ export default function PostEditor({
 
             <div className="flex items-center gap-2">
               <div className="hidden md:flex">
-                <ModeToggle isGust={isGust} />
+                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
               </div>
               <motion.div
                 whileHover={{ scale: 1.02 }}
@@ -627,6 +670,26 @@ export default function PostEditor({
         </div>
       </div>
 
+      {/* Capacity indicator: n/10 with context hints; turns warning near the
+          cap and destructive at it. */}
+      {!!attachments.length && (
+        <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 tabular-nums",
+              capacityChipClass(attachments.length, capacityFull)
+            )}
+          >
+            {attachments.length}/{MAX_POST_ATTACHMENTS}
+          </span>
+          {capacityFull ? (
+            <span className="text-destructive">limit reached</span>
+          ) : (
+            attachments.length > 1 && <span>drag the grip to reorder</span>
+          )}
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
         {!!attachments.length && (
           <motion.div
@@ -638,8 +701,10 @@ export default function PostEditor({
           >
             <AttachmentPreviews
               attachments={attachments}
+              cancelUpload={cancelUpload}
               isGust={isGust}
               removeAttachment={removeAttachment}
+              reorderAttachments={reorderAttachments}
             />
           </motion.div>
         )}
@@ -650,20 +715,114 @@ export default function PostEditor({
 
 interface AttachmentPreviewsProps {
   attachments: Attachment[];
+  cancelUpload: (fileName: string) => void;
   isGust: boolean;
   removeAttachment: (fileName: string) => void;
+  reorderAttachments: (ordered: Attachment[]) => void;
 }
+
+const attachmentKeyOf = (attachment: Attachment, index: number): string =>
+  attachment.file?.name ??
+  attachment.mediaId ??
+  attachment.name ??
+  `attachment-${index}`;
+
+/** One draggable grid tile: dnd-kit transform wrapper around the preview. */
+const SortableAttachment = ({
+  attachment,
+  index,
+  isGust,
+  onCancelClick,
+  onRemoveClick,
+}: {
+  attachment: Attachment;
+  index: number;
+  isGust: boolean;
+  onCancelClick: () => void;
+  onRemoveClick: () => void;
+}) => {
+  const id = attachmentKeyOf(attachment, index);
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    opacity: isDragging ? 0.6 : undefined,
+    transform: CSS.Translate.toString(transform),
+    transition,
+    zIndex: isDragging ? 30 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div className="group/reorder relative">
+        {/* Grip handle carries the drag listeners so clicks on the preview
+            body (play button, remove X) never start a drag. */}
+        <button
+          {...attributes}
+          {...listeners}
+          aria-label="Drag to reorder"
+          className="bg-background/90 text-muted-foreground hover:text-foreground absolute top-2 left-2 z-20 cursor-grab rounded-full p-1.5 opacity-0 shadow-md backdrop-blur-sm transition-opacity duration-200 group-hover/reorder:opacity-100 active:cursor-grabbing"
+          type="button"
+        >
+          <GripVertical className="size-4" />
+        </button>
+        <AttachmentPreview
+          attachment={attachment}
+          isGust={isGust}
+          onCancelClick={onCancelClick}
+          onRemoveClick={onRemoveClick}
+        />
+      </div>
+    </div>
+  );
+};
 
 const AttachmentPreviews = ({
   attachments,
+  cancelUpload,
   isGust,
   removeAttachment,
+  reorderAttachments,
 }: AttachmentPreviewsProps) => {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      // Small movement threshold so taps on previews don't become drags.
+      activationConstraint: { distance: 6 },
+    })
+  );
+
   const handleRemoveClick = useCallback(
     (attachment: Attachment) => () => {
       removeAttachment(attachment.file?.name ?? attachment.name ?? "");
     },
     [removeAttachment]
+  );
+
+  const ids = attachments.map((a, i) => attachmentKeyOf(a, i));
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) {
+        return;
+      }
+      const fromIndex = ids.indexOf(String(active.id));
+      const toIndex = ids.indexOf(String(over.id));
+      if (fromIndex === -1 || toIndex === -1) {
+        return;
+      }
+      const next = [...attachments];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      reorderAttachments(next);
+    },
+    [attachments, ids, reorderAttachments]
   );
 
   // Image-only batches group into a tighter grid once there are enough of
@@ -675,46 +834,53 @@ const AttachmentPreviews = ({
     attachments.length >= 3 && imageCount === attachments.length;
 
   return (
-    <motion.div
-      animate="visible"
-      className={cn(
-        "flex flex-col gap-3",
-        showTightGrid
-          ? "grid grid-cols-3 gap-2"
-          : attachments.length > 1 && "sm:grid sm:grid-cols-2"
-      )}
-      initial="hidden"
-      variants={containerVariants}
+    <DndContext
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+      sensors={sensors}
     >
-      {attachments.map((attachment, index) => {
-        const attachmentKey =
-          attachment.file?.name ??
-          attachment.mediaId ??
-          attachment.name ??
-          `attachment-${index}`;
-        return (
-          <motion.div
-            animate={{ opacity: 1, scale: 1 }}
-            custom={index}
-            exit={{ opacity: 0, scale: 0.8 }}
-            initial={{ opacity: 0, scale: 0.8 }}
-            key={attachmentKey}
-            layoutId={attachmentKey}
-            transition={{
-              duration: 0.2,
-              layout: { duration: 0.2 },
-            }}
-            variants={itemVariants}
-          >
-            <AttachmentPreview
-              attachment={attachment}
-              isGust={isGust}
-              onRemoveClick={handleRemoveClick(attachment)}
-            />
-          </motion.div>
-        );
-      })}
-    </motion.div>
+      <SortableContext items={ids} strategy={rectSortingStrategy}>
+        <motion.div
+          animate="visible"
+          className={cn(
+            "flex flex-col gap-3",
+            showTightGrid
+              ? "grid grid-cols-3 gap-2"
+              : attachments.length > 1 && "sm:grid sm:grid-cols-2"
+          )}
+          initial="hidden"
+          variants={containerVariants}
+        >
+          {attachments.map((attachment, index) => {
+            const attachmentKey = attachmentKeyOf(attachment, index);
+            return (
+              <motion.div
+                animate={{ opacity: 1, scale: 1 }}
+                custom={index}
+                exit={{ opacity: 0, scale: 0.8 }}
+                initial={{ opacity: 0, scale: 0.8 }}
+                key={attachmentKey}
+                transition={{
+                  duration: 0.2,
+                  layout: { duration: 0.2 },
+                }}
+                variants={itemVariants}
+              >
+                <SortableAttachment
+                  attachment={attachment}
+                  index={index}
+                  isGust={isGust}
+                  onCancelClick={() =>
+                    cancelUpload(attachment.file?.name ?? attachment.name ?? "")
+                  }
+                  onRemoveClick={handleRemoveClick(attachment)}
+                />
+              </motion.div>
+            );
+          })}
+        </motion.div>
+      </SortableContext>
+    </DndContext>
   );
 };
 
@@ -768,7 +934,10 @@ const RemoveChip = ({
   );
 };
 
-const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
+const ModeToggle: React.FC<{ disabled?: boolean; isGust: boolean }> = ({
+  disabled = false,
+  isGust,
+}) => {
   const setMode = useComposerStore((state) => state.setMode);
 
   const activeClasses =
@@ -776,7 +945,13 @@ const ModeToggle: React.FC<{ isGust: boolean }> = ({ isGust }) => {
   const idleClasses = "text-muted-foreground hover:text-foreground";
 
   return (
-    <div className="flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-[#232323]">
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] transition-opacity duration-200 dark:border-white/10 dark:bg-[#232323]",
+        disabled && "pointer-events-none opacity-50"
+      )}
+      title={disabled ? "Remove extra media to switch post type" : undefined}
+    >
       <button
         aria-label="Create a fleet post"
         aria-pressed={!isGust}

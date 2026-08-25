@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_AVATARS,
   getDefaultAvatar,
+  getMediaImageUrl,
   getMediaProxyUrl,
   getMediaVariantUrl,
   getMediaVideoUrl,
@@ -139,5 +140,24 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     expect(getMediaVariantUrl("mediaX", "lg-webp.webp")).toBe(
       "/api/media/mediaX/v/lg-webp.webp"
     );
+  });
+
+  test("getMediaImageUrl requests any derivative size with GIF passthrough", () => {
+    expect(
+      getMediaImageUrl({ id: "m1", mimeType: "image/jpeg" }, "lg-webp.webp")
+    ).toBe("/api/media/m1/v/lg-webp.webp");
+    expect(
+      getMediaImageUrl(
+        { id: "m2", mimeType: "image/png" },
+        "orig-img-webp.webp"
+      )
+    ).toBe("/api/media/m2/v/orig-img-webp.webp");
+    // Animated GIFs keep their original bytes at every requested size.
+    expect(
+      getMediaImageUrl(
+        { id: "m3", mimeType: "image/gif" },
+        "orig-img-webp.webp"
+      )
+    ).toBe("/api/media/m3");
   });
 });

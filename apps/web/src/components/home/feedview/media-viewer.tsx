@@ -38,6 +38,7 @@ import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import {
+  getMediaImageUrl,
   getMediaProxyUrl,
   getMediaVariantUrl,
   getMediaVideoUrl,
@@ -52,14 +53,13 @@ import { SVGViewer } from "./svg-viewer";
 const getMediaUrl = (mediaId: string, download = false) =>
   `/api/media/${mediaId}${download ? "?download=true" : ""}`;
 
-// Fullscreen display URL for an image: prefers the 1200px WebP derivative
-// and lets the variant route fall back to the published original. Animated
-// GIFs must keep their original bytes to stay animated.
+// Fullscreen display URL for an image: prefers orig-img, the pipeline's
+// source-resolution WebP re-encode (generated for non-animated sources up to
+// 1600px), so fullscreen never shows a downscaled ladder rung. Larger
+// sources fall through to the 1200px rung, then to the published original;
+// every hop is handled server-side by the variant route.
 function getViewerImageUrl(media: Media): string {
-  if (media.mimeType === "image/gif") {
-    return getMediaProxyUrl(media);
-  }
-  return getMediaVariantUrl(media.id, "lg-webp.webp");
+  return getMediaImageUrl(media, "orig-img-webp.webp");
 }
 
 // If async media (image/video/svg) hasn't fired its load event within this
@@ -422,7 +422,6 @@ const MediaViewer = ({
   const renderVideoMedia = (item: Media) => (
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
       <CustomVideoPlayer
-        key={`${item.id}-${loadAttempt}`}
         autoPlay
         className={cn(
           "h-full max-h-full w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
@@ -432,6 +431,12 @@ const MediaViewer = ({
           // would leave the media viewer stuck on its skeleton forever.
           isLoading && "opacity-0"
         )}
+        hlsSrc={
+          item.hasHls
+            ? getMediaVariantUrl(item.id, "hls/master.m3u8")
+            : undefined
+        }
+        key={`${item.id}-${loadAttempt}`}
         onError={handleVideoError}
         onLoadedData={handleMediaLoaded}
         onPlaying={handleMediaLoaded}

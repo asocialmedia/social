@@ -70,6 +70,22 @@ function countFrames(buffer: Buffer): number {
   return Math.max(frames, 1);
 }
 
+// True when the uploaded bytes are themselves a lossless encoding, so an
+// original-resolution derivative can stay bit-exact instead of inheriting a
+// generational lossy re-encode. PNG and GIF are lossless by definition; WebP
+// is only lossless when its image payload is the VP8L (lossless) bitstream -
+// VP8 marks lossy WebP, which must not be "upgraded" to a bloated lossless
+// re-encode.
+function isLosslessSourceFormat(buffer: Buffer, format: string): boolean {
+  if (format === "png" || format === "gif") {
+    return true;
+  }
+  if (format === "webp") {
+    return buffer.includes(Buffer.from("VP8L"));
+  }
+  return false;
+}
+
 export async function processMediaImage(input: {
   mediaId: string;
   sourcePath: string;
@@ -108,6 +124,8 @@ export async function processMediaImage(input: {
         hasAlpha: alpha,
         height: meta.height,
         isAnimated: animated,
+        isLosslessSource:
+          !animated && isLosslessSourceFormat(bytes, meta.format),
         width: meta.width,
       });
 
@@ -161,6 +179,17 @@ export async function processMediaImage(input: {
         skipDuplicates: true,
       });
 
+      const existing = await prisma.media.findUnique({
+        select: { techMetadata: true },
+        where: { id: input.mediaId },
+      });
+      const baseTech =
+        existing?.techMetadata &&
+        typeof existing.techMetadata === "object" &&
+        !Array.isArray(existing.techMetadata)
+          ? (existing.techMetadata as Record<string, unknown>)
+          : {};
+
       await prisma.media.update({
         data: {
           blurDataUrl,
@@ -170,13 +199,17 @@ export async function processMediaImage(input: {
             input.limits.scanTimeoutMs
           ),
           techMetadata: {
+            ...baseTech,
             animated,
+            bitDepth: meta.format === "png" ? 8 : undefined,
             colorEntropy: Number(entropy.toFixed(3)),
+            colorSpace: meta.format === "png" ? "sRGB" : undefined,
             format: meta.format,
+            frameCount: animated ? countFrames(bytes) : 1,
             hasAlpha: alpha,
             height: meta.height,
             width: meta.width,
-          },
+          } as object,
         },
         where: { id: input.mediaId },
       });
@@ -213,7 +246,11 @@ async function encodeDerivative(
 
   if (item.variant === "webp") {
     return {
-      bytes: Buffer.from(await scaled.webp({ quality: item.quality }).buffer()),
+      bytes: Buffer.from(
+        await scaled
+          .webp({ lossless: item.lossless === true, quality: item.quality })
+          .buffer()
+      ),
       extension: "webp",
       mimeType: "image/webp",
     };

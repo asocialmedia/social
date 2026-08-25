@@ -121,3 +121,8 @@ export function maxBytesForType(limits: MediaLimits, type: string): number {
     }
   }
 }
+
+// Hard ceiling on attachments per post, enforced client-side (composer
+// truncates over-capacity bunches) and server-side (submitPost rejects).
+// Exported from the pure contracts package so both sides cannot drift.
+export const MAX_POST_ATTACHMENTS = 10;

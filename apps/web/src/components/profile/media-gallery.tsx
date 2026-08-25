@@ -19,7 +19,11 @@ import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
-import { getMediaProxyUrl, getMediaVideoUrl } from "@/lib/utils/image-url";
+import {
+  getMediaImageSrcSet,
+  getMediaProxyUrl,
+  getMediaVideoUrl,
+} from "@/lib/utils/image-url";
 
 // Full skeleton grid with the login prompt centered on top. Shared between the
 // desktop locked sidebar and the mobile media tab so guests see the same look.
@@ -330,13 +334,15 @@ const ImageTile = ({
       {isLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse" />
       ) : null}
-      <Image
+      {/* eslint-disable-next-line @next/next/no-img-element -- srcSet for responsive tiles; Next Image does not expose it with unoptimized proxy URLs */}
+      <img
         alt="User media"
         className={cn(
-          "object-cover transition-all duration-300 group-hover:scale-105",
+          "absolute inset-0 h-full w-full object-cover transition-all duration-300 group-hover:scale-105",
           isLoading ? "opacity-0" : "opacity-100"
         )}
-        fill
+        decoding="async"
+        loading="lazy"
         onError={() => {
           setIsFailed(true);
           setIsLoading(false);
@@ -344,7 +350,9 @@ const ImageTile = ({
         onLoad={() => setIsLoading(false)}
         sizes="176px"
         src={getMediaProxyUrl(item)}
-        unoptimized
+        srcSet={getMediaImageSrcSet(
+          item as unknown as { id: string; mimeType?: string | null }
+        )}
       />
       <div className="absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10" />
     </div>
