@@ -21,6 +21,7 @@ import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
+import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
@@ -467,6 +468,15 @@ export const GustCard: React.FC<GustCardProps> = ({
 
         {/* Bottom-left: author info + follow (like the post card) + caption */}
         <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pr-24 pb-8">
+          {/* First row of the info stack: sits bottom-left above the author
+              block, where every other surface shows the provenance badge. */}
+          <div>
+            <AiGeneratedBadge
+              media={{
+                aiGenerated: post.attachments.some((a) => a.aiGenerated),
+              }}
+            />
+          </div>
           <div className="flex items-center gap-3">
             <UserTooltip user={post.user}>
               <Link href={`/users/${post.user.username}`}>
