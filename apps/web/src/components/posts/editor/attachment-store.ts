@@ -1,0 +1,365 @@
+import { clientLog } from "@asm/config/debug";
+import { MAX_POST_ATTACHMENTS } from "@asm/media";
+import { toast } from "@asm/ui/lib/gooey-toast";
+import { Upload } from "lucide-react";
+import { createElement } from "react";
+import { create } from "zustand";
+
+import { uploadMediaFile, watchMediaStatus } from "@/lib/media-upload-client";
+import type {
+  StatusWatchOutcome,
+  UploadStage,
+} from "@/lib/media-upload-client";
+
+// Single source of truth for composer attachments. Every PostEditor instance
+// (inline feed editor, floating modal, mobile bar) mounts the SAME zustand
+// store, so an upload started in one surface appears - with live pipeline
+// stages - in all of them simultaneously.
+
+// A completed upload is persisted to sessionStorage so a refresh or a quick
+// navigation doesn't wipe the draft. Only the server media row + display
+// metadata are stored - never the File object (it is not serializable);
+// restored drafts render from mediaUrl.
+const STORAGE_KEY = "asm-composer-attachments";
+const STORAGE_VERSION = 1;
+
+export interface Attachment {
+  file?: File;
+  isUploading: boolean;
+  mediaId?: string;
+  mediaUrl?: string;
+  name?: string;
+  progress: number;
+  // Real pipeline phase from the status poll - drives the stage UI. Absent
+  // on fully-settled drafts.
+  stage?: UploadStage;
+  type?: string;
+  // True when bytes finished but READY hasn't been observed yet in ANY
+  // editor - a watcher keeps the stages flowing across remounts.
+  resuming?: boolean;
+}
+
+interface StoredAttachment {
+  mediaId: string;
+  name: string;
+  resuming?: boolean;
+  type: string;
+}
+
+function loadStoredAttachments(): Attachment[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as {
+      items?: StoredAttachment[];
+      version?: number;
+    };
+    if (parsed.version !== STORAGE_VERSION) {
+      return [];
+    }
+    return (parsed.items ?? []).map((item) => ({
+      ...(item.resuming
+        ? { isUploading: true, resuming: true, stage: "queued" as UploadStage }
+        : { isUploading: false }),
+      mediaId: item.mediaId,
+      // Restored drafts render straight from the serving URL.
+      mediaUrl: `/api/media/${item.mediaId}`,
+      name: item.name,
+      progress: 100,
+      type: item.type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function persistAttachments(attachments: Attachment[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const items: StoredAttachment[] = attachments
+    .filter((attachment) => attachment.mediaId)
+    .map((attachment) => ({
+      mediaId: attachment.mediaId as string,
+      name: attachment.name ?? attachment.file?.name ?? "attachment",
+      resuming: attachment.isUploading || undefined,
+      type: attachment.type ?? attachment.file?.type ?? "",
+    }));
+  try {
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ items, version: STORAGE_VERSION })
+    );
+  } catch {
+    // Storage may be unavailable; the draft is simply not persisted.
+  }
+}
+
+function clearStoredAttachments(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore
+  }
+}
+
+// Non-serializable per-file abort controllers live outside the store.
+const controllers = new Map<string, AbortController>();
+let hydrated = false;
+
+// Fire-and-forget server discard for an unclaimed draft upload. The
+// abandoned-upload sweep remains the eventual backstop; this makes removal
+// instant instead of leaving orphaned bytes until the grace period lapses.
+function discardServerDraft(mediaId: string | undefined): void {
+  if (!mediaId) {
+    return;
+  }
+  void (async () => {
+    try {
+      await fetch(`/api/media/${mediaId}/draft-discard`, {
+        credentials: "same-origin",
+        method: "DELETE",
+      });
+    } catch {
+      // Network hiccups leave the sweep as backstop.
+    }
+  })();
+}
+
+interface ComposerAttachmentState {
+  attachments: Attachment[];
+  cancelUpload: (fileName: string) => void;
+  /** One-shot: restore persisted drafts and resume their pipeline watchers. */
+  hydrate: () => void;
+  isUploading: boolean;
+  removeAttachment: (fileName: string) => void;
+  reorderAttachments: (ordered: Attachment[]) => void;
+  reset: () => void;
+  startUpload: (incomingFiles: File[]) => Promise<void>;
+}
+
+export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
+  set,
+  get
+) => {
+  /** Single mutation funnel: swap the list, then mirror it to storage. */
+  const commit = (next: Attachment[]): void => {
+    persistAttachments(next);
+    set({ attachments: next });
+  };
+
+  const dropAttachment = (fileName: string): void => {
+    commit(
+      get().attachments.filter((a) => (a.file?.name ?? a.name) !== fileName)
+    );
+  };
+
+  function applyWatchOutcome(
+    mediaId: string,
+    outcome: StatusWatchOutcome
+  ): void {
+    if (outcome.status === "DETACHED") {
+      // Keep the resuming marker; the next hydrate() re-attaches.
+      return;
+    }
+    if (outcome.status === "REJECTED") {
+      toast({
+        description: "An attachment was rejected by the pipeline.",
+        title: "Attachment Removed",
+        variant: "destructive",
+      });
+      commit(get().attachments.filter((a) => a.mediaId !== mediaId));
+      return;
+    }
+    commit(
+      get().attachments.map((a) =>
+        a.mediaId === mediaId
+          ? { ...a, isUploading: false, resuming: false, stage: undefined }
+          : a
+      )
+    );
+  }
+
+  return {
+    attachments: [],
+    cancelUpload: (fileName) => {
+      // Same mechanics as removal: abort the transfer, discard any
+      // already-initiated server draft, drop local state.
+      get().removeAttachment(fileName);
+    },
+    hydrate: () => {
+      if (hydrated) {
+        return;
+      }
+      hydrated = true;
+      const stored = loadStoredAttachments();
+      if (stored.length === 0) {
+        return;
+      }
+      // Deferred so the restored draft pops in right after the first paint.
+      queueMicrotask(() => set({ attachments: stored }));
+      for (const item of stored.filter((s) => s.resuming && s.mediaId)) {
+        void (async () => {
+          try {
+            const outcome = await watchMediaStatus(item.mediaId as string, {
+              onStage: (stage) => {
+                set({
+                  attachments: get().attachments.map((a) =>
+                    a.mediaId === item.mediaId ? { ...a, stage } : a
+                  ),
+                });
+              },
+            });
+            applyWatchOutcome(item.mediaId as string, outcome);
+          } catch {
+            // Auth loss during watch: leave the resuming tile; the next
+            // hydrate retries once the user signs back in.
+          }
+        })();
+      }
+    },
+    isUploading: false,
+    removeAttachment: (fileName) => {
+      // Abort mid-flight first - the aborted-catch cleans quietly.
+      controllers.get(fileName)?.abort();
+      const removed = get().attachments.find(
+        (a) => (a.file?.name ?? a.name) === fileName
+      );
+      if (removed) {
+        discardServerDraft(removed.mediaId);
+      }
+      dropAttachment(fileName);
+    },
+    reorderAttachments: (ordered) => {
+      commit(ordered);
+    },
+    reset: () => {
+      // Successful submit: attachments are now owned by the post, so
+      // nothing is discarded server-side - only draft state goes away.
+      controllers.clear();
+      clearStoredAttachments();
+      set({ attachments: [], isUploading: false });
+    },
+    startUpload: async (incomingFiles) => {
+      const { attachments, isUploading } = get();
+      if (isUploading) {
+        toast({
+          description: "One upload at a time, hang tight!",
+          icon: createElement(Upload),
+          title: "Upload in Progress",
+        });
+        return;
+      }
+
+      // Bunch guard: oversized drops keep only what fits under the cap.
+      let files = incomingFiles;
+      const remainingCapacity = MAX_POST_ATTACHMENTS - attachments.length;
+      if (files.length > remainingCapacity) {
+        const kept = files.slice(0, Math.max(remainingCapacity, 0));
+        const discarded = files.length - kept.length;
+        toast({
+          description:
+            kept.length === 0
+              ? `Only ${MAX_POST_ATTACHMENTS} items at a time - remove something first.`
+              : `Only ${MAX_POST_ATTACHMENTS} items at a time - kept the first ${kept.length}, skipped ${discarded}.`,
+          title: "Attachment Limit",
+          variant: "destructive",
+        });
+        if (kept.length === 0) {
+          return;
+        }
+        files = kept;
+      }
+
+      set({ isUploading: true });
+      commit([
+        ...attachments,
+        ...files.map((file) => ({
+          file,
+          isUploading: true,
+          progress: 0,
+          stage: "uploading" as UploadStage,
+        })),
+      ]);
+
+      await Promise.all(
+        files.map(async (file) => {
+          const controller = new AbortController();
+          controllers.set(file.name, controller);
+          try {
+            const result = await uploadMediaFile(file, {
+              onProgress: (percent) => {
+                set({
+                  attachments: get().attachments.map((a) =>
+                    a.file === file ? { ...a, progress: percent } : a
+                  ),
+                });
+              },
+              onStage: (stage) => {
+                set({
+                  attachments: get().attachments.map((a) =>
+                    a.file === file ? { ...a, stage } : a
+                  ),
+                });
+              },
+              purpose: "post",
+              signal: controller.signal,
+            });
+            set({
+              attachments: get().attachments.map((a) =>
+                a.file === file
+                  ? {
+                      ...a,
+                      isUploading: false,
+                      mediaId: result.mediaId,
+                      mediaUrl: `/api/media/${result.mediaId}`,
+                      stage: undefined,
+                    }
+                  : a
+              ),
+            });
+            persistAttachments(get().attachments);
+          } catch (error: unknown) {
+            // React Compiler cannot lower try/finally; cleanup happens on
+            // each exit path explicitly.
+            controllers.delete(file.name);
+            if (controller.signal.aborted) {
+              // Deliberate cancel: quiet local cleanup - the server-side
+              // discard was issued by removeAttachment before the abort.
+              dropAttachment(file.name);
+              return;
+            }
+            clientLog.error("Upload failed:", error);
+            toast({
+              description: "Couldn't upload that file, try again?",
+              title: "Upload Failed",
+              variant: "destructive",
+            });
+            dropAttachment(file.name);
+          }
+          controllers.delete(file.name);
+        })
+      );
+      set({ isUploading: false });
+    },
+  };
+});
+
+/** Test seam: allows isolation between store-touching tests. */
+export function __resetComposerAttachmentStoreForTests(): void {
+  hydrated = false;
+  controllers.clear();
+  useComposerAttachmentStore.setState({
+    attachments: [],
+    isUploading: false,
+  });
+  clearStoredAttachments();
+}

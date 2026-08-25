@@ -67,13 +67,26 @@ export async function scanStream(
   }
 
   const reader = source.getReader();
+  // Overall deadline covers the WHOLE exchange - source reads and INSTREAM
+  // writes included. Previously only the verdict wait was bounded, so a
+  // daemon stalling mid-transfer pinned the media row in SCANNING forever.
+  const deadline = Date.now() + timeoutMs;
+  const assertTimeLeft = (): void => {
+    if (Date.now() > deadline) {
+      throw new ClamAvUnavailableError(
+        `clamd INSTREAM exchange exceeded ${timeoutMs}ms`
+      );
+    }
+  };
   try {
+    assertTimeLeft();
     await socket.write(new TextEncoder().encode("zINSTREAM\0"));
 
     // The INSTREAM framing is order-sensitive; chunks must be written
     // sequentially or the daemon reassembles a corrupt byte stream.
     // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
     for (;;) {
+      assertTimeLeft();
       // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
       // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
       const { done, value } = await reader.read();
@@ -90,10 +103,10 @@ export async function scanStream(
       // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
       await socket.write(framed);
     }
+    assertTimeLeft();
     // Zero-length chunk terminates the stream; the verdict follows.
     await socket.write(new Uint8Array(4));
 
-    const deadline = Date.now() + timeoutMs;
     // oxlint-disable-next-line no-await-in-loop -- bounded polling loop
     for (;;) {
       if (failure) {

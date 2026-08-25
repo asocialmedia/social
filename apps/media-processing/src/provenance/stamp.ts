@@ -17,8 +17,13 @@ import { mediaLogger } from "../log";
 import { loadProvenanceSigner } from "./signer";
 
 export interface StampContext {
-  /** Why the pipeline classified this asset as synthetic. */
+  // Why the pipeline classified this asset as synthetic.
   detectionReason: string;
+
+  // Content-sniffed MIME of the upload. Required: scan-stage temp files have
+  // no extension, so the SDK cannot infer the type and refuses to sign with
+  // "Input asset must have a mime type".
+  mime: string;
   mediaId: string;
 }
 
@@ -48,7 +53,7 @@ export async function stampAiGenerated(
   // become ingredients of ours instead of being discarded.
   try {
     const source = await Reader.fromAsset(
-      { path: inputPath },
+      { mimeType: context.mime, path: inputPath },
       { verify: { verify_after_reading: false, verify_trust: false } }
     );
     if (source?.getActive()) {
@@ -92,6 +97,10 @@ export async function stampAiGenerated(
     publisher: siteHost,
   });
 
-  await builder.sign(signer, { path: inputPath }, { path: outputPath });
+  await builder.sign(
+    signer,
+    { mimeType: context.mime, path: inputPath },
+    { mimeType: context.mime, path: outputPath }
+  );
   return true;
 }

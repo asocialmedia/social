@@ -376,6 +376,7 @@ export function processMediaScan(
             stamped = await stampAiGenerated(publishPath, stampedPath, {
               detectionReason: provenance.verdict.evidence[0]?.detail ?? "ai",
               mediaId,
+              mime: detected.mime,
             });
             if (stamped) {
               publishPath = stampedPath;

@@ -19,6 +19,20 @@ export interface MediaCleanupJobData {
 }
 export interface PostDeletedJobData {
   postId: string;
+  /**
+   * Attachment ids captured BEFORE the post row is deleted. The Prisma client
+   * removes attachment rows during post deletion (emulated referential
+   * action), so a worker that queries by postId afterwards finds nothing.
+   */
+  mediaIds?: string[];
+  /**
+   * Every storage object key referenced by the deleted post's attachments -
+   * originals, quarantine leftovers, thumbnails, and all derivative variants
+   * - also captured before deletion, since keys live on the (vanishing)
+   * rows. The worker deletes these directly; row lookups remain only as a
+   * legacy fallback for events queued before this field existed.
+   */
+  objectKeys?: string[];
 }
 
 export type ContentEvent =
@@ -165,8 +179,14 @@ export const unreadMessageCache = {
   },
 };
 
-export async function enqueuePostDeleted(postId: string): Promise<void> {
-  await getQueue(CONTENT_EVENTS_QUEUE).add("post-deleted", { postId });
+export async function enqueuePostDeleted(
+  postId: string,
+  attachments: { mediaIds?: string[]; objectKeys?: string[] } = {}
+): Promise<void> {
+  await getQueue(CONTENT_EVENTS_QUEUE).add("post-deleted", {
+    ...attachments,
+    postId,
+  });
 }
 
 export async function enqueueNotificationCreated(

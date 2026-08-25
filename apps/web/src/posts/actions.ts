@@ -204,6 +204,34 @@ export async function deletePost(id: string) {
     throw new Error("Unauthorized");
   }
 
+  // Capture every attachment's storage keys BEFORE deletion: the Prisma
+  // client removes attachment rows during post.delete (emulated referential
+  // action), so neither ids nor object keys can be discovered afterwards and
+  // the cleanup worker would leak every S3 object.
+  const attachedMedia = await prisma.media.findMany({
+    select: {
+      derivatives: { select: { key: true } },
+      id: true,
+      key: true,
+      originalKey: true,
+      publishedKey: true,
+      thumbnailKey: true,
+    },
+    where: { postId: id },
+  });
+  const attachedMediaIds = attachedMedia.map((m) => m.id);
+  const attachedObjectKeys = [
+    ...new Set(
+      attachedMedia.flatMap((m) => [
+        m.key,
+        m.originalKey,
+        m.publishedKey,
+        m.thumbnailKey,
+        ...m.derivatives.map((d) => d.key),
+      ])
+    ),
+  ].filter((key): key is string => Boolean(key && key.length > 0));
+
   const deletedPost = await prisma.post.delete({
     include: getPostDataInclude(session.user.id),
     where: { id },
@@ -218,10 +246,13 @@ export async function deletePost(id: string) {
     console.error("Error cleaning up Redis cache for deleted post:", error);
   }
 
-  // The worker deletes the post's media objects + rows (fixes the orphaned
-  // media leak caused by the SetNull FK).
+  // The worker deletes the post's media storage objects directly from the
+  // pre-captured keys (rows are already gone by the time this job runs).
   try {
-    await enqueuePostDeleted(id);
+    await enqueuePostDeleted(id, {
+      mediaIds: attachedMediaIds,
+      objectKeys: attachedObjectKeys,
+    });
   } catch (error) {
     console.error("Failed to enqueue post-deleted event:", error);
   }

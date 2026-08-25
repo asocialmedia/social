@@ -95,129 +95,155 @@ export async function processMediaImage(input: {
   await withSpan(
     "job.media-process-image",
     async () => {
-      const s3 = getS3();
-      const file = Bun.file(input.sourcePath);
-      const bytes = Buffer.from(await file.arrayBuffer());
+      // Hosts without an OS codec for the source format (AVIF/HEIC/TIFF)
+      // can never produce derivatives; retrying a permanently impossible
+      // job just burns CPU. That case is caught below and published
+      // derivative-less - the serving route falls back to the original.
+      try {
+        const s3 = getS3();
+        const file = Bun.file(input.sourcePath);
+        const bytes = Buffer.from(await file.arrayBuffer());
 
-      // Header-only metadata first; maxPixels guards the actual decode.
-      const probeImage = new Bun.Image(bytes, {
-        maxPixels: input.limits.maxPixelCount,
-      });
-      const meta = (await probeImage.metadata()) as DecodedInfo;
-
-      const decodeImage = new Bun.Image(bytes, {
-        autoOrient: true,
-        maxPixels: input.limits.maxPixelCount,
-      });
-
-      const animated = meta.format === "gif" && countFrames(bytes) > 1;
-      const alpha = hasAlphaChannel(bytes, meta.format);
-
-      // Animated sources keep their original bytes in motion; static posters
-      // below still come out of the same decode.
-      const entropy = animated
-        ? 0.9
-        : await uniqueColorFraction(decodeImage, input.limits);
-
-      const plan = planImageDerivatives({
-        colorEntropy: entropy,
-        hasAlpha: alpha,
-        height: meta.height,
-        isAnimated: animated,
-        isLosslessSource:
-          !animated && isLosslessSourceFormat(bytes, meta.format),
-        width: meta.width,
-      });
-
-      // ThumbHash LQIP stored on the row (~500 bytes, no extra object).
-      const blurDataUrl = await new Bun.Image(bytes, {
-        maxPixels: input.limits.maxPixelCount,
-      })
-        .resize(
-          Math.min(meta.width, PLACEHOLDER_MAX_DIMENSION),
-          Math.min(meta.height, PLACEHOLDER_MAX_DIMENSION),
-          { fit: "inside" }
-        )
-        .placeholder();
-
-      const derivativesToInsert: {
-        kind: string;
-        key: string;
-        mimeType: string;
-        pipelineVersion: string;
-        sizeBytes: number;
-        variant: string;
-      }[] = [];
-
-      for (const item of plan) {
-        const encoded = await encodeDerivative(
-          decodeImage,
-          item,
-          input.limits.processingTimeoutMs
-        );
-        if (!encoded) {
-          continue;
-        }
-        const name = derivativeName(item.kind, item.variant, encoded.extension);
-        const key = derivativeKey(MEDIA_PIPELINE_VERSION, input.mediaId, name);
-        await s3.write(key, encoded.bytes);
-        derivativesToInsert.push({
-          key,
-          kind: item.kind,
-          mimeType: encoded.mimeType,
-          pipelineVersion: MEDIA_PIPELINE_VERSION,
-          sizeBytes: encoded.bytes.byteLength,
-          variant: item.variant,
+        // Header-only metadata first; maxPixels guards the actual decode.
+        const probeImage = new Bun.Image(bytes, {
+          maxPixels: input.limits.maxPixelCount,
         });
+        const meta = (await probeImage.metadata()) as DecodedInfo;
+
+        const decodeImage = new Bun.Image(bytes, {
+          autoOrient: true,
+          maxPixels: input.limits.maxPixelCount,
+        });
+
+        const animated = meta.format === "gif" && countFrames(bytes) > 1;
+        const alpha = hasAlphaChannel(bytes, meta.format);
+
+        // Animated sources keep their original bytes in motion; static posters
+        // below still come out of the same decode.
+        const entropy = animated
+          ? 0.9
+          : await uniqueColorFraction(decodeImage, input.limits);
+
+        const plan = planImageDerivatives({
+          colorEntropy: entropy,
+          hasAlpha: alpha,
+          height: meta.height,
+          isAnimated: animated,
+          isLosslessSource:
+            !animated && isLosslessSourceFormat(bytes, meta.format),
+          width: meta.width,
+        });
+
+        // ThumbHash LQIP stored on the row (~500 bytes, no extra object).
+        const blurDataUrl = await new Bun.Image(bytes, {
+          maxPixels: input.limits.maxPixelCount,
+        })
+          .resize(
+            Math.min(meta.width, PLACEHOLDER_MAX_DIMENSION),
+            Math.min(meta.height, PLACEHOLDER_MAX_DIMENSION),
+            { fit: "inside" }
+          )
+          .placeholder();
+
+        const derivativesToInsert: {
+          kind: string;
+          key: string;
+          mimeType: string;
+          pipelineVersion: string;
+          sizeBytes: number;
+          variant: string;
+        }[] = [];
+
+        for (const item of plan) {
+          const encoded = await encodeDerivative(
+            decodeImage,
+            item,
+            input.limits.processingTimeoutMs
+          );
+          if (!encoded) {
+            continue;
+          }
+          const name = derivativeName(
+            item.kind,
+            item.variant,
+            encoded.extension
+          );
+          const key = derivativeKey(
+            MEDIA_PIPELINE_VERSION,
+            input.mediaId,
+            name
+          );
+          await s3.write(key, encoded.bytes);
+          derivativesToInsert.push({
+            key,
+            kind: item.kind,
+            mimeType: encoded.mimeType,
+            pipelineVersion: MEDIA_PIPELINE_VERSION,
+            sizeBytes: encoded.bytes.byteLength,
+            variant: item.variant,
+          });
+        }
+
+        await prisma.mediaDerivative.createMany({
+          data: derivativesToInsert.map((item) => ({
+            ...item,
+            mediaId: input.mediaId,
+          })),
+          skipDuplicates: true,
+        });
+
+        const existing = await prisma.media.findUnique({
+          select: { techMetadata: true },
+          where: { id: input.mediaId },
+        });
+        const baseTech =
+          existing?.techMetadata &&
+          typeof existing.techMetadata === "object" &&
+          !Array.isArray(existing.techMetadata)
+            ? (existing.techMetadata as Record<string, unknown>)
+            : {};
+
+        await prisma.media.update({
+          data: {
+            blurDataUrl,
+            phash: await computePerceptualHash(
+              input.sourcePath,
+              0,
+              input.limits.scanTimeoutMs
+            ),
+            techMetadata: {
+              ...baseTech,
+              animated,
+              bitDepth: meta.format === "png" ? 8 : undefined,
+              colorEntropy: Number(entropy.toFixed(3)),
+              colorSpace: meta.format === "png" ? "sRGB" : undefined,
+              format: meta.format,
+              frameCount: animated ? countFrames(bytes) : 1,
+              hasAlpha: alpha,
+              height: meta.height,
+              width: meta.width,
+            } as object,
+          },
+          where: { id: input.mediaId },
+        });
+
+        mediaLogger.info(
+          { derivatives: derivativesToInsert.length, mediaId: input.mediaId },
+          "image derivatives generated"
+        );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("format not supported")
+        ) {
+          mediaLogger.warn(
+            { mediaId: input.mediaId },
+            "image codec unavailable on this host; publishing without derivatives"
+          );
+          return;
+        }
+        throw error;
       }
-
-      await prisma.mediaDerivative.createMany({
-        data: derivativesToInsert.map((item) => ({
-          ...item,
-          mediaId: input.mediaId,
-        })),
-        skipDuplicates: true,
-      });
-
-      const existing = await prisma.media.findUnique({
-        select: { techMetadata: true },
-        where: { id: input.mediaId },
-      });
-      const baseTech =
-        existing?.techMetadata &&
-        typeof existing.techMetadata === "object" &&
-        !Array.isArray(existing.techMetadata)
-          ? (existing.techMetadata as Record<string, unknown>)
-          : {};
-
-      await prisma.media.update({
-        data: {
-          blurDataUrl,
-          phash: await computePerceptualHash(
-            input.sourcePath,
-            0,
-            input.limits.scanTimeoutMs
-          ),
-          techMetadata: {
-            ...baseTech,
-            animated,
-            bitDepth: meta.format === "png" ? 8 : undefined,
-            colorEntropy: Number(entropy.toFixed(3)),
-            colorSpace: meta.format === "png" ? "sRGB" : undefined,
-            format: meta.format,
-            frameCount: animated ? countFrames(bytes) : 1,
-            hasAlpha: alpha,
-            height: meta.height,
-            width: meta.width,
-          } as object,
-        },
-        where: { id: input.mediaId },
-      });
-
-      mediaLogger.info(
-        { derivatives: derivativesToInsert.length, mediaId: input.mediaId },
-        "image derivatives generated"
-      );
     },
     { "media.id": input.mediaId }
   );

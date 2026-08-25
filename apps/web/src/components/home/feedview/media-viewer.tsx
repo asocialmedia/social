@@ -236,23 +236,30 @@ const MediaViewer = ({
   ]);
 
   const handlePrevious = useCallback(() => {
-    setCurrentIndex((prev) => {
-      const next = prev > 0 ? prev - 1 : media.length - 1;
-      onNavigate?.(next);
-      // Only async-media types show a skeleton; no-op otherwise.
-      setIsLoading(hasAsyncLoad(media[next]));
-      return next;
-    });
-  }, [media, onNavigate]);
+    const next = currentIndex > 0 ? currentIndex - 1 : media.length - 1;
+    onNavigate?.(next);
+    setCurrentIndex(next);
+    setIsLoading(hasAsyncLoad(media[next]));
+  }, [currentIndex, media, onNavigate]);
 
   const handleNext = useCallback(() => {
-    setCurrentIndex((prev) => {
-      const next = prev < media.length - 1 ? prev + 1 : 0;
-      onNavigate?.(next);
-      setIsLoading(hasAsyncLoad(media[next]));
-      return next;
-    });
-  }, [media, onNavigate]);
+    const next = currentIndex < media.length - 1 ? currentIndex + 1 : 0;
+    onNavigate?.(next);
+    setCurrentIndex(next);
+    setIsLoading(hasAsyncLoad(media[next]));
+  }, [currentIndex, media, onNavigate]);
+
+  const handleSelectThumb = useCallback(
+    (index: number) => {
+      if (index === currentIndex) {
+        return;
+      }
+      onNavigate?.(index);
+      setCurrentIndex(index);
+      setIsLoading(hasAsyncLoad(media[index]));
+    },
+    [currentIndex, media, onNavigate]
+  );
 
   const handleMediaLoaded = useCallback(() => {
     setIsLoading(false);
@@ -696,11 +703,67 @@ const MediaViewer = ({
           )}
         </div>
 
+        {media.length > 1 &&
+        !post?.moderated &&
+        !(post?.explicitContent && !explicitRevealed) ? (
+          <div className="flex justify-center border-t border-white/5 bg-black px-3 py-2.5">
+            <div
+              className="flex max-w-full [scrollbar-width:none] items-center gap-1 overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+              role="tablist"
+              aria-label="Media thumbnails"
+            >
+              {media.map((item, index) => {
+                const isActive = index === currentIndex;
+                const isVideo = item.type === "VIDEO";
+                return (
+                  <button
+                    key={item.id}
+                    aria-current={isActive}
+                    aria-label={`Go to media ${index + 1} of ${media.length}`}
+                    className={cn(
+                      "relative flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-900 p-0.5 transition-all sm:h-14 sm:w-14",
+                      isActive
+                        ? "border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.9)]"
+                        : "opacity-60 hover:border hover:border-white/30 hover:opacity-100"
+                    )}
+                    onClick={() => handleSelectThumb(index)}
+                    role="tab"
+                    type="button"
+                  >
+                    <span className="flex h-full w-full overflow-hidden rounded-[4px]">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- tiny 320px thumb-webp, no optimization needed */}
+                      <img
+                        alt=""
+                        className="h-full w-full object-cover"
+                        decoding="async"
+                        loading="lazy"
+                        sizes="56px"
+                        src={
+                          isVideo
+                            ? getMediaProxyUrl(item)
+                            : getMediaImageUrl(item, "thumb-webp.webp")
+                        }
+                      />
+                    </span>
+                    {isVideo ? (
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white/90 pl-px">
+                          <span className="block h-0 w-0 border-y-[2.5px] border-l-[4px] border-y-transparent border-l-zinc-900" />
+                        </span>
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         {post ? renderActionBar() : null}
       </div>
 
       {post ? (
-        <aside className="hidden h-full w-95 flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
+        <aside className="hidden h-full w-[420px] flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
           <div className="flex items-center gap-3 px-4 py-3">
             <Link
               aria-label="View profile"

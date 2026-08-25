@@ -52,13 +52,14 @@ export default function HomeFeed({
     staleTime: 30 * 1000, // 30 seconds,
   });
 
-  const posts = useMemo(
-    () =>
-      (data?.pages.flatMap((page) => page.posts) || [])
-        .filter(Boolean)
-        .filter((post) => post.id !== excludePostId),
-    [data?.pages, excludePostId]
-  );
+  const posts = useMemo(() => {
+    const list = (data?.pages.flatMap((page) => page.posts) || [])
+      .filter(Boolean)
+      .filter((post) => post.id !== excludePostId);
+    // Rank shifts between paginated refetches can land the same post on two
+    // pages (tail of one, head of the next); React keys demand uniqueness.
+    return [...new Map(list.map((post) => [post.id, post])).values()];
+  }, [data?.pages, excludePostId]);
 
   // Track the newest id seen so far so a background poll can surface a "new
   // posts" pill without touching the feed's data (or the user's scroll

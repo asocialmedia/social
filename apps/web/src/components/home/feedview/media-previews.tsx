@@ -2,9 +2,15 @@
 // Compiler would otherwise try to memoize across parent renders
 
 import type { Media, PostData } from "@asm/db";
-import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { FileAudioIcon, Pause, Play, VolumeX } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  FileAudioIcon,
+  Pause,
+  Play,
+  VolumeX,
+} from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -136,9 +142,13 @@ const GridImagePreview = ({
 
 const VideoPreview = ({
   autoPlay = false,
+  fill = false,
   media,
 }: {
   autoPlay?: boolean;
+  /** Stretch to the parent box (uniform grid cells) instead of sizing by
+   * natural aspect - the parent supplies width AND height, video covers. */
+  fill?: boolean;
   media: Media;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -358,17 +368,25 @@ const VideoPreview = ({
     );
   }
 
+  let containerStyle: React.CSSProperties | undefined;
+  if (fill) {
+    containerStyle = undefined;
+  } else if (expandedHeight === null) {
+    containerStyle = { aspectRatio: mediaAspectRatio(media, "16 / 9") };
+  } else {
+    containerStyle = { height: expandedHeight };
+  }
+
   return (
     <div
-      className="group relative w-full overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+      className={cn(
+        "group overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+        fill ? "absolute inset-0 h-full w-full" : "relative w-full"
+      )}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       ref={containerRef}
-      style={
-        expandedHeight === null
-          ? { aspectRatio: mediaAspectRatio(media, "16 / 9") }
-          : { height: expandedHeight }
-      }
+      style={containerStyle}
     >
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
@@ -517,10 +535,10 @@ const SingleImagePreview = ({
 
   if (isFailed) {
     return (
-      <div className="bg-muted/20 relative flex max-h-[500px] w-full items-center justify-center overflow-hidden rounded-xl">
+      <div className="bg-muted/20 relative flex max-h-125 w-full items-center justify-center overflow-hidden rounded-xl">
         <Image
           alt="Attachment unavailable"
-          className="h-auto max-h-[500px] w-full object-contain opacity-60"
+          className="h-auto max-h-125 w-full object-contain opacity-60"
           height={600}
           sizes="(max-width: 768px) 100vw, 640px"
           src={noMediaImage}
@@ -690,9 +708,12 @@ export const MediaPreviews = ({
     [post, router]
   );
 
-  const initialCount = isMobile ? 2 : 3;
-  const visibleAttachments =
-    !interactive || showAll ? attachments : attachments.slice(0, initialCount);
+  const initialCount = 3;
+  // Truncation applies everywhere (feed included); the group card below the
+  // grid expands back to the full attachment set.
+  const visibleAttachments = showAll
+    ? attachments
+    : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
   const remainingCount = attachments.length - initialCount;
 
@@ -729,7 +750,15 @@ export const MediaPreviews = ({
         return renderImagePreview(m, isSmall);
       }
       case "VIDEO": {
-        return <VideoPreview autoPlay={autoPlayVideos} media={m} />;
+        return (
+          <VideoPreview
+            autoPlay={autoPlayVideos}
+            // Grouped tiles stretch to the uniform cell; a lone video keeps
+            // its natural aspect (wrapper goes h-auto for it).
+            fill={attachments.length > 1}
+            media={m}
+          />
+        );
       }
       case "AUDIO": {
         return renderFilePreview(m, isSmall, <FileAudioIcon />);
@@ -768,8 +797,12 @@ export const MediaPreviews = ({
     // crop on mobile and a tall crop on desktop.
     // Videos size themselves via their own natural aspect ratio, so don't force
     // a square/tall crop on them. Images (and small tiles) keep a tidy crop.
+    // Lone videos keep their natural aspect; in GROUPS every tile matches
+    // the image cells so rows stay level (object-cover crops the video).
     const wrapperHeightClass =
-      !isSmall && m.type === "VIDEO" ? "h-auto" : "aspect-square sm:h-72";
+      !isSmall && m.type === "VIDEO" && attachments.length === 1
+        ? "h-auto"
+        : "aspect-square sm:h-72";
 
     return (
       <button
@@ -800,24 +833,99 @@ export const MediaPreviews = ({
 
   const renderShowMoreSection = () => {
     if (isMobile) {
-      return (
-        <div className="px-4 pb-4">
-          <div className="bg-primary/5 relative w-full overflow-hidden rounded-lg p-4 shadow-xs transition-all duration-300">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">
-                  {remainingCount} more items
-                </p>
-                <Button onClick={handleShowAll} size="sm" variant="secondary">
-                  Show All
-                </Button>
-              </div>
+      const MOBILE_PREVIEW_LIMIT = 3;
+      const visibleRemaining = remainingAttachments.slice(
+        0,
+        MOBILE_PREVIEW_LIMIT
+      );
+      const overflowCount = remainingCount - MOBILE_PREVIEW_LIMIT;
+      const hasOverflow = overflowCount > 0;
 
-              <div className="grid grid-cols-3 gap-2">
-                {remainingAttachments.map((m, index) =>
-                  renderGridTile(m, index + initialCount, "small")
-                )}
-              </div>
+      return (
+        <div className="mt-3 px-0.5 pb-1">
+          <div className="apple-panel relative w-full overflow-hidden rounded-2xl">
+            <button
+              aria-label="Show all media"
+              className="flex w-full cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left active:translate-y-px"
+              onClick={handleShowAll}
+              type="button"
+            >
+              <span className="text-sm font-semibold">More media</span>
+              <ChevronDown className="text-muted-foreground h-4 w-4" />
+            </button>
+            <div className="grid grid-cols-3 gap-2 border-t border-black/5 p-2 dark:border-white/10">
+              {visibleRemaining.map((m, index) => {
+                const isLast = index === visibleRemaining.length - 1;
+                const showOverflow = hasOverflow && isLast;
+
+                if (showOverflow) {
+                  let thumb: React.ReactNode;
+                  if (m.type === "IMAGE" && m.mimeType === "image/svg+xml") {
+                    thumb = (
+                      // eslint-disable-next-line @next/next/no-img-element -- tiny static thumbnail for overflow preview
+                      <img
+                        alt=""
+                        className="h-full w-full object-cover"
+                        decoding="async"
+                        loading="lazy"
+                        src={getMediaUrl(m.id)}
+                      />
+                    );
+                  } else if (m.type === "IMAGE") {
+                    thumb = (
+                      // eslint-disable-next-line @next/next/no-img-element -- tiny static thumbnail for overflow preview
+                      <img
+                        alt=""
+                        className="h-full w-full object-cover"
+                        decoding="async"
+                        loading="lazy"
+                        src={getMediaImageUrl(m, "thumb-webp.webp")}
+                      />
+                    );
+                  } else if (m.type === "VIDEO") {
+                    thumb = (
+                      // eslint-disable-next-line @next/next/no-img-element -- video poster for overflow preview
+                      <img
+                        alt=""
+                        className="h-full w-full object-cover"
+                        decoding="async"
+                        loading="lazy"
+                        src={getMediaProxyUrl(m)}
+                      />
+                    );
+                  } else {
+                    thumb = (
+                      <div className="bg-primary/5 flex h-full w-full items-center justify-center">
+                        <FileAudioIcon className="text-primary h-7 w-7" />
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      className="relative aspect-square overflow-hidden rounded-lg shadow-xs"
+                      key={m.id}
+                    >
+                      <div className="absolute inset-0">{thumb}</div>
+                      <button
+                        aria-label={`Show ${overflowCount} more media`}
+                        className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-1 bg-black/55 backdrop-blur-[2px] transition-colors hover:bg-black/60 active:bg-black/70"
+                        onClick={handleShowAll}
+                        type="button"
+                      >
+                        <span className="text-base leading-none font-semibold text-white tabular-nums">
+                          +{overflowCount}
+                        </span>
+                        <span className="text-xs leading-none font-medium text-white/85">
+                          more
+                        </span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                return renderGridTile(m, index + initialCount, "small");
+              })}
             </div>
           </div>
         </div>
@@ -825,31 +933,50 @@ export const MediaPreviews = ({
     }
 
     return (
-      <div className="px-4 pb-4">
+      <div className="mt-3 px-0.5 pb-1">
         <button
           aria-label="Show all media"
-          className="bg-primary/5 hover:bg-primary/10 relative w-full cursor-pointer overflow-hidden rounded-lg shadow-xs transition-all duration-300 hover:shadow-md"
+          className="apple-panel relative flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl p-2 text-left active:translate-y-px"
           onClick={handleShowAll}
           type="button"
         >
-          <div className="flex h-32 items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              {remainingAttachments.slice(0, 2).map((m, index) => (
+          <div className="flex min-w-0 items-center gap-2 overflow-x-auto pl-2">
+            {/* Every remaining attachment previews right in the bar - it is
+                wide enough, and horizontal scroll absorbs extremes. */}
+            {remainingAttachments.map((m, index) =>
+              m.type === "IMAGE" ? (
                 <div
-                  className="relative h-24 w-24 overflow-hidden rounded-lg"
+                  className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl shadow-xs"
+                  key={m.id}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- tiny static thumbnail; Next Image adds nothing over the sized thumb variant */}
+                  <img
+                    alt=""
+                    className="h-full w-full object-cover"
+                    decoding="async"
+                    loading="lazy"
+                    src={
+                      m.mimeType === "image/svg+xml"
+                        ? getMediaUrl(m.id)
+                        : getMediaImageUrl(m, "thumb-webp.webp")
+                    }
+                  />
+                </div>
+              ) : (
+                <div
+                  className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl shadow-xs"
                   key={m.id}
                 >
                   {renderPreview(m, index + initialCount)}
                   <div className="absolute inset-0 bg-black/10" />
                 </div>
-              ))}
-            </div>
-
-            <div className="flex flex-col items-end gap-2 pr-4">
-              <p className="text-lg font-medium">Show {remainingCount} more</p>
-              <Button variant="secondary">Expand</Button>
-            </div>
+              )
+            )}
           </div>
+          <span className="flex items-center gap-1.5 pr-3 text-sm font-semibold">
+            Show all
+            <ChevronDown className="text-muted-foreground h-4 w-4" />
+          </span>
         </button>
       </div>
     );
@@ -912,20 +1039,21 @@ export const MediaPreviews = ({
         })}
       </div>
 
-      {interactive &&
-        !showAll &&
-        attachments.length > initialCount &&
-        renderShowMoreSection()}
+      {!showAll && attachments.length > initialCount
+        ? renderShowMoreSection()
+        : null}
 
-      {interactive && showAll ? (
-        <div className="flex justify-center pb-4">
-          <Button
+      {showAll ? (
+        <div className="mt-3 px-0.5 pb-1">
+          <button
+            aria-label="Show fewer media"
+            className="apple-panel flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-2xl px-4 py-3 text-sm font-semibold active:translate-y-px"
             onClick={handleShowLess}
-            size={isMobile ? "sm" : "default"}
-            variant="ghost"
+            type="button"
           >
-            Show Less
-          </Button>
+            Show less
+            <ChevronUp className="text-muted-foreground h-4 w-4" />
+          </button>
         </div>
       ) : null}
 

@@ -11,7 +11,7 @@ import { mediaLogger } from "../log";
 
 export interface AssetProvenance {
   claimGenerator: string | null;
-  /** True when the SDK validated signatures against its trust list. */
+  // True when the SDK validated signatures against its trust list.
   signatureTrusted: boolean;
   verdict: AiProvenanceVerdict;
 }

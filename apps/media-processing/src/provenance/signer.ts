@@ -12,10 +12,9 @@ import { mediaLogger } from "../log";
 
 let cached: Promise<LocalSigner> | null = null;
 
-/**
- * Returns a signer for embedding our AI-generation manifests, or null when
- * no signing identity is configured (MEDIA_C2PA_CERT_PATH / _KEY_PATH).
- */
+// Returns a signer for embedding our AI-generation manifests, or null when
+// no signing identity is configured (MEDIA_C2PA_CERT_PATH / _KEY_PATH).
+
 export async function loadProvenanceSigner(): Promise<LocalSigner | null> {
   const certPath = workerEnv.C2PA_CERT_PATH;
   const keyPath = workerEnv.C2PA_KEY_PATH;

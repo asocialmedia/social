@@ -166,24 +166,73 @@ export async function uploadMediaFile(
   reportStage("queued");
 
   // Poll until the pipeline reaches a terminal state.
+  const outcome = await watchMediaStatus(mediaId, {
+    onStage: reportStage,
+    signal: options.signal,
+  });
+  if (outcome.status === "READY") {
+    return { mediaId, status: "READY" };
+  }
+  if (outcome.status === "DETACHED") {
+    // Processing is still running server-side; surface as failure to the
+    // composer while the pipeline continues independently.
+    throw new MediaUploadError("Still processing - check back in a moment");
+  }
+  return {
+    mediaId,
+    rejectedReason: outcome.rejectedReason,
+    status: "REJECTED",
+  };
+}
+
+// Outcome of watching an in-flight pipeline row. `detached` means the watch
+// gave up (deadline/auth) while the server keeps working - callers decide
+// whether that is fatal or resumable.
+export type StatusWatchOutcome =
+  | { rejectedReason?: string | null; status: "REJECTED" }
+  | { status: "READY" }
+  | { reason: string; status: "DETACHED" };
+
+/**
+ * Drives stage callbacks from real /status polls until the row reaches a
+ * terminal state. Used both right after finalize and to RE-ATTACH to items
+ * whose composer unmounted mid-pipeline (draft restore).
+ */
+export async function watchMediaStatus(
+  mediaId: string,
+  options: {
+    onStage?: (stage: UploadStage) => void;
+    signal?: AbortSignal;
+  } = {}
+): Promise<StatusWatchOutcome> {
+  const reportStage =
+    options.onStage ??
+    (() => {
+      /* empty */
+    });
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   // oxlint-disable-next-line no-await-in-loop -- sequential status polling
   for (;;) {
     if (Date.now() > deadline) {
-      // Processing is still running server-side; surface as failure to the
-      // composer while the pipeline continues independently.
-      throw new MediaUploadError("Still processing - check back in a moment");
+      // Processing continues server-side regardless; surface as detached so
+      // restored drafts can re-watch later instead of dying with an error.
+      return { reason: "watch deadline exceeded", status: "DETACHED" };
     }
     // eslint-disable-next-line no-await-in-loop, no-promise-executor-return, promise/avoid-new -- sequential polling with sleep
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     if (options.signal?.aborted) {
-      throw new MediaUploadError("Upload aborted");
+      return { reason: "aborted", status: "DETACHED" };
     }
     // oxlint-disable-next-line no-await-in-loop -- sequential polling
     const poll = await fetch(`/api/media/${mediaId}/status`, {
       credentials: "same-origin",
     });
     if (!poll.ok) {
+      // Auth failures never heal by retrying - bail out immediately instead
+      // of spinning until the deadline on every attachment.
+      if (poll.status === 401 || poll.status === 403) {
+        throw new MediaUploadError("Session expired - sign in and re-upload");
+      }
       continue;
     }
     // oxlint-disable-next-line no-await-in-loop -- sequential polling
@@ -193,17 +242,18 @@ export async function uploadMediaFile(
     };
     // Real pipeline stages drive the composer's progress UI - each status
     // maps to a user-visible phase, nothing here is simulated.
-    if (state.status === "SCANNING") {
+    if (state.status === "QUARANTINED") {
+      reportStage("queued");
+    } else if (state.status === "SCANNING") {
       reportStage("scanning");
     } else if (state.status === "PROCESSING") {
       reportStage("processing");
     }
     if (TERMINAL_POLL_STATUSES.has(state.status)) {
       if (state.status === "READY") {
-        return { mediaId, status: "READY" };
+        return { status: "READY" };
       }
       return {
-        mediaId,
         rejectedReason: state.rejectedReason,
         status: "REJECTED",
       };

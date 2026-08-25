@@ -178,13 +178,22 @@ export async function GET(
     const download = url.searchParams.get("download") === "true";
     const isThumbnail = url.searchParams.get("thumb") === "1";
     if (isThumbnail && media.type === "VIDEO") {
+      // thumbnailKey is written AFTER publish by the process job, so reading
+      // it from the hours-cached object would pin "no thumbnail" until cache
+      // expiry - freshly posted videos would show no frame without a manual
+      // refresh. Pull it fresh (single indexed PK lookup), same reason
+      // ownership is read fresh below.
+      const freshThumb = await prisma.media.findUnique({
+        select: { status: true, thumbnailKey: true },
+        where: { id: mediaId },
+      });
       // Pipeline videos keep their scene-aware poster as a derivative;
       // legacy videos keep the old thumbnailKey column. Serve whichever
       // exists so feed cards get a real frame, and only fall back to the
       // lightweight placeholder SVG when neither does (image renderers must
       // never download multi-megabyte video streams pretending to be images).
-      let posterKey: string | null = media.thumbnailKey;
-      if (!posterKey && media.status === "READY") {
+      let posterKey: string | null = freshThumb?.thumbnailKey ?? null;
+      if (!posterKey && freshThumb?.status === "READY") {
         const poster = await prisma.mediaDerivative.findFirst({
           select: { key: true },
           where: { kind: "poster", mediaId },

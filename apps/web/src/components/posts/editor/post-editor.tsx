@@ -134,7 +134,17 @@ export default function PostEditor({
   // lock holds after uploading finishes, not just during it. A single video
   // keeps the switcher live so it can still be published as a gust.
   const isGroupMedia = attachments.length > 1;
+  // Any video makes the post video-only: GIFs and audio lock even for a
+  // single clip, matching how published posts render mixed media.
+  const hasVideoAttachment = attachments.some((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("video/")
+  );
+  const mixedMediaLocked = isGroupMedia || hasVideoAttachment;
   const attachmentOptionsDisabled = isUploading || capacityFull;
+  // Media-only posts are publishable: a completed attachment satisfies the
+  // caption requirement (server schema enforces "text or attachment" too).
+  const hasPublishableMedia =
+    attachments.length > 0 && attachments.every((a) => !a.isUploading);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -279,7 +289,8 @@ export default function PostEditor({
       return;
     }
 
-    if (!(input.trim() || isHnSharing)) {
+    // Caption OR attachment - media-only posts are valid fleets.
+    if (!(input.trim() || isHnSharing || hasPublishableMedia)) {
       return;
     }
 
@@ -304,7 +315,7 @@ export default function PostEditor({
         : {}),
     };
 
-    if (!(payload.content || isHnSharing)) {
+    if (!(payload.content || isHnSharing || payload.mediaIds.length > 0)) {
       return;
     }
     if (isGust && !hasGustVideo) {
@@ -335,6 +346,7 @@ export default function PostEditor({
   }, [
     input,
     attachments,
+    hasPublishableMedia,
     selectedTags,
     selectedMentions,
     mutation,
@@ -579,7 +591,7 @@ export default function PostEditor({
                     >
                       <DropdownMenuItem
                         className="pill-3d-hover rounded-md px-2 py-2"
-                        disabled={attachmentOptionsDisabled || isGroupMedia}
+                        disabled={attachmentOptionsDisabled || mixedMediaLocked}
                         onClick={() => setGifPickerOpen((prev) => !prev)}
                       >
                         <span className="flex items-center gap-3">
@@ -589,7 +601,9 @@ export default function PostEditor({
                       </DropdownMenuItem>
                       <div className="flex items-center px-1 py-1">
                         <FileInput
-                          disabled={attachmentOptionsDisabled || isGroupMedia}
+                          disabled={
+                            attachmentOptionsDisabled || mixedMediaLocked
+                          }
                           onFilesSelected={startUpload}
                           types={["audio"]}
                         />
@@ -617,10 +631,10 @@ export default function PostEditor({
                     className={cn(
                       "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
                       gifPickerOpen && "text-primary",
-                      (attachmentOptionsDisabled || isGroupMedia) &&
+                      (attachmentOptionsDisabled || mixedMediaLocked) &&
                         "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
                     )}
-                    disabled={attachmentOptionsDisabled || isGroupMedia}
+                    disabled={attachmentOptionsDisabled || mixedMediaLocked}
                     onClick={() => setGifPickerOpen((prev) => !prev)}
                     type="button"
                     whileHover={{ scale: 1.02 }}
@@ -653,7 +667,7 @@ export default function PostEditor({
                 <LoadingButton
                   className="min-w-20"
                   disabled={
-                    !(input.trim() || isHnSharing) ||
+                    !(input.trim() || isHnSharing || hasPublishableMedia) ||
                     isUploading ||
                     (isGust && gustCaptionExceeded) ||
                     (isGust && !hasGustVideo)
@@ -730,12 +744,14 @@ const attachmentKeyOf = (attachment: Attachment, index: number): string =>
 /** One draggable grid tile: dnd-kit transform wrapper around the preview. */
 const SortableAttachment = ({
   attachment,
+  canReorder,
   index,
   isGust,
   onCancelClick,
   onRemoveClick,
 }: {
   attachment: Attachment;
+  canReorder: boolean;
   index: number;
   isGust: boolean;
   onCancelClick: () => void;
@@ -763,15 +779,19 @@ const SortableAttachment = ({
       <div className="group/reorder relative">
         {/* Grip handle carries the drag listeners so clicks on the preview
             body (play button, remove X) never start a drag. */}
-        <button
-          {...attributes}
-          {...listeners}
-          aria-label="Drag to reorder"
-          className="bg-background/90 text-muted-foreground hover:text-foreground absolute top-2 left-2 z-20 cursor-grab rounded-full p-1.5 opacity-0 shadow-md backdrop-blur-sm transition-opacity duration-200 group-hover/reorder:opacity-100 active:cursor-grabbing"
-          type="button"
-        >
-          <GripVertical className="size-4" />
-        </button>
+        {/* Reordering needs at least two tiles - a lone attachment has
+            nothing to swap with, so its grip would be pure noise. */}
+        {canReorder ? (
+          <button
+            {...attributes}
+            {...listeners}
+            aria-label="Drag to reorder"
+            className="bg-background/90 text-muted-foreground hover:text-foreground absolute top-2 left-2 z-20 cursor-grab rounded-full p-1.5 opacity-0 shadow-md backdrop-blur-sm transition-opacity duration-200 group-hover/reorder:opacity-100 active:cursor-grabbing"
+            type="button"
+          >
+            <GripVertical className="size-4" />
+          </button>
+        ) : null}
         <AttachmentPreview
           attachment={attachment}
           isGust={isGust}
@@ -868,6 +888,7 @@ const AttachmentPreviews = ({
               >
                 <SortableAttachment
                   attachment={attachment}
+                  canReorder={attachments.length > 1}
                   index={index}
                   isGust={isGust}
                   onCancelClick={() =>
