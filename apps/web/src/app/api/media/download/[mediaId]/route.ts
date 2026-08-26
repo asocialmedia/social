@@ -1,5 +1,5 @@
 import { prisma } from "@asm/db";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { decideMediaAccess } from "@/lib/media-access";
@@ -92,6 +92,14 @@ export async function GET(
 
     return new NextResponse(body, { headers });
   } catch (error) {
+    // A row whose stored object vanished from storage is a missing asset,
+    // not a server fault - respond like an unknown media id.
+    if (
+      error instanceof S3ServiceException &&
+      (error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404)
+    ) {
+      return new NextResponse("Media not found", { status: 404 });
+    }
     const logger = getWebLogger();
     if (logger) {
       logger.error({ error, mediaId }, "Media download failed");

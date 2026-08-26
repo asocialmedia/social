@@ -369,6 +369,15 @@ export async function GET(
     if (error instanceof DOMException && error.name === "AbortError") {
       return new Response(null, { status: 499 });
     }
+    // A row whose stored object vanished from storage (crash between publish
+    // flip and upload, corrupted duplicate rows) is a missing asset, not a
+    // server fault - respond like an unknown media id.
+    if (
+      error instanceof S3ServiceException &&
+      (error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404)
+    ) {
+      return new NextResponse("Media not found", { status: 404 });
+    }
     const logger = getWebLogger();
     const payload = { error, mediaId };
     if (logger) {

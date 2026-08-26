@@ -1,6 +1,6 @@
 import { prisma } from "@asm/db";
 import { hlsBaseFromMasterKey } from "@asm/media";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { decideMediaAccess } from "@/lib/media-access";
@@ -46,6 +46,18 @@ function buildRangeNotSatisfiable(
     headers.set("Content-Range", contentRangeHeader);
   }
   return new NextResponse("Range Not Satisfiable", { headers, status: 416 });
+}
+
+// Storage answers a missing object with NoSuchKey (HTTP 404). Distinguishing
+// it from real faults lets serving routes return a client-facing 404 while
+// genuinely broken storage surfaces as a 500.
+function isObjectNotFoundError(error: unknown): boolean {
+  if (!(error instanceof S3ServiceException)) {
+    return false;
+  }
+  return (
+    error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404
+  );
 }
 
 export async function GET(
@@ -203,6 +215,13 @@ export async function GET(
     // is already gone, so answer with a bare 499 instead of a scary 500.
     if (error instanceof DOMException && error.name === "AbortError") {
       return new Response(null, { status: 499 });
+    }
+    // A READY row whose fallback/original bytes are gone from storage (crash
+    // between publish and upload, corrupted duplicate rows) is a missing
+    // asset, not a server fault - clients get the same shape as an unknown
+    // media id.
+    if (isObjectNotFoundError(error)) {
+      return new NextResponse("Not found", { status: 404 });
     }
     const logger = getWebLogger();
     if (logger) {
