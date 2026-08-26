@@ -408,7 +408,7 @@ const MediaViewer = ({
             swapping */}
         <Image
           key={`${item.id}-${loadAttempt}`}
-          alt={`Media item ${currentIndex + 1}`}
+          alt={item.altText || `Media item ${currentIndex + 1}`}
           className={cn(
             "object-contain transition-opacity duration-200",
             isLoading ? "opacity-0" : "opacity-100"
@@ -756,6 +756,16 @@ const MediaViewer = ({
                 );
               })}
             </div>
+          </div>
+        ) : null}
+
+        {/* Uploader-authored alt text, displayed only on this standalone
+            page - never on feed cards or dialog-mode galleries. */}
+        {standalone && currentMedia?.altText ? (
+          <div className="border-t border-white/5 bg-black px-3 py-2.5">
+            <p className="mx-auto max-w-xl text-center text-xs leading-relaxed text-white/70 sm:text-sm">
+              {currentMedia.altText}
+            </p>
           </div>
         ) : null}
 

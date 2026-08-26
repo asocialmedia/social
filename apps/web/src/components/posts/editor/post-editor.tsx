@@ -53,6 +53,7 @@ import "./styles.css";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import { useComposerStore } from "@/store/composer-store";
 
+import AltTextPanel from "./alt-text-panel";
 import { AttachmentPreview } from "./attachment-preview";
 import { FileInput } from "./file-input";
 import { HNStoryPreview } from "./hn-story-preview";
@@ -126,6 +127,7 @@ export default function PostEditor({
     reorderAttachments,
     reset: resetMediaUploads,
     retryUpload,
+    setAltText,
   } = useMediaUpload();
 
   // Shared contract with the server-side cap in submitPost.
@@ -735,6 +737,7 @@ export default function PostEditor({
               removeAttachment={removeAttachment}
               reorderAttachments={reorderAttachments}
               retryUpload={retryUpload}
+              setAltText={setAltText}
             />
           </motion.div>
         )}
@@ -750,6 +753,7 @@ interface AttachmentPreviewsProps {
   removeAttachment: (fileName: string) => void;
   reorderAttachments: (ordered: Attachment[]) => void;
   retryUpload: (fileName: string) => void;
+  setAltText: (fileName: string, altText: string) => void;
 }
 
 const attachmentKeyOf = (attachment: Attachment, index: number): string =>
@@ -765,6 +769,7 @@ const SortableAttachment = ({
   index,
   isGust,
   onCancelClick,
+  onEditAltClick,
   onRemoveClick,
   onRetryClick,
 }: {
@@ -773,6 +778,7 @@ const SortableAttachment = ({
   index: number;
   isGust: boolean;
   onCancelClick: () => void;
+  onEditAltClick?: () => void;
   onRemoveClick: () => void;
   onRetryClick: () => void;
 }) => {
@@ -815,6 +821,7 @@ const SortableAttachment = ({
           attachment={attachment}
           isGust={isGust}
           onCancelClick={onCancelClick}
+          onEditAltClick={onEditAltClick}
           onRemoveClick={onRemoveClick}
           onRetryClick={onRetryClick}
         />
@@ -830,6 +837,7 @@ const AttachmentPreviews = ({
   removeAttachment,
   reorderAttachments,
   retryUpload,
+  setAltText,
 }: AttachmentPreviewsProps) => {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -837,6 +845,10 @@ const AttachmentPreviews = ({
       activationConstraint: { distance: 6 },
     })
   );
+
+  // Key of the attachment whose alt text editor is open; one shared dialog
+  // serves every tile. Remounts per target via key so drafts never leak.
+  const [altEditorKey, setAltEditorKey] = useState<string | null>(null);
 
   const handleRemoveClick = useCallback(
     (attachment: Attachment) => () => {
@@ -922,6 +934,7 @@ const AttachmentPreviews = ({
                   onCancelClick={() =>
                     cancelUpload(attachment.file?.name ?? attachment.name ?? "")
                   }
+                  onEditAltClick={() => setAltEditorKey(attachmentKey)}
                   onRemoveClick={handleRemoveClick(attachment)}
                   onRetryClick={handleRetryClick(attachment)}
                 />
@@ -930,6 +943,37 @@ const AttachmentPreviews = ({
           })}
         </motion.div>
       </SortableContext>
+      {/* Inline alt text editor, attached directly under the grid it edits -
+          same expanding-panel idiom as the GIF picker. */}
+      <AnimatePresence>
+        {(() => {
+          if (!altEditorKey) {
+            return null;
+          }
+          const altIndex = ids.indexOf(altEditorKey);
+          const altTarget = altIndex === -1 ? undefined : attachments[altIndex];
+          if (!altTarget) {
+            return null;
+          }
+          return (
+            <motion.div
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              initial={{ height: 0, opacity: 0 }}
+              key={altEditorKey}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+            >
+              <div className="mt-3 overflow-hidden">
+                <AltTextPanel
+                  attachment={altTarget}
+                  onClose={() => setAltEditorKey(null)}
+                  onSave={setAltText}
+                />
+              </div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
     </DndContext>
   );
 };

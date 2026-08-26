@@ -5,7 +5,11 @@ import { Upload } from "lucide-react";
 import { createElement } from "react";
 import { create } from "zustand";
 
-import { uploadMediaFile, watchMediaStatus } from "@/lib/media-upload-client";
+import {
+  patchAltText,
+  uploadMediaFile,
+  watchMediaStatus,
+} from "@/lib/media-upload-client";
 import type {
   StatusWatchOutcome,
   UploadStage,
@@ -24,6 +28,7 @@ const STORAGE_KEY = "asm-composer-attachments";
 const STORAGE_VERSION = 1;
 
 export interface Attachment {
+  altText?: string;
   error?: string;
   file?: File;
   isUploading: boolean;
@@ -41,6 +46,7 @@ export interface Attachment {
 }
 
 interface StoredAttachment {
+  altText?: string;
   mediaId: string;
   name: string;
   resuming?: boolean;
@@ -64,6 +70,7 @@ function loadStoredAttachments(): Attachment[] {
       return [];
     }
     return (parsed.items ?? []).map((item) => ({
+      altText: item.altText,
       ...(item.resuming
         ? { isUploading: true, resuming: true, stage: "queued" as UploadStage }
         : { isUploading: false }),
@@ -86,6 +93,7 @@ function persistAttachments(attachments: Attachment[]): void {
   const items: StoredAttachment[] = attachments
     .filter((attachment) => attachment.mediaId)
     .map((attachment) => ({
+      altText: attachment.altText || undefined,
       mediaId: attachment.mediaId as string,
       name: attachment.name ?? attachment.file?.name ?? "attachment",
       resuming: attachment.isUploading || undefined,
@@ -145,6 +153,7 @@ interface ComposerAttachmentState {
   reorderAttachments: (ordered: Attachment[]) => void;
   reset: () => void;
   retryUpload: (fileName: string) => Promise<void>;
+  setAltText: (fileName: string, altText: string) => void;
   startUpload: (incomingFiles: File[]) => Promise<void>;
 }
 
@@ -162,6 +171,25 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     commit(
       get().attachments.filter((a) => (a.file?.name ?? a.name) !== fileName)
     );
+  };
+
+  // Alt text typed before the media row existed (upload still initiating)
+  // saves to the server the moment initiate lands. Later edits go out
+  // immediately from setAltText.
+  const flushPendingAltText = (fileName: string): void => {
+    const target = get().attachments.find(
+      (a) => (a.file?.name ?? a.name) === fileName
+    );
+    const { altText, mediaId } = target ?? {};
+    if (!mediaId || !altText) {
+      return;
+    }
+    void (async () => {
+      const ok = await patchAltText(mediaId, altText);
+      if (!ok) {
+        clientLog.error("Failed to save alt text for:", fileName);
+      }
+    })();
   };
 
   function applyWatchOutcome(
@@ -403,6 +431,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
           )
         );
         persistAttachments(get().attachments);
+        flushPendingAltText(fileName);
       } catch (error: unknown) {
         controllers.delete(file.name);
         if (controller.signal.aborted) {
@@ -435,6 +464,30 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       }
       controllers.delete(file.name);
       set({ isUploading: false });
+    },
+    setAltText: (fileName, altText) => {
+      const target = get().attachments.find(
+        (a) => (a.file?.name ?? a.name) === fileName
+      );
+      if (!target) {
+        return;
+      }
+      commit(
+        get().attachments.map((a) =>
+          (a.file?.name ?? a.name) === fileName ? { ...a, altText } : a
+        )
+      );
+      // The media row exists from initiation onward, so edits save
+      // immediately; pre-initiation edits stay local until
+      // flushPendingAltText runs once the row lands.
+      if (target.mediaId) {
+        void (async () => {
+          const ok = await patchAltText(target.mediaId as string, altText);
+          if (!ok) {
+            clientLog.error("Failed to save alt text for:", fileName);
+          }
+        })();
+      }
     },
     startUpload: async (incomingFiles) => {
       const { attachments, isUploading } = get();
@@ -515,6 +568,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
               ),
             });
             persistAttachments(get().attachments);
+            flushPendingAltText(file.name);
           } catch (error: unknown) {
             // React Compiler cannot lower try/finally; cleanup happens on
             // each exit path explicitly.

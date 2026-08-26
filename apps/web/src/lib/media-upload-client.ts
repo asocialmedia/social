@@ -27,6 +27,30 @@ export class MediaUploadError extends Error {
   override name = "MediaUploadError";
 }
 
+// Mirrors the zod cap enforced server-side by PATCH /api/media/[mediaId]/alt.
+export const ALT_TEXT_MAX_LENGTH = 1000;
+
+// Persists owner-authored alt text on an uploaded media row. Safe to call
+// fire-and-forget: resolves false on any failure so callers keep their local
+// state instead of throwing into the upload flow. An empty string clears the
+// stored value (the route maps "" to null).
+export async function patchAltText(
+  mediaId: string,
+  altText: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/media/${mediaId}/alt`, {
+      body: JSON.stringify({ altText }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 const TERMINAL_POLL_STATUSES = new Set(["READY", "REJECTED", "DELETED"]);
 
 const POLL_INTERVAL_MS = 1500;

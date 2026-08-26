@@ -24,6 +24,7 @@ export default function useMediaUpload() {
   );
   const reset = useComposerAttachmentStore((s) => s.reset);
   const retryUpload = useComposerAttachmentStore((s) => s.retryUpload);
+  const setAltText = useComposerAttachmentStore((s) => s.setAltText);
   const startUpload = useComposerAttachmentStore((s) => s.startUpload);
 
   // Restore persisted drafts (and resume their watchers) once per app load.
@@ -40,6 +41,7 @@ export default function useMediaUpload() {
     reorderAttachments,
     reset,
     retryUpload,
+    setAltText,
     startUpload,
   };
 }

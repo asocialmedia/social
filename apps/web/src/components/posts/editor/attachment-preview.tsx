@@ -29,6 +29,7 @@ const STAGE_FILL_FRACTION: Record<Exclude<UploadStage, "uploading">, number> = {
 
 interface AttachmentPreviewProps {
   attachment: {
+    altText?: string;
     error?: string;
     file?: File;
     isUploading: boolean;
@@ -42,6 +43,8 @@ interface AttachmentPreviewProps {
   };
   isGust?: boolean;
   onCancelClick?: () => void;
+  /** Opens the alt text editor; the tile body and ALT chip both trigger it. */
+  onEditAltClick?: () => void;
   onRemoveClick: () => void;
   onRetryClick?: () => void;
 }
@@ -61,6 +64,7 @@ function formatVideoTime(seconds: number): string {
 
 const AttachmentPreviewInner = ({
   attachment: {
+    altText,
     error,
     file,
     isUploading,
@@ -74,6 +78,7 @@ const AttachmentPreviewInner = ({
   },
   isGust = false,
   onCancelClick,
+  onEditAltClick,
   onRemoveClick,
   onRetryClick,
 }: AttachmentPreviewProps) => {
@@ -401,16 +406,66 @@ const AttachmentPreviewInner = ({
     );
   }
 
+  // Bare-tile clicks open the alt text editor. Inner playback controls own
+  // their own clicks, so anything inside a button/video/audio is ignored.
+  const handleTileClick = (event: React.MouseEvent) => {
+    if (!onEditAltClick || hasError) {
+      return;
+    }
+    if ((event.target as HTMLElement).closest("button, video, audio")) {
+      return;
+    }
+    onEditAltClick();
+  };
+
+  const handleTileKeyDown = (event: React.KeyboardEvent) => {
+    if (!onEditAltClick || hasError) {
+      return;
+    }
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    onEditAltClick();
+  };
+
+  const tileActivatable = Boolean(onEditAltClick) && !hasError;
+
   return (
     <div className="relative w-full">
+      {/* Not a real <button>: the tile wraps live video/audio controls, and
+          interactive elements may not nest. Mouse clicks open the editor;
+          keyboard users go through the ALT chip button below, which is the
+          fully accessible path. Activation is gated by tileActivatable. */}
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- see above; a semantic button cannot wrap media controls */}
       <div
+        aria-disabled={!tileActivatable}
         className={cn(
           "transition-opacity duration-200",
-          (isUploading || hasError) && "opacity-60"
+          (isUploading || hasError) && "opacity-60",
+          tileActivatable && "cursor-pointer"
         )}
+        onClick={handleTileClick}
+        onKeyDown={handleTileKeyDown}
       >
         {renderPreview()}
       </div>
+      {/* Alt text affordance, bottom-left like the video chips. Settled tiles
+          only - mid-upload and failed tiles have their own bars down there.
+          Videos shift it right of the mute toggle. */}
+      {onEditAltClick && !isUploading && !hasError ? (
+        <button
+          aria-label={altText ? "Edit alt text" : "Add alt text to this media"}
+          className={cn(
+            "rail-3d-btn absolute bottom-2 z-10 flex h-7 max-w-[70%] cursor-pointer items-center rounded-full p-0 px-2.5 text-xs font-medium",
+            fileType?.startsWith("video") ? "left-10" : "left-2"
+          )}
+          onClick={onEditAltClick}
+          type="button"
+        >
+          <span className="truncate">{altText ? "ALT" : "Add alt text"}</span>
+        </button>
+      ) : null}
       {actionBar}
     </div>
   );
