@@ -129,6 +129,78 @@ export async function legacyGcSweep(): Promise<{ deletedObjects: number }> {
   return { deletedObjects };
 }
 
+// Retention sweep for pipeline originals. Published rows keep their exact
+// uploaded bytes under quarantine/ for MEDIA_ORIGINAL_RETENTION_DAYS
+// (forensics, re-processing, incident review); this sweep deletes the copies
+// once the window passes and clears originalKey so swept rows never rescan.
+// Guards baked into the query:
+//   - pipelineVersion set: never touch legacy rows whose originalKey points
+//     at live serving objects
+//   - originalKey startsWith quarantine/: true quarantine copies only
+//   - publishedKey set: verified bytes already promoted under media/
+//   - processedAt older than the window: retention elapsed
+// retention <= 0 disables the sweep entirely (scan deletes at publish).
+export async function quarantineGcSweep(): Promise<{
+  deletedObjects: number;
+  reclaimedBytes: number;
+}> {
+  const limits = resolveWorkerMediaLimits();
+  if (limits.originalRetentionDays <= 0) {
+    return { deletedObjects: 0, reclaimedBytes: 0 };
+  }
+  const cutoff = new Date(
+    Date.now() - limits.originalRetentionDays * 24 * 60 * 60 * 1000
+  );
+
+  const rows = await prisma.media.findMany({
+    orderBy: { processedAt: "asc" },
+    select: { id: true, originalKey: true, size: true },
+    take: GC_BATCH,
+    where: {
+      originalKey: { startsWith: "quarantine/" },
+      pipelineVersion: { not: null },
+      processedAt: { lt: cutoff },
+      publishedKey: { not: null },
+    },
+  });
+
+  let deletedObjects = 0;
+  let reclaimedBytes = 0;
+  const s3 = getS3();
+  for (const row of rows) {
+    if (!row.originalKey) {
+      continue;
+    }
+    try {
+      await s3.delete(row.originalKey);
+      deletedObjects += 1;
+      reclaimedBytes += row.size;
+      await prisma.media.update({
+        data: { originalKey: null },
+        where: { id: row.id },
+      });
+    } catch (error) {
+      // One failed delete must not strand the batch: skip and continue so
+      // the next sweep retries this row after its window re-elapses.
+      mediaLogger.warn(
+        { error: String(error), mediaId: row.id },
+        "quarantine GC delete failed"
+      );
+    }
+  }
+  if (deletedObjects > 0) {
+    mediaLogger.info(
+      {
+        bytes: reclaimedBytes,
+        count: deletedObjects,
+        retentionDays: limits.originalRetentionDays,
+      },
+      "expired quarantine originals swept"
+    );
+  }
+  return { deletedObjects, reclaimedBytes };
+}
+
 // Registers self-healing schedules on the media queue. Idempotent via
 // upsertJobScheduler.
 export async function registerBackfillSchedulers(connectionOptions: {
@@ -140,6 +212,7 @@ export async function registerBackfillSchedulers(connectionOptions: {
   const daily = 24 * 60 * 60 * 1000;
   await queue.upsertJobScheduler("media-backfill-sweep", { every: daily });
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
+  await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
   return new Worker(
     "media-sweeps",
     async (job) => {
@@ -149,6 +222,9 @@ export async function registerBackfillSchedulers(connectionOptions: {
         }
         case "media-legacy-gc": {
           return await legacyGcSweep();
+        }
+        case "media-quarantine-gc": {
+          return await quarantineGcSweep();
         }
         default: {
           throw new Error(`Unknown sweep job: ${job.name}`);

@@ -498,8 +498,26 @@ export function processMediaScan(
           }
         })();
 
-        // The quarantine copy has served its purpose.
-        await s3.delete(media.originalKey).catch(() => null);
+        // Original retention: keep the exact uploaded bytes under quarantine/
+        // for the configured window (forensics, re-processing, incident
+        // review) - the retention sweep deletes them once it passes. Only the
+        // strip/stamp-free published copy would be byte-identical anyway, so
+        // for stripped or stamped media this is the sole surviving original.
+        // retentionDays <= 0 restores immediate deletion.
+        const retentionDays = SCAN_LIMITS.originalRetentionDays;
+        if (retentionDays > 0) {
+          mediaLogger.info(
+            {
+              bytes: totalBytes,
+              days: retentionDays,
+              mediaId,
+              retainedKey: media.originalKey,
+            },
+            "quarantine original retained for retention window"
+          );
+        } else {
+          await s3.delete(media.originalKey).catch(() => null);
+        }
 
         mediaLogger.info(
           { bytes: totalBytes, mediaId, mime: detected.mime },

@@ -102,6 +102,10 @@ export const keys = createEnv({
     // Models ship inside the @gutenye/ocr-node dependency - no external
     // download - so this is a plain on/off switch.
     MEDIA_OCR_ENABLED: z.enum(["0", "1"]).default("1"),
+    // Days a published row's exact uploaded bytes stay under quarantine/
+    // before the retention sweep deletes them (forensics / re-processing
+    // window). 0 deletes the quarantine copy at publish instead. Default 30
+    // lives in packages/media/src/limits.ts.
     MEDIA_ORIGINAL_RETENTION_DAYS: numericOverride,
     MEDIA_PROCESSING_TIMEOUT_MS: numericOverride,
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),

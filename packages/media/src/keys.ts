@@ -17,8 +17,19 @@ export function sanitizeExtension(raw: string | null | undefined): string {
   return ext.length > 0 ? ext : "bin";
 }
 
-export function quarantineKey(mediaId: string, extension: string): string {
-  return `${QUARANTINE_PREFIX}/${mediaId}/original.${sanitizeExtension(extension)}`;
+// 16 hex chars of fresh entropy per upload: the quarantine key must stay
+// unguessable even when a media id leaks (ids appear in public URLs).
+function randomToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function quarantineKey(
+  mediaId: string,
+  extension: string,
+  token: string = randomToken()
+): string {
+  return `${QUARANTINE_PREFIX}/${mediaId}/${token}/original.${sanitizeExtension(extension)}`;
 }
 
 export function publishedKey(
