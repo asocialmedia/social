@@ -7,6 +7,7 @@ import { create } from "zustand";
 
 import {
   patchAltText,
+  rejectionCopy,
   uploadMediaFile,
   watchMediaStatus,
 } from "@/lib/media-upload-client";
@@ -202,7 +203,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     }
     if (outcome.status === "REJECTED") {
       toast({
-        description: "An attachment was rejected by the pipeline.",
+        description: rejectionCopy(outcome.rejectedReason),
         title: "Attachment Removed",
         variant: "destructive",
       });
@@ -331,7 +332,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
             persistAttachments(get().attachments);
           } else if (outcome.status === "REJECTED") {
             toast({
-              description: "An attachment was rejected by the pipeline.",
+              description: rejectionCopy(outcome.rejectedReason),
               title: "Attachment Removed",
               variant: "destructive",
             });

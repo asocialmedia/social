@@ -12,7 +12,7 @@ import {
 } from "@asm/media";
 import type { MediaLimits, PlannedImageDerivative } from "@asm/media";
 
-import { computePerceptualHash } from "../ffmpeg";
+import { computePerceptualHash, withTimeout } from "../ffmpeg";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
 
@@ -270,26 +270,35 @@ async function encodeDerivative(
     withoutEnlargement: true,
   });
 
+  // Bounded encode: Bun.Image has no native deadline, so a pathological
+  // source that slips past the pixel guards must not pin the worker slot.
+  // On timeout the encode is abandoned and the derivative skipped - the
+  // serving route falls back to the published original.
   if (item.variant === "webp") {
+    const bytes = await withTimeout(
+      scaled
+        .webp({ lossless: item.lossless === true, quality: item.quality })
+        .buffer(),
+      timeoutMs,
+      `webp encode timed out (${item.kind}/${item.variant})`
+    );
     return {
-      bytes: Buffer.from(
-        await scaled
-          .webp({ lossless: item.lossless === true, quality: item.quality })
-          .buffer()
-      ),
+      bytes: Buffer.from(bytes),
       extension: "webp",
       mimeType: "image/webp",
     };
   }
   if (item.variant === "jpeg") {
+    const bytes = await withTimeout(
+      scaled.jpeg({ progressive: true, quality: item.quality }).buffer(),
+      timeoutMs,
+      `jpeg encode timed out (${item.kind}/${item.variant})`
+    );
     return {
-      bytes: Buffer.from(
-        await scaled.jpeg({ progressive: true, quality: item.quality }).buffer()
-      ),
+      bytes: Buffer.from(bytes),
       extension: "jpg",
       mimeType: "image/jpeg",
     };
   }
-  void timeoutMs;
   return null;
 }

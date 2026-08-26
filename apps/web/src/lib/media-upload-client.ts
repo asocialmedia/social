@@ -53,6 +53,38 @@ export async function patchAltText(
 
 const TERMINAL_POLL_STATUSES = new Set(["READY", "REJECTED", "DELETED"]);
 
+// User-facing copy for pipeline rejection reasons. TOO_LARGE covers both the
+// per-family byte caps and the antivirus scanner's INSTREAM limit, which the
+// scan stage maps to the same RejectionReason.
+export function rejectionCopy(reason?: string | null): string {
+  switch (reason) {
+    case "MALWARE": {
+      return "Security scan found a threat in this file.";
+    }
+    case "MIME_MISMATCH": {
+      return "The file's contents don't match its type.";
+    }
+    case "TOO_LARGE": {
+      return "This file is too large to process.";
+    }
+    case "TOO_LONG": {
+      return "This file is longer than allowed.";
+    }
+    case "CORRUPT": {
+      return "The file appears to be corrupted.";
+    }
+    case "UNSUPPORTED_TYPE": {
+      return "This file type isn't supported.";
+    }
+    case "POLICY": {
+      return "This file violates the content policy.";
+    }
+    default: {
+      return "This attachment was rejected.";
+    }
+  }
+}
+
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 

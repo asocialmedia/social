@@ -1,8 +1,59 @@
 // ffmpeg/ffprobe execution helpers. Every spawn is time-boxed and captures
 // stderr for structured failures; uploads are parsed here, never executed.
 
+import { ResourceLimitError } from "./resource-limit-error";
+
 export class FfmpegError extends Error {
   override name = "FfmpegError";
+}
+
+export {
+  // Raised when ffprobe reports a stream exceeding a decoder safety ceiling
+  // (duration, fps, bitrate). Typed so callers reject the media without
+  // retrying - the file is malformed-by-policy, not transiently broken.
+  ResourceLimitError,
+} from "./resource-limit-error";
+
+export interface DecoderLimits {
+  maxBitrateKbps: number;
+  maxDimension: number;
+  maxFps: number;
+  maxVideoDurationSec: number;
+}
+
+// Shared ceiling enforcement for probed streams. Runs before any transcode:
+// a 10-hour/240fps/200Mbps file must fail in milliseconds, not after
+// minutes of encode work. `maxVideoDurationSec` guards the container
+// duration; audio-only duration checks live with the audio job (the probe
+// duration is the container's, whichever streams it carries).
+export function enforceDecoderLimits(
+  probe: ProbeResult,
+  limits: DecoderLimits
+): void {
+  if (probe.durationSec > limits.maxVideoDurationSec) {
+    throw new ResourceLimitError(
+      `duration ${Math.round(probe.durationSec)}s exceeds limit ${limits.maxVideoDurationSec}s`
+    );
+  }
+  if (probe.formatBitrateKbps > limits.maxBitrateKbps) {
+    throw new ResourceLimitError(
+      `bitrate ${probe.formatBitrateKbps}kbps exceeds limit ${limits.maxBitrateKbps}kbps`
+    );
+  }
+  const { video } = probe;
+  if (!video) {
+    return;
+  }
+  if (video.fps > limits.maxFps) {
+    throw new ResourceLimitError(
+      `fps ${video.fps} exceeds limit ${limits.maxFps}`
+    );
+  }
+  if (video.width > limits.maxDimension || video.height > limits.maxDimension) {
+    throw new ResourceLimitError(
+      `dimensions ${video.width}x${video.height} exceed limit ${limits.maxDimension}px`
+    );
+  }
 }
 
 export interface ProbeResult {
@@ -67,6 +118,31 @@ export function parseRate(rate: string | undefined): number {
     return 0;
   }
   return Number(num) / denominator;
+}
+
+// Wall-clock cap around any in-process async work without a native kill
+// switch (ffprobe via Bun.spawn exit codes, Bun.Image encoders). The losing
+// promise's work may continue in the background but the caller fails now,
+// freeing the job to retry instead of pinning the worker slot.
+export async function withTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      // eslint-disable-next-line promise/avoid-new -- timer rejection needs a raw promise; there is no async/await equivalent for losing a race on a deadline
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new FfmpegError(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 export async function probeMedia(inputPath: string): Promise<ProbeResult> {

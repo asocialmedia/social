@@ -1,10 +1,25 @@
-// Minimal ClamAV clamd client using the INSTREAM protocol: the file is
-// streamed to the daemon in length-prefixed chunks over a TCP socket, so no
-// temp files are shared across containers and no npm dependency is needed.
-// Protocol: "zINSTREAM\0" then [u32 BE length][chunk]* then a zero-length
-// chunk; the daemon replies "stream: OK" or "stream: <name> FOUND".
+// ClamAV clamd INSTREAM client. The file is streamed to the daemon in
+// length-prefixed chunks; the daemon replies "stream: OK" or
+// "stream: <name> FOUND".
+//
+// Transport: a netcat subprocess. Bun 1.4's Bun.connect() socket.write
+// silently discards data under TCP backpressure (a slow reader - exactly
+// what clamd is while it allocates scan buffers - receives ~10% of a 26MB
+// stream, verified against both a Bun listener and real netcat), which
+// corrupts the length-prefix framing and surfaces as bogus "INSTREAM size
+// limit exceeded" verdicts. A subprocess pipe gets kernel-level flow
+// control: stdin write() blocks until consumed, so framing is guaranteed.
+// nc ships in the worker image (netcat-openbsd, see Dockerfile).
 
+import { ClamAvSizeLimitError } from "./clamav-size-limit-error";
 import { workerEnv } from "./env";
+
+export {
+  // Raised when clamd answers INSTREAM size limit exceeded: the file
+  // exceeds the daemon's StreamMaxLength. A property of the FILE, not the
+  // scanner - callers reject the upload instead of retrying.
+  ClamAvSizeLimitError,
+} from "./clamav-size-limit-error";
 
 export interface ClamAvVerdict {
   clean: boolean;
@@ -25,6 +40,9 @@ export function parseResponse(raw: string): ClamAvVerdict {
   if (found?.groups?.signature) {
     return { clean: false, signature: found.groups.signature };
   }
+  if (/size limit exceeded/i.test(trimmed)) {
+    throw new ClamAvSizeLimitError(trimmed.slice(0, 200));
+  }
   throw new ClamAvUnavailableError(
     `Unrecognized clamd response: ${trimmed.slice(0, 200)}`
   );
@@ -38,38 +56,24 @@ export async function scanStream(
     throw new ClamAvUnavailableError("CLAMAV_HOST is not configured");
   }
 
-  // Declared before the socket exists so callbacks can never observe TDZ.
-  const responseChunks: Uint8Array[] = [];
-  let failure: Error | null = null;
-
-  let socket;
+  let proc;
   try {
-    socket = await Bun.connect({
-      hostname: workerEnv.CLAMAV_HOST,
-      port: workerEnv.CLAMAV_PORT,
-      socket: {
-        data(_socket, chunk) {
-          responseChunks.push(new Uint8Array(chunk));
-        },
-        error(_socket, error) {
-          failure = new ClamAvUnavailableError(
-            `clamd socket error: ${String(error)}`
-          );
-        },
-      },
-    });
+    proc = Bun.spawn(
+      ["nc", workerEnv.CLAMAV_HOST, String(workerEnv.CLAMAV_PORT)],
+      { stderr: "pipe", stdin: "pipe", stdout: "pipe" }
+    );
   } catch (error) {
-    // Connect refusal/timeouts are scanner-availability problems, never
-    // evidence about the file being scanned.
+    // Spawn failure is a scanner-availability problem, never evidence
+    // about the file being scanned.
     throw new ClamAvUnavailableError(
-      `clamd unreachable at ${workerEnv.CLAMAV_HOST}:${workerEnv.CLAMAV_PORT}: ${String(error)}`
+      `nc bridge failed to start for ${workerEnv.CLAMAV_HOST}:${workerEnv.CLAMAV_PORT}: ${String(error)}`
     );
   }
 
   const reader = source.getReader();
   // Overall deadline covers the WHOLE exchange - source reads and INSTREAM
-  // writes included. Previously only the verdict wait was bounded, so a
-  // daemon stalling mid-transfer pinned the media row in SCANNING forever.
+  // writes included. A daemon stalling mid-transfer must not pin the media
+  // row in SCANNING forever.
   const deadline = Date.now() + timeoutMs;
   const assertTimeLeft = (): void => {
     if (Date.now() > deadline) {
@@ -78,17 +82,22 @@ export async function scanStream(
       );
     }
   };
+
+  const readResponse = (async () => {
+    const response = await new Response(proc.stdout).text();
+    return parseResponse(response);
+  })();
+
   try {
     assertTimeLeft();
-    await socket.write(new TextEncoder().encode("zINSTREAM\0"));
+    // stdin.write returns a Promise that resolves under real backpressure,
+    // so the ordered INSTREAM framing cannot desync the way the raw socket
+    // writes could.
+    await proc.stdin.write(new TextEncoder().encode("zINSTREAM\0"));
 
-    // The INSTREAM framing is order-sensitive; chunks must be written
-    // sequentially or the daemon reassembles a corrupt byte stream.
-    // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
     for (;;) {
       assertTimeLeft();
-      // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
-      // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
+      // oxlint-disable-next-line no-await-in-loop -- ordered stream consumption
       const { done, value } = await reader.read();
       if (done) {
         break;
@@ -100,32 +109,22 @@ export async function scanStream(
       new DataView(framed.buffer).setUint32(0, value.length, false);
       framed.set(value, 4);
       // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
-      // oxlint-disable-next-line no-await-in-loop -- ordered socket framing
-      await socket.write(framed);
+      await proc.stdin.write(framed);
     }
     assertTimeLeft();
     // Zero-length chunk terminates the stream; the verdict follows.
-    await socket.write(new Uint8Array(4));
+    await proc.stdin.write(new Uint8Array(4));
+    await proc.stdin.end();
 
-    // oxlint-disable-next-line no-await-in-loop -- bounded polling loop
-    for (;;) {
-      if (failure) {
-        throw failure;
-      }
-      const joined = Buffer.concat(responseChunks);
-      const terminatorAt = joined.indexOf(0);
-      if (terminatorAt !== -1) {
-        return parseResponse(joined.toString("latin1", 0, terminatorAt + 1));
-      }
-      if (Date.now() > deadline) {
-        throw new ClamAvUnavailableError("clamd verdict timed out");
-      }
-      // oxlint-disable-next-line no-await-in-loop -- bounded polling
-      // oxlint-disable-next-line no-await-in-loop -- bounded polling
-      await Bun.sleep(25);
-    }
+    return await readResponse;
+  } catch (error) {
+    // Drop the race loser so a stuck exchange cannot leak the process.
+    proc.kill();
+    throw error;
   } finally {
     reader.releaseLock();
-    socket.end();
   }
+  // readResponse is not awaited in finally on the success path; on timeout
+  // or error the kill above terminates nc and the response promise settles
+  // discarded (any rejection is prevented by the kill closing stdout).
 }

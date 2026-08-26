@@ -88,6 +88,66 @@ const getCommonClasses = (isSmall: boolean, isMobile: boolean) =>
     isSmall || isMobile ? "aspect-square" : "aspect-square sm:h-72"
   );
 
+// Bento tiles load images behind an internal skeleton and fade them in, so
+// grouped posts never show blank tiles that pop in when the bytes land.
+// Mirrors GridImagePreview's loading treatment but fills the bento cell.
+const BentoImagePreview = ({ media }: { media: Media }) => {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFailed, setIsFailed] = useState(false);
+
+  // Handle cached images that are already complete before onLoad fires.
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setIsLoading(false);
+    }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- media.id is stable, media object identity triggers correctly
+  }, [media.id]);
+
+  if (isFailed) {
+    return (
+      <div className="bg-muted/20 relative h-full w-full overflow-hidden">
+        <Image
+          alt="Attachment unavailable"
+          className="h-full w-full object-cover opacity-60"
+          fill
+          sizes="(max-width: 768px) 50vw, 33vw"
+          src={noMediaImage}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full w-full">
+      {isLoading ? (
+        <div className="bg-muted/40 absolute inset-0 animate-pulse" />
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element -- bento tiles use direct proxy URL with srcSet */}
+      <img
+        alt="Attachment"
+        className={cn(
+          "h-full w-full object-cover",
+          isLoading ? "opacity-0" : "asm-media-reveal"
+        )}
+        decoding="async"
+        loading="lazy"
+        onError={() => {
+          setIsFailed(true);
+          setIsLoading(false);
+        }}
+        onLoad={() => setIsLoading(false)}
+        ref={imgRef}
+        sizes="(max-width: 768px) 50vw, 33vw"
+        src={getMediaProxyUrl(media)}
+        srcSet={getMediaImageSrcSet(media)}
+        style={{ objectFit: "cover" }}
+      />
+    </div>
+  );
+};
+
 const GridImagePreview = ({
   isMobile,
   isSmall,
@@ -144,8 +204,8 @@ const GridImagePreview = ({
         alt="Attachment"
         className={cn(
           getCommonClasses(isSmall, isMobile),
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-          isLoading ? "opacity-0" : "opacity-100"
+          "absolute inset-0 h-full w-full object-cover",
+          isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
         loading="lazy"
@@ -609,11 +669,11 @@ const SingleImagePreview = ({
       <img
         alt="Attachment"
         className={cn(
-          "rounded-xl object-contain transition-opacity duration-300",
+          "rounded-xl object-contain",
           isPortrait
             ? "h-auto max-h-[72vh] w-auto max-w-full"
             : "h-auto w-full",
-          isLoading ? "opacity-0" : "opacity-100"
+          isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
         height={dims?.h ?? 600}
@@ -875,19 +935,7 @@ export const MediaPreviews = ({
           </object>
         );
       }
-      return (
-        // eslint-disable-next-line @next/next/no-img-element -- bento tiles use direct proxy URL with srcSet
-        <img
-          alt="Attachment"
-          className="h-full w-full object-cover"
-          decoding="async"
-          loading="lazy"
-          sizes="(max-width: 768px) 50vw, 33vw"
-          src={getMediaProxyUrl(m)}
-          srcSet={getMediaImageSrcSet(m)}
-          style={{ objectFit: "cover" }}
-        />
-      );
+      return <BentoImagePreview media={m} />;
     }
     if (m.type === "VIDEO") {
       return <VideoPreview autoPlay={autoPlayVideos} fill media={m} />;
@@ -1337,19 +1385,7 @@ export const MediaPreviews = ({
                             </object>
                           );
                         }
-                        return (
-                          // eslint-disable-next-line @next/next/no-img-element -- bento uses direct proxy URL with srcSet for art direction
-                          <img
-                            alt="Attachment"
-                            className="h-full w-full object-cover"
-                            decoding="async"
-                            loading="lazy"
-                            sizes="(max-width: 768px) 50vw, 33vw"
-                            src={getMediaProxyUrl(m)}
-                            srcSet={getMediaImageSrcSet(m)}
-                            style={{ objectFit: "cover" }}
-                          />
-                        );
+                        return <BentoImagePreview media={m} />;
                       }
                       if (m.type === "VIDEO") {
                         return (

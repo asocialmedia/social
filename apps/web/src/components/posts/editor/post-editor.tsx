@@ -132,17 +132,15 @@ export default function PostEditor({
 
   // Shared contract with the server-side cap in submitPost.
   const capacityFull = attachments.length >= MAX_POST_ATTACHMENTS;
-  // Two or more media items form a "group": mixed-mode options (GIFs, audio,
-  // gust switching) lock because a group post is image/video-only, and the
-  // lock holds after uploading finishes, not just during it. A single video
-  // keeps the switcher live so it can still be published as a gust.
+  // A single attachment still offers gust switching; only an actual video
+  // makes the post video-only (GIFs and audio lock, matching how published
+  // posts render video). Audio mixes freely with images/GIFs/videos - the
+  // feed's bento/grid tiles already render AUDIO cells alongside the rest.
   const isGroupMedia = attachments.length > 1;
-  // Any video makes the post video-only: GIFs and audio lock even for a
-  // single clip, matching how published posts render mixed media.
   const hasVideoAttachment = attachments.some((a) =>
     (a.file?.type ?? a.type ?? "").startsWith("video/")
   );
-  const mixedMediaLocked = isGroupMedia || hasVideoAttachment;
+  const mixedMediaLocked = hasVideoAttachment;
   const attachmentOptionsDisabled = isUploading || capacityFull;
   // Media-only posts are publishable: a completed attachment satisfies the
   // caption requirement (server schema enforces "text or attachment" too).

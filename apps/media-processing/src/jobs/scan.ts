@@ -16,7 +16,11 @@ import {
 } from "@asm/media";
 import type { MediaScanJobData } from "@asm/media";
 
-import { scanStream, ClamAvUnavailableError } from "../clamav";
+import {
+  scanStream,
+  ClamAvSizeLimitError,
+  ClamAvUnavailableError,
+} from "../clamav";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 import { inspectAssetProvenance } from "../provenance/reader";
@@ -123,10 +127,19 @@ export function processMediaScan(
       }
 
       // Conditional claim: duplicate jobs and post-crash retries become
-      // no-ops instead of double-processing.
+      // no-ops instead of double-processing. PROCESSING is also claimable:
+      // the row enters it between the publish flips, so a worker dying
+      // mid-scan (OOM, crash, dev restart) would otherwise strand the row
+      // forever - no serving object exists yet, and the original is still
+      // under quarantine/, so rescanning is the only recovery path. A row
+      // already carrying a published key in PROCESSING is being actively
+      // published by a live worker and stays off-limits (guarded below).
       const claim = await prisma.media.updateMany({
         data: { attempts: { increment: 1 }, status: "SCANNING" },
-        where: { id: mediaId, status: "QUARANTINED" },
+        where:
+          media.status === "PROCESSING" && !media.publishedKey
+            ? { id: mediaId, publishedKey: null, status: "PROCESSING" }
+            : { id: mediaId, status: "QUARANTINED" },
       });
       if (claim.count === 0) {
         return {
@@ -266,6 +279,17 @@ export function processMediaScan(
           } catch (error) {
             if (error instanceof ClamAvUnavailableError) {
               throw error;
+            }
+            if (error instanceof ClamAvSizeLimitError) {
+              // The file exceeds the daemon's StreamMaxLength - a property
+              // of the upload, so reject with a user-facing reason instead
+              // of retrying forever as a scanner problem.
+              return await rejectMedia(
+                mediaId,
+                "TOO_LARGE",
+                "av-size-limit",
+                "file exceeds the antivirus scanner's size limit"
+              );
             }
             return await rejectMedia(
               mediaId,

@@ -10,9 +10,6 @@
   outline: none;
 }
 
-/* Composer progress bar: sliding shine over the ACTIVE pipeline segment.
-   Communicates "working" through motion across the filled part only - the
-   track width itself stays truthful to completed stages. */
 @keyframes asm-progress-shine {
   from {
     transform: translateX(-120%);
@@ -37,4 +34,25 @@
     transparent
   );
   animation: asm-progress-shine 1.2s ease-in-out infinite;
+}
+
+@keyframes asm-eq {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1.2);
+  }
+}
+
+.asm-eq-bar {
+  transform-origin: center;
+  animation: asm-eq 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .asm-eq-bar {
+    animation: none;
+  }
 }

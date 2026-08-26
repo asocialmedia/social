@@ -1,6 +1,5 @@
 import noMediaImage from "@assets/general/nomedia.png";
 import {
-  FileAudioIcon,
   FileIcon,
   FilmIcon,
   Pause,
@@ -16,6 +15,8 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { formatFileName } from "@/lib/format-file-name";
 import type { UploadStage } from "@/lib/media-upload-client";
 import { cn } from "@/lib/utils";
+
+import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
 
 // How much of the track stays filled once bytes have landed, per REAL
 // pipeline phase. Stages are genuine server states, so these widths are
@@ -85,6 +86,9 @@ const AttachmentPreviewInner = ({
   const [objectUrl, setObjectUrl] = useState<string>(
     existingPreviewUrl || mediaUrl || ""
   );
+  // Real per-bar peaks decoded from the audio file itself; null until the
+  // decode finishes, so the visualizer falls back to a flat-ish profile.
+  const [waveform, setWaveform] = useState<number[] | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -94,6 +98,7 @@ const AttachmentPreviewInner = ({
   // underneath shows through until then (no black-void flash).
   const [hasFirstFrame, setHasFirstFrame] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Restored drafts of rows still mid-pipeline get 404s from the serving
   // gate until READY; fall back to the placeholder instead of a broken img.
@@ -136,6 +141,100 @@ const AttachmentPreviewInner = ({
     video.muted = !video.muted;
     setIsMuted(video.muted);
   }, []);
+
+  const handleToggleAudioPlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    if (audio.paused) {
+      void audio.play();
+    } else {
+      audio.pause();
+    }
+  }, []);
+
+  const waveformRowRef = useRef<HTMLDivElement>(null);
+
+  // Click the waveform to seek: the fraction under the pointer becomes the
+  // new position, then playback starts (SoundCloud-style tap-to-play).
+  const handleWaveformSeek = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+      const audio = audioRef.current;
+      const row = waveformRowRef.current;
+      if (
+        !audio ||
+        !row ||
+        !Number.isFinite(audio.duration) ||
+        audio.duration <= 0
+      ) {
+        return;
+      }
+      const rect = row.getBoundingClientRect();
+      const fraction = Math.min(
+        1,
+        Math.max(0, (event.clientX - rect.left) / rect.width)
+      );
+      audio.currentTime = fraction * audio.duration;
+      if (audio.paused) {
+        void audio.play();
+      }
+    },
+    []
+  );
+
+  const handleWaveformSeekKey = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const audio = audioRef.current;
+      if (!audio || !Number.isFinite(audio.duration)) {
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        const delta = event.key === "ArrowRight" ? 5 : -5;
+        audio.currentTime = Math.min(
+          audio.duration,
+          Math.max(0, audio.currentTime + delta)
+        );
+      }
+    },
+    []
+  );
+
+  // Decode the audio bytes (blob for fresh uploads, media URL for restored
+  // drafts) and shape the visualizer from the track's own waveform.
+  useEffect(() => {
+    if (!mimeType.startsWith("audio") || !objectUrl) {
+      return;
+    }
+    let cancelled = false;
+    const computeWaveform = async () => {
+      try {
+        const response = await fetch(objectUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const AudioContextClass =
+          window.AudioContext ||
+          (window as Window & { webkitAudioContext?: typeof AudioContext })
+            .webkitAudioContext;
+        if (!AudioContextClass) {
+          return;
+        }
+        const context = new AudioContextClass();
+        const decoded = await context.decodeAudioData(arrayBuffer);
+        void context.close();
+        if (!cancelled) {
+          setWaveform(extractWaveform(decoded.getChannelData(0), EQ_BAR_COUNT));
+        }
+      } catch {
+        // Undecodable bytes keep the fallback profile; the player still works.
+      }
+    };
+    void computeWaveform();
+    return () => {
+      cancelled = true;
+    };
+  }, [mimeType, objectUrl]);
 
   // Gust clips are 9:16 portrait; regular video attachments follow the
   // standard post aspect.
@@ -264,23 +363,98 @@ const AttachmentPreviewInner = ({
     }
 
     if (mimeType.startsWith("audio")) {
+      // SoundCloud-style player: play/pause on the left, an equalizer of
+      // vertical bars that animates while playing, filename + time above.
+      // The native audio element is hidden and driven through a ref.
       return (
-        <div className="apple-panel w-full rounded-2xl p-6">
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center">
-              <FileAudioIcon className="text-primary h-full w-full" />
+        <div className="apple-panel relative w-full overflow-hidden rounded-2xl">
+          <div className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+            <button
+              aria-label={isPlaying ? "Pause audio" : "Play audio"}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] transition-all hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px"
+              onClick={handleToggleAudioPlay}
+              type="button"
+            >
+              {isPlaying ? (
+                <Pause className="size-5 fill-current" />
+              ) : (
+                <Play className="ml-0.5 size-5 fill-current" />
+              )}
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <p className="truncate text-sm font-medium">
+                  {formatFileName(fileName)}
+                </p>
+                <span className="text-muted-foreground shrink-0 text-xs font-medium tabular-nums">
+                  {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+                </span>
+              </div>
+              {/* oxlint-disable jsx-a11y/prefer-tag-over-role -- the seek bar is the waveform itself; an <input type=range> cannot render the bars */}
+              <div
+                aria-label="Audio seek bar"
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={Math.round(progressFraction * 100)}
+                className="group/seek mt-2 flex h-10 cursor-pointer items-center gap-px"
+                onClick={handleWaveformSeek}
+                onKeyDown={handleWaveformSeekKey}
+                ref={waveformRowRef}
+                role="slider"
+                tabIndex={0}
+              >
+                {/* oxlint-enable jsx-a11y/prefer-tag-over-role */}
+                {(waveform ?? EQ_FALLBACK_HEIGHTS).map((height, index) => {
+                  const isWaveformLoading = waveform === null;
+                  const isPlayed = isWaveformLoading || index < playedUntilBar;
+                  return (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex-1 rounded-full transition-colors duration-200",
+                        isPlayed
+                          ? "bg-linear-to-b from-[#ff9500] to-[#e65500]"
+                          : "bg-zinc-500/40",
+                        (isWaveformLoading || (isPlaying && isPlayed)) &&
+                          "asm-eq-bar"
+                      )}
+                      key={index}
+                      style={{
+                        animationDelay:
+                          isWaveformLoading || isPlaying
+                            ? `${-index * 0.06}s`
+                            : undefined,
+                        height: `${height * 100}%`,
+                      }}
+                    />
+                  );
+                })}
+              </div>
             </div>
-            <div className="w-full max-w-62.5 px-2">
-              <p className="truncate text-center text-sm font-medium">
-                {formatFileName(fileName)}
-              </p>
-            </div>
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded preview, no caption source available */}
-            <audio className="w-full max-w-md" controls preload="metadata">
-              <source src={objectUrl} type={mimeType} />
-              Your browser does not support the audio element.
-            </audio>
           </div>
+
+          {/* Native audio drives playback; the visualizer is the control UI. */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded preview, no caption source available */}
+          <audio
+            aria-label={`Audio ${fileName}`}
+            className="hidden"
+            onDurationChange={(event) => {
+              if (Number.isFinite(event.currentTarget.duration)) {
+                setDuration(event.currentTarget.duration);
+              }
+            }}
+            onPause={() => setIsPlaying(false)}
+            onPlay={() => setIsPlaying(true)}
+            onTimeUpdate={(event) => {
+              setCurrentTime(event.currentTarget.currentTime);
+            }}
+            preload="metadata"
+            ref={audioRef}
+          >
+            <source src={objectUrl} type={mimeType} />
+            Your browser does not support the audio element.
+          </audio>
         </div>
       );
     }
@@ -304,8 +478,23 @@ const AttachmentPreviewInner = ({
     );
   };
 
+  // Seek-bar state: bars up to the played fraction are "played" (orange), the
+  // rest stay gray until reached.
+  const progressFraction =
+    duration > 0 ? Math.min(1, currentTime / duration) : 0;
+  const playedUntilBar = progressFraction * EQ_BAR_COUNT;
+
   // Dim the asset while uploading or when it has failed (so the retry bar pops)
   const hasError = Boolean(error);
+
+  // The floating ALT chip clears the bottom-left media controls: video's mute
+  // toggle (40px), audio's larger play button (64px), or the tile edge.
+  let altChipPosition = "left-2";
+  if (fileType?.startsWith("video")) {
+    altChipPosition = "left-10";
+  } else if (fileType?.startsWith("audio")) {
+    altChipPosition = "left-16";
+  }
 
   let errorTitle: string;
   // oxlint-disable unicorn/prefer-ternary -- nested ternary is banned, keep explicit if/else for error title
@@ -459,7 +648,7 @@ const AttachmentPreviewInner = ({
           aria-label={altText ? "Edit alt text" : "Add alt text to this media"}
           className={cn(
             "rail-3d-btn absolute bottom-2 z-10 flex h-7 max-w-[70%] cursor-pointer items-center rounded-full p-0 px-2.5 text-xs font-medium",
-            fileType?.startsWith("video") ? "left-10" : "left-2"
+            altChipPosition
           )}
           onClick={onEditAltClick}
           type="button"

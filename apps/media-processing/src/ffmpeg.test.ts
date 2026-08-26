@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { dHash64, parseRate } from "./ffmpeg";
+import {
+  dHash64,
+  enforceDecoderLimits,
+  parseRate,
+  ResourceLimitError,
+  withTimeout,
+} from "./ffmpeg";
 
 describe("dHash64 perceptual hashing", () => {
   test("uniform pixels hash to zero (no horizontal gradients)", () => {
@@ -55,5 +61,89 @@ describe("ffmpeg rate parsing", () => {
     expect(parseRate("")).toBe(0);
     expect(parseRate("N/A")).toBe(0);
     expect(parseRate("5/0")).toBe(0);
+  });
+});
+
+describe("decoder resource limits", () => {
+  const baseLimits = {
+    maxBitrateKbps: 20_000,
+    maxDimension: 20_000,
+    maxFps: 60,
+    maxVideoDurationSec: 30 * 60,
+  };
+
+  const baseProbe = {
+    audio: null,
+    container: "mp4",
+    durationSec: 600,
+    formatBitrateKbps: 5000,
+    video: {
+      bitrateKbps: 4500,
+      codec: "h264",
+      colorSpace: undefined,
+      colorTransfer: undefined,
+      fps: 30,
+      frameRateMode: "CFR" as const,
+      height: 1080,
+      pix_fmt: "yuv420p",
+      pixelFormat: "yuv420p",
+      rotation: 0,
+      width: 1920,
+    },
+  };
+
+  test("a compliant stream passes untouched", () => {
+    expect(() => enforceDecoderLimits(baseProbe, baseLimits)).not.toThrow();
+  });
+
+  test("over-duration streams are rejected", () => {
+    expect(() =>
+      enforceDecoderLimits({ ...baseProbe, durationSec: 31 * 60 }, baseLimits)
+    ).toThrow(ResourceLimitError);
+  });
+
+  test("over-fps streams are rejected", () => {
+    const video = { ...baseProbe.video, fps: 240 };
+    expect(() =>
+      enforceDecoderLimits({ ...baseProbe, video }, baseLimits)
+    ).toThrow(ResourceLimitError);
+  });
+
+  test("over-bitrate streams are rejected", () => {
+    expect(() =>
+      enforceDecoderLimits(
+        { ...baseProbe, formatBitrateKbps: 25_000 },
+        baseLimits
+      )
+    ).toThrow(ResourceLimitError);
+  });
+
+  test("over-dimension streams are rejected on either axis", () => {
+    const wide = { ...baseProbe.video, width: 30_000 };
+    const tall = { ...baseProbe.video, height: 30_000 };
+    expect(() =>
+      enforceDecoderLimits({ ...baseProbe, video: wide }, baseLimits)
+    ).toThrow(ResourceLimitError);
+    expect(() =>
+      enforceDecoderLimits({ ...baseProbe, video: tall }, baseLimits)
+    ).toThrow(ResourceLimitError);
+  });
+
+  test("audio-only probes skip video checks but keep duration/bitrate", () => {
+    const audioOnly = { ...baseProbe, video: null };
+    expect(() => enforceDecoderLimits(audioOnly, baseLimits)).not.toThrow();
+    expect(() =>
+      enforceDecoderLimits({ ...audioOnly, durationSec: 61 * 60 }, baseLimits)
+    ).toThrow(ResourceLimitError);
+  });
+
+  test("withTimeout resolves fast work and rejects slow work", async () => {
+    await expect(withTimeout(Promise.resolve(7), 1000, "late")).resolves.toBe(
+      7
+    );
+    await expect(
+      // eslint-disable-next-line promise/avoid-new -- a never-settling promise is the point of the deadline test
+      withTimeout(new Promise<never>(() => {}), 10, "deadline hit")
+    ).rejects.toThrow("deadline hit");
   });
 });

@@ -31,7 +31,7 @@ export interface MediaLimits {
 }
 
 export const DEFAULT_LIMITS: MediaLimits = {
-  maxAudioBytes: 25 * 1024 * 1024,
+  maxAudioBytes: 50 * 1024 * 1024,
   maxAudioDurationSec: 60 * 60,
   maxBitrateKbps: 20_000,
   maxConcurrentProcessingPerUser: 5,

@@ -12,7 +12,12 @@ import {
 } from "@asm/media";
 import type { MediaLimits } from "@asm/media";
 
-import { runFfmpeg, probeMedia } from "../ffmpeg";
+import {
+  enforceDecoderLimits,
+  runFfmpeg,
+  withTimeout,
+  probeMedia,
+} from "../ffmpeg";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
 
@@ -27,7 +32,21 @@ export async function processMediaAudio(input: {
     "job.media-process-audio",
     async () => {
       const s3 = getS3();
-      const probe = await probeMedia(input.sourcePath);
+      // Bounded probe: a malformed container that hangs ffprobe must not
+      // pin a worker slot until BullMQ retries run out.
+      const probe = await withTimeout(
+        probeMedia(input.sourcePath),
+        input.limits.processingTimeoutMs,
+        "audio probe timed out"
+      );
+      // Duration/bitrate ceilings before any transcode; the guard skips its
+      // video-stream checks because probe.video is null for audio.
+      enforceDecoderLimits(probe, {
+        maxBitrateKbps: input.limits.maxBitrateKbps,
+        maxDimension: Number.MAX_SAFE_INTEGER,
+        maxFps: Number.MAX_SAFE_INTEGER,
+        maxVideoDurationSec: input.limits.maxAudioDurationSec,
+      });
       const derivatives: {
         durationMs?: number;
         key: string;

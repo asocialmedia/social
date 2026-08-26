@@ -6,6 +6,7 @@ describe("media limits", () => {
   test("defaults are generous and match product ceilings", () => {
     expect(DEFAULT_LIMITS.maxVideoBytes).toBe(250 * 1024 * 1024);
     expect(DEFAULT_LIMITS.maxImageBytes).toBe(25 * 1024 * 1024);
+    expect(DEFAULT_LIMITS.maxAudioBytes).toBe(50 * 1024 * 1024);
     expect(DEFAULT_LIMITS.maxPixelCount).toBeGreaterThan(50_000_000);
     expect(DEFAULT_LIMITS.maxFilesPerRequest).toBe(5);
   });

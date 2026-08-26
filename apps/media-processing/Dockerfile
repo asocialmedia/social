@@ -19,6 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         libgomp1 \
         libstdc++6 \
+        # netcat: the ClamAV INSTREAM transport (Bun socket.write drops data
+        # under TCP backpressure; the nc subprocess pipe gets kernel-level
+        # flow control). See src/clamav.ts.
+        netcat-openbsd \
         tini \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 1001 media \

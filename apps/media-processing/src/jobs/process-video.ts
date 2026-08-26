@@ -12,8 +12,10 @@ import {
 import type { MediaLimits } from "@asm/media";
 
 import {
+  enforceDecoderLimits,
   extractGrayPixels,
   runFfmpeg,
+  withTimeout,
   FfmpegError,
   probeMedia,
 } from "../ffmpeg";
@@ -32,11 +34,27 @@ export async function processMediaVideo(input: {
     "job.media-process-video",
     async () => {
       const s3 = getS3();
-      const probe: ProbeResult = await probeMedia(input.sourcePath);
+      // Bounded probe: a malformed container that hangs ffprobe must not
+      // pin a worker slot until BullMQ retries run out.
+      const probe: ProbeResult = await withTimeout(
+        probeMedia(input.sourcePath),
+        input.limits.processingTimeoutMs,
+        "video probe timed out"
+      );
 
       if (!probe.video) {
         throw new FfmpegError("video stream missing despite scan pass");
       }
+
+      // Decoder ceilings before any encode work: over-limit streams are a
+      // policy rejection, not a transient failure - let the error bubble so
+      // the failed handler marks the row after retries exhaust.
+      enforceDecoderLimits(probe, {
+        maxBitrateKbps: input.limits.maxBitrateKbps,
+        maxDimension: input.limits.maxDimension,
+        maxFps: input.limits.maxFps,
+        maxVideoDurationSec: input.limits.maxVideoDurationSec,
+      });
 
       // Rotation metadata is applied physically so every derivative is
       // upright without client-side handling.
