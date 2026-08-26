@@ -23,8 +23,6 @@ model User {
   redditId         String?   @unique
   avatarUrl        String?
   avatarKey        String?
-  // New pipeline: avatars are Media rows that went through quarantine/scan;
-  // SetNull keeps the user intact if the row is ever reaped.
   avatarMediaId    String?   @unique
   avatarMedia      Media?    @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
   bannerUrl        String?
@@ -413,76 +411,72 @@ model Tag {
 }
 
 model Media {
-  id              String    @id @default(cuid())
-  postId          String?
-  post            Post?     @relation(fields: [postId], references: [id], onDelete: SetNull)
-  commentId       String?
-  comment         Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  userId          String?
-  avatarOf        User?     @relation("UserAvatar")
-  url             String
-  key             String    @default("")
-  mimeType        String    @default("application/octet-stream")
+  id                  String           @id @default(cuid())
+  postId              String?
+  post                Post?            @relation(fields: [postId], references: [id], onDelete: SetNull)
+  commentId           String?
+  comment             Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId              String?
+  avatarOf            User?            @relation("UserAvatar")
+  url                 String
+  key                 String           @default("")
+  mimeType            String           @default("application/octet-stream")
   // Coarse category written at upload initiation from the declared MIME
   // (mediaTypeFromMime) and consumed across serving surfaces. mimeType
   // stays the precise source of truth; this drives routing/UI switches.
-  type            MediaType @default(IMAGE)
-  size            Int       @default(0)
-  width           Int?
-  height          Int?
+  type                MediaType        @default(IMAGE)
+  size                Int              @default(0)
+  width               Int?
+  height              Int?
   // Frame extracted at ~2s for video uploads; served via /api/media/{id}?thumb=1
-  thumbnailKey      String?
-  thumbnailWidth    Int?
-  thumbnailHeight   Int?
+  thumbnailKey        String?
+  thumbnailWidth      Int?
+  thumbnailHeight     Int?
   // True when the pipeline generated an adaptive HLS ladder for this video
   // (long-form or >1080p sources); clients use it to pick the streaming URL.
-  hasHls            Boolean @default(false)
-  createdAt         DateTime  @default(now())
-
-  // ── Pipeline lifecycle (new media pipeline) ─────────────────────────────
+  hasHls              Boolean          @default(false)
+  createdAt           DateTime         @default(now())
   // Legacy rows keep status UPLOADING with a legacy `key`; the serving route
   // falls back to legacy columns whenever no derivatives exist, so old posts
   // never break. New uploads always walk the state machine.
-  status           MediaStatus      @default(UPLOADING)
-  visibility       MediaVisibility  @default(PUBLIC)
-  originalKey      String?
-  publishedKey     String?
-  claimedMime      String?
-  detectedMime     String?
-  originalName     String?
-  sha256           String?
-  phash            String?
-  rejectedReason   RejectionReason?
-  failureCode      String?
-  failureDetail    Json?
-  attempts         Int              @default(0)
-  techMetadata     Json?
-  exifStripped     Boolean          @default(false)
-  altText          String?
-  generatedAltText String?
-  safety           Json?
-  semantics        Json?
+  status              MediaStatus      @default(UPLOADING)
+  visibility          MediaVisibility  @default(PUBLIC)
+  originalKey         String?
+  publishedKey        String?
+  claimedMime         String?
+  detectedMime        String?
+  originalName        String?
+  sha256              String?
+  phash               String?
+  rejectedReason      RejectionReason?
+  failureCode         String?
+  failureDetail       Json?
+  attempts            Int              @default(0)
+  techMetadata        Json?
+  exifStripped        Boolean          @default(false)
+  altText             String?
+  generatedAltText    String?
+  safety              Json?
+  semantics           Json?
   // Content provenance (C2PA): AI-generation classification recorded by the
   // scan stage. Null means never inspected (legacy/pre-pipeline rows). The
   // row flag is authoritative - embedded manifests can be stripped, this
   // cannot, and it survives re-uploads of the same media id.
-  aiGenerated      Boolean?
-  aiProvenance     Json?
-  pipelineVersion  String?
-  processedAt      DateTime?
+  aiGenerated         Boolean?
+  aiProvenance        Json?
+  pipelineVersion     String?
+  processedAt         DateTime?
   // Default(now()) lets db push backfill existing rows instead of refusing
   // the migration; @updatedAt keeps Prisma refreshing it on every write.
-  updatedAt        DateTime         @default(now()) @updatedAt
+  updatedAt           DateTime         @default(now()) @updatedAt
   // ThumbHash LQIP data URL (~500 bytes) inlined into API responses.
-  blurDataUrl      String?
-
-  // ── Platform-level metadata ────────────────────────────────────────────
+  blurDataUrl         String?
   // Authoritative record attached by the scan stage at publish time. This
   // lives in the database ON PURPOSE: provenance embedded in binary files
   // can be stripped by any re-upload, while this record survives and keeps
   // answering "who posted what, when, through which pipeline version".
   // Identifies the platform that processed and serves this media.
-  platform            String  @default("asocialmedia.cc")
+  platform            String           @default("asocialmedia.cc")
   // Author display name snapshot taken when the media was published, so
   // attribution survives later profile renames.
   uploaderDisplayName String?
@@ -710,8 +704,6 @@ enum NotificationType {
   COMMENT
   MENTION
   MODERATION
-  // Issued by the platform persona (Zeph) to the author when their post or
-  // gust finishes publishing.
   PUBLISHED
 }
 

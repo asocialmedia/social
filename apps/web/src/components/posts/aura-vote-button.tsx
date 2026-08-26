@@ -251,7 +251,9 @@ export default function AuraVoteButton({
           aria-hidden="true"
           className={cn(
             "h-6 w-6",
-            data.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+            data.aura < 0
+              ? "fill-[#7c5cff] text-[#7c5cff]"
+              : "fill-orange-500 text-orange-500"
           )}
         />
         {formatNumber(data.aura)}

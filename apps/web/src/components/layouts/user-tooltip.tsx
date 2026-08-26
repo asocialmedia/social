@@ -7,12 +7,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
+import { Flame } from "lucide-react";
 import Link from "next/link";
 import type { PropsWithChildren } from "react";
 import { useSyncExternalStore } from "react";
 import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { cn, formatNumber } from "@/lib/utils";
 
 import FollowButton from "./follow-button";
 import FollowerCount from "./follower-count";
@@ -92,14 +94,35 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
       <Tooltip>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent className="apple-panel overflow-hidden bg-transparent p-1.5 shadow-none">
-          <div className="flex max-w-80 flex-col gap-3 px-1 py-2.5 break-words md:min-w-52">
-            <div className="flex items-center justify-between gap-2">
+          <div className="flex max-w-80 flex-col gap-3 px-2.5 py-2.5 break-words md:min-w-52">
+            <div className="flex items-start justify-between gap-3">
               <Link href={`/users/${user.username}`}>
                 <UserAvatar avatarUrl={user.avatarUrl} size={70} />
               </Link>
-              {loggedInUser && loggedInUser.id !== user.id && (
-                <FollowButton initialState={followerState} userId={user.id} />
-              )}
+              <div className="flex flex-col items-end gap-2 pr-1">
+                <span
+                  className="inline-flex flex-col items-center gap-0.5"
+                  title="Aura"
+                >
+                  <Flame
+                    className={cn(
+                      "h-5 w-5",
+                      (user.aura ?? 0) < 0
+                        ? "fill-[#7c5cff] text-[#7c5cff]"
+                        : "fill-orange-500 text-orange-500"
+                    )}
+                  />
+                  <span className="text-foreground text-sm leading-none font-semibold tabular-nums">
+                    {formatNumber(user.aura ?? 0)}
+                  </span>
+                  <span className="text-muted-foreground text-[11px] leading-none">
+                    Aura
+                  </span>
+                </span>
+                {loggedInUser && loggedInUser.id !== user.id && (
+                  <FollowButton initialState={followerState} userId={user.id} />
+                )}
+              </div>
             </div>
             <div>
               <Link href={`/users/${user.username}`}>

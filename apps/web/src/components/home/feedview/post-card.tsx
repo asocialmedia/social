@@ -109,10 +109,13 @@ const PostContent: React.FC<PostContentProps> = ({
   }, [isExpanded, post.content, updateOverflow]);
 
   return (
-    <div className="flex gap-3">
+    <div className="flex items-start gap-3">
       {!detail && (
         <UserTooltip user={post.user}>
-          <Link className="shrink-0" href={`/users/${post.user.username}`}>
+          <Link
+            className="shrink-0 self-start"
+            href={`/users/${post.user.username}`}
+          >
             <UserAvatar
               avatarUrl={post.user.avatarUrl}
               className="h-10 w-10"
@@ -127,7 +130,7 @@ const PostContent: React.FC<PostContentProps> = ({
           {detail ? (
             <UserTooltip user={post.user}>
               <Link
-                className="shrink-0"
+                className="shrink-0 self-start"
                 href={`/users/${post.user.username}`}
                 prefetch={false}
               >
@@ -269,7 +272,12 @@ const PostContent: React.FC<PostContentProps> = ({
             ) : null}
 
             {!!post.attachments.length && (
-              <div className="mt-2.5 max-w-full overflow-hidden">
+              <div
+                className={cn(
+                  "max-w-full overflow-hidden",
+                  post.content?.trim() ? "mt-2.5" : "mt-3.5"
+                )}
+              >
                 {post.explicitContent ? (
                   <ExplicitContentGate revealKey={post.id}>
                     <MediaPreviews
@@ -420,18 +428,21 @@ interface CommentButtonProps {
   post: PostData;
 }
 
-const CommentButton = ({ post, onClick }: CommentButtonProps) => (
-  <button
-    className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
-    onClick={onClick}
-    type="button"
-  >
-    <MessageSquare className="size-5" />
-    <span className="text-sm font-medium tabular-nums">
-      {post._count.comments}
-    </span>
-  </button>
-);
+const CommentButton = ({ post, onClick }: CommentButtonProps) => {
+  const hasComments = post._count.comments > 0;
+  return (
+    <button
+      className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
+      onClick={onClick}
+      type="button"
+    >
+      <MessageSquare className={cn("size-5", hasComments && "fill-current")} />
+      <span className="text-sm font-medium tabular-nums">
+        {post._count.comments}
+      </span>
+    </button>
+  );
+};
 
 const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
