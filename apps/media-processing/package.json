@@ -1,6 +1,6 @@
 {
   "name": "@asm/media-processing",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "private": true,
   "description": "asocialmedia media pipeline worker: scan, validate, transcode, publish",
   "license": "AGPL-3.0",
@@ -15,6 +15,7 @@
     "@asm/logger": "workspace:*",
     "@asm/media": "workspace:*",
     "@contentauth/c2pa-node": "^0.9.1",
+    "@gutenye/ocr-node": "^1.4.8",
     "@opentelemetry/api": "^1.9.1",
     "@t3-oss/env-core": "^0.13.11",
     "bullmq": "^6.1.0",

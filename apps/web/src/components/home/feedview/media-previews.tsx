@@ -47,6 +47,15 @@ interface MediaPreviewsProps {
 // the parent grid to re-render and remount the <video> element mid-playback.
 const VIDEO_HOVER_DELAY = 350;
 
+// Feed bento layouts: 3-5 attachments render in one composed grid with no
+// "Show all" collapse. The first attachment is always the tall left tile and
+// the rest fill the right side. 6+ keeps the collapsible uniform grid.
+const FEED_BENTO_LAYOUTS: Record<number, { cols: string; spans: string[] }> = {
+  3: { cols: "grid-cols-2", spans: ["row-span-2", "", ""] },
+  4: { cols: "grid-cols-3", spans: ["row-span-2", "col-span-2", "", ""] },
+  5: { cols: "grid-cols-3", spans: ["row-span-2", "", "", "", ""] },
+};
+
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
 function formatTime(time: number): string {
@@ -676,6 +685,39 @@ export const MediaPreviews = ({
   const [showAll, setShowAll] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
 
+  // The grid wrapper animates its real height (measured, not a layout
+  // transform) so expanding/collapsing media grows the card smoothly without
+  // stretching the tiles inside. The grid's own height is measured (not the
+  // wrapper's scrollHeight) because exiting tiles are popped out of flow and
+  // would otherwise keep the scrollHeight pinned to the old expanded size.
+  const gridHeightWrapperRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [gridPixelHeight, setGridPixelHeight] = useState<number | null>(null);
+
+  const measureGridHeight = useCallback(() => {
+    const wrapper = gridHeightWrapperRef.current;
+    const grid = gridRef.current;
+    if (!wrapper || !grid) {
+      return;
+    }
+    // Force a synchronous recalc of the CURRENT wrapper height (the
+    // before-change style) so the CSS transition has a start value when the
+    // new height lands in the next recalc. React 19 flushes passive effects
+    // synchronously after discrete events, and the React Compiler would prune
+    // a bare offsetHeight read, so the value is consumed by a guard instead.
+    const currentWrapperHeight = wrapper.getBoundingClientRect().height;
+    if (currentWrapperHeight <= 0) {
+      return;
+    }
+    // offsetHeight includes the grid's own padding, so no computed-style
+    // parsing is needed.
+    setGridPixelHeight(grid.offsetHeight);
+  }, []);
+
+  useEffect(() => {
+    measureGridHeight();
+  }, [attachments.length, isMobile, measureGridHeight, showAll]);
+
   // "Show alt" from the post's more menu reveals uploader descriptions
   // inline under the grid. Nothing renders unless something is described.
   const altRevealed = useAltRevealed(post?.id);
@@ -743,6 +785,10 @@ export const MediaPreviews = ({
   const initialCount = 3;
   // Post page (autoPlay/detail) should always show all media in bento, no collapse.
   const isDetailBento = autoPlayVideos && attachments.length >= 5;
+  // Feed cards with 3-5 attachments show a composed bento (no "Show all"
+  // collapse); 6+ keeps the collapsible uniform grid.
+  const isFeedBento =
+    !isDetailBento && attachments.length >= 3 && attachments.length <= 5;
   const visibleAttachments =
     isDetailBento || showAll ? attachments : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
@@ -800,6 +846,48 @@ export const MediaPreviews = ({
     }
   };
 
+  // Cover-cropped cell content for the feed bento tiles (mirrors the post
+  // page bento's inline rendering; the layouts differ but the tiles look the
+  // same).
+  const renderBentoTileContent = (m: Media, index: number) => {
+    if (m.type === "IMAGE") {
+      if (m.mimeType === "image/svg+xml") {
+        return (
+          <object
+            className="h-full w-full object-cover"
+            data={getMediaUrl(m.id)}
+            type="image/svg+xml"
+          >
+            <Image
+              alt="Attachment unavailable"
+              className="h-full w-full object-cover opacity-60"
+              fill
+              sizes="(max-width: 768px) 50vw, 33vw"
+              src={noMediaImage}
+            />
+          </object>
+        );
+      }
+      return (
+        // eslint-disable-next-line @next/next/no-img-element -- bento tiles use direct proxy URL with srcSet
+        <img
+          alt="Attachment"
+          className="h-full w-full object-cover"
+          decoding="async"
+          loading="lazy"
+          sizes="(max-width: 768px) 50vw, 33vw"
+          src={getMediaProxyUrl(m)}
+          srcSet={getMediaImageSrcSet(m)}
+          style={{ objectFit: "cover" }}
+        />
+      );
+    }
+    if (m.type === "VIDEO") {
+      return <VideoPreview autoPlay={autoPlayVideos} fill media={m} />;
+    }
+    return renderPreview(m, index, true);
+  };
+
   const handleSelectImage = useCallback(
     (index: number) => () => openAtIndex(index),
     [openAtIndex]
@@ -847,7 +935,6 @@ export const MediaPreviews = ({
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         key={m.id}
-        layout
         onClick={handleSelect}
         transition={{
           delay: (index % 3) * 0.04,
@@ -1010,7 +1097,9 @@ export const MediaPreviews = ({
                   );
                 }
 
-                return renderGridTile(m, index + initialCount, "small");
+                return interactive
+                  ? renderGridTile(m, index + initialCount, "small")
+                  : renderGridCell(m, index + initialCount, "small");
               })}
             </div>
           </div>
@@ -1107,7 +1196,7 @@ export const MediaPreviews = ({
 
   return (
     <div className="w-full">
-      {!isBento && isMobile && first ? (
+      {!isFeedBento && !isBento && isMobile && first ? (
         <motion.div
           animate={{ opacity: 1, y: 0 }}
           className="mb-4 w-full"
@@ -1118,7 +1207,55 @@ export const MediaPreviews = ({
         </motion.div>
       ) : null}
 
-      {isBento ? (
+      {isFeedBento ? (
+        <motion.div
+          className={cn(
+            "grid gap-2",
+            "auto-rows-[130px] sm:auto-rows-[180px]",
+            FEED_BENTO_LAYOUTS[attachments.length].cols
+          )}
+        >
+          {attachments.map((m, index) => (
+            <motion.div
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className={cn(
+                "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
+                FEED_BENTO_LAYOUTS[attachments.length].spans[index]
+              )}
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              key={m.id}
+              onClick={interactive ? () => openAtIndex(index) : undefined}
+              onKeyDown={
+                interactive
+                  ? (event: React.KeyboardEvent<HTMLDivElement>) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openAtIndex(index);
+                      }
+                    }
+                  : undefined
+              }
+              role={interactive ? "button" : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              transition={{
+                delay: (index % 3) * 0.04,
+                duration: 0.32,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+            >
+              <div className="absolute inset-0 h-full w-full">
+                {renderBentoTileContent(m, index)}
+              </div>
+              <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+              <AiGeneratedBadge
+                className="absolute bottom-2 left-2 z-10"
+                media={m}
+              />
+            </motion.div>
+          ))}
+        </motion.div>
+      ) : null}
+      {!isFeedBento && isBento ? (
         <motion.div
           className={cn(
             "grid gap-2",
@@ -1142,7 +1279,19 @@ export const MediaPreviews = ({
                   exit={{ opacity: 0, scale: 0.96, y: 8 }}
                   initial={{ opacity: 0, scale: 0.96, y: 8 }}
                   key={m.id}
-                  layout
+                  onClick={interactive ? () => openAtIndex(index) : undefined}
+                  onKeyDown={
+                    interactive
+                      ? (event: React.KeyboardEvent<HTMLDivElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openAtIndex(index);
+                          }
+                        }
+                      : undefined
+                  }
+                  role={interactive ? "button" : undefined}
+                  tabIndex={interactive ? 0 : undefined}
                   transition={{
                     delay: index * 0.04,
                     duration: 0.32,
@@ -1214,53 +1363,72 @@ export const MediaPreviews = ({
             })}
           </AnimatePresence>
         </motion.div>
-      ) : (
-        <motion.div
-          className={cn(
-            "grid gap-4",
-            (() => {
-              if (isMobile) {
-                return "grid-cols-2";
-              }
-              if (visibleAttachments.length === 1) {
-                return "grid-cols-1";
-              }
-              if (visibleAttachments.length === 2) {
-                return "grid-cols-2";
-              }
-              return "grid-cols-3";
-            })()
-          )}
-          layout
-          transition={{ damping: 30, stiffness: 300, type: "spring" }}
+      ) : null}
+      {!isFeedBento && !isBento ? (
+        // The wrapper's height is a real CSS transition (measured px values,
+        // never a layout transform or "auto" interpolation), so the card
+        // grows and collapses smoothly without stretching the tiles.
+        <div
+          className="overflow-hidden"
+          ref={gridHeightWrapperRef}
+          style={{
+            height:
+              gridPixelHeight === null ? undefined : `${gridPixelHeight}px`,
+            transition:
+              gridPixelHeight === null
+                ? undefined
+                : "height 480ms cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
         >
-          <AnimatePresence initial={false} mode="popLayout">
-            {(isMobile ? rest : visibleAttachments).map((m, index) => {
-              const isSingleImage =
-                visibleAttachments.length === 1 &&
-                m.type === "IMAGE" &&
-                m.mimeType !== "image/svg+xml";
-              if (isSingleImage) {
-                return renderSingleImage(m, index);
-              }
-              const tileIndex = isMobile ? index + 1 : index;
-              if (interactive) {
-                return renderGridTile(m, tileIndex, "large");
-              }
-              return renderGridCell(m, tileIndex);
-            })}
-          </AnimatePresence>
-        </motion.div>
-      )}
+          <div
+            className={cn(
+              "grid gap-4 pt-1 pb-2",
+              (() => {
+                if (isMobile) {
+                  return "grid-cols-2";
+                }
+                if (visibleAttachments.length === 1) {
+                  return "grid-cols-1";
+                }
+                if (visibleAttachments.length === 2) {
+                  return "grid-cols-2";
+                }
+                return "grid-cols-3";
+              })()
+            )}
+            ref={gridRef}
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {(isMobile ? rest : visibleAttachments).map((m, index) => {
+                const isSingleImage =
+                  visibleAttachments.length === 1 &&
+                  m.type === "IMAGE" &&
+                  m.mimeType !== "image/svg+xml";
+                if (isSingleImage) {
+                  return renderSingleImage(m, index);
+                }
+                const tileIndex = isMobile ? index + 1 : index;
+                if (interactive) {
+                  return renderGridTile(m, tileIndex, "large");
+                }
+                return renderGridCell(m, tileIndex);
+              })}
+            </AnimatePresence>
+          </div>
+        </div>
+      ) : null}
 
-      <AnimatePresence initial={false}>
-        {!isBento && !showAll && attachments.length > initialCount
+      <AnimatePresence initial={false} mode="popLayout">
+        {!isFeedBento &&
+        !isBento &&
+        !showAll &&
+        attachments.length > initialCount
           ? renderShowMoreSection()
           : null}
       </AnimatePresence>
 
-      <AnimatePresence initial={false}>
-        {!isBento && showAll ? (
+      <AnimatePresence initial={false} mode="popLayout">
+        {!isFeedBento && !isBento && showAll ? (
           <motion.div
             animate={{ opacity: 1, scale: 1, y: 0 }}
             className="mt-3 px-0.5 pb-1"

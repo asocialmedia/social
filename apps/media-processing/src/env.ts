@@ -37,6 +37,7 @@ export const keys = createEnv({
     MEDIA_MAX_IMAGE_BYTES: process.env.MEDIA_MAX_IMAGE_BYTES,
     MEDIA_MAX_REQUEST_BYTES: process.env.MEDIA_MAX_REQUEST_BYTES,
     MEDIA_MAX_VIDEO_BYTES: process.env.MEDIA_MAX_VIDEO_BYTES,
+    MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
     MEDIA_PROCESSING_TIMEOUT_MS: process.env.MEDIA_PROCESSING_TIMEOUT_MS,
     MEDIA_REQUIRE_CLAMAV: process.env.MEDIA_REQUIRE_CLAMAV,
@@ -97,6 +98,10 @@ export const keys = createEnv({
     MEDIA_MAX_IMAGE_BYTES: numericOverride,
     MEDIA_MAX_REQUEST_BYTES: numericOverride,
     MEDIA_MAX_VIDEO_BYTES: numericOverride,
+    // Scene-text OCR in the analyze stage (PP-OCRv4 via onnxruntime-node).
+    // Models ship inside the @gutenye/ocr-node dependency - no external
+    // download - so this is a plain on/off switch.
+    MEDIA_OCR_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_ORIGINAL_RETENTION_DAYS: numericOverride,
     MEDIA_PROCESSING_TIMEOUT_MS: numericOverride,
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),
@@ -165,6 +170,12 @@ export const workerEnv = {
   },
   get LEGACY_GC_ENABLED() {
     return keys.MEDIA_LEGACY_GC_ENABLED === "1";
+  },
+  get OCR_ENABLED() {
+    // Default-on: under NODE_ENV=production t3-env skipValidation bypasses
+    // zod defaults, so an unset var must read as enabled - only an explicit
+    // "0" turns OCR off.
+    return keys.MEDIA_OCR_ENABLED !== "0";
   },
   get PUBLIC_BASE_URL() {
     return keys.NEXT_PUBLIC_URL;

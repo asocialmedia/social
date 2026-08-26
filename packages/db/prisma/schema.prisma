@@ -9,41 +9,40 @@ datasource db {
 }
 
 model User {
-  id               String    @id @default(cuid())
-  aura             Int       @default(0)
-  username         String    @unique
-  displayName      String
-  displayUsername  String?
-  email            String?   @unique
-  passwordHash     String?
-  googleId         String?   @unique
-  githubId         String?   @unique
-  discordId        String?   @unique
-  twitterId        String?   @unique
-  redditId         String?   @unique
-  avatarUrl        String?
-  avatarKey        String?
-  avatarMediaId    String?   @unique
-  avatarMedia      Media?    @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
-  bannerUrl        String?
-  bannerKey        String?
-  bio              String?
-  githubUsername   String?
-  linkedinUsername String?
-  twitterUsername  String?
-  redditUsername   String?
-  customDomain     String?
-  emailVerified    Boolean   @default(false)
-  emailVerifiedAt  DateTime?
-  image            String?
-  name             String?
-  role             String    @default("user")
-  badge            String?
-  badges           String[]  @default([])
-  banned           Boolean   @default(false)
-  banReason        String?
-  banExpires       DateTime?
-
+  id                    String                      @id @default(cuid())
+  aura                  Int                         @default(0)
+  username              String                      @unique
+  displayName           String
+  displayUsername       String?
+  email                 String?                     @unique
+  passwordHash          String?
+  googleId              String?                     @unique
+  githubId              String?                     @unique
+  discordId             String?                     @unique
+  twitterId             String?                     @unique
+  redditId              String?                     @unique
+  avatarUrl             String?
+  avatarKey             String?
+  avatarMediaId         String?                     @unique
+  avatarMedia           Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerUrl             String?
+  bannerKey             String?
+  bio                   String?
+  githubUsername        String?
+  linkedinUsername      String?
+  twitterUsername       String?
+  redditUsername        String?
+  customDomain          String?
+  emailVerified         Boolean                     @default(false)
+  emailVerifiedAt       DateTime?
+  image                 String?
+  name                  String?
+  role                  String                      @default("user")
+  badge                 String?
+  badges                String[]                    @default([])
+  banned                Boolean                     @default(false)
+  banReason             String?
+  banExpires            DateTime?
   sessions              Session[]
   accounts              Account[]
   verifications         Verification[]
@@ -209,11 +208,10 @@ model AuraLog {
   // content-id-scoped lookups instead of pair-scoped ones.
   targetUserId String?
   createdAt    DateTime @default(now())
-
-  user    User     @relation("AuraReceived", fields: [userId], references: [id])
-  issuer  User     @relation("AuraIssued", fields: [issuerId], references: [id])
-  post    Post?    @relation(fields: [postId], references: [id])
-  comment Comment? @relation(fields: [commentId], references: [id])
+  user         User     @relation("AuraReceived", fields: [userId], references: [id])
+  issuer       User     @relation("AuraIssued", fields: [issuerId], references: [id])
+  post         Post?    @relation(fields: [postId], references: [id])
+  comment      Comment? @relation(fields: [commentId], references: [id])
 
   @@index([userId, createdAt])
   @@index([issuerId, targetUserId, createdAt])
@@ -276,9 +274,8 @@ model Session {
   impersonatedBy String?
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   admin          User?    @relation("ImpersonatedSessions", fields: [impersonatedBy], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@map("sessions")
 }
@@ -297,9 +294,8 @@ model Account {
   idToken               String?
   password              String?
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@unique([providerId, accountId])
   @@index([issuer, accountId])
@@ -313,9 +309,8 @@ model Verification {
   expiresAt  DateTime
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("verification")
 }
@@ -325,13 +320,12 @@ model Follow {
   follower    User   @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
   followingId String
   following   User   @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
-
   // Open aura positions: gainedAura is what the followed user earned from
   // this follow, givenAura is what the follower earned for it. Unfollowing
   // reverses exactly these amounts; zero defaults keep legacy follows inert
   // on removal (conservative under-refund).
-  gainedAura Int @default(0)
-  givenAura  Int @default(0)
+  gainedAura  Int    @default(0)
+  givenAura   Int    @default(0)
 
   @@unique([followerId, followingId])
   @@index([followingId])
@@ -365,8 +359,7 @@ model Post {
   mentions              Mention[]
   hnStoryShare          HNStoryShare?
   visits                PostVisit[]
-
-  createdAt DateTime @default(now())
+  createdAt             DateTime       @default(now())
 
   @@index([isGust, createdAt])
   @@index([isGust, aura, id])
@@ -456,6 +449,10 @@ model Media {
   exifStripped        Boolean          @default(false)
   altText             String?
   generatedAltText    String?
+  // Scene text extracted by the analyze stage's OCR (PP-OCRv4 via ONNX).
+  // Input for alt-text assist and text-based moderation; null when OCR is
+  // disabled or nothing readable was found.
+  ocrText             String?
   safety              Json?
   semantics           Json?
   // Content provenance (C2PA): AI-generation classification recorded by the
@@ -592,18 +589,17 @@ model CommentVote {
 }
 
 model Bookmark {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  postId String
-  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
-
+  id             String @id @default(cuid())
+  userId         String
+  user           User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId         String
+  post           Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
   // Open aura positions: bookmarkerAura is what the bookmarker earned for
   // curating, authorAura is what the post author earned. Un-bookmarking
   // reverses exactly these amounts. Zero defaults keep legacy bookmarks
   // (pre-economy) inert on removal - conservative under-refund.
-  bookmarkerAura Int @default(0)
-  authorAura     Int @default(0)
+  bookmarkerAura Int    @default(0)
+  authorAura     Int    @default(0)
 
   createdAt DateTime @default(now())
 

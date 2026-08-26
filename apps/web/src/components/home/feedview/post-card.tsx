@@ -80,7 +80,7 @@ const PostContent: React.FC<PostContentProps> = ({
   currentUserId,
   detail,
   isExpanded,
-  isJoined: _isJoined,
+  isJoined,
   onToggleComments,
   onToggleExpand,
   post,
@@ -284,7 +284,7 @@ const PostContent: React.FC<PostContentProps> = ({
                       attachments={post.attachments}
                       autoPlayVideos={detail}
                       initialMediaIndex={initialMediaIndex}
-                      interactive
+                      interactive={!isJoined}
                       post={post}
                     />
                   </ExplicitContentGate>
@@ -293,7 +293,7 @@ const PostContent: React.FC<PostContentProps> = ({
                     attachments={post.attachments}
                     autoPlayVideos={detail}
                     initialMediaIndex={initialMediaIndex}
-                    interactive
+                    interactive={!isJoined}
                     post={post}
                   />
                 )}
@@ -547,15 +547,10 @@ const PostCard: React.FC<PostCardProps> = ({
       )}
       id={`post-${post.id}`}
       initial={{ opacity: 0 }}
-      layout
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
       tabIndex={detail ? -1 : 0}
-      transition={{
-        duration: 0.3,
-        ease: "easeOut",
-        layout: { damping: 30, stiffness: 300, type: "spring" },
-      }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
     >
       <ViewTracker postId={post.id} />
       {isJoined ? (
