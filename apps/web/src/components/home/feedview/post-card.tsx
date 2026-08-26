@@ -60,6 +60,9 @@ interface PostCardProps {
   hideComposerOnMobile?: boolean;
   initialMediaIndex?: number;
   isJoined?: boolean;
+  // Renders the media with the mobile layout even in a wide viewport, for
+  // narrow embedded columns (media page sidebar).
+  mobileLayout?: boolean;
   post: ExtendedPostData;
 }
 
@@ -70,6 +73,7 @@ interface PostContentProps {
   initialMediaIndex?: number;
   isExpanded: boolean;
   isJoined: boolean;
+  mobileLayout?: boolean;
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
@@ -81,6 +85,7 @@ const PostContent: React.FC<PostContentProps> = ({
   detail,
   isExpanded,
   isJoined,
+  mobileLayout,
   onToggleComments,
   onToggleExpand,
   post,
@@ -230,7 +235,7 @@ const PostContent: React.FC<PostContentProps> = ({
               />
             )}
             <BookmarkButton
-              className="h-6 w-6 p-0"
+              className="h-8 w-8 p-0"
               initialState={{
                 isBookmarkedByUser: post.bookmarks.some(
                   (bookmark) => bookmark.userId === currentUserId
@@ -283,6 +288,7 @@ const PostContent: React.FC<PostContentProps> = ({
                     <MediaPreviews
                       attachments={post.attachments}
                       autoPlayVideos={detail}
+                      forceMobile={mobileLayout}
                       initialMediaIndex={initialMediaIndex}
                       interactive={!isJoined}
                       post={post}
@@ -292,6 +298,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   <MediaPreviews
                     attachments={post.attachments}
                     autoPlayVideos={detail}
+                    forceMobile={mobileLayout}
                     initialMediaIndex={initialMediaIndex}
                     interactive={!isJoined}
                     post={post}
@@ -450,6 +457,7 @@ const PostCard: React.FC<PostCardProps> = ({
   detail = false,
   hideComposerOnMobile = false,
   initialMediaIndex,
+  mobileLayout = false,
 }) => {
   const { user } = useSession();
   const router = useRouter();
@@ -520,6 +528,7 @@ const PostCard: React.FC<PostCardProps> = ({
       initialMediaIndex={initialMediaIndex}
       isExpanded={isExpanded}
       isJoined={isJoined}
+      mobileLayout={mobileLayout}
       onToggleComments={handleToggleComments}
       onToggleExpand={handleToggleExpand}
       post={post}

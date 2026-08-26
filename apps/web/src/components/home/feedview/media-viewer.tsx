@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Download,
   FileIcon,
+  Play,
   RotateCcw,
   X,
 } from "lucide-react";
@@ -472,6 +473,88 @@ const MediaViewer = ({
     </div>
   );
 
+  // Grid of ALL the post's media in the sidebar's post section, so a
+  // multi-photo post shows every attachment next to the fullscreen view. The
+  // item being viewed is ringed; tapping any tile jumps to it.
+  const renderSidebarGridTileContent = (item: Media, index: number) => {
+    const alt = item.altText || `Media ${index + 1}`;
+    if (item.type === "IMAGE") {
+      if (item.mimeType === "image/svg+xml") {
+        return (
+          <object
+            aria-label={alt}
+            className="h-full w-full"
+            data={getMediaUrl(item.id)}
+            type="image/svg+xml"
+          />
+        );
+      }
+      return (
+        // eslint-disable-next-line @next/next/no-img-element -- sidebar grid thumb
+        <img
+          alt={alt}
+          className="h-full w-full object-cover"
+          decoding="async"
+          loading="lazy"
+          src={getMediaImageUrl(item, "md-webp.webp")}
+        />
+      );
+    }
+    if (item.type === "VIDEO") {
+      return (
+        <div className="relative h-full w-full">
+          {/* eslint-disable-next-line @next/next/no-img-element -- sidebar grid poster */}
+          <img
+            alt={alt}
+            className="h-full w-full object-cover"
+            decoding="async"
+            loading="lazy"
+            src={getMediaProxyUrl(item)}
+          />
+          <span className="pointer-events-none absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/45">
+            <Play className="ml-0.5 h-3.5 w-3.5 fill-current text-white" />
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <FileIcon className="text-primary h-5 w-5" />
+      </div>
+    );
+  };
+
+  const renderSidebarMediaGrid = () => {
+    let cols = "grid-cols-3";
+    if (media.length === 1) {
+      cols = "grid-cols-1";
+    } else if (media.length === 2) {
+      cols = "grid-cols-2";
+    }
+    return (
+      <div className={cn("grid gap-1.5", cols)}>
+        {media.map((item, index) => {
+          const isActive = index === currentIndex;
+          return (
+            <button
+              key={item.id}
+              aria-current={isActive}
+              aria-label={`Go to media ${index + 1} of ${media.length}`}
+              className={cn(
+                "relative aspect-square overflow-hidden rounded-lg bg-zinc-900",
+                isActive ? "ring-2 ring-white" : "opacity-70 hover:opacity-100"
+              )}
+              onClick={() => handleSelectThumb(index)}
+              type="button"
+            >
+              {renderSidebarGridTileContent(item, index)}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderMedia = () => {
     if (!currentMedia) {
       return <p className="text-destructive">No media available</p>;
@@ -544,7 +627,9 @@ const MediaViewer = ({
       return null;
     }
     return (
-      <div className="flex shrink-0 flex-col bg-linear-to-b from-black/80 to-transparent px-3 pt-3 pb-5 lg:hidden">
+      // Overlay (not in-flow) so the media area below it spans the full
+      // viewport height and the image stays centered on screen.
+      <div className="absolute inset-x-0 top-0 z-40 flex flex-col bg-linear-to-b from-black/80 to-transparent px-3 pt-3 pb-5 lg:hidden">
         <div className="flex items-center justify-between">
           <button
             aria-label="Close viewer"
@@ -705,84 +790,93 @@ const MediaViewer = ({
           )}
         </div>
 
-        {media.length > 1 &&
-        !post?.moderated &&
-        !(post?.explicitContent && !explicitRevealed) ? (
-          <div className="flex justify-center border-t border-white/5 bg-black px-3 py-2.5">
-            <div
-              className="flex max-w-full [scrollbar-width:none] items-center gap-1 overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
-              role="tablist"
-              aria-label="Media thumbnails"
-            >
-              {media.map((item, index) => {
-                const isActive = index === currentIndex;
-                const isVideo = item.type === "VIDEO";
-                return (
-                  <button
-                    key={item.id}
-                    aria-current={isActive}
-                    aria-label={`Go to media ${index + 1} of ${media.length}`}
-                    className={cn(
-                      "relative flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-900 p-0.5 transition-all sm:h-14 sm:w-14",
-                      isActive
-                        ? "border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.9)]"
-                        : "opacity-60 hover:border hover:border-white/30 hover:opacity-100"
-                    )}
-                    onClick={() => handleSelectThumb(index)}
-                    role="tab"
-                    type="button"
-                  >
-                    <span className="flex h-full w-full overflow-hidden rounded-[4px]">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- tiny 320px thumb-webp, no optimization needed */}
-                      <img
-                        alt=""
-                        className="h-full w-full object-cover"
-                        decoding="async"
-                        loading="lazy"
-                        sizes="56px"
-                        src={
-                          isVideo
-                            ? getMediaProxyUrl(item)
-                            : getMediaImageUrl(item, "thumb-webp.webp")
-                        }
-                      />
-                    </span>
-                    {isVideo ? (
-                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white/90 pl-px">
-                          <span className="block h-0 w-0 border-y-[2.5px] border-l-[4px] border-y-transparent border-l-zinc-900" />
-                        </span>
+        {/* Bottom chrome overlays the media (with a scrim) instead of taking
+            layout space, so the media area spans the full viewport height and
+            the image centers dead-on vertically. The thumbnail strip stays in
+            dialog galleries only; the standalone media page drops it. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col bg-linear-to-t from-black/95 via-black/60 to-transparent pt-24 pb-1">
+          {!standalone &&
+          media.length > 1 &&
+          !post?.moderated &&
+          !(post?.explicitContent && !explicitRevealed) ? (
+            <div className="pointer-events-auto flex justify-center border-t border-white/10 px-3 py-2.5">
+              <div
+                className="flex max-w-full [scrollbar-width:none] items-center gap-1 overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+                role="tablist"
+                aria-label="Media thumbnails"
+              >
+                {media.map((item, index) => {
+                  const isActive = index === currentIndex;
+                  const isVideo = item.type === "VIDEO";
+                  return (
+                    <button
+                      key={item.id}
+                      aria-current={isActive}
+                      aria-label={`Go to media ${index + 1} of ${media.length}`}
+                      className={cn(
+                        "relative flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-900 p-0.5 transition-all sm:h-14 sm:w-14",
+                        isActive
+                          ? "border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.9)]"
+                          : "opacity-60 hover:border hover:border-white/30 hover:opacity-100"
+                      )}
+                      onClick={() => handleSelectThumb(index)}
+                      role="tab"
+                      type="button"
+                    >
+                      <span className="flex h-full w-full overflow-hidden rounded-[4px]">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- tiny 320px thumb-webp, no optimization needed */}
+                        <img
+                          alt=""
+                          className="h-full w-full object-cover"
+                          decoding="async"
+                          loading="lazy"
+                          sizes="56px"
+                          src={
+                            isVideo
+                              ? getMediaProxyUrl(item)
+                              : getMediaImageUrl(item, "thumb-webp.webp")
+                          }
+                        />
                       </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
-        {/* Attribution row, standalone page only - never on feed cards or
-            dialog-mode galleries: AI-generated marker first, then the
-            uploader's alt text in its own badge. */}
-        {standalone &&
-        currentMedia &&
-        (currentMedia.aiGenerated || currentMedia.altText) ? (
-          <div className="flex flex-wrap items-start gap-2 border-t border-white/5 bg-black px-4 py-3">
-            <AiGeneratedBadge media={currentMedia} />
-            {currentMedia.altText ? (
-              <div className="flex min-h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full bg-linear-to-b from-zinc-500 to-zinc-700 px-2.5 py-1 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(35,35,40,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)]">
-                <span className="text-[10px] leading-none font-bold whitespace-nowrap">
-                  ALT
-                </span>
-                <span className="min-w-0 text-[10px] leading-snug font-medium break-words">
-                  {currentMedia.altText}
-                </span>
+                      {isVideo ? (
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+                          <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white/90 pl-px">
+                            <span className="block h-0 w-0 border-y-[2.5px] border-l-[4px] border-y-transparent border-l-zinc-900" />
+                          </span>
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
-            ) : null}
-          </div>
-        ) : null}
+            </div>
+          ) : null}
 
-        {post ? renderActionBar() : null}
+          {/* Attribution row, standalone page only - never on feed cards or
+              dialog-mode galleries: AI-generated marker first, then the
+              uploader's alt text in its own badge. */}
+          {standalone &&
+          currentMedia &&
+          (currentMedia.aiGenerated || currentMedia.altText) ? (
+            <div className="pointer-events-auto flex flex-wrap items-start gap-2 border-t border-white/10 px-4 py-3">
+              <AiGeneratedBadge media={currentMedia} />
+              {currentMedia.altText ? (
+                <div className="flex min-h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full bg-linear-to-b from-zinc-500 to-zinc-700 px-2.5 py-1 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(35,35,40,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)]">
+                  <span className="text-[10px] leading-none font-bold whitespace-nowrap">
+                    ALT
+                  </span>
+                  <span className="min-w-0 text-[10px] leading-snug font-medium break-words">
+                    {currentMedia.altText}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {post ? (
+            <div className="pointer-events-auto">{renderActionBar()}</div>
+          ) : null}
+        </div>
       </div>
 
       {post ? (
@@ -832,6 +926,22 @@ const MediaViewer = ({
                   mentions={post.mentions.map((m) => m.user)}
                   tags={post.tags}
                 />
+              </div>
+            ) : null}
+            {media.length > 0 && !post.moderated ? (
+              <div className="mt-3">
+                {post.explicitContent ? (
+                  <ExplicitContentGate
+                    revealKey={post.id}
+                    className="h-full w-full"
+                    compact
+                    label="Explicit"
+                  >
+                    {renderSidebarMediaGrid()}
+                  </ExplicitContentGate>
+                ) : (
+                  renderSidebarMediaGrid()
+                )}
               </div>
             ) : null}
           </div>

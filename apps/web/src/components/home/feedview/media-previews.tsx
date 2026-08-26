@@ -38,6 +38,10 @@ import MediaViewer from "./media-viewer";
 interface MediaPreviewsProps {
   attachments: Media[];
   autoPlayVideos?: boolean;
+  // Renders the mobile layout regardless of the actual viewport (used in
+  // narrow embedded columns like the media page's sidebar, where the desktop
+  // grids would be cramped).
+  forceMobile?: boolean;
   initialMediaIndex?: number;
   interactive?: boolean;
   post?: PostData;
@@ -78,16 +82,18 @@ function mediaAspectRatio(media: Media, fallback = "1 / 1"): string {
   return w && h ? `${w} / ${h}` : fallback;
 }
 
-const getCommonClasses = (isSmall: boolean) =>
+const getCommonClasses = (isSmall: boolean, isMobile: boolean) =>
   cn(
     "mx-auto w-full rounded-lg object-cover transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.02]",
-    isSmall ? "aspect-square" : "aspect-square sm:h-72"
+    isSmall || isMobile ? "aspect-square" : "aspect-square sm:h-72"
   );
 
 const GridImagePreview = ({
+  isMobile,
   isSmall,
   media,
 }: {
+  isMobile: boolean;
   isSmall: boolean;
   media: Media;
 }) => {
@@ -109,7 +115,7 @@ const GridImagePreview = ({
       <div
         className={cn(
           "bg-muted/20 relative w-full overflow-hidden rounded-lg",
-          isSmall ? "aspect-square" : "aspect-square sm:h-72"
+          isSmall || isMobile ? "aspect-square" : "aspect-square sm:h-72"
         )}
       >
         <Image
@@ -127,7 +133,7 @@ const GridImagePreview = ({
     <div
       className={cn(
         "group bg-muted/20 relative w-full overflow-hidden rounded-lg",
-        isSmall ? "aspect-square" : "aspect-square sm:h-72"
+        isSmall || isMobile ? "aspect-square" : "aspect-square sm:h-72"
       )}
     >
       {isLoading ? (
@@ -137,7 +143,7 @@ const GridImagePreview = ({
       <img
         alt="Attachment"
         className={cn(
-          getCommonClasses(isSmall),
+          getCommonClasses(isSmall, isMobile),
           "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
           isLoading ? "opacity-0" : "opacity-100"
         )}
@@ -675,6 +681,7 @@ const renderFilePreview = (
 export const MediaPreviews = ({
   attachments,
   autoPlayVideos = false,
+  forceMobile = false,
   interactive = true,
   post,
   initialMediaIndex,
@@ -683,7 +690,7 @@ export const MediaPreviews = ({
     initialMediaIndex ?? null
   );
   const [showAll, setShowAll] = useState(false);
-  const isMobile = useMediaQuery("(max-width: 768px)");
+  const isMobile = useMediaQuery("(max-width: 768px)") || forceMobile;
 
   // The grid wrapper animates its real height (measured, not a layout
   // transform) so expanding/collapsing media grows the card smoothly without
@@ -818,7 +825,7 @@ export const MediaPreviews = ({
         </div>
       );
     }
-    return <GridImagePreview isSmall={isSmall} media={m} />;
+    return <GridImagePreview isMobile={isMobile} isSmall={isSmall} media={m} />;
   };
 
   const renderPreview = (m: Media, _index: number, isSmall = false) => {
@@ -918,10 +925,12 @@ export const MediaPreviews = ({
     // a square/tall crop on them. Images (and small tiles) keep a tidy crop.
     // Lone videos keep their natural aspect; in GROUPS every tile matches
     // the image cells so rows stay level (object-cover crops the video).
-    const wrapperHeightClass =
-      !isSmall && m.type === "VIDEO" && attachments.length === 1
-        ? "h-auto"
-        : "aspect-square sm:h-72";
+    let wrapperHeightClass = "aspect-square";
+    if (!isSmall && m.type === "VIDEO" && attachments.length === 1) {
+      wrapperHeightClass = "h-auto";
+    } else if (!isMobile) {
+      wrapperHeightClass = "aspect-square sm:h-72";
+    }
 
     return (
       <motion.button
@@ -1211,7 +1220,8 @@ export const MediaPreviews = ({
         <motion.div
           className={cn(
             "grid gap-2",
-            "auto-rows-[130px] sm:auto-rows-[180px]",
+            "auto-rows-[130px]",
+            !isMobile && "sm:auto-rows-[180px]",
             FEED_BENTO_LAYOUTS[attachments.length].cols
           )}
         >
@@ -1367,18 +1377,23 @@ export const MediaPreviews = ({
       {!isFeedBento && !isBento ? (
         // The wrapper's height is a real CSS transition (measured px values,
         // never a layout transform or "auto" interpolation), so the card
-        // grows and collapses smoothly without stretching the tiles.
+        // grows and collapses smoothly without stretching the tiles. Only
+        // grids that can actually collapse (4+ attachments) get the measured
+        // height: single images size by natural ratio after load and would
+        // leave the measured height stale below them.
         <div
-          className="overflow-hidden"
+          className={
+            attachments.length > initialCount ? "overflow-hidden" : undefined
+          }
           ref={gridHeightWrapperRef}
-          style={{
-            height:
-              gridPixelHeight === null ? undefined : `${gridPixelHeight}px`,
-            transition:
-              gridPixelHeight === null
-                ? undefined
-                : "height 480ms cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
+          style={
+            attachments.length > initialCount && gridPixelHeight !== null
+              ? {
+                  height: `${gridPixelHeight}px`,
+                  transition: "height 480ms cubic-bezier(0.16, 1, 0.3, 1)",
+                }
+              : undefined
+          }
         >
           <div
             className={cn(

@@ -362,11 +362,12 @@ const AttachmentPreviewInner = ({
     );
   } else if (hasError) {
     actionBar = (
-      <div className="border-destructive/15 bg-destructive/6 dark:border-destructive/20 dark:bg-destructive/10 mt-2 flex items-center gap-2 rounded-xl border p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.6),inset_0_1px_1px_rgba(255,255,255,0.8),0_1px_2px_rgba(0,0,0,0.06)]">
+      <div className="apple-panel mt-2 flex items-center gap-2.5 rounded-2xl p-2.5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#3a3f4a] to-[#23262e] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)]">
+          <RefreshCw className="size-4" />
+        </div>
         <div className="min-w-0 flex-1">
-          <p className="text-destructive truncate text-xs font-semibold">
-            {errorTitle}
-          </p>
+          <p className="truncate text-xs font-semibold">{errorTitle}</p>
           {stage ? (
             <p className="text-muted-foreground truncate text-[11px]">
               Failed at {stageText(stage).toLowerCase()} · will resume where it
@@ -376,7 +377,7 @@ const AttachmentPreviewInner = ({
         </div>
         <button
           aria-label="Retry upload"
-          className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-3 text-xs font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] transition-all hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px"
+          className="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-3.5 text-xs font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] transition-all hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px"
           onClick={onRetryClick}
           type="button"
         >
@@ -385,7 +386,7 @@ const AttachmentPreviewInner = ({
         </button>
         <button
           aria-label="Remove attachment"
-          className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0"
+          className="icon-btn-3d flex h-8 w-8 shrink-0 items-center justify-center rounded-full p-0"
           onClick={onRemoveClick}
           type="button"
         >
