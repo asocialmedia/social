@@ -1,5 +1,6 @@
 // oxlint-disable react-compiler -- thumbnail components use local hooks/state that the React
 // Compiler would otherwise try to memoize across parent renders
+// oxlint-disable react/exhaustive-effect-dependencies -- cached image checks use media.id intentionally
 
 import type { Media, PostData } from "@asm/db";
 import noMediaImage from "@assets/general/nomedia.png";
@@ -11,6 +12,7 @@ import {
   Play,
   VolumeX,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -19,6 +21,7 @@ import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import { useAltRevealed } from "@/lib/alt-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 import {
@@ -68,7 +71,7 @@ function mediaAspectRatio(media: Media, fallback = "1 / 1"): string {
 
 const getCommonClasses = (isSmall: boolean) =>
   cn(
-    "mx-auto w-full rounded-lg object-cover transition-transform duration-300 group-hover:scale-105",
+    "mx-auto w-full rounded-lg object-cover transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.02]",
     isSmall ? "aspect-square" : "aspect-square sm:h-72"
   );
 
@@ -79,8 +82,18 @@ const GridImagePreview = ({
   isSmall: boolean;
   media: Media;
 }) => {
+  const imgRef = useRef<HTMLImageElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFailed, setIsFailed] = useState(false);
+
+  // Handle cached images that are already complete before onLoad fires.
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setIsLoading(false);
+    }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- media.id is stable, media object identity triggers correctly
+  }, [media.id]);
 
   if (isFailed) {
     return (
@@ -126,6 +139,7 @@ const GridImagePreview = ({
           setIsLoading(false);
         }}
         onLoad={() => setIsLoading(false)}
+        ref={imgRef}
         sizes="(max-width: 768px) 50vw, 33vw"
         src={getMediaProxyUrl(media)}
         srcSet={getMediaImageSrcSet(media)}
@@ -508,9 +522,19 @@ const SingleImagePreview = ({
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(
     hasStoredDims ? { h: storedH, w: storedW } : null
   );
+  const singleImgRef = useRef<HTMLImageElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFailed, setIsFailed] = useState(false);
 
+  // oxlint-disable-next-line react/exhaustive-effect-dependencies -- media.id is stable
+  useEffect(() => {
+    const el = singleImgRef.current;
+    if (el && el.complete && el.naturalWidth > 0) {
+      setIsLoading(false);
+    }
+  }, [media.id]);
+
+  // oxlint-disable-next-line react/exhaustive-effect-dependencies -- media/natural are the intended triggers
   useEffect(() => {
     if (hasStoredDims) {
       return;
@@ -584,6 +608,7 @@ const SingleImagePreview = ({
           setIsLoading(false);
         }}
         onLoad={() => setIsLoading(false)}
+        ref={singleImgRef}
         sizes="(max-width: 768px) 100vw, 640px"
         src={getMediaImageUrl(media, "lg-webp.webp")}
         srcSet={getMediaImageSrcSet(media)}
@@ -651,6 +676,13 @@ export const MediaPreviews = ({
   const [showAll, setShowAll] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
 
+  // "Show alt" from the post's more menu reveals uploader descriptions
+  // inline under the grid. Nothing renders unless something is described.
+  const altRevealed = useAltRevealed(post?.id);
+  const describedAttachments = attachments.filter(
+    (attachment) => attachment.altText
+  );
+
   // When a post is present the viewer lives at a shareable route
   // (/posts/{postId}/media/{index}); otherwise (e.g. profile gallery) it is
   // driven by local state only.
@@ -709,11 +741,10 @@ export const MediaPreviews = ({
   );
 
   const initialCount = 3;
-  // Truncation applies everywhere (feed included); the group card below the
-  // grid expands back to the full attachment set.
-  const visibleAttachments = showAll
-    ? attachments
-    : attachments.slice(0, initialCount);
+  // Post page (autoPlay/detail) should always show all media in bento, no collapse.
+  const isDetailBento = autoPlayVideos && attachments.length >= 5;
+  const visibleAttachments =
+    isDetailBento || showAll ? attachments : attachments.slice(0, initialCount);
   const remainingAttachments = attachments.slice(initialCount);
   const remainingCount = attachments.length - initialCount;
 
@@ -805,19 +836,38 @@ export const MediaPreviews = ({
         : "aspect-square sm:h-72";
 
     return (
-      <button
+      <motion.button
+        animate={{ opacity: 1, scale: 1, y: 0 }}
         aria-label="View attachment"
         className={cn(
-          "relative block w-full cursor-pointer overflow-hidden rounded-lg p-0 text-left shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md",
+          "relative block w-full cursor-pointer overflow-hidden rounded-lg p-0 text-left shadow-xs transition-shadow duration-300 hover:shadow-md",
           wrapperHeightClass
         )}
         data-card-interactive
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
         key={m.id}
+        layout
         onClick={handleSelect}
+        transition={{
+          delay: (index % 3) * 0.04,
+          duration: 0.32,
+          ease: [0.16, 1, 0.3, 1],
+        }}
         type="button"
+        whileHover={{
+          transition: {
+            damping: 28,
+            mass: 0.4,
+            stiffness: 420,
+            type: "spring",
+          },
+          y: -2,
+        }}
+        whileTap={{ scale: 0.98, y: 0 }}
       >
         {renderPreview(m, index, isSmall)}
-      </button>
+      </motion.button>
     );
   };
 
@@ -826,9 +876,29 @@ export const MediaPreviews = ({
     index: number,
     size: "small" | "large" = "large"
   ) => (
-    <div className="relative overflow-hidden rounded-lg shadow-xs" key={m.id}>
+    <motion.div
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      className="relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md"
+      exit={{ opacity: 0, scale: 0.96, y: 8 }}
+      initial={{ opacity: 0, scale: 0.96, y: 8 }}
+      key={m.id}
+      transition={{
+        delay: (index % 3) * 0.04,
+        duration: 0.32,
+        ease: [0.16, 1, 0.3, 1],
+      }}
+      whileHover={{
+        transition: {
+          damping: 28,
+          mass: 0.4,
+          stiffness: 420,
+          type: "spring",
+        },
+        y: -2,
+      }}
+    >
       {renderPreview(m, index, size === "small")}
-    </div>
+    </motion.div>
   );
 
   const renderShowMoreSection = () => {
@@ -842,17 +912,33 @@ export const MediaPreviews = ({
       const hasOverflow = overflowCount > 0;
 
       return (
-        <div className="mt-3 px-0.5 pb-1">
+        <motion.div
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="mt-3 px-0.5 pb-1"
+          exit={{ opacity: 0, scale: 0.98, y: 6 }}
+          initial={{ opacity: 0, scale: 0.98, y: 6 }}
+          key="show-more-mobile"
+          transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+        >
           <div className="apple-panel relative w-full overflow-hidden rounded-2xl">
-            <button
+            <motion.button
               aria-label="Show all media"
-              className="flex w-full cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left active:translate-y-px"
+              className="flex w-full cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left"
               onClick={handleShowAll}
               type="button"
+              whileHover={{ x: 1 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ damping: 25, stiffness: 400, type: "spring" }}
             >
               <span className="text-sm font-semibold">More media</span>
-              <ChevronDown className="text-muted-foreground h-4 w-4" />
-            </button>
+              <motion.span
+                animate={{ rotate: 0 }}
+                transition={{ duration: 0.2 }}
+                whileHover={{ y: 1 }}
+              >
+                <ChevronDown className="text-muted-foreground h-4 w-4" />
+              </motion.span>
+            </motion.button>
             <div className="grid grid-cols-3 gap-2 border-t border-black/5 p-2 dark:border-white/10">
               {visibleRemaining.map((m, index) => {
                 const isLast = index === visibleRemaining.length - 1;
@@ -928,17 +1014,27 @@ export const MediaPreviews = ({
               })}
             </div>
           </div>
-        </div>
+        </motion.div>
       );
     }
 
     return (
-      <div className="mt-3 px-0.5 pb-1">
-        <button
+      <motion.div
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="mt-3 px-0.5 pb-1"
+        exit={{ opacity: 0, scale: 0.98, y: 6 }}
+        initial={{ opacity: 0, scale: 0.98, y: 6 }}
+        key="show-more-desktop"
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <motion.button
           aria-label="Show all media"
-          className="apple-panel relative flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl p-2 text-left active:translate-y-px"
+          className="apple-panel relative flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl p-2 text-left"
           onClick={handleShowAll}
           type="button"
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98, y: 0 }}
+          transition={{ damping: 25, stiffness: 400, type: "spring" }}
         >
           <div className="flex min-w-0 items-center gap-2 overflow-x-auto pl-2">
             {/* Every remaining attachment previews right in the bar - it is
@@ -975,12 +1071,21 @@ export const MediaPreviews = ({
           </div>
           <span className="flex items-center gap-1.5 pr-3 text-sm font-semibold">
             Show all
-            <ChevronDown className="text-muted-foreground h-4 w-4" />
+            <motion.span
+              animate={{ rotate: 0 }}
+              transition={{ duration: 0.2 }}
+              whileHover={{ y: 1 }}
+            >
+              <ChevronDown className="text-muted-foreground h-4 w-4" />
+            </motion.span>
           </span>
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
     );
   };
+
+  // Bento for post-page: detail with 5+ items always shows bento, no collapse.
+  const isBento = isDetailBento;
 
   // On mobile the first attachment is rendered as a full-width featured card
   // (so a rectangle isn't squeezed into a half-width crop it doesn't fill) and
@@ -1002,58 +1107,200 @@ export const MediaPreviews = ({
 
   return (
     <div className="w-full">
-      {isMobile && first ? (
-        <div className="mb-4 w-full">{renderFirstAttachment()}</div>
+      {!isBento && isMobile && first ? (
+        <motion.div
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 w-full"
+          initial={{ opacity: 0, y: 6 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {renderFirstAttachment()}
+        </motion.div>
       ) : null}
 
-      <div
-        className={cn(
-          "grid gap-4",
-          (() => {
-            if (isMobile) {
-              return "grid-cols-2";
-            }
-            if (visibleAttachments.length === 1) {
-              return "grid-cols-1";
-            }
-            if (visibleAttachments.length === 2) {
-              return "grid-cols-2";
-            }
-            return "grid-cols-3";
-          })()
-        )}
-      >
-        {(isMobile ? rest : visibleAttachments).map((m, index) => {
-          const isSingleImage =
-            visibleAttachments.length === 1 &&
-            m.type === "IMAGE" &&
-            m.mimeType !== "image/svg+xml";
-          if (isSingleImage) {
-            return renderSingleImage(m, index);
-          }
-          const tileIndex = isMobile ? index + 1 : index;
-          if (interactive) {
-            return renderGridTile(m, tileIndex, "large");
-          }
-          return renderGridCell(m, tileIndex);
-        })}
-      </div>
+      {isBento ? (
+        <motion.div
+          className={cn(
+            "grid gap-2",
+            isMobile
+              ? "auto-rows-[140px] grid-cols-2"
+              : "auto-rows-[180px] grid-cols-3"
+          )}
+          layout
+          transition={{ damping: 30, stiffness: 300, type: "spring" }}
+        >
+          <AnimatePresence initial={false} mode="popLayout">
+            {visibleAttachments.map((m, index) => {
+              const isFirst = index === 0;
+              return (
+                <motion.div
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  className={cn(
+                    "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
+                    isFirst ? "col-span-2 row-span-2" : ""
+                  )}
+                  exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                  initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                  key={m.id}
+                  layout
+                  transition={{
+                    delay: index * 0.04,
+                    duration: 0.32,
+                    ease: [0.16, 1, 0.3, 1],
+                  }}
+                  whileHover={{
+                    transition: {
+                      damping: 28,
+                      mass: 0.4,
+                      stiffness: 420,
+                      type: "spring",
+                    },
+                    y: -2,
+                  }}
+                >
+                  <div className="absolute inset-0 h-full w-full">
+                    {(() => {
+                      if (m.type === "IMAGE") {
+                        if (m.mimeType === "image/svg+xml") {
+                          return (
+                            <object
+                              className="h-full w-full object-cover"
+                              data={getMediaUrl(m.id)}
+                              type="image/svg+xml"
+                            >
+                              <Image
+                                alt="Attachment unavailable"
+                                className="h-full w-full object-cover opacity-60"
+                                fill
+                                sizes="(max-width: 768px) 50vw, 33vw"
+                                src={noMediaImage}
+                              />
+                            </object>
+                          );
+                        }
+                        return (
+                          // eslint-disable-next-line @next/next/no-img-element -- bento uses direct proxy URL with srcSet for art direction
+                          <img
+                            alt="Attachment"
+                            className="h-full w-full object-cover"
+                            decoding="async"
+                            loading="lazy"
+                            sizes="(max-width: 768px) 50vw, 33vw"
+                            src={getMediaProxyUrl(m)}
+                            srcSet={getMediaImageSrcSet(m)}
+                            style={{ objectFit: "cover" }}
+                          />
+                        );
+                      }
+                      if (m.type === "VIDEO") {
+                        return (
+                          <VideoPreview
+                            autoPlay={autoPlayVideos}
+                            fill
+                            media={m}
+                          />
+                        );
+                      }
+                      return renderPreview(m, index, true);
+                    })()}
+                  </div>
+                  <div className="absolute inset-0 bg-black/5 transition-opacity group-hover:opacity-0" />
+                  <AiGeneratedBadge
+                    className="absolute bottom-2 left-2 z-10"
+                    media={m}
+                  />
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </motion.div>
+      ) : (
+        <motion.div
+          className={cn(
+            "grid gap-4",
+            (() => {
+              if (isMobile) {
+                return "grid-cols-2";
+              }
+              if (visibleAttachments.length === 1) {
+                return "grid-cols-1";
+              }
+              if (visibleAttachments.length === 2) {
+                return "grid-cols-2";
+              }
+              return "grid-cols-3";
+            })()
+          )}
+          layout
+          transition={{ damping: 30, stiffness: 300, type: "spring" }}
+        >
+          <AnimatePresence initial={false} mode="popLayout">
+            {(isMobile ? rest : visibleAttachments).map((m, index) => {
+              const isSingleImage =
+                visibleAttachments.length === 1 &&
+                m.type === "IMAGE" &&
+                m.mimeType !== "image/svg+xml";
+              if (isSingleImage) {
+                return renderSingleImage(m, index);
+              }
+              const tileIndex = isMobile ? index + 1 : index;
+              if (interactive) {
+                return renderGridTile(m, tileIndex, "large");
+              }
+              return renderGridCell(m, tileIndex);
+            })}
+          </AnimatePresence>
+        </motion.div>
+      )}
 
-      {!showAll && attachments.length > initialCount
-        ? renderShowMoreSection()
-        : null}
+      <AnimatePresence initial={false}>
+        {!isBento && !showAll && attachments.length > initialCount
+          ? renderShowMoreSection()
+          : null}
+      </AnimatePresence>
 
-      {showAll ? (
-        <div className="mt-3 px-0.5 pb-1">
-          <button
-            aria-label="Show fewer media"
-            className="apple-panel flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-2xl px-4 py-3 text-sm font-semibold active:translate-y-px"
-            onClick={handleShowLess}
-            type="button"
+      <AnimatePresence initial={false}>
+        {!isBento && showAll ? (
+          <motion.div
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="mt-3 px-0.5 pb-1"
+            exit={{ opacity: 0, scale: 0.98, y: 6 }}
+            initial={{ opacity: 0, scale: 0.98, y: 6 }}
+            key="show-less"
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
           >
-            Show less
-            <ChevronUp className="text-muted-foreground h-4 w-4" />
-          </button>
+            <motion.button
+              aria-label="Show fewer media"
+              className="apple-panel flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-2xl px-4 py-3 text-sm font-semibold"
+              onClick={handleShowLess}
+              type="button"
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98, y: 0 }}
+              transition={{ damping: 25, stiffness: 400, type: "spring" }}
+            >
+              Show less
+              <motion.span whileHover={{ y: -1 }}>
+                <ChevronUp className="text-muted-foreground h-4 w-4" />
+              </motion.span>
+            </motion.button>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      {/* Inline alt text strip, toggled by "Show alt" in the more menu - one
+          caption row per described attachment, in attachment order. */}
+      {altRevealed && describedAttachments.length > 0 ? (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {describedAttachments.map((media) => (
+            <div
+              className="apple-panel flex items-start rounded-lg px-3 py-2"
+              key={media.id}
+            >
+              <p className="text-muted-foreground min-w-0 flex-1 text-xs leading-snug break-words">
+                {media.altText}
+              </p>
+            </div>
+          ))}
         </div>
       ) : null}
 

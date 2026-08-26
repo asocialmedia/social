@@ -604,7 +604,9 @@ const MediaViewer = ({
         {renderMobileHeader()}
 
         <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
-          {currentMedia ? (
+          {/* Dialog galleries keep the overlay badge; the standalone page
+              shows it in the attribution row below the media instead. */}
+          {!standalone && currentMedia ? (
             <AiGeneratedBadge
               className="absolute bottom-4 left-4 z-50"
               media={currentMedia}
@@ -759,13 +761,24 @@ const MediaViewer = ({
           </div>
         ) : null}
 
-        {/* Uploader-authored alt text, displayed only on this standalone
-            page - never on feed cards or dialog-mode galleries. */}
-        {standalone && currentMedia?.altText ? (
-          <div className="border-t border-white/5 bg-black px-3 py-2.5">
-            <p className="mx-auto max-w-xl text-center text-xs leading-relaxed text-white/70 sm:text-sm">
-              {currentMedia.altText}
-            </p>
+        {/* Attribution row, standalone page only - never on feed cards or
+            dialog-mode galleries: AI-generated marker first, then the
+            uploader's alt text in its own badge. */}
+        {standalone &&
+        currentMedia &&
+        (currentMedia.aiGenerated || currentMedia.altText) ? (
+          <div className="flex flex-wrap items-start gap-2 border-t border-white/5 bg-black px-4 py-3">
+            <AiGeneratedBadge media={currentMedia} />
+            {currentMedia.altText ? (
+              <div className="flex min-h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full bg-linear-to-b from-zinc-500 to-zinc-700 px-2.5 py-1 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(35,35,40,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)]">
+                <span className="text-[10px] leading-none font-bold whitespace-nowrap">
+                  ALT
+                </span>
+                <span className="min-w-0 text-[10px] leading-snug font-medium break-words">
+                  {currentMedia.altText}
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -5,12 +5,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { Hash, MoreHorizontal, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Captions,
+  Hash,
+  MoreHorizontal,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import type * as React from "react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
+import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
 import { canModeratePost } from "@/lib/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -40,6 +47,11 @@ export default function PostMoreButton({
   // ownership), so a moderator who isn't the author only gets the reversible
   // moderation flags.
   const isOwner = Boolean(user && user.id === post.user.id);
+  // Anyone may view alt text - it is reader accessibility info, not an
+  // authoring or moderation surface. The toggle reveals it inline below the
+  // media grid, so the entry only appears when something is described.
+  const hasAltText = post.attachments.some((attachment) => attachment.altText);
+  const isAltRevealed = useAltRevealed(post.id);
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
@@ -79,6 +91,14 @@ export default function PostMoreButton({
     setPopupOpen(false);
   }, []);
 
+  const handleToggleAlt = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      toggleAltReveal(post.id);
+    },
+    [post.id]
+  );
+
   const handleTriggerClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
@@ -115,6 +135,17 @@ export default function PostMoreButton({
               <span className="flex items-center gap-3">
                 <ShieldCheck className="size-4" />
                 Moderation
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {hasAltText ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleToggleAlt}
+            >
+              <span className="flex items-center gap-3">
+                <Captions className="size-4" />
+                {isAltRevealed ? "Hide alt" : "Show alt"}
               </span>
             </DropdownMenuItem>
           ) : null}
