@@ -227,7 +227,7 @@ describe("preflight ui helpers", () => {
     ]);
 
     expect(buildPreflightProgressLine(states)).toBe(
-      "preflight svc:ok pg:... rd:wait obj:wait ozo:wait ptl:cache"
+      "preflight svc:ok pg:... rd:wait obj:wait ozo:wait av:wait ptl:cache"
     );
   });
 });

@@ -26,8 +26,10 @@ import { getS3 } from "../s3";
 const PROGRESSIVE_MAX_HEIGHT = 1080;
 
 export async function processMediaVideo(input: {
+  /** Receives every object key promoted to storage, for failure rollback. */
   mediaId: string;
   sourcePath: string;
+  uploadedKeys?: string[];
   limits: MediaLimits;
 }): Promise<void> {
   await withSpan(
@@ -95,6 +97,7 @@ export async function processMediaVideo(input: {
         derivativeName("poster", "default", "jpg")
       );
       await s3.write(posterKey, Bun.file(posterPath));
+      input.uploadedKeys?.push(posterKey);
       derivatives.push({
         key: posterKey,
         kind: "poster",
@@ -154,6 +157,7 @@ export async function processMediaVideo(input: {
           derivativeName("mp4", "h264", "mp4")
         );
         await s3.write(mp4Key, Bun.file(mp4Path));
+        input.uploadedKeys?.push(mp4Key);
         derivatives.push({
           key: mp4Key,
           kind: "mp4",
@@ -248,6 +252,7 @@ export async function processMediaVideo(input: {
             `hls/${entry}`
           );
           await s3.write(key, Bun.file(localPath));
+          input.uploadedKeys?.push(key);
           if (!derivatives.some((d) => d.kind === "hls")) {
             derivatives.push({
               key: derivativeKey(

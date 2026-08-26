@@ -201,6 +201,64 @@ export async function quarantineGcSweep(): Promise<{
   return { deletedObjects, reclaimedBytes };
 }
 
+// Derived-heal sweep: rescans pipeline READY rows whose process stage never
+// produced any derivatives. Every ready row spends some time in this state
+// while its queued process job runs (images take seconds, HLS ladders
+// minutes), so the candidate window starts well past normal processing:
+// only rows published (processedAt) older than DERIVED_HEAL_GRACE_MS count as
+// stranded. Covers the scan-stage enqueue failure the awaiting-scan contract
+// defers here, BullMQ attempts exhausted, and worker crashes after publish.
+// DOCUMENT uploads legitimately have no derivatives; only types known to
+// generate them are healed.
+export const DERIVED_HEAL_GRACE_MS = 60 * 60 * 1000;
+
+const DERIVED_HEAL_TYPES = ["AUDIO", "IMAGE", "VIDEO"] as const;
+
+export async function derivedHealSweep(): Promise<{ enqueued: number }> {
+  if (!workerEnv.BACKFILL_ENABLED) {
+    return { enqueued: 0 };
+  }
+  // The enqueue path is shared with the initial handoff, so duplicate jobs
+  // collapse on jobId; the re-enqueue overwrites the completed one.
+  const cutoff = new Date(Date.now() - DERIVED_HEAL_GRACE_MS);
+  const candidates = await prisma.media.findMany({
+    orderBy: { processedAt: "asc" },
+    select: { id: true },
+    take: SWEEP_BATCH,
+    where: {
+      createdAt: { lt: cutoff },
+      processedAt: { lt: cutoff, not: null },
+      status: "READY",
+      type: { in: [...DERIVED_HEAL_TYPES] },
+    },
+  });
+
+  let enqueued = 0;
+  for (const row of candidates) {
+    const derivativeCount = await prisma.mediaDerivative.count({
+      where: { mediaId: row.id },
+    });
+    if (derivativeCount > 0) {
+      continue;
+    }
+    try {
+      const { enqueueMediaProcess } = await import("@asm/db");
+      await enqueueMediaProcess(row.id);
+      enqueued += 1;
+      mediaLogger.info({ mediaId: row.id }, "derived-heal swept stranded row");
+    } catch (error) {
+      console.error(`Derived-heal enqueue failed for ${row.id}:`, error);
+    }
+  }
+  if (enqueued > 0) {
+    mediaLogger.info(
+      { count: enqueued },
+      "derived-heal sweep re-enqueued processing"
+    );
+  }
+  return { enqueued };
+}
+
 // Registers self-healing schedules on the media queue. Idempotent via
 // upsertJobScheduler.
 export async function registerBackfillSchedulers(connectionOptions: {
@@ -213,6 +271,7 @@ export async function registerBackfillSchedulers(connectionOptions: {
   await queue.upsertJobScheduler("media-backfill-sweep", { every: daily });
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
+  await queue.upsertJobScheduler("media-derived-heal", { every: daily });
   return new Worker(
     "media-sweeps",
     async (job) => {
@@ -225,6 +284,9 @@ export async function registerBackfillSchedulers(connectionOptions: {
         }
         case "media-quarantine-gc": {
           return await quarantineGcSweep();
+        }
+        case "media-derived-heal": {
+          return await derivedHealSweep();
         }
         default: {
           throw new Error(`Unknown sweep job: ${job.name}`);

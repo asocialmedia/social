@@ -66,6 +66,13 @@ if (import.meta.main) {
   // Terminal failure marking: once BullMQ exhausts attempts, the row must
   // leave SCANNING/PROCESSING so it cannot wedge forever. Retryable rows
   // were already released back to QUARANTINED by the handler.
+  //
+  // Later-stage exhaustion behaves differently on purpose: by the time
+  // process/analyze run, the row is READY with verified bytes published -
+  // the original is servable and attachable. Flipping such a row to FAILED
+  // would take good content offline over a transcode/model hiccup, so the
+  // failure is instead recorded on the row (failureCode/detail survives for
+  // ops queries) and the derived-heal sweep keeps retrying derivatives.
   mediaWorker.on("failed", async (job, error) => {
     mediaLogger.error(
       {
@@ -79,7 +86,10 @@ if (import.meta.main) {
     const mediaId = job?.data?.mediaId;
     const exhausted =
       job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1);
-    if (job?.name === MEDIA_JOB_NAMES.scan && mediaId && exhausted) {
+    if (!mediaId || !exhausted) {
+      return;
+    }
+    if (job?.name === MEDIA_JOB_NAMES.scan) {
       await prisma.media
         .updateMany({
           data: { failureCode: "scan-failed", status: "FAILED" },
@@ -89,6 +99,34 @@ if (import.meta.main) {
           mediaLogger.error(
             { error: String(markError) },
             "failed to mark FAILED"
+          );
+        });
+      return;
+    }
+    if (
+      job?.name === MEDIA_JOB_NAMES.process ||
+      job?.name === MEDIA_JOB_NAMES.analyze
+    ) {
+      await prisma.media
+        .updateMany({
+          data: {
+            failureCode:
+              job.name === MEDIA_JOB_NAMES.process
+                ? "encode-failed"
+                : "unknown",
+            failureDetail: {
+              message: String(error),
+              stage: job.name,
+            },
+          },
+          // Only rows still actively serving: a REJECTED/FAILED/DELETED row
+          // must never resurrect diagnostic fields onto itself.
+          where: { id: mediaId, status: "READY" },
+        })
+        .catch((markError: unknown) => {
+          mediaLogger.error(
+            { error: String(markError) },
+            "failed to record stage failure"
           );
         });
     }

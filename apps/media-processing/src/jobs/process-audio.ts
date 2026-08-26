@@ -24,8 +24,10 @@ import { getS3 } from "../s3";
 const WAVEFORM_POINTS = 200;
 
 export async function processMediaAudio(input: {
+  /** Receives every object key promoted to storage, for failure rollback. */
   mediaId: string;
   sourcePath: string;
+  uploadedKeys?: string[];
   limits: MediaLimits;
 }): Promise<void> {
   await withSpan(
@@ -88,6 +90,7 @@ export async function processMediaAudio(input: {
         derivativeName("audio", "opus", "webm")
       );
       await s3.write(opusKey, Bun.file(opusPath));
+      input.uploadedKeys?.push(opusKey);
       derivatives.push({
         durationMs: Math.round(probe.durationSec * 1000),
         key: opusKey,
@@ -122,6 +125,7 @@ export async function processMediaAudio(input: {
         derivativeName("audio", "aac", "m4a")
       );
       await s3.write(aacKey, Bun.file(aacPath));
+      input.uploadedKeys?.push(aacKey);
       derivatives.push({
         durationMs: Math.round(probe.durationSec * 1000),
         key: aacKey,
@@ -158,6 +162,7 @@ export async function processMediaAudio(input: {
             derivativeName("cover", "default", "jpg")
           );
           await s3.write(coverKey, Bun.file(coverPath));
+          input.uploadedKeys?.push(coverKey);
           derivatives.push({
             key: coverKey,
             kind: "cover",
@@ -189,6 +194,7 @@ export async function processMediaAudio(input: {
         })
       );
       await s3.write(waveKey, Bun.file(waveLocalPath));
+      input.uploadedKeys?.push(waveKey);
       derivatives.push({
         key: waveKey,
         kind: "wave",

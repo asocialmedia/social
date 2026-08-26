@@ -87,8 +87,10 @@ function isLosslessSourceFormat(buffer: Buffer, format: string): boolean {
 }
 
 export async function processMediaImage(input: {
+  /** Receives every object key promoted to storage, for failure rollback. */
   mediaId: string;
   sourcePath: string;
+  uploadedKeys?: string[];
   publishedKey: string;
   limits: MediaLimits;
 }): Promise<void> {
@@ -174,6 +176,7 @@ export async function processMediaImage(input: {
             name
           );
           await s3.write(key, encoded.bytes);
+          input.uploadedKeys?.push(key);
           derivativesToInsert.push({
             key,
             kind: item.kind,

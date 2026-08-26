@@ -509,18 +509,22 @@ export function processMediaScan(
           });
         }
 
-        // Derivative generation follows publication asynchronously; the
-        // row is already READY and servable at this point.
-        void (async () => {
-          try {
-            await enqueueMediaProcess(mediaId);
-          } catch (error: unknown) {
-            mediaLogger.error(
-              { error: String(error), mediaId },
-              "process enqueue failed"
-            );
-          }
-        })();
+        // Derivative generation follows publication asynchronously; the row
+        // is already READY and servable at this point. The enqueue is
+        // awaited (not fire-and-forget): a Redis blip here used to strand
+        // freshly published rows with zero derivatives forever, because no
+        // later stage ever retried it. Failure after publish must not
+        // re-enter the catch below (the row is READY, rethrowing would only
+        // burn three doomed scan retries) - the daily derived-heal sweep is
+        // the durable net for this window.
+        try {
+          await enqueueMediaProcess(mediaId);
+        } catch (error: unknown) {
+          mediaLogger.error(
+            { error: String(error), mediaId },
+            "process enqueue failed; deferring to derived-heal sweep"
+          );
+        }
 
         // Original retention: keep the exact uploaded bytes under quarantine/
         // for the configured window (forensics, re-processing, incident

@@ -1,4 +1,5 @@
-// Stage 3: semantic analysis. Runs on the poster (or first derivative for
+// Stage 3: semantic analysis. Runs on a still-image representative of the
+// asset (video poster, audio cover art, or the published original for
 // images): the NSFW classifier stores Media.safety and auto-flags the parent
 // post's explicitContent, while scene-text OCR extracts readable text into
 // Media.ocrText as input for alt-text assist and text-based moderation. Both
@@ -12,7 +13,13 @@ import { extractImageText } from "../ocr";
 import { getS3 } from "../s3";
 import { classifyImageSafety } from "../safety";
 
+// Only these types ever reach an NSFW run: AUDIO contributes its cover art,
+// DOCUMENT bytes are not images and classify only as "neutral" noise.
+const ANALYZABLE_TYPES = new Set(["AUDIO", "IMAGE", "VIDEO"]);
+
 interface AnalysisSource {
+  /** True when the object is a real raster (poster/thumb/original). */
+  isRaster: boolean;
   localPath: string;
   type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 }
@@ -27,27 +34,38 @@ async function resolveAnalysisSource(
         select: { key: true, kind: true },
       },
       publishedKey: true,
+      status: true,
       type: true,
     },
     where: { id: mediaId },
   });
-  if (!media) {
+  // Only servable rows get analyzed - the same lifecycle gate as serving.
+  // READY excludes every terminal state by construction.
+  if (!media || media.status !== "READY") {
+    return null;
+  }
+  if (!ANALYZABLE_TYPES.has(media.type)) {
     return null;
   }
   const preferred =
     media.derivatives.find((d) => d.kind === "poster") ??
-    media.derivatives.find((d) => d.kind === "thumb") ??
-    media.derivatives[0];
+    media.derivatives.find((d) => d.kind === "cover") ??
+    media.derivatives.find((d) => d.kind === "thumb");
   const key = preferred?.key ?? media.publishedKey;
   if (!key) {
     return null;
   }
   const localPath = `/tmp/asm-analyze-${mediaId}-${crypto.randomUUID()}`;
-  await Bun.write(
+  // Streamed copy straight from storage; bytes stay out of worker RAM.
+  await Bun.write(localPath, getS3().file(key));
+  return {
+    // A chosen derivative or the IMAGE original's published bytes are raster;
+    // a bare audio file without cover art is not - classifyImageSafety on
+    // such input would decode nonsense into a meaningless verdict.
+    isRaster: Boolean(preferred) || media.type === "IMAGE",
     localPath,
-    new Uint8Array(await getS3().file(key).arrayBuffer())
-  );
-  return { localPath, type: media.type };
+    type: media.type,
+  };
 }
 
 export function processMediaAnalyze(
@@ -65,11 +83,21 @@ export function processMediaAnalyze(
         // Sequential on purpose: both stages are CPU-bound ONNX runs and the
         // worker box is small - competing sessions would just trade cache
         // misses for no wall-clock gain.
-        const verdict = await classifyImageSafety(localPath);
+        //
+        // Only real rasters reach the classifier: audio without cover art and
+        // any non-image source would decode as garbage pixels and yield a
+        // confident-sounding but meaningless NSFW score. The job stays a
+        // success (skipped) in that case so retries cannot loop.
+        const verdict = source.isRaster
+          ? await classifyImageSafety(localPath)
+          : null;
         // Text lives in visuals; waveform posters and document pages have
         // nothing worth OCRing today.
         const wantsOcr = source.type === "IMAGE" || source.type === "VIDEO";
-        const ocr = wantsOcr ? await extractImageText(localPath) : null;
+        const ocr =
+          wantsOcr && source.isRaster
+            ? await extractImageText(localPath)
+            : null;
 
         if (!verdict && !ocr) {
           return { outcome: "skipped" as const };
