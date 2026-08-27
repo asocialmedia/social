@@ -147,6 +147,8 @@ export async function processMediaAudio(input: {
             "-an",
             "-frames:v",
             "1",
+            "-map_metadata",
+            "-1",
             "-q:v",
             "4",
             coverPath,
@@ -208,14 +210,28 @@ export async function processMediaAudio(input: {
         skipDuplicates: true,
       });
 
+      const hasCoverArt = derivatives.some((d) => d.kind === "cover");
       if (probe.audio) {
         await prisma.media.update({
           data: {
             techMetadata: {
               audio: probe.audio,
+              container: probe.container,
               durationSec: probe.durationSec,
+              hasCoverArt,
               targetLufs: AUDIO_TARGET_LUFS,
             },
+          },
+          where: { id: input.mediaId },
+        });
+      } else if (hasCoverArt) {
+        await prisma.media.update({
+          data: {
+            techMetadata: {
+              container: probe.container,
+              durationSec: probe.durationSec,
+              hasCoverArt,
+            } as object,
           },
           where: { id: input.mediaId },
         });

@@ -92,6 +92,8 @@ export async function processMediaVideo(input: {
           input.sourcePath,
           "-frames:v",
           "1",
+          "-map_metadata",
+          "-1",
           "-q:v",
           "3",
           posterPath,
@@ -320,9 +322,18 @@ export async function processMediaVideo(input: {
           blurDataUrl,
           hasHls: plan.hls,
           height: probe.video.height,
-          phash: await computePosterHash(input.sourcePath, probe),
+          phash:
+            (await computePosterHash(
+              input.sourcePath,
+              probe,
+              posterPath,
+              posterSeek
+            )) || null,
           techMetadata: {
             ...baseTech,
+            aspectRatio: Number(
+              (probe.video.width / probe.video.height).toFixed(4)
+            ),
             audio: probe.audio ?? undefined,
             bitrateKbps: probe.formatBitrateKbps,
             colorSpace: probe.video.colorSpace ?? undefined,
@@ -332,6 +343,7 @@ export async function processMediaVideo(input: {
             frameRateMode: probe.video.frameRateMode,
             hdr: probe.video.colorTransfer === "smpte2084",
             pixelFormat: probe.video.pixelFormat,
+            rotation: probe.video.rotation || undefined,
             videoBitrateKbps: probe.video.bitrateKbps,
             videoCodec: probe.video.codec,
           } as object,
@@ -360,15 +372,19 @@ interface PrismaDerivativeInsert {
 
 async function computePosterHash(
   sourcePath: string,
-  probe: ProbeResult
+  probe: ProbeResult,
+  posterPath?: string,
+  posterSeek?: number
 ): Promise<string> {
-  const pixels = await extractGrayPixels(
-    sourcePath,
-    Math.max(0, probe.durationSec * 0.25),
-    9,
-    8,
-    30_000
-  ).catch(() => null);
+  // Prefer the actual poster bytes the serving route will hand out; fall back
+  // to a source frame only if the poster temp file is unavailable.
+  const hashSource = posterPath ?? sourcePath;
+  const seek =
+    posterPath === undefined ? Math.max(0, probe.durationSec * 0.25) : 0;
+  void posterSeek;
+  const pixels = await extractGrayPixels(hashSource, seek, 9, 8, 30_000).catch(
+    () => null
+  );
   if (!pixels) {
     return "";
   }

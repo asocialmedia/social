@@ -6,9 +6,10 @@
 // loss and the image renders identically.
 //
 // Deliberately preserved:
-//   JPEG  APP0 (JFIF), APP2 (ICC color profile), APP11 (C2PA/JUMBF),
-//         everything from SOS onward
-//   PNG   iCCP, gAMA, sRGB and every non-text ancillary chunk
+//   JPEG  APP0 (JFIF — 0xE0), APP2 (ICC color profile — 0xE2), APP11 (C2PA/JUMBF — 0xEB),
+//         everything from SOS onward. All other APPn/COM segments are stripped
+//         as potentially identifying (Adobe APP14, Photoshop APP13, etc.).
+//   PNG   iCCP, gAMA, sRGB, cHRM, pHYs and every non-text ancillary chunk
 //   WebP  ICCP chunks; animation (ANIM/ANMF) aborts stripping entirely
 //
 // A lone EXIF Orientation tag survives as a rebuilt minimal APP1: photos
@@ -204,6 +205,18 @@ function stripJpeg(source: Uint8Array): StripOutcome | null {
       continue;
     }
 
+    // Explicit allowlist for APPn: only JFIF (APP0), ICC (APP2), C2PA (APP11) survive.
+    // Every other APPn is private metadata (Adobe APP14, etc.) and is stripped.
+    if (
+      marker >= 0xe0 &&
+      marker <= 0xef &&
+      !JPEG_KEPT_APP_MARKERS.has(marker)
+    ) {
+      changed = true;
+      pos = segmentEnd;
+      continue;
+    }
+
     chunks.push(source.slice(pos, segmentEnd));
     pos = segmentEnd;
   }
@@ -232,6 +245,8 @@ function isPng(source: Uint8Array): boolean {
   }
   return SIGNATURE.every((byte, index) => source[index] === byte);
 }
+
+const JPEG_KEPT_APP_MARKERS = new Set([0xe0, 0xe2, 0xeb]);
 
 const PNG_DROPPED_CHUNKS = new Set(["eXIf", "tEXt", "zTXt", "iTXt", "tIME"]);
 

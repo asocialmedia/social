@@ -111,6 +111,9 @@ export interface PipelineFailure {
 
 // Technical metadata extracted from validated sources. Stored as JSON on
 // Media.techMetadata; the database is authoritative over file metadata.
+// These interfaces describe the *intended* shape — the worker stages write a
+// superset that evolves faster than this file; see process-{image,video,audio}.ts
+// for the runtime truth. Kept in sync manually.
 export interface ImageTechMetadata {
   width: number;
   height: number;

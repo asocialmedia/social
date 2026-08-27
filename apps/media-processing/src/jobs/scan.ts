@@ -50,6 +50,18 @@ const METADATA_STRIPABLE_MIMES: ReadonlySet<string> = new Set([
   "image/webp",
 ]);
 
+// Families that carry EXIF/XMP but have no lossless structural stripper:
+// re-encode to JPEG (stripped by construction) so the published original
+// never leaks GPS. The 30-day quarantine copy preserves the raw for forensics.
+const REENCODE_STRIP_MIMES: ReadonlySet<string> = new Set([
+  "image/avif",
+  "image/heic",
+  "image/heif",
+  "image/tiff",
+  "image/bmp",
+  "image/x-icon",
+]);
+
 async function refundStorageQuota(
   userId: string | null,
   size: number
@@ -159,6 +171,7 @@ export function processMediaScan(
       const tempPath = `/tmp/asm-scan-${mediaId}-${crypto.randomUUID()}`;
       const strippedPath = `${tempPath}-stripped`;
       const stampedPath = `${tempPath}-c2pa`;
+      let reEncodedPath: string | null = null;
 
       try {
         const s3 = getS3();
@@ -338,6 +351,11 @@ export function processMediaScan(
         let publishPath = tempPath;
         let exifStripped = false;
         let capturedOrientation: number | undefined;
+        // Re-encoded fallback for image families that carry EXIF/XMP but have
+        // no lossless structural stripper: decode pixels and re-encode as JPEG
+        // (stripped by construction) so the published original never leaks GPS.
+        // The 30-day quarantine copy preserves the raw for forensics.
+        const needsReEncodeStrip = REENCODE_STRIP_MIMES.has(detected.mime);
         if (METADATA_STRIPABLE_MIMES.has(detected.mime)) {
           try {
             const sourceBytes = new Uint8Array(
@@ -388,6 +406,33 @@ export function processMediaScan(
             mediaLogger.warn(
               { error: String(error), mediaId },
               "metadata stripping failed; publishing unmodified"
+            );
+          }
+        }
+        if (needsReEncodeStrip) {
+          try {
+            const reEncodeBytes = Buffer.from(
+              await Bun.file(tempPath).arrayBuffer()
+            );
+            // autoOrient so fallback isn't rotated; re-encode drops all
+            // metadata by construction.
+            const oriented = new Bun.Image(reEncodeBytes, {
+              autoOrient: true,
+              maxPixels: SCAN_LIMITS.maxPixelCount,
+            });
+            const jpegBuf = await oriented.jpeg({ quality: 92 }).buffer();
+            reEncodedPath = `${tempPath}-reencode.jpg`;
+            await Bun.write(reEncodedPath, jpegBuf);
+            publishPath = reEncodedPath;
+            exifStripped = true;
+            mediaLogger.info(
+              { mediaId, mime: detected.mime },
+              "re-encoded image for metadata stripping"
+            );
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId },
+              "re-encode strip failed; publishing scanned bytes"
             );
           }
         }
@@ -575,7 +620,7 @@ export function processMediaScan(
         });
         throw error;
       } finally {
-        await Bun.$`rm -f ${tempPath} ${strippedPath} ${stampedPath}`
+        await Bun.$`rm -f ${tempPath} ${strippedPath} ${stampedPath} ${reEncodedPath ?? ""}`
           .quiet()
           .catch(() => null);
       }

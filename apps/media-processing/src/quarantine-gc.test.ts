@@ -34,8 +34,10 @@ const deletedKeys: string[] = [];
 const updatedIds: string[] = [];
 let failDeleteForKey: string | null = null;
 // Shared with derived-heal mock via globalThis so whichever mock wins is compatible
-(globalThis as unknown as Record<string, unknown>).__qm_failFirstEnqueue ??= false;
-(globalThis as unknown as Record<string, unknown>).__qm_derivativeCounts ??= {} as Record<string, number>;
+(globalThis as unknown as Record<string, unknown>).__qm_failFirstEnqueue ??=
+  false;
+(globalThis as unknown as Record<string, unknown>).__qm_derivativeCounts ??=
+  {} as Record<string, number>;
 
 mock.module("@asm/db", () => ({
   Prisma: { DbNull: Symbol.for("test.DbNull") },
@@ -73,7 +75,8 @@ mock.module("@asm/db", () => ({
     mediaDerivative: {
       count: ({ where }: { where: { mediaId: string } }) => {
         const g = globalThis as unknown as Record<string, unknown>;
-        const counts = (g.__qm_derivativeCounts as Record<string, number>) ?? {};
+        const counts =
+          (g.__qm_derivativeCounts as Record<string, number>) ?? {};
         return Promise.resolve(counts[where.mediaId] ?? 0);
       },
     },
@@ -121,7 +124,7 @@ describe("quarantine retention sweep", () => {
     const or = where.OR as Record<string, unknown>[];
     expect(or).toHaveLength(2);
     for (const clause of or) {
-      expect((clause.originalKey as Record<string, unknown>)).toEqual({
+      expect(clause.originalKey as Record<string, unknown>).toEqual({
         startsWith: "quarantine/",
       });
       expect((clause as Record<string, unknown>).pipelineVersion).toEqual({
@@ -131,8 +134,9 @@ describe("quarantine retention sweep", () => {
     expect(or[0]?.publishedKey).toEqual({ not: null });
     expect(or[1]?.status).toBe("FAILED");
     // Cutoff is now minus the 30-day window (1s tolerance for clock drift).
-    const cutoff = ((or[0] as Record<string, unknown>).processedAt as { lt: Date })
-      .lt.getTime();
+    const cutoff = (
+      (or[0] as Record<string, unknown>).processedAt as { lt: Date }
+    ).lt.getTime();
     expect(
       Math.abs(Date.now() - 30 * 24 * 60 * 60 * 1000 - cutoff)
     ).toBeLessThan(1000);

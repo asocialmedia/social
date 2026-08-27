@@ -206,24 +206,37 @@ export async function processMediaImage(input: {
             ? (existing.techMetadata as Record<string, unknown>)
             : {};
 
+        const aspectRatio = Number((meta.width / meta.height).toFixed(4));
+        const hasIccProfile =
+          bytes.includes(Buffer.from("ICC_PROFILE")) ||
+          bytes.includes(Buffer.from("iCCP"));
+        const orientation =
+          (baseTech.orientation as number | undefined) ??
+          (baseTech.Orientation as number | undefined);
+
         await prisma.media.update({
           data: {
             blurDataUrl,
-            phash: await computePerceptualHash(
-              input.sourcePath,
-              0,
-              input.limits.scanTimeoutMs
-            ),
+            phash:
+              (await computePerceptualHash(
+                input.sourcePath,
+                0,
+                input.limits.scanTimeoutMs
+              ).catch(() => null)) || null,
             techMetadata: {
               ...baseTech,
               animated,
+              aspectRatio,
               bitDepth: meta.format === "png" ? 8 : undefined,
               colorEntropy: Number(entropy.toFixed(3)),
               colorSpace: meta.format === "png" ? "sRGB" : undefined,
               format: meta.format,
               frameCount: animated ? countFrames(bytes) : 1,
               hasAlpha: alpha,
+              hasIccProfile,
               height: meta.height,
+              orientation:
+                orientation && orientation > 1 ? orientation : undefined,
               width: meta.width,
             } as object,
           },
