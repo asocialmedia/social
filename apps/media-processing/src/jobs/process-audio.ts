@@ -211,9 +211,15 @@ export async function processMediaAudio(input: {
       });
 
       const hasCoverArt = derivatives.some((d) => d.kind === "cover");
+      const audioFprint =
+        (await import("../ffmpeg").then((mod) =>
+          mod.computeAudioFingerprint(input.sourcePath, probe.durationSec, input.limits.scanTimeoutMs)
+        ).catch(() => null)) || null;
+
       if (probe.audio) {
         await prisma.media.update({
           data: {
+            phash: audioFprint,
             techMetadata: {
               audio: probe.audio,
               container: probe.container,
@@ -224,9 +230,10 @@ export async function processMediaAudio(input: {
           },
           where: { id: input.mediaId },
         });
-      } else if (hasCoverArt) {
+      } else if (hasCoverArt || audioFprint) {
         await prisma.media.update({
           data: {
+            ...(audioFprint ? { phash: audioFprint } : {}),
             techMetadata: {
               container: probe.container,
               durationSec: probe.durationSec,
@@ -235,6 +242,28 @@ export async function processMediaAudio(input: {
           },
           where: { id: input.mediaId },
         });
+      } else if (audioFprint) {
+        await prisma.media.update({
+          data: { phash: audioFprint },
+          where: { id: input.mediaId },
+        });
+      }
+
+      // Re-share attribution for audio — same bounded phash scan as images, now with 128-bit fingerprint
+      if (audioFprint) {
+        try {
+          const mediaOwner = await prisma.media.findUnique({
+            select: { userId: true },
+            where: { id: input.mediaId },
+          });
+          const { attributeReshare } = await import("../watermark/reshare");
+          await attributeReshare(input.mediaId, audioFprint, mediaOwner?.userId ?? null);
+        } catch (error) {
+          mediaLogger.warn(
+            { error: String(error), mediaId: input.mediaId },
+            "re-share attribution failed"
+          );
+        }
       }
 
       mediaLogger.info(

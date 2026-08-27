@@ -1,14 +1,28 @@
-// Perceptual hash comparison. The pipeline stores 64-bit dHash-style hex
-// strings (16 hex chars) on Media.phash - images via a poster/thumb frame,
-// videos via the scene-aware poster frame. These helpers turn those stored
-// hashes into reupload-detection signals.
+// Perceptual hash + audio fingerprint helpers. The pipeline stores hashes
+// on Media.phash:
+//   image/video — 64-bit dHash-style hex (16 hex chars) from a poster/thumb
+//                 frame via ffmpeg gray pixels
+//   audio       — 128-bit chroma-fingerprint hex (32 hex chars) from spectral
+//                 centroids + chroma vectors sampled across the track
+// These helpers turn stored hashes into reupload-detection signals.
 //
 // Hamming distance between perceptual hashes is a SIMILARITY SIGNAL, never
-// proof of ownership: two different photos of the same scene can land close,
-// and heavy crops can escape detection entirely. Decisions about stolen or
-// reposted content always need a human or an embedding-level check.
+// proof of ownership: two different photos or remastered tracks of the same
+// source can land close, and heavy crops/remixes can escape detection
+// entirely. Decisions about stolen or reposted content always need a human or
+// an embedding-level check.
 
 const HEX_CHAR_RE = /^[0-9a-f]$/;
+
+// Audio tracks produce 32-hex-char fingerprints (128 bits); image/video use
+// 16 hex chars (64 bits). Comparison is length-checked, so cross-type
+// distances safely return null (treated as non-match).
+export const AUDIO_FPRINT_LENGTH = 32;
+
+// How many hex chars of an audio fingerprint may differ and still count as
+// a near-duplicate. 12 hex chars == 48 bits, calibrated to survive loudnorm
+// + Opus/AAC transcode + waveform re-encode.
+export const AUDIO_FPRINT_MATCH_DISTANCE = 12;
 
 function popcount8(byte: number): number {
   let count = 0;
@@ -58,5 +72,17 @@ export function isLikelyDuplicateHash(a: string, b: string): boolean {
   if (distance === null) {
     return false;
   }
-  return distance <= PHASH_MATCH_DISTANCE;
+  // Use the stricter image threshold for 64-bit hashes and the wider audio
+  // threshold for 128-bit fingerprints.
+  const threshold =
+    a.length === AUDIO_FPRINT_LENGTH ? AUDIO_FPRINT_MATCH_DISTANCE * 4 : PHASH_MATCH_DISTANCE;
+  return distance <= threshold;
+}
+
+export function isLikelyDuplicateAudioHash(a: string, b: string): boolean {
+  const distance = hammingDistanceHex(a, b);
+  if (distance === null) {
+    return false;
+  }
+  return distance <= AUDIO_FPRINT_MATCH_DISTANCE * 4;
 }

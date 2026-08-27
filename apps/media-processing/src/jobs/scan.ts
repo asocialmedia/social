@@ -439,13 +439,13 @@ export function processMediaScan(
           }
         }
 
-        // 5b. Invisible watermark (image/video phase 1) — tiled LSB, crop-resistant,
-        // applied to the stripped (or re-encoded) bytes before signing. Failure
-        // is best-effort: publish proceeds without watermark, DB remains authoritative.
+        // 5b. Invisible watermark — tiled LSB, crop-resistant, applied to the
+        // stripped (or re-encoded) bytes before signing. Always on (core
+        // platform feature). Failure is best-effort: publish proceeds without
+        // watermark, DB remains authoritative.
         if (
-          workerEnv.WATERMARK_ENABLED &&
-          (detected.mime.startsWith("image/") ||
-            detected.mime.startsWith("video/"))
+          detected.mime.startsWith("image/") ||
+          detected.mime.startsWith("video/")
         ) {
           const watermarkStart = performance.now();
           try {

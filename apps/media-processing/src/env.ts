@@ -24,25 +24,19 @@ export const keys = createEnv({
     CLAMAV_PORT: process.env.CLAMAV_PORT,
     DATABASE_URL: process.env.DATABASE_URL,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
     MEDIA_BACKFILL_ENABLED: process.env.MEDIA_BACKFILL_ENABLED,
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
     MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
     MEDIA_C2PA_STAMP_TIMEOUT_MS: process.env.MEDIA_C2PA_STAMP_TIMEOUT_MS,
     MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
-    MEDIA_WATERMARK_ENABLED: process.env.MEDIA_WATERMARK_ENABLED,
-    MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
-    MEDIA_IMAGE_WATERMARK_TIMEOUT_MS:
-      process.env.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS,
-    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS:
-      process.env.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS,
-    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
-      process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
-    MEDIA_PHASH_ATTRIBUTION_ENABLED:
-      process.env.MEDIA_PHASH_ATTRIBUTION_ENABLED,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
+    MEDIA_IMAGE_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS,
     MEDIA_LEGACY_GC_ENABLED: process.env.MEDIA_LEGACY_GC_ENABLED,
     MEDIA_MAX_AUDIO_BYTES: process.env.MEDIA_MAX_AUDIO_BYTES,
     MEDIA_MAX_IMAGE_BYTES: process.env.MEDIA_MAX_IMAGE_BYTES,
@@ -50,11 +44,17 @@ export const keys = createEnv({
     MEDIA_MAX_VIDEO_BYTES: process.env.MEDIA_MAX_VIDEO_BYTES,
     MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
+    MEDIA_PHASH_ATTRIBUTION_ENABLED:
+      process.env.MEDIA_PHASH_ATTRIBUTION_ENABLED,
     MEDIA_PROCESSING_TIMEOUT_MS: process.env.MEDIA_PROCESSING_TIMEOUT_MS,
     MEDIA_REQUIRE_CLAMAV: process.env.MEDIA_REQUIRE_CLAMAV,
     MEDIA_SCAN_CONCURRENCY: process.env.MEDIA_SCAN_CONCURRENCY,
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
+    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS,
+    MEDIA_WATERMARK_ENABLED: process.env.MEDIA_WATERMARK_ENABLED,
+    MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
     // Same public origin the web app publishes; the worker needs it to write
     // absolute provenance identifiers into stamped manifests.
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
@@ -94,6 +94,7 @@ export const keys = createEnv({
     // (safe by design: live posts keep serving until READY). Legacy GC
     // deletes superseded raw objects and is therefore opt-in - flip it on
     // only after the migration has been verified in production.
+    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS: numericOverride,
     MEDIA_BACKFILL_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_C2PA_CERT_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_KEY_PATH: z.string().min(1).optional(),
@@ -103,14 +104,9 @@ export const keys = createEnv({
     // SSL.com tier expires yearly), timestamps are what keep OLD manifests
     // valid after expiry - without one every historical stamp ages badly.
     MEDIA_C2PA_TSA_URL: z.url().optional(),
-    MEDIA_WATERMARK_ENABLED: z.enum(["0", "1"]).default("0"),
-    MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
-    MEDIA_IMAGE_WATERMARK_TIMEOUT_MS: numericOverride,
-    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS: numericOverride,
-    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS: numericOverride,
-    MEDIA_PHASH_ATTRIBUTION_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
+    MEDIA_IMAGE_WATERMARK_TIMEOUT_MS: numericOverride,
     MEDIA_LEGACY_GC_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_MAX_AUDIO_BYTES: numericOverride,
     MEDIA_MAX_IMAGE_BYTES: numericOverride,
@@ -125,11 +121,15 @@ export const keys = createEnv({
     // window). 0 deletes the quarantine copy at publish instead. Default 30
     // lives in packages/media/src/limits.ts.
     MEDIA_ORIGINAL_RETENTION_DAYS: numericOverride,
+    MEDIA_PHASH_ATTRIBUTION_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_PROCESSING_TIMEOUT_MS: numericOverride,
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),
     MEDIA_SCAN_CONCURRENCY: z.coerce.number().int().positive().default(4),
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
+    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS: numericOverride,
+    MEDIA_WATERMARK_ENABLED: z.enum(["0", "1"]).default("0"),
+    MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
@@ -158,6 +158,10 @@ export const workerEnv = {
   },
   get ASMOB_ENDPOINT() {
     return keys.ASMOB_ENDPOINT;
+  },
+  get AUDIO_WATERMARK_TIMEOUT_MS() {
+    const raw = keys.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS;
+    return raw ? Number(raw) : 5000;
   },
   get BACKFILL_ENABLED() {
     return keys.MEDIA_BACKFILL_ENABLED === "1";

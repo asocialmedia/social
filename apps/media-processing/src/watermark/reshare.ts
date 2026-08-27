@@ -3,9 +3,13 @@
 // idempotent (guarded by reShareChecked) and single-hop.
 
 import { prisma } from "@asm/db";
-import { hammingDistanceHex, PHASH_MATCH_DISTANCE } from "@asm/media";
+import {
+  AUDIO_FPRINT_LENGTH,
+  AUDIO_FPRINT_MATCH_DISTANCE,
+  PHASH_MATCH_DISTANCE,
+  hammingDistanceHex,
+} from "@asm/media";
 
-import { workerEnv } from "../env";
 import { mediaLogger } from "../log";
 
 const CANDIDATE_TAKE = 200;
@@ -16,12 +20,12 @@ export async function attributeReshare(
   phash: string | null,
   userId: string | null
 ): Promise<void> {
-  if (!phash || phash.length !== 16) {
+  if (!phash) {
     return;
   }
-  if (!workerEnv.PHASH_ATTRIBUTION_ENABLED) {
-    return;
-  }
+  // Image/video phash is 16 hex chars; audio fingerprint is 32. Both are
+  // handled — length check is deferred to the distance threshold selector
+  // so audio re-share attribution works too.
 
   // Claim: exactly-one attribution scan per row, via conditional update.
   // Prevents every retry / backfill re-run from re-doing the O(400) scan.
@@ -61,12 +65,20 @@ export async function attributeReshare(
   let best: (typeof candidates)[number] | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
 
+  const isAudioCandidate = phash.length === AUDIO_FPRINT_LENGTH;
+  // Audio fingerprints are 128-bit (32 hex chars) vs image 64-bit (16);
+  // hammingDistanceHex returns bit distance, so scale audio threshold to bits.
+  const matchThresholdBits = isAudioCandidate
+    ? AUDIO_FPRINT_MATCH_DISTANCE * 4
+    : PHASH_MATCH_DISTANCE;
+
   for (const candidate of candidates) {
     if (!candidate.phash) {
       continue;
     }
+    // Cross-type (image phash vs audio fingerprint) lengths differ -> distance null -> skip
     const distance = hammingDistanceHex(phash, candidate.phash);
-    if (distance === null || distance > PHASH_MATCH_DISTANCE) {
+    if (distance === null || distance > matchThresholdBits) {
       continue;
     }
     if (

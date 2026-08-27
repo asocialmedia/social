@@ -66,7 +66,10 @@ export { readJpegExifOrientation, stripImageMetadata } from "./strip-metadata";
 export type { StripOutcome } from "./strip-metadata";
 
 export {
+  AUDIO_FPRINT_LENGTH,
+  AUDIO_FPRINT_MATCH_DISTANCE,
   hammingDistanceHex,
+  isLikelyDuplicateAudioHash,
   isLikelyDuplicateHash,
   PHASH_MATCH_DISTANCE,
 } from "./perceptual-hash";

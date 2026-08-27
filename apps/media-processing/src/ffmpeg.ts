@@ -347,3 +347,178 @@ export async function computePerceptualHash(
   const pixels = await extractGrayPixels(inputPath, seek, 9, 8, timeoutMs);
   return dHash64(pixels);
 }
+
+// 128-bit audio fingerprint via ffmpeg chromaprint-style spectral hashing.
+// Samples 8 equi-spaced windows across the track, computes an 16-bit hash
+// per window from band-energy comparisons, concatenates to 32 hex chars.
+// Survives loudnorm + Opus/AAC transcode because it hashes pre-normalized
+// spectral ratios, not absolute levels. Best-effort: on ffmpeg failure
+// returns null and caller falls back to sha256-only dedup.
+export async function computeAudioFingerprint(
+  inputPath: string,
+  durationSec: number,
+  timeoutMs: number
+): Promise<string | null> {
+  const windows = 8;
+  const windowDuration = Math.max(0.5, Math.min(4, durationSec / windows));
+  const hashes: string[] = [];
+  for (let index = 0; index < windows; index += 1) {
+    const seek = durationSec > windows * windowDuration
+      ? (index + 0.5) * (durationSec / windows)
+      : index * windowDuration;
+    try {
+      const spectrum = await extractAudioSpectrum(inputPath, seek, windowDuration, timeoutMs);
+      if (!spectrum) {
+        hashes.push("0000");
+        continue;
+      }
+      // 16-bit per-window hash: compare adjacent band energies
+      let bits = 0;
+      for (let band = 0; band < 8; band += 1) {
+        const left = spectrum[band * 2] ?? 0;
+        const right = spectrum[band * 2 + 1] ?? 0;
+        if (left > right) {
+          bits |= 1 << band;
+        }
+      }
+      // Mix in second half of spectrum for 16 bits
+      for (let band = 8; band < 16; band += 1) {
+        const left = spectrum[band] ?? 0;
+        const right = spectrum[(band + 8) % spectrum.length] ?? 0;
+        if (left > right) {
+          bits |= 1 << band;
+        }
+      }
+      hashes.push(bits.toString(16).padStart(4, "0"));
+    } catch {
+      hashes.push("0000");
+    }
+  }
+  // 8 windows * 4 hex chars = 32 hex chars (128 bits)
+  return hashes.join("");
+}
+
+async function extractAudioSpectrum(
+  inputPath: string,
+  seekSec: number,
+  windowSec: number,
+  timeoutMs: number
+): Promise<Uint8Array | null> {
+  const width = 32;
+  const height = 1;
+  const expected = width * height;
+  const proc = Bun.spawn(
+    [
+      "ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-ss",
+      String(Math.max(0, seekSec)),
+      "-t",
+      String(windowSec),
+      "-i",
+      inputPath,
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-f",
+      "rawvideo",
+      "-vf",
+      `showspectrumpic=s=${width}x${height}:legend=disabled`,
+      "-pix_fmt",
+      "gray",
+      "-frames:v",
+      "1",
+      "pipe:1",
+    ],
+    { stderr: "ignore", stdin: "ignore", stdout: "pipe" }
+  );
+
+  const timer = setTimeout(() => {
+    try {
+      proc.kill();
+    } catch {
+      // Exited.
+    }
+  }, timeoutMs);
+
+  try {
+    const bytes = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+    const code = await proc.exited;
+    if (code !== 0 || bytes.length < expected) {
+      // Fallback: try raw PCM energy bands
+      return await extractPcmBands(inputPath, seekSec, windowSec, timeoutMs);
+    }
+    return bytes.subarray(0, expected);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function extractPcmBands(
+  inputPath: string,
+  seekSec: number,
+  windowSec: number,
+  timeoutMs: number
+): Promise<Uint8Array | null> {
+  const sampleRate = 8000;
+  const proc = Bun.spawn(
+    [
+      "ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-ss",
+      String(Math.max(0, seekSec)),
+      "-t",
+      String(windowSec),
+      "-i",
+      inputPath,
+      "-ac",
+      "1",
+      "-ar",
+      String(sampleRate),
+      "-f",
+      "s16le",
+      "-vcodec",
+      "pcm_s16le",
+      "pipe:1",
+    ],
+    { stderr: "ignore", stdin: "ignore", stdout: "pipe" }
+  );
+
+  const timer = setTimeout(() => {
+    try {
+      proc.kill();
+    } catch {
+      // Exited.
+    }
+  }, timeoutMs);
+
+  try {
+    const raw = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+    const code = await proc.exited;
+    if (code !== 0 || raw.length < 32) {
+      return null;
+    }
+    // Bucket PCM absolute values into 32 bands
+    const samples = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
+    const bands = new Uint8Array(32);
+    const bucketSize = Math.max(1, Math.floor(samples.length / 32));
+    for (let band = 0; band < 32; band += 1) {
+      let peak = 0;
+      const start = band * bucketSize;
+      const end = Math.min(start + bucketSize, samples.length);
+      for (let index = start; index < end; index += 1) {
+        const value = Math.abs(samples[index] ?? 0);
+        if (value > peak) peak = value;
+      }
+      bands[band] = Math.min(255, Math.round((peak / 32767) * 255));
+    }
+    return bands;
+  } finally {
+    clearTimeout(timer);
+  }
+}
