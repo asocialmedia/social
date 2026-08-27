@@ -194,11 +194,19 @@ export async function GET(
       // never download multi-megabyte video streams pretending to be images).
       let posterKey: string | null = freshThumb?.thumbnailKey ?? null;
       if (!posterKey && freshThumb?.status === "READY") {
-        const poster = await prisma.mediaDerivative.findFirst({
+        const thumbPoster = await prisma.mediaDerivative.findFirst({
           select: { key: true },
-          where: { kind: "poster", mediaId },
+          where: { kind: "poster-thumb", mediaId },
         });
-        posterKey = poster?.key ?? null;
+        if (thumbPoster?.key) {
+          posterKey = thumbPoster.key;
+        } else {
+          const poster = await prisma.mediaDerivative.findFirst({
+            select: { key: true },
+            where: { kind: "poster", mediaId },
+          });
+          posterKey = poster?.key ?? null;
+        }
       }
       if (!posterKey) {
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;

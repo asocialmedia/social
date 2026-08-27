@@ -219,10 +219,34 @@ export const CustomVideoPlayer = ({
         return;
       }
       hlsInstanceRef.current?.destroy();
+      // Gust tiles are ~320px; cap initial level by player size and by
+      // effective connection so a 4G phone on a 320 tile doesn't start at
+      // 1080p before throughput samples arrive.
+      const { connection } = navigator as unknown as {
+        connection?: { effectiveType?: string };
+      };
+      const effectiveType = connection?.effectiveType;
+      const connectionCap: Record<string, number> = {
+        "2g": 0,
+        "3g": 1,
+        "4g": 3,
+        "slow-2g": 0,
+      };
+      const maxAutoLevel =
+        effectiveType !== undefined && effectiveType in connectionCap
+          ? connectionCap[effectiveType]
+          : undefined;
       const hls = new HlsCtor({
         capLevelToPlayerSize: true,
         enableWorker: true,
-      });
+        ...(maxAutoLevel === undefined
+          ? {}
+          : { capLevelToPlayerSize: true, startLevel: maxAutoLevel }),
+      } as unknown as ConstructorParameters<typeof HlsCtor>[0]);
+      // capLevelToPlayerSize already keeps 320px tiles off 1080p; startLevel
+      // gives slow connections a head start at 360/480p so first frame arrives
+      // even before AbrController measures throughput.
+      void maxAutoLevel;
       // HLS failed → fall back to progressive MP4 so the video still plays
       // on thin network or transient segment error, instead of stuck spinner.
       hls.on(HlsCtor.Events.ERROR, (_event, data) => {

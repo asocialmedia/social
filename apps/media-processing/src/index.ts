@@ -102,7 +102,18 @@ if (import.meta.main) {
   // would take good content offline over a transcode/model hiccup, so the
   // failure is instead recorded on the row (failureCode/detail survives for
   // ops queries) and the derived-heal sweep keeps retrying derivatives.
-  const handleFailed = async (job: { id?: string; name?: string; data?: { mediaId?: string }; attemptsMade: number; opts: { attempts?: number } } | undefined, error: unknown) => {
+  const handleFailed = async (
+    job:
+      | {
+          id?: string;
+          name?: string;
+          data?: { mediaId?: string };
+          attemptsMade: number;
+          opts: { attempts?: number };
+        }
+      | undefined,
+    error: unknown
+  ) => {
     mediaLogger.error(
       {
         error: String(error),
@@ -113,13 +124,24 @@ if (import.meta.main) {
       "media job failed"
     );
     const mediaId = job?.data?.mediaId;
-    const isPolicyRejection = (error as { name?: string })?.name === "ResourceLimitError";
-    const exhausted = isPolicyRejection || (job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1));
+    const isPolicyRejection =
+      (error as { name?: string })?.name === "ResourceLimitError";
+    const exhausted =
+      isPolicyRejection ||
+      (job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1));
     if (!mediaId || !exhausted) {
       if (isPolicyRejection) {
         // One-and-done: policy violation, no retry worth doing
         try {
-          await (job as unknown as { moveToFailed?: (e: unknown, t: string, f: boolean) => Promise<void> })?.moveToFailed?.(error, "0", true);
+          await (
+            job as unknown as {
+              moveToFailed?: (
+                e: unknown,
+                t: string,
+                f: boolean
+              ) => Promise<void>;
+            }
+          )?.moveToFailed?.(error, "0", true);
         } catch {
           // not in a Worker context — fall through
         }
@@ -200,7 +222,11 @@ if (import.meta.main) {
     running = false;
     mediaLogger.info({}, "media-processing shutting down");
     healthServer.stop(true);
-    await Promise.allSettled([scanWorker.close(), processWorker.close(), sweepWorker.close()]);
+    await Promise.allSettled([
+      scanWorker.close(),
+      processWorker.close(),
+      sweepWorker.close(),
+    ]);
     await (telemetry as Telemetry).shutdown().catch(() => null);
     process.exit(0);
   };
@@ -211,8 +237,8 @@ if (import.meta.main) {
     {
       clamav: workerEnv.CLAMAV_HOST ?? "disabled",
       healthPort: workerEnv.HEALTH_PORT,
-      scanConcurrency: workerEnv.SCAN_CONCURRENCY,
       processConcurrency: workerEnv.PROCESS_CONCURRENCY,
+      scanConcurrency: workerEnv.SCAN_CONCURRENCY,
     },
     "media-processing worker ready"
   );

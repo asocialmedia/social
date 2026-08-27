@@ -155,7 +155,7 @@ export async function GET(
     headers.set(
       "Cache-Control",
       ownership.postId
-        ? "public, max-age=31536000, immutable"
+        ? "public, max-age=31536000, immutable, stale-while-revalidate=86400"
         : "private, max-age=86400"
     );
     // HLS playlists must not be cached aggressively by shared caches so

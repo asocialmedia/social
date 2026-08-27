@@ -378,7 +378,7 @@ export async function processMediaVideo(input: {
               "-f",
               "hls",
               "-hls_time",
-              "6",
+              String(probe.durationSec <= 60 ? 2 : 6),
               "-hls_playlist_type",
               "vod",
               "-hls_segment_type",
