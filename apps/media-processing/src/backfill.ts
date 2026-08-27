@@ -157,10 +157,23 @@ export async function quarantineGcSweep(): Promise<{
     select: { id: true, originalKey: true, size: true },
     take: GC_BATCH,
     where: {
-      originalKey: { startsWith: "quarantine/" },
-      pipelineVersion: { not: null },
-      processedAt: { lt: cutoff },
-      publishedKey: { not: null },
+      OR: [
+        {
+          originalKey: { startsWith: "quarantine/" },
+          pipelineVersion: { not: null },
+          processedAt: { lt: cutoff },
+          publishedKey: { not: null },
+        },
+        {
+          // Only reap failed attachments past retention; orphaned FAILED
+          // drafts are already covered by the abandoned-upload reaper.
+          OR: [{ postId: { not: null } }, { commentId: { not: null } }],
+          originalKey: { startsWith: "quarantine/" },
+          pipelineVersion: { not: null },
+          processedAt: { lt: cutoff },
+          status: "FAILED",
+        },
+      ],
     },
   });
 
@@ -227,6 +240,7 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
     take: SWEEP_BATCH,
     where: {
       createdAt: { lt: cutoff },
+      failureCode: null,
       processedAt: { lt: cutoff, not: null },
       status: "READY",
       type: { in: [...DERIVED_HEAL_TYPES] },

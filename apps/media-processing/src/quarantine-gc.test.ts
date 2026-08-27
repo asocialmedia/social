@@ -33,8 +33,24 @@ let sweepRows: {
 const deletedKeys: string[] = [];
 const updatedIds: string[] = [];
 let failDeleteForKey: string | null = null;
+// Shared with derived-heal mock via globalThis so whichever mock wins is compatible
+(globalThis as unknown as Record<string, unknown>).__qm_failFirstEnqueue ??= false;
+(globalThis as unknown as Record<string, unknown>).__qm_derivativeCounts ??= {} as Record<string, number>;
 
 mock.module("@asm/db", () => ({
+  Prisma: { DbNull: Symbol.for("test.DbNull") },
+  enqueueMediaProcess: (_mediaId: string) => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    if (g.__qm_failFirstEnqueue) {
+      g.__qm_failFirstEnqueue = false;
+      throw new Error("redis unavailable");
+    }
+    if (g.__qm_prismaDisabled) {
+      throw new Error("must not enqueue when the sweep is disabled");
+    }
+    return Promise.resolve();
+  },
+  enqueueMediaScan: () => Promise.resolve(),
   prisma: {
     media: {
       // Sync bodies are fine: the sweeper awaits the returned values, and
@@ -54,7 +70,15 @@ mock.module("@asm/db", () => ({
         return {};
       },
     },
+    mediaDerivative: {
+      count: ({ where }: { where: { mediaId: string } }) => {
+        const g = globalThis as unknown as Record<string, unknown>;
+        const counts = (g.__qm_derivativeCounts as Record<string, number>) ?? {};
+        return Promise.resolve(counts[where.mediaId] ?? 0);
+      },
+    },
   },
+  redis: { decrby: () => Promise.resolve(0), incrby: () => Promise.resolve(0) },
 }));
 mock.module("./s3", () => ({
   getS3: () => ({
@@ -93,11 +117,22 @@ describe("quarantine retention sweep", () => {
     expect(args.orderBy).toEqual({ processedAt: "asc" });
     expect(args.take).toBeGreaterThan(0);
     const where = args.where as Record<string, unknown>;
-    expect(where.originalKey).toEqual({ startsWith: "quarantine/" });
-    expect(where.pipelineVersion).toEqual({ not: null });
-    expect(where.publishedKey).toEqual({ not: null });
+    // Now an OR of two clauses: published-success and failed-attachment past retention
+    const or = where.OR as Record<string, unknown>[];
+    expect(or).toHaveLength(2);
+    for (const clause of or) {
+      expect((clause.originalKey as Record<string, unknown>)).toEqual({
+        startsWith: "quarantine/",
+      });
+      expect((clause as Record<string, unknown>).pipelineVersion).toEqual({
+        not: null,
+      });
+    }
+    expect(or[0]?.publishedKey).toEqual({ not: null });
+    expect(or[1]?.status).toBe("FAILED");
     // Cutoff is now minus the 30-day window (1s tolerance for clock drift).
-    const cutoff = (where.processedAt as { lt: Date }).lt.getTime();
+    const cutoff = ((or[0] as Record<string, unknown>).processedAt as { lt: Date })
+      .lt.getTime();
     expect(
       Math.abs(Date.now() - 30 * 24 * 60 * 60 * 1000 - cutoff)
     ).toBeLessThan(1000);

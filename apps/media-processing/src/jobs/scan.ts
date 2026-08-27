@@ -72,7 +72,13 @@ async function rejectMedia(
   detail: string
 ): Promise<ScanOutcome> {
   const row = await prisma.media.findUnique({
-    select: { originalKey: true, size: true, userId: true },
+    select: {
+      commentId: true,
+      originalKey: true,
+      postId: true,
+      size: true,
+      userId: true,
+    },
     where: { id: mediaId },
   });
   // Quarantined rejected bytes never linger - but ONLY true quarantine
@@ -93,8 +99,10 @@ async function rejectMedia(
   }
   await prisma.media.updateMany({
     data: {
+      commentId: null,
       failureCode,
       failureDetail: { detail },
+      postId: null,
       rejectedReason: reason,
       status: "REJECTED",
     },

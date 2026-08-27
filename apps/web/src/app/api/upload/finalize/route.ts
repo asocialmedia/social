@@ -67,13 +67,31 @@ export async function POST(request: Request) {
     }
 
     const maxBytes = maxBytesForType(MEDIA_LIMITS, media.type);
+    let policyError: UploadPolicyError | null = null;
     if (stored.contentLength <= 0) {
-      throw new UploadPolicyError("Uploaded file is empty", 400);
-    }
-    if (stored.contentLength > maxBytes) {
-      throw new UploadPolicyError(
+      policyError = new UploadPolicyError("Uploaded file is empty", 400);
+    } else if (stored.contentLength > maxBytes) {
+      policyError = new UploadPolicyError(
         `File exceeds the ${Math.floor(maxBytes / (1024 * 1024))}MB limit`,
         413
+      );
+    }
+    if (policyError) {
+      // Mark rejected from UPLOADING directly — the old catch-block only
+      // matched QUARANTINED and was therefore dead code (the +1 check throws
+      // before the flip). Refund is not needed here: quota is only charged
+      // after a successful flip.
+      await prisma.media.updateMany({
+        data: {
+          failureCode: "limit-exceeded",
+          rejectedReason: policyError.status === 400 ? "CORRUPT" : "TOO_LARGE",
+          status: "REJECTED",
+        },
+        where: { id: mediaId, status: "UPLOADING", userId: user.id },
+      });
+      return Response.json(
+        { error: policyError.message },
+        { status: policyError.status }
       );
     }
 
@@ -103,19 +121,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ mediaId, status: "QUARANTINED" });
   } catch (error) {
-    if (error instanceof UploadPolicyError) {
-      // Oversize/empty uploads are dead ends: mark rejected so the quarantined
-      // object gets reaped instead of squatting on storage.
-      await prisma.media.updateMany({
-        data: {
-          failureCode: "limit-exceeded",
-          rejectedReason: "TOO_LARGE",
-          status: "REJECTED",
-        },
-        where: { id: mediaId, status: "QUARANTINED" },
-      });
-      return Response.json({ error: error.message }, { status: error.status });
-    }
     console.error("Upload finalization failed:", error);
     return Response.json({ error: "Internal Server Error" }, { status: 500 });
   }

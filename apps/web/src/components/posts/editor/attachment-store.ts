@@ -417,22 +417,35 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
           purpose: "post",
           signal: controller.signal,
         });
-        commit(
-          get().attachments.map((a) =>
-            (a.file?.name ?? a.name) === fileName
-              ? {
-                  ...a,
-                  error: undefined,
-                  isUploading: false,
-                  mediaId: result.mediaId,
-                  mediaUrl: `/api/media/${result.mediaId}`,
-                  stage: undefined,
-                }
-              : a
-          )
-        );
-        persistAttachments(get().attachments);
-        flushPendingAltText(fileName);
+        if (result.status === "REJECTED") {
+          toast({
+            description: rejectionCopy(result.rejectedReason),
+            title: "Attachment Removed",
+            variant: "destructive",
+          });
+          commit(
+            get().attachments.filter(
+              (a) => (a.file?.name ?? a.name) !== fileName
+            )
+          );
+        } else {
+          commit(
+            get().attachments.map((a) =>
+              (a.file?.name ?? a.name) === fileName
+                ? {
+                    ...a,
+                    error: undefined,
+                    isUploading: false,
+                    mediaId: result.mediaId,
+                    mediaUrl: `/api/media/${result.mediaId}`,
+                    stage: undefined,
+                  }
+                : a
+            )
+          );
+          persistAttachments(get().attachments);
+          flushPendingAltText(fileName);
+        }
       } catch (error: unknown) {
         controllers.delete(file.name);
         if (controller.signal.aborted) {
@@ -555,21 +568,34 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
               purpose: "post",
               signal: controller.signal,
             });
-            set({
-              attachments: get().attachments.map((a) =>
-                a.file === file
-                  ? {
-                      ...a,
-                      isUploading: false,
-                      mediaId: result.mediaId,
-                      mediaUrl: `/api/media/${result.mediaId}`,
-                      stage: undefined,
-                    }
-                  : a
-              ),
-            });
-            persistAttachments(get().attachments);
-            flushPendingAltText(file.name);
+            if (result.status === "REJECTED") {
+              toast({
+                description: rejectionCopy(result.rejectedReason),
+                title: "Attachment Removed",
+                variant: "destructive",
+              });
+              commit(
+                get().attachments.filter(
+                  (a) => (a.file?.name ?? a.name) !== file.name
+                )
+              );
+            } else {
+              set({
+                attachments: get().attachments.map((a) =>
+                  a.file === file
+                    ? {
+                        ...a,
+                        isUploading: false,
+                        mediaId: result.mediaId,
+                        mediaUrl: `/api/media/${result.mediaId}`,
+                        stage: undefined,
+                      }
+                    : a
+                ),
+              });
+              persistAttachments(get().attachments);
+              flushPendingAltText(file.name);
+            }
           } catch (error: unknown) {
             // React Compiler cannot lower try/finally; cleanup happens on
             // each exit path explicitly.

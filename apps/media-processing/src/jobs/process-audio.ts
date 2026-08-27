@@ -232,7 +232,8 @@ export async function processMediaAudio(input: {
 
 async function extractWaveformPeaks(
   sourcePath: string,
-  durationSec: number
+  durationSec: number,
+  timeoutMs = 30_000
 ): Promise<number[]> {
   const sampleRate = 8000;
   const proc = Bun.spawn(
@@ -256,8 +257,21 @@ async function extractWaveformPeaks(
     { stderr: "ignore", stdin: "ignore", stdout: "pipe" }
   );
 
-  const bytes = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
-  await proc.exited;
+  const timeout = setTimeout(() => {
+    try {
+      proc.kill();
+    } catch {
+      // Already exited.
+    }
+  }, timeoutMs);
+
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+    await proc.exited;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const samples = new Int16Array(
     bytes.buffer,

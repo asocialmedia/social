@@ -39,17 +39,24 @@ interface FindManyArgs {
 let prismaDisabled = false;
 let failFirstEnqueue = false;
 let sweepRows: { id: string }[] = [];
-let derivativeCounts: Record<string, number> = {};
+const derivativeCounts: Record<string, number> = {};
 const enqueuedMediaIds: string[] = [];
 const findManyArgs: FindManyArgs[] = [];
+// Sync to global for cross-file mock compatibility
+(globalThis as unknown as Record<string, unknown>).__qm_prismaDisabled = prismaDisabled;
+(globalThis as unknown as Record<string, unknown>).__qm_failFirstEnqueue = failFirstEnqueue;
+(globalThis as unknown as Record<string, unknown>).__qm_derivativeCounts = derivativeCounts;
 
 mock.module("@asm/db", () => ({
+  Prisma: { DbNull: Symbol.for("test.DbNull") },
   enqueueMediaProcess: (mediaId: string) => {
-    if (prismaDisabled) {
+    const g = globalThis as unknown as Record<string, unknown>;
+    if (prismaDisabled || g.__qm_prismaDisabled) {
       throw new Error("must not enqueue when the sweep is disabled");
     }
-    if (failFirstEnqueue) {
+    if (failFirstEnqueue || g.__qm_failFirstEnqueue) {
       failFirstEnqueue = false;
+      g.__qm_failFirstEnqueue = false;
       throw new Error("redis unavailable");
     }
     enqueuedMediaIds.push(mediaId);
@@ -64,12 +71,17 @@ mock.module("@asm/db", () => ({
         findManyArgs.push(args);
         return sweepRows;
       },
+      update: () => ({}),
     },
     mediaDerivative: {
-      count: ({ where }: { where: { mediaId: string } }) =>
-        Promise.resolve(derivativeCounts[where.mediaId] ?? 0),
+      count: ({ where }: { where: { mediaId: string } }) => {
+        const g = globalThis as unknown as Record<string, unknown>;
+        const counts = (g.__qm_derivativeCounts as Record<string, number>) ?? derivativeCounts;
+        return Promise.resolve(counts[where.mediaId] ?? derivativeCounts[where.mediaId] ?? 0);
+      },
     },
   },
+  redis: { decrby: () => Promise.resolve(0), incrby: () => Promise.resolve(0) },
 }));
 
 mock.module("./s3", () => ({
@@ -88,9 +100,17 @@ beforeEach(() => {
   prismaDisabled = false;
   failFirstEnqueue = false;
   sweepRows = [];
-  derivativeCounts = {};
+  // Keep object identity for global reference — clear instead of reassign
+  for (const k of Object.keys(derivativeCounts)) {
+    // oxlint-disable-next-line typescript/no-dynamic-delete -- test helper clears the shared counter map between cases
+    delete (derivativeCounts as Record<string, number>)[k];
+  }
   enqueuedMediaIds.length = 0;
   findManyArgs.length = 0;
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.__qm_prismaDisabled = prismaDisabled;
+  g.__qm_failFirstEnqueue = failFirstEnqueue;
+  g.__qm_derivativeCounts = derivativeCounts;
 });
 
 describe("derived-heal sweep", () => {
@@ -137,6 +157,7 @@ describe("derived-heal sweep", () => {
   test("continues past one failed enqueue without stranding siblings", async () => {
     sweepRows = [{ id: "m-dead" }, { id: "m-alive" }];
     failFirstEnqueue = true;
+    (globalThis as unknown as Record<string, unknown>).__qm_failFirstEnqueue = true;
     const result = await derivedHealSweep();
     // The failed candidate is skipped; the second one is still handed off.
     expect(enqueuedMediaIds).toEqual(["m-alive"]);
@@ -146,6 +167,7 @@ describe("derived-heal sweep", () => {
   test("kill switch disables everything - no queries, no enqueues", async () => {
     backfillEnabled = false;
     prismaDisabled = true;
+    (globalThis as unknown as Record<string, unknown>).__qm_prismaDisabled = true;
     const result = await derivedHealSweep();
     expect(result).toEqual({ enqueued: 0 });
   });

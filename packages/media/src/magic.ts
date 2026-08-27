@@ -189,11 +189,15 @@ export function detectContent(buffer: Buffer): ContentDetection {
         }
       }
       if (signature.container === "webm-mkv") {
-        // Distinguish WebM from Matroska via the DocType string that follows
-        // the EBML header; both start with identical magic.
-        const window = buffer.subarray(0, Math.min(buffer.length, 4096));
-        mime = window.includes("webm") ? "video/webm" : "video/x-matroska";
-        container = window.includes("webm") ? "webm" : "mkv";
+        // Distinguish WebM from Matroska via the EBML DocType element. A
+        // naive substring search for "webm" misclassifies MKV files that
+        // happen to contain that string in early tags/metadata. The DocType
+        // element (ID 0x4282) sits within the first ~32 bytes after the EBML
+        // header; only that region is checked.
+        const window = buffer.subarray(0, Math.min(buffer.length, 64));
+        const isWebm = window.includes("webm");
+        mime = isWebm ? "video/webm" : "video/x-matroska";
+        container = isWebm ? "webm" : "mkv";
       }
       return {
         detected: { container, family, mime },
