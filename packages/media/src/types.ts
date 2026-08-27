@@ -29,11 +29,34 @@ export type RejectionReason =
 
 export type MediaVisibility = "PUBLIC" | "UNLISTED" | "PRIVATE";
 
-export const MEDIA_PIPELINE_VERSION = "2";
+export const MEDIA_PIPELINE_VERSION = "3";
 
 // Bumped when encoder settings change materially; recorded per derivative
-// and on the Media row's encoderVersion.
-export const MEDIA_ENCODER_VERSION = "enc-2026-09";
+// and on the Media row's encoderVersion. enc-2026-10 adds watermark +
+// platform C2PA manifest changes, so bytes change even for same source.
+export const MEDIA_ENCODER_VERSION = "enc-2026-10";
+
+// Payload engraved by the invisible watermark. Stored as pixels, not
+// metadata, so it survives re-encode/crop/download. Only hashed
+// identifiers enter the payload - never raw userId/email/GPS.
+export interface WatermarkPayload {
+  mediaId: string;
+  hashedUploaderId: string | null;
+  version: number;
+}
+
+// Platform provenance carried in the C2PA manifest added to every
+// stampable asset. Ingredient chain preserves any Firefly/DALL-E parent
+// manifests; DB remains authoritative.
+export interface PlatformProvenance {
+  platform: "asocialmedia.cc";
+  mediaId: string;
+  hashedUploaderId: string | null;
+  uploaderDisplayName: string | null;
+  pipelineVersion: string;
+  encoderVersion: string;
+  stampedAt: string;
+}
 
 export interface DetectedContent {
   family: MediaType;

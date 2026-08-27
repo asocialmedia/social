@@ -262,9 +262,43 @@ export function detectAiFromManifestStore(
   };
 }
 
+// Reverse-DNS label for the platform provenance assertion added to every
+// stampable asset. Ingredient chain preserves any upstream Firefly/DALL-E
+// manifests; this label identifies *our* assertion inside the store.
+export const PLATFORM_PROVENANCE_LABEL = "cc.asocialmedia.provenance";
+
+export interface PlatformProvenance {
+  platform: "asocialmedia.cc";
+  mediaId: string;
+  hashedUploaderId: string | null;
+  uploaderDisplayName: string | null;
+  pipelineVersion: string;
+  encoderVersion: string;
+  stampedAt: string;
+}
+
 /** MIME types we can embed a signed C2PA manifest into at publish time. */
-const STAMPABLE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/webp"];
+const STAMPABLE_MIME_PREFIXES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+  "image/heic",
+  "image/heif",
+  "image/tiff",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/webm",
+  "audio/ogg",
+];
 
 export function isStampableForC2Pa(mime: string): boolean {
-  return STAMPABLE_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix));
+  const normalized = mime.toLowerCase();
+  return STAMPABLE_MIME_PREFIXES.some((prefix) =>
+    normalized.startsWith(prefix)
+  );
 }

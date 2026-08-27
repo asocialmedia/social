@@ -991,16 +991,24 @@ const MediaViewer = ({
 
             {standalone &&
             currentMedia &&
-            (currentMedia.aiGenerated || currentMedia.altText) ? (
+            (currentMedia.aiGenerated ||
+              currentMedia.altText ||
+              currentMedia.generatedAltText) ? (
               <div className="pointer-events-auto mt-2.5 flex flex-wrap items-start gap-2">
                 <AiGeneratedBadge media={currentMedia} />
-                {currentMedia.altText ? (
+                {(currentMedia.altText ?? currentMedia.generatedAltText) ? (
                   <div className="flex min-h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full bg-linear-to-b from-zinc-500 to-zinc-700 px-2.5 py-1 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(35,35,40,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)]">
                     <span className="text-[10px] leading-none font-bold whitespace-nowrap">
-                      ALT
+                      {(
+                        currentMedia.altText ??
+                        currentMedia.generatedAltText ??
+                        ""
+                      ).startsWith("originally from @")
+                        ? "REPOST"
+                        : "ALT"}
                     </span>
                     <span className="min-w-0 text-[10px] leading-snug font-medium break-words">
-                      {currentMedia.altText}
+                      {currentMedia.altText ?? currentMedia.generatedAltText}
                     </span>
                   </div>
                 ) : null}

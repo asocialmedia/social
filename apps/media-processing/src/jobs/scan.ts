@@ -7,6 +7,7 @@ import { enqueueMediaProcess, Prisma, prisma } from "@asm/db";
 import {
   MEDIA_ENCODER_VERSION,
   MEDIA_PIPELINE_VERSION,
+  hashUserId as hashUserIdForProvenance,
   isStampableForC2Pa,
   publishedKey,
   readJpegExifOrientation,
@@ -22,6 +23,7 @@ import {
   ClamAvUnavailableError,
 } from "../clamav";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
+import { withTimeout } from "../ffmpeg";
 import { mediaLogger, withSpan } from "../log";
 import { inspectAssetProvenance } from "../provenance/reader";
 import { stampAiGenerated } from "../provenance/stamp";
@@ -437,26 +439,108 @@ export function processMediaScan(
           }
         }
 
-        // 6. Stamp AI-flagged assets with our own signed manifest before
-        // they leave quarantine. Runs on the stripped file so the embedded
-        // manifest is the only metadata added back. Falls back to the
-        // current bytes whenever no signing identity is configured, the
-        // format can't carry an embedded manifest, or stamping fails -
-        // detection stays recorded.
-        let stamped = false;
+        // 5b. Invisible watermark (image/video phase 1) — tiled LSB, crop-resistant,
+        // applied to the stripped (or re-encoded) bytes before signing. Failure
+        // is best-effort: publish proceeds without watermark, DB remains authoritative.
         if (
-          provenance?.verdict.aiGenerated &&
-          workerEnv.C2PA_STAMP_ENABLED &&
-          isStampableForC2Pa(detected.mime)
+          workerEnv.WATERMARK_ENABLED &&
+          (detected.mime.startsWith("image/") ||
+            detected.mime.startsWith("video/"))
         ) {
+          const watermarkStart = performance.now();
           try {
-            stamped = await stampAiGenerated(publishPath, stampedPath, {
-              detectionReason: provenance.verdict.evidence[0]?.detail ?? "ai",
-              mediaId,
-              mime: detected.mime,
-            });
-            if (stamped) {
-              publishPath = stampedPath;
+            const { watermarkImageBuffer } = await import("../watermark/image");
+            const { buildWatermarkPayload } = await import("@asm/media");
+            const hashedForWatermark = hashUserIdForProvenance(
+              media.userId,
+              workerEnv.WATERMARK_PEPPER ?? null
+            );
+            const payload = buildWatermarkPayload(mediaId, hashedForWatermark);
+            const sourceForWatermark =
+              await Bun.file(publishPath).arrayBuffer();
+            const watermarked = await withTimeout(
+              watermarkImageBuffer(
+                Buffer.from(sourceForWatermark),
+                payload,
+                SCAN_LIMITS.maxPixelCount
+              ),
+              workerEnv.IMAGE_WATERMARK_TIMEOUT_MS,
+              "image watermark timed out"
+            );
+            if (watermarked) {
+              const watermarkPath = `${tempPath}-watermark`;
+              await Bun.write(watermarkPath, watermarked);
+              publishPath = watermarkPath;
+              const watermarkMs = Math.round(
+                performance.now() - watermarkStart
+              );
+              if (watermarkMs > 150) {
+                mediaLogger.warn(
+                  { mediaId, watermarkMs },
+                  "slow image watermark"
+                );
+              }
+            }
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId },
+              "image watermark failed; publishing without watermark"
+            );
+          }
+        }
+
+        // 6. Stamp platform provenance into every stampable asset (not just AI).
+        // AI detection remains additive: an AI-flagged upload gets the extra
+        // "AI Generated" assertion inside the same manifest, and the DB flag
+        // stays authoritative. The stripped/watermarked file is the only
+        // metadata added back.
+        let stamped = false;
+        let stampKind: "ai" | "platform" | null = null;
+        if (workerEnv.C2PA_STAMP_ENABLED && isStampableForC2Pa(detected.mime)) {
+          const hashedUploaderId = hashUserIdForProvenance(
+            media.userId,
+            workerEnv.WATERMARK_PEPPER ?? null
+          );
+          try {
+            if (provenance?.verdict.aiGenerated) {
+              stamped = await withTimeout(
+                stampAiGenerated(publishPath, stampedPath, {
+                  detectionReason:
+                    provenance.verdict.evidence[0]?.detail ?? "ai",
+                  mediaId,
+                  mime: detected.mime,
+                }),
+                workerEnv.C2PA_STAMP_TIMEOUT_MS,
+                "C2PA AI stamping timed out"
+              );
+              if (stamped) {
+                publishPath = stampedPath;
+                stampKind = "ai";
+              }
+            }
+            if (!stamped) {
+              const { stampPlatformProvenance } =
+                await import("../provenance/stamp-platform");
+              const uploaderForStamp = media.userId
+                ? await prisma.user.findUnique({
+                    select: { displayName: true },
+                    where: { id: media.userId },
+                  })
+                : null;
+              stamped = await withTimeout(
+                stampPlatformProvenance(publishPath, stampedPath, {
+                  hashedUploaderId,
+                  mediaId,
+                  mime: detected.mime,
+                  uploaderDisplayName: uploaderForStamp?.displayName ?? null,
+                }),
+                workerEnv.C2PA_STAMP_TIMEOUT_MS,
+                "C2PA platform stamping timed out"
+              );
+              if (stamped) {
+                publishPath = stampedPath;
+                stampKind = "platform";
+              }
             }
           } catch (error) {
             mediaLogger.warn(
@@ -465,6 +549,7 @@ export function processMediaScan(
             );
           }
         }
+        void stampKind;
 
         // 7. Hash the exact bytes being published (post strip/stamp) so the
         // stored digest and content-hashed key describe the served object,

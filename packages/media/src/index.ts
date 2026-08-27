@@ -73,6 +73,7 @@ export {
 
 export {
   KNOWN_AI_GENERATORS,
+  PLATFORM_PROVENANCE_LABEL,
   SYNTHETIC_DIGITAL_SOURCE_TYPES,
   detectAiFromManifestStore,
   isStampableForC2Pa,
@@ -81,7 +82,16 @@ export type {
   AiEvidence,
   AiProvenanceVerdict,
   MediaAiProvenance,
+  PlatformProvenance,
 } from "./provenance";
+
+export {
+  buildWatermarkPattern,
+  buildWatermarkPayload,
+  crc16Ccitt,
+  hashUserId,
+} from "./watermark";
+export type { WatermarkPayload } from "./types";
 
 export {
   AUDIO_AAC_KBPS,

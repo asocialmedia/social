@@ -28,7 +28,18 @@ export const keys = createEnv({
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
     MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
+    MEDIA_C2PA_STAMP_TIMEOUT_MS: process.env.MEDIA_C2PA_STAMP_TIMEOUT_MS,
     MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
+    MEDIA_WATERMARK_ENABLED: process.env.MEDIA_WATERMARK_ENABLED,
+    MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
+    MEDIA_IMAGE_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS,
+    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS,
+    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
+    MEDIA_PHASH_ATTRIBUTION_ENABLED:
+      process.env.MEDIA_PHASH_ATTRIBUTION_ENABLED,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
@@ -87,10 +98,17 @@ export const keys = createEnv({
     MEDIA_C2PA_CERT_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_KEY_PATH: z.string().min(1).optional(),
     MEDIA_C2PA_STAMP: z.enum(["0", "1"]).default("1"),
+    MEDIA_C2PA_STAMP_TIMEOUT_MS: numericOverride,
     // RFC 3161 timestamp authority. With short-lived signing certs (the free
     // SSL.com tier expires yearly), timestamps are what keep OLD manifests
     // valid after expiry - without one every historical stamp ages badly.
     MEDIA_C2PA_TSA_URL: z.url().optional(),
+    MEDIA_WATERMARK_ENABLED: z.enum(["0", "1"]).default("0"),
+    MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
+    MEDIA_IMAGE_WATERMARK_TIMEOUT_MS: numericOverride,
+    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS: numericOverride,
+    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS: numericOverride,
+    MEDIA_PHASH_ATTRIBUTION_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
     MEDIA_LEGACY_GC_ENABLED: z.enum(["0", "1"]).default("0"),
@@ -195,6 +213,31 @@ export const workerEnv = {
   },
   get SCAN_CONCURRENCY() {
     return keys.MEDIA_SCAN_CONCURRENCY;
+  },
+  get WATERMARK_ENABLED() {
+    return keys.MEDIA_WATERMARK_ENABLED === "1";
+  },
+  get WATERMARK_PEPPER() {
+    return keys.MEDIA_WATERMARK_PEPPER;
+  },
+  get PHASH_ATTRIBUTION_ENABLED() {
+    return keys.MEDIA_PHASH_ATTRIBUTION_ENABLED === "1";
+  },
+  get C2PA_STAMP_TIMEOUT_MS() {
+    const raw = keys.MEDIA_C2PA_STAMP_TIMEOUT_MS;
+    return raw ? Number(raw) : 4000;
+  },
+  get IMAGE_WATERMARK_TIMEOUT_MS() {
+    const raw = keys.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS;
+    return raw ? Number(raw) : 1500;
+  },
+  get VIDEO_WATERMARK_TIMEOUT_MS() {
+    const raw = keys.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS;
+    return raw ? Number(raw) : 8000;
+  },
+  get AUDIO_WATERMARK_TIMEOUT_MS() {
+    const raw = keys.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS;
+    return raw ? Number(raw) : 5000;
   },
 } as const;
 

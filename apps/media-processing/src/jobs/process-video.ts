@@ -317,18 +317,20 @@ export async function processMediaVideo(input: {
           ? (existing.techMetadata as Record<string, unknown>)
           : {};
 
+      const computedVideoPhash =
+        (await computePosterHash(
+          input.sourcePath,
+          probe,
+          posterPath,
+          posterSeek
+        ).catch(() => null)) || null;
+
       await prisma.media.update({
         data: {
           blurDataUrl,
           hasHls: plan.hls,
           height: probe.video.height,
-          phash:
-            (await computePosterHash(
-              input.sourcePath,
-              probe,
-              posterPath,
-              posterSeek
-            )) || null,
+          phash: computedVideoPhash,
           techMetadata: {
             ...baseTech,
             aspectRatio: Number(
@@ -351,6 +353,26 @@ export async function processMediaVideo(input: {
         },
         where: { id: input.mediaId },
       });
+
+      if (computedVideoPhash) {
+        try {
+          const mediaOwner = await prisma.media.findUnique({
+            select: { userId: true },
+            where: { id: input.mediaId },
+          });
+          const { attributeReshare } = await import("../watermark/reshare");
+          await attributeReshare(
+            input.mediaId,
+            computedVideoPhash,
+            mediaOwner?.userId ?? null
+          );
+        } catch (error) {
+          mediaLogger.warn(
+            { error: String(error), mediaId: input.mediaId },
+            "re-share attribution failed"
+          );
+        }
+      }
 
       mediaLogger.info(
         { derivatives: derivatives.length, mediaId: input.mediaId },

@@ -151,8 +151,12 @@ describe("isStampableForC2Pa", () => {
     expect(isStampableForC2Pa("image/jpeg")).toBe(true);
     expect(isStampableForC2Pa("image/png")).toBe(true);
     expect(isStampableForC2Pa("image/webp")).toBe(true);
-    expect(isStampableForC2Pa("video/mp4")).toBe(false);
+    expect(isStampableForC2Pa("image/avif")).toBe(true);
+    expect(isStampableForC2Pa("video/mp4")).toBe(true);
+    expect(isStampableForC2Pa("video/webm")).toBe(true);
+    expect(isStampableForC2Pa("audio/mp4")).toBe(true);
+    expect(isStampableForC2Pa("audio/webm")).toBe(true);
     expect(isStampableForC2Pa("image/gif")).toBe(false);
-    expect(isStampableForC2Pa("audio/mpeg")).toBe(false);
+    expect(isStampableForC2Pa("application/pdf")).toBe(false);
   });
 });

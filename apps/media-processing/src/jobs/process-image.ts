@@ -228,15 +228,17 @@ export async function processMediaImage(input: {
           (baseTech.orientation as number | undefined) ??
           (baseTech.Orientation as number | undefined);
 
+        const computedPhash =
+          (await computePerceptualHash(
+            input.sourcePath,
+            0,
+            input.limits.scanTimeoutMs
+          ).catch(() => null)) || null;
+
         await prisma.media.update({
           data: {
             blurDataUrl,
-            phash:
-              (await computePerceptualHash(
-                input.sourcePath,
-                0,
-                input.limits.scanTimeoutMs
-              ).catch(() => null)) || null,
+            phash: computedPhash,
             techMetadata: {
               ...baseTech,
               animated,
@@ -256,6 +258,27 @@ export async function processMediaImage(input: {
           },
           where: { id: input.mediaId },
         });
+
+        // Re-share attribution — bounded phash scan, single-hop, idempotent via reShareChecked.
+        if (computedPhash) {
+          try {
+            const mediaOwner = await prisma.media.findUnique({
+              select: { userId: true },
+              where: { id: input.mediaId },
+            });
+            const { attributeReshare } = await import("../watermark/reshare");
+            await attributeReshare(
+              input.mediaId,
+              computedPhash,
+              mediaOwner?.userId ?? null
+            );
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId: input.mediaId },
+              "re-share attribution failed"
+            );
+          }
+        }
 
         mediaLogger.info(
           { derivatives: derivativesToInsert.length, mediaId: input.mediaId },
