@@ -74,6 +74,13 @@ export async function processMediaVideo(input: {
 
       // 1. Scene-aware poster: sample candidate frames across the timeline,
       // score by luminance variance (reject black/solid frames), pick best.
+      // This derivative is COMMITTED IMMEDIATELY after encoding (upload +
+      // createMany right here) rather than batched with the transcodes below:
+      // the row already reads READY at this point, so feed thumbnails hit
+      // /api/media/{id}?thumb=1 in the seconds between publish and the end
+      // of the MP4/HLS pipeline - deferring the poster row to the final
+      // insert made every such request serve the gray SVG placeholder for
+      // the whole encode, and browsers cached that placeholder for 60s.
       const posterPath = `${input.sourcePath}-poster.jpg`;
       const posterSeek = await pickPosterTimestamp(input.sourcePath, probe);
       await runFfmpeg(
@@ -98,13 +105,6 @@ export async function processMediaVideo(input: {
       );
       await s3.write(posterKey, Bun.file(posterPath));
       input.uploadedKeys?.push(posterKey);
-      derivatives.push({
-        key: posterKey,
-        kind: "poster",
-        mimeType: "image/jpeg",
-        pipelineVersion: MEDIA_PIPELINE_VERSION,
-        variant: "default",
-      });
 
       const blurDataUrl = await new Bun.Image(
         await Bun.file(posterPath).arrayBuffer(),
@@ -112,6 +112,36 @@ export async function processMediaVideo(input: {
           maxPixels: input.limits.maxPixelCount,
         }
       ).placeholder();
+
+      // Publish the poster + LQIP before the expensive transcodes: the
+      // serving route can then hand feed cards the real frame seconds
+      // earlier, and a mid-MP4 crash still leaves the thumbnail live.
+      // skipDuplicates keeps a retry idempotent (unique [mediaId,kind,variant]).
+      await prisma.mediaDerivative.createMany({
+        data: [
+          {
+            key: posterKey,
+            kind: "poster",
+            mediaId: input.mediaId,
+            mimeType: "image/jpeg",
+            pipelineVersion: MEDIA_PIPELINE_VERSION,
+            variant: "default",
+          },
+        ],
+        skipDuplicates: true,
+      });
+      await prisma.media.update({
+        data: { blurDataUrl },
+        where: { id: input.mediaId },
+      });
+      const posterRow = {
+        key: posterKey,
+        kind: "poster",
+        mimeType: "image/jpeg",
+        pipelineVersion: MEDIA_PIPELINE_VERSION,
+        variant: "default",
+      } as const;
+      derivatives.push(posterRow);
 
       // 2. Progressive MP4 (social clips): H.264 High + AAC, faststart.
       // CRF 20 keeps re-encoded clips visually transparent next to the

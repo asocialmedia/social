@@ -204,7 +204,12 @@ export async function GET(
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
         return new NextResponse(svg, {
           headers: {
-            "Cache-Control": "public, max-age=60",
+            // Short-lived: this placeholder only exists while the pipeline's
+            // poster encode is in flight (row READY, poster pending). The
+            // real frame typically lands within seconds - a long max-age
+            // here pinned the gray box on feed cards for a full minute
+            // after the poster became servable.
+            "Cache-Control": "public, max-age=3",
             "Content-Type": "image/svg+xml",
             "X-Content-Type-Options": "nosniff",
           },
