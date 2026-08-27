@@ -175,6 +175,10 @@ export const workerEnv = {
   get C2PA_STAMP_ENABLED() {
     return keys.MEDIA_C2PA_STAMP === "1";
   },
+  get C2PA_STAMP_TIMEOUT_MS() {
+    const raw = keys.MEDIA_C2PA_STAMP_TIMEOUT_MS;
+    return raw ? Number(raw) : 4000;
+  },
   get C2PA_TSA_URL() {
     return keys.MEDIA_C2PA_TSA_URL;
   },
@@ -194,6 +198,10 @@ export const workerEnv = {
     }
     return keys.MEDIA_HEALTH_PORT;
   },
+  get IMAGE_WATERMARK_TIMEOUT_MS() {
+    const raw = keys.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS;
+    return raw ? Number(raw) : 1500;
+  },
   get LEGACY_GC_ENABLED() {
     return keys.MEDIA_LEGACY_GC_ENABLED === "1";
   },
@@ -202,6 +210,9 @@ export const workerEnv = {
     // zod defaults, so an unset var must read as enabled - only an explicit
     // "0" turns OCR off.
     return keys.MEDIA_OCR_ENABLED !== "0";
+  },
+  get PHASH_ATTRIBUTION_ENABLED() {
+    return keys.MEDIA_PHASH_ATTRIBUTION_ENABLED === "1";
   },
   get PUBLIC_BASE_URL() {
     return keys.NEXT_PUBLIC_URL;
@@ -218,30 +229,15 @@ export const workerEnv = {
   get SCAN_CONCURRENCY() {
     return keys.MEDIA_SCAN_CONCURRENCY;
   },
+  get VIDEO_WATERMARK_TIMEOUT_MS() {
+    const raw = keys.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS;
+    return raw ? Number(raw) : 8000;
+  },
   get WATERMARK_ENABLED() {
     return keys.MEDIA_WATERMARK_ENABLED === "1";
   },
   get WATERMARK_PEPPER() {
     return keys.MEDIA_WATERMARK_PEPPER;
-  },
-  get PHASH_ATTRIBUTION_ENABLED() {
-    return keys.MEDIA_PHASH_ATTRIBUTION_ENABLED === "1";
-  },
-  get C2PA_STAMP_TIMEOUT_MS() {
-    const raw = keys.MEDIA_C2PA_STAMP_TIMEOUT_MS;
-    return raw ? Number(raw) : 4000;
-  },
-  get IMAGE_WATERMARK_TIMEOUT_MS() {
-    const raw = keys.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS;
-    return raw ? Number(raw) : 1500;
-  },
-  get VIDEO_WATERMARK_TIMEOUT_MS() {
-    const raw = keys.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS;
-    return raw ? Number(raw) : 8000;
-  },
-  get AUDIO_WATERMARK_TIMEOUT_MS() {
-    const raw = keys.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS;
-    return raw ? Number(raw) : 5000;
   },
 } as const;
 

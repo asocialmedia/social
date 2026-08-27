@@ -141,6 +141,12 @@ export async function POST(
     };
 
     await followerInfoCache.invalidate(params.userId);
+    // Who to follow is personalized for the actor; following someone
+    // invalidates their suggestions so the just-followed user disappears
+    // and a fresh candidate can surface without waiting for TTL.
+    await suggestedUsersCache.invalidate(loggedInUser.id).catch(() => {
+      /* empty */
+    });
     try {
       await invalidateAuraSignals([params.userId, loggedInUser.id]);
     } catch (error) {
@@ -321,7 +327,9 @@ export async function DELETE(
 
     await Promise.all([
       followerInfoCache.invalidate(userId),
-      suggestedUsersCache.invalidateForUser(userId),
+      suggestedUsersCache.invalidate(loggedInUser.id).catch(() => {
+        /* empty */
+      }),
     ]);
     try {
       await invalidateAuraSignals([userId, loggedInUser.id]);

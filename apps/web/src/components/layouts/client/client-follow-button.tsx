@@ -114,6 +114,10 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
 
       queryClient.invalidateQueries({ queryKey: ["follower-info", userId] });
       queryClient.invalidateQueries({ queryKey: ["suggested-connections"] });
+      queryClient.invalidateQueries({
+        queryKey: ["suggested-connections-sidebar"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["suggested-users"] });
       queryClient.invalidateQueries({ queryKey: ["trending-users"] });
       queryClient.invalidateQueries({ queryKey: ["user", userId] });
     },

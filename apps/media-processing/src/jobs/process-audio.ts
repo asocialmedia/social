@@ -212,9 +212,15 @@ export async function processMediaAudio(input: {
 
       const hasCoverArt = derivatives.some((d) => d.kind === "cover");
       const audioFprint =
-        (await import("../ffmpeg").then((mod) =>
-          mod.computeAudioFingerprint(input.sourcePath, probe.durationSec, input.limits.scanTimeoutMs)
-        ).catch(() => null)) || null;
+        (await import("../ffmpeg")
+          .then((mod) =>
+            mod.computeAudioFingerprint(
+              input.sourcePath,
+              probe.durationSec,
+              input.limits.scanTimeoutMs
+            )
+          )
+          .catch(() => null)) || null;
 
       if (probe.audio) {
         await prisma.media.update({
@@ -230,7 +236,7 @@ export async function processMediaAudio(input: {
           },
           where: { id: input.mediaId },
         });
-      } else if (hasCoverArt || audioFprint) {
+      } else if (hasCoverArt) {
         await prisma.media.update({
           data: {
             ...(audioFprint ? { phash: audioFprint } : {}),
@@ -257,7 +263,11 @@ export async function processMediaAudio(input: {
             where: { id: input.mediaId },
           });
           const { attributeReshare } = await import("../watermark/reshare");
-          await attributeReshare(input.mediaId, audioFprint, mediaOwner?.userId ?? null);
+          await attributeReshare(
+            input.mediaId,
+            audioFprint,
+            mediaOwner?.userId ?? null
+          );
         } catch (error) {
           mediaLogger.warn(
             { error: String(error), mediaId: input.mediaId },

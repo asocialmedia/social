@@ -267,10 +267,14 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             </span>
           </Link>
           <span
-            className={`inline-flex items-center gap-1.5 font-bold ${getAuraFlameClass(liveUserData.aura)}`}
+            className="inline-flex items-center gap-1.5 font-bold"
             title="Aura"
           >
-            <Flame className="size-5" />
+            <Flame
+              className={["size-5", getAuraFlameClass(liveUserData.aura)].join(
+                " "
+              )}
+            />
             <span className="text-base tabular-nums">
               {formatNumber(liveUserData.aura)}
             </span>

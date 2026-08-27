@@ -33,9 +33,7 @@ export async function watermarkImageBuffer(
         }>;
         ensureAlpha(): unknown;
         raw(): {
-          toBuffer(
-            opts: unknown
-          ): Promise<{
+          toBuffer(opts: unknown): Promise<{
             data: Buffer;
             info: { channels?: number; width?: number; height?: number };
           }>;
@@ -54,9 +52,7 @@ export async function watermarkImageBuffer(
         }>;
         ensureAlpha(): unknown;
         raw(): {
-          toBuffer(
-            opts: unknown
-          ): Promise<{
+          toBuffer(opts: unknown): Promise<{
             data: Buffer;
             info: { channels?: number; width?: number; height?: number };
           }>;

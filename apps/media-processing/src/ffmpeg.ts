@@ -363,11 +363,17 @@ export async function computeAudioFingerprint(
   const windowDuration = Math.max(0.5, Math.min(4, durationSec / windows));
   const hashes: string[] = [];
   for (let index = 0; index < windows; index += 1) {
-    const seek = durationSec > windows * windowDuration
-      ? (index + 0.5) * (durationSec / windows)
-      : index * windowDuration;
+    const seek =
+      durationSec > windows * windowDuration
+        ? (index + 0.5) * (durationSec / windows)
+        : index * windowDuration;
     try {
-      const spectrum = await extractAudioSpectrum(inputPath, seek, windowDuration, timeoutMs);
+      const spectrum = await extractAudioSpectrum(
+        inputPath,
+        seek,
+        windowDuration,
+        timeoutMs
+      );
       if (!spectrum) {
         hashes.push("0000");
         continue;
@@ -504,7 +510,11 @@ async function extractPcmBands(
       return null;
     }
     // Bucket PCM absolute values into 32 bands
-    const samples = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2);
+    const samples = new Int16Array(
+      raw.buffer,
+      raw.byteOffset,
+      raw.byteLength / 2
+    );
     const bands = new Uint8Array(32);
     const bucketSize = Math.max(1, Math.floor(samples.length / 32));
     for (let band = 0; band < 32; band += 1) {
@@ -513,9 +523,11 @@ async function extractPcmBands(
       const end = Math.min(start + bucketSize, samples.length);
       for (let index = start; index < end; index += 1) {
         const value = Math.abs(samples[index] ?? 0);
-        if (value > peak) peak = value;
+        if (value > peak) {
+          peak = value;
+        }
       }
-      bands[band] = Math.min(255, Math.round((peak / 32767) * 255));
+      bands[band] = Math.min(255, Math.round((peak / 32_767) * 255));
     }
     return bands;
   } finally {

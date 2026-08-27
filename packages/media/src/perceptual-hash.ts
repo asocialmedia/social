@@ -75,7 +75,9 @@ export function isLikelyDuplicateHash(a: string, b: string): boolean {
   // Use the stricter image threshold for 64-bit hashes and the wider audio
   // threshold for 128-bit fingerprints.
   const threshold =
-    a.length === AUDIO_FPRINT_LENGTH ? AUDIO_FPRINT_MATCH_DISTANCE * 4 : PHASH_MATCH_DISTANCE;
+    a.length === AUDIO_FPRINT_LENGTH
+      ? AUDIO_FPRINT_MATCH_DISTANCE * 4
+      : PHASH_MATCH_DISTANCE;
   return distance <= threshold;
 }
 
