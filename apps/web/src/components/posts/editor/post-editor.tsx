@@ -651,10 +651,21 @@ export default function PostEditor({
             </AnimatePresence>
 
             {isGust ? (
-              <div className="mt-2 flex items-center justify-between text-xs">
-                {hasGustVideo ? null : (
+              <div
+                className="mt-2 flex items-center justify-between text-xs"
+                role="status"
+                aria-live="polite"
+              >
+                {hasGustVideo ? (
                   <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
-                    Attach a video to publish a gust
+                    Tap the preview to change your gust
+                    <span className="rounded-full bg-[#ff9500]/10 px-2 py-0.5 text-[10px] font-bold text-[#ff9500]">
+                      9:16
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                    Attach a 9:16 video to publish a gust
                   </span>
                 )}
                 {/* Counter appears only near/over the word or char limit */}

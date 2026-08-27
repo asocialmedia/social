@@ -241,8 +241,22 @@ const AttachmentPreviewInner = ({
 
   const renderPreview = () => {
     if (!objectUrl || previewFailed) {
-      // Not-yet-servable (mid-pipeline) or failed load: neutral placeholder
-      // keeps the tile - and its progress bar - on screen.
+      // Gust empty state is a reels-shaped dropzone; fleet stays 16:9 placeholder.
+      if (isGust) {
+        return (
+          <div className="apple-panel reels-panel relative mx-auto flex aspect-9/16 w-full max-w-xs items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-white/15">
+            <div className="flex flex-col items-center gap-2 p-6 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                <FilmIcon className="size-6 text-white/80" />
+              </div>
+              <p className="text-sm font-semibold text-white">
+                Drop your gust here
+              </p>
+              <p className="text-xs text-white/60">9:16 portrait recommended</p>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="apple-panel relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-2xl">
           <Image
