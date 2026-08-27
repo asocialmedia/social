@@ -42,10 +42,7 @@ export async function POST(
   }[];
   const target = accounts.find((account) => account.providerId === provider);
   if (!target) {
-    return Response.json(
-      { error: "Account is not linked" },
-      { status: 404 }
-    );
+    return Response.json({ error: "Account is not linked" }, { status: 404 });
   }
 
   const response = await fetch(`${AUTH_BASE}/api/auth/unlink-account`, {

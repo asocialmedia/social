@@ -44,7 +44,6 @@ interface AttachmentPreviewProps {
   };
   isGust?: boolean;
   onCancelClick?: () => void;
-  /** Opens the alt text editor; the tile body and ALT chip both trigger it. */
   onEditAltClick?: () => void;
   onRemoveClick: () => void;
   onRetryClick?: () => void;
@@ -623,10 +622,6 @@ const AttachmentPreviewInner = ({
 
   return (
     <div className="relative w-full">
-      {/* Not a real <button>: the tile wraps live video/audio controls, and
-          interactive elements may not nest. Mouse clicks open the editor;
-          keyboard users go through the ALT chip button below, which is the
-          fully accessible path. Activation is gated by tileActivatable. */}
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- see above; a semantic button cannot wrap media controls */}
       <div
         aria-disabled={!tileActivatable}
@@ -640,9 +635,6 @@ const AttachmentPreviewInner = ({
       >
         {renderPreview()}
       </div>
-      {/* Alt text affordance, bottom-left like the video chips. Settled tiles
-          only - mid-upload and failed tiles have their own bars down there.
-          Videos shift it right of the mute toggle. */}
       {onEditAltClick && !isUploading && !hasError ? (
         <button
           aria-label={altText ? "Edit alt text" : "Add alt text to this media"}
@@ -661,7 +653,6 @@ const AttachmentPreviewInner = ({
   );
 };
 
-/** Label for the current pipeline phase (post-upload), from real statuses. */
 function stageText(stage?: UploadStage): string {
   switch (stage) {
     case "queued": {

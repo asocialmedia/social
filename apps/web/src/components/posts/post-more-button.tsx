@@ -28,11 +28,15 @@ import PostModerationDialog from "./post-moderation-dialog";
 interface PostMoreButtonProps {
   className?: string;
   post: PostData;
+  /** Applies the media page's dark 3D chip styling (same look as the mobile
+   * viewer's control buttons) instead of the default pill hover treatment. */
+  variant?: "default" | "media-page";
 }
 
 export default function PostMoreButton({
   post,
   className,
+  variant = "default",
 }: PostMoreButtonProps) {
   const { user } = useSession();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -113,7 +117,9 @@ export default function PostMoreButton({
           <button
             aria-label="Post options"
             className={cn(
-              "pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px",
+              variant === "media-page"
+                ? "group inline-flex h-10 w-10 items-center justify-center rounded-full border-0 bg-linear-to-b from-[#3a3f4a] to-[#23262e] p-0 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-all duration-200 hover:brightness-110 active:translate-y-px"
+                : "pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px",
               className,
               isOpen ? "opacity-100" : undefined
             )}

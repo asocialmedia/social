@@ -28,13 +28,39 @@ interface CustomVideoPlayerProps {
   autoPlay?: boolean;
   captions?: { src: string; label: string; srclang: string }[];
   className?: string;
+  /** Keeps keyboard shortcuts and the double-click skip zones working even
+   * when hideControls suppresses the on-video overlay UI (desktop media page,
+   * where the bottom panel drives playback). */
+  desktopGestures?: boolean;
+  /** Suppresses the built-in control overlays; playback is driven externally
+   * (media page bottom panel) via videoRef + onExternalState. */
+  hideControls?: boolean;
   hlsSrc?: string;
   onError: () => void;
+  onExternalState?: (state: {
+    currentTime: number;
+    duration: number;
+    isMuted: boolean;
+    isPlaying: boolean;
+    playbackRate: number;
+    volume: number;
+  }) => void;
   onLoadedData: () => void;
   onPlaying?: () => void;
   onProgress?: () => void;
   poster?: string;
   src: string;
+  /** Receives the inner video element so external controls can drive it. */
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
+}
+
+export interface VideoPlaybackState {
+  currentTime: number;
+  duration: number;
+  isMuted: boolean;
+  isPlaying: boolean;
+  playbackRate: number;
+  volume: number;
 }
 
 type KeyboardControls = Record<string, () => void>;
@@ -64,6 +90,38 @@ const ORANGE_BTN_SHADOW =
 const GLASS_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2),inset_0_1px_2px_rgba(255,255,255,0.3),0_0_0_1px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)]";
 
+// The video element fills its container (h-full w-full) and object-contain
+// shrinks the actual picture inside it, so the element's box cannot tell a
+// tap on the video apart from a tap on the letterbox bars: the picture's
+// rect can. Returns whether a click point falls on the visible content.
+export function isClickInVideoContent(
+  clientX: number,
+  clientY: number,
+  video: HTMLVideoElement
+): boolean {
+  const rect = video.getBoundingClientRect();
+  const naturalWidth = video.videoWidth;
+  const naturalHeight = video.videoHeight;
+  if (naturalWidth <= 0 || naturalHeight <= 0) {
+    // Metadata not loaded yet: treat the whole element as content.
+    return true;
+  }
+  const scale = Math.min(
+    rect.width / naturalWidth,
+    rect.height / naturalHeight
+  );
+  const contentWidth = naturalWidth * scale;
+  const contentHeight = naturalHeight * scale;
+  const contentLeft = rect.left + (rect.width - contentWidth) / 2;
+  const contentTop = rect.top + (rect.height - contentHeight) / 2;
+  return (
+    clientX >= contentLeft &&
+    clientX <= contentLeft + contentWidth &&
+    clientY >= contentTop &&
+    clientY <= contentTop + contentHeight
+  );
+}
+
 const GlassIconButton: React.FC<{
   "aria-label": string;
   children: React.ReactNode;
@@ -92,9 +150,13 @@ export const CustomVideoPlayer = ({
   onError,
   onPlaying,
   onProgress,
+  onExternalState,
   className,
   captions = EMPTY_CAPTIONS,
+  desktopGestures = false,
+  hideControls = false,
   poster,
+  videoRef: externalVideoRef,
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -258,6 +320,20 @@ export const CustomVideoPlayer = ({
     }
   }, [isPlaying]);
 
+  // Only the visible picture toggles playback; a tap on the letterbox bars
+  // (the element's box is larger than the content) does nothing here and
+  // bubbles up so the media page can toggle its UI instead.
+  const handleVideoSurfaceClick = useCallback(
+    (event: ReactMouseEvent<HTMLVideoElement>) => {
+      const video = event.currentTarget;
+      if (!isClickInVideoContent(event.clientX, event.clientY, video)) {
+        return;
+      }
+      handlePlayPause();
+    },
+    [handlePlayPause]
+  );
+
   const skip = useCallback((seconds: number) => {
     if (videoRef.current) {
       videoRef.current.currentTime += seconds;
@@ -313,7 +389,31 @@ export const CustomVideoPlayer = ({
       : containerRef.current.requestFullscreen());
   }, []);
 
+  // Report playback state outward so external controls (mobile media page
+  // bottom panel) can mirror and drive the video.
   useEffect(() => {
+    onExternalState?.({
+      currentTime,
+      duration,
+      isMuted,
+      isPlaying,
+      playbackRate: playbackSpeed,
+      volume,
+    });
+  }, [
+    currentTime,
+    duration,
+    isMuted,
+    isPlaying,
+    onExternalState,
+    playbackSpeed,
+    volume,
+  ]);
+
+  useEffect(() => {
+    if (hideControls && !desktopGestures) {
+      return;
+    }
     const keyboardControls: KeyboardControls = {
       " ": handlePlayPause,
       ArrowDown: handleVolumeDown,
@@ -345,6 +445,8 @@ export const CustomVideoPlayer = ({
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, [
+    hideControls,
+    desktopGestures,
     showControls,
     handlePlayPause,
     toggleFullscreen,
@@ -373,6 +475,30 @@ export const CustomVideoPlayer = ({
     };
   }, []);
 
+  // External controls (mobile media page bottom panel) drive the video
+  // element directly; mirror muted/volume and rate back into state via the
+  // native events so React's controlled props never clobber them on the next
+  // render.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    const handleNativeVolumeChange = () => {
+      setIsMuted(video.muted);
+      setVolume(video.volume);
+    };
+    const handleNativeRateChange = () => {
+      setPlaybackSpeed(video.playbackRate);
+    };
+    video.addEventListener("volumechange", handleNativeVolumeChange);
+    video.addEventListener("ratechange", handleNativeRateChange);
+    return () => {
+      video.removeEventListener("volumechange", handleNativeVolumeChange);
+      video.removeEventListener("ratechange", handleNativeRateChange);
+    };
+  }, []);
+
   const handleProgressChange = useCallback((value: number[]) => {
     if (videoRef.current) {
       const [newTime] = value;
@@ -394,6 +520,9 @@ export const CustomVideoPlayer = ({
   }, []);
 
   const handleMouseMove = useCallback(() => {
+    if (hideControls) {
+      return;
+    }
     setShowControls(true);
     if (controlsTimeoutRef.current) {
       clearTimeout(controlsTimeoutRef.current);
@@ -403,13 +532,16 @@ export const CustomVideoPlayer = ({
         setShowControls(false);
       }
     }, 2000);
-  }, [isPlaying]);
+  }, [hideControls, isPlaying]);
 
   const handleMouseLeave = useCallback(() => {
+    if (hideControls) {
+      return;
+    }
     if (isPlaying) {
       setShowControls(false);
     }
-  }, [isPlaying]);
+  }, [hideControls, isPlaying]);
 
   const handleSkipBack = useCallback(() => skip(-10), [skip]);
   const handleSkipForward = useCallback(() => skip(10), [skip]);
@@ -457,19 +589,26 @@ export const CustomVideoPlayer = ({
     >
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions are optional and passed via the captions prop when available */}
       <video
-        className="h-full w-full outline-hidden select-none focus:outline-hidden focus-visible:outline-none"
+        className="h-full w-full object-contain outline-hidden select-none focus:outline-hidden focus-visible:outline-none"
         loop
         muted={isMuted}
-        onClick={handlePlayPause}
+        onClick={handleVideoSurfaceClick}
         onDurationChange={handleDurationChange}
         onError={onError}
         onLoadedData={onLoadedData}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
         onPlaying={onPlaying}
         onTimeUpdate={handleTimeUpdate}
         playsInline
         poster={poster}
         preload="metadata"
-        ref={videoRef}
+        ref={(element) => {
+          videoRef.current = element;
+          if (externalVideoRef) {
+            externalVideoRef.current = element;
+          }
+        }}
         src={src}
       >
         {captions.map((caption, index) => (
@@ -484,20 +623,26 @@ export const CustomVideoPlayer = ({
         ))}
       </video>
 
-      <div className="absolute inset-0 z-30 flex select-none">
-        <button
-          aria-label="Double click to rewind 10 seconds"
-          className="h-full w-1/2 cursor-default"
-          onDoubleClick={handleSkipBack}
-          type="button"
-        />
-        <button
-          aria-label="Double click to forward 10 seconds"
-          className="h-full w-1/2 cursor-default"
-          onDoubleClick={handleSkipForward}
-          type="button"
-        />
-      </div>
+      {/* The double-click skip zones only belong with the built-in control
+          bar: with it hidden, single clicks on the video must reach the
+          play/pause handler (and letterbox taps must reach the media page's
+          UI toggle), so the zones are dropped entirely. */}
+      {hideControls ? null : (
+        <div className="absolute inset-0 z-30 flex select-none">
+          <button
+            aria-label="Double click to rewind 10 seconds"
+            className="h-full w-1/2 cursor-default"
+            onDoubleClick={handleSkipBack}
+            type="button"
+          />
+          <button
+            aria-label="Double click to forward 10 seconds"
+            className="h-full w-1/2 cursor-default"
+            onDoubleClick={handleSkipForward}
+            type="button"
+          />
+        </div>
+      )}
 
       <AnimatePresence>
         {isBuffering ? (
@@ -515,10 +660,10 @@ export const CustomVideoPlayer = ({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showControls ? (
+        {!hideControls && showControls ? (
           <motion.div
             animate={{ opacity: 1 }}
-            className="absolute inset-0 z-40 flex flex-col justify-between bg-gradient-to-t from-black/60 to-black/0"
+            className="absolute inset-0 z-40 flex flex-col justify-between bg-linear-to-t from-black/60 to-black/0"
             exit={{ opacity: 0 }}
             initial={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
@@ -619,7 +764,7 @@ export const CustomVideoPlayer = ({
                 onMouseEnter={handleControlsMouseEnter}
               >
                 <Slider
-                  className="h-1.5 transition-all group-hover:h-2 [&>[role=slider]]:border-orange-400/70 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
+                  className="h-1.5 transition-all group-hover:h-2 *:[[role=slider]]:border-orange-400/70 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
                   max={duration}
                   min={0}
                   onValueChange={handleProgressChange}
@@ -730,7 +875,7 @@ export const CustomVideoPlayer = ({
                         >
                           <div className="flex items-center gap-3 rounded-full bg-black/40 px-4 py-2.5 backdrop-blur-md">
                             <Slider
-                              className="relative flex h-5 w-full touch-none items-center select-none [&>[role=slider]]:border-orange-400/70 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
+                              className="relative flex h-5 w-full touch-none items-center select-none *:[[role=slider]]:border-orange-400/70 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
                               max={1}
                               min={0}
                               onValueChange={handleVolumeChange}

@@ -4,6 +4,7 @@ import { clientLog } from "@asm/config/debug";
 import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
+import { Slider } from "@asm/ui/shadui/slider";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { formatDate } from "date-fns";
 import {
@@ -11,13 +12,20 @@ import {
   ChevronRight,
   Download,
   FileIcon,
+  Maximize,
+  MessageSquare,
+  Pause,
   Play,
   RotateCcw,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
@@ -45,7 +53,11 @@ import {
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
 
-import { CustomVideoPlayer } from "./custom-video-player";
+import {
+  CustomVideoPlayer,
+  isClickInVideoContent,
+} from "./custom-video-player";
+import type { VideoPlaybackState } from "./custom-video-player";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
@@ -93,6 +105,20 @@ interface MediaViewerProps {
   standalone?: boolean;
 }
 
+/** 3D dual-border chip used by the mobile media page's control buttons. */
+const MOBILE_CHIP_3D =
+  "bg-linear-to-b from-[#3a3f4a] to-[#23262e] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)]";
+
+/** m:ss clock for the mobile media page's video controls. */
+function formatPlaybackTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "0:00";
+  }
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
 function getShareThumbnail(
   post: PostData | null | undefined,
   currentMedia: Media | undefined
@@ -131,11 +157,113 @@ const MediaViewer = ({
 }: MediaViewerProps) => {
   const { toast } = useToast();
   const { user: sessionUser } = useSession();
+  const router = useRouter();
+  // defaultValue: false + initializeWithValue: false keep the server render
+  // and the first client render identical (the media query is only evaluated
+  // after mount), so the hideControls DOM branches never cause a hydration
+  // mismatch.
+  const isMobileView = useMediaQuery("(max-width: 768px)", {
+    defaultValue: false,
+    initializeWithValue: false,
+  });
+  const [uiVisible, setUiVisible] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isDownloading, setIsDownloading] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
   const currentMedia = media[currentIndex];
+
+  // The bottom panel drives the video directly (the built-in player controls
+  // are hidden on every size; the panel's control rows take over on both
+  // mobile and desktop): the video element plus a mirror of its state.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoState, setVideoState] = useState<VideoPlaybackState>({
+    currentTime: 0,
+    duration: 0,
+    isMuted: false,
+    isPlaying: false,
+    playbackRate: 1,
+    volume: 1,
+  });
+  const handleExternalVideoState = useCallback(
+    (state: VideoPlaybackState) => setVideoState(state),
+    []
+  );
+  const handleVideoPlayPause = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    if (video.paused) {
+      void video.play();
+    } else {
+      video.pause();
+    }
+  }, []);
+  const handleVideoToggleMute = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    video.muted = !video.muted;
+  }, []);
+  // Speed cycles 1x -> 1.25x -> 1.5x -> 2x -> back to 1x.
+  const handleVideoCycleSpeed = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    const speeds = [1, 1.25, 1.5, 2];
+    const nextIndex = (speeds.indexOf(video.playbackRate) + 1) % speeds.length;
+    video.playbackRate = speeds[nextIndex] ?? 1;
+  }, []);
+  // Desktop seek slider: scrub the element directly and mirror the time in
+  // state so the slider tracks instantly (timeupdate keeps it in sync anyway).
+  const handleVideoSeek = useCallback((value: number[]) => {
+    const [newTime] = value;
+    if (newTime === undefined) {
+      return;
+    }
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = newTime;
+    }
+    setVideoState((prev) => ({ ...prev, currentTime: newTime }));
+  }, []);
+  const handleVideoFullscreen = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    // Fullscreening the video element lets the browser rotate the phone to
+    // landscape for playback.
+    await video.requestFullscreen();
+  }, []);
+
+  // Tapping the blank area (letterbox/background) toggles the UI (bottom
+  // panel on mobile, bottom chrome on desktop, plus the top bar) instead of
+  // pausing the video. Clicks on the visible picture keep their play/pause
+  // behavior (the video element's own handler runs first), and buttons always
+  // work. The letterbox check is needed because the video element fills the
+  // whole media area: its box covers the blank bars too, so only the
+  // picture's rect distinguishes "video" from "blank".
+  const handleMediaAreaClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if ((event.target as HTMLElement).closest("button")) {
+        return;
+      }
+      const video = videoRef.current;
+      if (video && isClickInVideoContent(event.clientX, event.clientY, video)) {
+        return;
+      }
+      setUiVisible((visible) => !visible);
+    },
+    []
+  );
 
   // Describes everything the loading flags derive from. Computed BEFORE the
   // states it seeds so they can initialize from the first value: this makes
@@ -432,7 +560,9 @@ const MediaViewer = ({
       <CustomVideoPlayer
         autoPlay
         className={cn(
-          "h-full max-h-full w-auto outline-hidden focus:outline-hidden focus-visible:outline-none",
+          // The box fills the media area; object-contain letterboxes the
+          // video inside, centered for any orientation and screen size.
+          "h-full max-h-full w-full outline-hidden focus:outline-hidden focus-visible:outline-none",
           "shadow-lg",
           // Fade in on load via opacity instead of display:none: a display:none
           // <video> with preload=metadata may never fire onLoadedData, which
@@ -444,13 +574,21 @@ const MediaViewer = ({
             ? getMediaVariantUrl(item.id, "hls/master.m3u8")
             : undefined
         }
+        // The built-in on-video overlay is suppressed on every size; the
+        // bottom panel's control rows drive playback instead (on desktop the
+        // seek slider + chips live in the bottom chrome). Desktop keeps the
+        // keyboard shortcuts and double-click skip zones.
+        hideControls
+        desktopGestures={!isMobileView}
         key={`${item.id}-${loadAttempt}`}
         onError={handleVideoError}
+        onExternalState={handleExternalVideoState}
         onLoadedData={handleMediaLoaded}
         onPlaying={handleMediaLoaded}
         onProgress={handleMediaProgress}
         poster={getMediaProxyUrl(item)}
         src={getMediaVideoUrl(item.id)}
+        videoRef={videoRef}
       />
     </div>
   );
@@ -580,9 +718,30 @@ const MediaViewer = ({
     if (!post) {
       return null;
     }
+    // Mirrors the mobile panel's actions row: the 3D eddies chip + aura on
+    // the left, share + bookmark on the right.
     return (
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <div className="flex items-center gap-2">
+          <button
+            aria-label="View eddies"
+            className={cn(
+              "flex h-11 items-center gap-1.5 rounded-full px-3.5 transition-all duration-200 hover:brightness-110 active:translate-y-px",
+              MOBILE_CHIP_3D
+            )}
+            onClick={() => router.push(`/posts/${post.id}`)}
+            type="button"
+          >
+            <MessageSquare
+              className={cn(
+                "size-4.5",
+                post._count.comments > 0 && "fill-current"
+              )}
+            />
+            <span className="text-sm font-semibold tabular-nums">
+              {post._count.comments}
+            </span>
+          </button>
           <AuraVoteButton
             authorName={post.user.displayName}
             initialState={{
@@ -590,6 +749,17 @@ const MediaViewer = ({
               userVote: post.vote[0]?.value || 0,
             }}
             postId={post.id}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <ShareButton
+            description={post.content}
+            dialogDescription="Share this media with your network"
+            dialogTitle="Share Media"
+            postId={post.id}
+            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+            thumbnail={getShareThumbnail(post, currentMedia)}
+            title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
           />
           <BookmarkButton
             className="h-9 w-9"
@@ -599,15 +769,6 @@ const MediaViewer = ({
               ),
             }}
             postId={post.id}
-          />
-          <ShareButton
-            description={post.content}
-            dialogDescription="Share this media with your network"
-            dialogTitle="Share Media"
-            postId={post.id}
-            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
-            thumbnail={getShareThumbnail(post, currentMedia)}
-            title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
           />
         </div>
         <span className="text-muted-foreground pr-2 text-sm lg:hidden">
@@ -622,73 +783,19 @@ const MediaViewer = ({
   // reachable from the full-screen viewer too.
   const canModerate = post ? canModeratePost(sessionUser, post) : false;
 
-  const renderMobileHeader = () => {
-    if (!post) {
-      return null;
-    }
-    return (
-      // Overlay (not in-flow) so the media area below it spans the full
-      // viewport height and the image stays centered on screen.
-      <div className="absolute inset-x-0 top-0 z-40 flex flex-col bg-linear-to-b from-black/80 to-transparent px-3 pt-3 pb-5 lg:hidden">
-        <div className="flex items-center justify-between">
-          <button
-            aria-label="Close viewer"
-            className="rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
-            onClick={onClose}
-            type="button"
-          >
-            <X className="h-6 w-6" />
-          </button>
-          {canModerate ? (
-            <PostMoreButton className="shrink-0" post={post} />
-          ) : null}
-        </div>
-
-        <div className="mt-3 flex items-center gap-3">
-          <Link
-            aria-label="View profile"
-            className="shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-            href={`/users/${post.user.username}`}
-          >
-            <UserAvatar avatarUrl={post.user.avatarUrl} className="h-10 w-10" />
-          </Link>
-          <div className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5">
-              <Link
-                className="block truncate font-semibold text-white hover:underline"
-                href={`/users/${post.user.username}`}
-              >
-                {post.user.displayName}
-              </Link>
-              <UserBadge badge={post.user.badge} badges={post.user.badges} />
-            </span>
-            <Link
-              className="block truncate text-white/70 hover:underline"
-              href={`/users/${post.user.username}`}
-            >
-              @{post.user.username}
-            </Link>
-          </div>
-          {isSelf ? null : (
-            <FollowButton
-              initialState={{
-                followers: post.user._count?.followers ?? 0,
-                isFollowedByUser: post.user.followers.length > 0,
-              }}
-              userId={post.user.id}
-            />
-          )}
-        </div>
-      </div>
-    );
-  };
-
   const body = (
     <div className="flex h-full w-full overflow-hidden">
       <div className="relative flex h-full min-w-0 flex-1 flex-col bg-black">
-        {renderMobileHeader()}
-
-        <div className="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden">
+        {/* oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- a blank-area tap toggles the UI; every real control inside is an actual button */}
+        <div
+          className={cn(
+            // Media centers on the full screen; the mobile panel and the
+            // desktop chrome float over it with their scrim, exactly like the
+            // mobile layout.
+            "relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden"
+          )}
+          onClick={handleMediaAreaClick}
+        >
           {/* Dialog galleries keep the overlay badge; the standalone page
               shows it in the attribution row below the media instead. */}
           {!standalone && currentMedia ? (
@@ -755,18 +862,41 @@ const MediaViewer = ({
 
           <button
             aria-label="Close viewer"
-            className="absolute top-4 left-3 z-50 hidden rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110 lg:flex"
+            className={cn(
+              "absolute top-3 left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full p-0 text-white transition-[opacity,visibility] duration-300 hover:brightness-110 active:translate-y-px",
+              MOBILE_CHIP_3D,
+              !uiVisible && "pointer-events-none invisible opacity-0"
+            )}
             onClick={onClose}
             type="button"
           >
-            <X className="h-6 w-6" />
+            <X className="h-5 w-5" />
           </button>
+
+          {/* Compact mobile top bar: close (above) + post options (right). */}
+          {canModerate && post ? (
+            <div
+              className={cn(
+                "absolute top-3 right-3 z-50 transition-[opacity,visibility] duration-300 lg:hidden",
+                !uiVisible && "pointer-events-none invisible opacity-0"
+              )}
+            >
+              <PostMoreButton
+                className="shrink-0"
+                post={post}
+                variant="media-page"
+              />
+            </div>
+          ) : null}
 
           {media.length > 1 && (
             <>
               <button
                 aria-label="Previous media"
-                className="absolute top-1/2 left-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
+                className={cn(
+                  "absolute top-1/2 left-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all duration-300 hover:bg-black/60 hover:brightness-110",
+                  !uiVisible && "pointer-events-none invisible opacity-0"
+                )}
                 onClick={handlePrevious}
                 type="button"
               >
@@ -774,14 +904,22 @@ const MediaViewer = ({
               </button>
               <button
                 aria-label="Next media"
-                className="absolute top-1/2 right-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:brightness-110"
+                className={cn(
+                  "absolute top-1/2 right-3 z-50 -translate-y-1/2 rounded-full bg-black/40 p-2.5 text-white backdrop-blur-md transition-all duration-300 hover:bg-black/60 hover:brightness-110",
+                  !uiVisible && "pointer-events-none invisible opacity-0"
+                )}
                 onClick={handleNext}
                 type="button"
               >
                 <ChevronRight className="h-6 w-6" />
               </button>
 
-              <div className="absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 backdrop-blur-md">
+              <div
+                className={cn(
+                  "absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 backdrop-blur-md transition-[opacity,visibility] duration-300",
+                  !uiVisible && "invisible opacity-0"
+                )}
+              >
                 <span className="text-sm text-white">
                   {currentIndex + 1} / {media.length}
                 </span>
@@ -789,12 +927,223 @@ const MediaViewer = ({
             </>
           )}
         </div>
+        {/* oxlint-enable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+
+        {/* Mobile bottom panel: stacked user → text → provenance → actions →
+            video controls, so the media page reads as one composed screen on
+            phones. Desktop keeps the floating bottom chrome below. */}
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 z-30 transition-[opacity,visibility] duration-300 lg:hidden",
+            !uiVisible && "invisible opacity-0"
+          )}
+        >
+          <div className="bg-linear-to-t from-black/95 via-black/70 to-transparent px-3 pt-16 pb-3">
+            {post ? (
+              <div className="pointer-events-auto flex items-center gap-3">
+                <Link
+                  aria-label="View profile"
+                  className="shrink-0 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
+                  href={`/users/${post.user.username}`}
+                >
+                  <UserAvatar
+                    avatarUrl={post.user.avatarUrl}
+                    className="h-10 w-10"
+                  />
+                </Link>
+                <div className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <Link
+                      className="block truncate font-semibold text-white hover:underline"
+                      href={`/users/${post.user.username}`}
+                    >
+                      {post.user.displayName}
+                    </Link>
+                    <UserBadge
+                      badge={post.user.badge}
+                      badges={post.user.badges}
+                    />
+                  </span>
+                  <Link
+                    className="block truncate text-white/70 hover:underline"
+                    href={`/users/${post.user.username}`}
+                  >
+                    @{post.user.username}
+                  </Link>
+                </div>
+                {isSelf ? null : (
+                  <FollowButton
+                    initialState={{
+                      followers: post.user._count?.followers ?? 0,
+                      isFollowedByUser: post.user.followers.length > 0,
+                    }}
+                    userId={post.user.id}
+                  />
+                )}
+              </div>
+            ) : null}
+
+            {post?.content ? (
+              <div className="pointer-events-auto mt-2.5">
+                <Linkify>
+                  <p className="text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap text-white/90">
+                    {post.content}
+                  </p>
+                </Linkify>
+              </div>
+            ) : null}
+
+            {standalone &&
+            currentMedia &&
+            (currentMedia.aiGenerated || currentMedia.altText) ? (
+              <div className="pointer-events-auto mt-2.5 flex flex-wrap items-start gap-2">
+                <AiGeneratedBadge media={currentMedia} />
+                {currentMedia.altText ? (
+                  <div className="flex min-h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full bg-linear-to-b from-zinc-500 to-zinc-700 px-2.5 py-1 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(35,35,40,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.25)]">
+                    <span className="text-[10px] leading-none font-bold whitespace-nowrap">
+                      ALT
+                    </span>
+                    <span className="min-w-0 text-[10px] leading-snug font-medium break-words">
+                      {currentMedia.altText}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {post ? (
+              <div className="pointer-events-auto mt-3 flex items-center justify-between border-t border-white/10 pt-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-label="View eddies"
+                    className={cn(
+                      "flex h-11 items-center gap-1.5 rounded-full px-3.5 transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={() => router.push(`/posts/${post.id}`)}
+                    type="button"
+                  >
+                    <MessageSquare
+                      className={cn(
+                        "size-4.5",
+                        post._count.comments > 0 && "fill-current"
+                      )}
+                    />
+                    <span className="text-sm font-semibold tabular-nums">
+                      {post._count.comments}
+                    </span>
+                  </button>
+                  <AuraVoteButton
+                    authorName={post.user.displayName}
+                    initialState={{
+                      aura: post.aura,
+                      userVote: post.vote[0]?.value || 0,
+                    }}
+                    postId={post.id}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShareButton
+                    description={post.content}
+                    dialogDescription="Share this media with your network"
+                    dialogTitle="Share Media"
+                    postId={post.id}
+                    shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+                    thumbnail={getShareThumbnail(post, currentMedia)}
+                    title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+                  />
+                  <BookmarkButton
+                    className="h-9 w-9"
+                    initialState={{
+                      isBookmarkedByUser: post.bookmarks.some(
+                        (bookmark) => bookmark.userId === sessionUser?.id
+                      ),
+                    }}
+                    postId={post.id}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {currentMedia?.type === "VIDEO" ? (
+              <div className="pointer-events-auto mt-3 flex items-center justify-between border-t border-white/10 pt-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    aria-label={
+                      videoState.isPlaying ? "Pause video" : "Play video"
+                    }
+                    className="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] transition-all hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px"
+                    onClick={handleVideoPlayPause}
+                    type="button"
+                  >
+                    {videoState.isPlaying ? (
+                      <Pause className="size-5 fill-current" />
+                    ) : (
+                      <Play className="ml-0.5 size-5 fill-current" />
+                    )}
+                  </button>
+                  <span className="text-sm font-medium text-white tabular-nums">
+                    {formatPlaybackTime(videoState.currentTime)} /{" "}
+                    {formatPlaybackTime(videoState.duration)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-label={
+                      videoState.isMuted ? "Unmute video" : "Mute video"
+                    }
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={handleVideoToggleMute}
+                    type="button"
+                  >
+                    {videoState.isMuted || videoState.volume === 0 ? (
+                      <VolumeX className="size-5" />
+                    ) : (
+                      <Volume2 className="size-5" />
+                    )}
+                  </button>
+                  <button
+                    aria-label="Playback speed"
+                    className={cn(
+                      "flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-sm font-semibold transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={handleVideoCycleSpeed}
+                    type="button"
+                  >
+                    {videoState.playbackRate}x
+                  </button>
+                  <button
+                    aria-label="Fullscreen"
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={handleVideoFullscreen}
+                    type="button"
+                  >
+                    <Maximize className="size-5" />
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
 
         {/* Bottom chrome overlays the media (with a scrim) instead of taking
             layout space, so the media area spans the full viewport height and
             the image centers dead-on vertically. The thumbnail strip stays in
-            dialog galleries only; the standalone media page drops it. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col bg-linear-to-t from-black/95 via-black/60 to-transparent pt-24 pb-1">
+            dialog galleries only; the standalone media page drops it. Desktop
+            only - mobile uses the stacked bottom panel above. */}
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 z-30 hidden flex-col bg-linear-to-t from-black/95 via-black/60 to-transparent pt-24 pb-1 transition-[opacity,visibility] duration-300 lg:flex",
+            !uiVisible && "invisible opacity-0"
+          )}
+        >
           {!standalone &&
           media.length > 1 &&
           !post?.moderated &&
@@ -876,6 +1225,87 @@ const MediaViewer = ({
           {post ? (
             <div className="pointer-events-auto">{renderActionBar()}</div>
           ) : null}
+
+          {/* Desktop video controls: the same arrangement as the mobile
+              panel's control row (play + time left, mute/speed/fullscreen
+              right) with a seek slider above it, sitting in the bottom chrome
+              below the actions. The mobile panel's own row is lg:hidden. */}
+          {currentMedia?.type === "VIDEO" && post ? (
+            <div className="pointer-events-auto hidden flex-col gap-3 px-4 pt-3 pb-3 lg:flex">
+              <Slider
+                aria-label="Seek video"
+                className="h-1.5 [&_[role=slider]]:opacity-0 [&>span:first-child]:bg-white/20 [&>span:first-child>span]:bg-linear-to-r [&>span:first-child>span]:from-[#ff9500] [&>span:first-child>span]:to-[#e65500]"
+                max={videoState.duration || 0}
+                min={0}
+                onValueChange={handleVideoSeek}
+                step={0.1}
+                value={[videoState.currentTime]}
+              />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    aria-label={
+                      videoState.isPlaying ? "Pause video" : "Play video"
+                    }
+                    className="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] transition-all hover:from-[#ff9f0a] hover:to-[#ea5b00] active:translate-y-px"
+                    onClick={handleVideoPlayPause}
+                    type="button"
+                  >
+                    {videoState.isPlaying ? (
+                      <Pause className="size-5 fill-current" />
+                    ) : (
+                      <Play className="ml-0.5 size-5 fill-current" />
+                    )}
+                  </button>
+                  <span className="text-sm font-medium text-white tabular-nums">
+                    {formatPlaybackTime(videoState.currentTime)} /{" "}
+                    {formatPlaybackTime(videoState.duration)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-label={
+                      videoState.isMuted ? "Unmute video" : "Mute video"
+                    }
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={handleVideoToggleMute}
+                    type="button"
+                  >
+                    {videoState.isMuted || videoState.volume === 0 ? (
+                      <VolumeX className="size-5" />
+                    ) : (
+                      <Volume2 className="size-5" />
+                    )}
+                  </button>
+                  <button
+                    aria-label="Playback speed"
+                    className={cn(
+                      "flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-sm font-semibold transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={handleVideoCycleSpeed}
+                    type="button"
+                  >
+                    {videoState.playbackRate}x
+                  </button>
+                  <button
+                    aria-label="Fullscreen"
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D
+                    )}
+                    onClick={handleVideoFullscreen}
+                    type="button"
+                  >
+                    <Maximize className="size-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -910,7 +1340,11 @@ const MediaViewer = ({
               </Link>
             </div>
             {canModerate ? (
-              <PostMoreButton className="shrink-0" post={post} />
+              <PostMoreButton
+                className="shrink-0"
+                post={post}
+                variant="media-page"
+              />
             ) : null}
           </div>
 

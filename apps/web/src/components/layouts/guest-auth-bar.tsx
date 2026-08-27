@@ -38,8 +38,10 @@ export const GuestAuthBar: React.FC = () => {
   const hasNav = navHeight > 0;
 
   // The gusts page is a full-screen reels player on mobile; the login banner
-  // would cover the feed there, so hide it on that route.
-  if (pathname === "/gusts") {
+  // would cover the feed there, so hide it on that route. The post media page
+  // is a full-viewport media viewer with its own bottom chrome, so the fixed
+  // banner would sit on top of the controls there too.
+  if (pathname === "/gusts" || /^\/posts\/[^/]+\/media\//.test(pathname)) {
     return null;
   }
 

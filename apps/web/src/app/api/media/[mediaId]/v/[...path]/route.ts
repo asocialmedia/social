@@ -55,9 +55,7 @@ function isObjectNotFoundError(error: unknown): boolean {
   if (!(error instanceof S3ServiceException)) {
     return false;
   }
-  return (
-    error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404
-  );
+  return error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404;
 }
 
 export async function GET(
