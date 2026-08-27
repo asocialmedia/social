@@ -71,7 +71,10 @@ let liveCodes: {
 
 const prismaMock = {
   account: {
-    create: () => ({}),
+    create: (args: { data: Record<string, unknown> }) => {
+      prismaCalls.push({ args, model: "account", op: "create" });
+      return {};
+    },
   },
   user: {
     create: () => ({ id: "user-1" }),
@@ -327,5 +330,54 @@ describe("pendingSignupVerify OTP security contract", () => {
     // Both the flow-level expired-record cleanup and the in-verify cleanup run.
     expect(cleanupCalls()).toBeGreaterThanOrEqual(1);
     expect(consumeCalls()).toBe(0);
+  });
+
+  test("successful verification writes exactly one credential account in the better-auth 1.7 shape", async () => {
+    liveCodes = [
+      {
+        expiresAt: FUTURE,
+        id: "v1",
+        identifier: IDENTIFIER,
+        value: "123456:0",
+      },
+    ];
+    redisStore.set(PENDING_EMAIL_KEY, "tok-1");
+    redisStore.set(PENDING_KEY, JSON.stringify(pendingPayload));
+
+    const caller = createCaller();
+    const result = await caller.pendingSignupVerify({
+      email: EMAIL,
+      otp: "123456",
+      otpVerified: true,
+    });
+    expect(result).toMatchObject({ success: true });
+
+    // The credential contract better-auth 1.7 enforces at sign-in:
+    // providerId "credential", issuer "local:credential", and accountId
+    // equal to the user id. Any other shape is invisible to authentication
+    // (this regression produced 401 "User not found" after signup).
+    const accountCreates = prismaCalls.filter(
+      (call) => call.model === "account" && call.op === "create"
+    );
+    expect(accountCreates).toHaveLength(1);
+    const [firstCreate] = accountCreates;
+    if (!firstCreate) {
+      throw new Error("expected one account create call");
+    }
+    const { data } = firstCreate.args as {
+      data: Record<string, unknown>;
+    };
+    expect(data.providerId).toBe("credential");
+    expect(data.issuer).toBe("local:credential");
+    expect(data.accountId).toBe("user-1");
+    expect(data.userId).toBe("user-1");
+    expect(data.password).toBe("scrypt-hash");
+
+    // The raw password rides the internal tRPC response so the web layer
+    // can auto-sign-in after verification.
+    expect(result).toMatchObject({
+      email: EMAIL,
+      password: "plaintext-password",
+    });
   });
 });

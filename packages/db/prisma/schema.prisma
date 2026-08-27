@@ -731,9 +731,15 @@ model ShareStats {
 }
 
 model jwks {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   publicKey  String
   privateKey String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  // Fields better-auth's JWT plugin writes per key: algorithm and curve for
+  // EdDSA/OKP keys, and rotation expiry. All optional - only alg/crv appear
+  // on Ed25519 keys (expiresAt is reserved for retired keys).
+  alg        String?
+  crv        String?
+  expiresAt  DateTime?
 }

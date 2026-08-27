@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import { hashPasswordWithScrypt } from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { isReservedUsername, prisma, redis } from "@asm/db";
-import { createLogger } from "@asm/logger";
+import { createLogger, getTelemetryApi } from "@asm/logger";
+import { SpanStatusCode } from "@opentelemetry/api";
+import type { Attributes } from "@opentelemetry/api";
 import { z } from "zod";
 
 import { auth } from "@/auth/config";
@@ -15,7 +17,38 @@ import { emailRouter } from "../email";
 
 const logger = createLogger({ serviceName: "auth-signup" });
 
+const { tracer } = getTelemetryApi();
+
+// tRPC procedures here are synchronous chains, so a scoped span helper keeps
+// the account-provisioning step observable without restructuring the router:
+// exceptions are recorded and the span always closes.
+async function withSignupSpan<T>(
+  name: string,
+  attributes: Attributes,
+  fn: () => Promise<T>
+): Promise<T> {
+  const span = tracer.startSpan(name, { attributes });
+  try {
+    const result = await fn();
+    span.end();
+    return result;
+  } catch (error) {
+    span.recordException(
+      error instanceof Error ? error : new Error(String(error))
+    );
+    span.setStatus({ code: SpanStatusCode.ERROR });
+    span.end();
+    throw error;
+  }
+}
+
 const PENDING_PREFIX = "pending-signup:";
+
+// better-auth 1.7 mints local (non-OAuth) accounts with this synthetic issuer
+// (see @better-auth/core/db createLocalAccountIssuer). Sign-in resolves the
+// credential account by (userId, providerId="credential", issuer) - rows with
+// any other issuer are invisible to authentication.
+const LOCAL_CREDENTIAL_ISSUER = "local:credential";
 
 // Redact the local part of an email in logs (keep the domain for correlation).
 function redactEmail(email: string): string {
@@ -866,34 +899,36 @@ export const signupRouter = router({
           debugLog.api("pendingSignupVerify:user-created", { userId: user.id });
 
           try {
-            const pendingEmailLower = pendingData.email.toLowerCase();
-            const passwordObj = JSON.stringify({
-              hash: pendingData.passwordHash,
-            });
-
-            await prisma.account.create({
-              data: {
-                accountId: pendingEmailLower,
-                password: passwordObj,
-                providerId: "email",
-                userId: user.id,
-              },
-            });
-
-            await prisma.account
-              .create({
-                data: {
-                  accountId: pendingEmailLower,
-                  password: passwordObj,
-                  providerId: "credential",
-                  userId: user.id,
-                },
-              })
-              .catch(() => {
-                /* ignore errors, account might already exist */
-              });
+            // better-auth 1.7's credential contract: exactly ONE account row
+            // per local identity - providerId "credential", issuer
+            // "local:credential", accountId = the user id. The older
+            // email-keyed "email" row is gone: sign-in, change-password, and
+            // the username plugin all resolve the credential account via
+            // (userId, providerId, issuer="local:credential").
+            await withSignupSpan(
+              "signup.verify.provision-credential-account",
+              { "signup.userId": user.id },
+              async () => {
+                await prisma.account.create({
+                  data: {
+                    accountId: user.id,
+                    issuer: LOCAL_CREDENTIAL_ISSUER,
+                    password: pendingData.passwordHash,
+                    providerId: "credential",
+                    userId: user.id,
+                  },
+                });
+              }
+            );
             debugLog.api("pendingSignupVerify:account-created");
           } catch (error) {
+            logger.error(
+              {
+                error: error instanceof Error ? error.message : String(error),
+                userId: user.id,
+              },
+              "credential account provisioning failed - sign-in will 401 until repaired"
+            );
             debugLog.api("pendingSignupVerify:account-create-error", {
               message: error instanceof Error ? error.message : String(error),
             });
@@ -902,8 +937,13 @@ export const signupRouter = router({
           await redis.del(pendingKey);
           debugLog.api("pendingSignupVerify:redis-del");
 
+          // The raw password travels back only through this internal tRPC
+          // hop so the web layer can auto-sign-in right after verification
+          // (matching the token-verify branch below). It never reaches the
+          // browser.
           return {
             email: pendingData.email,
+            password: pendingData.password,
             success: true,
             userId: user.id,
           } as const;
@@ -961,32 +1001,31 @@ export const signupRouter = router({
       debugLog.api("pendingSignupVerify:user-created", { userId: user.id });
 
       try {
-        const emailLower = data.email.toLowerCase();
-        const password = data.passwordHash;
-
-        await prisma.account.create({
-          data: {
-            accountId: emailLower,
-            password,
-            providerId: "email",
-            userId: user.id,
-          },
-        });
-
-        await prisma.account
-          .create({
-            data: {
-              accountId: emailLower,
-              password,
-              providerId: "credential",
-              userId: user.id,
-            },
-          })
-          .catch(() => {
-            /* ignore errors, account might already exist */
-          });
+        // Same 1.7 credential contract as the OTP branch above.
+        await withSignupSpan(
+          "signup.verify.provision-credential-account",
+          { "signup.userId": user.id },
+          async () => {
+            await prisma.account.create({
+              data: {
+                accountId: user.id,
+                issuer: LOCAL_CREDENTIAL_ISSUER,
+                password: data.passwordHash,
+                providerId: "credential",
+                userId: user.id,
+              },
+            });
+          }
+        );
         debugLog.api("pendingSignupVerify:account-created");
       } catch (error) {
+        logger.error(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            userId: user.id,
+          },
+          "credential account provisioning failed - sign-in will 401 until repaired"
+        );
         debugLog.api("pendingSignupVerify:account-exists-or-error", {
           message: error instanceof Error ? error.message : String(error),
         });
