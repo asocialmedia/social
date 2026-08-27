@@ -34,6 +34,7 @@ export async function DELETE(
     // terminal in the pipeline state machine.
     data: { status: "DELETED" },
     where: {
+      avatarOf: null,
       commentId: null,
       id: mediaId,
       postId: null,

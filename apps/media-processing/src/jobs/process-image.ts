@@ -157,6 +157,7 @@ export async function processMediaImage(input: {
         }[] = [];
 
         for (const item of plan) {
+          const encodeStart = performance.now();
           const encoded = await encodeDerivative(
             decodeImage,
             item,
@@ -185,6 +186,19 @@ export async function processMediaImage(input: {
             sizeBytes: encoded.bytes.byteLength,
             variant: item.variant,
           });
+          const encodeMs = Math.round(performance.now() - encodeStart);
+          if (encodeMs > 5000) {
+            mediaLogger.warn(
+              {
+                encodeMs,
+                kind: item.kind,
+                mediaId: input.mediaId,
+                sizeBytes: encoded.bytes.byteLength,
+                variant: item.variant,
+              },
+              "slow image encode"
+            );
+          }
         }
 
         await prisma.mediaDerivative.createMany({

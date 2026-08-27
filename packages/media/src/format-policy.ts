@@ -4,10 +4,10 @@
 //
 // Codec reality (verified against Bun docs): the media-processing worker runs
 // on Linux where Bun.Image encodes JPEG/PNG/WebP only - AVIF/HEIC/TIFF are
-// OS-backends that do not exist on Linux. Delivery format is therefore WebP
-// (universally supported in browsers since Safari 14 / 2020) with JPEG
-// fallback copies for the small preview sizes. AVIF becomes an easy win later
-// if the worker gains a libavif encoder.
+// OS-backends that do not exist on Linux. Delivery format is therefore
+// WebP (universally supported in browsers since Safari 14 / 2020) with JPEG
+// fallback copies for small preview sizes on non-transparent images; AVIF
+// would slot ahead of WebP once the worker gains a libavif encoder.
 
 import type { DerivativeKind } from "./types";
 
@@ -80,7 +80,7 @@ interface ClassQuality {
 const CLASS_QUALITY: Record<ImageClass, ClassQuality> = {
   alpha: { palette: false, quality: 86 },
   animated: { palette: false, quality: 78 },
-  graphic: { palette: false, quality: 88 },
+  graphic: { palette: true, quality: 88 },
   photo: { palette: false, quality: 84 },
 };
 
@@ -112,7 +112,10 @@ export function planImageDerivatives(
       variant: "webp",
       width: rung.width,
     });
-    if (JPEG_FALLBACK_KINDS.has(rung.kind)) {
+    // JPEG has no alpha channel: transparent sources must not get a
+    // JPEG fallback that would composite against black. Ancient clients
+    // on those images just get the WebP ladder rung at the same width.
+    if (!input.hasAlpha && JPEG_FALLBACK_KINDS.has(rung.kind)) {
       plan.push({
         height,
         kind: rung.kind,
@@ -129,7 +132,16 @@ export function planImageDerivatives(
   // classify as graphic or alpha get a bit-exact lossless WebP; photos and
   // lossy sources get a high-quality perceptual encode - a lossless encode
   // of noisy photographic content would dwarf the upload itself.
-  if (input.width <= ORIG_IMG_MAX_WIDTH && !input.isAnimated) {
+  // Tiny sources that fit no ladder rung still need an orig-img so
+  // something is servable; otherwise orig-img is redundant with thumb.
+  const ladderRungCount = IMAGE_WIDTH_LADDER.filter(
+    (r) => r.width <= input.width
+  ).length;
+  if (
+    input.width <= ORIG_IMG_MAX_WIDTH &&
+    (input.width > 320 || ladderRungCount === 0) &&
+    !input.isAnimated
+  ) {
     plan.push({
       height: input.height,
       kind: "orig-img",
