@@ -23,6 +23,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { useVideoMuteStore } from "@/lib/video-mute-store";
 
 interface CustomVideoPlayerProps {
   autoPlay?: boolean;
@@ -232,9 +233,10 @@ export const CustomVideoPlayer = ({
   }, [hlsSrc]);
 
   // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
-  // block unmuted autoplay until the user interacts, so start muted and mirror
-  // that in the UI. Only report playing once play() actually resolves so the
-  // play/pause state stays in sync with the real playback.
+  // block unmuted autoplay until the user interacts, so start muted (unless
+  // the session preference unmuted it) and mirror that in the UI. Only report
+  // playing once play() actually resolves so the play/pause state stays in
+  // sync with the real playback.
   useEffect(() => {
     if (!autoPlay) {
       return;
@@ -243,8 +245,8 @@ export const CustomVideoPlayer = ({
     if (!video) {
       return;
     }
-    video.muted = true;
-    setIsMuted(true);
+    video.muted = useVideoMuteStore.getState().isMuted;
+    setIsMuted(video.muted);
     const attemptPlay = async () => {
       try {
         await video.play();
@@ -487,6 +489,10 @@ export const CustomVideoPlayer = ({
     const handleNativeVolumeChange = () => {
       setIsMuted(video.muted);
       setVolume(video.volume);
+      // Every mute path (panel toggle, built-in button, keyboard, volume
+      // slider) lands here via the native event, so the shared preference
+      // stays in sync no matter which surface changed it.
+      useVideoMuteStore.getState().setMuted(video.muted);
     };
     const handleNativeRateChange = () => {
       setPlaybackSpeed(video.playbackRate);

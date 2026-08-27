@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Eye,
   FileIcon,
   Maximize,
   MessageSquare,
@@ -58,6 +59,8 @@ import {
   isClickInVideoContent,
 } from "./custom-video-player";
 import type { VideoPlaybackState } from "./custom-video-player";
+// eslint-disable-next-line import/no-cycle -- media-previews renders this viewer's dialog galleries, and the sidebar reuses its video preview; both are used at render time only
+import { VideoPreview } from "./media-previews";
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
 import RelatedPosts from "./related-posts";
 import ShareButton from "./share-button";
@@ -613,7 +616,9 @@ const MediaViewer = ({
 
   // Grid of ALL the post's media in the sidebar's post section, so a
   // multi-photo post shows every attachment next to the fullscreen view. The
-  // item being viewed is ringed; tapping any tile jumps to it.
+  // item being viewed is ringed; tapping any tile jumps to it. Video tiles
+  // reuse the feed's VideoPreview so they keep the feed's 16:9 proportions
+  // and hover controls (play/pause + mute).
   const renderSidebarGridTileContent = (item: Media, index: number) => {
     const alt = item.altText || `Media ${index + 1}`;
     if (item.type === "IMAGE") {
@@ -639,21 +644,7 @@ const MediaViewer = ({
       );
     }
     if (item.type === "VIDEO") {
-      return (
-        <div className="relative h-full w-full">
-          {/* eslint-disable-next-line @next/next/no-img-element -- sidebar grid poster */}
-          <img
-            alt={alt}
-            className="h-full w-full object-cover"
-            decoding="async"
-            loading="lazy"
-            src={getMediaProxyUrl(item)}
-          />
-          <span className="pointer-events-none absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/45">
-            <Play className="ml-0.5 h-3.5 w-3.5 fill-current text-white" />
-          </span>
-        </div>
-      );
+      return <VideoPreview media={item} />;
     }
     return (
       <div className="flex h-full w-full items-center justify-center">
@@ -673,13 +664,17 @@ const MediaViewer = ({
       <div className={cn("grid gap-1.5", cols)}>
         {media.map((item, index) => {
           const isActive = index === currentIndex;
+          // Video tiles size themselves to the feed's 16:9 ratio; the rest
+          // stay square so mixed grids keep a tidy row height.
+          const isVideo = item.type === "VIDEO";
           return (
             <button
               key={item.id}
               aria-current={isActive}
               aria-label={`Go to media ${index + 1} of ${media.length}`}
               className={cn(
-                "relative aspect-square overflow-hidden rounded-lg bg-zinc-900",
+                "relative overflow-hidden rounded-lg bg-zinc-900",
+                !isVideo && "aspect-square",
                 isActive ? "ring-2 ring-white" : "opacity-70 hover:opacity-100"
               )}
               onClick={() => handleSelectThumb(index)}
@@ -1313,128 +1308,165 @@ const MediaViewer = ({
 
       {post ? (
         <aside className="hidden h-full w-[420px] flex-col border-l border-white/10 bg-[hsl(var(--background))] lg:flex">
-          <div className="flex items-center gap-3 px-4 py-3">
-            <Link
-              aria-label="View profile"
-              className="focus-visible:ring-ring shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
-              href={`/users/${post.user.username}`}
-            >
-              <UserAvatar
-                avatarUrl={post.user.avatarUrl}
-                className="h-10 w-10"
-              />
-            </Link>
-            <div className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
+          <div className="hide-native-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+            {/* The current post on the app's standard 3D subcard, composed
+                like the post page: author header, content, media strip, meta
+                and the feed's action row. */}
+            <section className="sidebar-subcard rounded-2xl p-3">
+              <div className="flex items-center gap-3">
                 <Link
-                  className="text-foreground block truncate font-semibold hover:underline"
+                  aria-label="View profile"
+                  className="focus-visible:ring-ring shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
                   href={`/users/${post.user.username}`}
                 >
-                  {post.user.displayName}
+                  <UserAvatar
+                    avatarUrl={post.user.avatarUrl}
+                    className="h-10 w-10"
+                  />
                 </Link>
-                <UserBadge badge={post.user.badge} badges={post.user.badges} />
-              </span>
-              <Link
-                className="text-muted-foreground block truncate hover:underline"
-                href={`/users/${post.user.username}`}
-              >
-                @{post.user.username}
-              </Link>
-            </div>
-            {canModerate ? (
-              <PostMoreButton
-                className="shrink-0"
-                post={post}
-                variant="media-page"
-              />
-            ) : null}
-          </div>
+                <div className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <Link
+                      className="text-foreground block truncate font-semibold hover:underline"
+                      href={`/users/${post.user.username}`}
+                    >
+                      {post.user.displayName}
+                    </Link>
+                    <UserBadge
+                      badge={post.user.badge}
+                      badges={post.user.badges}
+                    />
+                  </span>
+                  <Link
+                    className="text-muted-foreground block truncate hover:underline"
+                    href={`/users/${post.user.username}`}
+                  >
+                    @{post.user.username}
+                  </Link>
+                </div>
+                {canModerate ? (
+                  <PostMoreButton
+                    className="shrink-0"
+                    post={post}
+                    variant="media-page"
+                  />
+                ) : null}
+              </div>
 
-          <div className="px-4 pt-1 pb-2">
-            <Linkify>
-              <p className="text-foreground text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-                {post.content}
-              </p>
-            </Linkify>
-            {post.tags?.length || post.mentions?.length ? (
-              <div className="mt-3">
-                <PostMeta
-                  mentions={post.mentions.map((m) => m.user)}
-                  tags={post.tags}
+              <div className="mt-2.5">
+                <Linkify>
+                  <p className="text-foreground text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
+                    {post.content}
+                  </p>
+                </Linkify>
+                {post.tags?.length || post.mentions?.length ? (
+                  <div className="mt-3">
+                    <PostMeta
+                      mentions={post.mentions.map((m) => m.user)}
+                      tags={post.tags}
+                    />
+                  </div>
+                ) : null}
+                {media.length > 0 && !post.moderated ? (
+                  <div className="mt-3">
+                    {post.explicitContent ? (
+                      <ExplicitContentGate
+                        revealKey={post.id}
+                        className="h-full w-full"
+                        compact
+                        label="Explicit"
+                      >
+                        {renderSidebarMediaGrid()}
+                      </ExplicitContentGate>
+                    ) : (
+                      renderSidebarMediaGrid()
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="text-muted-foreground mt-3 flex items-center gap-2 text-sm">
+                {/* The timestamp is rendered in the viewer's local timezone,
+                    which can differ between server and client, so hydration
+                    is suppressed to avoid a mismatch on refresh. formatDate
+                    keeps the shape deterministic across locales. */}
+                <span suppressHydrationWarning>
+                  {formatDate(new Date(post.createdAt), "d MMM yyyy")}
+                </span>
+                <span aria-hidden>·</span>
+                <span suppressHydrationWarning>
+                  {formatDate(new Date(post.createdAt), "h:mm a")}
+                </span>
+              </div>
+
+              {/* Feed-style action row: eddies + aura left, views + share +
+                  bookmark right, exactly like the post card. */}
+              <div className="mt-3 flex items-center gap-1 border-t border-white/10 pt-3">
+                <button
+                  aria-label="View eddies"
+                  className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
+                  onClick={() => router.push(`/posts/${post.id}`)}
+                  type="button"
+                >
+                  <MessageSquare
+                    className={cn(
+                      "size-5",
+                      post._count.comments > 0 && "fill-current"
+                    )}
+                  />
+                  <span className="text-sm font-medium tabular-nums">
+                    {post._count.comments}
+                  </span>
+                </button>
+                <AuraVoteButton
+                  authorName={post.user.displayName}
+                  initialState={{
+                    aura: post.aura,
+                    userVote: post.vote[0]?.value || 0,
+                  }}
+                  postId={post.id}
+                />
+                <div className="flex-1" />
+                <span
+                  className="text-muted-foreground flex h-8 cursor-default items-center gap-1.5 rounded-full px-2"
+                  title="Views"
+                >
+                  <Eye className="size-5" />
+                  <span className="text-sm tabular-nums">
+                    {formatNumber(post.viewCount)}
+                  </span>
+                </span>
+                <ShareButton
+                  className="h-9 w-9"
+                  description={post.content}
+                  dialogDescription="Share this media with your network"
+                  dialogTitle="Share Media"
+                  postId={post.id}
+                  shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+                  thumbnail={getShareThumbnail(post, currentMedia)}
+                  title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+                />
+                <BookmarkButton
+                  className="h-9 w-9"
+                  initialState={{
+                    isBookmarkedByUser: post.bookmarks.some(
+                      (bookmark) => bookmark.userId === sessionUser?.id
+                    ),
+                  }}
+                  postId={post.id}
                 />
               </div>
-            ) : null}
-            {media.length > 0 && !post.moderated ? (
-              <div className="mt-3">
-                {post.explicitContent ? (
-                  <ExplicitContentGate
-                    revealKey={post.id}
-                    className="h-full w-full"
-                    compact
-                    label="Explicit"
-                  >
-                    {renderSidebarMediaGrid()}
-                  </ExplicitContentGate>
-                ) : (
-                  renderSidebarMediaGrid()
-                )}
-              </div>
-            ) : null}
-          </div>
+            </section>
 
-          <div className="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-sm">
-            {/* The timestamp is rendered in the viewer's local timezone, which
-                can differ between server and client, so hydration is suppressed
-                to avoid a mismatch on refresh. formatDate keeps the shape
-                deterministic across locales. */}
-            <span suppressHydrationWarning>
-              {formatDate(new Date(post.createdAt), "d MMM yyyy")}
-            </span>
-            <span aria-hidden>·</span>
-            <span suppressHydrationWarning>
-              {formatDate(new Date(post.createdAt), "h:mm a")}
-            </span>
-            <div className="flex-1" />
-            <span>{formatNumber(post.viewCount)} views</span>
-          </div>
-
-          <div className="border-border/60 flex items-center gap-1 border-y px-4 py-2">
-            <AuraVoteButton
-              authorName={post.user.displayName}
-              initialState={{
-                aura: post.aura,
-                userVote: post.vote[0]?.value || 0,
-              }}
-              postId={post.id}
-            />
-            <div className="flex-1" />
-            <BookmarkButton
-              className="h-9 w-9"
-              initialState={{
-                isBookmarkedByUser: post.bookmarks.some(
-                  (bookmark) => bookmark.userId === sessionUser?.id
-                ),
-              }}
-              postId={post.id}
-            />
-            <ShareButton
-              className="h-9 w-9"
-              description={post.content}
-              dialogDescription="Share this media with your network"
-              dialogTitle="Share Media"
-              postId={post.id}
-              shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
-              thumbnail={getShareThumbnail(post, currentMedia)}
-              title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
-            />
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            <div className="px-4 py-3">
+            {/* The eddie thread on its own subcard. */}
+            <section className="sidebar-subcard rounded-2xl p-3">
               <Comments post={post} />
-            </div>
-            <div>
-              <div className="flex items-center justify-between px-4 py-2">
+            </section>
+
+            {/* Related content on the same surface as every other sidebar
+                list (post-author sidebar, trending, ...). */}
+            <section className="sidebar-subcard rounded-2xl p-2">
+              <div className="flex items-center justify-between px-2 py-1.5">
                 <span className="text-sm font-semibold">View more content</span>
                 <Link
                   aria-label="View all posts on the global feed"
@@ -1445,7 +1477,7 @@ const MediaViewer = ({
                 </Link>
               </div>
               <RelatedPosts excludePostId={post.id} />
-            </div>
+            </section>
           </div>
         </aside>
       ) : null}

@@ -223,7 +223,7 @@ export default function CommentInput({
       <div className="flex w-full items-center gap-2">
         <UserAvatar
           avatarUrl={userData?.avatarUrl || user?.image}
-          className={cn("shrink-0", reels ? "size-10" : "h-10 w-10")}
+          className={cn("shrink-0", reels ? "size-9" : "h-9 w-9")}
         />
         <div className="min-w-0 flex-1">
           <div

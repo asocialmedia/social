@@ -10,6 +10,7 @@ import {
   FileAudioIcon,
   Pause,
   Play,
+  Volume2,
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -30,6 +31,7 @@ import {
   getMediaProxyUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
+import { useVideoMuteStore } from "@/lib/video-mute-store";
 import { withViewTransition } from "@/lib/view-transition";
 
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
@@ -229,7 +231,7 @@ const GridImagePreview = ({
   );
 };
 
-const VideoPreview = ({
+export const VideoPreview = ({
   autoPlay = false,
   fill = false,
   media,
@@ -254,6 +256,10 @@ const VideoPreview = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  // Feed clips autoplay muted, but the mute preference is shared globally
+  // (feed -> post page -> media viewer) via the video mute store.
+  const isMuted = useVideoMuteStore((state) => state.isMuted);
+  const setMuted = useVideoMuteStore((state) => state.setMuted);
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -389,6 +395,25 @@ const VideoPreview = ({
     []
   );
 
+  // Toggle sound from the "Muted" badge. Stops propagation so the tile's
+  // "open media viewer" click never fires while using the control. The video
+  // element's muted flag is the source of truth; the store carries the
+  // preference across surfaces.
+  const toggleMute = useCallback(
+    (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const video = containerRef.current?.querySelector("video");
+      if (!video) {
+        return;
+      }
+      const next = !video.muted;
+      video.muted = next;
+      setMuted(next);
+    },
+    [setMuted]
+  );
+
   const handleLoadedMetadata = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
@@ -477,9 +502,10 @@ const VideoPreview = ({
       ref={containerRef}
       style={containerStyle}
     >
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption -- feed previews have no caption tracks; captions exist on the media page player */}
       <video
         className="absolute inset-0 h-full w-full rounded-lg object-cover"
-        muted
+        muted={isMuted}
         onDurationChange={handleDurationChange}
         onError={handleVideoError}
         onLoadedMetadata={handleLoadedMetadata}
@@ -514,16 +540,34 @@ const VideoPreview = ({
           <MdPlayArrow className="ml-0.5 h-3.5 w-3.5 text-white" />
         </div>
       </div>
+      {/* oxlint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role -- the mute toggle must not be a <button> because the whole preview sits inside the tile's "open media viewer" <button>; nesting a button would be invalid HTML and break hydration */}
       <div
+        aria-label={isMuted ? "Unmute" : "Mute"}
         className={cn(
-          "absolute bottom-2 left-2 flex h-7 items-center gap-1.5 rounded-full bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-opacity duration-300",
+          "absolute bottom-2 left-2 z-10 flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-all duration-200 hover:brightness-110 active:translate-y-px",
           autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         )}
-        role="status" // eslint-disable-line jsx-a11y/prefer-tag-over-role -- status badge overlaid on the video
+        onClick={toggleMute}
+        onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleMute(event);
+          }
+        }}
+        role="button"
+        tabIndex={-1}
       >
-        <VolumeX className="h-3.5 w-3.5" />
-        <span className="text-xs font-medium">Muted</span>
+        {isMuted ? (
+          <VolumeX className="h-3.5 w-3.5" />
+        ) : (
+          <Volume2 className="h-3.5 w-3.5" />
+        )}
+        <span className="text-xs font-medium">
+          {isMuted ? "Muted" : "Sound"}
+        </span>
       </div>
+      {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
 
       {/* Minimal hover controls: play/pause + time, shown as two separate
           floating elements so they read independently. Rendered as divs (not a
