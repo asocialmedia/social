@@ -27,8 +27,8 @@ import { useCommentsRealtimeValue } from "./comments-realtime-context";
 // Indent per nesting level (pl-8). The reply's avatar sits at this offset,
 // giving replies room to the right of the parent's rail column.
 const LEVEL_PAD = 32;
-// The h-9 avatar is 36px tall/wide; its vertical center is 24px (6px pt-1.5 + 18px half).
-const AVATAR_CENTER = 24;
+// The h-10 avatar is 40px tall/wide; its vertical center is 26px (6px pt-1.5 + 20px half).
+const AVATAR_CENTER = 26;
 // Column of the thread rail: centered in the indent channel (16px from the
 // left edge and 16px to the reply avatar edge at LEVEL_PAD = 32).
 const RAIL_X = LEVEL_PAD / 2;
@@ -149,7 +149,7 @@ export default function CommentItem({
         <div className="flex gap-2.5">
           {comment.deleted ? (
             <CommentAvatarFallback
-              className="relative z-10 h-9 w-9"
+              className="relative z-10 h-10 w-10"
               src={undefined}
             />
           ) : (
@@ -160,7 +160,7 @@ export default function CommentItem({
                 href={`/users/${comment.user.username}`}
               >
                 <CommentAvatarFallback
-                  className="h-9 w-9"
+                  className="h-10 w-10"
                   src={
                     comment.user.avatarUrl
                       ? getSecureImageUrl(comment.user.avatarUrl)

@@ -5,7 +5,7 @@ import noMediaImage from "@assets/general/nomedia.png";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import { cn, isGifUrl } from "@/lib/utils";
+import { cn, isGifUrl, supportsTransparency } from "@/lib/utils";
 import {
   getDefaultAvatar,
   getMediaImageSrcSet,
@@ -138,12 +138,14 @@ export function CommentAvatarFallback({
   // the image optimizer rejects same-origin /api/ URLs, so proxy and GIF
   // sources must bypass optimization (the proxy already serves sized bytes).
   const isProxySrc = resolved.startsWith("/api/");
+  const transparent = supportsTransparency(resolved);
 
   return (
     <Image
       alt=""
       className={cn(
-        "avatar-ring aspect-square flex-none rounded-xl bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))] object-cover",
+        "avatar-ring aspect-square flex-none rounded-xl bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))]",
+        transparent ? "object-contain" : "object-cover",
         className
       )}
       height={40}
