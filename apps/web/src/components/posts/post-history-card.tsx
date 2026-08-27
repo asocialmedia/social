@@ -18,6 +18,7 @@ import type React from "react";
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import UserBadge from "@/components/layouts/user-badge";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -112,13 +113,18 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
             <Flame
               className={cn(
                 "h-3 w-3 transition-colors group-hover:text-inherit",
-                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+                getAuraFlameClass(post.aura)
               )}
             />
             {formatNumber(post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
-            <MessageSquare className="h-3 w-3" />
+            <MessageSquare
+              className={cn(
+                "h-3 w-3",
+                post._count.comments > 0 && "fill-current"
+              )}
+            />
             {formatNumber(post._count.comments)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">

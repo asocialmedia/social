@@ -11,7 +11,7 @@ interface GustsCommentsDrawerProps {
   post: PostData;
 }
 
-// Pure comments panel: a slim close row on top and the full eddy stream below.
+// Pure comments panel: a slim close row on top and the full eddie stream below.
 // Enter/exit motion is handled by the parent so it can differ per breakpoint
 // (desktop slides in from the right, mobile sheets up from the bottom).
 export const GustsCommentsDrawer: React.FC<GustsCommentsDrawerProps> = ({
@@ -31,7 +31,7 @@ export const GustsCommentsDrawer: React.FC<GustsCommentsDrawerProps> = ({
       </button>
     </div>
 
-    {/* Eddy stream + input */}
+    {/* Eddie stream + input */}
     <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 [&_form]:mt-0 [&_form]:mb-3">
       <Comments post={post} reels />
     </div>

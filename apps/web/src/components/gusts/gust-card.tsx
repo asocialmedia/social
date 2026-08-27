@@ -578,7 +578,12 @@ export const GustCard: React.FC<GustCardProps> = ({
               onClick={onOpenComments}
               type="button"
             >
-              <MessageSquare className="size-5" />
+              <MessageSquare
+                className={cn(
+                  "size-5",
+                  post._count.comments > 0 && "fill-current"
+                )}
+              />
             </button>
             <span className="text-[11px] font-semibold text-white/90 tabular-nums drop-shadow">
               {formatNumber(post._count.comments)}

@@ -55,7 +55,7 @@ export function useCommentAttachments() {
       // filter, not the raw selection (which may include ignored files).
       if (attachments.length + imageFiles.length > MAX_COMMENT_ATTACHMENTS) {
         toast({
-          description: `An eddy can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
+          description: `An eddie can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
           title: "Attachment Limit",
           variant: "destructive",
         });

@@ -234,7 +234,7 @@ export default function CommentItem({
                   postId={post.id}
                 />
                 <button
-                  aria-label="Reply to eddy"
+                  aria-label="Reply to eddie"
                   className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center gap-1 rounded-full border-0 px-2 text-xs font-medium active:translate-y-px"
                   onClick={handleReplyOpen}
                   type="button"

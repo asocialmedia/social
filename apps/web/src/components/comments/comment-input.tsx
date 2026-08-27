@@ -282,7 +282,7 @@ export default function CommentInput({
               <Clapperboard className="size-4" />
             </button>
             <button
-              aria-label={submitLabel ?? "Send eddy"}
+              aria-label={submitLabel ?? "Send eddie"}
               className={cn(
                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
                 SEND_BTN_SHADOW,
@@ -316,7 +316,7 @@ export default function CommentInput({
             <div
               className={cn(
                 "bg-muted/30 group relative overflow-hidden rounded-lg",
-                // GIFs render at their final eddy size even while uploading so
+                // GIFs render at their final eddie size even while uploading so
                 // the preview matches what the post will look like; regular
                 // image attachments stay as small tiles.
                 attachment.file?.type === "image/gif"

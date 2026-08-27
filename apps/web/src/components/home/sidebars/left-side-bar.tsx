@@ -71,6 +71,10 @@ interface NavItem {
   icon: typeof Home;
   label: string;
   requiresAuth?: boolean;
+  /** Silhouette icons (bookmark, bell, bubble, users) fill cleanly; compound
+   * icons (house door, compass needle, search handle) blob when filled, so
+   * they stay hollow even while active. */
+  fillable?: boolean;
 }
 
 const PRIMARY_ITEMS: NavItem[] = [
@@ -78,8 +82,14 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/search", icon: Search, label: "Search" },
   { href: "/discover", icon: Compass, label: "Explore" },
   { href: "/gusts", icon: Clapperboard, label: "Gusts" },
-  { href: "/soon?feature=communities", icon: Users, label: "Communities" },
   {
+    fillable: true,
+    href: "/soon?feature=communities",
+    icon: Users,
+    label: "Communities",
+  },
+  {
+    fillable: true,
     href: "/bookmarks",
     icon: Bookmark,
     label: "Bookmarks",
@@ -89,12 +99,14 @@ const PRIMARY_ITEMS: NavItem[] = [
 
 const SECONDARY_ITEMS: NavItem[] = [
   {
+    fillable: true,
     href: "/notifications",
     icon: Bell,
     label: "Notifications",
     requiresAuth: true,
   },
   {
+    fillable: true,
     href: "/messages",
     icon: MessagesSquare,
     label: "Messages",
@@ -223,6 +235,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     label,
     icon: Icon,
     requiresAuth,
+    fillable = false,
   }: NavItem) => {
     const isActive = isRouteActive(currentHref, href);
     const className = cn(
@@ -234,7 +247,12 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
     const inner = (
       <>
-        <Icon className="h-6 w-6 shrink-0" />
+        <Icon
+          className={cn(
+            "h-6 w-6 shrink-0",
+            isActive && fillable && "fill-current"
+          )}
+        />
         <span className="min-w-0 flex-1">{label}</span>
         <SidebarPendingHint active={isActive} />
         {count !== undefined && count > 0 ? (
@@ -271,6 +289,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     label,
     icon: Icon,
     requiresAuth,
+    fillable = false,
   }: NavItem) => {
     const isActive = isRouteActive(currentHref, href);
     const className = cn(
@@ -282,7 +301,12 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
     const icon = (
       <>
-        <Icon className="h-5 w-5 shrink-0" />
+        <Icon
+          className={cn(
+            "h-5 w-5 shrink-0",
+            isActive && fillable && "fill-current"
+          )}
+        />
         {count !== undefined && count > 0 ? (
           <span className="border-border/60 bg-muted/50 text-muted-foreground absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[10px] font-semibold tabular-nums">
             {count}
@@ -318,6 +342,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   };
 
   const profileItem: NavItem = {
+    fillable: true,
     href: user ? `/users/${user.username}` : "",
     icon: User,
     label: "Profile",

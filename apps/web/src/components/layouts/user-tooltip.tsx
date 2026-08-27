@@ -14,6 +14,7 @@ import { useSyncExternalStore } from "react";
 import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 
 import FollowButton from "./follow-button";
@@ -105,12 +106,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
                   title="Aura"
                 >
                   <Flame
-                    className={cn(
-                      "h-5 w-5",
-                      (user.aura ?? 0) < 0
-                        ? "fill-[#7c5cff] text-[#7c5cff]"
-                        : "fill-orange-500 text-orange-500"
-                    )}
+                    className={cn("h-5 w-5", getAuraFlameClass(user.aura ?? 0))}
                   />
                   <span className="text-foreground text-sm leading-none font-semibold tabular-nums">
                     {formatNumber(user.aura ?? 0)}

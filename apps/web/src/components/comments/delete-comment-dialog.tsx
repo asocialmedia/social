@@ -43,9 +43,9 @@ export default function DeleteCommentDialog({
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete Eddy?</DialogTitle>
+          <DialogTitle>Delete Eddie?</DialogTitle>
           <DialogDescription>
-            Are you sure you want to delete this Eddy? This action cannot be
+            Are you sure you want to delete this Eddie? This action cannot be
             undone.
           </DialogDescription>
         </DialogHeader>

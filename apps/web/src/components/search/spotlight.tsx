@@ -18,6 +18,7 @@ import {
   normalizeHistoryItem,
   useSearchHistory,
 } from "@/components/search/use-search-history";
+import { getAuraFlameClass } from "@/lib/aura";
 import {
   cn,
   formatNumber,
@@ -534,9 +535,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                             <Flame
                               className={cn(
                                 "h-3 w-3",
-                                (item.aura ?? 0) < 0
-                                  ? "text-[#7c5cff]"
-                                  : "text-orange-500"
+                                getAuraFlameClass(item.aura ?? 0)
                               )}
                             />
                             {formatNumber(item.aura ?? 0)}

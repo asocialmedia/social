@@ -10,6 +10,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -170,16 +171,16 @@ const GustRowCard: React.FC<{
             {formatNumber(post.viewCount)}
           </span>
           <span className="flex items-center gap-1">
-            <Flame
-              className={cn(
-                "size-3.5",
-                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-              )}
-            />
+            <Flame className={cn("size-3.5", getAuraFlameClass(post.aura))} />
             {formatNumber(post.aura)}
           </span>
           <span className="flex items-center gap-1">
-            <MessageSquare className="size-3.5" />
+            <MessageSquare
+              className={cn(
+                "size-3.5",
+                post._count.comments > 0 && "fill-current"
+              )}
+            />
             {formatNumber(post._count.comments)}
           </span>
         </div>

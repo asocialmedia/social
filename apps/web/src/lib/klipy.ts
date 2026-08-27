@@ -42,7 +42,7 @@ function pickFormat(
 }
 
 // The picker grid uses the smallest GIF preview for speed; the full-size GIF
-// is what gets attached to the eddy.
+// is what gets attached to the eddie.
 export function normalizeKlipyGifs(payload: KlipyResponse): KlipyGif[] {
   const items = payload?.data?.data ?? [];
   return items

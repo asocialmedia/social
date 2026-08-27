@@ -753,6 +753,7 @@ const MediaViewer = ({
         </div>
         <div className="flex items-center gap-2">
           <ShareButton
+            className="h-9 w-9"
             description={post.content}
             dialogDescription="Share this media with your network"
             dialogTitle="Share Media"
@@ -1044,6 +1045,7 @@ const MediaViewer = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <ShareButton
+                    className="h-9 w-9"
                     description={post.content}
                     dialogDescription="Share this media with your network"
                     dialogTitle="Share Media"
@@ -1416,6 +1418,7 @@ const MediaViewer = ({
               postId={post.id}
             />
             <ShareButton
+              className="h-9 w-9"
               description={post.content}
               dialogDescription="Share this media with your network"
               dialogTitle="Share Media"

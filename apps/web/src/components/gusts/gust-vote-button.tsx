@@ -4,6 +4,7 @@ import type { VoteInfo } from "@asm/db";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 
 import { useGustVote } from "./use-gust-vote";
@@ -78,7 +79,7 @@ export default function GustVoteButton({
 
       {isUp ? (
         <span className="text-primary flex items-center gap-1 text-lg font-black tabular-nums drop-shadow-md">
-          <Flame className="text-primary fill-primary size-5" />
+          <Flame className={cn("size-5", getAuraFlameClass(aura))} />
           {formatNumber(aura)}
         </span>
       ) : null}

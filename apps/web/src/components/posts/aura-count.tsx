@@ -8,6 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Flame } from "lucide-react";
 
+import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
@@ -37,12 +38,7 @@ export default function AuraCount({ postId, initialAura }: AuraCountProps) {
       <Tooltip>
         <TooltipTrigger>
           <div className="text-foreground mb-2 flex items-center text-lg font-semibold">
-            <Flame
-              className={cn(
-                "mr-1 h-5 w-5",
-                aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-              )}
-            />
+            <Flame className={cn("mr-1 h-5 w-5", getAuraFlameClass(aura))} />
             <span>{aura}</span>
           </div>
         </TooltipTrigger>

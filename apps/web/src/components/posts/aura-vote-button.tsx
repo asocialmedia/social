@@ -6,6 +6,7 @@ import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
+import { getAuraFlameClass } from "@/lib/aura";
 import { applyAuraToCaches, applyCommentAuraToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
@@ -13,7 +14,7 @@ import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
   authorName: string;
-  // When set, the vote targets a comment eddy instead of a post. The rest of
+  // When set, the vote targets a comment eddie instead of a post. The rest of
   // the component (optimistic aura, endpoints, toasts) adapts automatically so
   // posts and eddies share one implementation.
   commentId?: string;
@@ -43,7 +44,7 @@ export default function AuraVoteButton({
   const queryClient = useQueryClient();
   const { isLoggedIn, goToLogin } = useRequireAuth();
   const isComment = commentId !== undefined;
-  const noun = isComment ? "eddy" : "post";
+  const noun = isComment ? "eddie" : "post";
   const queryKey: QueryKey = isComment
     ? ["comment-vote", commentId]
     : ["vote-info", postId];
@@ -249,12 +250,7 @@ export default function AuraVoteButton({
       >
         <Flame
           aria-hidden="true"
-          className={cn(
-            "h-6 w-6",
-            data.aura < 0
-              ? "fill-[#7c5cff] text-[#7c5cff]"
-              : "fill-orange-500 text-orange-500"
-          )}
+          className={cn("h-6 w-6", getAuraFlameClass(data.aura))}
         />
         {formatNumber(data.aura)}
       </span>

@@ -21,7 +21,7 @@ interface SubmitCommentInput {
 
 // Keeps the post's comment count across all cached feeds, grids, and detail pages
 // in sync without refetching. Soft-deleting a comment with replies still removes
-// it from the count because a removed eddy is no longer a comment.
+// it from the count because a removed eddie is no longer a comment.
 function bumpCommentCount(
   queryClient: ReturnType<typeof useQueryClient>,
   postId: string,
@@ -44,7 +44,7 @@ export function useSubmitCommentMutation(
     onError(error) {
       clientLog.error(error);
       toast({
-        description: "Couldn't post your eddy, give it another try?",
+        description: "Couldn't post your eddie, give it another try?",
         variant: "destructive",
       });
     },
@@ -59,9 +59,9 @@ export function useSubmitCommentMutation(
       bumpCommentCount(queryClient, postId, 1);
 
       toast({
-        description: "Your eddy is live, nice one!",
+        description: "Your eddie is live, nice one!",
         icon: createElement(MessageCirclePlus),
-        title: "Eddy Created",
+        title: "Eddie Created",
       });
     },
   });
@@ -80,7 +80,7 @@ export function useDeleteCommentMutation(
     onError(error) {
       clientLog.error(error);
       toast({
-        description: "Couldn't delete your eddy, try again?",
+        description: "Couldn't delete your eddie, try again?",
         variant: "destructive",
       });
     },
@@ -89,9 +89,9 @@ export function useDeleteCommentMutation(
       bumpCommentCount(queryClient, deletedComment.postId, -1);
 
       toast({
-        description: "Your eddy is gone",
+        description: "Your eddie is gone",
         icon: createElement(MessageCircleX),
-        title: "Eddy Deleted",
+        title: "Eddie Deleted",
       });
     },
   });

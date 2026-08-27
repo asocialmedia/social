@@ -11,6 +11,7 @@ import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { useFollowStates } from "@/hooks/use-follow-states";
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -135,10 +136,7 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
           </span>
           <span className="flex items-center gap-1">
             <Flame
-              className={cn(
-                "h-3.5 w-3.5",
-                user.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-              )}
+              className={cn("h-3.5 w-3.5", getAuraFlameClass(user.aura))}
             />
             <span className="text-foreground font-medium">
               {formatNumber(user.aura)}

@@ -7,6 +7,7 @@ import { useCallback, useState } from "react";
 
 import { cn, isGifUrl } from "@/lib/utils";
 import {
+  getDefaultAvatar,
   getMediaImageSrcSet,
   getMediaProxyUrl,
   getMediaVideoUrl,
@@ -16,7 +17,7 @@ interface CommentMediaProps {
   media: Media;
 }
 
-// A single attachment inside an eddy. Images and videos render inline; any
+// A single attachment inside an eddie. Images and videos render inline; any
 // failure to load falls back to the nomedia placeholder with a short error
 // message so a broken attachment never leaves an empty hole in the thread.
 export function CommentMedia({ media }: CommentMediaProps) {
@@ -121,9 +122,9 @@ export function CommentAttachments({
   );
 }
 
-// Avatar with an error fallback to the nomedia placeholder. Used when an
-// eddy's author image fails to load (or is missing) so the thread never shows
-// a broken image tile.
+// Avatar with an error fallback to the default person avatar. Used when an
+// eddie's author image fails to load (or was never set) so the thread never
+// shows a broken image tile or the broken-media icon in place of a face.
 export function CommentAvatarFallback({
   className,
   src,
@@ -132,7 +133,7 @@ export function CommentAvatarFallback({
   src?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
-  const resolved = failed || !src ? noMediaImage.src : src;
+  const resolved = !src || failed ? getDefaultAvatar() : src;
   // Storage avatars are served through our /api/users/avatar/{id}/image proxy;
   // the image optimizer rejects same-origin /api/ URLs, so proxy and GIF
   // sources must bypass optimization (the proxy already serves sized bytes).

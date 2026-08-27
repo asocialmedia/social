@@ -9,6 +9,7 @@ import React, { useCallback, useRef, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -157,14 +158,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
             {formatNumber(gust.viewCount)}
           </span>
           <span className="flex items-center gap-0.5">
-            <Flame
-              className={cn(
-                "size-3",
-                gust.aura > 0 && "fill-primary text-primary",
-                gust.aura < 0 && "text-muted-foreground",
-                gust.aura === 0 && "text-white/60"
-              )}
-            />
+            <Flame className={cn("size-3", getAuraFlameClass(gust.aura))} />
             {formatNumber(gust.aura)}
           </span>
         </div>
