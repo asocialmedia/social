@@ -65,13 +65,17 @@ export interface InitiatedUpload {
 }
 
 export async function createInitiatedUpload(input: {
+  /** When set (gust sound), the uploaded AUDIO media id whose track replaces
+   * the video's own audio during pipeline processing. */
+  audioOverlayId?: string | null;
   declaredMime: string;
   fileName: string;
   fileSize: number;
   purpose: string | null;
   userId: string;
 }): Promise<InitiatedUpload> {
-  const { declaredMime, fileName, fileSize, purpose, userId } = input;
+  const { audioOverlayId, declaredMime, fileName, fileSize, purpose, userId } =
+    input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
   const maxBytes = maxBytesForType(MEDIA_LIMITS, mediaType);
@@ -153,6 +157,7 @@ export async function createInitiatedUpload(input: {
       type: mediaType,
       url: "",
       userId,
+      ...(audioOverlayId ? { audioOverlayId } : {}),
     },
   });
 

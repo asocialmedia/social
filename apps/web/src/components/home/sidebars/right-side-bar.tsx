@@ -5,7 +5,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, RefreshCw, Sparkles, UserRound, Users, X } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
@@ -255,8 +261,20 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
   );
 };
 
+const emptySubscribe = () => () => {
+  /* empty */
+};
+
+const useIsHydrated = () =>
+  useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
 const RightSideBar: React.FC = () => {
   const { user } = useSession();
+  const mounted = useIsHydrated();
   const isLoggedIn = Boolean(user);
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -385,7 +403,7 @@ const RightSideBar: React.FC = () => {
               <button
                 aria-label="Refresh suggestions"
                 className="text-muted-foreground hover:text-foreground hover:bg-accent flex h-7 w-7 items-center justify-center rounded-full transition-colors disabled:opacity-50"
-                disabled={isFetching || isRefreshing}
+                disabled={mounted && (isFetching || isRefreshing)}
                 onClick={handleRefresh}
                 type="button"
               >

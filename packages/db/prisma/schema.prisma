@@ -463,6 +463,11 @@ model Media {
   aiProvenance         Json?
   pipelineVersion      String?
   processedAt          DateTime?
+  // Optional audio track that REPLACES the video's own audio: the pipeline
+  // remuxes this track over the video before transcoding (gust "sound").
+  audioOverlayId       String?          @unique
+  audioOverlay         Media?           @relation("AudioOverlay", fields: [audioOverlayId], references: [id], onDelete: SetNull)
+  audioOverlayFor      Media[]          @relation("AudioOverlay")
   // Default(now()) lets db push backfill existing rows instead of refusing
   // the migration; @updatedAt keeps Prisma refreshing it on every write.
   updatedAt            DateTime         @default(now()) @updatedAt

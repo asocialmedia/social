@@ -96,6 +96,7 @@ const AttachmentPreviewInner = ({
   // Flips once the <video> paints real pixels; the film-icon placeholder
   // underneath shows through until then (no black-void flash).
   const [hasFirstFrame, setHasFirstFrame] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -288,17 +289,41 @@ const AttachmentPreviewInner = ({
               ? "mx-auto aspect-9/16 w-full max-w-xs"
               : "aspect-video w-full"
           )}
+          style={isGust ? { maxHeight: "70vh" } : undefined}
         >
+          {/* Gust reels frame: a blurred, scaled copy of the clip fills the
+              9:16 frame behind the contained video, so landscape sources
+              never crop and never leave a void (Instagram-style fill). */}
+          {isGust ? (
+            <>
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption -- decorative blurred fill, same user-uploaded clip */}
+              <video
+                aria-hidden
+                className="absolute inset-0 z-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl"
+                loop
+                muted
+                playsInline
+                preload="metadata"
+                src={objectUrl}
+              />
+              {hasFirstFrame ? null : (
+                <div className="bg-muted/20 absolute inset-0 z-0" />
+              )}
+            </>
+          ) : null}
           {/* First-frame placeholder: visible until the browser paints real
               pixels, so uploads never flash a black void. */}
           {hasFirstFrame ? null : (
-            <div className="text-muted-foreground/40 absolute inset-0 z-0 flex items-center justify-center">
+            <div className="text-muted-foreground/40 absolute inset-0 z-1 flex items-center justify-center">
               <FilmIcon className="size-12" />
             </div>
           )}
           {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-uploaded preview, no caption source available */}
           <video
-            className="absolute inset-0 z-1 h-full w-full object-cover"
+            className={cn(
+              "absolute inset-0 z-1 h-full w-full",
+              isGust ? "object-contain" : "object-cover"
+            )}
             loop
             muted={isMuted}
             onLoadedData={() => setHasFirstFrame(true)}

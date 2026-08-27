@@ -219,7 +219,29 @@ export const CustomVideoPlayer = ({
         return;
       }
       hlsInstanceRef.current?.destroy();
-      const hls = new HlsCtor({ enableWorker: true });
+      const hls = new HlsCtor({
+        capLevelToPlayerSize: true,
+        enableWorker: true,
+      });
+      // HLS failed → fall back to progressive MP4 so the video still plays
+      // on thin network or transient segment error, instead of stuck spinner.
+      hls.on(HlsCtor.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          const fallback = video.dataset.fallbackSrc;
+          if (fallback) {
+            hls.destroy();
+            hlsInstanceRef.current = null;
+            video.src = fallback;
+            void (async () => {
+              try {
+                await video.play();
+              } catch {
+                // Autoplay may be blocked; the poster frame is already up.
+              }
+            })();
+          }
+        }
+      });
       hlsInstanceRef.current = hls;
       hls.loadSource(hlsSrc);
       hls.attachMedia(video);
@@ -596,6 +618,7 @@ export const CustomVideoPlayer = ({
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions are optional and passed via the captions prop when available */}
       <video
         className="h-full w-full object-contain outline-hidden select-none focus:outline-hidden focus-visible:outline-none"
+        data-fallback-src={src}
         loop
         muted={isMuted}
         onClick={handleVideoSurfaceClick}

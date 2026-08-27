@@ -158,6 +158,9 @@ function putToPresignedUrl(
 export async function uploadMediaFile(
   file: File,
   options: {
+    /** Media id of an AUDIO upload whose track replaces the video's own
+     * audio during pipeline processing (gust "sound"). */
+    audioOverlayId?: string | null;
     purpose?: "avatar" | "comment" | "message" | "post";
     signal?: AbortSignal;
     onProgress?: (percent: number) => void;
@@ -188,6 +191,7 @@ export async function uploadMediaFile(
 
   const initiateResponse = await fetch("/api/upload/initiate", {
     body: JSON.stringify({
+      audioOverlayId: options.audioOverlayId ?? undefined,
       name: file.name || "attachment",
       purpose: options.purpose ?? "post",
       size: file.size,

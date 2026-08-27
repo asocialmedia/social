@@ -44,16 +44,14 @@ export const keys = createEnv({
     MEDIA_MAX_VIDEO_BYTES: process.env.MEDIA_MAX_VIDEO_BYTES,
     MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
-    MEDIA_PHASH_ATTRIBUTION_ENABLED:
-      process.env.MEDIA_PHASH_ATTRIBUTION_ENABLED,
     MEDIA_PROCESSING_TIMEOUT_MS: process.env.MEDIA_PROCESSING_TIMEOUT_MS,
+    MEDIA_PROCESS_CONCURRENCY: process.env.MEDIA_PROCESS_CONCURRENCY,
     MEDIA_REQUIRE_CLAMAV: process.env.MEDIA_REQUIRE_CLAMAV,
     MEDIA_SCAN_CONCURRENCY: process.env.MEDIA_SCAN_CONCURRENCY,
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
     MEDIA_VIDEO_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS,
-    MEDIA_WATERMARK_ENABLED: process.env.MEDIA_WATERMARK_ENABLED,
     MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
     // Same public origin the web app publishes; the worker needs it to write
     // absolute provenance identifiers into stamped manifests.
@@ -121,14 +119,13 @@ export const keys = createEnv({
     // window). 0 deletes the quarantine copy at publish instead. Default 30
     // lives in packages/media/src/limits.ts.
     MEDIA_ORIGINAL_RETENTION_DAYS: numericOverride,
-    MEDIA_PHASH_ATTRIBUTION_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_PROCESSING_TIMEOUT_MS: numericOverride,
+    MEDIA_PROCESS_CONCURRENCY: z.coerce.number().int().positive().default(2),
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),
     MEDIA_SCAN_CONCURRENCY: z.coerce.number().int().positive().default(4),
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
     MEDIA_VIDEO_WATERMARK_TIMEOUT_MS: numericOverride,
-    MEDIA_WATERMARK_ENABLED: z.enum(["0", "1"]).default("0"),
     MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
     NODE_ENV: z
@@ -212,7 +209,13 @@ export const workerEnv = {
     return keys.MEDIA_OCR_ENABLED !== "0";
   },
   get PHASH_ATTRIBUTION_ENABLED() {
-    return keys.MEDIA_PHASH_ATTRIBUTION_ENABLED === "1";
+    return true;
+  },
+  // Fail-closed when a scanner is configured: if clamd is unreachable, scans
+  // fail and retry instead of publishing unscanned bytes. With no host set
+  // (development), scanning is skipped loudly.
+  get PROCESS_CONCURRENCY() {
+    return keys.MEDIA_PROCESS_CONCURRENCY;
   },
   get PUBLIC_BASE_URL() {
     return keys.NEXT_PUBLIC_URL;
@@ -220,9 +223,6 @@ export const workerEnv = {
   get REDIS_URL() {
     return keys.REDIS_URL;
   },
-  // Fail-closed when a scanner is configured: if clamd is unreachable, scans
-  // fail and retry instead of publishing unscanned bytes. With no host set
-  // (development), scanning is skipped loudly.
   get REQUIRE_CLAMAV() {
     return keys.MEDIA_REQUIRE_CLAMAV === "1";
   },
@@ -234,7 +234,7 @@ export const workerEnv = {
     return raw ? Number(raw) : 8000;
   },
   get WATERMARK_ENABLED() {
-    return keys.MEDIA_WATERMARK_ENABLED === "1";
+    return true;
   },
   get WATERMARK_PEPPER() {
     return keys.MEDIA_WATERMARK_PEPPER;

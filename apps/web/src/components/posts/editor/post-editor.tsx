@@ -32,6 +32,7 @@ import {
   GripVertical,
   Hash,
   MoreHorizontal,
+  Music,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -47,9 +48,10 @@ import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
-import { cn } from "@/lib/utils";
+import { uploadMediaFile } from "@/lib/media-upload-client";
 
 import "./styles.css";
+import { cn } from "@/lib/utils";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import { useComposerStore } from "@/store/composer-store";
 
@@ -164,7 +166,9 @@ export default function PostEditor({
           : file.type.startsWith("image/") || file.type.startsWith("video/")
       );
       if (validFiles.length) {
-        await startUpload(validFiles);
+        await startUpload(validFiles, {
+          audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
+        });
       }
     },
   });
@@ -176,6 +180,15 @@ export default function PostEditor({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  // Gust "sound": an audio track that replaces the video's own audio during
+  // pipeline processing. Uploaded through the same pipeline (purpose post);
+  // its mediaId rides along on the video upload as audioOverlayId.
+  const [soundTrack, setSoundTrack] = useState<{
+    file: File;
+    mediaId: string | null;
+    status: "uploading" | "ready" | "error";
+  } | null>(null);
+  const soundInputRef = useRef<HTMLInputElement>(null);
   const onSubmitRef = useRef<(() => void) | null>(null);
 
   const handleGifSelect = useCallback(
@@ -200,7 +213,35 @@ export default function PostEditor({
         });
       }
     },
-    [startUpload, toast]
+    [setGifPickerOpen, startUpload, toast]
+  );
+
+  const handleSoundFile = useCallback(
+    async (file: File | null | undefined) => {
+      if (!file || !file.type.startsWith("audio/")) {
+        return;
+      }
+      setSoundTrack({ file, mediaId: null, status: "uploading" });
+      try {
+        const result = await uploadMediaFile(file, { purpose: "post" });
+        if (result.status === "READY" && result.mediaId) {
+          setSoundTrack({ file, mediaId: result.mediaId, status: "ready" });
+        } else {
+          setSoundTrack({ file, mediaId: null, status: "error" });
+        }
+      } catch {
+        setSoundTrack({ file, mediaId: null, status: "error" });
+      }
+    },
+    [setSoundTrack]
+  );
+
+  const handleSoundInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      void handleSoundFile(event.target.files?.[0]);
+      event.target.value = "";
+    },
+    [handleSoundFile]
   );
 
   const editor = useEditor({
@@ -253,25 +294,39 @@ export default function PostEditor({
     (a.file?.type ?? a.type ?? "").startsWith("video/")
   );
 
-  const removeTag = useCallback((tagName: string) => {
-    setSelectedTags((prev) => prev.filter((t) => t !== tagName));
-  }, []);
+  const removeTag = useCallback(
+    (tagName: string) => {
+      setSelectedTags((prev) => prev.filter((t) => t !== tagName));
+    },
+    [setSelectedTags]
+  );
 
-  const removeMention = useCallback((userId: string) => {
-    setSelectedMentions((prev) => prev.filter((m) => m.id !== userId));
-  }, []);
+  const removeMention = useCallback(
+    (userId: string) => {
+      setSelectedMentions((prev) => prev.filter((m) => m.id !== userId));
+    },
+    [setSelectedMentions]
+  );
 
-  const addMention = useCallback((mentionUser: UserData) => {
-    setSelectedMentions((prev) =>
-      prev.some((m) => m.id === mentionUser.id) ? prev : [...prev, mentionUser]
-    );
-  }, []);
+  const addMention = useCallback(
+    (mentionUser: UserData) => {
+      setSelectedMentions((prev) =>
+        prev.some((m) => m.id === mentionUser.id)
+          ? prev
+          : [...prev, mentionUser]
+      );
+    },
+    [setSelectedMentions]
+  );
 
-  const addTag = useCallback((tagName: string) => {
-    setSelectedTags((prev) =>
-      prev.some((t) => t === tagName) ? prev : [...prev, tagName]
-    );
-  }, []);
+  const addTag = useCallback(
+    (tagName: string) => {
+      setSelectedTags((prev) =>
+        prev.some((t) => t === tagName) ? prev : [...prev, tagName]
+      );
+    },
+    [setSelectedTags]
+  );
 
   useEffect(() => {
     if (isHnSharing && editor) {
@@ -283,6 +338,7 @@ export default function PostEditor({
     }
   }, [isHnSharing, sharedHnStory, editor]);
 
+  // oxlint-disable react/preserve-manual-memoization -- onSubmit closes over the composer's whole mutable surface; the compiler infers every setter it can reach, far beyond the declared deps
   const onSubmit = useCallback(() => {
     const gustMediaIds = attachments
       .map((a) => a.mediaId)
@@ -372,8 +428,11 @@ export default function PostEditor({
     gustCaptionExceeded,
     hasGustVideo,
     router,
+    setGifPickerOpen,
+    setSelectedMentions,
     toast,
   ]);
+  // oxlint-enable react/preserve-manual-memoization
 
   useEffect(() => {
     onSubmitRef.current = onSubmit;
@@ -383,14 +442,48 @@ export default function PostEditor({
     hnShareStore.clearState();
   }, [hnShareStore]);
 
+  const previewsBlock = (
+    <AnimatePresence mode="wait">
+      {!!attachments.length && (
+        <motion.div
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          initial={{ height: 0, opacity: 0 }}
+          layout
+          transition={{ duration: 0.3 }}
+        >
+          <AttachmentPreviews
+            attachments={attachments}
+            cancelUpload={cancelUpload}
+            isGust={isGust}
+            removeAttachment={removeAttachment}
+            reorderAttachments={reorderAttachments}
+            retryUpload={retryUpload}
+            setAltText={setAltText}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLInputElement>) => {
       const files = [...e.clipboardData.items]
         .filter((item) => item.kind === "file")
         .map((item) => item.getAsFile()) as File[];
-      startUpload(files);
+      startUpload(files, {
+        audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
+      });
     },
-    [startUpload]
+    [startUpload, isGust, soundTrack]
+  );
+
+  const uploadWithOverlay = useCallback(
+    (files: File[]) =>
+      startUpload(files, {
+        audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
+      }),
+    [isGust, soundTrack, startUpload]
   );
 
   // The composer is account-gated; guests see login CTAs instead.
@@ -420,280 +513,357 @@ export default function PostEditor({
             />
           </motion.div>
         </div>
-        <div className="w-full min-w-0">
-          {/* Mobile-only mode switcher above the editor so the Post button stays on screen */}
-          <div className="mb-3 flex md:hidden">
-            <ModeToggle disabled={isGroupMedia} isGust={isGust} />
-          </div>
-          {(selectedTags.length > 0 || selectedMentions.length > 0) && (
-            <div className="mb-3 flex flex-wrap items-center gap-1.5">
-              {selectedTags.map((tag) => (
-                <RemoveChip
-                  key={tag}
-                  label={tag}
-                  onRemove={removeTag}
-                  removeLabel={`Remove tag ${tag}`}
-                  value={tag}
-                  variant="tag"
-                />
-              ))}
-              {selectedMentions.map((mention) => (
-                <RemoveChip
-                  key={mention.id}
-                  label={`@${mention.username}`}
-                  onRemove={removeMention}
-                  removeLabel={`Remove mention ${mention.username}`}
-                  user={mention}
-                  value={mention.id}
-                  variant="mention"
-                />
-              ))}
-            </div>
+        <div
+          className={cn(
+            "w-full min-w-0",
+            // Gust mode composes like a reels screen: the video preview on
+            // the left, caption/controls in the right rail.
+            isGust &&
+              hasVideoAttachment &&
+              "sm:grid sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
           )}
-
-          <div {...rootProps}>
-            <div
-              className={cn(
-                "relative rounded-2xl transition-all duration-300",
-                isDragActive && "ring-primary ring-2 ring-offset-2"
-              )}
-            >
-              {editor ? (
-                <EditorContent
-                  className={cn(
-                    "premium-input text-foreground max-h-80 w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto px-5 py-3 break-words",
-                    "transition-all duration-300 ease-in-out",
-                    "focus-within:ring-primary focus-within:ring-2",
-                    isDragActive && "outline-primary outline-dashed"
-                  )}
-                  editor={editor}
-                  onPaste={onPaste}
-                />
-              ) : (
-                <div
-                  className={cn(
-                    "premium-input text-foreground max-h-80 w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto px-5 py-3 break-words",
-                    "transition-all duration-300 ease-in-out"
-                  )}
-                >
-                  <div className="tiptap">
-                    <p className="text-muted-foreground/70 select-none">
-                      What&apos;s crack-a-lackin&apos;?
-                    </p>
-                  </div>
-                </div>
-              )}
-              <InlineSuggestions
-                editor={editor}
-                onSelectMention={addMention}
-                onSelectTag={addTag}
-                selectedMentionIds={selectedMentions.map((m) => m.id)}
-                selectedTagNames={selectedTags}
-              />
-              {isDragActive ? (
-                <motion.div
-                  animate={{ opacity: 1 }}
-                  className="apple-panel border-primary/30 absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed bg-[hsl(var(--background-alt))]/90 backdrop-blur-sm"
-                  exit={{ opacity: 0 }}
-                  initial={{ opacity: 0 }}
-                >
-                  <p className="text-primary text-lg font-medium">
-                    Drop files here
-                  </p>
-                </motion.div>
-              ) : null}
-              {isHnSharing && sharedHnStory ? (
-                <div className="mt-3">
-                  <HNStoryPreview
-                    onRemoveAction={handleRemoveHnStory}
-                    story={sharedHnStory}
-                  />
-                </div>
-              ) : null}
-              {/* Hidden file input for drag & drop - positioned absolutely to avoid interfering with editor clicks */}
-              <input
-                {...getInputProps()}
-                className="pointer-events-none absolute inset-0 opacity-0"
-                style={{ height: 0, width: 0 }}
-              />
-            </div>
-          </div>
-
-          {/* Inline GIF picker */}
-          <AnimatePresence>
-            {isGust || !gifPickerOpen ? null : (
-              <motion.div
-                animate={{ height: "auto", opacity: 1 }}
-                className="mt-3 overflow-hidden"
-                exit={{ height: 0, opacity: 0 }}
-                initial={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: "easeInOut" }}
-              >
-                <div className="reels-panel w-full rounded-2xl p-2.5">
-                  <KlipyGifPicker
-                    disabled={isUploading}
-                    onSelect={handleGifSelect}
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {isGust ? (
-            <div className="mt-2 flex items-center justify-between text-xs">
-              {hasGustVideo ? null : (
-                <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
-                  Attach a video to publish a gust
-                </span>
-              )}
-              {/* Counter appears only near/over the word or char limit */}
-              {gustCaptionNearLimit ? (
-                <span
-                  className={cn(
-                    "font-medium tabular-nums",
-                    gustCaptionExceeded
-                      ? "text-destructive"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words ·{" "}
-                  {input.length}/{GUST_CAPTION_MAX_CHARS} chars
-                </span>
-              ) : null}
-            </div>
+        >
+          {isGust && hasVideoAttachment ? (
+            <div className="min-w-0 sm:order-1">{previewsBlock}</div>
           ) : null}
-
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1">
-              {/* Mobile-only: inline image/video button; the rest collapse into
-                  a dropdown. */}
-              <div className="max-md:flex md:hidden">
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <FileInput
-                    disabled={attachmentOptionsDisabled}
-                    onFilesSelected={startUpload}
-                    types={["image"]}
-                    videoOnly={isGust}
+          <div
+            className={cn(
+              "min-w-0",
+              isGust && hasVideoAttachment && "sm:order-2"
+            )}
+          >
+            {/* Mobile-only mode switcher above the editor so the Post button stays on screen */}
+            <div className="mb-3 flex md:hidden">
+              <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+            </div>
+            {(selectedTags.length > 0 || selectedMentions.length > 0) && (
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {selectedTags.map((tag) => (
+                  <RemoveChip
+                    key={tag}
+                    label={tag}
+                    onRemove={removeTag}
+                    removeLabel={`Remove tag ${tag}`}
+                    value={tag}
+                    variant="tag"
                   />
-                </motion.div>
+                ))}
+                {selectedMentions.map((mention) => (
+                  <RemoveChip
+                    key={mention.id}
+                    label={`@${mention.username}`}
+                    onRemove={removeMention}
+                    removeLabel={`Remove mention ${mention.username}`}
+                    user={mention}
+                    value={mention.id}
+                    variant="mention"
+                  />
+                ))}
               </div>
+            )}
 
-              {/* Mobile-only: remaining options in a dropdown. */}
-              {isGust ? null : (
-                <div className="max-md:block md:hidden">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        aria-label="More attachment options"
-                        className={cn(
-                          "pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                          attachmentOptionsDisabled &&
-                            "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
-                        )}
-                        disabled={attachmentOptionsDisabled}
-                        type="button"
-                      >
-                        <MoreHorizontal className="size-5" size={20} />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="start"
-                      className="apple-panel min-w-44 p-1.5 shadow-none"
-                    >
-                      <DropdownMenuItem
-                        className="pill-3d-hover rounded-md px-2 py-2"
-                        disabled={attachmentOptionsDisabled || mixedMediaLocked}
-                        onClick={() => setGifPickerOpen((prev) => !prev)}
-                      >
-                        <span className="flex items-center gap-3">
-                          <Clapperboard className="size-4" />
-                          GIFs
-                        </span>
-                      </DropdownMenuItem>
-                      <div className="flex items-center px-1 py-1">
-                        <FileInput
-                          disabled={
-                            attachmentOptionsDisabled || mixedMediaLocked
-                          }
-                          onFilesSelected={startUpload}
-                          types={["audio"]}
-                        />
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              )}
-
-              {/* Desktop-only: the full inline toolbar (GIF + all file types). */}
-              <div className="hidden items-center gap-1 md:flex">
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <FileInput
-                    disabled={attachmentOptionsDisabled}
-                    onFilesSelected={startUpload}
-                    videoOnly={isGust}
-                  />
-                </motion.div>
-                {isGust ? null : (
-                  <motion.button
-                    aria-label="Search and add a GIF"
+            <div {...rootProps}>
+              <div
+                className={cn(
+                  "relative rounded-2xl transition-all duration-300",
+                  isDragActive && "ring-primary ring-2 ring-offset-2"
+                )}
+              >
+                {editor ? (
+                  <EditorContent
                     className={cn(
-                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                      gifPickerOpen && "text-primary",
-                      (attachmentOptionsDisabled || mixedMediaLocked) &&
-                        "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                      "premium-input text-foreground max-h-80 w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto px-5 py-3 break-words",
+                      "transition-all duration-300 ease-in-out",
+                      "focus-within:ring-primary focus-within:ring-2",
+                      isDragActive && "outline-primary outline-dashed"
                     )}
-                    disabled={attachmentOptionsDisabled || mixedMediaLocked}
-                    onClick={() => setGifPickerOpen((prev) => !prev)}
+                    editor={editor}
+                    onPaste={onPaste}
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "premium-input text-foreground max-h-80 w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto px-5 py-3 break-words",
+                      "transition-all duration-300 ease-in-out"
+                    )}
+                  >
+                    <div className="tiptap">
+                      <p className="text-muted-foreground/70 select-none">
+                        What&apos;s crack-a-lackin&apos;?
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <InlineSuggestions
+                  editor={editor}
+                  onSelectMention={addMention}
+                  onSelectTag={addTag}
+                  selectedMentionIds={selectedMentions.map((m) => m.id)}
+                  selectedTagNames={selectedTags}
+                />
+                {isDragActive ? (
+                  <motion.div
+                    animate={{ opacity: 1 }}
+                    className="apple-panel border-primary/30 absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed bg-[hsl(var(--background-alt))]/90 backdrop-blur-sm"
+                    exit={{ opacity: 0 }}
+                    initial={{ opacity: 0 }}
+                  >
+                    <p className="text-primary text-lg font-medium">
+                      Drop files here
+                    </p>
+                  </motion.div>
+                ) : null}
+                {isHnSharing && sharedHnStory ? (
+                  <div className="mt-3">
+                    <HNStoryPreview
+                      onRemoveAction={handleRemoveHnStory}
+                      story={sharedHnStory}
+                    />
+                  </div>
+                ) : null}
+                {/* Hidden file input for drag & drop - positioned absolutely to avoid interfering with editor clicks */}
+                <input
+                  {...getInputProps()}
+                  className="pointer-events-none absolute inset-0 opacity-0"
+                  style={{ height: 0, width: 0 }}
+                />
+              </div>
+            </div>
+
+            {/* Inline GIF picker */}
+            <AnimatePresence>
+              {isGust || !gifPickerOpen ? null : (
+                <motion.div
+                  animate={{ height: "auto", opacity: 1 }}
+                  className="mt-3 overflow-hidden"
+                  exit={{ height: 0, opacity: 0 }}
+                  initial={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                >
+                  <div className="reels-panel w-full rounded-2xl p-2.5">
+                    <KlipyGifPicker
+                      disabled={isUploading}
+                      onSelect={handleGifSelect}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {isGust ? (
+              <div className="mt-2 flex items-center justify-between text-xs">
+                {hasGustVideo ? null : (
+                  <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                    Attach a video to publish a gust
+                  </span>
+                )}
+                {/* Counter appears only near/over the word or char limit */}
+                {gustCaptionNearLimit ? (
+                  <span
+                    className={cn(
+                      "font-medium tabular-nums",
+                      gustCaptionExceeded
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words ·{" "}
+                    {input.length}/{GUST_CAPTION_MAX_CHARS} chars
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Gust "sound": an audio track that replaces the video's own
+                audio. Picked before the video upload, its mediaId rides along
+                as audioOverlayId so the pipeline remuxes it in. */}
+            {isGust ? (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                {soundTrack ? (
+                  <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
+                    <Music className="size-3.5 shrink-0 text-[#7c5cff]" />
+                    <span className="max-w-36 truncate">
+                      {soundTrack.file.name}
+                    </span>
+                    {soundTrack.status === "uploading" ? (
+                      <span className="text-muted-foreground text-[10px]">
+                        uploading…
+                      </span>
+                    ) : null}
+                    {soundTrack.status === "error" ? (
+                      <span className="text-destructive text-[10px]">
+                        failed
+                      </span>
+                    ) : null}
+                    <button
+                      aria-label="Remove sound track"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                      onClick={() => setSoundTrack(null)}
+                      type="button"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    aria-label="Add sound"
+                    className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-full border-0 px-3 text-xs font-medium"
+                    disabled={isUploading}
+                    onClick={() => soundInputRef.current?.click()}
                     type="button"
+                  >
+                    <Music className="size-3.5" />
+                    Add sound
+                  </button>
+                )}
+                <span className="text-muted-foreground text-[10px]">
+                  replaces the video&apos;s audio
+                </span>
+                <input
+                  accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
+                  aria-label="Sound track for this gust"
+                  className="sr-only"
+                  onChange={handleSoundInputChange}
+                  ref={soundInputRef}
+                  type="file"
+                />
+              </div>
+            ) : null}
+
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                {/* Mobile-only: inline image/video button; the rest collapse into
+                  a dropdown. */}
+                <div className="max-md:flex md:hidden">
+                  <motion.div
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    <span className="flex items-center gap-1.5">
-                      <Clapperboard className="size-5" size={20} />
-                      <span
-                        className={cn(
-                          "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                          gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
-                        )}
-                      >
-                        GIFs
-                      </span>
-                    </span>
-                  </motion.button>
-                )}
-              </div>
-            </div>
+                    <FileInput
+                      disabled={attachmentOptionsDisabled}
+                      onFilesSelected={uploadWithOverlay}
+                      types={["image"]}
+                      videoOnly={isGust}
+                    />
+                  </motion.div>
+                </div>
 
-            <div className="flex items-center gap-2">
-              <div className="hidden md:flex">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                {/* Mobile-only: remaining options in a dropdown. */}
+                {isGust ? null : (
+                  <div className="max-md:block md:hidden">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          aria-label="More attachment options"
+                          className={cn(
+                            "pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                            attachmentOptionsDisabled &&
+                              "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                          )}
+                          disabled={attachmentOptionsDisabled}
+                          type="button"
+                        >
+                          <MoreHorizontal className="size-5" size={20} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        className="apple-panel min-w-44 p-1.5 shadow-none"
+                      >
+                        <DropdownMenuItem
+                          className="pill-3d-hover rounded-md px-2 py-2"
+                          disabled={
+                            attachmentOptionsDisabled || mixedMediaLocked
+                          }
+                          onClick={() => setGifPickerOpen((prev) => !prev)}
+                        >
+                          <span className="flex items-center gap-3">
+                            <Clapperboard className="size-4" />
+                            GIFs
+                          </span>
+                        </DropdownMenuItem>
+                        <div className="flex items-center px-1 py-1">
+                          <FileInput
+                            disabled={
+                              attachmentOptionsDisabled || mixedMediaLocked
+                            }
+                            onFilesSelected={uploadWithOverlay}
+                            types={["audio"]}
+                          />
+                        </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                )}
+
+                {/* Desktop-only: the full inline toolbar (GIF + all file types). */}
+                <div className="hidden items-center gap-1 md:flex">
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <FileInput
+                      disabled={attachmentOptionsDisabled}
+                      onFilesSelected={uploadWithOverlay}
+                      videoOnly={isGust}
+                    />
+                  </motion.div>
+                  {isGust ? null : (
+                    <motion.button
+                      aria-label="Search and add a GIF"
+                      className={cn(
+                        "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                        gifPickerOpen && "text-primary",
+                        (attachmentOptionsDisabled || mixedMediaLocked) &&
+                          "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                      )}
+                      disabled={attachmentOptionsDisabled || mixedMediaLocked}
+                      onClick={() => setGifPickerOpen((prev) => !prev)}
+                      type="button"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Clapperboard className="size-5" size={20} />
+                        <span
+                          className={cn(
+                            "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                            gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                          )}
+                        >
+                          GIFs
+                        </span>
+                      </span>
+                    </motion.button>
+                  )}
+                </div>
               </div>
-              <motion.div
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <LoadingButton
-                  className="min-w-20"
-                  disabled={
-                    !(input.trim() || isHnSharing || hasPublishableMedia) ||
-                    isUploading ||
-                    hasUploadError ||
-                    (isGust && gustCaptionExceeded) ||
-                    (isGust && !hasGustVideo)
-                  }
-                  loading={mutation.isPending}
-                  onClick={onSubmit}
-                  variant="premium"
+
+              <div className="flex items-center gap-2">
+                <div className="hidden md:flex">
+                  <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                </div>
+                <motion.div
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  {isGust ? "Gust" : "Post"}
-                </LoadingButton>
-              </motion.div>
+                  <LoadingButton
+                    className="min-w-20"
+                    disabled={
+                      !(input.trim() || isHnSharing || hasPublishableMedia) ||
+                      isUploading ||
+                      hasUploadError ||
+                      (isGust && gustCaptionExceeded) ||
+                      (isGust && !hasGustVideo)
+                    }
+                    loading={mutation.isPending}
+                    onClick={onSubmit}
+                    variant="premium"
+                  >
+                    {isGust ? "Gust" : "Post"}
+                  </LoadingButton>
+                </motion.div>
+              </div>
             </div>
           </div>
         </div>
@@ -719,27 +889,7 @@ export default function PostEditor({
         </div>
       )}
 
-      <AnimatePresence mode="wait">
-        {!!attachments.length && (
-          <motion.div
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            initial={{ height: 0, opacity: 0 }}
-            layout
-            transition={{ duration: 0.3 }}
-          >
-            <AttachmentPreviews
-              attachments={attachments}
-              cancelUpload={cancelUpload}
-              isGust={isGust}
-              removeAttachment={removeAttachment}
-              reorderAttachments={reorderAttachments}
-              retryUpload={retryUpload}
-              setAltText={setAltText}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {isGust && hasVideoAttachment ? null : previewsBlock}
     </div>
   );
 }

@@ -2,6 +2,8 @@
 // clips, HLS ladder for long-form. Encoding is software x264 (VPS reality);
 // hardware acceleration stays a future opt-in.
 
+import { randomUUID } from "node:crypto";
+
 import { prisma } from "@asm/db";
 import {
   derivativeKey,
@@ -38,7 +40,7 @@ export async function processMediaVideo(input: {
       const s3 = getS3();
       // Bounded probe: a malformed container that hangs ffprobe must not
       // pin a worker slot until BullMQ retries run out.
-      const probe: ProbeResult = await withTimeout(
+      let probe: ProbeResult = await withTimeout(
         probeMedia(input.sourcePath),
         input.limits.processingTimeoutMs,
         "video probe timed out"
@@ -57,6 +59,103 @@ export async function processMediaVideo(input: {
         maxFps: input.limits.maxFps,
         maxVideoDurationSec: input.limits.maxVideoDurationSec,
       });
+
+      // Optional gust "sound": an uploaded audio track that REPLACES the
+      // video's own audio. The audio is downloaded and remuxed over the clip
+      // (video stream copied, audio transcoded to AAC, shortest duration) so
+      // every derivative below - poster, MP4, HLS - carries the new track.
+      const overlay = await prisma.media.findUnique({
+        select: { audioOverlayId: true },
+        where: { id: input.mediaId },
+      });
+      if (overlay?.audioOverlayId) {
+        const audio = await prisma.media.findUnique({
+          select: { originalKey: true, publishedKey: true },
+          where: { id: overlay.audioOverlayId },
+        });
+        const audioKey = audio?.publishedKey ?? audio?.originalKey;
+        if (audioKey) {
+          const overlayPath = `/tmp/asm-audio-overlay-${input.mediaId}-${randomUUID()}`;
+          const writer = Bun.file(overlayPath).writer();
+          const reader = s3.file(audioKey).stream().getReader();
+          for (;;) {
+            // oxlint-disable-next-line no-await-in-loop -- ordered stream consumption
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
+            }
+            writer.write(value);
+          }
+          await writer.end();
+          reader.releaseLock();
+
+          const remuxedPath = `${input.sourcePath}-remuxed.mp4`;
+          try {
+            await runFfmpeg(
+              [
+                "-i",
+                input.sourcePath,
+                "-i",
+                overlayPath,
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                remuxedPath,
+              ],
+              input.limits.processingTimeoutMs
+            );
+            // The video stream is bit-identical, but duration and the audio
+            // stream changed: re-probe so downstream decisions (poster seek,
+            // HLS plan, tech metadata) see the remuxed reality.
+            input.sourcePath = remuxedPath;
+            probe = await withTimeout(
+              probeMedia(input.sourcePath),
+              input.limits.processingTimeoutMs,
+              "remuxed probe timed out"
+            );
+            if (!probe.video) {
+              throw new FfmpegError("remuxed video stream missing");
+            }
+            mediaLogger.info(
+              { audioMediaId: overlay.audioOverlayId, mediaId: input.mediaId },
+              "audio overlay remuxed"
+            );
+          } catch (error) {
+            mediaLogger.warn(
+              {
+                error: String(error),
+                mediaId: input.mediaId,
+              },
+              "audio overlay remux failed, falling back to original audio"
+            );
+          } finally {
+            try {
+              await Bun.file(overlayPath).delete();
+            } catch {
+              // Temp cleanup is best-effort.
+            }
+          }
+        } else {
+          mediaLogger.warn(
+            { audioMediaId: overlay.audioOverlayId, mediaId: input.mediaId },
+            "audio overlay missing its storage key, keeping original audio"
+          );
+        }
+      }
+
+      // probe may have been reassigned by the remux above; re-assert the
+      // invariant before touching video fields.
+      if (!probe.video) {
+        throw new FfmpegError("video stream missing despite scan pass");
+      }
 
       // Rotation metadata is applied physically so every derivative is
       // upright without client-side handling.
@@ -114,6 +213,46 @@ export async function processMediaVideo(input: {
           maxPixels: input.limits.maxPixelCount,
         }
       ).placeholder();
+
+      // Thumb variant for feed tiles (320w) so list scroll does not download 4K JPEGs.
+      const thumbPath = `${input.sourcePath}-poster-thumb.jpg`;
+      const thumbWidth = 320;
+      await runFfmpeg(
+        [
+          "-i",
+          posterPath,
+          "-vf",
+          `scale=${thumbWidth}:-2`,
+          "-q:v",
+          "4",
+          "-map_metadata",
+          "-1",
+          thumbPath,
+        ],
+        input.limits.processingTimeoutMs / 4
+      ).catch(() => null);
+      if (Bun.file(thumbPath).size > 0) {
+        const thumbKey = derivativeKey(
+          MEDIA_PIPELINE_VERSION,
+          input.mediaId,
+          derivativeName("poster-thumb", "default", "jpg")
+        );
+        await s3.write(thumbKey, Bun.file(thumbPath));
+        input.uploadedKeys?.push(thumbKey);
+        await prisma.mediaDerivative.createMany({
+          data: [
+            {
+              key: thumbKey,
+              kind: "poster-thumb",
+              mediaId: input.mediaId,
+              mimeType: "image/jpeg",
+              pipelineVersion: MEDIA_PIPELINE_VERSION,
+              variant: "default",
+            },
+          ],
+          skipDuplicates: true,
+        });
+      }
 
       // Publish the poster + LQIP before the expensive transcodes: the
       // serving route can then hand feed cards the real frame seconds
@@ -261,12 +400,19 @@ export async function processMediaVideo(input: {
               probe.video.width > 0 && probe.video.height > 0
                 ? probe.video.width / probe.video.height
                 : 16 / 9;
+            // CODECS + FRAME-RATE let players select without probing segments.
+            // HLS spec: avc1.4d401f ~= H.264 High@3.1 yuv420p + mp4a.40.2 = AAC-LC.
+            const FRAME_RATE =
+              Number.isFinite(probe.video.fps) && probe.video.fps > 0
+                ? probe.video.fps.toFixed(3).replace(/\.?0+$/, "")
+                : "30";
+            const CODECS = "avc1.4d401f,mp4a.40.2";
             const masterLines = [
               "#EXTM3U",
               "#EXT-X-VERSION:7",
               ...rungs.map((entry) => {
                 const width = Math.round((entry.height * aspect) / 2) * 2;
-                return `#EXT-X-STREAM-INF:BANDWIDTH=${(entry.videoKbps + entry.audioKbps) * 1000},RESOLUTION=${width}x${entry.height}\n${entry.variant}.m3u8`;
+                return `#EXT-X-STREAM-INF:BANDWIDTH=${(entry.videoKbps + entry.audioKbps) * 1000},RESOLUTION=${width}x${entry.height},CODECS="${CODECS}",FRAME-RATE=${FRAME_RATE}\n${entry.variant}.m3u8`;
               }),
             ].join("\n");
             await Bun.write(`${hlsDir}/master.m3u8`, `${masterLines}\n`);
@@ -378,6 +524,16 @@ export async function processMediaVideo(input: {
         { derivatives: derivatives.length, mediaId: input.mediaId },
         "video derivatives generated"
       );
+
+      // The remuxed source was a temp file; the original remains for the
+      // worker's retention window.
+      if (input.sourcePath.endsWith("-remuxed.mp4")) {
+        try {
+          await Bun.file(input.sourcePath).delete();
+        } catch {
+          // Temp cleanup is best-effort.
+        }
+      }
     },
     { "media.id": input.mediaId }
   );

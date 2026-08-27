@@ -8,6 +8,9 @@ import { getSessionFromApi } from "@/lib/session";
 // storage through the returned presigned PUT URL; this endpoint only performs
 // authorization, quota, and policy checks plus the database row creation.
 const initiateSchema = z.object({
+  // Media id of an AUDIO upload whose track replaces the video's own audio
+  // (gust "sound"). Validated server-side in createInitiatedUpload.
+  audioOverlayId: z.string().min(1).nullish(),
   name: z.string().min(1).max(255),
   purpose: z.enum(["avatar", "comment", "message", "post"]).nullish(),
   size: z.number().int().positive(),
@@ -36,10 +39,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { name, purpose, size, type } = parsed.data;
+  const { audioOverlayId, name, purpose, size, type } = parsed.data;
 
   try {
     const upload = await createInitiatedUpload({
+      audioOverlayId: audioOverlayId ?? null,
       declaredMime: type,
       fileName: name,
       fileSize: size,

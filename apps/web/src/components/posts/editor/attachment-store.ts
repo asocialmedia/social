@@ -155,7 +155,10 @@ interface ComposerAttachmentState {
   reset: () => void;
   retryUpload: (fileName: string) => Promise<void>;
   setAltText: (fileName: string, altText: string) => void;
-  startUpload: (incomingFiles: File[]) => Promise<void>;
+  startUpload: (
+    incomingFiles: File[],
+    opts?: { audioOverlayId?: string | null }
+  ) => Promise<void>;
 }
 
 export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
@@ -503,7 +506,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
         })();
       }
     },
-    startUpload: async (incomingFiles) => {
+    startUpload: async (incomingFiles, opts) => {
       const { attachments, isUploading } = get();
       if (isUploading) {
         toast({
@@ -551,6 +554,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
           controllers.set(file.name, controller);
           try {
             const result = await uploadMediaFile(file, {
+              audioOverlayId: opts?.audioOverlayId ?? undefined,
               onProgress: (percent) => {
                 set({
                   attachments: get().attachments.map((a) =>
