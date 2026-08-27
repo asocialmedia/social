@@ -144,7 +144,15 @@ const BentoImagePreview = ({ media }: { media: Media }) => {
         sizes="(max-width: 768px) 50vw, 33vw"
         src={getMediaProxyUrl(media)}
         srcSet={getMediaImageSrcSet(media)}
-        style={{ objectFit: "cover" }}
+        style={
+          (media as unknown as { blurDataUrl?: string | null }).blurDataUrl
+            ? {
+                backgroundImage: `url(${(media as unknown as { blurDataUrl?: string | null }).blurDataUrl})`,
+                backgroundSize: "cover",
+                objectFit: "cover",
+              }
+            : { objectFit: "cover" }
+        }
       />
     </div>
   );

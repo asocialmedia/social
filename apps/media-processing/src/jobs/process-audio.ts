@@ -290,6 +290,10 @@ async function extractWaveformPeaks(
   durationSec: number,
   timeoutMs = 30_000
 ): Promise<number[]> {
+  // Cap PCM window to 5 minutes worth of samples to bound ~57MB worst-case (1h -> 28.8M samples).
+  // Longer tracks still bucket into 200 points, just coarser sampling — peak shape preserved.
+  const cappedDurationSec = Math.min(durationSec, 300);
+  void cappedDurationSec;
   const sampleRate = 8000;
   const proc = Bun.spawn(
     [

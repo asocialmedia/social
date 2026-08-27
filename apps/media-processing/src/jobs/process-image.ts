@@ -353,5 +353,25 @@ async function encodeDerivative(
       mimeType: "image/jpeg",
     };
   }
+  // Palette PNG for flat graphics/screenshots: 3-5x smaller than WebP for
+  // low-color content, and indexed mode preserves sharp edges. Only wired
+  // when the planner sets palette:true (graphic q88).
+  if ((item as { palette?: boolean }).palette) {
+    try {
+      const bytes = await withTimeout(
+        scaled.png({ palette: true }).buffer(),
+        timeoutMs,
+        `png palette encode timed out (${item.kind}/${item.variant})`
+      );
+      return {
+        bytes: Buffer.from(bytes as unknown as Uint8Array),
+        extension: "png",
+        mimeType: "image/png",
+      };
+    } catch {
+      // fall through to WebP already emitted for this rung — palette is
+      // bonus, not required, so a missing codec just skips the PNG copy.
+    }
+  }
   return null;
 }

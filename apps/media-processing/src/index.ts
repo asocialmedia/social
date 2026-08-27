@@ -36,7 +36,10 @@ if (import.meta.main) {
     url: workerEnv.REDIS_URL,
   });
 
-  const mediaWorker = new Worker(
+  // Two pools: scan is I/O-bound (ClamAV + hash + strip), process is
+  // CPU/ffmpeg-bound. Splitting eliminates head-of-line where a burst of
+  // 4-rung HLS encodes blocks scans for minutes.
+  const scanWorker = new Worker(
     "media",
     async (job) => {
       switch (job.name) {
@@ -46,12 +49,6 @@ if (import.meta.main) {
         case MEDIA_JOB_NAMES.cleanup: {
           return await processMediaCleanup(job.data as MediaCleanupJobData);
         }
-        case MEDIA_JOB_NAMES.process: {
-          return await processMedia(job.data as { mediaId: string });
-        }
-        case MEDIA_JOB_NAMES.analyze: {
-          return await processMediaAnalyze(job.data as { mediaId: string });
-        }
         case MEDIA_JOB_NAMES.deleteCascade: {
           throw new Error(`Job not implemented yet: ${job.name}`);
         }
@@ -60,7 +57,39 @@ if (import.meta.main) {
         }
       }
     },
-    { concurrency: workerEnv.SCAN_CONCURRENCY, connection: bullConnection() }
+    {
+      concurrency: workerEnv.SCAN_CONCURRENCY,
+      connection: bullConnection(),
+      // Long enough that a 4-rung HLS post-process sequence on a later
+      // job on the *process* worker does not stall the scan queue's lock.
+      lockDuration: 30_000,
+      stalledInterval: 30_000,
+    }
+  );
+
+  const processWorker = new Worker(
+    "media",
+    async (job) => {
+      switch (job.name) {
+        case MEDIA_JOB_NAMES.process: {
+          return await processMedia(job.data as { mediaId: string });
+        }
+        case MEDIA_JOB_NAMES.analyze: {
+          return await processMediaAnalyze(job.data as { mediaId: string });
+        }
+        default: {
+          throw new Error(`Unknown media job: ${job.name}`);
+        }
+      }
+    },
+    {
+      concurrency: workerEnv.PROCESS_CONCURRENCY,
+      connection: bullConnection(),
+      // HLS ladder is sequential: 4 rungs * 15 min cap can approach 60 min.
+      // Process worker needs a long lock so it isn't considered stalled.
+      lockDuration: 5 * 60 * 1000,
+      stalledInterval: 30_000,
+    }
   );
 
   // Terminal failure marking: once BullMQ exhausts attempts, the row must
@@ -73,7 +102,7 @@ if (import.meta.main) {
   // would take good content offline over a transcode/model hiccup, so the
   // failure is instead recorded on the row (failureCode/detail survives for
   // ops queries) and the derived-heal sweep keeps retrying derivatives.
-  mediaWorker.on("failed", async (job, error) => {
+  const handleFailed = async (job: { id?: string; name?: string; data?: { mediaId?: string }; attemptsMade: number; opts: { attempts?: number } } | undefined, error: unknown) => {
     mediaLogger.error(
       {
         error: String(error),
@@ -84,9 +113,17 @@ if (import.meta.main) {
       "media job failed"
     );
     const mediaId = job?.data?.mediaId;
-    const exhausted =
-      job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1);
+    const isPolicyRejection = (error as { name?: string })?.name === "ResourceLimitError";
+    const exhausted = isPolicyRejection || (job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1));
     if (!mediaId || !exhausted) {
+      if (isPolicyRejection) {
+        // One-and-done: policy violation, no retry worth doing
+        try {
+          await (job as unknown as { moveToFailed?: (e: unknown, t: string, f: boolean) => Promise<void> })?.moveToFailed?.(error, "0", true);
+        } catch {
+          // not in a Worker context — fall through
+        }
+      }
       return;
     }
     if (job?.name === MEDIA_JOB_NAMES.scan) {
@@ -130,12 +167,18 @@ if (import.meta.main) {
           );
         });
     }
-  });
+  };
+
+  scanWorker.on("failed", handleFailed);
+  processWorker.on("failed", handleFailed);
 
   // Self-healing backfill watchdog + legacy object GC (daily sweeps).
   const sweepWorker = await registerBackfillSchedulers(bullConnection());
 
-  mediaWorker.on("completed", (job) => {
+  scanWorker.on("completed", (job) => {
+    mediaLogger.debug({ jobId: job.id, name: job.name }, "scan completed");
+  });
+  processWorker.on("completed", (job) => {
     mediaLogger.debug({ jobId: job.id, name: job.name }, "media job completed");
   });
 
@@ -157,7 +200,7 @@ if (import.meta.main) {
     running = false;
     mediaLogger.info({}, "media-processing shutting down");
     healthServer.stop(true);
-    await Promise.allSettled([mediaWorker.close(), sweepWorker.close()]);
+    await Promise.allSettled([scanWorker.close(), processWorker.close(), sweepWorker.close()]);
     await (telemetry as Telemetry).shutdown().catch(() => null);
     process.exit(0);
   };
@@ -169,6 +212,7 @@ if (import.meta.main) {
       clamav: workerEnv.CLAMAV_HOST ?? "disabled",
       healthPort: workerEnv.HEALTH_PORT,
       scanConcurrency: workerEnv.SCAN_CONCURRENCY,
+      processConcurrency: workerEnv.PROCESS_CONCURRENCY,
     },
     "media-processing worker ready"
   );

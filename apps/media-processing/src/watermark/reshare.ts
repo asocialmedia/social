@@ -37,6 +37,7 @@ export async function attributeReshare(
     return;
   }
 
+  const scanStart = performance.now();
   const since = new Date(Date.now() - LOOKBACK_MS);
 
   const candidates = await prisma.media.findMany({
@@ -141,8 +142,12 @@ export async function attributeReshare(
     where: { id: mediaId },
   });
 
+  const scanMs = Math.round(performance.now() - scanStart);
+  if (scanMs > 500) {
+    mediaLogger.warn({ mediaId, scanMs }, "slow re-share scan");
+  }
   mediaLogger.info(
-    { distance: bestDist, duplicateOf: best.id, mediaId, rootId },
+    { distance: bestDist, duplicateOf: best.id, mediaId, rootId, scanMs },
     "re-share attributed via phash"
   );
 }

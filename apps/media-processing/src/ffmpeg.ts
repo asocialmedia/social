@@ -159,10 +159,26 @@ export async function probeMedia(inputPath: string): Promise<ProbeResult> {
     ],
     { stderr: "pipe", stdout: "pipe" }
   );
-  const [stdout, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    proc.exited,
-  ]);
+  // If this call is wrapped in withTimeout, the loser promise would orphan
+  // this ffprobe until BullMQ retry kills the worker. Give probeMedia its
+  // own hard cap as defense-in-depth, independent of the caller's withTimeout.
+  const probeTimeout = setTimeout(() => {
+    try {
+      proc.kill();
+    } catch {
+      // already exited
+    }
+  }, 15_000);
+  let stdout: string;
+  let exitCode: number;
+  try {
+    [stdout, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+  } finally {
+    clearTimeout(probeTimeout);
+  }
   if (exitCode !== 0) {
     const stderr = await new Response(proc.stderr).text();
     throw new FfmpegError(

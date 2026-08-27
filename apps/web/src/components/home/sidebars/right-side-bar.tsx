@@ -71,9 +71,9 @@ function ReasonLine({
     return null;
   }
   return (
-    <span className="text-muted-foreground flex items-center gap-1 truncate text-[11px] leading-none">
+    <div className="text-muted-foreground flex items-center gap-1.5 px-2.5 pt-0.5 pb-1.5 text-[11px] leading-tight">
       {mutualFollowers && mutualFollowers.length > 0 ? (
-        <span className="flex -space-x-1.5">
+        <span className="flex shrink-0 -space-x-1.5">
           {mutualFollowers.slice(0, 3).map((m) => (
             <span
               key={m.username}
@@ -88,13 +88,13 @@ function ReasonLine({
         <Clock className="h-3 w-3 shrink-0" />
       ) : null}
       {!mutualFollowers?.length && reason.includes("Popular") ? (
-        <Sparkles className="h-3 w-3 shrink-0" />
+        <Sparkles className="h-3 w-3 shrink-0 fill-current" />
       ) : null}
       {!mutualFollowers?.length && reason.includes("interest") ? (
         <Users className="h-3 w-3 shrink-0" />
       ) : null}
-      <span className="truncate">{reason}</span>
-    </span>
+      <span className="min-w-0">{reason}</span>
+    </div>
   );
 }
 
@@ -190,62 +190,63 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
   return (
     <>
       {visibleUsers.map((suggestedUser) => (
-        <div
-          className={cn(
-            "group flex items-center gap-3 rounded-lg px-2.5 py-2",
-            ROW_HOVER_CLASS
-          )}
-          key={suggestedUser.id}
-        >
-          <Link href={`/users/${suggestedUser.username}`}>
-            <UserAvatar
-              avatarUrl={suggestedUser.avatarUrl}
-              className="h-8 w-8"
-            />
-          </Link>
-          <Link
-            className="min-w-0 flex-1"
-            href={`/users/${suggestedUser.username}`}
+        <div key={suggestedUser.id}>
+          <div
+            className={cn(
+              "group flex items-center gap-3 rounded-lg px-2.5 py-2",
+              ROW_HOVER_CLASS
+            )}
           >
-            <span className="flex items-center gap-1.5">
-              <span className="block truncate text-sm font-medium">
-                {suggestedUser.displayName || suggestedUser.username}
-              </span>
-              <UserBadge
-                badge={suggestedUser.badge}
-                badges={suggestedUser.badges}
+            <Link href={`/users/${suggestedUser.username}`}>
+              <UserAvatar
+                avatarUrl={suggestedUser.avatarUrl}
+                className="h-8 w-8"
               />
-            </span>
-            <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
-              @{suggestedUser.username}
-            </span>
-            <ReasonLine
-              reasons={suggestedUser._reasons}
-              mutualFollowers={suggestedUser.mutualFollowers}
-            />
-          </Link>
-          <div className="flex shrink-0 items-center gap-1">
-            <FollowButton
-              className="h-8 shrink-0 px-3 text-xs"
-              initialState={{
-                followers:
-                  followStates?.[suggestedUser.id]?.followers ??
-                  suggestedUser._count.followers,
-                isFollowedByUser:
-                  followStates?.[suggestedUser.id]?.isFollowedByUser ?? false,
-              }}
-              onFollowed={() => handleFollowed(suggestedUser.id)}
-              userId={suggestedUser.id}
-            />
-            <button
-              aria-label={`Dismiss ${suggestedUser.username}`}
-              className="text-muted-foreground hover:text-foreground hover:bg-accent hidden h-7 w-7 items-center justify-center rounded-full group-hover:flex"
-              onClick={() => handleDismiss(suggestedUser.id)}
-              type="button"
+            </Link>
+            <Link
+              className="min-w-0 flex-1"
+              href={`/users/${suggestedUser.username}`}
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
+              <span className="flex items-center gap-1.5">
+                <span className="block truncate text-sm font-medium">
+                  {suggestedUser.displayName || suggestedUser.username}
+                </span>
+                <UserBadge
+                  badge={suggestedUser.badge}
+                  badges={suggestedUser.badges}
+                />
+              </span>
+              <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
+                @{suggestedUser.username}
+              </span>
+            </Link>
+            <div className="flex shrink-0 items-center gap-1">
+              <FollowButton
+                className="h-8 shrink-0 px-3 text-xs"
+                initialState={{
+                  followers:
+                    followStates?.[suggestedUser.id]?.followers ??
+                    suggestedUser._count.followers,
+                  isFollowedByUser:
+                    followStates?.[suggestedUser.id]?.isFollowedByUser ?? false,
+                }}
+                onFollowed={() => handleFollowed(suggestedUser.id)}
+                userId={suggestedUser.id}
+              />
+              <button
+                aria-label={`Dismiss ${suggestedUser.username}`}
+                className="text-muted-foreground hover:text-foreground hover:bg-accent hidden h-7 w-7 items-center justify-center rounded-full group-hover:flex"
+                onClick={() => handleDismiss(suggestedUser.id)}
+                type="button"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
+          <ReasonLine
+            reasons={suggestedUser._reasons}
+            mutualFollowers={suggestedUser.mutualFollowers}
+          />
         </div>
       ))}
       {suggestedUsers.length > 0 ? (
