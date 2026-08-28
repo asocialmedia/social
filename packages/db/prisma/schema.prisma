@@ -490,6 +490,9 @@ model Media {
   // Author display name snapshot taken when the media was published, so
   // attribution survives later profile renames.
   uploaderDisplayName  String?
+  // Author @username snapshot, same publish-time contract as the display
+  // name above. Mirrored into every C2PA provenance stamp.
+  uploaderUsername     String?
   // Encoder implementation version (MEDIA_ENCODER_VERSION) that produced
   // the derivatives, distinct from the pipeline logic version above.
   encoderVersion       String?

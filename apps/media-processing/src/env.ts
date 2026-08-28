@@ -24,8 +24,6 @@ export const keys = createEnv({
     CLAMAV_PORT: process.env.CLAMAV_PORT,
     DATABASE_URL: process.env.DATABASE_URL,
     LOG_LEVEL: process.env.LOG_LEVEL,
-    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
-      process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
     MEDIA_BACKFILL_ENABLED: process.env.MEDIA_BACKFILL_ENABLED,
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
@@ -50,8 +48,6 @@ export const keys = createEnv({
     MEDIA_SCAN_CONCURRENCY: process.env.MEDIA_SCAN_CONCURRENCY,
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
-    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS:
-      process.env.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS,
     MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
     // Same public origin the web app publishes; the worker needs it to write
     // absolute provenance identifiers into stamped manifests.
@@ -125,7 +121,6 @@ export const keys = createEnv({
     MEDIA_SCAN_CONCURRENCY: z.coerce.number().int().positive().default(4),
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
-    MEDIA_VIDEO_WATERMARK_TIMEOUT_MS: numericOverride,
     MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
     NODE_ENV: z
@@ -155,10 +150,6 @@ export const workerEnv = {
   },
   get ASMOB_ENDPOINT() {
     return keys.ASMOB_ENDPOINT;
-  },
-  get AUDIO_WATERMARK_TIMEOUT_MS() {
-    const raw = keys.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS;
-    return raw ? Number(raw) : 5000;
   },
   get BACKFILL_ENABLED() {
     return keys.MEDIA_BACKFILL_ENABLED === "1";
@@ -228,10 +219,6 @@ export const workerEnv = {
   },
   get SCAN_CONCURRENCY() {
     return keys.MEDIA_SCAN_CONCURRENCY;
-  },
-  get VIDEO_WATERMARK_TIMEOUT_MS() {
-    const raw = keys.MEDIA_VIDEO_WATERMARK_TIMEOUT_MS;
-    return raw ? Number(raw) : 8000;
   },
   get WATERMARK_ENABLED() {
     return true;

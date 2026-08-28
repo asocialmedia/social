@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  avContainerExtension,
   classifyImage,
+  isAvMetadataStripContainer,
+  needsFaststart,
   planImageDerivatives,
   planVideoOutputs,
 } from "./format-policy";
@@ -208,5 +211,60 @@ describe("video output planning", () => {
     const plan = planVideoOutputs({ durationSec: 300, srcHeight: 144 });
     expect(plan.hls).toBe(true);
     expect(plan.hlsLadder.map((r) => r.variant)).toEqual(["360p"]);
+  });
+});
+
+describe("published-original av metadata policy", () => {
+  test("every content-detectable video/audio container is strip-eligible", () => {
+    // These are exactly the `container` values magic.ts can emit for the
+    // VIDEO/AUDIO families - a gap here would publish an unscrubbed original.
+    for (const container of [
+      "iso-bmff",
+      "mov",
+      "m4a",
+      "webm",
+      "mkv",
+      "avi",
+      "flv",
+      "mpeg-audio",
+      "ogg",
+      "flac",
+      "wav",
+      "aac-adts",
+    ]) {
+      expect(isAvMetadataStripContainer(container)).toBe(true);
+    }
+  });
+
+  test("image containers are never remux-scrubbed", () => {
+    for (const container of ["jpeg", "png", "gif", "webp", "heic"]) {
+      expect(isAvMetadataStripContainer(container)).toBe(false);
+    }
+  });
+
+  test("container extensions map to real ffmpeg muxers", () => {
+    expect(avContainerExtension("iso-bmff")).toBe("mp4");
+    expect(avContainerExtension("mov")).toBe("mov");
+    expect(avContainerExtension("m4a")).toBe("m4a");
+    expect(avContainerExtension("webm")).toBe("webm");
+    expect(avContainerExtension("mkv")).toBe("mkv");
+    expect(avContainerExtension("avi")).toBe("avi");
+    expect(avContainerExtension("flv")).toBe("flv");
+    expect(avContainerExtension("mpeg-audio")).toBe("mp3");
+    expect(avContainerExtension("ogg")).toBe("ogg");
+    expect(avContainerExtension("flac")).toBe("flac");
+    expect(avContainerExtension("wav")).toBe("wav");
+    expect(avContainerExtension("aac-adts")).toBe("aac");
+    expect(avContainerExtension("jpeg")).toBeNull();
+    expect(avContainerExtension("unknown")).toBeNull();
+  });
+
+  test("only the ISO-BMFF family faststarts", () => {
+    expect(needsFaststart("iso-bmff")).toBe(true);
+    expect(needsFaststart("mov")).toBe(true);
+    expect(needsFaststart("m4a")).toBe(true);
+    expect(needsFaststart("webm")).toBe(false);
+    expect(needsFaststart("mkv")).toBe(false);
+    expect(needsFaststart("mpeg-audio")).toBe(false);
   });
 });

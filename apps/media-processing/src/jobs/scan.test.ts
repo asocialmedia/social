@@ -25,6 +25,13 @@ let clamavHost: string | undefined;
 let avVerdict: { clean: boolean; signature?: string } = { clean: true };
 let failClamavUnavailable = false;
 let failDownload = false;
+let failAvStrip = false;
+const watermarkCalls: { payloadMediaId: string }[] = [];
+const avStripCalls: {
+  container: string;
+  inputPath: string;
+  outputPath: string;
+}[] = [];
 
 interface MediaRow {
   attempts: number;
@@ -94,6 +101,24 @@ const PNG_FIXTURE = buildMinimalPng();
 const GARBAGE_FIXTURE = new TextEncoder().encode(
   "this is definitely not any recognized media format......"
 );
+
+// Structurally minimal ISO-BMFF head: just the ftyp box. Content detection
+// only inspects the first 512 bytes, so brand + family is all the scan stage
+// needs to classify it as video/mp4 (container "iso-bmff").
+function buildMinimalMp4Head(): Uint8Array {
+  const box = new Uint8Array(28);
+  const view = new DataView(box.buffer);
+  view.setUint32(0, 28);
+  box.set(new TextEncoder().encode("ftyp"), 4);
+  box.set(new TextEncoder().encode("isom"), 8);
+  view.setUint32(12, 512);
+  box.set(new TextEncoder().encode("isom"), 16);
+  box.set(new TextEncoder().encode("iso2"), 20);
+  box.set(new TextEncoder().encode("mp41"), 24);
+  return box;
+}
+
+const MP4_FIXTURE = buildMinimalMp4Head();
 
 // ── Module mocks (registered before the subject import) ────────────────────
 
@@ -187,6 +212,7 @@ mock.module("@asm/db", () => ({
       findUnique: () =>
         Promise.resolve({
           displayName: "Test User",
+          username: "testuser",
         }),
     },
   },
@@ -257,6 +283,47 @@ mock.module("../provenance/stamp", () => ({
   stampAiGenerated: () => Promise.resolve(false),
 }));
 
+mock.module("../provenance/stamp-platform", () => ({
+  stampPlatformProvenance: () => Promise.resolve(false),
+}));
+
+// Watermark embedder spy: records the payload's media id and never applies
+// the watermark (null = publish unmodified), which is all the gating tests
+// need to observe.
+mock.module("../watermark/image", () => ({
+  watermarkImageBuffer: (
+    _input: Buffer,
+    payload: { mediaId: string }
+  ): null => {
+    watermarkCalls.push({ payloadMediaId: payload.mediaId });
+    return null;
+  },
+}));
+
+// A/V remux scrub spy. Success copies the input bytes to the output path so
+// the hash step reads a real file; the failure knob emulates an ffmpeg crash
+// to exercise the publish-scanned-bytes fallback.
+mock.module("../av-strip", () => ({
+  stripAvContainerMetadata: async (input: {
+    container: string;
+    inputPath: string;
+    outputPath: string;
+  }): Promise<void> => {
+    avStripCalls.push({
+      container: input.container,
+      inputPath: input.inputPath,
+      outputPath: input.outputPath,
+    });
+    if (failAvStrip) {
+      throw new Error("remux exploded");
+    }
+    await Bun.write(
+      input.outputPath,
+      await Bun.file(input.inputPath).arrayBuffer()
+    );
+  },
+}));
+
 const s3Spy = {
   delete: (key: string) => {
     deletedKeys.push(key);
@@ -268,10 +335,12 @@ const s3Spy = {
       if (failDownload) {
         throw new Error("storage unavailable");
       }
-      const bytes =
-        declaredFixture.kind === "garbage"
-          ? new Uint8Array(GARBAGE_FIXTURE)
-          : new Uint8Array(PNG_FIXTURE);
+      let bytes = new Uint8Array(PNG_FIXTURE);
+      if (declaredFixture.kind === "garbage") {
+        bytes = new Uint8Array(GARBAGE_FIXTURE);
+      } else if (declaredFixture.kind === "mp4") {
+        bytes = new Uint8Array(MP4_FIXTURE);
+      }
       return new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(bytes);
@@ -288,7 +357,7 @@ const s3Spy = {
 
 // Which fixture the CURRENT test serves; rejection-paths flip this before
 // loading the row so stream() hands back matching bytes.
-const declaredFixture: { kind: "garbage" | "png" } = { kind: "png" };
+const declaredFixture: { kind: "garbage" | "mp4" | "png" } = { kind: "png" };
 
 mock.module("../s3", () => ({ getS3: () => s3Spy }));
 
@@ -319,6 +388,7 @@ beforeEach(() => {
   avVerdict = { clean: true };
   failClamavUnavailable = false;
   failDownload = false;
+  failAvStrip = false;
   declaredFixture.kind = "png";
   row = freshRow();
   updateManyCalls.length = 0;
@@ -326,6 +396,8 @@ beforeEach(() => {
   deletedKeys.length = 0;
   writtenKeys.length = 0;
   processedEnqueues.length = 0;
+  watermarkCalls.length = 0;
+  avStripCalls.length = 0;
 });
 
 describe("processMediaScan", () => {
@@ -494,6 +566,76 @@ describe("processMediaScan", () => {
       expect(row.detectedMime).toBe("image/png");
       expect(row.publishedKey).toBe(writtenKeys[0]);
     });
+
+    test("uploader attribution snapshot carries displayName and username", async () => {
+      await processMediaScan({ mediaId: "m-fixture" });
+      const ready = updateManyCalls.find(
+        (call) => (call.data as { status?: string }).status === "READY"
+      );
+      const data = (ready?.data ?? {}) as {
+        uploaderDisplayName?: string | null;
+        uploaderUsername?: string | null;
+      };
+      expect(data.uploaderDisplayName).toBe("Test User");
+      expect(data.uploaderUsername).toBe("testuser");
+    });
+
+    test("images are watermarked; videos never reach the image embedder", async () => {
+      await processMediaScan({ mediaId: "m-fixture" });
+      expect(watermarkCalls).toEqual([{ payloadMediaId: "m-fixture" }]);
+
+      // Same scan for a video fixture: the LSB image embedder must not be
+      // attempted (it would buffer the whole file for nothing), while the
+      // remux scrub runs for the detected container.
+      declaredFixture.kind = "mp4";
+      row = freshRow({
+        claimedMime: "video/mp4",
+        mimeType: "video/mp4",
+        originalKey: "quarantine/m-fixture/toka/original.mp4",
+        size: MP4_FIXTURE.byteLength,
+      });
+      watermarkCalls.length = 0;
+      avStripCalls.length = 0;
+      // Drop the PNG scan's flip records so the assertions below observe
+      // only the video scan's claim/flip chain.
+      updateManyCalls.length = 0;
+      updateCalls.length = 0;
+      await processMediaScan({ mediaId: "m-fixture" });
+      expect(outcomePublished());
+      expect(watermarkCalls).toHaveLength(0);
+      expect(avStripCalls).toHaveLength(1);
+      expect(avStripCalls[0]?.container).toBe("iso-bmff");
+
+      // The READY flip records the scrub for the ops surface.
+      const readyData = readyFlipData();
+      expect(readyData.exifStripped).toBe(true);
+      expect(readyData.detectedMime).toBe("video/mp4");
+    });
+
+    test("av remux failure publishes the scanned bytes and does not claim a strip", async () => {
+      declaredFixture.kind = "mp4";
+      row = freshRow({
+        claimedMime: "video/mp4",
+        mimeType: "video/mp4",
+        originalKey: "quarantine/m-fixture/toka/original.mp4",
+        size: MP4_FIXTURE.byteLength,
+      });
+      failAvStrip = true;
+
+      const { CryptoHasher } = Bun;
+      const outcome = await processMediaScan({ mediaId: "m-fixture" });
+      expect(outcome.outcome).toBe("published");
+
+      // Fallback contract: still published, but the READY row must not
+      // claim the original was scrubbed.
+      const readyData = readyFlipData();
+      expect(readyData.exifStripped).toBe(false);
+
+      const hasher = new CryptoHasher("sha256");
+      hasher.update(MP4_FIXTURE);
+      expect(row?.sha256).toBe(hasher.digest("hex"));
+      expect(row?.detectedMime).toBe("video/mp4");
+    });
   });
 
   describe("error handling", () => {
@@ -527,4 +669,25 @@ function rejectionData():
   return rejection?.data as
     | { failureDetail?: unknown; rejectedReason?: string }
     | undefined;
+}
+
+function outcomePublished(): boolean {
+  return writtenKeys.length === 1;
+}
+
+function readyFlipData(): {
+  detectedMime?: string;
+  exifStripped?: boolean;
+  uploaderDisplayName?: string | null;
+  uploaderUsername?: string | null;
+} {
+  const ready = updateManyCalls.find(
+    (call) => (call.data as { status?: string }).status === "READY"
+  );
+  return (ready?.data ?? {}) as {
+    detectedMime?: string;
+    exifStripped?: boolean;
+    uploaderDisplayName?: string | null;
+    uploaderUsername?: string | null;
+  };
 }

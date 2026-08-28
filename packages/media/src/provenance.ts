@@ -272,6 +272,7 @@ export interface PlatformProvenance {
   mediaId: string;
   hashedUploaderId: string | null;
   uploaderDisplayName: string | null;
+  uploaderUsername: string | null;
   pipelineVersion: string;
   encoderVersion: string;
   stampedAt: string;

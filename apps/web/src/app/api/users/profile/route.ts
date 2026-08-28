@@ -1,17 +1,9 @@
 import { updateUserProfileSchema } from "@asm/auth/validation";
-import type { PrivateUserData } from "@asm/db";
 import { getPrivateUserSelect, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { deleteAvatar, uploadAvatar } from "@/lib/object-storage";
 import { getSessionFromApi } from "@/lib/session";
-
-// Storage objects live under avatars/{userId}/...; only keys inside the
-// caller's own namespace may ever be deleted.
-function isOwnedAvatarKey(userId: string, key: string): boolean {
-  return key.startsWith(`avatars/${userId}/`);
-}
 
 export async function POST(request: Request) {
   try {
@@ -30,6 +22,20 @@ export async function POST(request: Request) {
     const rawValues = formData.get("values");
     const avatar = formData.get("avatar");
 
+    // Binary uploads are pipeline-only: the profile edit form's avatar goes
+    // through /api/upload/initiate -> presigned PUT -> scan -> /api/users/avatar.
+    // A raw multipart file here would bypass quarantine, antivirus, metadata
+    // stripping, quota and rate limits, so it is refused outright.
+    if (avatar instanceof File && avatar.size > 0) {
+      return Response.json(
+        {
+          error:
+            "Avatar files must be uploaded through the media pipeline (/api/upload/initiate + /api/users/avatar)",
+        },
+        { status: 415 }
+      );
+    }
+
     let parsedValues: ReturnType<typeof updateUserProfileSchema.parse>;
     try {
       parsedValues = updateUserProfileSchema.parse(
@@ -42,77 +48,24 @@ export async function POST(request: Request) {
       );
     }
 
-    let avatarResult:
-      | {
-          key: string;
-          url: string;
-          type: string;
-          mimeType: string;
-          size: number;
-          originalName: string;
-        }
-      | undefined;
-    if (avatar instanceof File && avatar.size > 0) {
-      avatarResult = await uploadAvatar(avatar, userId);
-    }
-
-    // The previous avatar key is resolved from the caller's own DB row, never
-    // from client input: deleteAvatar accepts any bucket key.
-    const currentUser = await prisma.user.findUnique({
-      select: { avatarKey: true },
+    const updatedUser = await prisma.user.update({
+      data: {
+        bio: parsedValues.bio,
+        customDomain: parsedValues.customDomain || null,
+        displayName: parsedValues.displayName,
+        githubUsername: parsedValues.githubUsername || null,
+        linkedinUsername: parsedValues.linkedinUsername || null,
+        redditUsername: parsedValues.redditUsername || null,
+        twitterUsername: parsedValues.twitterUsername || null,
+      },
+      select: getPrivateUserSelect(userId),
       where: { id: userId },
     });
-    const oldAvatarKey =
-      currentUser?.avatarKey && isOwnedAvatarKey(userId, currentUser.avatarKey)
-        ? currentUser.avatarKey
-        : undefined;
 
-    // Persist first; on failure the freshly-uploaded object is orphaned, so
-    // delete it rather than leak storage.
-    let updatedUser: PrivateUserData | null = null;
-    try {
-      updatedUser = await prisma.user.update({
-        data: {
-          bio: parsedValues.bio,
-          customDomain: parsedValues.customDomain || null,
-          displayName: parsedValues.displayName,
-          githubUsername: parsedValues.githubUsername || null,
-          linkedinUsername: parsedValues.linkedinUsername || null,
-          redditUsername: parsedValues.redditUsername || null,
-          twitterUsername: parsedValues.twitterUsername || null,
-          ...(avatarResult && {
-            avatarKey: avatarResult.key,
-            avatarUrl: avatarResult.url,
-          }),
-        },
-        select: getPrivateUserSelect(userId),
-        where: { id: userId },
-      });
-    } catch (error) {
-      if (avatarResult) {
-        try {
-          await deleteAvatar(avatarResult.key);
-        } catch (cleanupError) {
-          console.error(
-            "Failed to delete orphaned avatar object:",
-            cleanupError
-          );
-        }
-      }
-      throw error;
-    }
-
-    // Only after the DB write succeeds, remove the old avatar object.
-    if (avatarResult && oldAvatarKey) {
-      try {
-        await deleteAvatar(oldAvatarKey);
-      } catch (deleteError) {
-        console.error("Failed to delete old avatar:", deleteError);
-      }
-    }
-
+    // Avatar updates never happen here: profile edits change text fields only,
+    // and avatar files flow through the media pipeline's own link route.
     return NextResponse.json({
-      avatar: avatarResult,
+      avatar: null,
       user: updatedUser,
     });
   } catch (error) {

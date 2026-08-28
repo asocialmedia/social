@@ -8,6 +8,7 @@ import {
   MEDIA_ENCODER_VERSION,
   MEDIA_PIPELINE_VERSION,
   hashUserId as hashUserIdForProvenance,
+  isAvMetadataStripContainer,
   isStampableForC2Pa,
   publishedKey,
   readJpegExifOrientation,
@@ -17,6 +18,7 @@ import {
 } from "@asm/media";
 import type { MediaScanJobData } from "@asm/media";
 
+import { stripAvContainerMetadata } from "../av-strip";
 import {
   scanStream,
   ClamAvSizeLimitError,
@@ -173,6 +175,7 @@ export function processMediaScan(
       const tempPath = `/tmp/asm-scan-${mediaId}-${crypto.randomUUID()}`;
       const strippedPath = `${tempPath}-stripped`;
       const stampedPath = `${tempPath}-c2pa`;
+      const avStrippedPath = `${tempPath}-avstrip`;
       let reEncodedPath: string | null = null;
 
       try {
@@ -439,14 +442,49 @@ export function processMediaScan(
           }
         }
 
-        // 5b. Invisible watermark — tiled LSB, crop-resistant, applied to the
-        // stripped (or re-encoded) bytes before signing. Always on (core
-        // platform feature). Failure is best-effort: publish proceeds without
-        // watermark, DB remains authoritative.
+        // 5b. Video/audio originals: scrub EXIF-class container metadata
+        // (QuickTime udta keys, MP4 ilst, ID3, XMP, GPS in phone recordings)
+        // with a lossless stream-copy remux. Packets are copied untouched, so
+        // there is zero quality loss and the pass is I/O-fast. The scrub runs
+        // BEFORE stamping so the published object is: scrubbed original +
+        // exactly one signed platform manifest. Failure publishes the scanned
+        // bytes unmodified rather than blocking the upload - the 30-day
+        // quarantine copy still holds the raw for forensics.
+        let avStripped = false;
         if (
-          detected.mime.startsWith("image/") ||
-          detected.mime.startsWith("video/")
+          (detected.family === "VIDEO" || detected.family === "AUDIO") &&
+          isAvMetadataStripContainer(detected.container)
         ) {
+          try {
+            await stripAvContainerMetadata({
+              container: detected.container,
+              inputPath: tempPath,
+              outputPath: avStrippedPath,
+              timeoutMs: SCAN_LIMITS.scanTimeoutMs,
+            });
+            publishPath = avStrippedPath;
+            avStripped = true;
+            mediaLogger.info(
+              { container: detected.container, mediaId, mime: detected.mime },
+              "remuxed av original for metadata stripping"
+            );
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId },
+              "av metadata strip failed; publishing scanned bytes"
+            );
+          }
+        }
+
+        // 5c. Invisible watermark — tiled LSB, crop-resistant, applied to the
+        // stripped (or re-encoded) image bytes before signing. Images only:
+        // the embedder is an image codec (sharp); feeding it video bytes
+        // would decode nothing, silently skip the watermark AND buffer the
+        // whole file (up to maxVideoBytes) in worker RAM. Video/audio carry
+        // their identity through C2PA stamps + the DB row instead. Failure is
+        // best-effort: publish proceeds without watermark, DB remains
+        // authoritative.
+        if (detected.mime.startsWith("image/")) {
           const watermarkStart = performance.now();
           try {
             const { watermarkImageBuffer } = await import("../watermark/image");
@@ -494,6 +532,18 @@ export function processMediaScan(
         // "AI Generated" assertion inside the same manifest, and the DB flag
         // stays authoritative. The stripped/watermarked file is the only
         // metadata added back.
+        //
+        // One uploader lookup serves the stamp variants and the DB write
+        // below: displayName + username are the human-readable attribution
+        // embedded into every stamped manifest and snapshotted on the row.
+        const uploaderRecord = media.userId
+          ? await prisma.user.findUnique({
+              select: { displayName: true, username: true },
+              where: { id: media.userId },
+            })
+          : null;
+        const uploaderDisplayName = uploaderRecord?.displayName ?? null;
+        const uploaderUsername = uploaderRecord?.username ?? null;
         let stamped = false;
         let stampKind: "ai" | "platform" | null = null;
         if (workerEnv.C2PA_STAMP_ENABLED && isStampableForC2Pa(detected.mime)) {
@@ -507,8 +557,11 @@ export function processMediaScan(
                 stampAiGenerated(publishPath, stampedPath, {
                   detectionReason:
                     provenance.verdict.evidence[0]?.detail ?? "ai",
+                  hashedUploaderId,
                   mediaId,
                   mime: detected.mime,
+                  uploaderDisplayName,
+                  uploaderUsername,
                 }),
                 workerEnv.C2PA_STAMP_TIMEOUT_MS,
                 "C2PA AI stamping timed out"
@@ -521,18 +574,13 @@ export function processMediaScan(
             if (!stamped) {
               const { stampPlatformProvenance } =
                 await import("../provenance/stamp-platform");
-              const uploaderForStamp = media.userId
-                ? await prisma.user.findUnique({
-                    select: { displayName: true },
-                    where: { id: media.userId },
-                  })
-                : null;
               stamped = await withTimeout(
                 stampPlatformProvenance(publishPath, stampedPath, {
                   hashedUploaderId,
                   mediaId,
                   mime: detected.mime,
-                  uploaderDisplayName: uploaderForStamp?.displayName ?? null,
+                  uploaderDisplayName,
+                  uploaderUsername,
                 }),
                 workerEnv.C2PA_STAMP_TIMEOUT_MS,
                 "C2PA platform stamping timed out"
@@ -568,22 +616,14 @@ export function processMediaScan(
         // row is the authoritative provenance source. The duplicate lookup
         // is a detection signal only (same SHA-256 = byte-identical upload);
         // it says nothing about ownership.
-        const [uploader, existingDuplicate] = await Promise.all([
-          media.userId
-            ? prisma.user.findUnique({
-                select: { displayName: true },
-                where: { id: media.userId },
-              })
-            : Promise.resolve(null),
-          prisma.media.findFirst({
-            select: { id: true },
-            where: {
-              id: { not: mediaId },
-              publishedKey: { not: null },
-              sha256,
-            },
-          }),
-        ]);
+        const existingDuplicate = await prisma.media.findFirst({
+          select: { id: true },
+          where: {
+            id: { not: mediaId },
+            publishedKey: { not: null },
+            sha256,
+          },
+        });
 
         await s3.write(targetKey, Bun.file(publishPath));
 
@@ -599,11 +639,12 @@ export function processMediaScan(
               : Prisma.DbNull,
             detectedMime: detected.mime,
             // True when the published original had its metadata containers
-            // structurally removed above; derivatives are always stripped
-            // by re-encoding regardless.
+            // structurally removed above (image structural strip, image
+            // re-encode fallback, or the av remux scrub); derivatives are
+            // always stripped by re-encoding regardless.
             duplicateOf: existingDuplicate?.id ?? null,
             encoderVersion: MEDIA_ENCODER_VERSION,
-            exifStripped,
+            exifStripped: exifStripped || avStripped,
             pipelineVersion: MEDIA_PIPELINE_VERSION,
             platform: "asocialmedia.cc",
             processedAt: new Date(),
@@ -628,7 +669,8 @@ export function processMediaScan(
                   }
                 : {}),
             },
-            uploaderDisplayName: uploader?.displayName ?? null,
+            uploaderDisplayName,
+            uploaderUsername,
           },
           where: { id: mediaId, status: "PROCESSING" },
         });
@@ -705,7 +747,7 @@ export function processMediaScan(
         });
         throw error;
       } finally {
-        await Bun.$`rm -f ${tempPath} ${strippedPath} ${stampedPath} ${reEncodedPath ?? ""}`
+        await Bun.$`rm -f ${tempPath} ${strippedPath} ${stampedPath} ${avStrippedPath} ${reEncodedPath ?? ""}`
           .quiet()
           .catch(() => null);
       }

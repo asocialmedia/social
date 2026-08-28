@@ -25,6 +25,13 @@ export interface StampContext {
   // "Input asset must have a mime type".
   mime: string;
   mediaId: string;
+  // Platform provenance mirror. AI-flagged assets are stamped by THIS pass
+  // instead of the platform stamp, so the assertion must carry the same
+  // platform/uploader identity - otherwise AI media would publish with no
+  // embedded attribution at all.
+  hashedUploaderId?: string | null;
+  uploaderDisplayName?: string | null;
+  uploaderUsername?: string | null;
 }
 
 export async function stampAiGenerated(
@@ -82,7 +89,11 @@ export async function stampAiGenerated(
     detectionReason: context.detectionReason,
     flaggedAt,
     flaggedBy: `${siteHost} media pipeline v${MEDIA_PIPELINE_VERSION}`,
+    hashedUploaderId: context.hashedUploaderId ?? null,
     mediaId: context.mediaId,
+    platform: "asocialmedia.cc",
+    uploaderDisplayName: context.uploaderDisplayName ?? null,
+    uploaderUsername: context.uploaderUsername ?? null,
   });
   // The "AI Generated" name doubles as a re-detection hook: a stamped file
   // re-uploaded elsewhere still trips our assertion scanner.

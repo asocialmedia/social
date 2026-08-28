@@ -15,6 +15,7 @@ export interface PlatformStampContext {
   mime: string;
   hashedUploaderId: string | null;
   uploaderDisplayName: string | null;
+  uploaderUsername: string | null;
 }
 
 export async function stampPlatformProvenance(
@@ -64,6 +65,7 @@ export async function stampPlatformProvenance(
     platform: "asocialmedia.cc",
     stampedAt,
     uploaderDisplayName: context.uploaderDisplayName,
+    uploaderUsername: context.uploaderUsername,
   });
 
   builder.addAssertion("stds.schema-org.CustomMetadata", {

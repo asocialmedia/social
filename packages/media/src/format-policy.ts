@@ -207,3 +207,66 @@ export const AUDIO_TARGET_LUFS = -16;
 export const AUDIO_OPUS_KBPS = 96;
 export const AUDIO_AAC_KBPS = 128;
 export const WAVEFORM_PEAK_POINTS = 200;
+
+// ── Published-original metadata policy (video/audio) ───────────────────────
+// Static rasters are scrubbed structurally by strip-metadata.ts. Video and
+// audio containers carry EXIF-class metadata too (QuickTime udta keys, MP4
+// ilst tags, ID3, XMP, GPS in phone recordings), so the published ORIGINAL
+// is scrubbed with a lossless ffmpeg remux (-map_metadata -1, stream copy)
+// before it is stamped and promoted. Pure decision tables live here so the
+// worker and tests share one source of truth.
+
+// Content-signature containers whose published original gets the remux scrub.
+// These mirror the `container` values emitted by detectContent() in magic.ts.
+const AV_STRIP_CONTAINERS: ReadonlySet<string> = new Set([
+  "iso-bmff",
+  "mov",
+  "m4a",
+  "webm",
+  "mkv",
+  "avi",
+  "flv",
+  "mpeg-audio",
+  "ogg",
+  "flac",
+  "wav",
+  "aac-adts",
+]);
+
+export function isAvMetadataStripContainer(container: string): boolean {
+  return AV_STRIP_CONTAINERS.has(container);
+}
+
+// File extension that selects ffmpeg's output muxer for a detected container.
+// Mismatched extensions make the remux fail closed (the caller publishes the
+// scanned bytes), so this table must stay exact.
+const AV_CONTAINER_EXTENSIONS: Record<string, string> = {
+  "aac-adts": "aac",
+  avi: "avi",
+  flac: "flac",
+  flv: "flv",
+  "iso-bmff": "mp4",
+  m4a: "m4a",
+  mkv: "mkv",
+  mov: "mov",
+  "mpeg-audio": "mp3",
+  ogg: "ogg",
+  wav: "wav",
+  webm: "webm",
+};
+
+export function avContainerExtension(container: string): string | null {
+  return AV_CONTAINER_EXTENSIONS[container] ?? null;
+}
+
+// Containers whose muxer supports (and needs) progressive moov placement so
+// browsers can start playback before the whole file arrives.
+const FASTSTART_CONTAINERS: ReadonlySet<string> = new Set([
+  "iso-bmff",
+  "mov",
+  "m4a",
+]);
+
+export function needsFaststart(container: string): boolean {
+  return FASTSTART_CONTAINERS.has(container);
+}
