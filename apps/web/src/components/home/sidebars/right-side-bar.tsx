@@ -3,6 +3,7 @@
 import type { UserData } from "@asm/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, UserRound, Users, X } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
 import {
@@ -24,8 +25,9 @@ import PostHistoryCard from "@/components/posts/post-history-card";
 import { useFollowStates } from "@/hooks/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
-import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./right/sidebar-styles";
+import { APPLE_CARD_CLASS } from "./right/sidebar-styles";
 
 const FOOTER_LINKS = [
   { href: "/toc", label: "Terms" },
@@ -58,6 +60,115 @@ type SuggestedUser = UserData & {
     avatarUrl: string | null;
   }[];
   _reasons?: string[];
+};
+
+// One suggestion as the classic compact row, with the user's header image
+// painted across the row as a background wash: a linear gradient brushes it
+// out toward the left into the panel surface, so the image breathes on the
+// right while the name/reason text sits on solid ground.
+const WhoToFollowRow: React.FC<{
+  followState?: { followers: number; isFollowedByUser: boolean };
+  handleDismiss: (userId: string) => void;
+  handleFollowed: (userId: string) => void;
+  user: SuggestedUser;
+}> = ({ followState, handleDismiss, handleFollowed, user }) => {
+  const [bannerFailed, setBannerFailed] = useState(false);
+  const bannerUrl =
+    user.bannerUrl && !bannerFailed ? getSecureImageUrl(user.bannerUrl) : null;
+  const avatarUrl = user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null;
+
+  let wash: React.ReactNode;
+  if (bannerUrl) {
+    wash = (
+      <Image
+        alt=""
+        className="object-cover"
+        fill
+        onError={() => setBannerFailed(true)}
+        sizes="256px"
+        src={bannerUrl}
+        unoptimized
+      />
+    );
+  } else if (avatarUrl) {
+    wash = (
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: `url(${avatarUrl})`,
+          filter: "blur(12px) saturate(1.1)",
+          transform: "scale(1.2)",
+        }}
+      />
+    );
+  } else {
+    wash = (
+      <div className="absolute inset-0 bg-linear-to-br from-orange-500/30 to-orange-600/10" />
+    );
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-xl">
+      {/* Header-image wash + paint-brush linear gradient: panel surface on
+          the left where the text sits, image showing through on the right. */}
+      <div aria-hidden className="absolute inset-0">
+        {wash}
+      </div>
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-linear-to-r from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.72)] to-transparent"
+      />
+      <div
+        aria-hidden
+        className="absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]"
+      />
+
+      <div className="relative flex items-center gap-3 px-2.5 py-2">
+        <Link href={`/users/${user.username}`}>
+          <UserAvatar avatarUrl={user.avatarUrl} className="h-8 w-8" />
+        </Link>
+        <div className="min-w-0 flex-1">
+          <Link className="block min-w-0" href={`/users/${user.username}`}>
+            <span className="flex items-center gap-1.5">
+              <span className="block truncate text-sm font-medium">
+                {user.displayName || user.username}
+              </span>
+              <UserBadge badge={user.badge} badges={user.badges} />
+            </span>
+            <span className="text-muted-foreground block truncate text-xs">
+              @{user.username}
+            </span>
+          </Link>
+          {/* Reason lives in the text column so it aligns with the
+              name/@username block instead of sitting flush-left. */}
+          <UserReasonLine
+            mutualFollowers={user.mutualFollowers}
+            reason={user._reasons?.[0]}
+          />
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <FollowButton
+            className="h-8 shrink-0 px-3 text-xs"
+            initialState={{
+              followers: followState?.followers ?? user._count.followers,
+              isFollowedByUser: followState?.isFollowedByUser ?? false,
+            }}
+            onFollowed={() => handleFollowed(user.id)}
+            userId={user.id}
+          />
+          <button
+            aria-label={`Dismiss ${user.username}`}
+            className="text-muted-foreground hover:text-foreground hidden h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm group-hover:flex"
+            onClick={() => handleDismiss(user.id)}
+            type="button"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 interface WhoToFollowContentProps {
@@ -152,69 +263,13 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
   return (
     <>
       {visibleUsers.map((suggestedUser) => (
-        <div key={suggestedUser.id}>
-          <div
-            className={cn(
-              "group flex items-center gap-3 rounded-lg px-2.5 py-2",
-              ROW_HOVER_CLASS
-            )}
-          >
-            <Link href={`/users/${suggestedUser.username}`}>
-              <UserAvatar
-                avatarUrl={suggestedUser.avatarUrl}
-                className="h-8 w-8"
-              />
-            </Link>
-            <div className="min-w-0 flex-1">
-              <Link
-                className="block min-w-0"
-                href={`/users/${suggestedUser.username}`}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span className="block truncate text-sm font-medium">
-                    {suggestedUser.displayName || suggestedUser.username}
-                  </span>
-                  <UserBadge
-                    badge={suggestedUser.badge}
-                    badges={suggestedUser.badges}
-                  />
-                </span>
-                <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
-                  @{suggestedUser.username}
-                </span>
-              </Link>
-              {/* Reason lives in the text column so it aligns with the
-                  name/@username block instead of sitting flush-left under
-                  the avatar. */}
-              <UserReasonLine
-                mutualFollowers={suggestedUser.mutualFollowers}
-                reason={suggestedUser._reasons?.[0]}
-              />
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <FollowButton
-                className="h-8 shrink-0 px-3 text-xs"
-                initialState={{
-                  followers:
-                    followStates?.[suggestedUser.id]?.followers ??
-                    suggestedUser._count.followers,
-                  isFollowedByUser:
-                    followStates?.[suggestedUser.id]?.isFollowedByUser ?? false,
-                }}
-                onFollowed={() => handleFollowed(suggestedUser.id)}
-                userId={suggestedUser.id}
-              />
-              <button
-                aria-label={`Dismiss ${suggestedUser.username}`}
-                className="text-muted-foreground hover:text-foreground hover:bg-accent hidden h-7 w-7 items-center justify-center rounded-full group-hover:flex"
-                onClick={() => handleDismiss(suggestedUser.id)}
-                type="button"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <WhoToFollowRow
+          followState={followStates?.[suggestedUser.id]}
+          handleDismiss={handleDismiss}
+          handleFollowed={handleFollowed}
+          key={suggestedUser.id}
+          user={suggestedUser}
+        />
       ))}
       {suggestedUsers.length > 0 ? (
         <button
