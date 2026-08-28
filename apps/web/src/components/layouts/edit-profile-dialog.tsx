@@ -125,6 +125,7 @@ export default function EditProfileDialog({
   const [croppedAvatar, setCroppedAvatar] = useState<Blob | null>(null);
   const [gifToCenter, setGifToCenter] = useState<File | null>(null);
   const [croppedBanner, setCroppedBanner] = useState<Blob | null>(null);
+  const [bannerGif, setBannerGif] = useState<File | null>(null);
   const [bannerRemoved, setBannerRemoved] = useState(false);
   const [avatarDeleted, setAvatarDeleted] = useState(false);
   // Mirrors the last seen open/user pair so closing the dialog (or fresh
@@ -156,6 +157,7 @@ export default function EditProfileDialog({
       setCroppedAvatar(null);
       setGifToCenter(null);
       setCroppedBanner(null);
+      setBannerGif(null);
       setBannerRemoved(false);
       setAvatarDeleted(false);
     }
@@ -212,7 +214,8 @@ export default function EditProfileDialog({
       values.redditUsername !== (user.redditUsername ?? "");
     const hasAvatarChanges = Boolean(croppedAvatar || gifToCenter);
     const hasAvatarDeleted = avatarDeleted && Boolean(user.avatarKey);
-    const hasBannerChanges = Boolean(croppedBanner) || bannerRemoved;
+    const hasBannerChanges =
+      Boolean(croppedBanner || bannerGif) || bannerRemoved;
     return {
       hasAvatarChanges,
       hasAvatarDeleted,
@@ -244,13 +247,21 @@ export default function EditProfileDialog({
   };
 
   const updateBanner = async () => {
+    // GIF banners skip cropping (resizing flattens animation); the centering
+    // dialog normally uploads them, but a pending gif here still uploads.
+    if (bannerGif) {
+      await bannerMutation.mutateAsync({
+        file: bannerGif,
+        userId: user.id,
+      });
+      return;
+    }
     if (croppedBanner) {
       const file = new File([croppedBanner], `banner_${user.id}.webp`, {
         type: "image/webp",
       });
       await bannerMutation.mutateAsync({
         file,
-        oldBannerKey: user.bannerKey || undefined,
         userId: user.id,
       });
       return;
@@ -425,11 +436,13 @@ export default function EditProfileDialog({
               isRemoved={bannerRemoved}
               isUploading={bannerMutation.isPending}
               onBannerCropped={setCroppedBanner}
+              onGifSelected={setBannerGif}
               onRemove={handleRemoveBanner}
               src={
                 croppedBannerUrl ??
                 (bannerRemoved ? "" : (user.bannerUrl ?? ""))
               }
+              user={user}
             />
           </div>
 
@@ -550,8 +563,10 @@ interface BannerInputProps {
   isRemoved: boolean;
   isUploading: boolean;
   onBannerCropped: (blob: Blob | null) => void;
+  onGifSelected: (file: File | null) => void;
   onRemove: () => void;
   src: string;
+  user: PrivateUserData;
 }
 
 const BannerInput = ({
@@ -559,11 +574,14 @@ const BannerInput = ({
   canRemove,
   isRemoved,
   onBannerCropped,
+  onGifSelected,
   onRemove,
   isUploading,
+  user,
 }: BannerInputProps) => {
   const { toast } = useToast();
   const [imageToCrop, setImageToCrop] = useState<File>();
+  const [gifToCenter, setGifToCenter] = useState<File>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bannerSrc = useMemo(() => {
@@ -595,6 +613,14 @@ const BannerInput = ({
         return;
       }
 
+      // GIFs must skip the resizer and crop dialog — both flatten animation.
+      // They go through the centering dialog and upload raw, like avatars.
+      if (file.type === "image/gif") {
+        setGifToCenter(file);
+        onGifSelected(file);
+        return;
+      }
+
       try {
         Resizer.imageFileResizer(
           file,
@@ -618,7 +644,7 @@ const BannerInput = ({
         resetInput();
       }
     },
-    [toast, resetInput]
+    [toast, onGifSelected, resetInput]
   );
 
   const handleFileChange = useCallback(
@@ -631,6 +657,12 @@ const BannerInput = ({
   const handleBannerClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  const handleGifClose = useCallback(() => {
+    setGifToCenter(undefined);
+    onGifSelected(null);
+    resetInput();
+  }, [onGifSelected, resetInput]);
 
   const handleCropClose = useCallback(() => {
     setImageToCrop(undefined);
@@ -654,7 +686,7 @@ const BannerInput = ({
   return (
     <>
       <input
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         className="sr-only hidden"
         onChange={handleFileChange}
         ref={fileInputRef}
@@ -708,6 +740,15 @@ const BannerInput = ({
           </button>
         ) : null}
       </div>
+
+      {gifToCenter ? (
+        <GifCenteringDialog
+          currentValues={{ userId: user.id }}
+          gifFile={gifToCenter}
+          onClose={handleGifClose}
+          target="banner"
+        />
+      ) : null}
 
       {imageToCrop ? (
         <CropImageDialog
@@ -914,6 +955,7 @@ const AvatarInput = ({
           currentValues={{ userId: user.id }}
           gifFile={gifToCenter}
           onClose={handleGifClose}
+          target="avatar"
         />
       ) : null}
 

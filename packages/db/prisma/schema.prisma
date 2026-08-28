@@ -27,6 +27,8 @@ model User {
   avatarMedia           Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
   bannerUrl             String?
   bannerKey             String?
+  bannerMediaId         String?                     @unique
+  bannerMedia           Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
   bio                   String?
   githubUsername        String?
   linkedinUsername      String?
@@ -411,6 +413,7 @@ model Media {
   comment              Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
   userId               String?
   avatarOf             User?            @relation("UserAvatar")
+  bannerOf             User?            @relation("UserBanner")
   url                  String
   key                  String           @default("")
   mimeType             String           @default("application/octet-stream")
@@ -425,6 +428,11 @@ model Media {
   thumbnailKey         String?
   thumbnailWidth       Int?
   thumbnailHeight      Int?
+  // Author-uploaded cover image (gust thumbnail): bytes are copied into this
+  // video's own key space by the thumbnail attach endpoint, so the serving
+  // route prefers it over the pipeline's scene-aware poster and no second
+  // media row needs to stay alive.
+  customThumbnailKey   String?
   // True when the pipeline generated an adaptive HLS ladder for this video
   // (long-form or >1080p sources); clients use it to pick the streaming URL.
   hasHls               Boolean          @default(false)

@@ -280,6 +280,24 @@ export async function processMediaImage(input: {
           }
         }
 
+        // Profile media (avatar/banner) promotion: once derivatives are
+        // committed, a linked static image swaps its serving key to the best
+        // derivative and the published original is deleted. Animated GIFs are
+        // skipped inside the helper — motion lives only in the original.
+        // Best-effort: promotion failure must not fail the process job.
+        if (derivativesToInsert.length > 0) {
+          try {
+            const { promoteProfileDerivative } = await import("@asm/db");
+            await promoteProfileDerivative(input.mediaId, "avatar");
+            await promoteProfileDerivative(input.mediaId, "banner");
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId: input.mediaId },
+              "profile media promotion failed"
+            );
+          }
+        }
+
         mediaLogger.info(
           { derivatives: derivativesToInsert.length, mediaId: input.mediaId },
           "image derivatives generated"

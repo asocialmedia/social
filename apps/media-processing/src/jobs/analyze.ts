@@ -51,7 +51,10 @@ async function resolveAnalysisSource(
     media.derivatives.find((d) => d.kind === "poster") ??
     media.derivatives.find((d) => d.kind === "cover") ??
     media.derivatives.find((d) => d.kind === "thumb");
-  const key = preferred?.key ?? media.publishedKey;
+  // Last-resort derivative fallback: promoted profile media (avatar/banner)
+  // has its published original deleted once a derivative takes over serving,
+  // so analysis must accept any committed derivative before the original.
+  const key = preferred?.key ?? media.derivatives[0]?.key ?? media.publishedKey;
   if (!key) {
     return null;
   }

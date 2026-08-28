@@ -35,6 +35,7 @@ export async function DELETE(
     data: { status: "DELETED" },
     where: {
       avatarOf: null,
+      bannerOf: null,
       commentId: null,
       id: mediaId,
       postId: null,
@@ -52,6 +53,7 @@ export async function DELETE(
 
   const media = await prisma.media.findUnique({
     select: {
+      customThumbnailKey: true,
       key: true,
       originalKey: true,
       publishedKey: true,
@@ -63,6 +65,7 @@ export async function DELETE(
 
   if (media) {
     const objectKeys = [
+      media.customThumbnailKey,
       media.originalKey,
       media.publishedKey,
       media.thumbnailKey,

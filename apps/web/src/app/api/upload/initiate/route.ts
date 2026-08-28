@@ -12,7 +12,7 @@ const initiateSchema = z.object({
   // (gust "sound"). Validated server-side in createInitiatedUpload.
   audioOverlayId: z.string().min(1).nullish(),
   name: z.string().min(1).max(255),
-  purpose: z.enum(["avatar", "comment", "message", "post"]).nullish(),
+  purpose: z.enum(["avatar", "banner", "comment", "message", "post"]).nullish(),
   size: z.number().int().positive(),
   type: z.string().min(3).max(100),
 });

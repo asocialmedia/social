@@ -1,8 +1,13 @@
-import { avatarCache, getPrivateUserSelect, prisma } from "@asm/db";
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  avatarCache,
+  getPrivateUserSelect,
+  prisma,
+  promoteProfileDerivative,
+  purgeSupersededProfileMedia,
+} from "@asm/db";
 import { NextResponse } from "next/server";
 
-import { ASMOB_BUCKET, asmobClient, deleteAvatar } from "@/lib/object-storage";
+import { deleteAvatar } from "@/lib/object-storage";
 import { getSessionFromApi } from "@/lib/session";
 
 // Avatar uploads go through the media pipeline (presigned PUT -> quarantine ->
@@ -33,86 +38,6 @@ async function deletableLegacyAvatarKey(
     return media ? null : avatarKey;
   }
   return avatarKey;
-}
-
-// Purges a superseded pipeline avatar: objects (original + derivatives),
-// quota refund, then the row itself. Skips rows that got linked to a post or
-// comment in the meantime — those belong to the pipeline lifecycle now. The
-// user's link was already cleared before this runs, so a re-link in between
-// would have set a different avatarMediaId; purge only proceeds when the
-// media is still owned by this user.
-async function purgeSupersededAvatarMedia(mediaId: string, userId: string) {
-  const media = await prisma.media.findUnique({
-    select: {
-      commentId: true,
-      key: true,
-      originalKey: true,
-      postId: true,
-      publishedKey: true,
-      size: true,
-      status: true,
-      thumbnailKey: true,
-      userId: true,
-    },
-    where: { id: mediaId },
-  });
-  if (!media || media.postId || media.commentId || media.userId !== userId) {
-    return;
-  }
-
-  for (const objectKey of [
-    media.originalKey,
-    media.publishedKey,
-    media.key,
-    media.thumbnailKey,
-  ]) {
-    if (!objectKey) {
-      continue;
-    }
-    try {
-      await asmobClient.send(
-        new DeleteObjectCommand({ Bucket: ASMOB_BUCKET, Key: objectKey })
-      );
-    } catch (error) {
-      console.error("Failed to delete superseded avatar object:", error);
-    }
-  }
-
-  // Derivatives live under their own keys; collect them before deleting the
-  // row. Best-effort: a missed derivative gets caught by the maintenance
-  // sweep eventually or simply orphans harmlessly.
-  try {
-    const derivatives = await prisma.mediaDerivative.findMany({
-      select: { key: true },
-      where: { mediaId },
-    });
-    for (const derivative of derivatives) {
-      try {
-        await asmobClient.send(
-          new DeleteObjectCommand({ Bucket: ASMOB_BUCKET, Key: derivative.key })
-        );
-      } catch (error) {
-        console.error("Failed to delete avatar derivative:", error);
-      }
-    }
-  } catch (error) {
-    console.error("Failed to list avatar derivatives:", error);
-  }
-
-  try {
-    const { redis } = await import("@asm/db");
-    if (
-      media.userId &&
-      media.size > 0 &&
-      !["UPLOADING", "REJECTED", "DELETED"].includes(media.status)
-    ) {
-      await redis.decrby(`user:storage:${media.userId}`, media.size);
-    }
-  } catch (error) {
-    console.error("Failed to refund storage quota:", error);
-  }
-
-  await prisma.media.delete({ where: { id: mediaId } });
 }
 
 export async function POST(request: Request) {
@@ -215,10 +140,20 @@ export async function POST(request: Request) {
     }
     if (previousMediaId) {
       try {
-        await purgeSupersededAvatarMedia(previousMediaId, userId);
+        await purgeSupersededProfileMedia(previousMediaId, userId);
       } catch (cleanupError) {
         console.error("Failed to delete old avatar media:", cleanupError);
       }
+    }
+
+    // Promotion race cover: derivatives may have committed before the link
+    // landed, in which case the process stage's promotion call saw no link
+    // yet. Running it here (best-effort) swaps static avatars to their
+    // optimized derivative immediately when that happened.
+    try {
+      await promoteProfileDerivative(media.id, "avatar");
+    } catch (promoteError) {
+      console.error("Failed to promote avatar derivative:", promoteError);
     }
 
     return NextResponse.json({ avatar: { key: avatarKey, url: avatarUrl } });
@@ -277,7 +212,7 @@ export async function DELETE() {
       }
     } else if (currentUser?.avatarMediaId) {
       try {
-        await purgeSupersededAvatarMedia(currentUser.avatarMediaId, userId);
+        await purgeSupersededProfileMedia(currentUser.avatarMediaId, userId);
       } catch (error) {
         console.error("Failed to delete avatar media:", error);
       }

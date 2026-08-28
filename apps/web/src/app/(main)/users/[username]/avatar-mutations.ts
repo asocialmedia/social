@@ -18,7 +18,6 @@ interface UpdateAvatarPayload {
 
 interface UpdateBannerPayload {
   file: File;
-  oldBannerKey?: string;
   userId: string;
 }
 
@@ -194,16 +193,24 @@ export function useUpdateBannerMutation() {
     UpdateBannerPayload,
     BannerMutationContext
   >({
-    mutationFn: async ({ file, userId, oldBannerKey }: UpdateBannerPayload) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userId", userId);
-      if (oldBannerKey) {
-        formData.append("oldBannerKey", oldBannerKey);
+    mutationFn: async ({ file }: UpdateBannerPayload) => {
+      // Bytes go directly to object storage through the presigned PUT and are
+      // quarantined, scanned, and processed by the pipeline before the row
+      // reaches READY - this hook then links the finished Media row, exactly
+      // as for avatars.
+      const upload = await uploadMediaFile(file, { purpose: "banner" });
+      if (upload.status === "REJECTED") {
+        throw new Error(
+          upload.rejectedReason === "MALWARE"
+            ? "That file failed the security scan"
+            : "That file was rejected"
+        );
       }
 
       const response = await fetch("/api/users/banner", {
-        body: formData,
+        body: JSON.stringify({ mediaId: upload.mediaId }),
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         method: "POST",
       });
 

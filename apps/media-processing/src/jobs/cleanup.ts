@@ -27,6 +27,7 @@ export async function processMediaCleanup(
       const media = await prisma.media.findUnique({
         select: {
           avatarOf: { select: { id: true } },
+          bannerOf: { select: { id: true } },
           commentId: true,
           createdAt: true,
           id: true,
@@ -44,7 +45,13 @@ export async function processMediaCleanup(
 
       // Still orphaned after the grace period (never attached to a post, a
       // comment, or a profile): delete.
-      if (!media || media.postId || media.commentId || media.avatarOf) {
+      if (
+        !media ||
+        media.postId ||
+        media.commentId ||
+        media.avatarOf ||
+        media.bannerOf
+      ) {
         return;
       }
 
