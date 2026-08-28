@@ -111,7 +111,7 @@ const WhoToFollowRow: React.FC<{
         </>
       ) : null}
 
-      <div className="relative flex items-center gap-3 px-2.5 py-2">
+      <div className="relative flex items-center gap-3 px-2.5 pt-2 pb-1">
         <Link href={`/users/${user.username}`}>
           <UserAvatar avatarUrl={user.avatarUrl} className="h-8 w-8" />
         </Link>
@@ -127,12 +127,6 @@ const WhoToFollowRow: React.FC<{
               @{user.username}
             </span>
           </Link>
-          {/* Reason lives in the text column so it aligns with the
-              name/@username block instead of sitting flush-left. */}
-          <UserReasonLine
-            mutualFollowers={user.mutualFollowers}
-            reason={user._reasons?.[0]}
-          />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <FollowButton
@@ -153,6 +147,14 @@ const WhoToFollowRow: React.FC<{
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
+      </div>
+      {/* Reason line starts below the avatar: its own full-width line under
+          the row, left-aligned with the avatar above it. */}
+      <div className="relative px-2.5 pb-2">
+        <UserReasonLine
+          mutualFollowers={user.mutualFollowers}
+          reason={user._reasons?.[0]}
+        />
       </div>
     </div>
   );
