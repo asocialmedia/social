@@ -117,7 +117,7 @@ const WhoToFollowRow: React.FC<{
       </div>
       <div
         aria-hidden
-        className="absolute inset-0 bg-linear-to-r from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.72)] to-transparent"
+        className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.8)] to-transparent"
       />
       <div
         aria-hidden
