@@ -24,7 +24,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.RUSTFS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.RUSTFS_REGION }}
           AWS_EC2_METADATA_DISABLED: "true"
-          APPLY_PUBLIC_POLICIES: ${{ github.event.inputs.apply_public_policies || 'true' }}
+          # Public-read on media buckets is deliberately OFF by default: the
+          # app serves every object through authenticated server-side reads
+          # and presigned URLs, so anonymous GetObject is pure exposure.
+          APPLY_PUBLIC_POLICIES: ${{ github.event.inputs.apply_public_policies || 'false' }}
           ENABLE_VERSIONING: ${{ github.event.inputs.enable_versioning || 'true' }}
         run: |
           set -eu
