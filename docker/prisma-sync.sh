@@ -109,7 +109,33 @@ END $$;
 COMMIT;
 SQL
 
-  echo "Schema drift detected. Pushing Prisma schema..."
+  # Prisma db push refuses to apply additive changes that introduce unique
+  # constraints on fresh columns: its "might be data loss" heuristic cannot
+  # prove the brand-new columns hold no duplicates, so it demands
+  # --accept-data-loss even when the diff drops nothing. The production-safe
+  # path around that wall, without ever passing the flag:
+  #   1) materialize the exact SQL the push would run (recomputed now, after
+  #      the legacy enum swap above has settled the enum surface),
+  #   2) refuse loudly if that SQL is destructive in any way,
+  #   3) apply it in one implicit transaction - a unique-constraint build
+  #      that hits duplicate data fails the WHOLE batch and the database is
+  #      left untouched, and
+  #   4) let db push confirm the database is in sync (no flags).
+  echo "Materializing schema drift as SQL..."
+  bunx prisma migrate diff \
+    --config "$PRISMA_CONFIG_PATH" \
+    --from-config-datasource \
+    --to-schema "$SCHEMA_PATH" \
+    --script > /tmp/push.sql
+  if grep -qiE '(DROP TABLE|DROP COLUMN|DROP INDEX|DROP TYPE|DELETE FROM|TRUNCATE)' /tmp/push.sql; then
+    echo "Refusing to apply a destructive schema diff. Review manually:" >&2
+    cat /tmp/push.sql >&2
+    exit 1
+  fi
+  echo "Applying additive schema diff atomically..."
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/push.sql
+
+  echo "Confirming schema is in sync..."
   bunx prisma db push --config "$PRISMA_CONFIG_PATH"
 else
   echo "No schema drift detected, database is in sync."

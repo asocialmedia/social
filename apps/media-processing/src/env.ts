@@ -206,7 +206,10 @@ export const workerEnv = {
   // fail and retry instead of publishing unscanned bytes. With no host set
   // (development), scanning is skipped loudly.
   get PROCESS_CONCURRENCY() {
-    return keys.MEDIA_PROCESS_CONCURRENCY;
+    // t3-env skipValidation (NODE_ENV=production) bypasses z.coerce, so the
+    // raw value arrives as the env string; BullMQ demands a real number.
+    const parsed = Number(keys.MEDIA_PROCESS_CONCURRENCY);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 2;
   },
   get PUBLIC_BASE_URL() {
     return keys.NEXT_PUBLIC_URL;
@@ -218,7 +221,9 @@ export const workerEnv = {
     return keys.MEDIA_REQUIRE_CLAMAV === "1";
   },
   get SCAN_CONCURRENCY() {
-    return keys.MEDIA_SCAN_CONCURRENCY;
+    // Same production string-coercion story as PROCESS_CONCURRENCY above.
+    const parsed = Number(keys.MEDIA_SCAN_CONCURRENCY);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 4;
   },
   get WATERMARK_ENABLED() {
     return true;
