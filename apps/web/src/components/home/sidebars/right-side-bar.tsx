@@ -62,10 +62,10 @@ type SuggestedUser = UserData & {
   _reasons?: string[];
 };
 
-// One suggestion as the classic compact row, with the user's header image
-// painted across the row as a background wash: a linear gradient brushes it
-// out toward the left into the panel surface, so the image breathes on the
-// right while the name/reason text sits on solid ground.
+// One suggestion as the classic compact row. Users WITH a custom header
+// image get it painted across the row as a background wash (the gradient
+// stack brushing it into the panel). Users without one keep the plain flat
+// row - no image, no gradient styling.
 const WhoToFollowRow: React.FC<{
   followState?: { followers: number; isFollowedByUser: boolean };
   handleDismiss: (userId: string) => void;
@@ -75,60 +75,41 @@ const WhoToFollowRow: React.FC<{
   const [bannerFailed, setBannerFailed] = useState(false);
   const bannerUrl =
     user.bannerUrl && !bannerFailed ? getSecureImageUrl(user.bannerUrl) : null;
-  const avatarUrl = user.avatarUrl ? getSecureImageUrl(user.avatarUrl) : null;
-
-  let wash: React.ReactNode;
-  if (bannerUrl) {
-    wash = (
-      <Image
-        alt=""
-        className="object-cover"
-        fill
-        onError={() => setBannerFailed(true)}
-        sizes="256px"
-        src={bannerUrl}
-        unoptimized
-      />
-    );
-  } else if (avatarUrl) {
-    wash = (
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-cover bg-center"
-        style={{
-          backgroundImage: `url(${avatarUrl})`,
-          filter: "blur(12px) saturate(1.1)",
-          transform: "scale(1.2)",
-        }}
-      />
-    );
-  } else {
-    wash = (
-      <div className="absolute inset-0 bg-linear-to-br from-orange-500/30 to-orange-600/10" />
-    );
-  }
 
   return (
     <div className="relative overflow-hidden rounded-xl">
-      {/* Header-image wash + paint-brush linear gradient: panel surface on
-          the left where the text sits, image showing through on the right. */}
-      <div aria-hidden className="absolute inset-0">
-        {wash}
-      </div>
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.8)] to-transparent"
-      />
-      {/* Bottom-up wash: stacking it over the right-to-left gradient pins
-          the visible image to the top-left corner alone. */}
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.55)] to-transparent"
-      />
-      <div
-        aria-hidden
-        className="absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]"
-      />
+      {bannerUrl ? (
+        <>
+          {/* Header-image wash + paint-brush gradient stack: panel surface
+              on the left where the text sits, image pinned to the
+              top-left corner by the bottom-up wash. */}
+          <div aria-hidden className="absolute inset-0">
+            <Image
+              alt=""
+              className="object-cover"
+              fill
+              onError={() => setBannerFailed(true)}
+              sizes="256px"
+              src={bannerUrl}
+              unoptimized
+            />
+          </div>
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.8)] to-transparent"
+          />
+          {/* Bottom-up wash: stacking it over the right-to-left gradient
+              pins the visible image to the top-left corner alone. */}
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.55)] to-transparent"
+          />
+          <div
+            aria-hidden
+            className="absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]"
+          />
+        </>
+      ) : null}
 
       <div className="relative flex items-center gap-3 px-2.5 py-2">
         <Link href={`/users/${user.username}`}>
