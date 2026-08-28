@@ -2,7 +2,7 @@
 
 import type { UserData } from "@asm/db";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, RefreshCw, Sparkles, UserRound, Users, X } from "lucide-react";
+import { RefreshCw, UserRound, Users, X } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 import {
@@ -15,6 +15,7 @@ import {
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import UserReasonLine from "@/components/discover/user-reason-line";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
@@ -58,45 +59,6 @@ type SuggestedUser = UserData & {
   }[];
   _reasons?: string[];
 };
-
-function ReasonLine({
-  reasons,
-  mutualFollowers,
-}: {
-  reasons?: string[];
-  mutualFollowers?: SuggestedUser["mutualFollowers"];
-}) {
-  const reason = reasons?.[0];
-  if (!reason) {
-    return null;
-  }
-  return (
-    <div className="text-muted-foreground flex items-center gap-1.5 px-2.5 pt-0.5 pb-1.5 text-[11px] leading-tight">
-      {mutualFollowers && mutualFollowers.length > 0 ? (
-        <span className="flex shrink-0 -space-x-1.5">
-          {mutualFollowers.slice(0, 3).map((m) => (
-            <span
-              key={m.username}
-              className="ring-background rounded-full ring-2"
-            >
-              <UserAvatar avatarUrl={m.avatarUrl} className="h-4 w-4" />
-            </span>
-          ))}
-        </span>
-      ) : null}
-      {!mutualFollowers?.length && reason.includes("Active") ? (
-        <Clock className="h-3 w-3 shrink-0" />
-      ) : null}
-      {!mutualFollowers?.length && reason.includes("Popular") ? (
-        <Sparkles className="h-3 w-3 shrink-0 fill-current" />
-      ) : null}
-      {!mutualFollowers?.length && reason.includes("interest") ? (
-        <Users className="h-3 w-3 shrink-0" />
-      ) : null}
-      <span className="min-w-0">{reason}</span>
-    </div>
-  );
-}
 
 interface WhoToFollowContentProps {
   followStates?: Record<
@@ -203,23 +165,32 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
                 className="h-8 w-8"
               />
             </Link>
-            <Link
-              className="min-w-0 flex-1"
-              href={`/users/${suggestedUser.username}`}
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="block truncate text-sm font-medium">
-                  {suggestedUser.displayName || suggestedUser.username}
+            <div className="min-w-0 flex-1">
+              <Link
+                className="block min-w-0"
+                href={`/users/${suggestedUser.username}`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className="block truncate text-sm font-medium">
+                    {suggestedUser.displayName || suggestedUser.username}
+                  </span>
+                  <UserBadge
+                    badge={suggestedUser.badge}
+                    badges={suggestedUser.badges}
+                  />
                 </span>
-                <UserBadge
-                  badge={suggestedUser.badge}
-                  badges={suggestedUser.badges}
-                />
-              </span>
-              <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
-                @{suggestedUser.username}
-              </span>
-            </Link>
+                <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
+                  @{suggestedUser.username}
+                </span>
+              </Link>
+              {/* Reason lives in the text column so it aligns with the
+                  name/@username block instead of sitting flush-left under
+                  the avatar. */}
+              <UserReasonLine
+                mutualFollowers={suggestedUser.mutualFollowers}
+                reason={suggestedUser._reasons?.[0]}
+              />
+            </div>
             <div className="flex shrink-0 items-center gap-1">
               <FollowButton
                 className="h-8 shrink-0 px-3 text-xs"
@@ -243,10 +214,6 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
               </button>
             </div>
           </div>
-          <ReasonLine
-            reasons={suggestedUser._reasons}
-            mutualFollowers={suggestedUser.mutualFollowers}
-          />
         </div>
       ))}
       {suggestedUsers.length > 0 ? (
