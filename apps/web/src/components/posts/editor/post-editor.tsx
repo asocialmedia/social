@@ -75,6 +75,7 @@ import { FileInput } from "./file-input";
 import { GustMentionPicker, GustTagPicker } from "./gust-meta-pickers";
 import { HNStoryPreview } from "./hn-story-preview";
 import { InlineSuggestions } from "./inline-suggestions";
+import LinkEmbedComposer from "./link-embed-composer";
 import useMediaUpload from "./use-media-upload";
 import type { Attachment } from "./use-media-upload";
 
@@ -216,6 +217,9 @@ export default function PostEditor({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedMentions, setSelectedMentions] = useState<UserData[]>([]);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  // Links whose live preview the author dismissed in the composer; excluded
+  // from the stored embed set at publish.
+  const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
   // Gust "sound": an audio track that replaces the video's own audio during
   // pipeline processing. Uploaded through the same pipeline (purpose post);
   // its mediaId rides along on the video upload as audioOverlayId.
@@ -511,6 +515,7 @@ export default function PostEditor({
 
     const payload = {
       content: input.trim(),
+      dismissedEmbedUrls,
       isGust,
       mediaIds: gustMediaIds,
       mentions: selectedMentions.map((mentionedUser) => mentionedUser.id),
@@ -568,6 +573,7 @@ export default function PostEditor({
         setAltDrafts({});
         setSelectedTags([]);
         setSelectedMentions([]);
+        setDismissedEmbedUrls([]);
         setGifPickerOpen(false);
         if (isHnSharing) {
           hnShareStore.clearState();
@@ -583,6 +589,7 @@ export default function PostEditor({
     input,
     attachments,
     altDrafts,
+    dismissedEmbedUrls,
     hasPublishableMedia,
     hasUploadError,
     selectedTags,
@@ -915,6 +922,19 @@ export default function PostEditor({
                     />
                   </div>
                 ) : null}
+                {/* Live link previews: resolve as the author types, dismiss
+                    to keep a link plain text in the published post. */}
+                {isHnSharing ? null : (
+                  <LinkEmbedComposer
+                    content={input}
+                    dismissedUrls={new Set<string>(dismissedEmbedUrls)}
+                    onDismiss={(url) =>
+                      setDismissedEmbedUrls((prev) =>
+                        prev.includes(url) ? prev : [...prev, url]
+                      )
+                    }
+                  />
+                )}
                 {/* Hidden file input for drag & drop - positioned absolutely to avoid interfering with editor clicks */}
                 <input
                   {...getInputProps()}

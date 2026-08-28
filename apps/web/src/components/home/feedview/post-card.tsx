@@ -25,11 +25,13 @@ import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import PostLinkEmbeds from "@/components/posts/link-embeds";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
-import Linkify from "@/helpers/global/linkify";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { canModeratePost } from "@/lib/moderation";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -93,6 +95,9 @@ const PostContent: React.FC<PostContentProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  // Validated stored embed payloads drive both the inline link badges and
+  // the preview cards below the post.
+  const postEmbeds = parseStoredEmbeds(post.embeds);
 
   const updateOverflow = useCallback(() => {
     const el = contentRef.current;
@@ -250,16 +255,11 @@ const PostContent: React.FC<PostContentProps> = ({
           <ModeratedNotice className="mt-2.5" kind="post" />
         ) : (
           <>
-            <Linkify>
-              <div
-                className={cn(!isExpanded && "line-clamp-6")}
-                ref={contentRef}
-              >
-                <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-                  {post.content}
-                </p>
-              </div>
-            </Linkify>
+            <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
+              {/* URLs inside the content render as inline badges (platform
+                  logo + resolved embed title) instead of raw URLs. */}
+              <PostLinkedContent content={post.content} embeds={postEmbeds} />
+            </div>
             {isOverflowing ? (
               <button
                 className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
@@ -306,6 +306,10 @@ const PostContent: React.FC<PostContentProps> = ({
                 )}
               </div>
             )}
+
+            {/* Link embeds live below the media block: previews resolved at
+                publish time, rendered from the stored (validated) payloads. */}
+            {post.embeds ? <PostLinkEmbeds embeds={postEmbeds} /> : null}
 
             {post.tags?.length || post.mentions?.length ? (
               <PostMeta

@@ -89,6 +89,12 @@ mock.module("@asm/db", () => ({
         }),
     },
   },
+  // Pulled statically by the link-embed resolver the submit path delegates
+  // to; the tests never touch the cache itself.
+  redis: {
+    get: () => Promise.resolve(null),
+    set: () => Promise.resolve("OK"),
+  },
   tagCache: {},
 }));
 

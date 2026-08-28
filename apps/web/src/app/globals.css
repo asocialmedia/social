@@ -127,6 +127,31 @@
     0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
+/* Link-embed panel: the app's dual-border 3D construction (outer hairline +
+   inner white lip catching light) on a neutral surface, light and dark. */
+.embed-panel-3d {
+  background: hsl(var(--background-alt));
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.03),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 3px 8px rgba(0, 0, 0, 0.06);
+}
+
+.dark .embed-panel-3d {
+  background: hsl(var(--background-alt));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 0.06),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
 .hn-chip {
   display: inline-flex;
   gap: 4px;

@@ -2,6 +2,7 @@
 
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createGustSchema, createPostSchema } from "@asm/auth/validation";
+import type { Prisma } from "@asm/db";
 import {
   applyFlatAward,
   ATTACHMENT_BONUSES,
@@ -21,6 +22,8 @@ import {
 import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
 import { updateTag } from "next/cache";
 
+import { resolvePostEmbeds } from "@/lib/link-embeds/server";
+import { MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
 import { getModerationSystemUserId } from "@/lib/system-moderation-user";
 
 type ExtendedCreatePostInput = CreatePostInput & {
@@ -115,12 +118,32 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
     const parsed = (input.isGust ? createGustSchema : createPostSchema).parse({
       content: input.content,
+      dismissedEmbedUrls: input.dismissedEmbedUrls ?? [],
       isGust: input.isGust ?? false,
       mediaIds: input.mediaIds || [],
       mentions: input.mentions || [],
       tags: input.tags || [],
     });
     const validatedInput: CreatePostInput = parsed;
+
+    // Link embeds resolve before the transaction: cache-first (the composer
+    // preview warmed Redis moments ago), bounded by a wall-clock budget so a
+    // slow origin can never stall publishing. Dismissal is only honored for
+    // URLs actually present in the content, so a crafted payload cannot
+    // preload arbitrary cache entries.
+    const dismissedEmbedUrls = new Set(
+      (validatedInput.dismissedEmbedUrls ?? []).slice(0, MAX_POST_EMBEDS)
+    );
+    const embeds = validatedInput.content
+      ? await resolvePostEmbeds(validatedInput.content, dismissedEmbedUrls)
+      : [];
+    // Prisma's Json input needs its own JSON value type; a round-trip gives
+    // a plain, index-signature-shaped payload without any assertion on the
+    // embed objects themselves.
+    const embedsJson: Prisma.InputJsonValue | undefined =
+      embeds.length > 0
+        ? (structuredClone(embeds) as unknown as Prisma.InputJsonValue)
+        : undefined;
 
     const auraReward = await calculateAuraReward(
       validatedInput.mediaIds,
@@ -202,6 +225,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           },
           aura: 0,
           content: validatedInput.content,
+          // Resolved link previews; text-only posts keep the column null.
+          embeds: embedsJson,
           isGust: validatedInput.isGust ?? false,
           mentions:
             validatedInput.mentions.length > 0

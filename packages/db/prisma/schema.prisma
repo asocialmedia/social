@@ -361,6 +361,11 @@ model Post {
   mentions              Mention[]
   hnStoryShare          HNStoryShare?
   visits                PostVisit[]
+  // Resolved link previews (max 5, LinkEmbed payloads from
+  // apps/web/src/lib/link-embeds): fetched server-side at publish with SSRF
+  // validation and stored so feed rendering never performs outbound fetches.
+  // Author-dismissed links are simply excluded at write time.
+  embeds                Json?
   createdAt             DateTime       @default(now())
 
   @@index([isGust, createdAt])

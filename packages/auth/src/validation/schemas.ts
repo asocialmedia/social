@@ -85,6 +85,9 @@ const createPostShape = z.object({
   // clip speaks for itself. The refine on createPostSchema enforces
   // "text or attachment".
   content: z.string().optional().default(""),
+  // Links the author dismissed in the composer's live preview; the publish
+  // path excludes them from the stored embed set. Capped like MAX_POST_EMBEDS.
+  dismissedEmbedUrls: z.array(z.string().max(2048)).max(5).optional(),
   isGust: z.boolean().optional().default(false),
   // Mirrors MAX_POST_ATTACHMENTS in @asm/media (kept literal here so the
   // validation package stays dependency-free).
