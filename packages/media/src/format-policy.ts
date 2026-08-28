@@ -4,10 +4,10 @@
 //
 // Codec reality (verified against Bun docs): the media-processing worker runs
 // on Linux where Bun.Image encodes JPEG/PNG/WebP only - AVIF/HEIC/TIFF are
-// OS-backends that do not exist on Linux. Delivery format is therefore WebP
-// (universally supported in browsers since Safari 14 / 2020) with JPEG
-// fallback copies for the small preview sizes. AVIF becomes an easy win later
-// if the worker gains a libavif encoder.
+// OS-backends that do not exist on Linux. Delivery format is therefore
+// WebP (universally supported in browsers since Safari 14 / 2020) with JPEG
+// fallback copies for small preview sizes on non-transparent images; AVIF
+// would slot ahead of WebP once the worker gains a libavif encoder.
 
 import type { DerivativeKind } from "./types";
 
@@ -22,6 +22,10 @@ export interface ImagePlanInput {
   // Fraction of unique colors in a downscaled sample; low values suggest
   // flat graphics/screenshots rather than photography. 0-1.
   colorEntropy: number;
+  // True when the uploaded bytes are a lossless encoding (PNG, static GIF,
+  // lossless WebP). Photographic JPEGs and lossy WebPs stay false so their
+  // derivatives keep perceptual (lossy) encoding.
+  isLosslessSource: boolean;
 }
 
 export interface PlannedImageDerivative {
@@ -33,6 +37,10 @@ export interface PlannedImageDerivative {
   quality: number;
   // Indexed PNG mode for flat-color graphics (3-5x smaller).
   palette?: boolean;
+  // Pixel-exact WebP for the orig-img rung of lossless sources. Lossless
+  // encodes of flat/low-color content compress as well as or better than
+  // PNG while remaining bit-identical to the source pixels.
+  lossless?: boolean;
 }
 
 // Width ladder: only widths at or below the source are produced.
@@ -43,7 +51,10 @@ const IMAGE_WIDTH_LADDER = [
   { kind: "lg", width: 1200 },
 ] as const;
 
-const ORIG_IMG_MAX_WIDTH = 1600;
+// Sources at or below this width get an original-resolution derivative so
+// fullscreen viewing never shows a downscaled ladder rung. Covers every
+// mainstream display class up to 4K desktop monitors.
+const ORIG_IMG_MAX_WIDTH = 4096;
 
 // Sizes that also get a JPEG fallback copy for ancient clients.
 const JPEG_FALLBACK_KINDS: ReadonlySet<string> = new Set(["thumb", "md"]);
@@ -63,11 +74,14 @@ interface ClassQuality {
   palette: boolean;
 }
 
+// Quality floor chosen for full-width retina display: WebP chroma
+// subsampling starts smearing saturated edges well below ~q80, which reads
+// as "blurry" next to the original bytes these derivatives replace.
 const CLASS_QUALITY: Record<ImageClass, ClassQuality> = {
-  alpha: { palette: false, quality: 82 },
-  animated: { palette: false, quality: 75 },
-  graphic: { palette: false, quality: 85 },
-  photo: { palette: false, quality: 78 },
+  alpha: { palette: false, quality: 86 },
+  animated: { palette: false, quality: 78 },
+  graphic: { palette: true, quality: 88 },
+  photo: { palette: false, quality: 84 },
 };
 
 function scaledHeight(width: number, input: ImagePlanInput): number {
@@ -98,7 +112,10 @@ export function planImageDerivatives(
       variant: "webp",
       width: rung.width,
     });
-    if (JPEG_FALLBACK_KINDS.has(rung.kind)) {
+    // JPEG has no alpha channel: transparent sources must not get a
+    // JPEG fallback that would composite against black. Ancient clients
+    // on those images just get the WebP ladder rung at the same width.
+    if (!input.hasAlpha && JPEG_FALLBACK_KINDS.has(rung.kind)) {
       plan.push({
         height,
         kind: rung.kind,
@@ -110,13 +127,25 @@ export function planImageDerivatives(
     }
   }
 
-  // A stripped, re-encoded original-resolution derivative is justified for
-  // sources at or below the display ceiling; larger originals stay private.
-  // Animated sources serve their original bytes directly instead.
-  if (input.width <= ORIG_IMG_MAX_WIDTH && !input.isAnimated) {
+  // A source-resolution derivative keeps fullscreen viewing at native
+  // fidelity. Lossless sources (PNG / static GIF / lossless WebP) that
+  // classify as graphic or alpha get a bit-exact lossless WebP; photos and
+  // lossy sources get a high-quality perceptual encode - a lossless encode
+  // of noisy photographic content would dwarf the upload itself.
+  // Tiny sources that fit no ladder rung still need an orig-img so
+  // something is servable; otherwise orig-img is redundant with thumb.
+  const ladderRungCount = IMAGE_WIDTH_LADDER.filter(
+    (r) => r.width <= input.width
+  ).length;
+  if (
+    input.width <= ORIG_IMG_MAX_WIDTH &&
+    (input.width > 320 || ladderRungCount === 0) &&
+    !input.isAnimated
+  ) {
     plan.push({
       height: input.height,
       kind: "orig-img",
+      lossless: input.isLosslessSource && imageClass !== "photo",
       palette: settings.palette,
       quality: Math.min(92, settings.quality + 12),
       variant: "webp",
@@ -178,3 +207,66 @@ export const AUDIO_TARGET_LUFS = -16;
 export const AUDIO_OPUS_KBPS = 96;
 export const AUDIO_AAC_KBPS = 128;
 export const WAVEFORM_PEAK_POINTS = 200;
+
+// ── Published-original metadata policy (video/audio) ───────────────────────
+// Static rasters are scrubbed structurally by strip-metadata.ts. Video and
+// audio containers carry EXIF-class metadata too (QuickTime udta keys, MP4
+// ilst tags, ID3, XMP, GPS in phone recordings), so the published ORIGINAL
+// is scrubbed with a lossless ffmpeg remux (-map_metadata -1, stream copy)
+// before it is stamped and promoted. Pure decision tables live here so the
+// worker and tests share one source of truth.
+
+// Content-signature containers whose published original gets the remux scrub.
+// These mirror the `container` values emitted by detectContent() in magic.ts.
+const AV_STRIP_CONTAINERS: ReadonlySet<string> = new Set([
+  "iso-bmff",
+  "mov",
+  "m4a",
+  "webm",
+  "mkv",
+  "avi",
+  "flv",
+  "mpeg-audio",
+  "ogg",
+  "flac",
+  "wav",
+  "aac-adts",
+]);
+
+export function isAvMetadataStripContainer(container: string): boolean {
+  return AV_STRIP_CONTAINERS.has(container);
+}
+
+// File extension that selects ffmpeg's output muxer for a detected container.
+// Mismatched extensions make the remux fail closed (the caller publishes the
+// scanned bytes), so this table must stay exact.
+const AV_CONTAINER_EXTENSIONS: Record<string, string> = {
+  "aac-adts": "aac",
+  avi: "avi",
+  flac: "flac",
+  flv: "flv",
+  "iso-bmff": "mp4",
+  m4a: "m4a",
+  mkv: "mkv",
+  mov: "mov",
+  "mpeg-audio": "mp3",
+  ogg: "ogg",
+  wav: "wav",
+  webm: "webm",
+};
+
+export function avContainerExtension(container: string): string | null {
+  return AV_CONTAINER_EXTENSIONS[container] ?? null;
+}
+
+// Containers whose muxer supports (and needs) progressive moov placement so
+// browsers can start playback before the whole file arrives.
+const FASTSTART_CONTAINERS: ReadonlySet<string> = new Set([
+  "iso-bmff",
+  "mov",
+  "m4a",
+]);
+
+export function needsFaststart(container: string): boolean {
+  return FASTSTART_CONTAINERS.has(container);
+}

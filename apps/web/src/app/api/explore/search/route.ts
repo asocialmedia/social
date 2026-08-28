@@ -18,11 +18,13 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q")?.trim() ?? "";
   const tabParam = url.searchParams.get("tab");
-  let tab: "for-you" | "trending" | "gusts" = "for-you";
+  let tab: "for-you" | "people" | "trending" | "gusts" = "for-you";
   if (tabParam === "trending") {
     tab = "trending";
   } else if (tabParam === "gusts") {
     tab = "gusts";
+  } else if (tabParam === "people") {
+    tab = "people";
   }
 
   const takeValue = url.searchParams.get("take");

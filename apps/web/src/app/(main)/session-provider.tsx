@@ -4,6 +4,7 @@ import type { Session, User } from "@asm/auth/core";
 import type React from "react";
 import { createContext, useContext } from "react";
 
+// oxlint-disable-next-line no-redeclare -- context idiom: type shares its name with the runtime context
 interface SessionContext {
   session: Session | null;
   user: User | null;

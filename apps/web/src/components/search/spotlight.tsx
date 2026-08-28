@@ -18,6 +18,7 @@ import {
   normalizeHistoryItem,
   useSearchHistory,
 } from "@/components/search/use-search-history";
+import { getAuraFlameClass } from "@/lib/aura";
 import {
   cn,
   formatNumber,
@@ -86,9 +87,30 @@ const Spotlight: React.FC<SpotlightProps> = ({
   const isLoggedIn = Boolean(user);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  // Mirrors the last seen open/initialQuery pair so the search box is reseeded
+  // during render (the documented adjust-state pattern) instead of from a
+  // cascading effect.
+  const [seedInputs, setSeedInputs] = useState<{
+    initialQuery?: string;
+    open: boolean;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<SpotlightResultItem[]>([]);
+
+  if (
+    seedInputs === null ||
+    seedInputs.open !== open ||
+    seedInputs.initialQuery !== initialQuery
+  ) {
+    if (open) {
+      setSeedInputs({ initialQuery, open });
+      setQuery(initialQuery ?? "");
+      setActiveIndex(0);
+    } else {
+      setSeedInputs({ initialQuery, open });
+    }
+  }
 
   const {
     addPostSearchMutation,
@@ -108,14 +130,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
   useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-compiler -- seed the search box with the requested query when opened
-      setQuery(initialQuery ?? "");
-      setActiveIndex(0);
       window.setTimeout(() => {
         inputRef.current?.focus();
       }, 50);
     }
-  }, [open, initialQuery]);
+  }, [open]);
 
   const buildItems = useCallback((): SpotlightResultItem[] => {
     const items: SpotlightResultItem[] = [];
@@ -516,9 +535,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                             <Flame
                               className={cn(
                                 "h-3 w-3",
-                                (item.aura ?? 0) < 0
-                                  ? "text-[#7c5cff]"
-                                  : "text-orange-500"
+                                getAuraFlameClass(item.aura ?? 0)
                               )}
                             />
                             {formatNumber(item.aura ?? 0)}

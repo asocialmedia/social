@@ -31,8 +31,14 @@ describe("worker job processors", () => {
       delete: mock(() => ({})),
       deleteMany: mock(() => ({ count: 2 })),
       findMany: mock(() => [
-        { id: "media-1", key: "uploads/a.jpg", thumbnailKey: null },
         {
+          derivatives: [],
+          id: "media-1",
+          key: "uploads/a.jpg",
+          thumbnailKey: null,
+        },
+        {
+          derivatives: [{ key: "derived/v2/media-2/poster-default.jpg" }],
           id: "media-2",
           key: "",
           thumbnailKey: "uploads/video-thumb.jpg",
@@ -89,17 +95,35 @@ describe("worker job processors", () => {
   test("processPostDeleted deletes media objects and rows and clears view keys", async () => {
     const { processPostDeleted } = await import("./jobs");
 
-    await processPostDeleted({ postId: "post-1" });
-
-    expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
-      select: { id: true, key: true, thumbnailKey: true },
-      where: { postId: "post-1" },
+    // Legacy event shape (pre-captured mediaIds): exercises both the direct
+    // cleanup contract AND the id-based row sweep, matching what the web app
+    // has enqueued since it began capturing keys before deleting the post.
+    await processPostDeleted({
+      mediaIds: ["media-1", "media-2"],
+      postId: "post-1",
     });
-    // Only media with non-empty keys reaches the object store; video
-    // thumbnails are deleted alongside their clips.
+
+    // Select shape mirrors jobs.ts exactly: derivative keys, the gust
+    // custom-thumbnail pointer, and the pipeline's original/published
+    // pointers join the legacy columns.
+    expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
+      select: {
+        customThumbnailKey: true,
+        derivatives: { select: { key: true } },
+        id: true,
+        key: true,
+        originalKey: true,
+        publishedKey: true,
+        thumbnailKey: true,
+      },
+      where: { id: { in: ["media-1", "media-2"] } },
+    });
+    // Legacy keys, thumbnails, and pipeline derivative objects all reach
+    // the object store for deletion.
     expect(deletedObjects).toEqual([
       "uploads/a.jpg",
       "uploads/video-thumb.jpg",
+      "derived/v2/media-2/poster-default.jpg",
     ]);
     expect(mockPrisma.media.deleteMany).toHaveBeenCalled();
     expect(mockRedis.srem).toHaveBeenCalled();
@@ -115,6 +139,7 @@ describe("worker job processors", () => {
       select: {
         commentId: true,
         createdAt: true,
+        customThumbnailKey: true,
         id: true,
         key: true,
         postId: true,

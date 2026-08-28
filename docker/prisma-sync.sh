@@ -45,7 +45,8 @@ fi
 # Prisma's enum-alter strategy fails when rows still carry a dropped value,
 # and its db push demands --accept-data-loss just to drop the enum VARIANTS.
 # Both hazards are handled here, manually and safely, before push:
-#   1) rows using unsupported media types are removed,
+#   1) rows using the retired CODE media type are removed (DOCUMENT stays a
+#      supported, first-class type - only CODE was dropped from the schema),
 #   2) the enum itself is swapped via rename-and-replace (zero data loss,
 #      no --accept-data-loss ever needed).
 # The whole step only runs on drift; a synced database cannot contain them.
@@ -53,9 +54,32 @@ if [ "$diff_status" -eq 2 ]; then
   # Row cleanup and the MediaType swap share one explicit transaction: if the
   # conversion fails, the deletion rolls back with it instead of leaving the
   # database half-migrated.
-  echo "Removing unsupported media types and swapping legacy variants atomically..."
+  echo "Removing the retired CODE media type and swapping legacy enum variants atomically..."
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /dev/stdin <<'SQL'
 BEGIN;
+
+-- Drop orphaned shadow enum types ("*_new") left behind by previously
+-- interrupted Prisma enum rebuilds. Without this, the next push fails on
+-- CREATE TYPE ... already exists, or worse, casts against a stale value set.
+-- Only types with zero column attachments are touched; anything still
+-- referenced is left alone so a genuinely in-progress swap never gets nuked.
+DO $$
+DECLARE
+  shadow_type TEXT;
+BEGIN
+  FOR shadow_type IN
+    SELECT t.typname
+    FROM pg_type t
+    WHERE t.typtype = 'e'
+      AND t.typname ~ '_new$'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_attribute a WHERE a.atttypid = t.oid
+      )
+  LOOP
+    RAISE NOTICE 'Dropping orphaned shadow enum type %', shadow_type;
+    EXECUTE format('DROP TYPE %I', shadow_type);
+  END LOOP;
+END $$;
 
 DO $$
 DECLARE
@@ -65,16 +89,16 @@ BEGIN
   FROM pg_enum e
   JOIN pg_type t ON t.oid = e.enumtypid
   WHERE t.typname = 'MediaType'
-    AND e.enumlabel IN ('DOCUMENT', 'CODE');
+    AND e.enumlabel IN ('CODE');
 
   -- Everything is guarded: once the swap has run, the legacy literals are no
   -- longer valid enum inputs at all, so an unguarded DELETE would fail to
   -- parse on every subsequent sync.
   IF legacy_variants > 0 THEN
-    DELETE FROM post_media WHERE type IN ('DOCUMENT', 'CODE');
+    DELETE FROM post_media WHERE type = 'CODE';
 
     ALTER TYPE "MediaType" RENAME TO "MediaType_legacy";
-    CREATE TYPE "MediaType" AS ENUM ('IMAGE', 'VIDEO', 'AUDIO');
+    CREATE TYPE "MediaType" AS ENUM ('IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT');
     ALTER TABLE post_media ALTER COLUMN "type" DROP DEFAULT;
     ALTER TABLE post_media ALTER COLUMN "type"
       TYPE "MediaType" USING "type"::text::"MediaType";

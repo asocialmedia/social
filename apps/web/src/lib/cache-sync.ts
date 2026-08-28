@@ -95,7 +95,7 @@ export function applyAuraToCaches(
 }
 
 // Mirrors a comment's aura into every cached shape that carries a comment
-// object (the ["comments", postId] list). Voting on an eddy updates the aura
+// object (the ["comments", postId] list). Voting on an eddie updates the aura
 // shown in the thread immediately.
 export function applyCommentAuraToCaches(
   queryClient: QueryClient,

@@ -39,7 +39,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
   const isLoggedIn = Boolean(user);
   const searchParams = useSearchParams();
 
-  // Deep link from a notification (?comment=<id>): scroll to the eddy once it
+  // Deep link from a notification (?comment=<id>): scroll to the eddie once it
   // is rendered. Comments load asynchronously (and may be paginated), so retry
   // briefly and give up silently if it never appears.
   useEffect(() => {

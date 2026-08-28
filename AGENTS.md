@@ -1,6 +1,7 @@
 # Asocialmedia guidelines:
 
 - use bun for the package manager
+- never commit or run git commands until told, never modify or reset the local changes
 - this is a monorepo, so use workspaces to manage dependencies and shared code between packages
 - when installing new packages, use bun add instead of manually editing the package.json file
 - avoid as any at all costs, try to infer types from functions as much as possible

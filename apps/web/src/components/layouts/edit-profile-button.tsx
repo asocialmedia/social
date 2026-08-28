@@ -2,9 +2,10 @@
 
 import type { PrivateUserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import EditProfileDialog from "@/components/layouts/edit-profile-dialog";
+import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { cn } from "@/lib/utils";
 
 // While this flag is set the dialog reopens after a page refresh, so an
@@ -21,6 +22,17 @@ export default function EditProfileButton({
   className,
 }: EditProfileButtonProps) {
   const [showDialog, setShowDialog] = useState(false);
+
+  // The server prop this component mounts with goes stale the moment an
+  // avatar upload links a new image, so the dialog follows the live
+  // ["user", id] cache instead - avatar mutations publish there. The merge
+  // keeps private-only fields (avatarKey/bannerKey) that public cache seeds
+  // may lack.
+  const { data: liveUser } = useUserDataQuery(user);
+  const currentUser = useMemo(
+    () => ({ ...user, ...liveUser }),
+    [user, liveUser]
+  );
 
   // Restore an editing session interrupted by a refresh.
   useEffect(() => {
@@ -69,7 +81,7 @@ export default function EditProfileButton({
       <EditProfileDialog
         onOpenChange={handleOpenChange}
         open={showDialog}
-        user={user}
+        user={currentUser}
       />
     </>
   );

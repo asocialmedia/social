@@ -10,6 +10,7 @@ import { useCallback } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
@@ -215,9 +216,7 @@ const TrendingTopics: React.FC = () => {
                       <Flame
                         className={cn(
                           "h-3 w-3",
-                          auraUser.aura < 0
-                            ? "text-[#7c5cff]"
-                            : "text-orange-500"
+                          getAuraFlameClass(auraUser.aura)
                         )}
                       />
                       {formatNumber(auraUser.aura)} aura

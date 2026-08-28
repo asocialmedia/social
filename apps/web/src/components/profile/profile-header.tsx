@@ -17,6 +17,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
+import { getAuraFlameClass } from "@/lib/aura";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -266,10 +267,14 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             </span>
           </Link>
           <span
-            className={`inline-flex items-center gap-1.5 font-bold ${liveUserData.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"}`}
+            className="inline-flex items-center gap-1.5 font-bold"
             title="Aura"
           >
-            <Flame className="size-5" />
+            <Flame
+              className={["size-5", getAuraFlameClass(liveUserData.aura)].join(
+                " "
+              )}
+            />
             <span className="text-base tabular-nums">
               {formatNumber(liveUserData.aura)}
             </span>

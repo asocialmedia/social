@@ -15,6 +15,7 @@ import type { MouseEvent } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { normalizeHistoryItem } from "@/components/search/use-search-history";
+import { getAuraFlameClass } from "@/lib/aura";
 import {
   cn,
   formatNumber,
@@ -220,10 +221,7 @@ export const SearchCommandList = ({
                 <span className="text-muted-foreground mt-1 flex flex-wrap items-center gap-2.5 text-xs">
                   <span className="flex shrink-0 items-center gap-0.5">
                     <Flame
-                      className={cn(
-                        "h-3 w-3",
-                        post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-                      )}
+                      className={cn("h-3 w-3", getAuraFlameClass(post.aura))}
                     />
                     {formatNumber(post.aura)}
                   </span>
@@ -420,9 +418,7 @@ export const SearchCommandList = ({
                         <Flame
                           className={cn(
                             "h-3 w-3",
-                            item.post.aura < 0
-                              ? "text-[#7c5cff]"
-                              : "text-orange-500"
+                            getAuraFlameClass(item.post.aura)
                           )}
                         />
                         {formatNumber(item.post.aura)}

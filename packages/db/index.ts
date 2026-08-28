@@ -16,6 +16,7 @@ export * as Prisma from "./prisma/generated/prisma/internal/prismaNamespace";
 export type { Prisma as PrismaTypes } from "./prisma/generated/prisma/client";
 export * from "./src/rate-limit";
 export * from "./src/redis";
+export * from "./src/profile-media";
 export * from "./src/recommendation/feed-service";
 export * from "./src/recommendation/profile";
 export * from "./src/recommendation/rank-feed";

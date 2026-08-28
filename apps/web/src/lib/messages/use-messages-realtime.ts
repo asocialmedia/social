@@ -70,6 +70,15 @@ function reviveDates(_key: string, value: unknown): unknown {
   return value;
 }
 
+// React Compiler cannot lower `throw` statements inside hook try blocks, so
+// the stream status check lives in this module-scoped helper.
+function openMessageStream(response: Response): ReadableStream<Uint8Array> {
+  if (!response.ok || !response.body) {
+    throw new Error(`Message stream returned ${response.status}`);
+  }
+  return response.body;
+}
+
 // Returns an `onEvent` callback wired to an SSE connection for a single
 // conversation. The caller decides how to fold each event into its query
 // cache, so this stays reusable across the thread view and any future UI.
@@ -168,13 +177,9 @@ export function useMessagesRealtime(
           }
         );
 
-        if (!response.ok || !response.body) {
-          throw new Error(`Message stream returned ${response.status}`);
-        }
-
         retryDelay = INITIAL_RETRY_MS;
 
-        const reader = response.body.getReader();
+        const reader = openMessageStream(response).getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 

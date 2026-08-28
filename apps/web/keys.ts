@@ -9,6 +9,7 @@ export const keys = createEnv({
   runtimeEnv: {
     ASMOB_BUCKET_NAME: process.env.ASMOB_BUCKET_NAME,
     ASMOB_ENDPOINT: process.env.ASMOB_ENDPOINT,
+    ASMOB_PUBLIC_ENDPOINT: process.env.ASMOB_PUBLIC_ENDPOINT,
     ASMOB_ROOT_PASSWORD: process.env.ASMOB_ROOT_PASSWORD,
     ASMOB_ROOT_USER: process.env.ASMOB_ROOT_USER,
     AUTH_INTERNAL_URL: process.env.AUTH_INTERNAL_URL,
@@ -41,6 +42,12 @@ export const keys = createEnv({
     // driver of slow navigation. Falls back to NEXT_PUBLIC_AUTH_URL when unset.
     ASMOB_BUCKET_NAME: z.string().min(1).default("uploads"),
     ASMOB_ENDPOINT: z.url(),
+    // Public hostname for browser-direct presigned uploads (e.g.
+    // https://uploads.asocialmedia.cc). SigV4 signs the host, so presigned
+    // PUTs must be generated against this URL when set. Falls back to the
+    // internal endpoint in development where the browser can reach RustFS
+    // directly.
+    ASMOB_PUBLIC_ENDPOINT: z.url().optional(),
     ASMOB_ROOT_PASSWORD: z.string().min(1).default("asmob-admin"),
     ASMOB_ROOT_USER: z.string().min(1).default("asmob-admin"),
     AUTH_INTERNAL_URL: z.url().optional(),

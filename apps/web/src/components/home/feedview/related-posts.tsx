@@ -2,7 +2,7 @@
 
 import type { PostData } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -41,9 +41,14 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
       staleTime: 30 * 1000,
     });
 
-  const posts = (data?.pages.flatMap((page) => page.posts) || []).filter(
-    (post) => post.id !== excludePostId
-  );
+  const posts = useMemo(() => {
+    const list = (data?.pages.flatMap((page) => page.posts) || []).filter(
+      (post) => post.id !== excludePostId
+    );
+    // Rank shifts between paginated refetches can land the same post on two
+    // pages (tail of one, head of the next); React keys demand uniqueness.
+    return [...new Map(list.map((post) => [post.id, post])).values()];
+  }, [data?.pages, excludePostId]);
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -68,7 +73,7 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       {posts.map((post) => (
-        <PostCard isJoined key={post.id} post={post} />
+        <PostCard isJoined key={post.id} mobileLayout post={post} />
       ))}
       {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
     </InfiniteScrollContainer>

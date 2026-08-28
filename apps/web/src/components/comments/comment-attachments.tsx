@@ -5,16 +5,19 @@ import noMediaImage from "@assets/general/nomedia.png";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import { cn, isGifUrl } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
-
-const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+import { cn, isGifUrl, supportsTransparency } from "@/lib/utils";
+import {
+  getDefaultAvatar,
+  getMediaImageSrcSet,
+  getMediaProxyUrl,
+  getMediaVideoUrl,
+} from "@/lib/utils/image-url";
 
 interface CommentMediaProps {
   media: Media;
 }
 
-// A single attachment inside an eddy. Images and videos render inline; any
+// A single attachment inside an eddie. Images and videos render inline; any
 // failure to load falls back to the nomedia placeholder with a short error
 // message so a broken attachment never leaves an empty hole in the thread.
 export function CommentMedia({ media }: CommentMediaProps) {
@@ -57,7 +60,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
           playsInline
           poster={getMediaProxyUrl(media)}
           preload="metadata"
-          src={getMediaUrl(media.id)}
+          src={getMediaVideoUrl(media.id)}
         />
       </div>
     );
@@ -69,18 +72,21 @@ export function CommentMedia({ media }: CommentMediaProps) {
         <div className="animate-shimmer from-muted/50 via-muted to-muted/50 h-72 w-full rounded-lg bg-gradient-to-r bg-[length:200%_100%]" />
       ) : null}
       <div className="relative overflow-hidden rounded-lg">
-        <Image
+        {/* eslint-disable-next-line @next/next/no-img-element -- srcSet responsive image; Next Image does not expose it with unoptimized proxy URLs */}
+        <img
           alt="Attachment"
           className={cn(
             "max-h-72 w-auto rounded-lg object-contain",
             isLoading && "invisible"
           )}
+          decoding="async"
           height={media.height ?? 480}
+          loading="lazy"
           onError={handleError}
           onLoad={handleLoad}
           sizes="(max-width: 640px) 100vw, 384px"
-          src={getMediaUrl(media.id)}
-          unoptimized
+          src={getMediaProxyUrl(media)}
+          srcSet={getMediaImageSrcSet(media)}
           width={media.width ?? 640}
         />
       </div>
@@ -116,9 +122,9 @@ export function CommentAttachments({
   );
 }
 
-// Avatar with an error fallback to the nomedia placeholder. Used when an
-// eddy's author image fails to load (or is missing) so the thread never shows
-// a broken image tile.
+// Avatar with an error fallback to the default person avatar. Used when an
+// eddie's author image fails to load (or was never set) so the thread never
+// shows a broken image tile or the broken-media icon in place of a face.
 export function CommentAvatarFallback({
   className,
   src,
@@ -127,17 +133,19 @@ export function CommentAvatarFallback({
   src?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
-  const resolved = failed || !src ? noMediaImage.src : src;
+  const resolved = !src || failed ? getDefaultAvatar() : src;
   // Storage avatars are served through our /api/users/avatar/{id}/image proxy;
   // the image optimizer rejects same-origin /api/ URLs, so proxy and GIF
   // sources must bypass optimization (the proxy already serves sized bytes).
   const isProxySrc = resolved.startsWith("/api/");
+  const transparent = supportsTransparency(resolved);
 
   return (
     <Image
       alt=""
       className={cn(
-        "avatar-ring aspect-square flex-none rounded-xl bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))] object-cover",
+        "avatar-ring aspect-square flex-none rounded-xl bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))]",
+        transparent ? "object-contain" : "object-cover",
         className
       )}
       height={40}

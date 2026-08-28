@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_AVATARS,
   getDefaultAvatar,
+  getMediaImageUrl,
   getMediaProxyUrl,
+  getMediaVariantUrl,
+  getMediaVideoUrl,
   getSecureImageUrl,
   toAppProxyUrl,
 } from "./image-url";
@@ -28,10 +31,10 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     const rawUrl =
       "http://localhost:9090/uploads/avatars/cmsoxce3j0003m4vngsw7r7ay/1786565964201-avatar.png";
     expect(getSecureImageUrl(rawUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-avatar.png"
     );
     expect(toAppProxyUrl(rawUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-avatar.png"
     );
   });
 
@@ -39,10 +42,10 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     const encodedUrl =
       "http://localhost:9090/uploads/avatars%2Fcmsoxce3j0003m4vngsw7r7ay%2F1786565964201-392.png";
     expect(getSecureImageUrl(encodedUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-392.png"
     );
     expect(toAppProxyUrl(encodedUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-392.png"
     );
   });
 
@@ -50,10 +53,10 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     const bannerUrl =
       "http://localhost:9090/uploads/banners%2Fcmsoxce3j0003m4vngsw7r7ay%2F1786565964201-banner.png";
     expect(getSecureImageUrl(bannerUrl)).toBe(
-      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-banner.png"
     );
     expect(toAppProxyUrl(bannerUrl)).toBe(
-      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-banner.png"
     );
   });
 
@@ -95,13 +98,66 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
         type: "VIDEO",
       })
     ).toBe("/api/media/media123?thumb=1");
+  });
 
+  test("feed images request the 800px WebP derivative through the variant route", () => {
     expect(
       getMediaProxyUrl({
         id: "media456",
+        mimeType: "image/jpeg",
         thumbnailKey: null,
         type: "IMAGE",
       })
-    ).toBe("/api/media/media456");
+    ).toBe("/api/media/media456/v/md-webp.webp");
+
+    expect(
+      getMediaProxyUrl({
+        id: "media789",
+        mimeType: "image/png",
+        thumbnailKey: null,
+        type: "IMAGE",
+      })
+    ).toBe("/api/media/media789/v/md-webp.webp");
+  });
+
+  test("animated GIFs bypass the variant route so their animation survives", () => {
+    expect(
+      getMediaProxyUrl({
+        id: "mediaGif",
+        mimeType: "image/gif",
+        thumbnailKey: null,
+        type: "IMAGE",
+      })
+    ).toBe("/api/media/mediaGif");
+  });
+
+  test("video playback prefers the progressive MP4 derivative", () => {
+    expect(getMediaVideoUrl("mediaVid")).toBe(
+      "/api/media/mediaVid/v/mp4-h264.mp4"
+    );
+    // Variant URLs are always safe: the route falls back to the published
+    // original when the derivative has not been generated.
+    expect(getMediaVariantUrl("mediaX", "lg-webp.webp")).toBe(
+      "/api/media/mediaX/v/lg-webp.webp"
+    );
+  });
+
+  test("getMediaImageUrl requests any derivative size with GIF passthrough", () => {
+    expect(
+      getMediaImageUrl({ id: "m1", mimeType: "image/jpeg" }, "lg-webp.webp")
+    ).toBe("/api/media/m1/v/lg-webp.webp");
+    expect(
+      getMediaImageUrl(
+        { id: "m2", mimeType: "image/png" },
+        "orig-img-webp.webp"
+      )
+    ).toBe("/api/media/m2/v/orig-img-webp.webp");
+    // Animated GIFs keep their original bytes at every requested size.
+    expect(
+      getMediaImageUrl(
+        { id: "m3", mimeType: "image/gif" },
+        "orig-img-webp.webp"
+      )
+    ).toBe("/api/media/m3");
   });
 });

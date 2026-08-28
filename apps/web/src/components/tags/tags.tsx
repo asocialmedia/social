@@ -14,7 +14,7 @@ import { Hash, Plus } from "lucide-react";
 import { easeInOut } from "motion";
 import { AnimatePresence, motion } from "motion/react";
 import type { Variants } from "motion/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { cn, formatNumber } from "@/lib/utils";
 
@@ -124,15 +124,28 @@ export const Tags = ({
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [localTags, setLocalTags] = useState<TagWithCount[]>(initialTags);
+  // Mirrors the last inputs seen by the sync check below so external tag
+  // changes are adopted during render (the documented adjust-state pattern)
+  // instead of from a cascading effect.
+  const [tagSyncInputs, setTagSyncInputs] = useState<{
+    initialTags: TagWithCount[];
+    localTags: TagWithCount[];
+  } | null>(null);
   const [hoveredTag, setHoveredTag] = useState<string | null>(null);
   const updateTags = useUpdateTagsMutation(postId);
 
-  useEffect(() => {
-    if (JSON.stringify(localTags) !== JSON.stringify(initialTags)) {
-      // eslint-disable-next-line react-compiler -- sync external tag changes into local state
+  if (
+    tagSyncInputs === null ||
+    tagSyncInputs.initialTags !== initialTags ||
+    tagSyncInputs.localTags !== localTags
+  ) {
+    if (JSON.stringify(localTags) === JSON.stringify(initialTags)) {
+      setTagSyncInputs({ initialTags, localTags });
+    } else {
+      setTagSyncInputs({ initialTags, localTags: initialTags });
       setLocalTags(initialTags);
     }
-  }, [initialTags, localTags]);
+  }
 
   const handleTagsUpdate = useCallback(
     async (updatedTags: TagWithCount[]) => {

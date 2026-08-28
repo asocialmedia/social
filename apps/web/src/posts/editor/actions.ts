@@ -2,6 +2,7 @@
 
 import type { CreatePostInput } from "@asm/auth/validation";
 import { createGustSchema, createPostSchema } from "@asm/auth/validation";
+import type { Prisma } from "@asm/db";
 import {
   applyFlatAward,
   ATTACHMENT_BONUSES,
@@ -18,7 +19,12 @@ import {
   prisma,
   tagCache,
 } from "@asm/db";
+import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
 import { updateTag } from "next/cache";
+
+import { resolvePostEmbeds } from "@/lib/link-embeds/server";
+import { MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
+import { getModerationSystemUserId } from "@/lib/system-moderation-user";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -112,6 +118,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
     const parsed = (input.isGust ? createGustSchema : createPostSchema).parse({
       content: input.content,
+      dismissedEmbedUrls: input.dismissedEmbedUrls ?? [],
       isGust: input.isGust ?? false,
       mediaIds: input.mediaIds || [],
       mentions: input.mentions || [],
@@ -119,12 +126,39 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     });
     const validatedInput: CreatePostInput = parsed;
 
+    // Link embeds resolve before the transaction: cache-first (the composer
+    // preview warmed Redis moments ago), bounded by a wall-clock budget so a
+    // slow origin can never stall publishing. Dismissal is only honored for
+    // URLs actually present in the content, so a crafted payload cannot
+    // preload arbitrary cache entries.
+    const dismissedEmbedUrls = new Set(
+      (validatedInput.dismissedEmbedUrls ?? []).slice(0, MAX_POST_EMBEDS)
+    );
+    const embeds = validatedInput.content
+      ? await resolvePostEmbeds(validatedInput.content, dismissedEmbedUrls)
+      : [];
+    // Prisma's Json input needs its own JSON value type; a round-trip gives
+    // a plain, index-signature-shaped payload without any assertion on the
+    // embed objects themselves.
+    const embedsJson: Prisma.InputJsonValue | undefined =
+      embeds.length > 0
+        ? (structuredClone(embeds) as unknown as Prisma.InputJsonValue)
+        : undefined;
+
     const auraReward = await calculateAuraReward(
       validatedInput.mediaIds,
       !!input.hnStory
     );
 
     const newPost = await prisma.$transaction(async (tx) => {
+      // Server-side hard stop matching the composer's client cap: a crafted
+      // request bypassing the UI must not publish more than the contract
+      // allows.
+      if (validatedInput.mediaIds.length > MAX_POST_ATTACHMENTS) {
+        throw new Error(
+          `A post can hold at most ${MAX_POST_ATTACHMENTS} attachments`
+        );
+      }
       // Attachments must be owned by the caller and unclaimed: a crafted
       // mediaId could otherwise drag another user's comment attachment (or an
       // owner-only draft) into a public post, and the post-deletion worker
@@ -136,12 +170,13 @@ export async function submitPost(input: ExtendedCreatePostInput) {
             commentId: true,
             id: true,
             postId: true,
+            status: true,
             userId: true,
           },
           where: { id: { in: validatedInput.mediaIds } },
         });
         const foundIds = new Set(attachedMedia.map((m) => m.id));
-        const allOwnedAndUnclaimed =
+        const allOwnedUnclaimedAndClaimable =
           attachedMedia.length === validatedInput.mediaIds.length &&
           validatedInput.mediaIds.every(
             (id) =>
@@ -151,10 +186,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   m.id === id &&
                   m.userId === sessionData.user.id &&
                   m.postId === null &&
-                  m.commentId === null
+                  m.commentId === null &&
+                  // Rejected, deleted, and failed media can never ride into
+                  // a post; claimable statuses come from the pipeline
+                  // contract so serving gates and this check cannot drift.
+                  CLAIMABLE_STATUSES.includes(m.status)
               )
           );
-        if (!allOwnedAndUnclaimed) {
+        if (!allOwnedUnclaimedAndClaimable) {
           throw new Error("One or more attachments are invalid");
         }
       }
@@ -186,6 +225,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           },
           aura: 0,
           content: validatedInput.content,
+          // Resolved link previews; text-only posts keep the column null.
+          embeds: embedsJson,
           isGust: validatedInput.isGust ?? false,
           mentions:
             validatedInput.mentions.length > 0
@@ -222,8 +263,21 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         },
       });
 
-      // The media is now attached to a post, so the abandoned-upload cleanup
-      // jobs must not delete it.
+      // Publish confirmation from Zeph, the platform persona: lands in the
+      // author's notifications the moment their fleet/gust goes live. Same
+      // transaction as the post row so a confirmed post always has its
+      // receipt.
+      const zephUserId = await getModerationSystemUserId();
+      await tx.notification.create({
+        data: {
+          issuerId: zephUserId,
+          postId: post.id,
+          recipientId: sessionData.user.id,
+          type: "PUBLISHED",
+        },
+      });
+
+      // The media is now attached to a post, so the abandoned-upload cleanup      // jobs must not delete it.
       for (const mediaId of validatedInput.mediaIds) {
         cancelMediaCleanup(mediaId).catch((error: unknown) => {
           console.error(

@@ -10,7 +10,7 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { useCallback } from "react";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 
 import { useDeleteCommentMutation } from "./mutations";
 
@@ -43,9 +43,9 @@ export default function DeleteCommentDialog({
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete Eddy?</DialogTitle>
+          <DialogTitle>Delete Eddie?</DialogTitle>
           <DialogDescription>
-            Are you sure you want to delete this Eddy? This action cannot be
+            Are you sure you want to delete this Eddie? This action cannot be
             undone.
           </DialogDescription>
         </DialogHeader>

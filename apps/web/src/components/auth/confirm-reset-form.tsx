@@ -79,13 +79,16 @@ const ConfirmPasswordFieldRenderer = ({
 );
 
 export default function ConfirmResetForm() {
-  const [token, setToken] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(true);
   const [isTokenValid, setIsTokenValid] = useState(false);
   const [isPending, startTransition] = useTransition();
   const searchParams = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
+
+  // The token mirrors the URL query param, so it is derived during render
+  // rather than copied into state from an effect.
+  const token = searchParams.get("token");
 
   const handleRequestNewLink = useCallback(() => {
     router.push("/reset-password");
@@ -101,6 +104,7 @@ export default function ConfirmResetForm() {
 
   useEffect(() => {
     async function validateToken(tokenToValidate: string) {
+      let isValid = false;
       try {
         const response = await fetch(
           `/api/reset-password?token=${tokenToValidate}`
@@ -115,10 +119,9 @@ export default function ConfirmResetForm() {
             variant: "destructive",
           });
           await router.push("/reset-password");
-          return;
+        } else {
+          isValid = true;
         }
-
-        setIsTokenValid(true);
       } catch {
         toast({
           description: "Couldn't check that link, try again?",
@@ -126,13 +129,16 @@ export default function ConfirmResetForm() {
           variant: "destructive",
         });
         await router.push("/reset-password");
-      } finally {
-        setIsValidating(false);
       }
+      if (isValid) {
+        setIsTokenValid(true);
+      }
+      // Both paths fall through here, matching the previous `finally`
+      // semantics without unsupported compiler syntax.
+      setIsValidating(false);
     }
 
-    const tokenParam = searchParams.get("token");
-    if (!tokenParam) {
+    if (!token) {
       toast({
         description: "Please request a new password reset link.",
         title: "Invalid Reset Link",
@@ -142,10 +148,8 @@ export default function ConfirmResetForm() {
       return;
     }
 
-    // eslint-disable-next-line react-compiler -- store the validated token before fetching its status
-    setToken(tokenParam);
-    validateToken(tokenParam);
-  }, [searchParams, router, toast]);
+    validateToken(token);
+  }, [router, toast, token]);
 
   function onSubmit(values: ConfirmResetFormValues) {
     if (!(token && isTokenValid)) {

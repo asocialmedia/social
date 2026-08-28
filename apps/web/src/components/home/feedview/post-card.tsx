@@ -25,11 +25,13 @@ import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
+import PostLinkEmbeds from "@/components/posts/link-embeds";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
-import Linkify from "@/helpers/global/linkify";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { canModeratePost } from "@/lib/moderation";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
@@ -60,6 +62,9 @@ interface PostCardProps {
   hideComposerOnMobile?: boolean;
   initialMediaIndex?: number;
   isJoined?: boolean;
+  // Renders the media with the mobile layout even in a wide viewport, for
+  // narrow embedded columns (media page sidebar).
+  mobileLayout?: boolean;
   post: ExtendedPostData;
 }
 
@@ -70,6 +75,7 @@ interface PostContentProps {
   initialMediaIndex?: number;
   isExpanded: boolean;
   isJoined: boolean;
+  mobileLayout?: boolean;
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
@@ -81,6 +87,7 @@ const PostContent: React.FC<PostContentProps> = ({
   detail,
   isExpanded,
   isJoined,
+  mobileLayout,
   onToggleComments,
   onToggleExpand,
   post,
@@ -88,6 +95,9 @@ const PostContent: React.FC<PostContentProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  // Validated stored embed payloads drive both the inline link badges and
+  // the preview cards below the post.
+  const postEmbeds = parseStoredEmbeds(post.embeds);
 
   const updateOverflow = useCallback(() => {
     const el = contentRef.current;
@@ -103,13 +113,19 @@ const PostContent: React.FC<PostContentProps> = ({
     if (post.content && post.content.length > 150) {
       updateOverflow();
     }
+    // isExpanded is a trigger only: expanding must re-measure even though
+    // the value itself is not read here.
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-measure on expand/collapse
   }, [isExpanded, post.content, updateOverflow]);
 
   return (
-    <div className="flex gap-3">
+    <div className="flex items-start gap-3">
       {!detail && (
         <UserTooltip user={post.user}>
-          <Link className="shrink-0" href={`/users/${post.user.username}`}>
+          <Link
+            className="shrink-0 self-start"
+            href={`/users/${post.user.username}`}
+          >
             <UserAvatar
               avatarUrl={post.user.avatarUrl}
               className="h-10 w-10"
@@ -124,7 +140,7 @@ const PostContent: React.FC<PostContentProps> = ({
           {detail ? (
             <UserTooltip user={post.user}>
               <Link
-                className="shrink-0"
+                className="shrink-0 self-start"
                 href={`/users/${post.user.username}`}
                 prefetch={false}
               >
@@ -224,7 +240,7 @@ const PostContent: React.FC<PostContentProps> = ({
               />
             )}
             <BookmarkButton
-              className="h-6 w-6 p-0"
+              className="h-8 w-8 p-0"
               initialState={{
                 isBookmarkedByUser: post.bookmarks.some(
                   (bookmark) => bookmark.userId === currentUserId
@@ -239,16 +255,11 @@ const PostContent: React.FC<PostContentProps> = ({
           <ModeratedNotice className="mt-2.5" kind="post" />
         ) : (
           <>
-            <Linkify>
-              <div
-                className={cn(!isExpanded && "line-clamp-6")}
-                ref={contentRef}
-              >
-                <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-                  {post.content}
-                </p>
-              </div>
-            </Linkify>
+            <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
+              {/* URLs inside the content render as inline badges (platform
+                  logo + resolved embed title) instead of raw URLs. */}
+              <PostLinkedContent content={post.content} embeds={postEmbeds} />
+            </div>
             {isOverflowing ? (
               <button
                 className="text-primary mt-1 cursor-pointer text-sm font-medium hover:underline"
@@ -266,12 +277,18 @@ const PostContent: React.FC<PostContentProps> = ({
             ) : null}
 
             {!!post.attachments.length && (
-              <div className="mt-2.5 max-w-full overflow-hidden">
+              <div
+                className={cn(
+                  "max-w-full overflow-hidden",
+                  post.content?.trim() ? "mt-2.5" : "mt-3.5"
+                )}
+              >
                 {post.explicitContent ? (
-                  <ExplicitContentGate>
+                  <ExplicitContentGate revealKey={post.id}>
                     <MediaPreviews
                       attachments={post.attachments}
                       autoPlayVideos={detail}
+                      forceMobile={mobileLayout}
                       initialMediaIndex={initialMediaIndex}
                       interactive={!isJoined}
                       post={post}
@@ -281,6 +298,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   <MediaPreviews
                     attachments={post.attachments}
                     autoPlayVideos={detail}
+                    forceMobile={mobileLayout}
                     initialMediaIndex={initialMediaIndex}
                     interactive={!isJoined}
                     post={post}
@@ -288,6 +306,10 @@ const PostContent: React.FC<PostContentProps> = ({
                 )}
               </div>
             )}
+
+            {/* Link embeds live below the media block: previews resolved at
+                publish time, rendered from the stored (validated) payloads. */}
+            {post.embeds ? <PostLinkEmbeds embeds={postEmbeds} /> : null}
 
             {post.tags?.length || post.mentions?.length ? (
               <PostMeta
@@ -417,18 +439,21 @@ interface CommentButtonProps {
   post: PostData;
 }
 
-const CommentButton = ({ post, onClick }: CommentButtonProps) => (
-  <button
-    className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
-    onClick={onClick}
-    type="button"
-  >
-    <MessageSquare className="size-5" />
-    <span className="text-sm font-medium tabular-nums">
-      {post._count.comments}
-    </span>
-  </button>
-);
+const CommentButton = ({ post, onClick }: CommentButtonProps) => {
+  const hasComments = post._count.comments > 0;
+  return (
+    <button
+      className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
+      onClick={onClick}
+      type="button"
+    >
+      <MessageSquare className={cn("size-5", hasComments && "fill-current")} />
+      <span className="text-sm font-medium tabular-nums">
+        {post._count.comments}
+      </span>
+    </button>
+  );
+};
 
 const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
@@ -436,6 +461,7 @@ const PostCard: React.FC<PostCardProps> = ({
   detail = false,
   hideComposerOnMobile = false,
   initialMediaIndex,
+  mobileLayout = false,
 }) => {
   const { user } = useSession();
   const router = useRouter();
@@ -443,10 +469,13 @@ const PostCard: React.FC<PostCardProps> = ({
   const [showComments, setShowComments] = useState(detail);
   const [isExpanded, setIsExpanded] = useState(detail);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-compiler -- keep the editable post state in sync with the latest props
+  // Keep the editable post state in sync with the latest props during
+  // render instead of cascading through an effect.
+  const [prevInitialPost, setPrevInitialPost] = useState(initialPost);
+  if (prevInitialPost !== initialPost) {
+    setPrevInitialPost(initialPost);
     setPost(initialPost);
-  }, [initialPost]);
+  }
 
   const handleToggleComments = useCallback(() => {
     setShowComments((prev) => !prev);
@@ -503,6 +532,7 @@ const PostCard: React.FC<PostCardProps> = ({
       initialMediaIndex={initialMediaIndex}
       isExpanded={isExpanded}
       isJoined={isJoined}
+      mobileLayout={mobileLayout}
       onToggleComments={handleToggleComments}
       onToggleExpand={handleToggleExpand}
       post={post}

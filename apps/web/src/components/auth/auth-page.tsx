@@ -5,7 +5,7 @@ import signupImage from "@assets/auth/signup-image.jpg";
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import AuthCard from "@/components/auth/auth-card";
 
@@ -14,11 +14,13 @@ type AuthMode = "login" | "signup";
 export default function AuthPage({ initialMode }: { initialMode: AuthMode }) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
 
-  // Keep local mode in sync if the route changes via browser back/forward
-  useEffect(() => {
-    // eslint-disable-next-line react-compiler -- sync the tab with the URL on back/forward navigation
+  // Keep local mode in sync if the route changes via browser back/forward,
+  // adjusted during render instead of cascading through an effect.
+  const [prevInitialMode, setPrevInitialMode] = useState(initialMode);
+  if (prevInitialMode !== initialMode) {
+    setPrevInitialMode(initialMode);
     setMode(initialMode);
-  }, [initialMode]);
+  }
 
   const isLogin = mode === "login";
 

@@ -3,6 +3,7 @@ import { clientLog } from "@asm/config/debug";
 import type { PrivateUserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { uploadMediaFile } from "@/lib/media-upload-client";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UpdateProfilePayload {
@@ -12,19 +13,17 @@ interface UpdateProfilePayload {
 
 interface UpdateAvatarPayload {
   file: File;
-  oldAvatarKey?: string;
   userId: string;
 }
 
 interface UpdateBannerPayload {
   file: File;
-  oldBannerKey?: string;
   userId: string;
 }
 
 interface UpdateAvatarResponse {
   avatar: {
-    key: string;
+    key: string | null;
     url: string;
   };
 }
@@ -64,6 +63,30 @@ interface UpdateProfileResponse {
   };
 }
 
+// React Compiler cannot lower `throw` statements inside hook try blocks, so
+// the profile request and its status check live in this module-scoped helper.
+async function requestProfileUpdate(
+  values: UpdateUserProfileValues,
+  userId: string
+): Promise<UpdateProfileResponse["user"]> {
+  const formData = new FormData();
+  formData.append("values", JSON.stringify(values));
+  formData.append("userId", userId);
+
+  const response = await fetch("/api/users/profile", {
+    body: formData,
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || "Failed to update profile");
+  }
+
+  const data = (await response.json()) as UpdateProfileResponse;
+  return data.user;
+}
+
 export function useUpdateAvatarMutation() {
   const queryClient = useQueryClient();
 
@@ -73,16 +96,23 @@ export function useUpdateAvatarMutation() {
     UpdateAvatarPayload,
     AvatarMutationContext
   >({
-    mutationFn: async ({ file, userId, oldAvatarKey }: UpdateAvatarPayload) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userId", userId);
-      if (oldAvatarKey) {
-        formData.append("oldAvatarKey", oldAvatarKey);
+    mutationFn: async ({ file }: UpdateAvatarPayload) => {
+      // Bytes go directly to object storage through the presigned PUT and are
+      // quarantined, scanned, and processed by the pipeline before the row
+      // reaches READY - this hook then links the finished Media row.
+      const upload = await uploadMediaFile(file, { purpose: "avatar" });
+      if (upload.status === "REJECTED") {
+        throw new Error(
+          upload.rejectedReason === "MALWARE"
+            ? "That file failed the security scan"
+            : "That file was rejected"
+        );
       }
 
       const response = await fetch("/api/users/avatar", {
-        body: formData,
+        body: JSON.stringify({ mediaId: upload.mediaId }),
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         method: "POST",
       });
 
@@ -163,16 +193,24 @@ export function useUpdateBannerMutation() {
     UpdateBannerPayload,
     BannerMutationContext
   >({
-    mutationFn: async ({ file, userId, oldBannerKey }: UpdateBannerPayload) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userId", userId);
-      if (oldBannerKey) {
-        formData.append("oldBannerKey", oldBannerKey);
+    mutationFn: async ({ file }: UpdateBannerPayload) => {
+      // Bytes go directly to object storage through the presigned PUT and are
+      // quarantined, scanned, and processed by the pipeline before the row
+      // reaches READY - this hook then links the finished Media row, exactly
+      // as for avatars.
+      const upload = await uploadMediaFile(file, { purpose: "banner" });
+      if (upload.status === "REJECTED") {
+        throw new Error(
+          upload.rejectedReason === "MALWARE"
+            ? "That file failed the security scan"
+            : "That file was rejected"
+        );
       }
 
       const response = await fetch("/api/users/banner", {
-        body: formData,
+        body: JSON.stringify({ mediaId: upload.mediaId }),
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         method: "POST",
       });
 
@@ -335,22 +373,7 @@ export function useUpdateProfileMutation() {
   >({
     mutationFn: async ({ values, userId }: UpdateProfilePayload) => {
       try {
-        const formData = new FormData();
-        formData.append("values", JSON.stringify(values));
-        formData.append("userId", userId);
-
-        const response = await fetch("/api/users/profile", {
-          body: formData,
-          method: "POST",
-        });
-
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(error || "Failed to update profile");
-        }
-
-        const data = (await response.json()) as UpdateProfileResponse;
-        return data.user;
+        return await requestProfileUpdate(values, userId);
       } catch (error) {
         clientLog.error("Profile update error:", error);
         throw error;

@@ -28,8 +28,6 @@ mock.module("../redis", () => ({ redis: fakeRedis }));
 const { computeAuraSignals, getAuraSignalsForUsers } =
   await import("./signals");
 
-const NOW = new Date("2026-08-24T12:00:00Z");
-
 function configureFakes(
   options: {
     cached?: string | null;
@@ -63,14 +61,18 @@ function configureFakes(
 
 describe("computeAuraSignals", () => {
   test("builds the full signal bundle from the ledger", async () => {
+    // computeAuraSignals reads the real wall clock, so entries are placed
+    // relative to Date.now() (not this module's frozen NOW) to keep bucket
+    // membership stable no matter which day the suite runs.
+    const wallClock = Date.now();
     configureFakes({
       entries: [
-        { amount: 10, createdAt: new Date(NOW.getTime() - 3_600_000) },
-        { amount: -4, createdAt: new Date(NOW.getTime() - 86_400_000) },
+        { amount: 10, createdAt: new Date(wallClock - 3_600_000) },
+        { amount: -4, createdAt: new Date(wallClock - 86_400_000) },
       ],
       user: {
         aura: 2500,
-        createdAt: new Date(NOW.getTime() - 90 * 86_400_000),
+        createdAt: new Date(wallClock - 90 * 86_400_000),
       },
     });
 

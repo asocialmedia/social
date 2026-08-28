@@ -65,9 +65,10 @@ export function ConversationList({
           title: "Can't message",
           variant: "destructive",
         });
-      } finally {
-        setCreating(null);
       }
+      // The catch above never rethrows and the try body has no early returns,
+      // so resetting here matches the previous `finally` semantics.
+      setCreating(null);
     },
     [onSelect, refetchList]
   );
@@ -106,20 +107,17 @@ export function ConversationList({
     let cancelled = false;
     const timer = setTimeout(async () => {
       setSearching(true);
+      // A failed search should not leave stale results behind; `found`
+      // starts empty so the catch path clears the list below.
+      let found: SearchUserResult[] = [];
       try {
-        const found = await searchMessageUsers(query.trim());
-        if (!cancelled) {
-          setResults(found);
-        }
+        found = await searchMessageUsers(query.trim());
       } catch (error) {
         console.error("Message user search failed:", error);
-        if (!cancelled) {
-          setResults([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setSearching(false);
-        }
+      }
+      if (!cancelled) {
+        setResults(found);
+        setSearching(false);
       }
     }, 250);
     return () => {
@@ -145,51 +143,9 @@ export function ConversationList({
     [startConversation]
   );
 
-  return (
-    <div className="relative flex w-16 shrink-0 flex-col border-r border-[hsl(var(--border))]">
-      {/* Discord-style icon rail: no header, just the search trigger. */}
-      <div className="border-border/60 flex h-14 shrink-0 items-center justify-center border-b">
-        <button
-          aria-label="Search people"
-          className={cn(
-            "icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full",
-            searchOpen && "border-border/60 bg-primary/15 border"
-          )}
-          onClick={() => setSearchOpen((open) => !open)}
-          type="button"
-        >
-          {searchOpen ? (
-            <X className="h-4 w-4" />
-          ) : (
-            <Search className="h-4 w-4" />
-          )}
-        </button>
-      </div>
-
-      <div className="hide-native-scrollbar flex flex-1 flex-col items-center gap-1.5 overflow-y-auto p-2">
-        {renderConversations()}
-      </div>
-
-      {searchOpen ? (
-        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 max-w-[calc(100vw-5.5rem)] overflow-hidden rounded-2xl p-2 shadow-none">
-          <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
-            <Search className="text-muted-foreground h-4 w-4 shrink-0" />
-            <input
-              autoFocus
-              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search people you follow…"
-              value={query}
-            />
-          </div>
-          <div className="mt-2 flex max-h-80 flex-col overflow-y-auto">
-            {renderSearchResults()}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-
+  // Render helpers are declared before the early JSX return so their function
+  // declarations never sit in unreachable code (React Compiler cannot lower
+  // hoisted declarations after a return).
   function renderSearchResults() {
     if (searching) {
       return (
@@ -291,4 +247,49 @@ export function ConversationList({
       );
     });
   }
+
+  return (
+    <div className="relative flex w-16 shrink-0 flex-col border-r border-[hsl(var(--border))]">
+      {/* Discord-style icon rail: no header, just the search trigger. */}
+      <div className="border-border/60 flex h-14 shrink-0 items-center justify-center border-b">
+        <button
+          aria-label="Search people"
+          className={cn(
+            "icon-btn-3d flex h-9 w-9 items-center justify-center rounded-full",
+            searchOpen && "border-border/60 bg-primary/15 border"
+          )}
+          onClick={() => setSearchOpen((open) => !open)}
+          type="button"
+        >
+          {searchOpen ? (
+            <X className="h-4 w-4" />
+          ) : (
+            <Search className="h-4 w-4" />
+          )}
+        </button>
+      </div>
+
+      <div className="hide-native-scrollbar flex flex-1 flex-col items-center gap-1.5 overflow-y-auto p-2">
+        {renderConversations()}
+      </div>
+
+      {searchOpen ? (
+        <div className="apple-panel absolute top-16 left-full z-50 ml-2 w-72 max-w-[calc(100vw-5.5rem)] overflow-hidden rounded-2xl p-2 shadow-none">
+          <div className="reels-input flex h-9 items-center gap-2 rounded-xl! px-3">
+            <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+            <input
+              autoFocus
+              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search people you follow…"
+              value={query}
+            />
+          </div>
+          <div className="mt-2 flex max-h-80 flex-col overflow-y-auto">
+            {renderSearchResults()}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }

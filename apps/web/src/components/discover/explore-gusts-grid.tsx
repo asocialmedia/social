@@ -28,6 +28,7 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { useRequireAuth } from "@/hooks/use-require-auth";
+import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -191,14 +192,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
             {formatNumber(post.viewCount)}
           </span>
           <span className="flex items-center gap-1 font-medium">
-            <Flame
-              className={cn(
-                "size-3.5",
-                post.aura > 0 && "fill-primary text-primary",
-                post.aura < 0 && "text-muted-foreground",
-                post.aura === 0 && "text-white/60"
-              )}
-            />
+            <Flame className={cn("size-3.5", getAuraFlameClass(post.aura))} />
             {formatNumber(post.aura)}
           </span>
         </div>

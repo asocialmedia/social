@@ -1,5 +1,5 @@
 import { prisma } from "@asm/db";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { decideMediaAccess } from "@/lib/media-access";
@@ -32,12 +32,34 @@ export async function GET(
       key: true,
       mimeType: true,
       postId: true,
+      publishedKey: true,
       size: true,
+      status: true,
       userId: true,
     },
     where: { id: mediaId },
   });
   if (!media) {
+    return new NextResponse("Media not found", { status: 404 });
+  }
+
+  // Lifecycle gate — mirrors the main serving route's isServableMedia.
+  // REJECTED/DELETED rows are never downloadable, and pre-READY pipeline
+  // rows that have not yet published are not servable either. Legacy rows
+  // (UPLOADING with a real key) remain downloadable until backfill converts
+  // them; once converted to REJECTED the gate blocks them too.
+  if (
+    media.status === "REJECTED" ||
+    media.status === "DELETED" ||
+    media.status === "FAILED"
+  ) {
+    return new NextResponse("Media not found", { status: 404 });
+  }
+  if (
+    media.status !== "READY" &&
+    !media.publishedKey &&
+    media.key.length === 0
+  ) {
     return new NextResponse("Media not found", { status: 404 });
   }
 
@@ -55,11 +77,16 @@ export async function GET(
     return new NextResponse("Unsupported media type", { status: 415 });
   }
 
+  const objectKey = media.publishedKey || media.key;
+  if (!objectKey) {
+    return new NextResponse("Media not found", { status: 404 });
+  }
+
   try {
     const response = await asmobClient.send(
       new GetObjectCommand({
         Bucket: ASMOB_BUCKET,
-        Key: media.key,
+        Key: objectKey,
       })
     );
     if (!response.Body) {
@@ -75,7 +102,7 @@ export async function GET(
           ).transformToWebStream()
         : (response.Body as ReadableStream);
 
-    const filename = media.key.split("/").pop() || "file";
+    const filename = objectKey.split("/").pop() || "file";
     const headers = new Headers();
     headers.set(
       "Content-Type",
@@ -92,6 +119,14 @@ export async function GET(
 
     return new NextResponse(body, { headers });
   } catch (error) {
+    // A row whose stored object vanished from storage is a missing asset,
+    // not a server fault - respond like an unknown media id.
+    if (
+      error instanceof S3ServiceException &&
+      (error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404)
+    ) {
+      return new NextResponse("Media not found", { status: 404 });
+    }
     const logger = getWebLogger();
     if (logger) {
       logger.error({ error, mediaId }, "Media download failed");

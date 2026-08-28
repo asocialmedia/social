@@ -161,7 +161,7 @@ export const useRateLimitCountdown = (
     return { isActive: false, timeLeft: 0 };
   }
 
-  // eslint-disable-next-line react-compiler -- countdown time must be read at render time
+  // oxlint-disable-next-line react/purity -- countdown time must be read at render time
   const now = Date.now() / 1000;
   const timeLeft = Math.max(0, Math.ceil(rateLimit.resetTime - now));
 

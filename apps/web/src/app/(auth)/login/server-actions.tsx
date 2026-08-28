@@ -1,6 +1,6 @@
 "use server";
 
-export function loginAction(_: { username: string; password: string }): {
+export function loginAction(__: { username: string; password: string }): {
   error?: string;
   success?: boolean;
 } {

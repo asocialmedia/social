@@ -22,7 +22,7 @@ import { useForm } from "react-hook-form";
 import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import AddEmailBanner from "@/components/settings/add-email-banner";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
@@ -421,6 +421,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
                   emailChangeRequested ||
                   (Boolean(user.email) &&
                     (!currentEmailCodeSent ||
+                      // oxlint-disable-next-line react/incompatible-library -- react-hook-form watch handle is unmemoizable by design; compiler skips this component
                       (emailForm.watch("otp")?.length ?? 0) < 6))
                 }
                 loading={emailMutation.isPending}

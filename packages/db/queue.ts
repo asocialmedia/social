@@ -19,6 +19,16 @@ export interface MediaCleanupJobData {
 }
 export interface PostDeletedJobData {
   postId: string;
+  //Attachment ids captured BEFORE the post row is deleted. The Prisma client
+  // removes attachment rows during post deletion (emulated referential
+  // action), so a worker that queries by postId afterwards finds nothing.
+  mediaIds?: string[];
+  // Every storage object key referenced by the deleted post's attachments -
+  // originals, quarantine leftovers, thumbnails, and all derivative variants
+  // - also captured before deletion, since keys live on the (vanishing)
+  //rows. The worker deletes these directly; row lookups remain only as a
+  // legacy fallback for events queued before this field existed.
+  objectKeys?: string[];
 }
 
 export type ContentEvent =
@@ -40,7 +50,15 @@ function getQueue(name: string): Queue {
   return queue;
 }
 
-const MEDIA_QUEUE = "media";
+// The media pipeline is split across two queues so the media-processing
+// worker pools never race for each other's jobs: BullMQ hands any free
+// worker the next available job with no name-based routing, so a shared
+// queue let the ffmpeg-bound pool claim scan/cleanup jobs (and vice versa),
+// failing them with "Unknown media job". Scan/cleanup/delete-cascade are
+// I/O-bound (ClamAV, hashing, S3 deletes); process/analyze are CPU/ffmpeg
+// bound and need the long lock duration.
+export const MEDIA_SCAN_QUEUE = "media-scan";
+export const MEDIA_PROCESS_QUEUE = "media-process";
 const CONTENT_EVENTS_QUEUE = "content-events";
 const MAINTENANCE_QUEUE = "maintenance";
 
@@ -165,8 +183,14 @@ export const unreadMessageCache = {
   },
 };
 
-export async function enqueuePostDeleted(postId: string): Promise<void> {
-  await getQueue(CONTENT_EVENTS_QUEUE).add("post-deleted", { postId });
+export async function enqueuePostDeleted(
+  postId: string,
+  attachments: { mediaIds?: string[]; objectKeys?: string[] } = {}
+): Promise<void> {
+  await getQueue(CONTENT_EVENTS_QUEUE).add("post-deleted", {
+    ...attachments,
+    postId,
+  });
 }
 
 export async function enqueueNotificationCreated(
@@ -205,7 +229,7 @@ export async function scheduleMediaCleanup(mediaId: string): Promise<void> {
   // Delayed with an idempotency key so re-submitting a post does not enqueue
   // a second cleanup for the same media row. If the media got attached to a
   // post before the delay elapses, the worker skips it.
-  await getQueue(MEDIA_QUEUE).add(
+  await getQueue(MEDIA_SCAN_QUEUE).add(
     "media-cleanup",
     { mediaId },
     {
@@ -218,7 +242,71 @@ export async function scheduleMediaCleanup(mediaId: string): Promise<void> {
 }
 
 export async function cancelMediaCleanup(mediaId: string): Promise<void> {
-  await getQueue(MEDIA_QUEUE).remove(`media-cleanup-${mediaId}`);
+  await getQueue(MEDIA_SCAN_QUEUE).remove(`media-cleanup-${mediaId}`);
+}
+
+// ── Media pipeline jobs ────────────────────────────────────────────────────
+// Each stage enqueues the next on success; stable jobIds per (media, stage)
+// make duplicate enqueues and worker-crash retries idempotent.
+
+const MEDIA_JOB_DEFAULTS = {
+  attempts: 3,
+  backoff: { delay: 5000, type: "exponential" as const },
+  removeOnComplete: 500,
+  removeOnFail: 2000,
+};
+
+function mediaJobOptions(stage: string, mediaId: string) {
+  return {
+    ...MEDIA_JOB_DEFAULTS,
+    jobId: `${stage}-${mediaId}`,
+  };
+}
+
+export async function enqueueMediaScan(
+  mediaId: string,
+  options?: { backfill?: boolean }
+): Promise<void> {
+  await getQueue(MEDIA_SCAN_QUEUE).add(
+    "media-scan",
+    { backfill: options?.backfill ?? false, mediaId },
+    mediaJobOptions("scan", mediaId)
+  );
+}
+
+export async function enqueueMediaProcess(
+  mediaId: string,
+  options?: { jobIdSuffix?: string }
+): Promise<void> {
+  await getQueue(MEDIA_PROCESS_QUEUE).add(
+    "media-process",
+    { mediaId },
+    // A custom jobId that still exists in Redis (retained completed/failed
+    // jobs) makes BullMQ silently dedupe the add. Re-trigger variants pass a
+    // suffix so a fresh job is always created.
+    mediaJobOptions(
+      "process",
+      options?.jobIdSuffix ? `${mediaId}-${options.jobIdSuffix}` : mediaId
+    )
+  );
+}
+
+export async function enqueueMediaAnalyze(mediaId: string): Promise<void> {
+  await getQueue(MEDIA_PROCESS_QUEUE).add(
+    "media-analyze",
+    { mediaId },
+    mediaJobOptions("analyze", mediaId)
+  );
+}
+
+export async function enqueueMediaDeleteCascade(
+  mediaId: string
+): Promise<void> {
+  await getQueue(MEDIA_SCAN_QUEUE).add(
+    "media-delete-cascade",
+    { mediaId },
+    { ...MEDIA_JOB_DEFAULTS, jobId: undefined, removeOnComplete: true }
+  );
 }
 
 // Schedules the repeatable maintenance jobs (HN cache refresh every 15 min,

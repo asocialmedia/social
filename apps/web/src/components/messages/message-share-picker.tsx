@@ -32,6 +32,58 @@ interface ShareRecipient {
   username: string;
 }
 
+// React Compiler cannot lower `throw` statements or `finally` clauses inside
+// component code, so the send pipeline (key preparation, ratchet-index fetch,
+// and the 409-retry) lives in this module-scoped helper. It rejects on any
+// failure; the caller surfaces the error message.
+async function sharePostToConversation(
+  postId: string,
+  privateKey: CryptoKey,
+  recipientId: string,
+  senderId: string
+): Promise<void> {
+  const { conversation } = await createConversation(recipientId);
+  const rootKey = await ensureConversationKeys(
+    conversation,
+    privateKey,
+    senderId
+  );
+  if (!rootKey) {
+    throw new Error("Couldn't prepare conversation keys");
+  }
+  // The ratchet index must equal the number of messages this sender
+  // already has in the conversation (the server rejects mismatches with
+  // 409). Fetch the current count instead of assuming a fresh thread.
+  const { mySentCount } = await fetchConversationDetail(conversation.id);
+  try {
+    await sendEncryptedMessage(
+      conversation.id,
+      rootKey,
+      senderId,
+      mySentCount,
+      { postId, type: "post" }
+    );
+  } catch (error) {
+    // A concurrent send can still race us; retry with the server's
+    // authoritative index when it reports the mismatch.
+    if (
+      error instanceof MessagesApiError &&
+      error.status === 409 &&
+      typeof error.expectedIndex === "number"
+    ) {
+      await sendEncryptedMessage(
+        conversation.id,
+        rootKey,
+        senderId,
+        error.expectedIndex,
+        { postId, type: "post" }
+      );
+    } else {
+      throw error;
+    }
+  }
+}
+
 export function MessageSharePicker({ postId }: MessageSharePickerProps) {
   const { user } = useSession();
   const { privateKey, status } = useMessagesIdentity();
@@ -79,21 +131,17 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
     let cancelled = false;
     const timer = setTimeout(async () => {
       setSearching(true);
+      // A failed search should not leave stale results behind; `found`
+      // starts empty so the catch path clears the list below.
+      let found: SearchUserResult[] = [];
       try {
-        const found = await searchMessageUsers(query.trim());
-        if (!cancelled) {
-          setResults(found);
-        }
+        found = await searchMessageUsers(query.trim());
       } catch (error) {
-        // A failed search should not leave stale results behind.
         console.error("Message user search failed:", error);
-        if (!cancelled) {
-          setResults([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setSearching(false);
-        }
+      }
+      if (!cancelled) {
+        setResults(found);
+        setSearching(false);
       }
     }, 250);
     return () => {
@@ -109,46 +157,12 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       }
       setSendingTo(recipient.id);
       try {
-        const { conversation } = await createConversation(recipient.id);
-        const rootKey = await ensureConversationKeys(
-          conversation,
+        await sharePostToConversation(
+          postId,
           privateKey,
+          recipient.id,
           user.id
         );
-        if (!rootKey) {
-          throw new Error("Couldn't prepare conversation keys");
-        }
-        // The ratchet index must equal the number of messages this sender
-        // already has in the conversation (the server rejects mismatches with
-        // 409). Fetch the current count instead of assuming a fresh thread.
-        const { mySentCount } = await fetchConversationDetail(conversation.id);
-        try {
-          await sendEncryptedMessage(
-            conversation.id,
-            rootKey,
-            user.id,
-            mySentCount,
-            { postId, type: "post" }
-          );
-        } catch (error) {
-          // A concurrent send can still race us; retry with the server's
-          // authoritative index when it reports the mismatch.
-          if (
-            error instanceof MessagesApiError &&
-            error.status === 409 &&
-            typeof error.expectedIndex === "number"
-          ) {
-            await sendEncryptedMessage(
-              conversation.id,
-              rootKey,
-              user.id,
-              error.expectedIndex,
-              { postId, type: "post" }
-            );
-          } else {
-            throw error;
-          }
-        }
         toast({
           description: `Sent to ${recipient.displayName}`,
           title: "Message sent",
@@ -160,61 +174,17 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
           title: "Can't share",
           variant: "destructive",
         });
-      } finally {
-        setSendingTo(null);
       }
+      // The catch above never rethrows and the try body has no early returns,
+      // so resetting here matches the previous `finally` semantics.
+      setSendingTo(null);
     },
     [postId, privateKey, user]
   );
 
-  if (status === "loading") {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
-      </div>
-    );
-  }
-
-  if (status !== "ready" || !privateKey) {
-    return (
-      <div className="flex flex-col items-center gap-2.5 py-4 text-center">
-        <Lock className="text-muted-foreground h-6 w-6" />
-        <p className="text-muted-foreground max-w-56 text-sm">
-          Messages are end-to-end encrypted and set up automatically. Open
-          Messages once to get started.
-        </p>
-        <Button
-          asChild
-          className="h-8 rounded-full px-4 text-xs"
-          variant="premium"
-        >
-          <Link href="/messages">Open Messages</Link>
-        </Button>
-      </div>
-    );
-  }
-
-  const isSearching = query.trim().length > 0;
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      <div className="reels-input flex h-9 items-center gap-2 px-3">
-        <Search className="text-muted-foreground h-4 w-4 shrink-0" />
-        <input
-          autoFocus
-          className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search people you follow…"
-          value={query}
-        />
-      </div>
-
-      <div className="flex max-h-64 flex-col overflow-y-auto">
-        {isSearching ? renderSearchResults() : renderRecentRecipients()}
-      </div>
-    </div>
-  );
-
+  // Render helpers are declared before any early returns so their function
+  // declarations never sit in unreachable code (React Compiler cannot lower
+  // hoisted declarations after a return).
   function renderSearchResults() {
     if (searching) {
       return (
@@ -283,6 +253,54 @@ export function MessageSharePicker({ postId }: MessageSharePickerProps) {
       </>
     );
   }
+
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center py-6">
+        <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (status !== "ready" || !privateKey) {
+    return (
+      <div className="flex flex-col items-center gap-2.5 py-4 text-center">
+        <Lock className="text-muted-foreground h-6 w-6" />
+        <p className="text-muted-foreground max-w-56 text-sm">
+          Messages are end-to-end encrypted and set up automatically. Open
+          Messages once to get started.
+        </p>
+        <Button
+          asChild
+          className="h-8 rounded-full px-4 text-xs"
+          variant="premium"
+        >
+          <Link href="/messages">Open Messages</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const isSearching = query.trim().length > 0;
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="reels-input flex h-9 items-center gap-2 px-3">
+        <Search className="text-muted-foreground h-4 w-4 shrink-0" />
+        <input
+          autoFocus
+          className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search people you follow…"
+          value={query}
+        />
+      </div>
+
+      <div className="flex max-h-64 flex-col overflow-y-auto">
+        {isSearching ? renderSearchResults() : renderRecentRecipients()}
+      </div>
+    </div>
+  );
 }
 
 function RecipientRow({

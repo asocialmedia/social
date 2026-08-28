@@ -19,7 +19,7 @@ import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
 import { requestPasswordReset } from "@/app/(auth)/reset-password/server-actions";
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import {
   ORANGE_GRADIENT_CLASS,
   SettingsCard,

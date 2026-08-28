@@ -14,7 +14,7 @@ import { easeInOut } from "motion";
 import { AnimatePresence, motion } from "motion/react";
 import type { Variants } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 import { cn } from "@/lib/utils";
@@ -116,15 +116,28 @@ export const MentionTags = ({
   const [isEditing, setIsEditing] = useState(false);
   const [localMentions, setLocalMentions] =
     useState<UserData[]>(initialMentions);
+  // Mirrors the last inputs seen by the sync check below so external mention
+  // changes are adopted during render (the documented adjust-state pattern)
+  // instead of from a cascading effect.
+  const [mentionSyncInputs, setMentionSyncInputs] = useState<{
+    initialMentions: UserData[];
+    localMentions: UserData[];
+  } | null>(null);
   const [hoveredTag, setHoveredTag] = useState<string | null>(null);
   const updateMentions = useUpdateMentionsMutation(postId);
 
-  useEffect(() => {
-    if (JSON.stringify(localMentions) !== JSON.stringify(initialMentions)) {
-      // eslint-disable-next-line react-compiler -- sync edits with the saved mentions
+  if (
+    mentionSyncInputs === null ||
+    mentionSyncInputs.initialMentions !== initialMentions ||
+    mentionSyncInputs.localMentions !== localMentions
+  ) {
+    if (JSON.stringify(localMentions) === JSON.stringify(initialMentions)) {
+      setMentionSyncInputs({ initialMentions, localMentions });
+    } else {
+      setMentionSyncInputs({ initialMentions, localMentions: initialMentions });
       setLocalMentions(initialMentions);
     }
-  }, [initialMentions, localMentions]);
+  }
 
   const handleMentionsUpdate = useCallback(
     async (newMentions: UserData[]) => {

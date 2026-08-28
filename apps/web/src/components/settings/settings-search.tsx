@@ -133,11 +133,6 @@ export default function SettingsSearch({ onNavigate }: SettingsSearchProps) {
   }, [query]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-compiler -- reset selection when the dialog mounts
-    setActiveIndex(0);
-  }, []);
-
-  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setOpen(false);

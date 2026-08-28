@@ -17,6 +17,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
+import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -84,6 +85,7 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
           {post.explicitContent ? (
             <ExplicitContentGate
+              revealKey={post.id}
               className="h-full w-full"
               compact
               label="Explicit"
@@ -139,13 +141,18 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
             <Flame
               className={cn(
                 "h-3 w-3 transition-colors group-hover:text-inherit",
-                post.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
+                getAuraFlameClass(post.aura)
               )}
             />
             {formatNumber(post.aura)}
           </span>
           <span className="flex shrink-0 items-center gap-0.5">
-            <MessageSquare className="h-3 w-3" />
+            <MessageSquare
+              className={cn(
+                "h-3 w-3",
+                post._count.comments > 0 && "fill-current"
+              )}
+            />
             {formatNumber(post._count.comments)}
           </span>
         </span>
@@ -289,10 +296,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
               </span>
               <span className="flex items-center gap-1">
                 <Flame
-                  className={cn(
-                    "h-3.5 w-3.5",
-                    author.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-                  )}
+                  className={cn("h-3.5 w-3.5", getAuraFlameClass(author.aura))}
                 />
                 <span className="text-foreground font-semibold">
                   {formatNumber(author.aura)}

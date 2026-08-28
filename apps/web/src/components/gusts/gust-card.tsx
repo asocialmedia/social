@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData } from "@asm/db";
+import type { PostData, TagWithCount, UserData } from "@asm/db";
 import {
   Eye,
   Flame,
@@ -21,12 +21,15 @@ import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
+import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
+import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -67,6 +70,11 @@ export const GustCard: React.FC<GustCardProps> = ({
   // True while the clip is stalled waiting for more data (network delay /
   // buffering), so a spinner can float over the video. Not the initial load.
   const [isBuffering, setIsBuffering] = useState(false);
+  // Uploader-provided alt description (gusts carry a single video), toggled
+  // inline below the caption - the same reveal store the fleet card's
+  // "Show alt" menu entry drives.
+  const altRevealed = useAltRevealed(post.id);
+  const gustAltText = post.attachments.find((a) => a.altText)?.altText;
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
@@ -78,6 +86,17 @@ export const GustCard: React.FC<GustCardProps> = ({
   const burstIdRef = useRef(0);
   const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks the previous active flag so leaving playback resets the progress
+  // bar and buffering spinner during render instead of from a cascading effect.
+  const [prevIsActive, setPrevIsActive] = useState(isActive);
+
+  if (prevIsActive !== isActive) {
+    setPrevIsActive(isActive);
+    if (!isActive) {
+      setProgress(0);
+      setIsBuffering(false);
+    }
+  }
 
   const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
   const authorName = post.user.displayName || post.user.username;
@@ -122,12 +141,9 @@ export const GustCard: React.FC<GustCardProps> = ({
     } else {
       video.pause();
       // Reset the clip to the start so it never resumes mid-way when it
-      // becomes active again.
+      // becomes active again. The progress bar and buffering spinner are
+      // cleared by the render-phase adjustment above.
       video.currentTime = 0;
-      // eslint-disable-next-line react-compiler -- reset progress bar when video is inactive
-      setProgress(0);
-      // A paused clip can't be waiting for data, so clear the buffering spinner.
-      setIsBuffering(false);
     }
 
     return () => {
@@ -253,10 +269,11 @@ export const GustCard: React.FC<GustCardProps> = ({
   }, [triggerPlayPauseIcon]);
 
   const spawnAuraBurst = useCallback((clientX: number, clientY: number) => {
-    const id = (burstIdRef.current += 1);
+    const nextId = burstIdRef.current + 1;
+    burstIdRef.current = nextId;
     setAuraBursts((prev) => [
       ...prev.slice(-6),
-      { id, x: clientX, y: clientY },
+      { id: nextId, x: clientX, y: clientY },
     ]);
     if (burstTimerRef.current) {
       clearTimeout(burstTimerRef.current);
@@ -366,6 +383,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           );
           return post.explicitContent ? (
             <ExplicitContentGate
+              revealKey={post.id}
               blurClassName="rounded-2xl lg:rounded-3xl"
               className="h-full w-full"
               label="This gust has explicit media."
@@ -457,6 +475,15 @@ export const GustCard: React.FC<GustCardProps> = ({
 
         {/* Bottom-left: author info + follow (like the post card) + caption */}
         <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pr-24 pb-8">
+          {/* First row of the info stack: sits bottom-left above the author
+              block, where every other surface shows the provenance badge. */}
+          <div>
+            <AiGeneratedBadge
+              media={{
+                aiGenerated: post.attachments.some((a) => a.aiGenerated),
+              }}
+            />
+          </div>
           <div className="flex items-center gap-3">
             <UserTooltip user={post.user}>
               <Link href={`/users/${post.user.username}`}>
@@ -517,6 +544,34 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           ) : null}
 
+          {/* Tags + mentions, mirrored from the fleet post card. */}
+          {post.tags?.length || post.mentions?.length ? (
+            <PostMeta
+              mentions={post.mentions.map((m) => m.user as unknown as UserData)}
+              tags={post.tags as TagWithCount[]}
+            />
+          ) : null}
+
+          {/* Uploader's alt description on demand, styled for the scrim. */}
+          {gustAltText ? (
+            <div className="max-w-[78%]">
+              <button
+                className="text-xs font-semibold text-white/80 drop-shadow-md transition-colors hover:text-white"
+                onClick={() => toggleAltReveal(post.id)}
+                type="button"
+              >
+                {altRevealed ? "Hide alt" : "Show alt"}
+              </button>
+              {altRevealed ? (
+                <div className="mt-1.5 rounded-lg bg-white/10 px-3 py-2 backdrop-blur-sm">
+                  <p className="text-xs leading-snug break-words text-white/90">
+                    {gustAltText}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-1.5 text-xs font-semibold text-white/85 drop-shadow">
             <Eye className="size-4" />
             <span className="tabular-nums">{formatNumber(post.viewCount)}</span>
@@ -558,7 +613,12 @@ export const GustCard: React.FC<GustCardProps> = ({
               onClick={onOpenComments}
               type="button"
             >
-              <MessageSquare className="size-5" />
+              <MessageSquare
+                className={cn(
+                  "size-5",
+                  post._count.comments > 0 && "fill-current"
+                )}
+              />
             </button>
             <span className="text-[11px] font-semibold text-white/90 tabular-nums drop-shadow">
               {formatNumber(post._count.comments)}

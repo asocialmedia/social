@@ -95,6 +95,7 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
     const persistedState = followMap[userId];
     if (persistedState && persistedState.lastUpdated > Date.now() - 300_000) {
       // eslint-disable-next-line react-compiler -- restore persisted follow state from the store
+      // oxlint-disable-next-line react/set-state-in-effect -- adopting the shared follow map must happen after mount so SSR/hydration markup stays stable, and the freshness window is time-based so it cannot be derived during render
       setLocalState({
         followers: persistedState.followers,
         isFollowedByUser: persistedState.isFollowing,
@@ -113,6 +114,10 @@ const useFollowState = (userId: string, initialState: FollowerInfo) => {
 
       queryClient.invalidateQueries({ queryKey: ["follower-info", userId] });
       queryClient.invalidateQueries({ queryKey: ["suggested-connections"] });
+      queryClient.invalidateQueries({
+        queryKey: ["suggested-connections-sidebar"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["suggested-users"] });
       queryClient.invalidateQueries({ queryKey: ["trending-users"] });
       queryClient.invalidateQueries({ queryKey: ["user", userId] });
     },

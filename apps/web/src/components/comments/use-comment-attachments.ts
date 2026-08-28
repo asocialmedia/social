@@ -4,6 +4,7 @@ import { clientLog } from "@asm/config/debug";
 import { useCallback, useState } from "react";
 
 import { useToast } from "@/lib/gooey-toast";
+import { uploadMediaFile } from "@/lib/media-upload-client";
 
 const MAX_COMMENT_ATTACHMENTS = 4;
 
@@ -14,21 +15,12 @@ export interface CommentAttachmentDraft {
   objectUrl: string;
 }
 
-function uploadCommentMedia(
-  file: File
-): Promise<{ mediaId: string; url: string }> {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  return fetch("/api/upload", {
-    body: formData,
-    method: "POST",
-  }).then(async (response) => {
-    if (!response.ok) {
-      throw new Error("Upload failed");
-    }
-    return (await response.json()) as { mediaId: string; url: string };
-  });
+async function uploadCommentMedia(file: File): Promise<{ mediaId: string }> {
+  const result = await uploadMediaFile(file, { purpose: "comment" });
+  if (result.status === "REJECTED") {
+    throw new Error("Attachment was rejected by moderation scanning");
+  }
+  return result;
 }
 
 export function useCommentAttachments() {
@@ -63,7 +55,7 @@ export function useCommentAttachments() {
       // filter, not the raw selection (which may include ignored files).
       if (attachments.length + imageFiles.length > MAX_COMMENT_ATTACHMENTS) {
         toast({
-          description: `An eddy can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
+          description: `An eddie can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
           title: "Attachment Limit",
           variant: "destructive",
         });
@@ -109,9 +101,13 @@ export function useCommentAttachments() {
             }
           })
         );
-      } finally {
+      } catch (error) {
+        // Reset before rethrowing so the uploading flag clears on the
+        // failure path too (replaces the previous `finally` clause).
         setIsUploading(false);
+        throw error;
       }
+      setIsUploading(false);
     },
     [attachments.length, isUploading, toast]
   );

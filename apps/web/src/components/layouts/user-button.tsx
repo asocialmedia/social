@@ -27,7 +27,7 @@ import { motion } from "motion/react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -74,6 +74,12 @@ const UserTrigger = ({ avatarUrl, className }: UserTriggerProps) => (
   </motion.div>
 );
 
+// No-op subscription for useSyncExternalStore-based hydration gates: the
+// server/client snapshots alone drive the value, nothing needs re-running.
+const emptySubscribe = () => () => {
+  /* empty */
+};
+
 export default function UserButton({
   className,
   asChild = false,
@@ -99,7 +105,10 @@ export default function UserButton({
       try {
         const response = await fetch(`/api/users/avatar/${user?.id}`);
         if (!response.ok) {
-          throw new Error("Failed to fetch avatar");
+          return {
+            key: null,
+            url: user?.image ? getSecureImageUrl(user.image) : null,
+          };
         }
         const data = await response.json();
         return {
@@ -117,11 +126,12 @@ export default function UserButton({
     staleTime: 1000 * 60 * 5,
   });
 
-  const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-compiler -- gate rendering on client-side mount
-    setIsMounted(true);
-  }, []);
+  // Gate rendering on client-side mount without a setState cascade.
+  const isMounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
 
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [menuOpen, setMenuOpen] = useState(false);

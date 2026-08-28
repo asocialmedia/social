@@ -1,7 +1,6 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useState } from "react";
@@ -59,7 +58,21 @@ export const FeedView: React.FC<FeedViewProps> = ({
     };
   }, [cacheKey, excludePostId, queryClient]);
 
-  useEffect(() => {
+  // Mirrors the last inputs seen by the prop-sync check below so fresh server
+  // posts are adopted during render (the documented adjust-state pattern)
+  // instead of from a cascading effect.
+  const [syncInputs, setSyncInputs] = useState<{
+    excludePostId: string | undefined;
+    initialPosts: PostData[];
+    posts: PostData[];
+  } | null>(null);
+
+  if (
+    syncInputs === null ||
+    syncInputs.excludePostId !== excludePostId ||
+    syncInputs.initialPosts !== initialPosts ||
+    syncInputs.posts !== posts
+  ) {
     const safeInitial = (initialPosts || [])
       .filter(Boolean)
       .filter((post) => post.id !== excludePostId);
@@ -73,10 +86,12 @@ export const FeedView: React.FC<FeedViewProps> = ({
       const uniquePosts = [
         ...new Map(safeInitial.map((post) => [post.id, post])).values(),
       ];
-      // eslint-disable-next-line react-compiler -- sync the local list with the initial props
+      setSyncInputs({ excludePostId, initialPosts, posts: uniquePosts });
       setPosts(uniquePosts);
+    } else {
+      setSyncInputs({ excludePostId, initialPosts, posts });
     }
-  }, [excludePostId, initialPosts, posts]);
+  }
 
   const sortedPosts = useMemo(() => {
     if (sortBy === "server") {
@@ -92,11 +107,8 @@ export const FeedView: React.FC<FeedViewProps> = ({
 
   return (
     <div className="flex flex-col">
-      {sortedPosts.map((post, index) => (
-        <React.Fragment key={post.id}>
-          {index > 0 && <Separator className="bg-border/60" />}
-          <MemoizedPostCard isJoined={true} post={post} />
-        </React.Fragment>
+      {sortedPosts.map((post) => (
+        <MemoizedPostCard isJoined={true} key={post.id} post={post} />
       ))}
       {sortedPosts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">

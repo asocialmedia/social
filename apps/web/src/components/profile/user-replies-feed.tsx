@@ -163,7 +163,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                     )}
                   >
                     {reply.deleted ? (
-                      "This eddy has been deleted."
+                      "This eddie has been deleted."
                     ) : (
                       <Linkify>{reply.content}</Linkify>
                     )}
@@ -190,7 +190,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                       postId={reply.post.id}
                     />
                     <Link
-                      aria-label="Reply to eddy"
+                      aria-label="Reply to eddie"
                       className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center gap-1.5 rounded-full border-0 px-2 text-xs font-medium active:translate-y-px"
                       href={postHref}
                     >

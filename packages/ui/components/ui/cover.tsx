@@ -98,9 +98,9 @@ export const Cover = ({
       </AnimatePresence>
       {beamPositions.map((position, _index) => (
         <Beam
-          // eslint-disable-next-line react-compiler -- randomized beam delay is intentional
+          // oxlint-disable-next-line react/purity -- randomized beam delay is intentional
           delay={Math.random() * 2 + 1}
-          // eslint-disable-next-line react-compiler -- randomized beam duration is intentional
+          // oxlint-disable-next-line react/purity -- randomized beam duration is intentional
           duration={Math.random() * 2 + 1}
           hovered={hovered}
           key={`beam-${position}`}
@@ -207,12 +207,12 @@ export const Beam = ({
           }}
           key={String(hovered)}
           transition={{
-            // eslint-disable-next-line react-compiler -- randomized gradient delay is intentional
+            // oxlint-disable-next-line react/purity -- randomized gradient delay is intentional
             delay: hovered ? Math.random() * (1 - 0.2) + 0.2 : 0,
             duration: hovered ? 0.5 : (duration ?? 2),
             ease: "linear",
             repeat: Number.POSITIVE_INFINITY,
-            // eslint-disable-next-line react-compiler -- randomized repeat delay is intentional
+            // oxlint-disable-next-line react/purity -- randomized repeat delay is intentional
             repeatDelay: hovered ? Math.random() * (2 - 1) + 1 : (delay ?? 1),
           }}
         >

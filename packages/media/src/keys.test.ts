@@ -11,10 +11,17 @@ import {
 } from "./keys";
 
 describe("storage key layout", () => {
-  test("quarantine keys are namespaced per media id", () => {
-    expect(quarantineKey("abc123", "jpg")).toBe(
-      "quarantine/abc123/original.jpg"
+  test("quarantine keys are namespaced per media id with a random segment", () => {
+    expect(quarantineKey("abc123", "jpg", "cafef00ddeadbeef")).toBe(
+      "quarantine/abc123/cafef00ddeadbeef/original.jpg"
     );
+  });
+
+  test("quarantine keys carry fresh entropy per call", () => {
+    const a = quarantineKey("abc123", "jpg");
+    const b = quarantineKey("abc123", "jpg");
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/^quarantine\/abc123\/[0-9a-f]{16}\/original\.jpg$/);
   });
 
   test("published keys embed a content-hash fragment", () => {

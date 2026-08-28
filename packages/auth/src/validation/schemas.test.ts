@@ -117,11 +117,11 @@ describe("schemas", () => {
       ).toBe(true);
     });
 
-    test("rejects more than 5 mediaIds", () => {
+    test("rejects more than the 10-attachment cap (MAX_POST_ATTACHMENTS)", () => {
       expect(
         createPostSchema.safeParse({
           content: "Hello world!",
-          mediaIds: ["1", "2", "3", "4", "5", "6"],
+          mediaIds: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
           mentions: [],
           tags: [],
         }).success

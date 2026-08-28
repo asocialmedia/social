@@ -98,10 +98,14 @@ type SocialProviderName = "google" | "reddit";
 // Fields better-auth accepts from mapProfileToUser when creating/linking a
 // user via a social provider. username is required; the rest shape the new
 // account (Reddit exposes no email, so the derived name is what we can set).
+// A type alias with an explicit index signature (not an interface) so it
+// remains assignable to better-auth 1.7's OAuthMappedUser, which carries a
+// string index signature for provider-specific extras like username.
 interface SocialUserMapping {
   emailVerified?: boolean;
   name?: string;
   username: string;
+  [key: string]: unknown;
 }
 
 export interface SocialProvidersConfig {

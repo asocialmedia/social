@@ -23,7 +23,7 @@ const CommentsRealtimeContext = createContext<CommentsRealtimeValue | null>(
 
 // Shares one realtime store per post across every consumer on the page: the
 // comments list, the inline composer and the mobile floating composer all
-// write to the same map, so an eddy posted from any of them shows up in all of
+// write to the same map, so an eddie posted from any of them shows up in all of
 // them without a refetch.
 export function CommentsRealtimeProvider({
   children,

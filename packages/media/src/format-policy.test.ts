@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  avContainerExtension,
   classifyImage,
+  isAvMetadataStripContainer,
+  needsFaststart,
   planImageDerivatives,
   planVideoOutputs,
 } from "./format-policy";
@@ -14,6 +17,7 @@ describe("image classification", () => {
         hasAlpha: true,
         height: 100,
         isAnimated: true,
+        isLosslessSource: false,
         width: 100,
       })
     ).toBe("animated");
@@ -26,6 +30,7 @@ describe("image classification", () => {
         hasAlpha: true,
         height: 100,
         isAnimated: false,
+        isLosslessSource: false,
         width: 100,
       })
     ).toBe("alpha");
@@ -38,6 +43,7 @@ describe("image classification", () => {
         hasAlpha: false,
         height: 100,
         isAnimated: false,
+        isLosslessSource: true,
         width: 100,
       })
     ).toBe("graphic");
@@ -47,6 +53,7 @@ describe("image classification", () => {
         hasAlpha: false,
         height: 100,
         isAnimated: false,
+        isLosslessSource: false,
         width: 100,
       })
     ).toBe("photo");
@@ -59,6 +66,7 @@ describe("image derivative planning", () => {
     hasAlpha: false,
     height: 2000,
     isAnimated: false,
+    isLosslessSource: false,
     width: 1600,
   };
 
@@ -92,9 +100,56 @@ describe("image derivative planning", () => {
     );
   });
 
-  test("huge originals do not produce an orig-img re-encode", () => {
-    const plan = planImageDerivatives({ ...photo, height: 4000, width: 3000 });
+  test("orig-img stays lossy for photographic sources", () => {
+    const plan = planImageDerivatives(photo);
+    const orig = plan.find((d) => d.kind === "orig-img");
+    expect(orig?.lossless).toBe(false);
+    // Even a PNG upload classified as photo stays perceptual - a lossless
+    // encode of noisy photographic content would dwarf the upload.
+    const pngPhoto = planImageDerivatives({
+      ...photo,
+      isLosslessSource: true,
+    });
+    expect(pngPhoto.find((d) => d.kind === "orig-img")?.lossless).toBe(false);
+  });
+
+  test("lossless graphics and alpha sources get bit-exact orig-img", () => {
+    const screenshot = planImageDerivatives({
+      ...photo,
+      colorEntropy: 0.1,
+      height: 2160,
+      isLosslessSource: true,
+      width: 3840,
+    });
+    expect(screenshot.find((d) => d.kind === "orig-img")?.lossless).toBe(true);
+
+    const logo = planImageDerivatives({
+      ...photo,
+      colorEntropy: 0.9,
+      hasAlpha: true,
+      height: 512,
+      isLosslessSource: true,
+      width: 512,
+    });
+    expect(logo.find((d) => d.kind === "orig-img")?.lossless).toBe(true);
+
+    // Same graphic uploaded as a lossy JPEG keeps perceptual encoding.
+    const jpegGraphic = planImageDerivatives({
+      ...photo,
+      colorEntropy: 0.1,
+      height: 2160,
+      isLosslessSource: false,
+      width: 3840,
+    });
+    expect(jpegGraphic.find((d) => d.kind === "orig-img")?.lossless).toBe(
+      false
+    );
+  });
+
+  test("sources beyond the orig ceiling fall back to ladder rungs only", () => {
+    const plan = planImageDerivatives({ ...photo, height: 6000, width: 5000 });
     expect(plan.some((d) => d.kind === "orig-img")).toBe(false);
+    expect(plan.some((d) => d.kind === "lg")).toBe(true);
   });
 
   test("animated sources skip the orig re-encode (original bytes serve motion)", () => {
@@ -156,5 +211,60 @@ describe("video output planning", () => {
     const plan = planVideoOutputs({ durationSec: 300, srcHeight: 144 });
     expect(plan.hls).toBe(true);
     expect(plan.hlsLadder.map((r) => r.variant)).toEqual(["360p"]);
+  });
+});
+
+describe("published-original av metadata policy", () => {
+  test("every content-detectable video/audio container is strip-eligible", () => {
+    // These are exactly the `container` values magic.ts can emit for the
+    // VIDEO/AUDIO families - a gap here would publish an unscrubbed original.
+    for (const container of [
+      "iso-bmff",
+      "mov",
+      "m4a",
+      "webm",
+      "mkv",
+      "avi",
+      "flv",
+      "mpeg-audio",
+      "ogg",
+      "flac",
+      "wav",
+      "aac-adts",
+    ]) {
+      expect(isAvMetadataStripContainer(container)).toBe(true);
+    }
+  });
+
+  test("image containers are never remux-scrubbed", () => {
+    for (const container of ["jpeg", "png", "gif", "webp", "heic"]) {
+      expect(isAvMetadataStripContainer(container)).toBe(false);
+    }
+  });
+
+  test("container extensions map to real ffmpeg muxers", () => {
+    expect(avContainerExtension("iso-bmff")).toBe("mp4");
+    expect(avContainerExtension("mov")).toBe("mov");
+    expect(avContainerExtension("m4a")).toBe("m4a");
+    expect(avContainerExtension("webm")).toBe("webm");
+    expect(avContainerExtension("mkv")).toBe("mkv");
+    expect(avContainerExtension("avi")).toBe("avi");
+    expect(avContainerExtension("flv")).toBe("flv");
+    expect(avContainerExtension("mpeg-audio")).toBe("mp3");
+    expect(avContainerExtension("ogg")).toBe("ogg");
+    expect(avContainerExtension("flac")).toBe("flac");
+    expect(avContainerExtension("wav")).toBe("wav");
+    expect(avContainerExtension("aac-adts")).toBe("aac");
+    expect(avContainerExtension("jpeg")).toBeNull();
+    expect(avContainerExtension("unknown")).toBeNull();
+  });
+
+  test("only the ISO-BMFF family faststarts", () => {
+    expect(needsFaststart("iso-bmff")).toBe(true);
+    expect(needsFaststart("mov")).toBe(true);
+    expect(needsFaststart("m4a")).toBe(true);
+    expect(needsFaststart("webm")).toBe(false);
+    expect(needsFaststart("mkv")).toBe(false);
+    expect(needsFaststart("mpeg-audio")).toBe(false);
   });
 });

@@ -26,9 +26,16 @@ function rewriteAsmobUrl(rawUrl: string): string {
     return rawUrl;
   }
   const { kind, userId } = match.groups;
+  // Proxy responses cache for a year; a legacy URL's own path is a stable
+  // per-object cache buster so replaced legacy uploads never render stale.
+  const file =
+    decoded
+      .slice(match.index ?? 0)
+      .split("/")
+      .pop() ?? "";
   return kind === "avatars"
-    ? `/api/users/avatar/${userId}/image`
-    : `/api/users/banner/${userId}/image`;
+    ? `/api/users/avatar/${userId}/image?v=${file}`
+    : `/api/users/banner/${userId}/image?v=${file}`;
 }
 
 export const DEFAULT_AVATARS = [
@@ -91,14 +98,71 @@ export function toAppProxyUrl(url: string | null | undefined): string {
   return rewriteAsmobUrl(url);
 }
 
-// App proxy URL for a media object. Videos always request the thumbnail URL
-// (?thumb=1) so image callers receive a poster image/placeholder instead of
-// downloading multi-megabyte video streams.
+// App proxy URL for a media object. Images request the 800px WebP feed
+// derivative (the variant route falls back to the original for legacy rows
+// and animated GIFs); videos always request the poster URL (?thumb=1) so
+// image callers receive a frame instead of multi-megabyte video streams.
 export function getMediaProxyUrl(media: {
   id: string;
   type?: string;
+  mimeType?: string;
   thumbnailKey?: string | null;
 }): string {
-  const thumbnail = media.type === "VIDEO" ? "?thumb=1" : "";
-  return `/api/media/${media.id}${thumbnail}`;
+  if (media.type === "VIDEO") {
+    return `/api/media/${media.id}?thumb=1`;
+  }
+  return getMediaImageUrl(media, "md-webp.webp");
+}
+
+// Display URL for a raster image at a chosen derivative size (e.g.
+// lg-webp.webp, orig-img-webp.webp). The variant route falls back to the
+// published original whenever the derivative does not exist - small sources
+// never produce larger ladder rungs - so any size request is safe. Animated
+// GIFs bypass variants entirely so their animation survives.
+export function getMediaImageUrl(
+  media: { id: string; mimeType?: string | null },
+  variant: string
+): string {
+  if (media.mimeType === "image/gif") {
+    return `/api/media/${media.id}`;
+  }
+  return getMediaVariantUrl(media.id, variant);
+}
+
+// Optimized derivative URL. The serving route falls back to the published
+// original when the derivative does not exist, so this is always safe.
+export function getMediaVariantUrl(mediaId: string, variant: string): string {
+  return `/api/media/${mediaId}/v/${variant}`;
+}
+
+// Playback URL for video: prefers the pipeline's progressive MP4 derivative
+// (H.264 + AAC faststart, metadata-stripped). The variant route falls back
+// to the published original when no MP4 exists (long-form sources that only
+// got an HLS ladder), so the URL is always playable-safe for uploads whose
+// original was browser-compatible in the first place.
+export function getMediaVideoUrl(mediaId: string): string {
+  return getMediaVariantUrl(mediaId, "mp4-h264.mp4");
+}
+
+// srcset for responsive delivery: the browser picks the smallest rung that
+// covers its viewport width × devicePixelRatio. Each variant URL is safe on
+// its own (fallback to the original for small sources), so listing every
+// ladder rung is always correct even before derivatives exist.
+const IMAGE_SRCSET_VARIANTS: readonly [string, number][] = [
+  ["thumb-webp.webp", 320],
+  ["sm-webp.webp", 640],
+  ["md-webp.webp", 800],
+  ["lg-webp.webp", 1200],
+];
+
+export function getMediaImageSrcSet(media: {
+  id: string;
+  mimeType?: string | null;
+}): string | undefined {
+  if (media.mimeType === "image/gif") {
+    return undefined;
+  }
+  return IMAGE_SRCSET_VARIANTS.map(
+    ([variant, width]) => `${getMediaVariantUrl(media.id, variant)} ${width}w`
+  ).join(", ");
 }

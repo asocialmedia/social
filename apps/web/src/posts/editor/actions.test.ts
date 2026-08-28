@@ -63,6 +63,9 @@ mock.module("@asm/db", () => ({
   MENTION_RECEIVED_AURA: 10,
   POST_CREATION_AURA: 10,
   POST_CREATION_MAX_AURA: 150,
+  // Pulled by the system-moderation-user helper actions.ts delegates to;
+  // without it the static named import reaches the real barrel.
+  SYSTEM_MODERATION_USER_ID: "sys-zeph",
   applyFlatAward: (
     _tx: typeof mockTx,
     args: { recipientId: string; type: string }
@@ -78,6 +81,19 @@ mock.module("@asm/db", () => ({
   postViewsCache: {},
   prisma: {
     $transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+    user: {
+      // Zeph persona upsert (getModerationSystemUserId).
+      upsert: () =>
+        Promise.resolve({
+          id: "sys-zeph",
+        }),
+    },
+  },
+  // Pulled statically by the link-embed resolver the submit path delegates
+  // to; the tests never touch the cache itself.
+  redis: {
+    get: () => Promise.resolve(null),
+    set: () => Promise.resolve("OK"),
   },
   tagCache: {},
 }));
@@ -110,8 +126,15 @@ describe("submitPost mention validation", () => {
     expect(result).toBeNull();
     // The author's own id never becomes a mention record...
     expect(state.mentionCreates).toEqual([]);
-    // ...never generates a self-notification...
-    expect(state.notifications).toEqual([]);
+    // ...never generates a self-notification (only Zeph's publish receipt)...
+    expect(state.notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "PUBLISHED",
+      },
+    ]);
     // ...and never mints MENTION_RECEIVED aura back to themselves. The only
     // award is the ordinary POST_CREATION stipend.
     expect(state.auraAwards).toEqual([
@@ -131,6 +154,12 @@ describe("submitPost mention validation", () => {
 
     expect(state.mentionCreates).toEqual([{ userId: OTHER_USER_ID }]);
     expect(state.notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "PUBLISHED",
+      },
       {
         issuerId: AUTHOR_ID,
         postId: POST_ID,
@@ -156,6 +185,12 @@ describe("submitPost mention validation", () => {
 
     expect(state.mentionCreates).toEqual([{ userId: OTHER_USER_ID }]);
     expect(state.notifications).toEqual([
+      {
+        issuerId: "sys-zeph",
+        postId: POST_ID,
+        recipientId: AUTHOR_ID,
+        type: "PUBLISHED",
+      },
       {
         issuerId: AUTHOR_ID,
         postId: POST_ID,

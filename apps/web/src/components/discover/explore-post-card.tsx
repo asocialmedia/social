@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData } from "@asm/db";
+import type { Media, PostData } from "@asm/db";
 import noMediaImage from "@assets/general/nomedia.png";
 import { Clapperboard, Play } from "lucide-react";
 import Image from "next/image";
@@ -13,13 +13,11 @@ import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import { cn } from "@/lib/utils";
-import { getMediaProxyUrl } from "@/lib/utils/image-url";
-
-const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
+import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const DEFAULT_ASPECT = 4 / 5;
 
-const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
+const ExplorePostImage: React.FC<{ media: Media }> = ({ media }) => {
   const [isImageLoading, setIsImageLoading] = useState(true);
   const [isImageFailed, setIsImageFailed] = useState(false);
 
@@ -41,21 +39,23 @@ const ExplorePostImage: React.FC<{ mediaId: string }> = ({ mediaId }) => {
       {isImageLoading ? (
         <div className="bg-muted/40 absolute inset-0 animate-pulse" />
       ) : null}
-      <Image
+      {/* eslint-disable-next-line @next/next/no-img-element -- srcSet for responsive explore tiles */}
+      <img
         alt="Post media"
         className={cn(
-          "object-cover transition-all duration-300 group-hover:scale-105",
+          "absolute inset-0 h-full w-full object-cover transition-all duration-300 group-hover:scale-105",
           isImageLoading ? "opacity-0" : "opacity-100"
         )}
-        fill
+        decoding="async"
+        loading="lazy"
         onError={() => {
           setIsImageFailed(true);
           setIsImageLoading(false);
         }}
         onLoad={() => setIsImageLoading(false)}
         sizes="(max-width: 768px) 50vw, 300px"
-        src={getMediaUrl(mediaId)}
-        unoptimized
+        src={getMediaProxyUrl(media)}
+        srcSet={getMediaImageSrcSet(media)}
       />
     </>
   );
@@ -129,7 +129,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
 
   let mediaContent: React.ReactNode = null;
   if (media?.type === "IMAGE") {
-    mediaContent = <ExplorePostImage mediaId={media.id} />;
+    mediaContent = <ExplorePostImage media={media} />;
   } else if (media) {
     mediaContent = <ExplorePostVideo media={media} />;
   }

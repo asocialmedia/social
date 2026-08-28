@@ -106,7 +106,7 @@ const Carousel = ({
       return;
     }
 
-    // eslint-disable-next-line react-compiler -- sync embla state into React on init
+    // oxlint-disable-next-line react/set-state-in-effect -- sync embla state into React on init
     onSelect(api);
     api.on("reInit", onSelect);
     api.on("select", onSelect);

@@ -16,39 +16,73 @@ export interface MediaCleanupJobData {
   mediaId: string;
 }
 export interface PostDeletedJobData {
+  mediaIds?: string[];
   postId: string;
+  /** Storage keys captured before deletion; the primary cleanup source. */
+  objectKeys?: string[];
 }
 
 export async function processPostDeleted(
-  { postId }: PostDeletedJobData,
+  {
+    postId,
+    mediaIds = [],
+    objectKeys: preCapturedKeys = [],
+  }: PostDeletedJobData,
   logger?: WorkerLogger
 ) {
   const log = resolveLogger(logger);
   await withSpan(
     "job.post-deleted",
     async () => {
-      // Load all attachments of the deleted post, delete their objects (plus
-      // any video thumbnail frames), then the rows. Fixes the orphaned-media
-      // leak caused by onDelete: SetNull.
-      const media = await prisma.media.findMany({
-        select: { id: true, key: true, thumbnailKey: true },
-        where: { postId },
-      });
+      // The web client removes attachment rows during prisma.post.delete
+      // (emulated referential action), so by the time this job runs neither
+      // a postId lookup nor an id lookup can discover anything. New events
+      // carry every storage key pre-captured from those vanishing rows and
+      // are cleaned directly; row lookups remain only as a fallback for
+      // events queued before that field existed.
+      const objectKeys = new Set<string>(preCapturedKeys);
 
-      await Promise.allSettled(
-        media.map(async (m) => {
-          if (m.key) {
-            await deleteObject(m.key);
+      if (objectKeys.size === 0) {
+        const media = await prisma.media.findMany({
+          select: {
+            customThumbnailKey: true,
+            derivatives: { select: { key: true } },
+            id: true,
+            key: true,
+            originalKey: true,
+            publishedKey: true,
+            thumbnailKey: true,
+          },
+          where: mediaIds.length > 0 ? { id: { in: mediaIds } } : { postId },
+        });
+        for (const m of media) {
+          for (const key of [
+            m.customThumbnailKey,
+            m.key,
+            m.originalKey,
+            m.publishedKey,
+            m.thumbnailKey,
+          ]) {
+            if (key && key.length > 0) {
+              objectKeys.add(key);
+            }
           }
-          if (m.thumbnailKey) {
-            await deleteObject(m.thumbnailKey);
+          for (const derivative of m.derivatives) {
+            objectKeys.add(derivative.key);
           }
-        })
-      );
+        }
+      }
 
-      await prisma.media.deleteMany({
-        where: { id: { in: media.map((m) => m.id) } },
-      });
+      // Objects are content-addressed per media id, so cross-post sharing
+      // is impossible; deleting by unique keys cannot take out a neighbor.
+      await Promise.allSettled([...objectKeys].map((key) => deleteObject(key)));
+
+      if (mediaIds.length > 0) {
+        // Rows are normally already gone; harmless no-op sweep.
+        await prisma.media.deleteMany({
+          where: { id: { in: mediaIds } },
+        });
+      }
 
       // Clear any buffered view counters for the post.
       await Promise.allSettled([
@@ -56,7 +90,10 @@ export async function processPostDeleted(
         redis.del(`${POST_VIEWS_KEY_PREFIX}${postId}`),
       ]);
 
-      log.info({ mediaDeleted: media.length, postId }, "post media cleaned");
+      log.info(
+        { objectsDeleted: objectKeys.size, postId },
+        "post media cleaned"
+      );
     },
     { "post.id": postId }
   );
@@ -120,6 +157,7 @@ export async function processMediaCleanup(
         select: {
           commentId: true,
           createdAt: true,
+          customThumbnailKey: true,
           id: true,
           key: true,
           postId: true,
@@ -136,6 +174,9 @@ export async function processMediaCleanup(
         }
         if (media.thumbnailKey) {
           await deleteObject(media.thumbnailKey);
+        }
+        if (media.customThumbnailKey) {
+          await deleteObject(media.customThumbnailKey);
         }
         await prisma.media.delete({ where: { id: mediaId } });
         log.info({ mediaId }, "abandoned media cleaned up");

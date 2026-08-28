@@ -33,12 +33,44 @@ async function getMediaObject(mediaId: string) {
       id: true,
       key: true,
       mimeType: true,
+      publishedKey: true,
       size: true,
+      status: true,
       thumbnailKey: true,
       type: true,
     },
     where: { id: mediaId },
   });
+}
+
+// Lifecycle gate. New-pipeline rows become publicly servable only once the
+// controlled pipeline reaches READY; quarantine/scan/processing states never
+// expose bytes. Legacy rows (created before the pipeline) carry their object
+// key in the old column and keep serving exactly as before so existing posts
+// are untouched; REJECTED/DELETED rows are dead in every generation.
+function isServableMedia(
+  media: Awaited<ReturnType<typeof getMediaObject>>
+): boolean {
+  if (!media) {
+    return false;
+  }
+  if (media.status === "REJECTED" || media.status === "DELETED") {
+    return false;
+  }
+  if (media.status === "READY") {
+    return true;
+  }
+  // Pipeline rows published before derivatives existed serve their
+  // published original; pre-pipeline rows fall back to the legacy key.
+  return Boolean(media.publishedKey) || media.key.length > 0;
+}
+
+// Resolution order matters after legacy GC retires the old object: prefer
+// the pipeline's content-hashed original, then fall back to the legacy key.
+function resolveObjectKey(
+  media: NonNullable<Awaited<ReturnType<typeof getMediaObject>>>
+): string {
+  return media.publishedKey || media.key;
 }
 
 // Ownership columns are NOT immutable: a draft upload starts unlinked
@@ -111,6 +143,12 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
 
+  // Lifecycle: bytes exist publicly only after the pipeline says so (or for
+  // legacy rows). Quarantined/scanning/processing content is never served.
+  if (!isServableMedia(media)) {
+    return new NextResponse("Media not found", { status: 404 });
+  }
+
   // Authorization: post attachments are public, comment media needs a
   // session, message/draft uploads are owner-only (see media-access.ts).
   // Ownership is read fresh (never cached) so a just-published post's
@@ -139,14 +177,66 @@ export async function GET(
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
     const isThumbnail = url.searchParams.get("thumb") === "1";
-    if (isThumbnail && media.type === "VIDEO" && !media.thumbnailKey) {
-      // Return a lightweight SVG placeholder thumbnail when no stored video frame exists
-      // so image renderers never download multi-megabyte video streams pretending to be images.
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
-      return new NextResponse(svg, {
+    if (isThumbnail && media.type === "VIDEO") {
+      // thumbnailKey is written AFTER publish by the process job, so reading
+      // it from the hours-cached object would pin "no thumbnail" until cache
+      // expiry - freshly posted videos would show no frame without a manual
+      // refresh. Pull it fresh (single indexed PK lookup), same reason
+      // ownership is read fresh below.
+      const freshThumb = await prisma.media.findUnique({
+        select: { customThumbnailKey: true, status: true, thumbnailKey: true },
+        where: { id: mediaId },
+      });
+      // Priority: the author's custom cover (gust thumbnail) first, then the
+      // pipeline's scene-aware poster derivative, then the legacy
+      // thumbnailKey column. Serve whichever exists so feed cards get a real
+      // frame, and only fall back to the lightweight placeholder SVG when
+      // none does (image renderers must never download multi-megabyte video
+      // streams pretending to be images).
+      let posterKey: string | null =
+        freshThumb?.customThumbnailKey ?? freshThumb?.thumbnailKey ?? null;
+      if (!posterKey && freshThumb?.status === "READY") {
+        const thumbPoster = await prisma.mediaDerivative.findFirst({
+          select: { key: true },
+          where: { kind: "poster-thumb", mediaId },
+        });
+        if (thumbPoster?.key) {
+          posterKey = thumbPoster.key;
+        } else {
+          const poster = await prisma.mediaDerivative.findFirst({
+            select: { key: true },
+            where: { kind: "poster", mediaId },
+          });
+          posterKey = poster?.key ?? null;
+        }
+      }
+      if (!posterKey) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
+        return new NextResponse(svg, {
+          headers: {
+            // Short-lived: this placeholder only exists while the pipeline's
+            // poster encode is in flight (row READY, poster pending). The
+            // real frame typically lands within seconds - a long max-age
+            // here pinned the gray box on feed cards for a full minute
+            // after the poster became servable.
+            "Cache-Control": "public, max-age=3",
+            "Content-Type": "image/svg+xml",
+            "X-Content-Type-Options": "nosniff",
+          },
+          status: 200,
+        });
+      }
+      const posterObject = await asmobClient.send(
+        new GetObjectCommand({ Bucket: ASMOB_BUCKET, Key: posterKey })
+      );
+      return new NextResponse(posterObject.Body as ReadableStream, {
         headers: {
-          "Cache-Control": "public, max-age=60",
-          "Content-Type": "image/svg+xml",
+          "Cache-Control": ownership.postId
+            ? "public, max-age=31536000, immutable"
+            : "private, max-age=86400",
+          // Custom thumbnails copy the source image's content type; pipeline
+          // posters are always jpeg.
+          "Content-Type": posterObject.ContentType ?? "image/jpeg",
           "X-Content-Type-Options": "nosniff",
         },
         status: 200,
@@ -156,7 +246,9 @@ export async function GET(
     // Video thumbnails live under their own key; serving them through this
     // route keeps the bucket private while giving every consumer one URL.
     const objectKey =
-      isThumbnail && media.thumbnailKey ? media.thumbnailKey : media.key;
+      isThumbnail && media.thumbnailKey
+        ? media.thumbnailKey
+        : resolveObjectKey(media);
     // Browsers ask for a byte range when loading <video>/<audio> and when
     // seeking. Forward the request to storage so only the requested chunk is
     // transferred instead of the whole file on every interaction. Thumbnails
@@ -293,6 +385,15 @@ export async function GET(
     // a scary 500 or re-throwing into the framework.
     if (error instanceof DOMException && error.name === "AbortError") {
       return new Response(null, { status: 499 });
+    }
+    // A row whose stored object vanished from storage (crash between publish
+    // flip and upload, corrupted duplicate rows) is a missing asset, not a
+    // server fault - respond like an unknown media id.
+    if (
+      error instanceof S3ServiceException &&
+      (error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404)
+    ) {
+      return new NextResponse("Media not found", { status: 404 });
     }
     const logger = getWebLogger();
     const payload = { error, mediaId };

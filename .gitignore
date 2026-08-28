@@ -59,3 +59,4 @@ devenv.local.yaml
 
 # pre-commit
 .pre-commit-config.yaml
+.dev-c2pa/

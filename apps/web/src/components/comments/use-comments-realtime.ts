@@ -63,6 +63,15 @@ function reviveDates(_key: string, value: unknown): unknown {
   return value;
 }
 
+// React Compiler cannot lower `throw` statements inside hook try blocks, so
+// the stream status check lives in this module-scoped helper.
+function openCommentStream(response: Response): ReadableStream<Uint8Array> {
+  if (!response.ok || !response.body) {
+    throw new Error(`Comment stream returned ${response.status}`);
+  }
+  return response.body;
+}
+
 export interface UseCommentsRealtimeReturn {
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
@@ -176,13 +185,9 @@ export function useCommentsRealtime(
           signal: controller.signal,
         });
 
-        if (!response.ok || !response.body) {
-          throw new Error(`Comment stream returned ${response.status}`);
-        }
-
         retryDelay = INITIAL_RETRY_MS;
 
-        const reader = response.body.getReader();
+        const reader = openCommentStream(response).getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -226,15 +231,7 @@ export function useCommentsRealtime(
         clearTimeout(retryTimer);
       }
     };
-  }, [
-    postId,
-    queryClient,
-    queryKey,
-    user,
-    enabled,
-    applyCreated,
-    applyDeleted,
-  ]);
+  }, [postId, queryClient, user, enabled, applyCreated, applyDeleted]);
 
   return { applyCreated, applyDeleted };
 }

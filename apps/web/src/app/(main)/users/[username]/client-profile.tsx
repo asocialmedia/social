@@ -4,7 +4,7 @@ import type { PrivateUserData, UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -104,12 +104,16 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
   // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
-  useEffect(() => {
+  const [prevLayoutInputs, setPrevLayoutInputs] = useState({ activeTab, isXl });
+  if (
+    prevLayoutInputs.activeTab !== activeTab ||
+    prevLayoutInputs.isXl !== isXl
+  ) {
+    setPrevLayoutInputs({ activeTab, isXl });
     if (isXl && activeTab === "media") {
-      // eslint-disable-next-line react-compiler -- reset the tab when the layout switches to the media sidebar
       setActiveTab("posts");
     }
-  }, [activeTab, isXl]);
+  }
 
   const isOwnProfile = loggedInUserData
     ? userData.id === loggedInUserData.id

@@ -39,6 +39,8 @@ export async function GET(
     // stored type is not an image falls back to octet-stream with an
     // attachment disposition so the browser can never sniff it into HTML.
     const IMAGE_CONTENT_TYPES = new Set([
+      "image/gif",
+      "image/heic",
       "image/jpeg",
       "image/png",
       "image/webp",

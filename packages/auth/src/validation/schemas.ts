@@ -77,13 +77,30 @@ export const loginSchema = z.object({
   username: requiredUsername,
 });
 
-export const createPostSchema = z.object({
-  content: requiredString,
+// Base shape WITHOUT cross-field refinements: Zod 4 forbids extending an
+// object schema that carries refinements, so the gust variant builds from
+// this plain shape via .safeExtend().
+const createPostShape = z.object({
+  // Caption is optional for fleet posts that carry media - a lone photo or
+  // clip speaks for itself. The refine on createPostSchema enforces
+  // "text or attachment".
+  content: z.string().optional().default(""),
+  // Links the author dismissed in the composer's live preview; the publish
+  // path excludes them from the stored embed set. Capped like MAX_POST_EMBEDS.
+  dismissedEmbedUrls: z.array(z.string().max(2048)).max(5).optional(),
   isGust: z.boolean().optional().default(false),
-  mediaIds: z.array(z.string()).max(5, "Cannot have more than 5 attachments"),
+  // Mirrors MAX_POST_ATTACHMENTS in @asm/media (kept literal here so the
+  // validation package stays dependency-free).
+  mediaIds: z.array(z.string()).max(10, "Cannot have more than 10 attachments"),
   mentions: z.array(z.string()).default([]),
   tags: z.array(postTagSchema).max(10, "Cannot have more than 10 tags"),
 });
+
+export const createPostSchema = createPostShape.refine(
+  (input) =>
+    input.mediaIds.length > 0 || (input.content ?? "").trim().length > 0,
+  "A post needs either a caption or an attachment"
+);
 
 // Gust captions are short by design - one punchy line under the clip,
 // measured in words rather than characters. A character cap also guards
@@ -97,8 +114,8 @@ function countWords(text: string): number {
 }
 
 // Gusts must carry exactly one video and a short caption.
-export const createGustSchema = createPostSchema
-  .extend({
+export const createGustSchema = createPostShape
+  .safeExtend({
     content: requiredString
       .max(
         GUST_CAPTION_MAX_CHARS,

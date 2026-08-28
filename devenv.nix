@@ -12,7 +12,9 @@ let
 in
 
 {
-  packages = with pkgs; [ git curl openssl prisma-engines ];
+  # stdenv.cc.cc.lib ships libstdc++.so.6, required to dlopen native Node
+  # modules (e.g. @contentauth/c2pa-node) on NixOS where /usr/lib is empty.
+  packages = with pkgs; [ git curl openssl prisma-engines stdenv.cc.cc.lib ];
 
   languages.javascript = {
     enable = true;
@@ -40,6 +42,10 @@ in
   };
 
   enterShell = ''
+    # Native Node addons dlopen libstdc++ by soname; without this they fail
+    # with ERR_DLOPEN_FAILED on NixOS (see packages note above).
+    export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
     if [ -x "${pkgs.prisma-engines}/bin/prisma-fmt" ]; then
       export PRISMA_FMT_BINARY="${pkgs.prisma-engines}/bin/prisma-fmt"
     fi

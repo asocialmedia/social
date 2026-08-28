@@ -7,12 +7,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
+import { Flame } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
+import { useSyncExternalStore } from "react";
 import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { getAuraFlameClass } from "@/lib/aura";
+import { cn, formatNumber } from "@/lib/utils";
 
 import FollowButton from "./follow-button";
 import FollowerCount from "./follower-count";
@@ -25,6 +28,22 @@ interface UserTooltipProps extends PropsWithChildren {
 
 const BIO_USERNAME_REGEX = /(?<username>@[a-zA-Z0-9_-]+)/;
 const BIO_HASHTAG_REGEX = /(?<hashtag>#[a-zA-Z0-9]+)/;
+
+// Viewport detection as an external store: the server snapshot renders the
+// tooltip variant so hydration matches, then the client snapshot flips to the
+// compact children on small screens. Resize events drive re-reads, replacing
+// the old setState-in-effect cascade.
+// oxlint-disable-next-line promise/prefer-await-to-callbacks -- useSyncExternalStore subscribe contract requires a callback API
+function subscribeToViewport(callback: () => void) {
+  window.addEventListener("resize", callback);
+  return () => {
+    window.removeEventListener("resize", callback);
+  };
+}
+
+const getIsMobileSnapshot = () => window.innerWidth < 768;
+
+const getServerIsMobile = () => false;
 
 function renderBioUsernameLink(match: string, key: number) {
   return (
@@ -52,22 +71,11 @@ function renderBioHashtagLink(match: string, key: number) {
 
 export default function UserTooltip({ children, user }: UserTooltipProps) {
   const { user: loggedInUser } = useSession();
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      // eslint-disable-next-line react-compiler -- detect the initial viewport size on mount
-      setIsMobile(window.innerWidth < 768);
-      const handleResize = () => {
-        setIsMobile(window.innerWidth < 768);
-      };
-
-      window.addEventListener("resize", handleResize);
-      return () => {
-        window.removeEventListener("resize", handleResize);
-      };
-    }
-  }, []);
+  const isMobile = useSyncExternalStore(
+    subscribeToViewport,
+    getIsMobileSnapshot,
+    getServerIsMobile
+  );
 
   const followerState: FollowerInfo = {
     followers: user._count?.followers ?? 0,
@@ -87,14 +95,30 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
       <Tooltip>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent className="apple-panel overflow-hidden bg-transparent p-1.5 shadow-none">
-          <div className="flex max-w-80 flex-col gap-3 px-1 py-2.5 break-words md:min-w-52">
-            <div className="flex items-center justify-between gap-2">
+          <div className="flex max-w-80 flex-col gap-3 px-2.5 py-2.5 break-words md:min-w-52">
+            <div className="flex items-start justify-between gap-3">
               <Link href={`/users/${user.username}`}>
                 <UserAvatar avatarUrl={user.avatarUrl} size={70} />
               </Link>
-              {loggedInUser && loggedInUser.id !== user.id && (
-                <FollowButton initialState={followerState} userId={user.id} />
-              )}
+              <div className="flex flex-col items-end gap-2 pr-1">
+                <span
+                  className="inline-flex flex-col items-center gap-0.5"
+                  title="Aura"
+                >
+                  <Flame
+                    className={cn("h-5 w-5", getAuraFlameClass(user.aura ?? 0))}
+                  />
+                  <span className="text-foreground text-sm leading-none font-semibold tabular-nums">
+                    {formatNumber(user.aura ?? 0)}
+                  </span>
+                  <span className="text-muted-foreground text-[11px] leading-none">
+                    Aura
+                  </span>
+                </span>
+                {loggedInUser && loggedInUser.id !== user.id && (
+                  <FollowButton initialState={followerState} userId={user.id} />
+                )}
+              </div>
             </div>
             <div>
               <Link href={`/users/${user.username}`}>

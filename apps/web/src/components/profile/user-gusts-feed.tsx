@@ -11,6 +11,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -146,14 +147,7 @@ const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
             </span>
           </div>
           <div className="flex items-center gap-1">
-            <Flame
-              className={cn(
-                "size-3.5",
-                post.aura > 0 && "fill-primary text-primary",
-                post.aura < 0 && "text-muted-foreground",
-                post.aura === 0 && "text-white/60"
-              )}
-            />
+            <Flame className={cn("size-3.5", getAuraFlameClass(post.aura))} />
             <span className="font-semibold">{formatNumber(post.aura)}</span>
           </div>
         </div>

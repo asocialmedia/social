@@ -7,6 +7,7 @@ import {
   Heart,
   MessageCircle,
   ShieldAlert,
+  Sparkles,
   UserPlus,
   X,
 } from "lucide-react";
@@ -89,6 +90,14 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     badgeClass: "bg-gradient-to-b from-amber-400 to-orange-500",
     href: (notification) => `/posts/${notification.postId}`,
     icon: ShieldAlert,
+  },
+  // Platform-persona notice: the pipeline finished publishing the upload.
+  PUBLISHED: {
+    action: (notification) =>
+      notification.post?.isGust ? "your gust is live" : "your fleet is live",
+    badgeClass: "bg-gradient-to-b from-emerald-400 to-teal-600",
+    href: (notification) => `/posts/${notification.postId}`,
+    icon: Sparkles,
   },
 };
 

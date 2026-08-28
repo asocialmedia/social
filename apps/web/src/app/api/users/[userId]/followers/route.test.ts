@@ -137,7 +137,10 @@ mock.module("@/lib/session", () => ({
 }));
 
 mock.module("@/lib/suggested-users-cache", () => ({
-  suggestedUsersCache: { invalidateForUser: () => {} },
+  suggestedUsersCache: {
+    invalidate: () => Promise.resolve(),
+    invalidateForUser: () => {},
+  },
 }));
 
 const context = { params: Promise.resolve({ userId: FOLLOWED_ID }) };

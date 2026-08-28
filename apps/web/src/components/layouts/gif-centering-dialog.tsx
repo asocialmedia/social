@@ -19,32 +19,39 @@ import { motion } from "motion/react";
 import Image from "next/image";
 import { useCallback, useRef, useState } from "react";
 
-import { useUpdateAvatarMutation } from "@/app/(main)/users/[username]/avatar-mutations";
-import LoadingButton from "@/components/auth/loading-button";
+import {
+  useUpdateAvatarMutation,
+  useUpdateBannerMutation,
+} from "@/app/(main)/users/[username]/avatar-mutations";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 
 interface GifCenteringDialogProps {
   currentValues: {
-    displayName: string;
-    bio: string;
     userId: string;
-    oldAvatarKey?: string | null;
   };
   gifFile: File;
   onClose: () => void;
+  /** Which profile surface the GIF is for; picks the linking mutation. */
+  target: "avatar" | "banner";
 }
 
 export default function GifCenteringDialog({
   gifFile,
   onClose,
   currentValues,
+  target,
 }: GifCenteringDialogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gifRef = useRef<HTMLImageElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
 
-  const mutation = useUpdateAvatarMutation();
+  // Hooks can't be conditional; call both and pick by target.
+  const avatarMutation = useUpdateAvatarMutation();
+  const bannerMutation = useUpdateBannerMutation();
+  const mutation = target === "banner" ? bannerMutation : avatarMutation;
   const { toast } = useToast();
 
   const MoveAmount = 10;
@@ -100,7 +107,7 @@ export default function GifCenteringDialog({
         z: Math.round(zoom * 100) / 100,
       };
 
-      const transformedFileName = `avatar_${timestamp}_x${safePosition.x}_y${safePosition.y}_z${safePosition.z}.gif`;
+      const transformedFileName = `${target}_${timestamp}_x${safePosition.x}_y${safePosition.y}_z${safePosition.z}.gif`;
 
       const file = new File([gifFile], transformedFileName, {
         type: "image/gif",
@@ -108,19 +115,25 @@ export default function GifCenteringDialog({
 
       await mutation.mutateAsync({
         file,
-        oldAvatarKey: currentValues.oldAvatarKey || undefined,
         userId: currentValues.userId,
       });
 
       onClose();
       toast({
-        description: "Nice! Your new avatar is live!",
-        title: "Profile Picture Updated",
+        description:
+          target === "banner"
+            ? "Nice! Your new header is live!"
+            : "Nice! Your new avatar is live!",
+        title:
+          target === "banner" ? "Header Updated" : "Profile Picture Updated",
       });
     } catch (error) {
       clientLog.error("Error processing GIF:", error);
       toast({
-        description: "Couldn't set that avatar, try again?",
+        description:
+          target === "banner"
+            ? "Couldn't set that header, try again?"
+            : "Couldn't set that avatar, try again?",
         title: "Couldn't Update",
         variant: "destructive",
       });
@@ -136,7 +149,12 @@ export default function GifCenteringDialog({
 
         <div className="flex flex-col items-center gap-4">
           <div
-            className="border-border bg-secondary relative size-64 overflow-hidden rounded-full border-2"
+            className={cn(
+              "border-border bg-secondary relative overflow-hidden border-2",
+              target === "banner"
+                ? "aspect-[3/1] w-full max-w-80"
+                : "size-64 rounded-full"
+            )}
             ref={containerRef}
           >
             <motion.div
@@ -149,12 +167,12 @@ export default function GifCenteringDialog({
               transition={{ damping: 30, stiffness: 300, type: "spring" }}
             >
               <Image
-                alt="GIF preview"
+                alt={target === "banner" ? "Header GIF preview" : "GIF preview"}
                 className="size-full"
                 draggable={false}
                 fill
                 ref={gifRef}
-                sizes="256px"
+                sizes={target === "banner" ? "320px" : "256px"}
                 src={URL.createObjectURL(gifFile)}
                 style={{
                   objectFit: "contain",

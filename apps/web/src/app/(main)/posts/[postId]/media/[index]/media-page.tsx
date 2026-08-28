@@ -32,9 +32,13 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
 
   const handleNavigate = useCallback(
     (index: number) => {
-      router.replace(`/posts/${post.id}/media/${index}`);
+      // Update the URL for shareability without triggering a Next.js
+      // server navigation — the viewer already manages currentIndex
+      // locally, so a router.replace would remount the page and look
+      // like a full refresh.
+      window.history.replaceState(null, "", `/posts/${post.id}/media/${index}`);
     },
-    [post.id, router]
+    [post.id]
   );
 
   // Mobile swipes: a right-to-left slide opens the author's profile. The hook

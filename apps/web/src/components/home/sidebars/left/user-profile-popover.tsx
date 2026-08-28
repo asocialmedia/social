@@ -31,6 +31,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
 import { useLogout } from "@/hooks/use-logout";
+import { getAuraFlameClass } from "@/lib/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -294,9 +295,7 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             />
             <PopoverStat
               icon={Flame}
-              iconClassName={
-                userData.aura < 0 ? "text-[#7c5cff]" : "text-orange-500"
-              }
+              iconClassName={getAuraFlameClass(userData.aura)}
               label="Aura"
               value={userData.aura}
             />

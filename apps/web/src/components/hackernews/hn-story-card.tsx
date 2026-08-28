@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type * as React from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { adjustBookmarkCount } from "@/hooks/use-bookmark-count";
 import { toast } from "@/lib/gooey-toast";
@@ -47,6 +47,12 @@ export const HNStoryCard = ({ story, initialBookmarked }: HNStoryCardProps) => {
   const router = useRouter();
   const hnShareStore = useHnShareStore();
   const queryClient = useQueryClient();
+
+  // Deferred persisted-state hydration (see hn-share-store): after mount so
+  // the SSR'd card and the client's first render agree.
+  useEffect(() => {
+    void useHnShareStore.persist.rehydrate();
+  }, []);
 
   const isBatched = initialBookmarked !== undefined;
 

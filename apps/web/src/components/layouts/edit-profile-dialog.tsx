@@ -22,6 +22,7 @@ import { Label } from "@asm/ui/shadui/label";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { Camera, ImagePlus, Trash2, X } from "lucide-react";
 import Image from "next/image";
 import type { StaticImageData } from "next/image";
@@ -42,7 +43,7 @@ import {
   useUpdateBannerMutation,
   useUpdateProfileMutation,
 } from "@/app/(main)/users/[username]/avatar-mutations";
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { useToast } from "@/lib/gooey-toast";
 import { cn, isGifUrl } from "@/lib/utils";
@@ -61,6 +62,13 @@ interface EditProfileDialogProps {
 }
 
 const regex = /\s+/;
+
+// Pre-pick cache values remembered while the pick-time optimistic avatar
+// preview is live, so a cancel restores exactly what was there before.
+interface AvatarPreviewRestore {
+  avatar: { key: string | null; url: string } | undefined;
+  avatarUrl: string | null;
+}
 
 type SocialFieldName =
   | "customDomain"
@@ -109,6 +117,7 @@ export default function EditProfileDialog({
   onOpenChange,
 }: EditProfileDialogProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const form = useForm<UpdateUserProfileValues>({
     defaultValues: {
       bio: user.bio || "",
@@ -125,8 +134,16 @@ export default function EditProfileDialog({
   const [croppedAvatar, setCroppedAvatar] = useState<Blob | null>(null);
   const [gifToCenter, setGifToCenter] = useState<File | null>(null);
   const [croppedBanner, setCroppedBanner] = useState<Blob | null>(null);
+  const [bannerGif, setBannerGif] = useState<File | null>(null);
   const [bannerRemoved, setBannerRemoved] = useState(false);
   const [avatarDeleted, setAvatarDeleted] = useState(false);
+  // Mirrors the last seen open/user pair so closing the dialog (or fresh
+  // profile data arriving behind it) clears transient editor state during
+  // render instead of from a cascading effect.
+  const [resetInputs, setResetInputs] = useState<{
+    open: boolean;
+    user: PrivateUserData;
+  } | null>(null);
   const avatarMutation = useUpdateAvatarMutation();
   const bannerMutation = useUpdateBannerMutation();
   const deleteBannerMutation = useDeleteBannerMutation();
@@ -138,6 +155,22 @@ export default function EditProfileDialog({
     profileMutation.isPending ||
     deleteBannerMutation.isPending ||
     deleteAvatarMutation.isPending;
+
+  if (
+    resetInputs === null ||
+    resetInputs.open !== open ||
+    resetInputs.user !== user
+  ) {
+    setResetInputs({ open, user });
+    if (!open) {
+      setCroppedAvatar(null);
+      setGifToCenter(null);
+      setCroppedBanner(null);
+      setBannerGif(null);
+      setBannerRemoved(false);
+      setAvatarDeleted(false);
+    }
+  }
 
   // Keep a stable object URL for the cropped preview and revoke it on change/unmount.
   const croppedAvatarUrl = useMemo(
@@ -162,14 +195,59 @@ export default function EditProfileDialog({
     [croppedAvatarUrl, croppedBannerUrl]
   );
 
+  // Pick-time optimistic preview: the moment a cropped avatar lands, the
+  // navbar/profile avatars show it - no need to hit Save first. Remembers
+  // the pre-pick cache values so a cancel (closing without saving, or
+  // clearing the pick) restores exactly what was there. A completed upload
+  // replaces the preview with the real URL, which the restore guard detects
+  // and skips.
+  const avatarPreviewRestoreRef = useRef<AvatarPreviewRestore | null>(null);
+  const avatarPreviewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (croppedAvatarUrl) {
+      if (avatarPreviewRestoreRef.current === null) {
+        const cachedUser = queryClient.getQueryData<{
+          avatarUrl?: string | null;
+        }>(["user", user.id]);
+        avatarPreviewRestoreRef.current = {
+          avatar: queryClient.getQueryData<{ key: string | null; url: string }>(
+            ["avatar", user.id]
+          ),
+          avatarUrl: cachedUser?.avatarUrl ?? user.avatarUrl ?? null,
+        };
+      }
+      avatarPreviewUrlRef.current = croppedAvatarUrl;
+      queryClient.setQueryData<PrivateUserData>(["user", user.id], (old) =>
+        old ? { ...old, avatarUrl: croppedAvatarUrl } : old
+      );
+      queryClient.setQueryData(["avatar", user.id], {
+        key: null,
+        url: croppedAvatarUrl,
+      });
+    } else if (avatarPreviewRestoreRef.current !== null) {
+      const cachedUser = queryClient.getQueryData<{
+        avatarUrl?: string | null;
+      }>(["user", user.id]);
+      if (cachedUser?.avatarUrl === avatarPreviewUrlRef.current) {
+        const restore = avatarPreviewRestoreRef.current;
+        queryClient.setQueryData<PrivateUserData>(["user", user.id], (old) =>
+          old ? { ...old, avatarUrl: restore.avatarUrl } : old
+        );
+        if (restore.avatar !== undefined) {
+          queryClient.setQueryData(["avatar", user.id], restore.avatar);
+        }
+      }
+      avatarPreviewRestoreRef.current = null;
+      avatarPreviewUrlRef.current = null;
+    }
+  }, [croppedAvatarUrl, queryClient, user.avatarUrl, user.id]);
+
+  // The form lives in react-hook-form's own store shared with the field
+  // components below, so its reset must stay imperative (post-render) rather
+  // than running during this component's render.
   useEffect(() => {
     if (!open) {
-      // eslint-disable-next-line react-compiler -- reset editor state when the dialog closes
-      setCroppedAvatar(null);
-      setGifToCenter(null);
-      setCroppedBanner(null);
-      setBannerRemoved(false);
-      setAvatarDeleted(false);
       form.reset({
         bio: user.bio || "",
         customDomain: user.customDomain ?? "",
@@ -180,7 +258,7 @@ export default function EditProfileDialog({
         twitterUsername: user.twitterUsername ?? "",
       });
     }
-  }, [open, user, form.reset, form]);
+  }, [open, user, form]);
 
   const checkForChanges = (values: UpdateUserProfileValues) => {
     const hasProfileChanges =
@@ -193,7 +271,8 @@ export default function EditProfileDialog({
       values.redditUsername !== (user.redditUsername ?? "");
     const hasAvatarChanges = Boolean(croppedAvatar || gifToCenter);
     const hasAvatarDeleted = avatarDeleted && Boolean(user.avatarKey);
-    const hasBannerChanges = Boolean(croppedBanner) || bannerRemoved;
+    const hasBannerChanges =
+      Boolean(croppedBanner || bannerGif) || bannerRemoved;
     return {
       hasAvatarChanges,
       hasAvatarDeleted,
@@ -219,20 +298,27 @@ export default function EditProfileDialog({
     if (file) {
       await avatarMutation.mutateAsync({
         file,
-        oldAvatarKey: user.avatarKey || undefined,
         userId: user.id,
       });
     }
   };
 
   const updateBanner = async () => {
+    // GIF banners skip cropping (resizing flattens animation); the centering
+    // dialog normally uploads them, but a pending gif here still uploads.
+    if (bannerGif) {
+      await bannerMutation.mutateAsync({
+        file: bannerGif,
+        userId: user.id,
+      });
+      return;
+    }
     if (croppedBanner) {
       const file = new File([croppedBanner], `banner_${user.id}.webp`, {
         type: "image/webp",
       });
       await bannerMutation.mutateAsync({
         file,
-        oldBannerKey: user.bannerKey || undefined,
         userId: user.id,
       });
       return;
@@ -407,11 +493,13 @@ export default function EditProfileDialog({
               isRemoved={bannerRemoved}
               isUploading={bannerMutation.isPending}
               onBannerCropped={setCroppedBanner}
+              onGifSelected={setBannerGif}
               onRemove={handleRemoveBanner}
               src={
                 croppedBannerUrl ??
                 (bannerRemoved ? "" : (user.bannerUrl ?? ""))
               }
+              user={user}
             />
           </div>
 
@@ -532,8 +620,10 @@ interface BannerInputProps {
   isRemoved: boolean;
   isUploading: boolean;
   onBannerCropped: (blob: Blob | null) => void;
+  onGifSelected: (file: File | null) => void;
   onRemove: () => void;
   src: string;
+  user: PrivateUserData;
 }
 
 const BannerInput = ({
@@ -541,11 +631,14 @@ const BannerInput = ({
   canRemove,
   isRemoved,
   onBannerCropped,
+  onGifSelected,
   onRemove,
   isUploading,
+  user,
 }: BannerInputProps) => {
   const { toast } = useToast();
   const [imageToCrop, setImageToCrop] = useState<File>();
+  const [gifToCenter, setGifToCenter] = useState<File>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bannerSrc = useMemo(() => {
@@ -577,6 +670,14 @@ const BannerInput = ({
         return;
       }
 
+      // GIFs must skip the resizer and crop dialog — both flatten animation.
+      // They go through the centering dialog and upload raw, like avatars.
+      if (file.type === "image/gif") {
+        setGifToCenter(file);
+        onGifSelected(file);
+        return;
+      }
+
       try {
         Resizer.imageFileResizer(
           file,
@@ -600,7 +701,7 @@ const BannerInput = ({
         resetInput();
       }
     },
-    [toast, resetInput]
+    [toast, onGifSelected, resetInput]
   );
 
   const handleFileChange = useCallback(
@@ -613,6 +714,12 @@ const BannerInput = ({
   const handleBannerClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  const handleGifClose = useCallback(() => {
+    setGifToCenter(undefined);
+    onGifSelected(null);
+    resetInput();
+  }, [onGifSelected, resetInput]);
 
   const handleCropClose = useCallback(() => {
     setImageToCrop(undefined);
@@ -636,7 +743,7 @@ const BannerInput = ({
   return (
     <>
       <input
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         className="sr-only hidden"
         onChange={handleFileChange}
         ref={fileInputRef}
@@ -691,6 +798,15 @@ const BannerInput = ({
         ) : null}
       </div>
 
+      {gifToCenter ? (
+        <GifCenteringDialog
+          currentValues={{ userId: user.id }}
+          gifFile={gifToCenter}
+          onClose={handleGifClose}
+          target="banner"
+        />
+      ) : null}
+
       {imageToCrop ? (
         <CropImageDialog
           cropAspectRatio={3}
@@ -720,7 +836,7 @@ const AvatarInput = ({
   src,
   onImageCropped,
   onGifSelected,
-  form,
+  form: _form,
   isDeleted,
   onDelete,
   isUploading,
@@ -893,14 +1009,10 @@ const AvatarInput = ({
 
       {gifToCenter ? (
         <GifCenteringDialog
-          currentValues={{
-            bio: form.getValues("bio"),
-            displayName: form.getValues("displayName"),
-            oldAvatarKey: user.avatarKey || undefined,
-            userId: user.id,
-          }}
+          currentValues={{ userId: user.id }}
           gifFile={gifToCenter}
           onClose={handleGifClose}
+          target="avatar"
         />
       ) : null}
 

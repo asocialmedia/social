@@ -240,7 +240,9 @@ export function MessageThread({
         clearTimeout(readDebounceRef.current);
       }
     };
-  }, [conversationId, scheduleRead]);
+    // scheduleRead already closes over conversationId, so its identity change
+    // covers every conversation switch without listing conversationId here.
+  }, [scheduleRead]);
 
   const handleEvent = useCallback(
     (event: {
@@ -362,6 +364,7 @@ export function MessageThread({
       el.scrollTop += el.scrollHeight - previousHeight;
     }
   }, [
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- trigger-only deps: the body reads refs (scroll element, pinned flag, prior height), so message count, decrypted results, and the typing flag exist solely to re-run scroll preservation
     allMessages.length,
     decrypted,
     messagesQuery.isFetchingPreviousPage,

@@ -12,7 +12,7 @@ export function getReplyDataInclude(loggedInUserId: string) {
   return {
     ...getCommentDataInclude(loggedInUserId),
     // The author of the comment being replied to (or null for a top-level
-    // eddy), so the feed can render the "Replying to @user" context line.
+    // eddie), so the feed can render the "Replying to @user" context line.
     parent: {
       select: {
         user: {

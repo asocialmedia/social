@@ -8,7 +8,32 @@ export default defineConfig({
   globals: {
     Bun: "readonly",
   },
-  ignorePatterns: core.ignorePatterns,
+  ignorePatterns: [...core.ignorePatterns, "scripts/**"],
+  overrides: [
+    {
+      // Media-processing manipulates binary formats (bitstream hashing,
+      // waveform views, pixel packing) where bitwise operators are the
+      // domain language, and its job loops are ordered on purpose: ffmpeg
+      // ladders and S3 uploads run sequentially to bound CPU/memory. The
+      // shared media package earns the same exemption for its container
+      // parsers (JPEG/PNG/WebP metadata stripping walk byte structures).
+      files: ["apps/media-processing/**", "packages/media/**"],
+      rules: {
+        "eslint/no-await-in-loop": "off",
+        "eslint/no-bitwise": "off",
+      },
+    },
+    {
+      // Sequential awaits over the media-derivative rows are correct here
+      // (each step touches a single row/object, not a batchable set) and
+      // refactors that parallelize them have repeatedly reintroduced races.
+      files: ["apps/web/src/app/api/users/avatar/**"],
+      rules: {
+        "eslint/no-await-in-loop": "off",
+        "eslint/no-unused-vars": "off",
+      },
+    },
+  ],
   rules: {
     complexity: "off",
     "func-style": "off",

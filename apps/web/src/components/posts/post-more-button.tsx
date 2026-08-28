@@ -5,12 +5,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
-import { Hash, MoreHorizontal, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Captions,
+  Hash,
+  MoreHorizontal,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import type * as React from "react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
+import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
 import { canModeratePost } from "@/lib/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -21,11 +28,15 @@ import PostModerationDialog from "./post-moderation-dialog";
 interface PostMoreButtonProps {
   className?: string;
   post: PostData;
+  /** Applies the media page's dark 3D chip styling (same look as the mobile
+   * viewer's control buttons) instead of the default pill hover treatment. */
+  variant?: "default" | "media-page";
 }
 
 export default function PostMoreButton({
   post,
   className,
+  variant = "default",
 }: PostMoreButtonProps) {
   const { user } = useSession();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -40,6 +51,11 @@ export default function PostMoreButton({
   // ownership), so a moderator who isn't the author only gets the reversible
   // moderation flags.
   const isOwner = Boolean(user && user.id === post.user.id);
+  // Anyone may view alt text - it is reader accessibility info, not an
+  // authoring or moderation surface. The toggle reveals it inline below the
+  // media grid, so the entry only appears when something is described.
+  const hasAltText = post.attachments.some((attachment) => attachment.altText);
+  const isAltRevealed = useAltRevealed(post.id);
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
@@ -79,6 +95,14 @@ export default function PostMoreButton({
     setPopupOpen(false);
   }, []);
 
+  const handleToggleAlt = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      toggleAltReveal(post.id);
+    },
+    [post.id]
+  );
+
   const handleTriggerClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
@@ -93,7 +117,9 @@ export default function PostMoreButton({
           <button
             aria-label="Post options"
             className={cn(
-              "pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px",
+              variant === "media-page"
+                ? "group inline-flex h-10 w-10 items-center justify-center rounded-full border-0 bg-linear-to-b from-[#3a3f4a] to-[#23262e] p-0 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-all duration-200 hover:brightness-110 active:translate-y-px"
+                : "pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px",
               className,
               isOpen ? "opacity-100" : undefined
             )}
@@ -115,6 +141,17 @@ export default function PostMoreButton({
               <span className="flex items-center gap-3">
                 <ShieldCheck className="size-4" />
                 Moderation
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {hasAltText ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleToggleAlt}
+            >
+              <span className="flex items-center gap-3">
+                <Captions className="size-4" />
+                {isAltRevealed ? "Hide alt" : "Show alt"}
               </span>
             </DropdownMenuItem>
           ) : null}

@@ -101,7 +101,7 @@ export default function Comments({
             src={noCommentsImage}
             width={1536}
           />
-          <p className="text-muted-foreground text-sm">No eddy yet.</p>
+          <p className="text-muted-foreground text-sm">No eddie yet.</p>
         </div>
       )}
       {status === "error" && (

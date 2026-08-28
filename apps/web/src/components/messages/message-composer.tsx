@@ -46,6 +46,43 @@ interface MessageComposerProps {
   } | null;
 }
 
+// Sends one encrypted message and retries once at the server-provided index
+// when a concurrent send raced us into a 409 mismatch. React Compiler cannot
+// lower a rethrow from a catch nested inside another try, so this lives in a
+// plain module-scoped helper.
+async function sendWithRatchetRetry(
+  conversationId: string,
+  rootKey: Uint8Array,
+  senderId: string,
+  nextIndex: number,
+  payload: MessagePayload
+): Promise<Awaited<ReturnType<typeof sendEncryptedMessage>>> {
+  try {
+    return await sendEncryptedMessage(
+      conversationId,
+      rootKey,
+      senderId,
+      nextIndex,
+      payload
+    );
+  } catch (error) {
+    if (
+      error instanceof MessagesApiError &&
+      error.status === 409 &&
+      typeof error.expectedIndex === "number"
+    ) {
+      return await sendEncryptedMessage(
+        conversationId,
+        rootKey,
+        senderId,
+        error.expectedIndex,
+        payload
+      );
+    }
+    throw error;
+  }
+}
+
 export function MessageComposer({
   conversation,
   onReplyCancel,
@@ -75,6 +112,7 @@ export function MessageComposer({
 
   useEffect(() => {
     adjustTextareaHeight();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- text intentionally triggers a height re-measure on every keystroke
   }, [text, adjustTextareaHeight]);
 
   const peer = useMemo(
@@ -125,35 +163,15 @@ export function MessageComposer({
 
         const computedIndex = Math.max(conversation.mySentCount, ownCacheCount);
 
-        let sent: Awaited<ReturnType<typeof sendEncryptedMessage>>;
-        try {
-          sent = await sendEncryptedMessage(
-            conversation.conversation.id,
-            rootKey,
-            user.id,
-            computedIndex,
-            payload
-          );
-        } catch (error) {
-          // A concurrent send can still race us. When the server reports the
-          // mismatch it hands back its authoritative counter, so retry once at
-          // that position instead of re-guessing from the local cache.
-          if (
-            error instanceof MessagesApiError &&
-            error.status === 409 &&
-            typeof error.expectedIndex === "number"
-          ) {
-            sent = await sendEncryptedMessage(
-              conversation.conversation.id,
-              rootKey,
-              user.id,
-              error.expectedIndex,
-              payload
-            );
-          } else {
-            throw error;
-          }
-        }
+        // A concurrent send can still race us; sendWithRatchetRetry retries
+        // once at the server's authoritative index when that happens.
+        const sent = await sendWithRatchetRetry(
+          conversation.conversation.id,
+          rootKey,
+          user.id,
+          computedIndex,
+          payload
+        );
 
         // Fold the sent message into the cache (deduped against the SSE echo
         // of the same message) and clear the input.
@@ -222,9 +240,13 @@ export function MessageComposer({
           }
         : { content, type: "text" as const };
       await sendPayload(payload);
-    } finally {
+    } catch (error) {
+      // Reset before rethrowing so the sending flag clears on the failure
+      // path too (replaces the previous `finally` clause).
       setSending(false);
+      throw error;
     }
+    setSending(false);
   }, [peer, privateKey, replyTarget, sendPayload, sending, text, user]);
 
   const handleSendMedia = useCallback(
@@ -245,9 +267,13 @@ export function MessageComposer({
           // Media is its own message; keep any typed draft and active reply.
           { preserveInput: true }
         );
-      } finally {
+      } catch (error) {
+        // Reset before rethrowing so the flag clears on the failure path too
+        // (replaces the previous `finally` clause).
         setSendingMedia(false);
+        throw error;
       }
+      setSendingMedia(false);
     },
     [sendPayload, sending, sendingMedia]
   );

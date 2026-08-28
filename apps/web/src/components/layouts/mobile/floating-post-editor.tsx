@@ -236,7 +236,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
             {isExpanded ? null : (
               <motion.button
                 animate={{ opacity: 1, scale: 1 }}
-                aria-label="Send eddy"
+                aria-label="Send eddie"
                 className={cn(
                   "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
                   SEND_BTN_SHADOW,

@@ -26,15 +26,17 @@ import kyInstance from "@/lib/ky";
 import { ExploreGustsGrid } from "./explore-gusts-grid";
 import { ExploreGustsRail } from "./explore-gusts-rail";
 import ExploreMasonrySkeleton from "./explore-masonry-skeleton";
+import ExplorePeople from "./explore-people";
 import ExplorePostCard from "./explore-post-card";
 import ExploreUserCard from "./explore-user-card";
 import type { ExploreUser } from "./explore-user-card";
 
-type ExploreTab = "for-you" | "trending" | "gusts";
+type ExploreTab = "for-you" | "people" | "gusts" | "trending";
 
 const TAB_META: Record<ExploreTab, string> = {
   "for-you": "For you",
   gusts: "Gusts",
+  people: "People",
   trending: "Trending",
 };
 
@@ -67,6 +69,8 @@ const ExploreClient: React.FC = () => {
     activeTab = "trending";
   } else if (tabParam === "gusts") {
     activeTab = "gusts";
+  } else if (tabParam === "people") {
+    activeTab = "people";
   } else if (tabParam === "for-you") {
     activeTab = "for-you";
   } else if (isLoggedIn) {
@@ -78,6 +82,9 @@ const ExploreClient: React.FC = () => {
 
   // "For you" needs an account (guests see the login card); Trending and Gusts stay open.
   const showForYou = isLoggedIn;
+  // Same gate for People: it surfaces personalized suggestions, so guests see the
+  // login prompt instead of a useless empty list.
+
   const canQuery = isLoggedIn || activeTab !== "for-you";
 
   // Track the newest post id so a quiet poll can surface a "new posts" pill
@@ -136,7 +143,7 @@ const ExploreClient: React.FC = () => {
   );
 
   const { data, status, isFetching } = useQuery({
-    enabled: canQuery && activeTab !== "gusts",
+    enabled: canQuery && activeTab !== "gusts" && activeTab !== "people",
     placeholderData: (previousData) => previousData,
     queryFn: async () => {
       if (debouncedSearch.trim()) {
@@ -182,7 +189,11 @@ const ExploreClient: React.FC = () => {
     // pill count is cleared when the identity changes (tab/search handlers).
     newestIdRef.current = posts.length > 0 ? posts[0].id : null;
 
-    if (activeTab === "gusts" || debouncedSearch.trim()) {
+    if (
+      activeTab === "gusts" ||
+      activeTab === "people" ||
+      debouncedSearch.trim()
+    ) {
       return;
     }
     const identity = `${activeTab}:${debouncedSearch.trim()}`;
@@ -275,6 +286,7 @@ const ExploreClient: React.FC = () => {
         const user = users[userIndex];
         result.push(
           <ExploreUserCard
+            className="mb-4"
             key={`user-${user.id}`}
             onFollowed={handleFollowed}
             user={user}
@@ -292,6 +304,7 @@ const ExploreClient: React.FC = () => {
       const user = users[userIndex];
       result.push(
         <ExploreUserCard
+          className="mb-4"
           key={`user-${user.id}`}
           onFollowed={handleFollowed}
           user={user}
@@ -387,7 +400,12 @@ const ExploreClient: React.FC = () => {
             ))}
           </TabsList>
 
-          <div className="relative ml-auto hidden min-w-0 items-center gap-2 md:flex">
+          <div
+            className={`relative ml-auto hidden min-w-0 items-center gap-2 md:flex ${
+              activeTab === "gusts" || activeTab === "people" ? "invisible" : ""
+            }`}
+          >
+            {" "}
             <div className="w-full max-w-60">
               <div className="relative">
                 {isFetching && debouncedSearch.trim() ? (
@@ -424,6 +442,7 @@ const ExploreClient: React.FC = () => {
         <div className="relative h-full" ref={feedRootRef}>
           {newPostsCount > 0 &&
           activeTab !== "gusts" &&
+          activeTab !== "people" &&
           !debouncedSearch.trim() ? (
             <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
               <button
@@ -461,6 +480,9 @@ const ExploreClient: React.FC = () => {
             </TabsContent>
             <TabsContent className="mt-0" value="gusts">
               <ExploreGustsGrid />
+            </TabsContent>
+            <TabsContent className="mt-0" value="people">
+              <ExplorePeople />
             </TabsContent>
           </div>
         </div>

@@ -22,7 +22,7 @@ import type { Control, ControllerRenderProps } from "react-hook-form";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import {
@@ -194,6 +194,7 @@ export default function ProfileSettings({ user }: ProfileSettingsProps) {
     resolver: zodResolver(updateUserProfileSchema),
   });
 
+  // oxlint-disable-next-line react/incompatible-library -- react-hook-form watch handle is unmemoizable by design; compiler skips this component
   const watchedDisplayName = form.watch("displayName");
   const watchedBio = form.watch("bio");
 

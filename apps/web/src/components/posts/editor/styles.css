@@ -9,3 +9,50 @@
 .ProseMirror:focus {
   outline: none;
 }
+
+@keyframes asm-progress-shine {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+
+.asm-progress-fill.asm-progress-active {
+  will-change: transform;
+}
+
+.asm-progress-active .asm-progress-shine {
+  position: absolute;
+  inset-block: 0;
+  width: 30%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  animation: asm-progress-shine 1.2s ease-in-out infinite;
+}
+
+@keyframes asm-eq {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1.2);
+  }
+}
+
+.asm-eq-bar {
+  transform-origin: center;
+  animation: asm-eq 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .asm-eq-bar {
+    animation: none;
+  }
+}

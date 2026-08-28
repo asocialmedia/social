@@ -11,7 +11,7 @@ import { ShieldCheck } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useState } from "react";
 
-import LoadingButton from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/loading-button";
 import { useModeratePostMutation } from "@/posts/mutations";
 
 interface PostModerationDialogProps {

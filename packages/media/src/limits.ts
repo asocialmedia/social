@@ -31,9 +31,15 @@ export interface MediaLimits {
 }
 
 export const DEFAULT_LIMITS: MediaLimits = {
-  maxAudioBytes: 25 * 1024 * 1024,
+  maxAudioBytes: 50 * 1024 * 1024,
   maxAudioDurationSec: 60 * 60,
-  maxBitrateKbps: 20_000,
+  // Decoder "fail fast" ceiling for the process stage. Calibrated above the
+  // highest consumer phone recording mode (iPhone 4K60 HDR ~90-95 Mbps) so
+  // ordinary device footage passes; total transcode work is already bounded
+  // by maxVideoBytes x maxVideoDurationSec. Only pathological streams
+  // (200 Mbps+) should be rejected in milliseconds here. Override with
+  // MEDIA_MAX_BITRATE_KBPS.
+  maxBitrateKbps: 100_000,
   maxConcurrentProcessingPerUser: 5,
   maxDimension: 20_000,
   maxDocumentBytes: 25 * 1024 * 1024,
@@ -121,3 +127,8 @@ export function maxBytesForType(limits: MediaLimits, type: string): number {
     }
   }
 }
+
+// Hard ceiling on attachments per post, enforced client-side (composer
+// truncates over-capacity bunches) and server-side (submitPost rejects).
+// Exported from the pure contracts package so both sides cannot drift.
+export const MAX_POST_ATTACHMENTS = 10;
