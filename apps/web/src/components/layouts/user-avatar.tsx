@@ -40,6 +40,10 @@ export default function UserAvatar({
   // (already sized variants). The image optimizer rejects same-origin /api/
   // URLs, so skip optimization for those; static default avatars can keep it.
   const isProxyAvatar = resolvedSrc.startsWith("/api/");
+  // Optimistic previews carry object URLs (blob:), which only the uploading
+  // client can resolve - the optimizer endpoint would 400 them into the
+  // default-avatar fallback, so they must render unoptimized too.
+  const isBlobUrl = avatarUrl?.startsWith("blob:") === true;
 
   return (
     <Image
@@ -54,7 +58,9 @@ export default function UserAvatar({
       onError={() => setHasError(true)}
       priority={priority}
       src={resolvedSrc}
-      unoptimized={isDefaultAvatar || isProxyAvatar || isGifUrl(avatarUrl)}
+      unoptimized={
+        isDefaultAvatar || isProxyAvatar || isBlobUrl || isGifUrl(avatarUrl)
+      }
       width={size ?? 48}
     />
   );
