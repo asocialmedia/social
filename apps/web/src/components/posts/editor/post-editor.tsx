@@ -752,11 +752,17 @@ export default function PostEditor({
           : "rounded-none border-0 bg-transparent"
       )}
     >
-      {/* On mobile the avatar stacks above the composer so the fields start
-          at the container's left edge instead of sitting beside it. In gust
-          mode with a clip, the avatar instead leads the mobile grid (top
-          left, beside the thumbnail) and the outer copy is hidden. */}
-      <div className="flex gap-5 max-sm:flex-col">
+      {/* The avatar leads the composer on every breakpoint: the fleet/gust
+          switcher and the input bar sit beside it on mobile too. Gust mode
+          with a clip keeps its stacked mobile grid instead - there the
+          avatar leads the rail beside the thumbnail and the outer copy is
+          hidden. */}
+      <div
+        className={cn(
+          "flex gap-5",
+          isGust && hasVideoAttachment && "max-sm:flex-col"
+        )}
+      >
         <div
           className={cn(
             "mt-1 shrink-0",
