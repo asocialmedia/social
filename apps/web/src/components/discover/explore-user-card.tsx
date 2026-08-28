@@ -114,6 +114,9 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
         href={`/users/${user.username}`}
       >
         {headerMedia}
+        {/* Left-to-right scrim: deepest at the top-left corner (where the
+            Recommended chip sits), fading out toward the right edge. */}
+        <div className="absolute inset-0 bg-linear-to-r from-[hsl(var(--primary)/0.4)] to-transparent" />
         {hasBanner ? (
           <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--primary)/0.45)] via-[hsl(var(--primary)/0.15)] to-[hsl(var(--background-alt))]" />
         ) : (
