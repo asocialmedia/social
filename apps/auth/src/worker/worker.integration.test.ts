@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import {
   ensureStreamGroups,
@@ -14,6 +14,7 @@ import { processExpiredTokens, processPostDeleted } from "./jobs";
 import { computeViewAura } from "./view-flush";
 
 const POST_ID = "cmsoxrlww0000m3vnr2xf0v6h";
+const TEST_USER_ID = "cmsoxrlww0000m3vnr2xf0v6u";
 
 async function resetPostCounters() {
   await prisma.post.update({
@@ -27,6 +28,33 @@ async function resetPostCounters() {
 describe("event-driven worker integration", () => {
   beforeAll(async () => {
     await ensureStreamGroups();
+    // Self-sufficient fixtures: the suite must never depend on seed data,
+    // so the author and the post are upserted under deterministic ids and
+    // reaped again below.
+    await prisma.user.upsert({
+      create: {
+        displayName: "Worker Integration Test",
+        email: "worker-integration-test@asocialmedia.cc",
+        id: TEST_USER_ID,
+        username: "worker-integration-test",
+      },
+      update: {},
+      where: { id: TEST_USER_ID },
+    });
+    await prisma.post.upsert({
+      create: {
+        content: "worker integration fixture post",
+        id: POST_ID,
+        userId: TEST_USER_ID,
+      },
+      update: {},
+      where: { id: POST_ID },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.post.deleteMany({ where: { id: POST_ID } });
+    await prisma.user.deleteMany({ where: { id: TEST_USER_ID } });
   });
 
   test("computeViewAura awards 5 aura at the 50-view milestone", () => {

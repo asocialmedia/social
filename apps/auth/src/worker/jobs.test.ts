@@ -103,10 +103,12 @@ describe("worker job processors", () => {
       postId: "post-1",
     });
 
-    // Select shape mirrors jobs.ts exactly: derivative keys and the
-    // pipeline's original/published pointers join the legacy columns.
+    // Select shape mirrors jobs.ts exactly: derivative keys, the gust
+    // custom-thumbnail pointer, and the pipeline's original/published
+    // pointers join the legacy columns.
     expect(mockPrisma.media.findMany).toHaveBeenCalledWith({
       select: {
+        customThumbnailKey: true,
         derivatives: { select: { key: true } },
         id: true,
         key: true,
@@ -137,6 +139,7 @@ describe("worker job processors", () => {
       select: {
         commentId: true,
         createdAt: true,
+        customThumbnailKey: true,
         id: true,
         key: true,
         postId: true,

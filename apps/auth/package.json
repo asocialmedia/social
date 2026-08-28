@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.1.15",
+  "version": "1.1.17",
   "private": true,
   "description": "asocialmedia Auth Service",
   "scripts": {
