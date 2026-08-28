@@ -119,6 +119,12 @@ const WhoToFollowRow: React.FC<{
         aria-hidden
         className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.8)] to-transparent"
       />
+      {/* Bottom-up wash: stacking it over the right-to-left gradient pins
+          the visible image to the top-left corner alone. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.55)] to-transparent"
+      />
       <div
         aria-hidden
         className="absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]"
