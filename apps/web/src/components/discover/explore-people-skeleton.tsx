@@ -1,14 +1,20 @@
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type React from "react";
 
-// Matches the compact ExploreUserCard shape: banner strip, overlapping
-// avatar block, name + @username lines, a two-line bio, follower/aura stats,
-// then a full-width follow-button pill.
-export const UserCardSkeleton: React.FC<{ bannerHeight?: string }> = ({
-  bannerHeight = "h-20",
+// Compact card placeholder: banner strip, overlapping avatar, name +
+// @username lines, two-line bio, reason line, follower/aura stats, then a
+// full-width follow pill. `highlight` mirrors the amber recommended panel.
+export const UserCardSkeleton: React.FC<{ highlight?: boolean }> = ({
+  highlight = false,
 }) => (
-  <div className="sidebar-subcard flex h-full flex-col overflow-hidden rounded-2xl">
-    <Skeleton className={`${bannerHeight} w-full rounded-none`} />
+  <div
+    className={`mb-4 flex flex-col overflow-hidden rounded-2xl ${
+      highlight ? "hn-story-solid" : "sidebar-subcard"
+    }`}
+  >
+    <div className="relative h-20 w-full shrink-0">
+      <Skeleton className="h-full w-full rounded-none" />
+    </div>
     <div className="flex flex-1 flex-col p-3">
       <Skeleton className="-mt-9 h-11 w-11 rounded-xl" />
       <div className="mt-2 space-y-1.5">
@@ -28,37 +34,10 @@ export const UserCardSkeleton: React.FC<{ bannerHeight?: string }> = ({
   </div>
 );
 
-// The featured "recommended" card: wide banner, overlapping avatar, name
-// block, reason line, stats and a right-aligned follow pill.
-const FeaturedCardSkeleton: React.FC = () => (
-  <div className="sidebar-subcard mb-4 overflow-hidden rounded-2xl">
-    <Skeleton className="h-28 w-full rounded-none sm:h-32" />
-    <div className="p-4">
-      <div className="flex items-end gap-4">
-        <Skeleton className="-mt-12 h-16 w-16 rounded-2xl" />
-        <div className="min-w-0 flex-1 space-y-2 pb-1">
-          <Skeleton className="h-4 w-1/3 rounded-md" />
-          <Skeleton className="h-3 w-1/4 rounded-md" />
-        </div>
-        <Skeleton className="hidden h-9 w-28 rounded-full sm:block" />
-      </div>
-      <div className="mt-3 space-y-2">
-        <Skeleton className="h-3.5 w-2/5 rounded-md" />
-        <Skeleton className="h-3.5 w-full rounded-md" />
-      </div>
-      <div className="mt-3 flex items-center gap-3">
-        <Skeleton className="h-3 w-16 rounded-md" />
-        <Skeleton className="h-3 w-14 rounded-md" />
-        <Skeleton className="ml-auto h-9 w-28 rounded-full sm:hidden" />
-      </div>
-    </div>
-  </div>
-);
-
-// Mirrors the People tab body: the search bar, the featured recommended
-// card, then the discovery grid of everyone else. The top bar + tabs live
-// above this in the page shell, so the skeleton only covers the scroll body.
-const GRID_KEYS = [
+// Mirrors the People tab body: search bar, header row with the 3D refresh
+// pill, then one masonry stream whose first cards carry the highlighted
+// Recommended treatment.
+const STREAM_KEYS = [
   "people-skel-1",
   "people-skel-2",
   "people-skel-3",
@@ -77,17 +56,17 @@ const ExplorePeopleSkeleton: React.FC<{ variant?: "discovery" | "search" }> = ({
       <Skeleton className="h-10 w-full rounded-xl" />
     </div>
     {variant === "discovery" ? (
-      <>
-        <FeaturedCardSkeleton />
-        <div className="mb-3 flex items-center justify-between">
-          <Skeleton className="h-4 w-32 rounded-md" />
-          <Skeleton className="h-7 w-24 rounded-full" />
-        </div>
-      </>
+      <div className="mb-3 flex items-center justify-between">
+        <Skeleton className="h-4 w-40 rounded-md" />
+        <Skeleton className="rail-3d-btn h-9 w-28 rounded-full" />
+      </div>
     ) : null}
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {GRID_KEYS.map((key) => (
-        <UserCardSkeleton key={key} />
+    <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4">
+      {STREAM_KEYS.map((key, index) => (
+        <UserCardSkeleton
+          highlight={variant === "discovery" && index < 5}
+          key={key}
+        />
       ))}
     </div>
   </div>

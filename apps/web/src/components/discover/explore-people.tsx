@@ -1,5 +1,6 @@
 "use client";
 
+import { Input } from "@asm/ui/shadui/input";
 import noFollowImage from "@assets/general/nofollow.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
@@ -106,6 +107,7 @@ const ExplorePeople: React.FC = () => {
   }, [queryClient]);
 
   const status = isSearching ? searchStatus : discoveryStatus;
+  const showDiscoveryHeader = !isSearching;
   const isFetching = isSearching ? isFetchingSearch : isFetchingPeople;
   const list = isSearching ? searchResults : (people ?? []);
   const isEmpty = status === "success" && list.length === 0;
@@ -150,9 +152,12 @@ const ExplorePeople: React.FC = () => {
       );
     }
 
-    // The first ranked person is THE recommendation - featured card on top,
-    // everyone else in the discovery grid.
-    const [featured, ...rest] = list;
+    // One continuous masonry stream: the first ranked people carry the
+    // highlighted Recommended treatment, the rest flow in untouched.
+    const RECOMMENDED_COUNT = 5;
+    const recommendedCount = isSearching
+      ? 0
+      : Math.min(RECOMMENDED_COUNT, list.length);
 
     return (
       <motion.div
@@ -161,23 +166,15 @@ const ExplorePeople: React.FC = () => {
         initial={{ opacity: 0, y: 8 }}
         transition={{ duration: 0.18, ease: "easeOut" }}
       >
-        {!isSearching && featured ? (
-          <ExploreUserCard
-            mutualFollowers={featured.mutualFollowers}
-            user={featured}
-            variant="featured"
-          />
-        ) : null}
-
-        {isSearching ? null : (
+        {showDiscoveryHeader ? (
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">
-              {isLoggedIn ? "Also worth a follow" : "Trending people"}
+              {isLoggedIn ? "Recommended for you" : "Trending people"}
             </h2>
             {isLoggedIn ? (
               <button
                 aria-label="Refresh suggestions"
-                className="text-muted-foreground hover:text-foreground hover:bg-accent inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+                className="rail-3d-btn flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium disabled:opacity-50"
                 disabled={isFetchingPeople}
                 onClick={handleRefreshPeople}
                 type="button"
@@ -191,11 +188,13 @@ const ExplorePeople: React.FC = () => {
               </button>
             ) : null}
           </div>
-        )}
+        ) : null}
 
-        <div className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {(isSearching ? list : rest).map((entry) => (
+        <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4">
+          {list.map((entry, index) => (
             <ExploreUserCard
+              className="mb-4"
+              highlight={index < recommendedCount}
               key={entry.id}
               mutualFollowers={entry.mutualFollowers}
               user={entry}
@@ -216,17 +215,18 @@ const ExplorePeople: React.FC = () => {
         key={isSearching ? "people-search" : "people-discovery"}
         transition={{ duration: 0.18, ease: "easeOut" }}
       >
-        {/* People search bar: scoped to this tab, guests included. */}
+        {/* People search bar: same recipe as the app's other search fields
+            (shadui Input + icon slot), scoped to this tab, guests included. */}
         <div className="relative mb-4">
           {isFetching && isSearching ? (
             <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
           ) : (
             <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           )}
-          <input
+          <Input
             aria-label="Search people"
             autoComplete="off"
-            className="border-border/60 bg-background placeholder:text-muted-foreground/70 h-10 w-full rounded-xl border pr-9 pl-9 text-sm transition-all duration-200 outline-none focus:border-[hsl(var(--primary)/0.4)] focus:ring-2 focus:ring-[hsl(var(--primary)/0.15)]"
+            className="focus-visible:ring-primary h-10 py-2.5 pr-9 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search people by name or @username"
             type="text"
@@ -235,7 +235,7 @@ const ExplorePeople: React.FC = () => {
           {search ? (
             <button
               aria-label="Clear people search"
-              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2.5 -translate-y-1/2 rounded-full p-0.5 transition-colors"
+              className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
               onClick={() => setSearch("")}
               type="button"
             >
