@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData } from "@asm/db";
+import type { PostData, TagWithCount, UserData } from "@asm/db";
 import {
   Eye,
   Flame,
@@ -27,7 +27,9 @@ import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
+import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
+import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -68,6 +70,11 @@ export const GustCard: React.FC<GustCardProps> = ({
   // True while the clip is stalled waiting for more data (network delay /
   // buffering), so a spinner can float over the video. Not the initial load.
   const [isBuffering, setIsBuffering] = useState(false);
+  // Uploader-provided alt description (gusts carry a single video), toggled
+  // inline below the caption - the same reveal store the fleet card's
+  // "Show alt" menu entry drives.
+  const altRevealed = useAltRevealed(post.id);
+  const gustAltText = post.attachments.find((a) => a.altText)?.altText;
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
@@ -533,6 +540,34 @@ export const GustCard: React.FC<GustCardProps> = ({
                 >
                   {captionExpanded ? "Show less" : "More"}
                 </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Tags + mentions, mirrored from the fleet post card. */}
+          {post.tags?.length || post.mentions?.length ? (
+            <PostMeta
+              mentions={post.mentions.map((m) => m.user as unknown as UserData)}
+              tags={post.tags as TagWithCount[]}
+            />
+          ) : null}
+
+          {/* Uploader's alt description on demand, styled for the scrim. */}
+          {gustAltText ? (
+            <div className="max-w-[78%]">
+              <button
+                className="text-xs font-semibold text-white/80 drop-shadow-md transition-colors hover:text-white"
+                onClick={() => toggleAltReveal(post.id)}
+                type="button"
+              >
+                {altRevealed ? "Hide alt" : "Show alt"}
+              </button>
+              {altRevealed ? (
+                <div className="mt-1.5 rounded-lg bg-white/10 px-3 py-2 backdrop-blur-sm">
+                  <p className="text-xs leading-snug break-words text-white/90">
+                    {gustAltText}
+                  </p>
+                </div>
               ) : null}
             </div>
           ) : null}

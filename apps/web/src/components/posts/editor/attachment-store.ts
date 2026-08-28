@@ -179,6 +179,9 @@ interface ComposerAttachmentState {
   reset: () => void;
   retryUpload: (fileName: string) => Promise<void>;
   setAltText: (fileName: string, altText: string) => void;
+  /** Shared one-at-a-time gate: sound + thumbnail uploads raise it too, so
+   * every upload button disables while any of them is in flight. */
+  setUploading: (isUploading: boolean) => void;
   startUpload: (
     incomingFiles: File[],
     opts?: { audioOverlayId?: string | null }
@@ -538,6 +541,9 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
           }
         })();
       }
+    },
+    setUploading: (isUploading) => {
+      set({ isUploading });
     },
     startUpload: async (incomingFiles, opts) => {
       const { attachments, isUploading } = get();

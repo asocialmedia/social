@@ -31,10 +31,10 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     const rawUrl =
       "http://localhost:9090/uploads/avatars/cmsoxce3j0003m4vngsw7r7ay/1786565964201-avatar.png";
     expect(getSecureImageUrl(rawUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-avatar.png"
     );
     expect(toAppProxyUrl(rawUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-avatar.png"
     );
   });
 
@@ -42,10 +42,10 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     const encodedUrl =
       "http://localhost:9090/uploads/avatars%2Fcmsoxce3j0003m4vngsw7r7ay%2F1786565964201-392.png";
     expect(getSecureImageUrl(encodedUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-392.png"
     );
     expect(toAppProxyUrl(encodedUrl)).toBe(
-      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/avatar/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-392.png"
     );
   });
 
@@ -53,10 +53,10 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     const bannerUrl =
       "http://localhost:9090/uploads/banners%2Fcmsoxce3j0003m4vngsw7r7ay%2F1786565964201-banner.png";
     expect(getSecureImageUrl(bannerUrl)).toBe(
-      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-banner.png"
     );
     expect(toAppProxyUrl(bannerUrl)).toBe(
-      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image"
+      "/api/users/banner/cmsoxce3j0003m4vngsw7r7ay/image?v=1786565964201-banner.png"
     );
   });
 

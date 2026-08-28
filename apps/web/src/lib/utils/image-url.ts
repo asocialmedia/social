@@ -26,9 +26,16 @@ function rewriteAsmobUrl(rawUrl: string): string {
     return rawUrl;
   }
   const { kind, userId } = match.groups;
+  // Proxy responses cache for a year; a legacy URL's own path is a stable
+  // per-object cache buster so replaced legacy uploads never render stale.
+  const file =
+    decoded
+      .slice(match.index ?? 0)
+      .split("/")
+      .pop() ?? "";
   return kind === "avatars"
-    ? `/api/users/avatar/${userId}/image`
-    : `/api/users/banner/${userId}/image`;
+    ? `/api/users/avatar/${userId}/image?v=${file}`
+    : `/api/users/banner/${userId}/image?v=${file}`;
 }
 
 export const DEFAULT_AVATARS = [

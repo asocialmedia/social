@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@asm/ui/shadui/dropdown-menu";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useHnShareStore } from "@asm/ui/store/hn-share-store";
 import type { DragEndEvent } from "@dnd-kit/core";
 import {
@@ -38,7 +39,13 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ClipboardEvent } from "react";
 import { useDropzone } from "react-dropzone";
 
@@ -63,7 +70,9 @@ import { useComposerStore } from "@/store/composer-store";
 
 import AltTextPanel from "./alt-text-panel";
 import { AttachmentPreview } from "./attachment-preview";
+import { useComposerAttachmentStore } from "./attachment-store";
 import { FileInput } from "./file-input";
+import { GustMentionPicker, GustTagPicker } from "./gust-meta-pickers";
 import { HNStoryPreview } from "./hn-story-preview";
 import { InlineSuggestions } from "./inline-suggestions";
 import useMediaUpload from "./use-media-upload";
@@ -75,6 +84,13 @@ export const GUST_CAPTION_MAX_CHARS = 900;
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
+
+// Mounted detection for hydration-safe interactive state (see PostEditor).
+const subscribeNoop = (): (() => void) => () => {
+  /* empty */
+};
+const getMountedSnapshot = (): boolean => true;
+const getServerSnapshotFalse = (): boolean => false;
 
 const containerVariants = {
   hidden: { opacity: 0, y: 20 },
@@ -137,14 +153,20 @@ export default function PostEditor({
     retryUpload,
     setAltText,
   } = useMediaUpload();
+  // Shared one-at-a-time upload gate (sound + thumbnail uploads raise it).
+  const setUploading = useComposerAttachmentStore((s) => s.setUploading);
 
   // Shared contract with the server-side cap in submitPost.
   const capacityFull = attachments.length >= MAX_POST_ATTACHMENTS;
-  // The gust video's media row, when one is attached. The sound-overlay
-  // endpoint needs it to bake a later-picked sound into the video.
-  const gustVideoMediaId = attachments.find((a) =>
+  // The gust video's attachment row, when one is attached. The sound-overlay
+  // endpoint needs its media id to bake a later-picked sound into the video;
+  // its upload state drives the thumbnail skeleton while the pipeline has
+  // not produced a poster yet.
+  const gustVideoAttachment = attachments.find((a) =>
     (a.file?.type ?? a.type ?? "").startsWith("video/")
-  )?.mediaId;
+  );
+  const gustVideoMediaId = gustVideoAttachment?.mediaId;
+  const gustVideoProcessing = gustVideoAttachment?.isUploading ?? false;
   // A single attachment still offers gust switching; only an actual video
   // makes the post video-only (GIFs and audio lock, matching how published
   // posts render video). Audio mixes freely with images/GIFs/videos - the
@@ -244,6 +266,10 @@ export default function PostEditor({
         return;
       }
       setSoundTrack({ file, mediaId: null, status: "uploading" });
+      // The sound upload is not a composer attachment, so it bypasses
+      // startUpload - raise the shared gate manually so video/image uploads
+      // disable while it is in flight.
+      setUploading(true);
       try {
         const result = await uploadMediaFile(file, { purpose: "post" });
         if (result.status === "READY" && result.mediaId) {
@@ -261,6 +287,7 @@ export default function PostEditor({
               title: "Sound Failed",
               variant: "destructive",
             });
+            setUploading(false);
             return;
           }
           setSoundTrack({ file, mediaId: result.mediaId, status: "ready" });
@@ -270,8 +297,9 @@ export default function PostEditor({
       } catch {
         setSoundTrack({ file, mediaId: null, status: "error" });
       }
+      setUploading(false);
     },
-    [gustVideoMediaId, setSoundTrack, toast]
+    [gustVideoMediaId, setSoundTrack, setUploading, toast]
   );
 
   const handleSoundInputChange = useCallback(
@@ -580,6 +608,14 @@ export default function PostEditor({
     onSubmitRef.current = onSubmit;
   }, [onSubmit]);
 
+  // The HN-share store persists to sessionStorage; pull its state in after
+  // hydration so the server render and the client's first render agree
+  // (otherwise a stored isSharing flips the publish button's disabled state
+  // mid-hydration).
+  useEffect(() => {
+    void useHnShareStore.persist.rehydrate();
+  }, []);
+
   const handleRemoveHnStory = useCallback(() => {
     hnShareStore.clearState();
   }, [hnShareStore]);
@@ -641,6 +677,17 @@ export default function PostEditor({
     </output>
   );
 
+  // Volatile composer state (persisted HN-share flag, restored drafts) can
+  // legitimately differ from the server render; gating the publish button's
+  // disabled state on mount keeps the SSR'd markup and the client's first
+  // render identical no matter what the stores restore. useSyncExternalStore
+  // yields false through SSR + hydration and true on the first client pass.
+  const isComposerMounted = useSyncExternalStore(
+    subscribeNoop,
+    getMountedSnapshot,
+    getServerSnapshotFalse
+  );
+
   // Shared publish button: fleet keeps it in the toolbar; gust renders it
   // below the sound section.
   const publishButton = (
@@ -648,6 +695,7 @@ export default function PostEditor({
       <LoadingButton
         className="min-w-20"
         disabled={
+          !isComposerMounted ||
           !(input.trim() || isHnSharing || hasPublishableMedia) ||
           isUploading ||
           hasUploadError ||
@@ -697,8 +745,17 @@ export default function PostEditor({
           : "rounded-none border-0 bg-transparent"
       )}
     >
-      <div className="flex gap-5">
-        <div className="mt-1 shrink-0">
+      {/* On mobile the avatar stacks above the composer so the fields start
+          at the container's left edge instead of sitting beside it. In gust
+          mode with a clip, the avatar instead leads the mobile grid (top
+          left, beside the thumbnail) and the outer copy is hidden. */}
+      <div className="flex gap-5 max-sm:flex-col">
+        <div
+          className={cn(
+            "mt-1 shrink-0",
+            isGust && hasVideoAttachment && "max-sm:hidden"
+          )}
+        >
           <motion.div
             transition={{ damping: 17, stiffness: 400, type: "spring" }}
             whileHover={{ scale: 1.05 }}
@@ -713,18 +770,28 @@ export default function PostEditor({
         <div
           className={cn(
             "w-full min-w-0",
-            // Gust mode composes like a reels screen: the video preview on
-            // the left, caption/controls in the right rail.
+            // Gust mode composes like a reels screen: video and thumbnail
+            // side by side on mobile, then the caption/alt fields, options
+            // strip, and publish. On sm+ the video column leads and the
+            // fields stack in the right rail.
             isGust &&
               hasVideoAttachment &&
-              "sm:grid sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
+              "grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
           )}
         >
-          {/* Gust mode: the fleet/gust switcher leads the left rail, so the
-              caption/alt inputs in the right rail start on the same line. */}
+          {/* Gust mode: the avatar leads the left rail on mobile (thumbnail
+              rises to the same top line beside it); on sm+ the outer avatar
+              beside the composer takes over. The fleet/gust switcher leads
+              the rail on sm+ and sits on the publish row on mobile. */}
           {isGust && hasVideoAttachment ? (
             <div className="min-w-0">
-              <div className="mb-2 flex">
+              <div className="mb-3 sm:hidden">
+                <UserAvatar
+                  avatarUrl={userData?.avatarUrl || user.image}
+                  className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
+                />
+              </div>
+              <div className="mb-2 flex max-sm:hidden">
                 <ModeToggle disabled={isGroupMedia} isGust={isGust} />
               </div>
               {previewsBlock}
@@ -732,46 +799,56 @@ export default function PostEditor({
             </div>
           ) : null}
           {isGust && !hasVideoAttachment ? (
-            <div className="mb-2 flex">
+            <div className="mb-2 flex max-sm:hidden">
               <ModeToggle disabled={isGroupMedia} isGust={isGust} />
             </div>
           ) : null}
-          <div className="min-w-0">
+          <div
+            className={cn(
+              "min-w-0",
+              // On mobile the rail dissolves so its fields can span the full
+              // width while the thumbnail escapes beside the video.
+              isGust && hasVideoAttachment && "max-sm:[display:contents]"
+            )}
+          >
             {/* Mobile-only mode switcher above the editor so the Post button stays on screen (fleet mode; gust carries its own at the top) */}
             {isGust ? null : (
               <div className="mb-3 flex md:hidden">
                 <ModeToggle disabled={isGroupMedia} isGust={isGust} />
               </div>
             )}
-            {(selectedTags.length > 0 || selectedMentions.length > 0) && (
-              <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                {selectedTags.map((tag) => (
-                  <RemoveChip
-                    key={tag}
-                    label={tag}
-                    onRemove={removeTag}
-                    removeLabel={`Remove tag ${tag}`}
-                    value={tag}
-                    variant="tag"
-                  />
-                ))}
-                {selectedMentions.map((mention) => (
-                  <RemoveChip
-                    key={mention.id}
-                    label={`@${mention.username}`}
-                    onRemove={removeMention}
-                    removeLabel={`Remove mention ${mention.username}`}
-                    user={mention}
-                    value={mention.id}
-                    variant="mention"
-                  />
-                ))}
-              </div>
-            )}
+            {/* Fleet mode renders selected tags/mentions above the editor;
+                gust mode carries them inside its picker sections instead. */}
+            {!isGust &&
+              (selectedTags.length > 0 || selectedMentions.length > 0) && (
+                <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                  {selectedTags.map((tag) => (
+                    <RemoveChip
+                      key={tag}
+                      label={tag}
+                      onRemove={removeTag}
+                      removeLabel={`Remove tag ${tag}`}
+                      value={tag}
+                      variant="tag"
+                    />
+                  ))}
+                  {selectedMentions.map((mention) => (
+                    <RemoveChip
+                      key={mention.id}
+                      label={`@${mention.username}`}
+                      onRemove={removeMention}
+                      removeLabel={`Remove mention ${mention.username}`}
+                      user={mention}
+                      value={mention.id}
+                      variant="mention"
+                    />
+                  ))}
+                </div>
+              )}
 
             {/* Gust field headings: label + what the field does, on one line. */}
             {isGust ? (
-              <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 max-sm:col-span-2">
                 <p className="text-xs font-semibold">Caption</p>
                 <p className="text-muted-foreground text-[11px]">
                   Tell viewers what your gust is about.
@@ -779,7 +856,7 @@ export default function PostEditor({
               </div>
             ) : null}
 
-            <div {...rootProps}>
+            <div {...rootProps} className="max-sm:col-span-2">
               <div
                 className={cn(
                   "relative rounded-2xl transition-all duration-300",
@@ -863,25 +940,32 @@ export default function PostEditor({
                 input, always docked below its heading. The draft flushes to
                 the media row on publish - nothing to click here. */}
             {isGust && hasGustVideo ? (
-              <div className="mt-3 mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <p className="text-xs font-semibold">Alt text</p>
-                <p className="text-muted-foreground text-[11px]">
-                  Describe the video for people who can&apos;t see it.
+              <div className="mt-3 mb-1 flex items-baseline gap-x-2 max-sm:col-span-2 max-sm:mb-0">
+                <p className="text-xs font-semibold whitespace-nowrap">
+                  Alt text
+                </p>
+                <p className="text-muted-foreground min-w-0 truncate text-[11px]">
+                  For viewers who can&apos;t see it.
                 </p>
               </div>
             ) : null}
             {isGust ? (
-              <AltTextEditorPanel
-                altDrafts={altDrafts}
-                altEditorKey={altEditorKey}
-                attachments={attachments}
-                onClose={() => setAltEditorKey(null)}
-                onDraftChange={(attachmentKey, draft) =>
-                  setAltDrafts((prev) => ({ ...prev, [attachmentKey]: draft }))
-                }
-                onSave={setAltText}
-                variant="docked"
-              />
+              <div className="max-sm:col-span-2 max-sm:-mt-3">
+                <AltTextEditorPanel
+                  altDrafts={altDrafts}
+                  altEditorKey={altEditorKey}
+                  attachments={attachments}
+                  onClose={() => setAltEditorKey(null)}
+                  onDraftChange={(attachmentKey, draft) =>
+                    setAltDrafts((prev) => ({
+                      ...prev,
+                      [attachmentKey]: draft,
+                    }))
+                  }
+                  onSave={setAltText}
+                  variant="docked"
+                />
+              </div>
             ) : null}
 
             {/* Inline GIF picker */}
@@ -1037,162 +1121,190 @@ export default function PostEditor({
                 </div>
               </div>
             )}
+
+            {/* Thumbnail + sound: a two-column strip under the text fields,
+                so neither section waits on the video column's height. */}
+            {isGust && hasGustVideo ? (
+              <div className="mt-3 grid gap-4 max-sm:col-span-2 max-sm:[display:contents] sm:grid-cols-2">
+                {/* Gust thumbnail: vertical 9:16 like the clip above it. The
+                    preview always reflects the served ?thumb=1 (custom cover
+                    once attached, generated poster otherwise); the uploaded
+                    image's bytes are copied onto the video row server-side. */}
+                {isGust && hasGustVideo && gustVideoMediaId ? (
+                  <div className="min-w-0 max-sm:col-start-2 max-sm:row-start-1">
+                    <p className="text-muted-foreground mb-2 line-clamp-2 text-[11px] leading-snug">
+                      <span className="text-foreground text-xs font-semibold whitespace-nowrap">
+                        Thumbnail
+                      </span>{" "}
+                      Optional - pick a cover frame; one is chosen from the
+                      video otherwise.
+                    </p>
+                    {/* While the pipeline is still working on the clip there
+                        is no cover to show (or change): a skeleton holds the
+                        slot until the poster lands. */}
+                    {gustVideoProcessing ? (
+                      <Skeleton className="aspect-9/16 w-36 max-w-full rounded-2xl max-sm:w-full" />
+                    ) : (
+                      <button
+                        aria-label="Change thumbnail"
+                        className="group/thumb relative aspect-9/16 w-36 max-w-full cursor-pointer overflow-hidden rounded-2xl max-sm:w-full"
+                        disabled={isUploading}
+                        onClick={() => thumbnailInputRef.current?.click()}
+                        type="button"
+                      >
+                        {/* oxlint-disable-next-line @next/next/no-img-element -- live preview of the private-bucket thumbnail route */}
+                        <img
+                          alt="Current thumbnail"
+                          className="absolute inset-0 h-full w-full object-cover"
+                          src={`/api/media/${gustVideoMediaId}?thumb=1${
+                            thumbBust ? `&t=${thumbBust}` : ""
+                          }`}
+                        />
+                        <span className="absolute inset-0 z-10 flex items-center justify-center bg-black/0 transition-colors duration-200 group-hover/thumb:bg-black/30">
+                          <span className="rail-3d-btn flex h-9 w-9 items-center justify-center rounded-full opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
+                            <ImageIcon className="size-4" />
+                          </span>
+                        </span>
+                      </button>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {thumbnail?.status === "error" ? (
+                        <span className="rail-3d-btn text-destructive rounded-full px-2.5 py-1 text-[11px] font-medium">
+                          failed - try again
+                        </span>
+                      ) : null}
+                      {thumbnail && thumbnail.status !== "error" ? (
+                        <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
+                          <ImageIcon className="size-3.5 shrink-0 text-[#7c5cff]" />
+                          <span className="max-w-36 truncate">
+                            {thumbnail.file.name}
+                          </span>
+                          {thumbnail.status === "uploading" ? (
+                            <span className="text-muted-foreground text-[10px]">
+                              uploading…
+                            </span>
+                          ) : null}
+                          <button
+                            aria-label="Remove custom thumbnail"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                            onClick={() => {
+                              if (gustVideoMediaId) {
+                                void patchThumbnail(gustVideoMediaId, null);
+                              }
+                              setThumbnail(null);
+                              setThumbBust(Date.now());
+                            }}
+                            type="button"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </span>
+                      ) : null}
+                      <input
+                        accept="image/*"
+                        aria-label="Custom thumbnail for this gust"
+                        className="sr-only"
+                        onChange={handleThumbnailInputChange}
+                        ref={thumbnailInputRef}
+                        type="file"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Right column: sound, with the tag + mention pickers
+                    stacked beneath it. On mobile the column dissolves so
+                    sound, tags, and mentions span the full width. */}
+                <div className="flex min-w-0 flex-col gap-3 max-sm:col-span-2">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex items-baseline gap-x-2">
+                      <p className="text-xs font-semibold whitespace-nowrap">
+                        Sound
+                      </p>
+                      <p className="text-muted-foreground min-w-0 truncate text-[11px]">
+                        Optional - replace the clip&apos;s audio.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {soundTrack ? (
+                        <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
+                          <Music className="size-3.5 shrink-0 text-[#7c5cff]" />
+                          <span className="max-w-36 truncate">
+                            {soundTrack.file.name}
+                          </span>
+                          {soundTrack.status === "uploading" ? (
+                            <span className="text-muted-foreground text-[10px]">
+                              uploading…
+                            </span>
+                          ) : null}
+                          {soundTrack.status === "error" ? (
+                            <span className="text-destructive text-[10px]">
+                              failed
+                            </span>
+                          ) : null}
+                          <button
+                            aria-label="Remove sound track"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                            onClick={() => {
+                              if (gustVideoMediaId) {
+                                void patchAudioOverlay(gustVideoMediaId, null);
+                              }
+                              setSoundTrack(null);
+                            }}
+                            type="button"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          aria-label="Add sound"
+                          className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-full border-0 px-3 text-xs font-medium"
+                          disabled={isUploading}
+                          onClick={() => soundInputRef.current?.click()}
+                          type="button"
+                        >
+                          <Music className="size-3.5" />
+                          Add sound
+                        </button>
+                      )}
+                      <input
+                        accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
+                        aria-label="Sound track for this gust"
+                        className="sr-only"
+                        onChange={handleSoundInputChange}
+                        ref={soundInputRef}
+                        type="file"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tags + mentions: stacked pickers under the sound, fed
+                      by the same state as the caption's inline # / @
+                      suggestions. */}
+                  <GustTagPicker
+                    onAdd={addTag}
+                    onRemove={removeTag}
+                    selectedTags={selectedTags}
+                  />
+                  <GustMentionPicker
+                    onAdd={addMention}
+                    onRemove={removeMention}
+                    selectedMentions={selectedMentions}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          {/* Gust thumbnail: left column, vertical 9:16 like the clip
-                above it. The preview always reflects the served ?thumb=1
-                (custom cover once attached, generated poster otherwise);
-                the uploaded image's bytes are copied onto the video row
-                server-side. */}
-          {isGust && hasGustVideo && gustVideoMediaId ? (
-            <div className="mt-4 min-w-0">
-              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <p className="text-xs font-semibold">Thumbnail</p>
-                <p className="text-muted-foreground text-[11px]">
-                  Optional - pick a cover frame; skip it and we choose one from
-                  the video.
-                </p>
-              </div>
-              {/* The preview itself is the control: clicking it opens the
-                    cover picker. A hover overlay signals the affordance. */}
-              <button
-                aria-label="Change thumbnail"
-                className="group/thumb relative aspect-9/16 w-36 max-w-full cursor-pointer overflow-hidden rounded-2xl"
-                disabled={isUploading}
-                onClick={() => thumbnailInputRef.current?.click()}
-                type="button"
-              >
-                {/* oxlint-disable-next-line @next/next/no-img-element -- live preview of the private-bucket thumbnail route */}
-                <img
-                  alt="Current thumbnail"
-                  className="absolute inset-0 h-full w-full object-cover"
-                  src={`/api/media/${gustVideoMediaId}?thumb=1${
-                    thumbBust ? `&t=${thumbBust}` : ""
-                  }`}
-                />
-                <span className="absolute inset-0 z-10 flex items-center justify-center bg-black/0 transition-colors duration-200 group-hover/thumb:bg-black/30">
-                  <span className="rail-3d-btn flex h-9 w-9 items-center justify-center rounded-full opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
-                    <ImageIcon className="size-4" />
-                  </span>
-                </span>
-              </button>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {thumbnail?.status === "error" ? (
-                  <span className="rail-3d-btn text-destructive rounded-full px-2.5 py-1 text-[11px] font-medium">
-                    failed - try again
-                  </span>
-                ) : null}
-                {thumbnail && thumbnail.status !== "error" ? (
-                  <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
-                    <ImageIcon className="size-3.5 shrink-0 text-[#7c5cff]" />
-                    <span className="max-w-36 truncate">
-                      {thumbnail.file.name}
-                    </span>
-                    {thumbnail.status === "uploading" ? (
-                      <span className="text-muted-foreground text-[10px]">
-                        uploading…
-                      </span>
-                    ) : null}
-                    <button
-                      aria-label="Remove custom thumbnail"
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                      onClick={() => {
-                        if (gustVideoMediaId) {
-                          void patchThumbnail(gustVideoMediaId, null);
-                        }
-                        setThumbnail(null);
-                        setThumbBust(Date.now());
-                      }}
-                      type="button"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </span>
-                ) : null}
-                <input
-                  accept="image/*"
-                  aria-label="Custom thumbnail for this gust"
-                  className="sr-only"
-                  onChange={handleThumbnailInputChange}
-                  ref={thumbnailInputRef}
-                  type="file"
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {/* Gust "sound": right column, beside the thumbnail. An uploaded
-                track replaces the video's own audio, remuxed in by the
-                pipeline - the visuals stay untouched. The track attaches via
-                the audio-overlay endpoint (or rides along at initiate when
-                the video is re-picked). */}
-          {isGust && hasGustVideo ? (
-            <div className="mt-4 min-w-0">
-              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <p className="text-xs font-semibold">Sound</p>
-                <p className="text-muted-foreground text-[11px]">
-                  Optional - upload a track to replace the clip&apos;s audio.
-                  The video stays the same; only the sound changes.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {soundTrack ? (
-                  <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
-                    <Music className="size-3.5 shrink-0 text-[#7c5cff]" />
-                    <span className="max-w-36 truncate">
-                      {soundTrack.file.name}
-                    </span>
-                    {soundTrack.status === "uploading" ? (
-                      <span className="text-muted-foreground text-[10px]">
-                        uploading…
-                      </span>
-                    ) : null}
-                    {soundTrack.status === "error" ? (
-                      <span className="text-destructive text-[10px]">
-                        failed
-                      </span>
-                    ) : null}
-                    <button
-                      aria-label="Remove sound track"
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                      onClick={() => {
-                        if (gustVideoMediaId) {
-                          void patchAudioOverlay(gustVideoMediaId, null);
-                        }
-                        setSoundTrack(null);
-                      }}
-                      type="button"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    aria-label="Add sound"
-                    className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center gap-1.5 rounded-full border-0 px-3 text-xs font-medium"
-                    disabled={isUploading}
-                    onClick={() => soundInputRef.current?.click()}
-                    type="button"
-                  >
-                    <Music className="size-3.5" />
-                    Add sound
-                  </button>
-                )}
-                <input
-                  accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
-                  aria-label="Sound track for this gust"
-                  className="sr-only"
-                  onChange={handleSoundInputChange}
-                  ref={soundInputRef}
-                  type="file"
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {/* Gust publish: below the sound section, right-aligned. */}
+          {/* Gust publish: switcher bottom-left, button bottom-right on
+              mobile; sm+ keeps the button alone on the right (its switcher
+              leads the left rail). */}
           {isGust ? (
-            <div className="mt-3 flex items-center justify-end sm:col-span-2">
+            <div className="col-span-2 mt-3 flex items-center justify-between sm:justify-end">
+              <div className="sm:hidden">
+                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+              </div>
               {publishButton}
             </div>
           ) : null}
@@ -1481,8 +1593,15 @@ const AltTextEditorPanel = ({
           {/* The height animation needs a clip, but focus rings and the
               premium-input glow draw OUTSIDE the border box - pad the clip
               so they have room, and cancel the padding with negative
-              margins so spacing and width stay identical. */}
-          <div className="-mx-1.5 mt-1.5 -mb-1.5 overflow-hidden p-1.5">
+              margins so spacing and width stay identical. The popover
+              variant additionally pulls its top padding up so the bar sits
+              flush under the attachment grid. */}
+          <div
+            className={cn(
+              "-mx-1.5 -mb-1.5 overflow-hidden p-1.5",
+              docked ? "mt-1.5" : "-mt-1.5"
+            )}
+          >
             <AltTextPanel
               attachment={selected.attachment}
               compact={docked}

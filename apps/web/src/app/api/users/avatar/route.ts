@@ -2,6 +2,7 @@ import {
   avatarCache,
   getPrivateUserSelect,
   prisma,
+  profileProxyUrl,
   promoteProfileDerivative,
   purgeSupersededProfileMedia,
 } from "@asm/db";
@@ -99,8 +100,10 @@ export async function POST(request: Request) {
     // Serving flows through /api/users/avatar/{userId}/image exactly as for
     // legacy uploads; storing the published original key there keeps GIFs
     // animated while derivative URLs stay available via /api/media/{id}.
+    // The URL carries a hash of the serving key: proxy responses cache for a
+    // year, so a new key must produce a new URL or browsers show stale bytes.
     const avatarKey = media.publishedKey ?? media.key;
-    const avatarUrl = `/api/users/avatar/${userId}/image`;
+    const avatarUrl = profileProxyUrl("avatar", userId, avatarKey);
 
     const updatedUser = await prisma.user.update({
       data: {

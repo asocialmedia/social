@@ -23,6 +23,11 @@ export const useHnShareStore = create<HnShareState>()(
     }),
     {
       name: "hn-share-storage",
+      // Persisted state must not hydrate synchronously: a stored isSharing
+      // would desync SSR'd markup (which always renders the resting store)
+      // from the client's first render - a hydration mismatch on every
+      // consumer. Consumers call rehydrate() in an effect after mount.
+      skipHydration: true,
     }
   )
 );

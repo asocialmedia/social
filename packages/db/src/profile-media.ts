@@ -19,6 +19,36 @@
 import prisma from "./prisma";
 import { deleteObject } from "./storage";
 
+// Profile proxy URLs (/api/users/{avatar|banner}/{userId}/image) are constant
+// per user while the object behind them changes on every upload and again at
+// promotion. They are served with a 1-year Cache-Control, so the URL carries
+// a short hash of the current serving key as a cache buster: a new key always
+// produces a new URL, and the old cached entry is never consulted again.
+export function profileSurfaceVersion(key: string): string {
+  /* oxlint-disable no-bitwise -- FNV-1a hash math, not mistyped booleans */
+  // The hash only needs to change when the key changes, so exact
+  // distribution hardly matters; bitwise operators are the fastest way to
+  // get it.
+  let hash = 0x81_1c_9d_c5;
+  for (let i = 0; i < key.length; i += 1) {
+    // i is within the string, so the code point is always defined; the
+    // fallback only satisfies strictNullChecks.
+    hash ^= key.codePointAt(i) ?? 0;
+    hash = Math.imul(hash, 0x01_00_01_93);
+  }
+  const truncated = hash >>> 0;
+  /* oxlint-enable no-bitwise */
+  return truncated.toString(16).padStart(8, "0");
+}
+
+export function profileProxyUrl(
+  kind: "avatar" | "banner",
+  userId: string,
+  servingKey: string
+): string {
+  return `/api/users/${kind}/${userId}/image?v=${profileSurfaceVersion(servingKey)}`;
+}
+
 // Purges a superseded profile media row: objects (original + derivatives),
 // quota refund, then the row itself. Skips rows that got linked to a post,
 // comment, or profile surface in the meantime — those belong to the pipeline
@@ -165,15 +195,18 @@ export async function promoteProfileDerivative(
   }
 
   // Conditional pointer swap: if the user has since linked different media,
-  // updateMany matches nothing and promotion aborts.
+  // updateMany matches nothing and promotion aborts. The proxy URL is bumped
+  // in the same write so the 1-year-cached old URL is never reused for the
+  // new derivative bytes.
+  const promotedUrl = profileProxyUrl(kind, owner, chosen.key);
   const swap =
     kind === "avatar"
       ? await prisma.user.updateMany({
-          data: { avatarKey: chosen.key },
+          data: { avatarKey: chosen.key, avatarUrl: promotedUrl },
           where: { avatarMediaId: mediaId, id: owner },
         })
       : await prisma.user.updateMany({
-          data: { bannerKey: chosen.key },
+          data: { bannerKey: chosen.key, bannerUrl: promotedUrl },
           where: { bannerMediaId: mediaId, id: owner },
         });
   if (swap.count === 0) {
@@ -186,7 +219,7 @@ export async function promoteProfileDerivative(
       await avatarCache.set(owner, {
         key: chosen.key,
         updatedAt: new Date().toISOString(),
-        url: `/api/users/avatar/${owner}/image`,
+        url: profileProxyUrl("avatar", owner, chosen.key),
       });
     } catch (error) {
       // Cache self-heals via TTL (1h) if this fails.

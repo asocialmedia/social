@@ -1,4 +1,4 @@
-import { getPrivateUserSelect, prisma } from "@asm/db";
+import { getPrivateUserSelect, prisma, profileProxyUrl } from "@asm/db";
 import { NextResponse } from "next/server";
 
 import { deleteBanner } from "@/lib/object-storage";
@@ -94,9 +94,11 @@ export async function POST(request: Request) {
     // legacy uploads; storing the published original key there keeps GIFs
     // animated while derivative URLs stay available via /api/media/{id}.
     // For static images the pipeline's promotion step later swaps the key to
-    // the optimized derivative and deletes the original.
+    // the optimized derivative and deletes the original. The URL carries a
+    // hash of the serving key: proxy responses cache for a year, so a new
+    // key must produce a new URL or browsers show stale bytes.
     const bannerKey = media.publishedKey ?? media.key;
-    const bannerUrl = `/api/users/banner/${userId}/image`;
+    const bannerUrl = profileProxyUrl("banner", userId, bannerKey);
 
     await prisma.user.update({
       data: {
