@@ -64,7 +64,8 @@ export interface DetectedContent {
   container: string;
 }
 
-// BullMQ job payloads on the "media" queue.
+// BullMQ job payloads for the media pipeline. Jobs land on "media-scan"
+// (scan, cleanup, delete-cascade) or "media-process" (process, analyze).
 export interface MediaScanJobData {
   mediaId: string;
   backfill?: boolean;

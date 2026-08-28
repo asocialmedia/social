@@ -9,6 +9,9 @@ describe("media limits", () => {
     expect(DEFAULT_LIMITS.maxAudioBytes).toBe(50 * 1024 * 1024);
     expect(DEFAULT_LIMITS.maxPixelCount).toBeGreaterThan(50_000_000);
     expect(DEFAULT_LIMITS.maxFilesPerRequest).toBe(5);
+    // Above the highest consumer phone recording mode (iPhone 4K60 HDR
+    // ~90-95 Mbps) so ordinary device footage is never policy-rejected.
+    expect(DEFAULT_LIMITS.maxBitrateKbps).toBeGreaterThanOrEqual(100_000);
   });
 
   test("resolveMediaLimits returns defaults when env is empty", () => {

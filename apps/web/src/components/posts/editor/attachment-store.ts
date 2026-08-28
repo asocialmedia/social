@@ -15,6 +15,8 @@ import type {
   StatusWatchOutcome,
   UploadStage,
 } from "@/lib/media-upload-client";
+import type { ComposerMode } from "@/store/composer-store";
+import { useComposerStore } from "@/store/composer-store";
 
 // Single source of truth for composer attachments. Every PostEditor instance
 // (inline feed editor, floating modal, mobile bar) mounts the SAME zustand
@@ -24,9 +26,11 @@ import type {
 // A completed upload is persisted to sessionStorage so a refresh or a quick
 // navigation doesn't wipe the draft. Only the server media row + display
 // metadata are stored - never the File object (it is not serializable);
-// restored drafts render from mediaUrl.
+// restored drafts render from mediaUrl. The composer mode the draft was
+// authored in rides along: a gust video must reopen in the gust editor, not
+// as a fleet attachment.
 const STORAGE_KEY = "asm-composer-attachments";
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
 export interface Attachment {
   altText?: string;
@@ -54,23 +58,29 @@ interface StoredAttachment {
   type: string;
 }
 
-function loadStoredAttachments(): Attachment[] {
+interface StoredDraft {
+  items?: StoredAttachment[];
+  mode?: ComposerMode;
+  version?: number;
+}
+
+function loadStoredDraft(): {
+  attachments: Attachment[];
+  mode?: ComposerMode;
+} {
   if (typeof window === "undefined") {
-    return [];
+    return { attachments: [] };
   }
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return [];
+      return { attachments: [] };
     }
-    const parsed = JSON.parse(raw) as {
-      items?: StoredAttachment[];
-      version?: number;
-    };
+    const parsed = JSON.parse(raw) as StoredDraft;
     if (parsed.version !== STORAGE_VERSION) {
-      return [];
+      return { attachments: [] };
     }
-    return (parsed.items ?? []).map((item) => ({
+    const attachments = (parsed.items ?? []).map((item) => ({
       altText: item.altText,
       ...(item.resuming
         ? { isUploading: true, resuming: true, stage: "queued" as UploadStage }
@@ -82,8 +92,14 @@ function loadStoredAttachments(): Attachment[] {
       progress: 100,
       type: item.type,
     }));
+    return {
+      attachments,
+      // A mode is only meaningful alongside a real draft; an emptied draft
+      // must not pin the next fresh composer to gust.
+      mode: attachments.length > 0 ? parsed.mode : undefined,
+    };
   } catch {
-    return [];
+    return { attachments: [] };
   }
 }
 
@@ -100,10 +116,18 @@ function persistAttachments(attachments: Attachment[]): void {
       resuming: attachment.isUploading || undefined,
       type: attachment.type ?? attachment.file?.type ?? "",
     }));
+  // The draft's composer mode is captured live at every persist so a refresh
+  // always reopens the composer exactly as the draft was left.
+  const mode: ComposerMode | undefined =
+    items.length > 0 ? useComposerStore.getState().mode : undefined;
   try {
     sessionStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ items, version: STORAGE_VERSION })
+      JSON.stringify({
+        items,
+        mode,
+        version: STORAGE_VERSION,
+      } satisfies StoredDraft)
     );
   } catch {
     // Storage may be unavailable; the draft is simply not persisted.
@@ -234,13 +258,22 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
         return;
       }
       hydrated = true;
-      const stored = loadStoredAttachments();
-      if (stored.length === 0) {
+      const stored = loadStoredDraft();
+      if (stored.attachments.length === 0) {
         return;
       }
+      // The draft was authored in a specific composer mode; put the composer
+      // back there so the restored video lands in its own upload area (gust
+      // editor) instead of presenting itself as a fleet attachment.
+      const composer = useComposerStore.getState();
+      if (stored.mode && composer.mode !== stored.mode) {
+        composer.setMode(stored.mode);
+      }
       // Deferred so the restored draft pops in right after the first paint.
-      queueMicrotask(() => set({ attachments: stored }));
-      for (const item of stored.filter((s) => s.resuming && s.mediaId)) {
+      queueMicrotask(() => set({ attachments: stored.attachments }));
+      for (const item of stored.attachments.filter(
+        (s) => s.resuming && s.mediaId
+      )) {
         void (async () => {
           try {
             const outcome = await watchMediaStatus(item.mediaId as string, {
@@ -643,6 +676,22 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     },
   };
 });
+
+// Keep the persisted draft's mode in lockstep with the composer toggle: a
+// gust draft switched to fleet (ModeToggle) must survive a refresh as a
+// fleet draft, and vice versa. Only drafts with attachments carry a mode.
+if (typeof window !== "undefined") {
+  useComposerStore.subscribe((state, prevState) => {
+    if (state.mode === prevState.mode) {
+      return;
+    }
+    const { attachments } = useComposerAttachmentStore.getState();
+    if (attachments.length === 0) {
+      return;
+    }
+    persistAttachments(attachments);
+  });
+}
 
 /** Test seam: allows isolation between store-touching tests. */
 export function __resetComposerAttachmentStoreForTests(): void {

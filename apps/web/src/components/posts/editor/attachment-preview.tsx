@@ -44,6 +44,8 @@ interface AttachmentPreviewProps {
   };
   isGust?: boolean;
   onCancelClick?: () => void;
+  /** Gust only: tapping the preview body swaps the clip. */
+  onChangeMediaClick?: () => void;
   onEditAltClick?: () => void;
   onRemoveClick: () => void;
   onRetryClick?: () => void;
@@ -78,6 +80,7 @@ const AttachmentPreviewInner = ({
   },
   isGust = false,
   onCancelClick,
+  onChangeMediaClick,
   onEditAltClick,
   onRemoveClick,
   onRetryClick,
@@ -634,30 +637,46 @@ const AttachmentPreviewInner = ({
     );
   }
 
-  // Bare-tile clicks open the alt text editor. Inner playback controls own
-  // their own clicks, so anything inside a button/video/audio is ignored.
+  // Bare-tile clicks open the alt text editor - or, on gust tiles, swap the
+  // clip. Inner playback controls own their own clicks, so anything inside a
+  // button or an audio element is ignored; the gust video body itself is
+  // tappable (it carries no native controls), while regular video bodies
+  // stay inert.
   const handleTileClick = (event: React.MouseEvent) => {
-    if (!onEditAltClick || hasError) {
+    if (hasError) {
       return;
     }
-    if ((event.target as HTMLElement).closest("button, video, audio")) {
+    if ((event.target as HTMLElement).closest("button, audio")) {
       return;
     }
-    onEditAltClick();
+    if (isGust) {
+      onChangeMediaClick?.();
+      return;
+    }
+    if ((event.target as HTMLElement).closest("video")) {
+      return;
+    }
+    onEditAltClick?.();
   };
 
   const handleTileKeyDown = (event: React.KeyboardEvent) => {
-    if (!onEditAltClick || hasError) {
+    if (hasError) {
       return;
     }
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
     event.preventDefault();
-    onEditAltClick();
+    if (isGust) {
+      onChangeMediaClick?.();
+      return;
+    }
+    onEditAltClick?.();
   };
 
-  const tileActivatable = Boolean(onEditAltClick) && !hasError;
+  const tileActivatable =
+    !hasError &&
+    (isGust ? Boolean(onChangeMediaClick) : Boolean(onEditAltClick));
 
   return (
     <div className="relative w-full">
@@ -674,7 +693,9 @@ const AttachmentPreviewInner = ({
       >
         {renderPreview()}
       </div>
-      {onEditAltClick && !isUploading && !hasError ? (
+      {/* The ALT chip is a post-mode affordance: gust's alt field is docked
+          under the caption input, so the video tile stays clean of badges. */}
+      {onEditAltClick && !isGust && !isUploading && !hasError ? (
         <button
           aria-label={altText ? "Edit alt text" : "Add alt text to this media"}
           className={cn(

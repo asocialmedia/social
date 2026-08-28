@@ -1,7 +1,16 @@
 // Pure upload-policy rules. Kept free of environment/database imports so
 // they are unit-testable in isolation and usable from any runtime.
 
-export type UploadPolicyStatus = 400 | 403 | 413 | 415 | 422 | 429 | 507;
+export type UploadPolicyStatus =
+  | 400
+  | 403
+  | 404
+  | 409
+  | 413
+  | 415
+  | 422
+  | 429
+  | 507;
 
 export class UploadPolicyError extends Error {
   override name = "UploadPolicyError";

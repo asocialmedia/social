@@ -1,7 +1,9 @@
-// Media pipeline worker entrypoint. Consumes the "media" BullMQ queue:
-// security scanning, derivative processing (phase 2), and abandoned-draft
-// cleanup. Runs in its own container so ffmpeg/AV failures can never take
-// down auth or notification workers.
+// Media pipeline worker entrypoint. Consumes the "media-scan" (ClamAV +
+// hash + strip, abandoned-draft cleanup) and "media-process" (ffmpeg/
+// derivative) BullMQ queues. Separate queues keep the pools from racing
+// for each other's jobs, since BullMQ does no name-based routing. Runs in
+// its own container so ffmpeg/AV failures can never take down auth or
+// notification workers.
 //
 // All app modules are imported dynamically AFTER loadRootEnv(): src/env.ts
 // validates at import time and must observe the final environment.
@@ -19,7 +21,8 @@ if (import.meta.main) {
 
   type Telemetry = ReturnType<typeof initTelemetry>;
 
-  const { prisma } = await import("@asm/db");
+  const { MEDIA_PROCESS_QUEUE, MEDIA_SCAN_QUEUE, prisma } =
+    await import("@asm/db");
   const { MEDIA_JOB_NAMES } = await import("@asm/media");
   const { Worker } = await import("bullmq");
   const { processMediaScan } = await import("./jobs/scan");
@@ -40,7 +43,7 @@ if (import.meta.main) {
   // CPU/ffmpeg-bound. Splitting eliminates head-of-line where a burst of
   // 4-rung HLS encodes blocks scans for minutes.
   const scanWorker = new Worker(
-    "media",
+    MEDIA_SCAN_QUEUE,
     async (job) => {
       switch (job.name) {
         case MEDIA_JOB_NAMES.scan: {
@@ -68,7 +71,7 @@ if (import.meta.main) {
   );
 
   const processWorker = new Worker(
-    "media",
+    MEDIA_PROCESS_QUEUE,
     async (job) => {
       switch (job.name) {
         case MEDIA_JOB_NAMES.process: {

@@ -9,9 +9,17 @@ import { formatFileName } from "@/lib/format-file-name";
 import { ALT_TEXT_MAX_LENGTH } from "@/lib/media-upload-client";
 
 interface AltTextPanelProps {
-  /** The attachment being described; the parent remounts per target via key. */
   attachment: Attachment;
+  /**
+   * Docked variant (gust): renders as a bare input styled like the caption
+   * bar - no panel chrome, no buttons. The draft is controlled by the parent
+   * and flushed when the gust is published.
+   */
+  compact?: boolean;
+  /** Controlled draft for the docked variant; parent owns unsaved text. */
+  draftValue?: string;
   onClose: () => void;
+  onDraftChange?: (draft: string) => void;
   /** Receives the trimmed draft; "" clears a previously saved value. */
   onSave: (fileName: string, altText: string) => void;
 }
@@ -31,16 +39,36 @@ function mediaKindNoun(mimeType: string): string {
 // (same expanding-panel idiom as the GIF picker) instead of a modal - the
 // editor context stays visible while writing. Saving PATCHes the media row
 // directly; publish does not carry media metadata.
-const AltTextPanel = ({ attachment, onClose, onSave }: AltTextPanelProps) => {
+const AltTextPanel = ({
+  attachment,
+  compact = false,
+  draftValue,
+  onClose,
+  onDraftChange,
+  onSave,
+}: AltTextPanelProps) => {
   const fileName = attachment.file?.name ?? attachment.name ?? "attachment";
   const mimeType = attachment.type ?? attachment.file?.type ?? "";
-  const [draft, setDraft] = useState(attachment.altText ?? "");
+  const [internalDraft, setInternalDraft] = useState(attachment.altText ?? "");
+  // Docked variant is controlled (parent flushes the draft on publish);
+  // popover variant owns its draft until Done/Remove.
+  const isControlled = onDraftChange !== undefined;
+  const draft = isControlled
+    ? (draftValue ?? attachment.altText ?? "")
+    : internalDraft;
+  const setDraft = (value: string) => {
+    if (isControlled) {
+      onDraftChange(value);
+    } else {
+      setInternalDraft(value);
+    }
+  };
 
   // Fresh uploads preview from a blob; restored drafts already have a media
   // URL so there is nothing to create.
   const [previewUrl, setPreviewUrl] = useState(attachment.mediaUrl ?? "");
   useEffect(() => {
-    if (attachment.mediaUrl || !attachment.file) {
+    if (compact || attachment.mediaUrl || !attachment.file) {
       return;
     }
     const url = URL.createObjectURL(attachment.file);
@@ -48,7 +76,7 @@ const AltTextPanel = ({ attachment, onClose, onSave }: AltTextPanelProps) => {
     // oxlint-disable-next-line react/set-state-in-effect -- the blob URL only comes from the browser's object registry after mount
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [attachment.file, attachment.mediaUrl]);
+  }, [compact, attachment.file, attachment.mediaUrl]);
 
   const hasSavedText = Boolean(attachment.altText);
   // The cap is silent until hit - maxLength already prevents overshooting,
@@ -57,12 +85,18 @@ const AltTextPanel = ({ attachment, onClose, onSave }: AltTextPanelProps) => {
 
   const handleSave = () => {
     onSave(fileName, draft.trim().slice(0, ALT_TEXT_MAX_LENGTH));
-    onClose();
+    // The docked gust variant stays open - it is part of the composer, not a
+    // transient dialog.
+    if (!compact) {
+      onClose();
+    }
   };
 
   const handleRemove = () => {
     onSave(fileName, "");
-    onClose();
+    if (!compact) {
+      onClose();
+    }
   };
 
   const renderPreview = () => {
@@ -111,6 +145,23 @@ const AltTextPanel = ({ attachment, onClose, onSave }: AltTextPanelProps) => {
       </div>
     );
   };
+
+  if (compact) {
+    // Mirrors the caption bar above it exactly: same premium-input surface,
+    // same padding, same focus ring - a plain textarea carrying the caption
+    // input's class set (the shadui Textarea chrome would fight it). The
+    // draft rides to the media row on publish, so there is nothing to click.
+    return (
+      <textarea
+        aria-label="Alt text"
+        className="premium-input text-foreground focus-within:ring-primary field-sizing-content max-h-40 w-full max-w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto px-5 py-3 break-words transition-all duration-300 ease-in-out focus-within:ring-2"
+        maxLength={ALT_TEXT_MAX_LENGTH}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="Describe this video for people who can't see it…"
+        value={draft}
+      />
+    );
+  }
 
   return (
     <div className="apple-panel w-full rounded-2xl p-4">

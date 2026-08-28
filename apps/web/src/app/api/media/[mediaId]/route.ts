@@ -184,15 +184,17 @@ export async function GET(
       // refresh. Pull it fresh (single indexed PK lookup), same reason
       // ownership is read fresh below.
       const freshThumb = await prisma.media.findUnique({
-        select: { status: true, thumbnailKey: true },
+        select: { customThumbnailKey: true, status: true, thumbnailKey: true },
         where: { id: mediaId },
       });
-      // Pipeline videos keep their scene-aware poster as a derivative;
-      // legacy videos keep the old thumbnailKey column. Serve whichever
-      // exists so feed cards get a real frame, and only fall back to the
-      // lightweight placeholder SVG when neither does (image renderers must
-      // never download multi-megabyte video streams pretending to be images).
-      let posterKey: string | null = freshThumb?.thumbnailKey ?? null;
+      // Priority: the author's custom cover (gust thumbnail) first, then the
+      // pipeline's scene-aware poster derivative, then the legacy
+      // thumbnailKey column. Serve whichever exists so feed cards get a real
+      // frame, and only fall back to the lightweight placeholder SVG when
+      // none does (image renderers must never download multi-megabyte video
+      // streams pretending to be images).
+      let posterKey: string | null =
+        freshThumb?.customThumbnailKey ?? freshThumb?.thumbnailKey ?? null;
       if (!posterKey && freshThumb?.status === "READY") {
         const thumbPoster = await prisma.mediaDerivative.findFirst({
           select: { key: true },
@@ -232,7 +234,9 @@ export async function GET(
           "Cache-Control": ownership.postId
             ? "public, max-age=31536000, immutable"
             : "private, max-age=86400",
-          "Content-Type": "image/jpeg",
+          // Custom thumbnails copy the source image's content type; pipeline
+          // posters are always jpeg.
+          "Content-Type": posterObject.ContentType ?? "image/jpeg",
           "X-Content-Type-Options": "nosniff",
         },
         status: 200,

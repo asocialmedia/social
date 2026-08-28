@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { UnrecoverableError } from "bullmq";
+
 import {
   dHash64,
   enforceDecoderLimits,
@@ -135,6 +137,13 @@ describe("decoder resource limits", () => {
     expect(() =>
       enforceDecoderLimits({ ...audioOnly, durationSec: 61 * 60 }, baseLimits)
     ).toThrow(ResourceLimitError);
+  });
+
+  test("policy rejections are unrecoverable so BullMQ skips remaining attempts", () => {
+    const error = new ResourceLimitError("bitrate 38792kbps exceeds limit");
+    expect(error).toBeInstanceOf(UnrecoverableError);
+    // The failed-handler keys on this name to mark the media row.
+    expect(error.name).toBe("ResourceLimitError");
   });
 
   test("withTimeout resolves fast work and rejects slow work", async () => {

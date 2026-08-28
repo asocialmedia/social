@@ -31,6 +31,7 @@ import {
   Clapperboard,
   GripVertical,
   Hash,
+  Image as ImageIcon,
   MoreHorizontal,
   Music,
   X,
@@ -48,7 +49,12 @@ import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
-import { uploadMediaFile } from "@/lib/media-upload-client";
+import {
+  ALT_TEXT_MAX_LENGTH,
+  patchAudioOverlay,
+  patchThumbnail,
+  uploadMediaFile,
+} from "@/lib/media-upload-client";
 
 import "./styles.css";
 import { cn } from "@/lib/utils";
@@ -134,6 +140,11 @@ export default function PostEditor({
 
   // Shared contract with the server-side cap in submitPost.
   const capacityFull = attachments.length >= MAX_POST_ATTACHMENTS;
+  // The gust video's media row, when one is attached. The sound-overlay
+  // endpoint needs it to bake a later-picked sound into the video.
+  const gustVideoMediaId = attachments.find((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("video/")
+  )?.mediaId;
   // A single attachment still offers gust switching; only an actual video
   // makes the post video-only (GIFs and audio lock, matching how published
   // posts render video). Audio mixes freely with images/GIFs/videos - the
@@ -144,6 +155,9 @@ export default function PostEditor({
   );
   const mixedMediaLocked = hasVideoAttachment;
   const attachmentOptionsDisabled = isUploading || capacityFull;
+  // A gust is one video at a time: the moment one exists (uploading or
+  // settled) the pickers disappear - tapping the preview replaces the clip.
+  const gustPickerHidden = isGust && hasVideoAttachment;
   // Media-only posts are publishable: a completed attachment satisfies the
   // caption requirement (server schema enforces "text or attachment" too).
   const hasUploadError = attachments.some((a) => Boolean(a.error));
@@ -190,6 +204,14 @@ export default function PostEditor({
   } | null>(null);
   const soundInputRef = useRef<HTMLInputElement>(null);
   const onSubmitRef = useRef<(() => void) | null>(null);
+  // Key of the attachment whose alt text editor is open; one shared panel
+  // serves every tile. Lives here (not inside AttachmentPreviews) so the gust
+  // layout can place it under the caption input instead of under the video.
+  const [altEditorKey, setAltEditorKey] = useState<string | null>(null);
+  // Unsaved alt text drafts keyed by attachment key. The docked gust field
+  // writes here as the user types; the draft is flushed to the media row
+  // when the gust is published.
+  const [altDrafts, setAltDrafts] = useState<Record<string, string>>({});
 
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
@@ -225,6 +247,22 @@ export default function PostEditor({
       try {
         const result = await uploadMediaFile(file, { purpose: "post" });
         if (result.status === "READY" && result.mediaId) {
+          // The video row already exists (the sound button only appears once
+          // a video is attached), so the overlay is attached after the fact.
+          // The endpoint also re-runs derivative generation when the video
+          // was already processed without the sound.
+          if (
+            !gustVideoMediaId ||
+            !(await patchAudioOverlay(gustVideoMediaId, result.mediaId))
+          ) {
+            setSoundTrack({ file, mediaId: null, status: "error" });
+            toast({
+              description: "Couldn't attach that sound - try again?",
+              title: "Sound Failed",
+              variant: "destructive",
+            });
+            return;
+          }
           setSoundTrack({ file, mediaId: result.mediaId, status: "ready" });
         } else {
           setSoundTrack({ file, mediaId: null, status: "error" });
@@ -233,7 +271,7 @@ export default function PostEditor({
         setSoundTrack({ file, mediaId: null, status: "error" });
       }
     },
-    [setSoundTrack]
+    [gustVideoMediaId, setSoundTrack, toast]
   );
 
   const handleSoundInputChange = useCallback(
@@ -242,6 +280,87 @@ export default function PostEditor({
       event.target.value = "";
     },
     [handleSoundFile]
+  );
+
+  // "Tap the preview to change your gust": opens the picker; on an actual
+  // selection the old clip's attachment is dropped (server draft discarded)
+  // and the new video uploads in its place, with the sound track riding
+  // along as the overlay. Cancelling the dialog leaves everything untouched.
+  const gustVideoInputRef = useRef<HTMLInputElement>(null);
+  const requestGustVideoChange = useCallback(() => {
+    // One upload at a time; mid-upload the preview tile is visibly busy.
+    if (isUploading) {
+      return;
+    }
+    gustVideoInputRef.current?.click();
+  }, [isUploading]);
+  const handleGustVideoInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || !file.type.startsWith("video/")) {
+        return;
+      }
+      const current = attachments.find((a) =>
+        (a.file?.type ?? a.type ?? "").startsWith("video/")
+      );
+      if (current) {
+        removeAttachment(current.file?.name ?? current.name ?? "");
+      }
+      void startUpload([file], {
+        audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
+      });
+    },
+    [attachments, isGust, removeAttachment, soundTrack, startUpload]
+  );
+
+  // Gust custom thumbnail: an uploaded image copied onto the video row by
+  // the thumbnail endpoint; the serving route prefers it over the generated
+  // poster. thumbBust cache-busts the preview after each change.
+  const [thumbnail, setThumbnail] = useState<{
+    file: File;
+    mediaId: string;
+    status: "uploading" | "ready" | "error";
+  } | null>(null);
+  const [thumbBust, setThumbBust] = useState(0);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+
+  const handleThumbnailFile = useCallback(
+    async (file: File | null | undefined) => {
+      if (!file || !file.type.startsWith("image/") || !gustVideoMediaId) {
+        return;
+      }
+      setThumbnail({ file, mediaId: "", status: "uploading" });
+      try {
+        const result = await uploadMediaFile(file, { purpose: "post" });
+        if (result.status === "READY" && result.mediaId) {
+          if (!(await patchThumbnail(gustVideoMediaId, result.mediaId))) {
+            setThumbnail({ file, mediaId: "", status: "error" });
+            toast({
+              description: "Couldn't set that thumbnail - try again?",
+              title: "Thumbnail Failed",
+              variant: "destructive",
+            });
+            return;
+          }
+          setThumbnail({ file, mediaId: result.mediaId, status: "ready" });
+          setThumbBust(Date.now());
+        } else {
+          setThumbnail({ file, mediaId: "", status: "error" });
+        }
+      } catch {
+        setThumbnail({ file, mediaId: "", status: "error" });
+      }
+    },
+    [gustVideoMediaId, setThumbBust, setThumbnail, toast]
+  );
+
+  const handleThumbnailInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      void handleThumbnailFile(event.target.files?.[0]);
+      event.target.value = "";
+    },
+    [handleThumbnailFile]
   );
 
   const editor = useEditor({
@@ -393,11 +512,32 @@ export default function PostEditor({
       return;
     }
 
+    // Publish-time flush of the docked gust alt field: the draft lives only
+    // in local state while composing; now that the gust is actually going
+    // out, write it to the media row (setAltText PATCHes immediately - the
+    // row exists and is READY by publish time). Emptying the field clears a
+    // previously saved description.
+    if (isGust) {
+      const videoIndex = attachments.findIndex((a) =>
+        (a.file?.type ?? a.type ?? "").startsWith("video/")
+      );
+      const video = videoIndex === -1 ? undefined : attachments[videoIndex];
+      if (video) {
+        const draft = (altDrafts[attachmentKeyOf(video, videoIndex)] ?? "")
+          .trim()
+          .slice(0, ALT_TEXT_MAX_LENGTH);
+        if (draft !== (video.altText ?? "")) {
+          setAltText(video.file?.name ?? video.name ?? "attachment", draft);
+        }
+      }
+    }
+
     mutation.mutate(payload, {
       onSuccess: (newPost) => {
         editor?.commands.clearContent();
         setInputText("");
         resetMediaUploads();
+        setAltDrafts({});
         setSelectedTags([]);
         setSelectedMentions([]);
         setGifPickerOpen(false);
@@ -414,6 +554,7 @@ export default function PostEditor({
   }, [
     input,
     attachments,
+    altDrafts,
     hasPublishableMedia,
     hasUploadError,
     selectedTags,
@@ -421,6 +562,7 @@ export default function PostEditor({
     mutation,
     editor,
     resetMediaUploads,
+    setAltText,
     isHnSharing,
     sharedHnStory,
     hnShareStore,
@@ -456,14 +598,69 @@ export default function PostEditor({
             attachments={attachments}
             cancelUpload={cancelUpload}
             isGust={isGust}
+            onAltEditRequest={setAltEditorKey}
+            onChangeVideoRequest={isGust ? requestGustVideoChange : undefined}
             removeAttachment={removeAttachment}
             reorderAttachments={reorderAttachments}
             retryUpload={retryUpload}
-            setAltText={setAltText}
           />
         </motion.div>
       )}
     </AnimatePresence>
+  );
+
+  // Gust status line: sits under the video preview once a clip exists
+  // ("tap the preview to change it"), or above the caption fields while
+  // there is no video yet. Carries the caption counter near the limits.
+  const gustHintLine = (
+    <output className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      {hasGustVideo ? (
+        <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+          Tap the preview to change your gust
+          <span className="rounded-full bg-[#ff9500]/10 px-2 py-0.5 text-[10px] font-bold text-[#ff9500]">
+            9:16
+          </span>
+        </span>
+      ) : (
+        <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+          Attach a 9:16 video to publish a gust
+        </span>
+      )}
+      {/* Counter appears only near/over the word or char limit */}
+      {gustCaptionNearLimit ? (
+        <span
+          className={cn(
+            "font-medium tabular-nums",
+            gustCaptionExceeded ? "text-destructive" : "text-muted-foreground"
+          )}
+        >
+          {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words · {input.length}/
+          {GUST_CAPTION_MAX_CHARS} chars
+        </span>
+      ) : null}
+    </output>
+  );
+
+  // Shared publish button: fleet keeps it in the toolbar; gust renders it
+  // below the sound section.
+  const publishButton = (
+    <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+      <LoadingButton
+        className="min-w-20"
+        disabled={
+          !(input.trim() || isHnSharing || hasPublishableMedia) ||
+          isUploading ||
+          hasUploadError ||
+          (isGust && gustCaptionExceeded) ||
+          (isGust && !hasGustVideo)
+        }
+        loading={mutation.isPending}
+        onClick={onSubmit}
+        variant="premium"
+      >
+        {isGust ? "Gust" : "Post"}
+      </LoadingButton>
+    </motion.div>
   );
 
   const onPaste = useCallback(
@@ -523,19 +720,29 @@ export default function PostEditor({
               "sm:grid sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
           )}
         >
+          {/* Gust mode: the fleet/gust switcher leads the left rail, so the
+              caption/alt inputs in the right rail start on the same line. */}
           {isGust && hasVideoAttachment ? (
-            <div className="min-w-0 sm:order-1">{previewsBlock}</div>
+            <div className="min-w-0">
+              <div className="mb-2 flex">
+                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+              </div>
+              {previewsBlock}
+              {gustHintLine}
+            </div>
           ) : null}
-          <div
-            className={cn(
-              "min-w-0",
-              isGust && hasVideoAttachment && "sm:order-2"
-            )}
-          >
-            {/* Mobile-only mode switcher above the editor so the Post button stays on screen */}
-            <div className="mb-3 flex md:hidden">
+          {isGust && !hasVideoAttachment ? (
+            <div className="mb-2 flex">
               <ModeToggle disabled={isGroupMedia} isGust={isGust} />
             </div>
+          ) : null}
+          <div className="min-w-0">
+            {/* Mobile-only mode switcher above the editor so the Post button stays on screen (fleet mode; gust carries its own at the top) */}
+            {isGust ? null : (
+              <div className="mb-3 flex md:hidden">
+                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+              </div>
+            )}
             {(selectedTags.length > 0 || selectedMentions.length > 0) && (
               <div className="mb-3 flex flex-wrap items-center gap-1.5">
                 {selectedTags.map((tag) => (
@@ -561,6 +768,16 @@ export default function PostEditor({
                 ))}
               </div>
             )}
+
+            {/* Gust field headings: label + what the field does, on one line. */}
+            {isGust ? (
+              <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-xs font-semibold">Caption</p>
+                <p className="text-muted-foreground text-[11px]">
+                  Tell viewers what your gust is about.
+                </p>
+              </div>
+            ) : null}
 
             <div {...rootProps}>
               <div
@@ -627,8 +844,45 @@ export default function PostEditor({
                   className="pointer-events-none absolute inset-0 opacity-0"
                   style={{ height: 0, width: 0 }}
                 />
+                {/* Hidden picker for "tap the preview to change your gust" -
+                    selecting a file swaps the clip in place. */}
+                {isGust ? (
+                  <input
+                    accept="video/*"
+                    aria-label="Change gust video"
+                    className="sr-only"
+                    onChange={handleGustVideoInputChange}
+                    ref={gustVideoInputRef}
+                    type="file"
+                  />
+                ) : null}
               </div>
             </div>
+
+            {/* Gust alt text editor: a bare field styled like the caption
+                input, always docked below its heading. The draft flushes to
+                the media row on publish - nothing to click here. */}
+            {isGust && hasGustVideo ? (
+              <div className="mt-3 mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-xs font-semibold">Alt text</p>
+                <p className="text-muted-foreground text-[11px]">
+                  Describe the video for people who can&apos;t see it.
+                </p>
+              </div>
+            ) : null}
+            {isGust ? (
+              <AltTextEditorPanel
+                altDrafts={altDrafts}
+                altEditorKey={altEditorKey}
+                attachments={attachments}
+                onClose={() => setAltEditorKey(null)}
+                onDraftChange={(attachmentKey, draft) =>
+                  setAltDrafts((prev) => ({ ...prev, [attachmentKey]: draft }))
+                }
+                onSave={setAltText}
+                variant="docked"
+              />
+            ) : null}
 
             {/* Inline GIF picker */}
             <AnimatePresence>
@@ -650,46 +904,238 @@ export default function PostEditor({
               )}
             </AnimatePresence>
 
-            {isGust ? (
-              <div
-                className="mt-2 flex items-center justify-between text-xs"
-                role="status"
-                aria-live="polite"
-              >
-                {hasGustVideo ? (
-                  <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
-                    Tap the preview to change your gust
-                    <span className="rounded-full bg-[#ff9500]/10 px-2 py-0.5 text-[10px] font-bold text-[#ff9500]">
-                      9:16
-                    </span>
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
-                    Attach a 9:16 video to publish a gust
-                  </span>
-                )}
-                {/* Counter appears only near/over the word or char limit */}
-                {gustCaptionNearLimit ? (
-                  <span
-                    className={cn(
-                      "font-medium tabular-nums",
-                      gustCaptionExceeded
-                        ? "text-destructive"
-                        : "text-muted-foreground"
+            {/* With a video the hint lives under the preview; this copy
+                covers the no-video state only. */}
+            {isGust && !hasGustVideo ? gustHintLine : null}
+
+            {/* Toolbar: in gust mode with a video every control here is
+                hidden or relocated (pickers gone, publish under sound), so
+                the empty row is skipped entirely. */}
+            {isGust && hasVideoAttachment ? null : (
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  {/* Mobile-only: inline image/video button; the rest collapse into
+                  a dropdown. */}
+                  <div className="max-md:flex md:hidden">
+                    {gustPickerHidden ? null : (
+                      <motion.div
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <FileInput
+                          disabled={attachmentOptionsDisabled}
+                          onFilesSelected={uploadWithOverlay}
+                          types={["image"]}
+                          videoOnly={isGust}
+                        />
+                      </motion.div>
                     )}
-                  >
-                    {gustWordCount}/{GUST_CAPTION_MAX_WORDS} words ·{" "}
-                    {input.length}/{GUST_CAPTION_MAX_CHARS} chars
+                  </div>
+
+                  {/* Mobile-only: remaining options in a dropdown. */}
+                  {isGust ? null : (
+                    <div className="max-md:block md:hidden">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            aria-label="More attachment options"
+                            className={cn(
+                              "pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                              attachmentOptionsDisabled &&
+                                "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                            )}
+                            disabled={attachmentOptionsDisabled}
+                            type="button"
+                          >
+                            <MoreHorizontal className="size-5" size={20} />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          className="apple-panel min-w-44 p-1.5 shadow-none"
+                        >
+                          <DropdownMenuItem
+                            className="pill-3d-hover rounded-md px-2 py-2"
+                            disabled={
+                              attachmentOptionsDisabled || mixedMediaLocked
+                            }
+                            onClick={() => setGifPickerOpen((prev) => !prev)}
+                          >
+                            <span className="flex items-center gap-3">
+                              <Clapperboard className="size-4" />
+                              GIFs
+                            </span>
+                          </DropdownMenuItem>
+                          <div className="flex items-center px-1 py-1">
+                            <FileInput
+                              disabled={
+                                attachmentOptionsDisabled || mixedMediaLocked
+                              }
+                              onFilesSelected={uploadWithOverlay}
+                              types={["audio"]}
+                            />
+                          </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
+
+                  {/* Desktop-only: the full inline toolbar (GIF + all file types). */}
+                  <div className="hidden items-center gap-1 md:flex">
+                    {gustPickerHidden ? null : (
+                      <motion.div
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <FileInput
+                          disabled={attachmentOptionsDisabled}
+                          onFilesSelected={uploadWithOverlay}
+                          videoOnly={isGust}
+                        />
+                      </motion.div>
+                    )}
+                    {isGust ? null : (
+                      <motion.button
+                        aria-label="Search and add a GIF"
+                        className={cn(
+                          "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                          gifPickerOpen && "text-primary",
+                          (attachmentOptionsDisabled || mixedMediaLocked) &&
+                            "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
+                        )}
+                        disabled={attachmentOptionsDisabled || mixedMediaLocked}
+                        onClick={() => setGifPickerOpen((prev) => !prev)}
+                        type="button"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Clapperboard className="size-5" size={20} />
+                          <span
+                            className={cn(
+                              "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                              gifPickerOpen
+                                ? "max-w-32"
+                                : "group-hover:max-w-32"
+                            )}
+                          >
+                            GIFs
+                          </span>
+                        </span>
+                      </motion.button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {isGust ? null : (
+                    <div className="hidden md:flex">
+                      <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                    </div>
+                  )}
+                  {isGust ? null : publishButton}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Gust thumbnail: left column, vertical 9:16 like the clip
+                above it. The preview always reflects the served ?thumb=1
+                (custom cover once attached, generated poster otherwise);
+                the uploaded image's bytes are copied onto the video row
+                server-side. */}
+          {isGust && hasGustVideo && gustVideoMediaId ? (
+            <div className="mt-4 min-w-0">
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-xs font-semibold">Thumbnail</p>
+                <p className="text-muted-foreground text-[11px]">
+                  Optional - pick a cover frame; skip it and we choose one from
+                  the video.
+                </p>
+              </div>
+              {/* The preview itself is the control: clicking it opens the
+                    cover picker. A hover overlay signals the affordance. */}
+              <button
+                aria-label="Change thumbnail"
+                className="group/thumb relative aspect-9/16 w-36 max-w-full cursor-pointer overflow-hidden rounded-2xl"
+                disabled={isUploading}
+                onClick={() => thumbnailInputRef.current?.click()}
+                type="button"
+              >
+                {/* oxlint-disable-next-line @next/next/no-img-element -- live preview of the private-bucket thumbnail route */}
+                <img
+                  alt="Current thumbnail"
+                  className="absolute inset-0 h-full w-full object-cover"
+                  src={`/api/media/${gustVideoMediaId}?thumb=1${
+                    thumbBust ? `&t=${thumbBust}` : ""
+                  }`}
+                />
+                <span className="absolute inset-0 z-10 flex items-center justify-center bg-black/0 transition-colors duration-200 group-hover/thumb:bg-black/30">
+                  <span className="rail-3d-btn flex h-9 w-9 items-center justify-center rounded-full opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
+                    <ImageIcon className="size-4" />
+                  </span>
+                </span>
+              </button>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {thumbnail?.status === "error" ? (
+                  <span className="rail-3d-btn text-destructive rounded-full px-2.5 py-1 text-[11px] font-medium">
+                    failed - try again
                   </span>
                 ) : null}
+                {thumbnail && thumbnail.status !== "error" ? (
+                  <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
+                    <ImageIcon className="size-3.5 shrink-0 text-[#7c5cff]" />
+                    <span className="max-w-36 truncate">
+                      {thumbnail.file.name}
+                    </span>
+                    {thumbnail.status === "uploading" ? (
+                      <span className="text-muted-foreground text-[10px]">
+                        uploading…
+                      </span>
+                    ) : null}
+                    <button
+                      aria-label="Remove custom thumbnail"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                      onClick={() => {
+                        if (gustVideoMediaId) {
+                          void patchThumbnail(gustVideoMediaId, null);
+                        }
+                        setThumbnail(null);
+                        setThumbBust(Date.now());
+                      }}
+                      type="button"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
+                ) : null}
+                <input
+                  accept="image/*"
+                  aria-label="Custom thumbnail for this gust"
+                  className="sr-only"
+                  onChange={handleThumbnailInputChange}
+                  ref={thumbnailInputRef}
+                  type="file"
+                />
               </div>
-            ) : null}
+            </div>
+          ) : null}
 
-            {/* Gust "sound": an audio track that replaces the video's own
-                audio. Picked before the video upload, its mediaId rides along
-                as audioOverlayId so the pipeline remuxes it in. */}
-            {isGust ? (
-              <div className="mt-2 flex items-center justify-between gap-2">
+          {/* Gust "sound": right column, beside the thumbnail. An uploaded
+                track replaces the video's own audio, remuxed in by the
+                pipeline - the visuals stay untouched. The track attaches via
+                the audio-overlay endpoint (or rides along at initiate when
+                the video is re-picked). */}
+          {isGust && hasGustVideo ? (
+            <div className="mt-4 min-w-0">
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-xs font-semibold">Sound</p>
+                <p className="text-muted-foreground text-[11px]">
+                  Optional - upload a track to replace the clip&apos;s audio.
+                  The video stays the same; only the sound changes.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 {soundTrack ? (
                   <span className="rail-3d-btn flex min-w-0 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3 text-xs font-medium">
                     <Music className="size-3.5 shrink-0 text-[#7c5cff]" />
@@ -709,7 +1155,12 @@ export default function PostEditor({
                     <button
                       aria-label="Remove sound track"
                       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                      onClick={() => setSoundTrack(null)}
+                      onClick={() => {
+                        if (gustVideoMediaId) {
+                          void patchAudioOverlay(gustVideoMediaId, null);
+                        }
+                        setSoundTrack(null);
+                      }}
                       type="button"
                     >
                       <X className="size-3.5" />
@@ -727,9 +1178,6 @@ export default function PostEditor({
                     Add sound
                   </button>
                 )}
-                <span className="text-muted-foreground text-[10px]">
-                  replaces the video&apos;s audio
-                </span>
                 <input
                   accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
                   aria-label="Sound track for this gust"
@@ -739,150 +1187,22 @@ export default function PostEditor({
                   type="file"
                 />
               </div>
-            ) : null}
-
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
-                {/* Mobile-only: inline image/video button; the rest collapse into
-                  a dropdown. */}
-                <div className="max-md:flex md:hidden">
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <FileInput
-                      disabled={attachmentOptionsDisabled}
-                      onFilesSelected={uploadWithOverlay}
-                      types={["image"]}
-                      videoOnly={isGust}
-                    />
-                  </motion.div>
-                </div>
-
-                {/* Mobile-only: remaining options in a dropdown. */}
-                {isGust ? null : (
-                  <div className="max-md:block md:hidden">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          aria-label="More attachment options"
-                          className={cn(
-                            "pill-3d-hover text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                            attachmentOptionsDisabled &&
-                              "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
-                          )}
-                          disabled={attachmentOptionsDisabled}
-                          type="button"
-                        >
-                          <MoreHorizontal className="size-5" size={20} />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="start"
-                        className="apple-panel min-w-44 p-1.5 shadow-none"
-                      >
-                        <DropdownMenuItem
-                          className="pill-3d-hover rounded-md px-2 py-2"
-                          disabled={
-                            attachmentOptionsDisabled || mixedMediaLocked
-                          }
-                          onClick={() => setGifPickerOpen((prev) => !prev)}
-                        >
-                          <span className="flex items-center gap-3">
-                            <Clapperboard className="size-4" />
-                            GIFs
-                          </span>
-                        </DropdownMenuItem>
-                        <div className="flex items-center px-1 py-1">
-                          <FileInput
-                            disabled={
-                              attachmentOptionsDisabled || mixedMediaLocked
-                            }
-                            onFilesSelected={uploadWithOverlay}
-                            types={["audio"]}
-                          />
-                        </div>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                )}
-
-                {/* Desktop-only: the full inline toolbar (GIF + all file types). */}
-                <div className="hidden items-center gap-1 md:flex">
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <FileInput
-                      disabled={attachmentOptionsDisabled}
-                      onFilesSelected={uploadWithOverlay}
-                      videoOnly={isGust}
-                    />
-                  </motion.div>
-                  {isGust ? null : (
-                    <motion.button
-                      aria-label="Search and add a GIF"
-                      className={cn(
-                        "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                        gifPickerOpen && "text-primary",
-                        (attachmentOptionsDisabled || mixedMediaLocked) &&
-                          "hover:from-none hover:to-none cursor-not-allowed opacity-50 hover:bg-none hover:shadow-none"
-                      )}
-                      disabled={attachmentOptionsDisabled || mixedMediaLocked}
-                      onClick={() => setGifPickerOpen((prev) => !prev)}
-                      type="button"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Clapperboard className="size-5" size={20} />
-                        <span
-                          className={cn(
-                            "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                            gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
-                          )}
-                        >
-                          GIFs
-                        </span>
-                      </span>
-                    </motion.button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="hidden md:flex">
-                  <ModeToggle disabled={isGroupMedia} isGust={isGust} />
-                </div>
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <LoadingButton
-                    className="min-w-20"
-                    disabled={
-                      !(input.trim() || isHnSharing || hasPublishableMedia) ||
-                      isUploading ||
-                      hasUploadError ||
-                      (isGust && gustCaptionExceeded) ||
-                      (isGust && !hasGustVideo)
-                    }
-                    loading={mutation.isPending}
-                    onClick={onSubmit}
-                    variant="premium"
-                  >
-                    {isGust ? "Gust" : "Post"}
-                  </LoadingButton>
-                </motion.div>
-              </div>
             </div>
-          </div>
+          ) : null}
+
+          {/* Gust publish: below the sound section, right-aligned. */}
+          {isGust ? (
+            <div className="mt-3 flex items-center justify-end sm:col-span-2">
+              {publishButton}
+            </div>
+          ) : null}
         </div>
       </div>
 
       {/* Capacity indicator: n/10 with context hints; turns warning near the
-          cap and destructive at it. */}
-      {!!attachments.length && (
+          cap and destructive at it. Gusts take a single video, so the counter
+          is meaningless there and is hidden. */}
+      {!isGust && !!attachments.length && (
         <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
           <span
             className={cn(
@@ -901,6 +1221,15 @@ export default function PostEditor({
       )}
 
       {isGust && hasVideoAttachment ? null : previewsBlock}
+      {/* Post-mode alt text editor, directly under the attachment grid. */}
+      {isGust ? null : (
+        <AltTextEditorPanel
+          altEditorKey={altEditorKey}
+          attachments={attachments}
+          onClose={() => setAltEditorKey(null)}
+          onSave={setAltText}
+        />
+      )}
     </div>
   );
 }
@@ -909,10 +1238,12 @@ interface AttachmentPreviewsProps {
   attachments: Attachment[];
   cancelUpload: (fileName: string) => void;
   isGust: boolean;
+  onAltEditRequest: (attachmentKey: string) => void;
+  /** Gust only: tap the preview to swap the clip. */
+  onChangeVideoRequest?: () => void;
   removeAttachment: (fileName: string) => void;
   reorderAttachments: (ordered: Attachment[]) => void;
   retryUpload: (fileName: string) => void;
-  setAltText: (fileName: string, altText: string) => void;
 }
 
 const attachmentKeyOf = (attachment: Attachment, index: number): string =>
@@ -928,6 +1259,7 @@ const SortableAttachment = ({
   index,
   isGust,
   onCancelClick,
+  onChangeMediaClick,
   onEditAltClick,
   onRemoveClick,
   onRetryClick,
@@ -937,6 +1269,7 @@ const SortableAttachment = ({
   index: number;
   isGust: boolean;
   onCancelClick: () => void;
+  onChangeMediaClick?: () => void;
   onEditAltClick?: () => void;
   onRemoveClick: () => void;
   onRetryClick: () => void;
@@ -980,6 +1313,7 @@ const SortableAttachment = ({
           attachment={attachment}
           isGust={isGust}
           onCancelClick={onCancelClick}
+          onChangeMediaClick={onChangeMediaClick}
           onEditAltClick={onEditAltClick}
           onRemoveClick={onRemoveClick}
           onRetryClick={onRetryClick}
@@ -993,10 +1327,11 @@ const AttachmentPreviews = ({
   attachments,
   cancelUpload,
   isGust,
+  onAltEditRequest,
+  onChangeVideoRequest,
   removeAttachment,
   reorderAttachments,
   retryUpload,
-  setAltText,
 }: AttachmentPreviewsProps) => {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1004,10 +1339,6 @@ const AttachmentPreviews = ({
       activationConstraint: { distance: 6 },
     })
   );
-
-  // Key of the attachment whose alt text editor is open; one shared dialog
-  // serves every tile. Remounts per target via key so drafts never leak.
-  const [altEditorKey, setAltEditorKey] = useState<string | null>(null);
 
   const handleRemoveClick = useCallback(
     (attachment: Attachment) => () => {
@@ -1093,7 +1424,8 @@ const AttachmentPreviews = ({
                   onCancelClick={() =>
                     cancelUpload(attachment.file?.name ?? attachment.name ?? "")
                   }
-                  onEditAltClick={() => setAltEditorKey(attachmentKey)}
+                  onChangeMediaClick={isGust ? onChangeVideoRequest : undefined}
+                  onEditAltClick={() => onAltEditRequest(attachmentKey)}
                   onRemoveClick={handleRemoveClick(attachment)}
                   onRetryClick={handleRetryClick(attachment)}
                 />
@@ -1102,38 +1434,72 @@ const AttachmentPreviews = ({
           })}
         </motion.div>
       </SortableContext>
-      {/* Inline alt text editor, attached directly under the grid it edits -
-          same expanding-panel idiom as the GIF picker. */}
-      <AnimatePresence>
-        {(() => {
-          if (!altEditorKey) {
-            return null;
-          }
-          const altIndex = ids.indexOf(altEditorKey);
-          const altTarget = altIndex === -1 ? undefined : attachments[altIndex];
-          if (!altTarget) {
-            return null;
-          }
-          return (
-            <motion.div
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              initial={{ height: 0, opacity: 0 }}
-              key={altEditorKey}
-              transition={{ duration: 0.25, ease: "easeInOut" }}
-            >
-              <div className="mt-3 overflow-hidden">
-                <AltTextPanel
-                  attachment={altTarget}
-                  onClose={() => setAltEditorKey(null)}
-                  onSave={setAltText}
-                />
-              </div>
-            </motion.div>
-          );
-        })()}
-      </AnimatePresence>
     </DndContext>
+  );
+};
+
+// The shared alt text editor. Post mode: a transient panel under the
+// attachment grid, opened from a tile. Gust mode: a compact panel docked
+// under the caption input, always visible while a video is attached (the
+// docked variant falls back to the sole gust attachment when no tile was
+// tapped).
+const AltTextEditorPanel = ({
+  altDrafts,
+  altEditorKey,
+  attachments,
+  onClose,
+  onDraftChange,
+  onSave,
+  variant = "popover",
+}: {
+  altDrafts?: Record<string, string>;
+  altEditorKey: string | null;
+  attachments: Attachment[];
+  onClose: () => void;
+  onDraftChange?: (attachmentKey: string, draft: string) => void;
+  onSave: (fileName: string, altText: string) => void;
+  variant?: "docked" | "popover";
+}) => {
+  const docked = variant === "docked";
+  const keyed = attachments.map((attachment, index) => ({
+    attachment,
+    key: attachmentKeyOf(attachment, index),
+  }));
+  const selected =
+    keyed.find((entry) => entry.key === altEditorKey) ??
+    (docked && keyed.length > 0 ? keyed[0] : undefined);
+  return (
+    <AnimatePresence>
+      {selected ? (
+        <motion.div
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          initial={{ height: 0, opacity: 0 }}
+          key={selected.key}
+          transition={{ duration: 0.25, ease: "easeInOut" }}
+        >
+          {/* The height animation needs a clip, but focus rings and the
+              premium-input glow draw OUTSIDE the border box - pad the clip
+              so they have room, and cancel the padding with negative
+              margins so spacing and width stay identical. */}
+          <div className="-mx-1.5 mt-1.5 -mb-1.5 overflow-hidden p-1.5">
+            <AltTextPanel
+              attachment={selected.attachment}
+              compact={docked}
+              {...(docked
+                ? {
+                    draftValue: altDrafts?.[selected.key],
+                    onDraftChange: (draft: string) =>
+                      onDraftChange?.(selected.key, draft),
+                  }
+                : {})}
+              onClose={onClose}
+              onSave={onSave}
+            />
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 };
 

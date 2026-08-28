@@ -45,6 +45,7 @@ export async function processPostDeleted(
       if (objectKeys.size === 0) {
         const media = await prisma.media.findMany({
           select: {
+            customThumbnailKey: true,
             derivatives: { select: { key: true } },
             id: true,
             key: true,
@@ -56,6 +57,7 @@ export async function processPostDeleted(
         });
         for (const m of media) {
           for (const key of [
+            m.customThumbnailKey,
             m.key,
             m.originalKey,
             m.publishedKey,
@@ -155,6 +157,7 @@ export async function processMediaCleanup(
         select: {
           commentId: true,
           createdAt: true,
+          customThumbnailKey: true,
           id: true,
           key: true,
           postId: true,
@@ -171,6 +174,9 @@ export async function processMediaCleanup(
         }
         if (media.thumbnailKey) {
           await deleteObject(media.thumbnailKey);
+        }
+        if (media.customThumbnailKey) {
+          await deleteObject(media.customThumbnailKey);
         }
         await prisma.media.delete({ where: { id: mediaId } });
         log.info({ mediaId }, "abandoned media cleaned up");

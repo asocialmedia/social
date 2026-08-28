@@ -206,6 +206,182 @@ async function scheduleMediaCleanup(mediaId: string): Promise<void> {
   await schedule(mediaId);
 }
 
+// Attaches (or clears) a gust "sound" on a video AFTER the video row exists.
+// The overlay normally rides along at initiate time; this covers the
+// sound-picked-later flow where the video bytes are already uploading or
+// processed. Passing null clears a previously attached track.
+//
+// The process stage bakes the overlay into every derivative (poster, MP4,
+// HLS) when it runs. If derivatives already exist they carry the old audio,
+// so they are reset (rows + objects) and processing is re-triggered with a
+// fresh dedupe key - a plain re-enqueue would silently collapse onto the
+// retained completed process job. While processing is still pending there is
+// nothing to reset: the queued run reads the overlay when it starts.
+export async function attachAudioOverlay(input: {
+  audioOverlayId: string | null;
+  mediaId: string;
+  userId: string;
+}): Promise<{ mediaId: string; reprocessing: boolean }> {
+  const { audioOverlayId, mediaId, userId } = input;
+  const { deleteObject, enqueueMediaProcess } = await import("@asm/db");
+  const { isTerminalStatus } = await import("@asm/media");
+
+  const video = await prisma.media.findFirst({
+    select: { id: true, status: true, type: true },
+    where: { id: mediaId, userId },
+  });
+  if (
+    !video ||
+    video.type !== "VIDEO" ||
+    isTerminalStatus(video.status) ||
+    video.status === "FAILED"
+  ) {
+    throw new UploadPolicyError("Media not found", 404);
+  }
+
+  if (audioOverlayId) {
+    const overlay = await prisma.media.findFirst({
+      select: { id: true, status: true, type: true, userId: true },
+      where: { id: audioOverlayId },
+    });
+    if (!overlay || overlay.userId !== userId || overlay.type !== "AUDIO") {
+      throw new UploadPolicyError("Sound track not found", 404);
+    }
+    // The process stage streams the track's published bytes; a row that is
+    // not READY has no verified bytes to remux.
+    if (overlay.status !== "READY") {
+      throw new UploadPolicyError("Sound track is not ready yet", 409);
+    }
+  }
+
+  try {
+    await prisma.media.update({
+      data: { audioOverlayId },
+      where: { id: video.id },
+    });
+  } catch (error: unknown) {
+    // audioOverlayId is @unique: one sound can back exactly one video.
+    if ((error as { code?: string }).code === "P2002") {
+      throw new UploadPolicyError(
+        "That sound is already attached to another gust",
+        409
+      );
+    }
+    throw error;
+  }
+
+  const derivatives = await prisma.mediaDerivative.findMany({
+    select: { key: true },
+    where: { mediaId: video.id },
+  });
+  if (derivatives.length === 0) {
+    return { mediaId: video.id, reprocessing: false };
+  }
+
+  // Best-effort object cleanup mirrors the reprocess CLI: the row delete is
+  // the source of truth, straggler objects are harmless orphans.
+  await Promise.allSettled(
+    derivatives.map((derivative) => deleteObject(derivative.key))
+  );
+  await prisma.mediaDerivative.deleteMany({ where: { mediaId: video.id } });
+  await enqueueMediaProcess(video.id, {
+    jobIdSuffix: `overlay-${Date.now()}`,
+  });
+  return { mediaId: video.id, reprocessing: true };
+}
+
+// Attaches (or clears) an author-uploaded cover image for a video (gust
+// thumbnail). The image's published bytes are COPIED into the video's own
+// key space, so the serving route can prefer them over the pipeline's
+// scene-aware poster and the uploaded image row needs no special lifetime
+// handling - it can be discarded like any draft. Passing null clears the
+// custom thumbnail and falls serving back to the generated poster.
+export async function attachCustomThumbnail(input: {
+  mediaId: string;
+  thumbnailMediaId: string | null;
+  userId: string;
+}): Promise<{ mediaId: string; attached: boolean }> {
+  const { mediaId, thumbnailMediaId, userId } = input;
+  const { deleteObject } = await import("@asm/db");
+  const { isTerminalStatus } = await import("@asm/media");
+  const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
+
+  const video = await prisma.media.findFirst({
+    select: {
+      customThumbnailKey: true,
+      id: true,
+      status: true,
+      type: true,
+    },
+    where: { id: mediaId, userId },
+  });
+  if (
+    !video ||
+    video.type !== "VIDEO" ||
+    isTerminalStatus(video.status) ||
+    video.status === "FAILED"
+  ) {
+    throw new UploadPolicyError("Media not found", 404);
+  }
+
+  if (!thumbnailMediaId) {
+    // Clear: drop the copied object (best-effort) and fall back to the
+    // pipeline poster.
+    if (video.customThumbnailKey) {
+      await deleteObject(video.customThumbnailKey).catch(() => null);
+    }
+    await prisma.media.update({
+      data: { customThumbnailKey: null },
+      where: { id: video.id },
+    });
+    return { attached: false, mediaId: video.id };
+  }
+
+  const image = await prisma.media.findFirst({
+    select: {
+      id: true,
+      mimeType: true,
+      publishedKey: true,
+      status: true,
+      type: true,
+      userId: true,
+    },
+    where: { id: thumbnailMediaId },
+  });
+  if (!image || image.userId !== userId || image.type !== "IMAGE") {
+    throw new UploadPolicyError("Thumbnail image not found", 404);
+  }
+  // Serving streams these bytes for the video's lifetime; only verified,
+  // published originals qualify.
+  if (image.status !== "READY" || !image.publishedKey) {
+    throw new UploadPolicyError("Thumbnail image is not ready yet", 409);
+  }
+
+  const extension = image.mimeType.includes("/")
+    ? (image.mimeType.split("/")[1] ?? "jpg").replace("+xml", "")
+    : "jpg";
+  const thumbnailKey = `derived/${video.id}/custom-thumbnail.${extension}`;
+  await getPresignClient().send(
+    new CopyObjectCommand({
+      Bucket: env.ASMOB_BUCKET_NAME,
+      ContentType: image.mimeType,
+      // CopySource is bucket/key encoded.
+      CopySource: `/${env.ASMOB_BUCKET_NAME}/${image.publishedKey}`,
+      Key: thumbnailKey,
+      MetadataDirective: "REPLACE",
+    })
+  );
+
+  if (video.customThumbnailKey && video.customThumbnailKey !== thumbnailKey) {
+    await deleteObject(video.customThumbnailKey).catch(() => null);
+  }
+  await prisma.media.update({
+    data: { customThumbnailKey: thumbnailKey },
+    where: { id: video.id },
+  });
+  return { attached: true, mediaId: video.id };
+}
+
 export async function headStoredObject(key: string): Promise<{
   contentLength: number;
   contentType: string | undefined;

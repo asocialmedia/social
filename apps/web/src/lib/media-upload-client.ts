@@ -51,7 +51,48 @@ export async function patchAltText(
   }
 }
 
+// Attaches (or clears with null) a custom cover image for a video (gust
+// thumbnail). The server copies the image's published bytes into the video's
+// key space; the thumbnail serving route prefers them over the generated
+// poster.
+export async function patchThumbnail(
+  mediaId: string,
+  thumbnailMediaId: string | null
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/media/${mediaId}/thumbnail`, {
+      body: JSON.stringify({ thumbnailMediaId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 const TERMINAL_POLL_STATUSES = new Set(["READY", "REJECTED", "DELETED"]);
+
+// Attaches (or clears with null) a gust sound on an already-created video
+// row. The overlay normally rides along at upload initiate; this covers the
+// sound-picked-after-video flow.
+export async function patchAudioOverlay(
+  mediaId: string,
+  audioOverlayId: string | null
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/media/${mediaId}/audio-overlay`, {
+      body: JSON.stringify({ audioOverlayId }),
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 // User-facing copy for pipeline rejection reasons. TOO_LARGE covers both the
 // per-family byte caps and the antivirus scanner's INSTREAM limit, which the
@@ -161,7 +202,7 @@ export async function uploadMediaFile(
     /** Media id of an AUDIO upload whose track replaces the video's own
      * audio during pipeline processing (gust "sound"). */
     audioOverlayId?: string | null;
-    purpose?: "avatar" | "comment" | "message" | "post";
+    purpose?: "avatar" | "banner" | "comment" | "message" | "post";
     signal?: AbortSignal;
     onProgress?: (percent: number) => void;
     onStage?: (stage: UploadStage) => void;
