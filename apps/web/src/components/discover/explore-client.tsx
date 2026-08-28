@@ -286,6 +286,7 @@ const ExploreClient: React.FC = () => {
         const user = users[userIndex];
         result.push(
           <ExploreUserCard
+            className="mb-4"
             key={`user-${user.id}`}
             onFollowed={handleFollowed}
             user={user}
@@ -303,6 +304,7 @@ const ExploreClient: React.FC = () => {
       const user = users[userIndex];
       result.push(
         <ExploreUserCard
+          className="mb-4"
           key={`user-${user.id}`}
           onFollowed={handleFollowed}
           user={user}
