@@ -1,8 +1,10 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { Captions, Check, Copy, Search, X } from "lucide-react";
+import zephImage from "@assets/zeph.png";
+import { Check, Copy, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import React, {
   useCallback,
   useEffect,
@@ -200,9 +202,11 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-2">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-orange-500/20 text-orange-400">
-                <Captions className="size-4" />
-              </div>
+              <Image
+                alt="Zeph"
+                className="size-6 shrink-0 object-contain drop-shadow-xs"
+                src={zephImage}
+              />
               <div>
                 <h3 className="text-sm font-semibold text-white">Transcript</h3>
                 <p className="text-[11px] text-white/60">
@@ -318,8 +322,12 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
               }
 
               return (
-                <div className="flex h-32 flex-col items-center justify-center gap-1.5 text-center text-white/50">
-                  <Captions className="size-6 opacity-40" />
+                <div className="flex h-32 flex-col items-center justify-center gap-2 text-center text-white/50">
+                  <Image
+                    alt="Zeph"
+                    className="size-8 object-contain opacity-50 grayscale"
+                    src={zephImage}
+                  />
                   <p className="text-xs">
                     No transcript available for this video
                   </p>

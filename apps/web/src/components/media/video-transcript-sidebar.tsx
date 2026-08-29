@@ -1,6 +1,8 @@
 "use client";
 
-import { Captions, Check, Copy, Search } from "lucide-react";
+import zephImage from "@assets/zeph.png";
+import { Check, Copy, Search } from "lucide-react";
+import Image from "next/image";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
@@ -110,7 +112,11 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
       {/* Header */}
       <div className="border-border/50 flex items-center justify-between border-b pb-2.5">
         <div className="flex items-center gap-2">
-          <Captions className="size-4 shrink-0 fill-orange-500 text-orange-500" />
+          <Image
+            alt="Zeph"
+            className="size-5 shrink-0 object-contain drop-shadow-xs"
+            src={zephImage}
+          />
           <div>
             <h3 className="text-foreground text-xs font-semibold">
               Transcript
