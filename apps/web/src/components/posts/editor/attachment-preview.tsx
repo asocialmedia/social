@@ -113,14 +113,18 @@ const AttachmentPreviewInner = ({
   const mimeType = fileType || file?.type || "";
 
   useEffect(() => {
-    // Fresh uploads preview from a blob; restored ones already have a media
-    // URL so there is nothing to create.
-    if (file && !existingPreviewUrl && !mediaUrl) {
+    // If a local file is present (active upload in progress or freshly dropped),
+    // always create and keep its blob URL for instant, zero-latency playback & preview.
+    if (file) {
       const url = URL.createObjectURL(file);
       // eslint-disable-next-line react-compiler -- object URLs must be created after mount
-      // oxlint-disable-next-line react/set-state-in-effect -- the blob URL only comes from the browser's object registry after mount (creating it during render would leak under StrictMode double-invoke), and the previous URL must stay revocable on file change
+      // oxlint-disable-next-line react/set-state-in-effect -- the blob URL only comes from the browser's object registry after mount, and the previous URL must stay revocable on file change
       setObjectUrl(url);
       return () => URL.revokeObjectURL(url);
+    }
+    // Only restored drafts without a File object fall back to the remote server URL
+    if (existingPreviewUrl || mediaUrl) {
+      setObjectUrl(existingPreviewUrl || mediaUrl || "");
     }
   }, [file, existingPreviewUrl, mediaUrl]);
 
@@ -297,7 +301,8 @@ const AttachmentPreviewInner = ({
       // tower over the editor). The pipeline poster (?thumb=1) becomes the
       // thumbnail as soon as the row is READY; the #t=0.1 fragment forces
       // browsers to paint the first local frame immediately instead of black.
-      const posterUrl = mediaId ? `/api/media/${mediaId}?thumb=1` : undefined;
+      const posterUrl =
+        !file && mediaId ? `/api/media/${mediaId}?thumb=1` : undefined;
       return (
         <div
           className={cn(

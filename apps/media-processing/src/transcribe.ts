@@ -135,6 +135,131 @@ export async function detectAudioActivity(audioPath: string): Promise<boolean> {
   }
 }
 
+// Transcribes audio via Gemini Multimodal API if GEMINI_API_KEY is present.
+async function transcribeViaGemini(
+  audioPath: string
+): Promise<{ segments: CaptionSegment[]; transcript: string } | null> {
+  const apiKey = workerEnv.GEMINI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+  const tempMp3Path = `${audioPath}-gemini.mp3`;
+  try {
+    // Transcode to compact 32kbps mono MP3 for fast upload to Gemini
+    const proc = Bun.spawn(
+      [
+        "ffmpeg",
+        "-y",
+        "-i",
+        audioPath,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-b:a",
+        "32k",
+        tempMp3Path,
+      ],
+      { stderr: "pipe", stdout: "pipe" }
+    );
+    await proc.exited;
+
+    const audioBytes = await Bun.file(tempMp3Path).arrayBuffer();
+    if (audioBytes.byteLength < 500) {
+      return null;
+    }
+    const audioBase64 = Buffer.from(audioBytes).toString("base64");
+    const model = workerEnv.GEMINI_TRANSCRIBE_MODEL || "gemini-3.6-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const prompt = `Transcribe this audio verbatim. Also provide timestamped subtitle cues in seconds.
+Return JSON with this schema:
+{
+  "transcript": "full speech text transcript here",
+  "segments": [
+    { "start": 0.0, "end": 2.5, "text": "spoken words..." }
+  ]
+}
+If there is no speech or only background music/silence, return: { "transcript": "", "segments": [] }`;
+
+    const response = await fetch(url, {
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  data: audioBase64,
+                  mimeType: "audio/mp3",
+                },
+              },
+              { text: prompt },
+            ],
+          },
+        ],
+        generationConfig: { responseMimeType: "application/json" },
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      mediaLogger.warn(
+        { err, status: response.status },
+        "Gemini transcription failed"
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      candidates?: {
+        content?: {
+          parts?: { text?: string }[];
+        };
+      }[];
+    };
+
+    const rawJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawJsonText) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawJsonText) as {
+      segments?: { end: number; start: number; text: string }[];
+      transcript?: string;
+    };
+
+    const transcript = (parsed.transcript ?? "").trim();
+    if (!transcript) {
+      return null;
+    }
+
+    const segments: CaptionSegment[] = (parsed.segments ?? []).map((s) => ({
+      end: Number(s.end) || 0,
+      start: Number(s.start) || 0,
+      text: s.text || "",
+    }));
+
+    if (segments.length === 0 && transcript) {
+      segments.push({ end: 10, start: 0, text: transcript });
+    }
+
+    return { segments, transcript };
+  } catch (error) {
+    mediaLogger.warn(
+      { error: String(error) },
+      "Gemini audio transcription error"
+    );
+    return null;
+  } finally {
+    await Bun.file(tempMp3Path)
+      .delete()
+      .catch(() => null);
+  }
+}
+
 // Transcribes audio via Groq Cloud Whisper API if GROQ_API_KEY is present.
 async function transcribeViaGroq(
   audioPath: string
@@ -239,13 +364,12 @@ export function transcribeMediaAudio(
           };
         }
 
-        // Try cloud API first if configured
-        let result = await transcribeViaGroq(tempAudioPath);
+        // 1. Try Gemini Multimodal audio first if configured
+        let result = await transcribeViaGemini(tempAudioPath);
 
-        // If cloud API is not configured or failed, proceed with local audio analysis
+        // 2. Try Groq Whisper API next if Gemini wasn't configured or returned null
         if (!result) {
-          // Local fallback placeholder for environments without cloud keys
-          result = null;
+          result = await transcribeViaGroq(tempAudioPath);
         }
 
         if (!result || !result.transcript) {

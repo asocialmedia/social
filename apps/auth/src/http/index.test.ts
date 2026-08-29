@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { corsHeaders, createHttpHandler, getAllowedOrigin } from "./index";
+import type { HttpLogger } from "./index";
 
 const mockGetSession = mock((): Promise<unknown> => Promise.resolve(null));
 const mockAuthHandler = mock((_request: Request) =>
@@ -167,5 +168,99 @@ describe("auth service http handler", () => {
         process.env.APP_URL = originalUrl;
       }
     }
+  });
+});
+
+describe("oauth callback logging", () => {
+  beforeEach(() => {
+    mockGetSession.mockClear();
+    mockAuthHandler.mockClear();
+    mockTrpcFetchHandler.mockClear();
+  });
+
+  function createLoggingHandler() {
+    const logs: { level: string; message: string }[] = [];
+    const logger: HttpLogger = {
+      debug: () => {},
+      error: (obj: Record<string, unknown>, message?: string) => {
+        logs.push({ level: "error", message: message ?? "" });
+      },
+      info: (obj: Record<string, unknown>, message?: string) => {
+        logs.push({ level: "info", message: message ?? "" });
+      },
+      warn: (obj: Record<string, unknown>, message?: string) => {
+        logs.push({ level: "warn", message: message ?? "" });
+      },
+    };
+    const handler = createHttpHandler({
+      appRouter: {} as Parameters<typeof createHttpHandler>[0]["appRouter"],
+      authInstance: {
+        api: { getSession: mockGetSession },
+        handler: mockAuthHandler,
+      },
+      createContext: () => ({ session: null, user: null }),
+      logger,
+      trpcFetchHandler: mockTrpcFetchHandler,
+    });
+    return { handler, logs };
+  }
+
+  test("logs accepted oauth callbacks at info level", async () => {
+    mockAuthHandler.mockImplementationOnce(() =>
+      Promise.resolve(new Response(null, { status: 200 }))
+    );
+    const { handler, logs } = createLoggingHandler();
+
+    await handler(
+      new Request(
+        "http://localhost/api/auth/callback/google?state=abc&code=xyz"
+      )
+    );
+
+    const accepted = logs.find(
+      (entry) => entry.message === "oauth callback accepted"
+    );
+    expect(accepted).toBeDefined();
+  });
+
+  test("logs rejected oauth callbacks with provider and state context", async () => {
+    mockAuthHandler.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(null, {
+          headers: {
+            location:
+              "http://localhost:3001/api/auth/error?error=state_mismatch",
+          },
+          status: 302,
+        })
+      )
+    );
+    const { handler, logs } = createLoggingHandler();
+
+    await handler(
+      new Request(
+        "http://localhost/api/auth/callback/reddit?state=xyz987&error=access_denied"
+      )
+    );
+
+    const rejected = logs.find(
+      (entry) => entry.message === "oauth callback rejected"
+    );
+    expect(rejected).toBeDefined();
+    expect(
+      logs.some((entry) => entry.message === "oauth callback accepted")
+    ).toBe(false);
+  });
+
+  test("does not log non-callback auth paths as oauth callbacks", async () => {
+    const { handler, logs } = createLoggingHandler();
+
+    await handler(
+      new Request("http://localhost/api/auth/sign-in/email", { method: "POST" })
+    );
+
+    expect(
+      logs.some((entry) => entry.message.startsWith("oauth callback"))
+    ).toBe(false);
   });
 });

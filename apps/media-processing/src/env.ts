@@ -3,6 +3,11 @@ import type { MediaLimits } from "@asm/media";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+import { loadRootEnv } from "./load-env";
+
+// Ensure root .env is loaded before environment evaluation
+loadRootEnv();
+
 // Worker environment contract, validated once at import. Every variable has a
 // localhost default so dev/test imports never throw; production deployments
 // inject the real values (see apps/media-processing/.env.development for the
@@ -25,6 +30,7 @@ export const keys = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_EMBEDDING_MODEL: process.env.GEMINI_EMBEDDING_MODEL,
+    GEMINI_TRANSCRIBE_MODEL: process.env.GEMINI_TRANSCRIBE_MODEL,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
     MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
@@ -91,6 +97,7 @@ export const keys = createEnv({
       ),
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
+    GEMINI_TRANSCRIBE_MODEL: z.string().default("gemini-3.6-flash"),
     GROQ_API_KEY: z.string().optional(),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
@@ -201,6 +208,9 @@ export const workerEnv = {
   },
   get GEMINI_EMBEDDING_MODEL() {
     return keys.GEMINI_EMBEDDING_MODEL;
+  },
+  get GEMINI_TRANSCRIBE_MODEL() {
+    return keys.GEMINI_TRANSCRIBE_MODEL;
   },
   get GROQ_API_KEY() {
     return keys.GROQ_API_KEY;

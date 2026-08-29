@@ -194,7 +194,7 @@ export async function processMediaVideo(input: {
           "-map_metadata",
           "-1",
           "-q:v",
-          "3",
+          "2",
           posterPath,
         ],
         input.limits.processingTimeoutMs / 2
@@ -214,9 +214,9 @@ export async function processMediaVideo(input: {
         }
       ).placeholder();
 
-      // Thumb variant for feed tiles (320w) so list scroll does not download 4K JPEGs.
+      // Thumb variant for feed tiles (720w high-DPI retina crispness)
       const thumbPath = `${input.sourcePath}-poster-thumb.jpg`;
-      const thumbWidth = 320;
+      const thumbWidth = 720;
       await runFfmpeg(
         [
           "-i",
@@ -224,7 +224,7 @@ export async function processMediaVideo(input: {
           "-vf",
           `scale=${thumbWidth}:-2`,
           "-q:v",
-          "4",
+          "2",
           "-map_metadata",
           "-1",
           thumbPath,
@@ -272,7 +272,7 @@ export async function processMediaVideo(input: {
         skipDuplicates: true,
       });
       await prisma.media.update({
-        data: { blurDataUrl },
+        data: { blurDataUrl, thumbnailKey: posterKey },
         where: { id: input.mediaId },
       });
       const posterRow = {

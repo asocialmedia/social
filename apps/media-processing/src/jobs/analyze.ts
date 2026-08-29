@@ -40,6 +40,7 @@ async function resolveAnalysisSource(
         orderBy: { createdAt: "asc" },
         select: { key: true, kind: true },
       },
+      key: true,
       originalKey: true,
       publishedKey: true,
       status: true,
@@ -69,7 +70,8 @@ async function resolveAnalysisSource(
   if (rasterKey) {
     rasterLocalPath = `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}`;
     try {
-      await Bun.write(rasterLocalPath, getS3().file(rasterKey));
+      const bytes = await getS3().file(rasterKey).arrayBuffer();
+      await Bun.write(rasterLocalPath, bytes);
     } catch {
       rasterLocalPath = null;
     }
@@ -77,11 +79,15 @@ async function resolveAnalysisSource(
 
   let avLocalPath: string | null = null;
   if (media.type === "VIDEO" || media.type === "AUDIO") {
-    const avKey = media.publishedKey ?? media.originalKey;
+    const avKey =
+      media.publishedKey ??
+      media.originalKey ??
+      (media.key.length > 0 ? media.key : null);
     if (avKey) {
       avLocalPath = `/tmp/asm-av-${mediaId}-${crypto.randomUUID()}`;
       try {
-        await Bun.write(avLocalPath, getS3().file(avKey));
+        const bytes = await getS3().file(avKey).arrayBuffer();
+        await Bun.write(avLocalPath, bytes);
       } catch {
         avLocalPath = null;
       }

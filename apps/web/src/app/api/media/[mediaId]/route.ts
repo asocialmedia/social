@@ -234,21 +234,20 @@ export async function GET(
       // frame, and only fall back to the lightweight placeholder SVG when
       // none does (image renderers must never download multi-megabyte video
       // streams pretending to be images).
-      let posterKey: string | null =
-        freshThumb?.customThumbnailKey ?? freshThumb?.thumbnailKey ?? null;
+      let posterKey: string | null = freshThumb?.customThumbnailKey ?? null;
       if (!posterKey && freshThumb?.status === "READY") {
-        const thumbPoster = await prisma.mediaDerivative.findFirst({
+        const poster = await prisma.mediaDerivative.findFirst({
           select: { key: true },
-          where: { kind: "poster-thumb", mediaId },
+          where: { kind: "poster", mediaId },
         });
-        if (thumbPoster?.key) {
-          posterKey = thumbPoster.key;
+        if (poster?.key) {
+          posterKey = poster.key;
         } else {
-          const poster = await prisma.mediaDerivative.findFirst({
+          const thumbPoster = await prisma.mediaDerivative.findFirst({
             select: { key: true },
-            where: { kind: "poster", mediaId },
+            where: { kind: "poster-thumb", mediaId },
           });
-          posterKey = poster?.key ?? null;
+          posterKey = thumbPoster?.key ?? freshThumb?.thumbnailKey ?? null;
         }
       }
       if (!posterKey) {

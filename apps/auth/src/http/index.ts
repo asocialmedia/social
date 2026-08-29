@@ -37,6 +37,10 @@ const TRPC_AUTH_PATHS = [
   "/api/auth/pending-resend",
 ];
 
+// Matches better-auth's provider callback endpoints
+// (/api/auth/callback/google, /api/auth/callback/reddit, ...).
+const OAUTH_CALLBACK_PATTERN = /^\/api\/auth\/callback\/[a-z-]+$/;
+
 // Allowed origins are derived from env — no hardcoded prod URLs.
 // Local-only origins are explicitly dev-only and never accepted in production.
 const DEV_ONLY_ORIGINS = [
@@ -228,7 +232,36 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         authRequest = new Request(request, { headers: nextHeaders });
       }
 
-      return addCorsHeaders(await authInstance.handler(authRequest), request);
+      const response = addCorsHeaders(
+        await authInstance.handler(authRequest),
+        request
+      );
+      if (OAUTH_CALLBACK_PATTERN.test(pathname)) {
+        // OAuth callbacks that fail state validation redirect to
+        // /api/auth/error with a 302. The better-auth error text reaches the
+        // browser but nothing server-side explains which provider/state
+        // failed, so log the callback outcome explicitly: 3xx here means the
+        // provider round-trip was rejected (state mismatch, expired flow,
+        // unknown account).
+        const provider = pathname.split("/").at(-1);
+        const state = new URL(request.url).searchParams.get("state");
+        if (response.status >= 300) {
+          log.error(
+            {
+              has_state: Boolean(state),
+              provider,
+              status: response.status,
+            },
+            "oauth callback rejected"
+          );
+        } else {
+          log.info(
+            { provider, status: response.status },
+            "oauth callback accepted"
+          );
+        }
+      }
+      return response;
     }
     return new Response("Not Found", { status: 404 });
   }
