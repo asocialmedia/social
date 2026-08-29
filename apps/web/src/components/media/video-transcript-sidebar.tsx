@@ -185,10 +185,10 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
               return (
                 <button
                   className={cn(
-                    "group flex w-full items-start gap-2 rounded-lg p-1.5 text-left transition-all",
+                    "group flex w-full items-start gap-2 rounded-xl p-1.5 text-left transition-all",
                     isCurrent
-                      ? "border border-orange-500/40 bg-orange-500/10 shadow-xs"
-                      : "hover:bg-muted/60 active:bg-muted"
+                      ? "border border-orange-500/60 bg-linear-to-r from-orange-500/20 via-orange-500/10 to-transparent shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2),inset_0_1px_2px_rgba(255,255,255,0.25),0_0_0_1px_rgba(255,149,0,0.5),0_2px_4px_rgba(0,0,0,0.1)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.1),0_0_0_1px_rgba(255,149,0,0.7),0_2px_6px_rgba(0,0,0,0.25)]"
+                      : "hover:bg-muted/60 active:bg-muted border border-transparent"
                   )}
                   key={`${cue.start}-${cue.end}-${idx}`}
                   onClick={() => handleSeekCue(cue.start)}
@@ -196,10 +196,10 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
                 >
                   <span
                     className={cn(
-                      "py-0.2 mt-0.5 shrink-0 rounded px-1 font-mono text-[10px] font-semibold transition-colors",
+                      "mt-0.5 shrink-0 rounded px-1 py-0.5 font-mono text-[10px] font-semibold transition-colors",
                       isCurrent
-                        ? "bg-orange-500 font-bold text-white"
-                        : "bg-muted text-muted-foreground group-hover:text-foreground"
+                        ? "bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.12)]"
+                        : "bg-muted text-muted-foreground group-hover:text-foreground shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
                     )}
                   >
                     {formatSeconds(cue.start)}
