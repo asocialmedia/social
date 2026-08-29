@@ -31,7 +31,6 @@ export const keys = createEnv({
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_EMBEDDING_MODEL: process.env.GEMINI_EMBEDDING_MODEL,
     GEMINI_TRANSCRIBE_MODEL: process.env.GEMINI_TRANSCRIBE_MODEL,
-    GROQ_API_KEY: process.env.GROQ_API_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
     MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
@@ -97,8 +96,7 @@ export const keys = createEnv({
       ),
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
-    GEMINI_TRANSCRIBE_MODEL: z.string().default("gemini-3.6-flash"),
-    GROQ_API_KEY: z.string().optional(),
+    GEMINI_TRANSCRIBE_MODEL: z.string().default("gemini-flash-lite-latest"),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
@@ -211,9 +209,6 @@ export const workerEnv = {
   },
   get GEMINI_TRANSCRIBE_MODEL() {
     return keys.GEMINI_TRANSCRIBE_MODEL;
-  },
-  get GROQ_API_KEY() {
-    return keys.GROQ_API_KEY;
   },
   get HEALTH_PORT() {
     // Portless injects a dynamic PORT when running under `bun run dev`

@@ -3,9 +3,9 @@
 // for search and semantic recommendations, and uploads timed WebVTT subtitles
 // to object storage for the video player.
 //
-// Dual-engine design:
-// 1. Groq / Gemini cloud API if keys are provided in env (200ms cloud response).
-// 2. Local Whisper / VAD engine running on CPU for zero-cost self-hosted operation.
+// Dual-mode pipeline:
+// 1. Google Gemini Flash Lite Multimodal API for speech-to-text and timed WebVTT cues.
+// 2. Local FFmpeg Voice Activity & volume analysis running on CPU to reject silence.
 
 import { workerEnv } from "./env";
 import { mediaLogger, withSpan } from "./log";
@@ -170,7 +170,8 @@ async function transcribeViaGemini(
       return null;
     }
     const audioBase64 = Buffer.from(audioBytes).toString("base64");
-    const model = workerEnv.GEMINI_TRANSCRIBE_MODEL || "gemini-3.6-flash";
+    const model =
+      workerEnv.GEMINI_TRANSCRIBE_MODEL || "gemini-flash-lite-latest";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const prompt = `Transcribe this audio verbatim. Also provide timestamped subtitle cues in seconds.
@@ -260,67 +261,6 @@ If there is no speech or only background music/silence, return: { "transcript": 
   }
 }
 
-// Transcribes audio via Groq Cloud Whisper API if GROQ_API_KEY is present.
-async function transcribeViaGroq(
-  audioPath: string
-): Promise<{ segments: CaptionSegment[]; transcript: string } | null> {
-  const apiKey = workerEnv.GROQ_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-  try {
-    const file = Bun.file(audioPath);
-    const formData = new FormData();
-    formData.append("file", file, "audio.wav");
-    formData.append("model", "whisper-large-v3-turbo");
-    formData.append("response_format", "verbose_json");
-    formData.append("temperature", "0.0");
-
-    const response = await fetch(
-      "https://api.groq.com/openai/v1/audio/transcriptions",
-      {
-        body: formData,
-        headers: { Authorization: `Bearer ${apiKey}` },
-        method: "POST",
-      }
-    );
-
-    if (!response.ok) {
-      const err = await response.text();
-      mediaLogger.warn(
-        { err, status: response.status },
-        "Groq transcription failed"
-      );
-      return null;
-    }
-
-    const data = (await response.json()) as {
-      text?: string;
-      segments?: { end: number; start: number; text: string }[];
-    };
-
-    const transcript = (data.text ?? "").trim();
-    if (!transcript) {
-      return null;
-    }
-
-    const segments: CaptionSegment[] = (data.segments ?? []).map((s) => ({
-      end: Number(s.end) || 0,
-      start: Number(s.start) || 0,
-      text: s.text || "",
-    }));
-
-    if (segments.length === 0 && transcript) {
-      segments.push({ end: 10, start: 0, text: transcript });
-    }
-
-    return { segments, transcript };
-  } catch (error) {
-    mediaLogger.warn({ error: String(error) }, "Groq whisper request error");
-    return null;
-  }
-}
-
 // Primary transcription runner with self-healing fallback and S3 WebVTT publishing.
 export function transcribeMediaAudio(
   sourcePath: string,
@@ -340,6 +280,7 @@ export function transcribeMediaAudio(
 
       const tempAudioPath = `/tmp/asm-audio-${mediaId}-${crypto.randomUUID()}.wav`;
       try {
+        // 1. Local CPU check: Extract audio track via FFmpeg
         const hasAudio = await extractAudioTrack(sourcePath, tempAudioPath);
         if (!hasAudio) {
           return {
@@ -350,11 +291,12 @@ export function transcribeMediaAudio(
           };
         }
 
+        // 2. Local CPU check: Voice Activity & Silence detection
         const hasVoice = await detectAudioActivity(tempAudioPath);
         if (!hasVoice) {
           mediaLogger.debug(
             { mediaId },
-            "audio track is silent; skipping whisper"
+            "audio track is silent; skipping transcription"
           );
           return {
             captionsKey: null,
@@ -364,13 +306,8 @@ export function transcribeMediaAudio(
           };
         }
 
-        // 1. Try Gemini Multimodal audio first if configured
-        let result = await transcribeViaGemini(tempAudioPath);
-
-        // 2. Try Groq Whisper API next if Gemini wasn't configured or returned null
-        if (!result) {
-          result = await transcribeViaGroq(tempAudioPath);
-        }
+        // 3. Transcribe speech using Gemini Flash Lite API
+        const result = await transcribeViaGemini(tempAudioPath);
 
         if (!result || !result.transcript) {
           return {
