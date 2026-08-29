@@ -18,6 +18,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Subtitles,
   Volume2,
   VolumeX,
   X,
@@ -233,6 +234,23 @@ const MediaViewer = ({
     }
     setVideoState((prev) => ({ ...prev, currentTime: newTime }));
   }, []);
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+
+  const handleVideoToggleCaptions = useCallback(() => {
+    setCaptionsEnabled((prev) => {
+      const next = !prev;
+      const video = videoRef.current;
+      if (video?.textTracks) {
+        for (const track of video.textTracks) {
+          if (track) {
+            track.mode = next ? "showing" : "disabled";
+          }
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const handleVideoFullscreen = useCallback(async () => {
     const video = videoRef.current;
     if (!video) {
@@ -562,6 +580,13 @@ const MediaViewer = ({
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
       <CustomVideoPlayer
         autoPlay
+        captions={[
+          {
+            label: "Captions",
+            src: `/api/media/${item.id}?captions=1`,
+            srclang: "en",
+          },
+        ]}
         className={cn(
           // The box fills the media area; object-contain letterboxes the
           // video inside, centered for any orientation and screen size.
@@ -1122,6 +1147,20 @@ const MediaViewer = ({
                     {videoState.playbackRate}x
                   </button>
                   <button
+                    aria-label={
+                      captionsEnabled ? "Disable captions" : "Enable captions"
+                    }
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      captionsEnabled && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleCaptions}
+                    type="button"
+                  >
+                    <Subtitles className="size-5" />
+                  </button>
+                  <button
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
@@ -1295,6 +1334,20 @@ const MediaViewer = ({
                     type="button"
                   >
                     {videoState.playbackRate}x
+                  </button>
+                  <button
+                    aria-label={
+                      captionsEnabled ? "Disable captions" : "Enable captions"
+                    }
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      captionsEnabled && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleCaptions}
+                    type="button"
+                  >
+                    <Subtitles className="size-5" />
                   </button>
                   <button
                     aria-label="Fullscreen"

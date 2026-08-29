@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Pause,
   Play,
+  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -75,6 +76,24 @@ export const GustCard: React.FC<GustCardProps> = ({
   // "Show alt" menu entry drives.
   const altRevealed = useAltRevealed(post.id);
   const gustAltText = post.attachments.find((a) => a.altText)?.altText;
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+
+  const toggleCaptions = useCallback((e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setCaptionsEnabled((prev) => {
+      const next = !prev;
+      const video = videoRef.current;
+      if (video?.textTracks) {
+        for (const track of video.textTracks) {
+          if (track) {
+            track.mode = next ? "showing" : "disabled";
+          }
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
@@ -379,7 +398,17 @@ export const GustCard: React.FC<GustCardProps> = ({
               preload={preloadMode}
               ref={videoRef}
               src={shouldMountVideo ? videoUrl : undefined}
-            />
+            >
+              {shouldMountVideo ? (
+                <track
+                  default={captionsEnabled}
+                  kind="subtitles"
+                  label="Captions"
+                  src={`/api/media/${videoMedia.id}?captions=1`}
+                  srcLang="en"
+                />
+              ) : null}
+            </video>
           );
           return post.explicitContent ? (
             <ExplicitContentGate
@@ -660,6 +689,23 @@ export const GustCard: React.FC<GustCardProps> = ({
               post={post}
             />
           ) : null}
+
+          {/* Closed Captions toggle */}
+          {post.moderated ? null : (
+            <button
+              aria-label={
+                captionsEnabled ? "Disable captions" : "Enable captions"
+              }
+              className={cn(
+                "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95",
+                captionsEnabled && "rail-3d-btn-gold text-amber-300"
+              )}
+              onClick={toggleCaptions}
+              type="button"
+            >
+              <Subtitles className="size-5" />
+            </button>
+          )}
 
           {/* Mute / unmute (aligned below the More button); no video to mute on
               a moderated gust */}

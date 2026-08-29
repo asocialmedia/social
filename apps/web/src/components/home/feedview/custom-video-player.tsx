@@ -15,6 +15,7 @@ import {
   Play,
   Rewind,
   Settings,
+  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -126,14 +127,22 @@ export function isClickInVideoContent(
 const GlassIconButton: React.FC<{
   "aria-label": string;
   children: React.ReactNode;
+  className?: string;
   onClick?: () => void;
   onMouseEnter?: () => void;
-}> = ({ "aria-label": ariaLabel, children, onClick, onMouseEnter }) => (
+}> = ({
+  "aria-label": ariaLabel,
+  children,
+  className,
+  onClick,
+  onMouseEnter,
+}) => (
   <button
     aria-label={ariaLabel}
     className={cn(
       "flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:brightness-110 active:translate-y-px",
-      GLASS_BTN_SHADOW
+      GLASS_BTN_SHADOW,
+      className
     )}
     onClick={onClick}
     onMouseEnter={onMouseEnter}
@@ -174,6 +183,22 @@ export const CustomVideoPlayer = ({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+
+  const toggleCaptions = useCallback(() => {
+    setCaptionsEnabled((prev) => {
+      const next = !prev;
+      const video = videoRef.current;
+      if (video?.textTracks) {
+        for (const track of video.textTracks) {
+          if (track) {
+            track.mode = next ? "showing" : "disabled";
+          }
+        }
+      }
+      return next;
+    });
+  }, []);
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
 
@@ -468,6 +493,8 @@ export const CustomVideoPlayer = ({
       ArrowLeft: skipLeft,
       ArrowRight: skipRight,
       ArrowUp: handleVolumeUp,
+      C: toggleCaptions,
+      c: toggleCaptions,
       f: toggleFullscreen,
       k: handlePlayPause,
       m: toggleMute,
@@ -503,6 +530,7 @@ export const CustomVideoPlayer = ({
     handleVolumeDown,
     skipLeft,
     skipRight,
+    toggleCaptions,
   ]);
 
   useEffect(() => {
@@ -666,9 +694,9 @@ export const CustomVideoPlayer = ({
       >
         {captions.map((caption, index) => (
           <track
-            default={index === 0}
+            default={captionsEnabled && index === 0}
             key={caption.src}
-            kind="captions"
+            kind="subtitles"
             label={caption.label}
             src={caption.src}
             srcLang={caption.srclang}
@@ -785,6 +813,41 @@ export const CustomVideoPlayer = ({
                   ) : null}
                 </AnimatePresence>
               </div>
+
+              {captions && captions.length > 0 ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <GlassIconButton
+                        aria-label={
+                          captionsEnabled
+                            ? "Disable captions (C)"
+                            : "Enable captions (C)"
+                        }
+                        className={cn(
+                          captionsEnabled &&
+                            "border-orange-500/60 bg-white/20 text-orange-400"
+                        )}
+                        onClick={toggleCaptions}
+                      >
+                        <Subtitles
+                          className={cn(
+                            "h-5 w-5",
+                            captionsEnabled ? "text-orange-400" : "text-white"
+                          )}
+                        />
+                      </GlassIconButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>
+                        {captionsEnabled
+                          ? "Captions On (C)"
+                          : "Captions Off (C)"}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
 
               <TooltipProvider>
                 <Tooltip>
@@ -967,6 +1030,7 @@ export const CustomVideoPlayer = ({
                   <li>← → - Seek 10s</li>
                   <li>↑ ↓ - Volume</li>
                   <li>M - Mute</li>
+                  <li>C - Captions</li>
                   <li>F - Fullscreen</li>
                 </ul>
               </div>
