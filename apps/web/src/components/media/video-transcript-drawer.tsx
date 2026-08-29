@@ -201,15 +201,17 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <Image
                 alt="Zeph"
-                className="size-6 shrink-0 object-contain drop-shadow-xs"
+                className="size-8.5 shrink-0 object-contain drop-shadow-sm"
                 src={zephImage}
               />
               <div>
-                <h3 className="text-sm font-semibold text-white">Transcript</h3>
-                <p className="text-[11px] text-white/60">
+                <h3 className="text-sm leading-tight font-semibold text-white">
+                  Transcript
+                </h3>
+                <p className="text-[11px] leading-tight text-white/60">
                   Tap any sentence to seek video
                 </p>
               </div>

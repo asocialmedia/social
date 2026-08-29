@@ -111,17 +111,17 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
     <div className={cn("sidebar-subcard rounded-2xl p-3", className)}>
       {/* Header */}
       <div className="border-border/50 flex items-center justify-between border-b pb-2.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Image
             alt="Zeph"
-            className="size-5 shrink-0 object-contain drop-shadow-xs"
+            className="size-8 shrink-0 object-contain drop-shadow-sm"
             src={zephImage}
           />
           <div>
-            <h3 className="text-foreground text-xs font-semibold">
+            <h3 className="text-foreground text-xs leading-tight font-semibold">
               Transcript
             </h3>
-            <p className="text-muted-foreground text-[10px]">
+            <p className="text-muted-foreground text-[10px] leading-tight">
               Click any line to seek video
             </p>
           </div>
