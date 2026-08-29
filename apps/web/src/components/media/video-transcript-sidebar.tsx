@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, FileText, Search } from "lucide-react";
+import { Captions, Check, Copy, Search } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
@@ -110,7 +110,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
       {/* Header */}
       <div className="border-border/50 flex items-center justify-between border-b pb-2.5">
         <div className="flex items-center gap-2">
-          <FileText className="size-4 shrink-0 fill-orange-500 text-orange-500" />
+          <Captions className="size-4 shrink-0 fill-orange-500 text-orange-500" />
           <div>
             <h3 className="text-foreground text-xs font-semibold">
               Transcript

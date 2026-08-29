@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { Check, Copy, FileText, Search, X } from "lucide-react";
+import { Captions, Check, Copy, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import React, {
   useCallback,
@@ -201,7 +201,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-2">
               <div className="flex size-7 items-center justify-center rounded-lg bg-orange-500/20 text-orange-400">
-                <FileText className="size-4" />
+                <Captions className="size-4" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-white">Transcript</h3>
@@ -319,7 +319,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
 
               return (
                 <div className="flex h-32 flex-col items-center justify-center gap-1.5 text-center text-white/50">
-                  <FileText className="size-6 opacity-40" />
+                  <Captions className="size-6 opacity-40" />
                   <p className="text-xs">
                     No transcript available for this video
                   </p>
