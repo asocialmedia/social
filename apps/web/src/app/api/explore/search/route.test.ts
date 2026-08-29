@@ -86,11 +86,16 @@ describe("GET /api/explore/search", () => {
     expect(res.status).toBe(200);
     const postArgs = lastPostFindManyArgs as {
       where?: {
+        OR?: { content?: { contains?: string } }[];
         content?: { contains?: string };
         isGust?: boolean;
       };
     };
-    expect(postArgs?.where?.content?.contains).toBe("viral");
+    const contentContains =
+      postArgs?.where?.content?.contains ??
+      postArgs?.where?.OR?.find((item) => item.content?.contains)?.content
+        ?.contains;
+    expect(contentContains).toBe("viral");
     expect(postArgs?.where?.isGust).toBe(true);
   });
 
