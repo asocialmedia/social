@@ -8,7 +8,6 @@ import {
 import {
   Captions,
   Hash,
-  Link2,
   MoreHorizontal,
   ShieldCheck,
   Subtitles,
@@ -20,7 +19,6 @@ import { useCallback, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
-import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
@@ -112,20 +110,6 @@ export default function PostMoreButton({
     [post.id]
   );
 
-  const { toast } = useToast();
-
-  const handleCopyLink = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      const url = `${window.location.origin}/posts/${post.id}`;
-      void navigator.clipboard.writeText(url);
-      toast({
-        description: "Post link copied to clipboard",
-      });
-    },
-    [post.id, toast]
-  );
-
   const handleToggleCaptions = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -197,15 +181,6 @@ export default function PostMoreButton({
               </span>
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem
-            className="pill-3d-hover rounded-md px-2 py-2"
-            onClick={handleCopyLink}
-          >
-            <span className="flex items-center gap-3">
-              <Link2 className="size-4" />
-              Copy link
-            </span>
-          </DropdownMenuItem>
           {isOwner ? (
             <DropdownMenuItem
               className="pill-3d-hover rounded-md px-2 py-2"

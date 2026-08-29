@@ -10,7 +10,6 @@ import {
   FileAudioIcon,
   Pause,
   Play,
-  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -273,7 +272,6 @@ export const VideoPreview = ({
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
-  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
   const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
 
   const parsedDirectCues = useMemo(() => {
@@ -287,8 +285,6 @@ export const VideoPreview = ({
   }, [media.transcript]);
 
   const cues = parsedDirectCues.length > 0 ? parsedDirectCues : fetchedCues;
-  const hasCaptions =
-    Boolean(media.transcript) || Boolean(media.captionsKey) || cues.length > 0;
 
   useEffect(() => {
     if (
@@ -656,39 +652,6 @@ export const VideoPreview = ({
           {isMuted ? "Muted" : "Sound"}
         </span>
       </div>
-      {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
-
-      {/* Closed Captions toggle chip on video preview */}
-      {/* oxlint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
-      {hasCaptions ? (
-        <div
-          aria-label={showCaptions ? "Disable captions" : "Enable captions"}
-          className={cn(
-            "absolute bottom-2 left-22 z-10 flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-all duration-200 hover:brightness-110 active:translate-y-px",
-            showCaptions && "border border-orange-500/60 text-orange-400",
-            autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-          )}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleCaptions();
-          }}
-          onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              event.stopPropagation();
-              toggleCaptions();
-            }
-          }}
-          role="button"
-          tabIndex={-1}
-        >
-          <Subtitles className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">
-            {showCaptions ? "CC On" : "CC"}
-          </span>
-        </div>
-      ) : null}
       {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
 
       {/* Minimal hover controls: play/pause + time, shown as two separate
