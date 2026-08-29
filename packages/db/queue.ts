@@ -263,14 +263,49 @@ function mediaJobOptions(stage: string, mediaId: string) {
   };
 }
 
+// Deterministic jobIds keep enqueue/retry/idempotency sane, but BullMQ
+// treats an add() with a jobId that still exists in Redis as a silent no-op
+// - including jobs retained by removeOnComplete/removeOnFail. A completed
+// or failed job with the same id would therefore swallow the re-enqueue and
+// strand the row. Remove any dead job occupying the id before adding; live
+// (waiting/active/delayed) jobs are left alone so this stays race-safe for
+// concurrent producers.
+async function addWithFreshId(
+  queue: Queue,
+  name: string,
+  jobId: string,
+  data: Record<string, unknown>,
+  options: ReturnType<typeof mediaJobOptions>
+): Promise<void> {
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === "completed" || state === "failed") {
+      await existing.remove().catch(() => {
+        /* empty */
+      });
+    }
+  }
+  await queue.add(name, data, options);
+}
+
 export async function enqueueMediaScan(
   mediaId: string,
-  options?: { backfill?: boolean }
+  options?: { backfill?: boolean; jobIdSuffix?: string }
 ): Promise<void> {
-  await getQueue(MEDIA_SCAN_QUEUE).add(
+  const queue = getQueue(MEDIA_SCAN_QUEUE);
+  const jobId = options?.jobIdSuffix
+    ? `scan-${mediaId}-${options.jobIdSuffix}`
+    : `scan-${mediaId}`;
+  await addWithFreshId(
+    queue,
     "media-scan",
+    jobId,
     { backfill: options?.backfill ?? false, mediaId },
-    mediaJobOptions("scan", mediaId)
+    mediaJobOptions(
+      "scan",
+      options?.jobIdSuffix ? `${mediaId}-${options.jobIdSuffix}` : mediaId
+    )
   );
 }
 
@@ -278,12 +313,18 @@ export async function enqueueMediaProcess(
   mediaId: string,
   options?: { jobIdSuffix?: string }
 ): Promise<void> {
-  await getQueue(MEDIA_PROCESS_QUEUE).add(
+  const queue = getQueue(MEDIA_PROCESS_QUEUE);
+  // A custom jobId that still exists in Redis (retained completed/failed
+  // jobs) would silently dedupe the add; addWithFreshId clears dead jobs
+  // occupying the id. Re-trigger variants pass a suffix for extra safety.
+  const jobId = options?.jobIdSuffix
+    ? `process-${mediaId}-${options.jobIdSuffix}`
+    : `process-${mediaId}`;
+  await addWithFreshId(
+    queue,
     "media-process",
+    jobId,
     { mediaId },
-    // A custom jobId that still exists in Redis (retained completed/failed
-    // jobs) makes BullMQ silently dedupe the add. Re-trigger variants pass a
-    // suffix so a fresh job is always created.
     mediaJobOptions(
       "process",
       options?.jobIdSuffix ? `${mediaId}-${options.jobIdSuffix}` : mediaId
@@ -292,8 +333,11 @@ export async function enqueueMediaProcess(
 }
 
 export async function enqueueMediaAnalyze(mediaId: string): Promise<void> {
-  await getQueue(MEDIA_PROCESS_QUEUE).add(
+  const queue = getQueue(MEDIA_PROCESS_QUEUE);
+  await addWithFreshId(
+    queue,
     "media-analyze",
+    `analyze-${mediaId}`,
     { mediaId },
     mediaJobOptions("analyze", mediaId)
   );

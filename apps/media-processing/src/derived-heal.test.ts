@@ -30,16 +30,21 @@ interface FindManyArgs {
   where?: {
     createdAt?: unknown;
     processedAt?: unknown;
-    status?: string;
+    status?: unknown;
     type?: { in: string[] };
+    originalKey?: unknown;
+    pipelineVersion?: unknown;
   };
 }
 
 let prismaDisabled = false;
 let failFirstEnqueue = false;
-let sweepRows: { id: string }[] = [];
+let failFirstScanEnqueue = false;
+let readyRows: { id: string }[] = [];
+let unscannedRows: { id: string }[] = [];
 const derivativeCounts: Record<string, number> = {};
 const enqueuedMediaIds: string[] = [];
+const enqueuedScanMediaIds: string[] = [];
 const findManyArgs: FindManyArgs[] = [];
 // Sync to global for cross-file mock compatibility
 (globalThis as unknown as Record<string, unknown>).__qm_prismaDisabled =
@@ -64,6 +69,19 @@ mock.module("@asm/db", () => ({
     enqueuedMediaIds.push(mediaId);
     return Promise.resolve();
   },
+  enqueueMediaScan: (mediaId: string, _options?: { jobIdSuffix?: string }) => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    if (prismaDisabled || g.__qm_prismaDisabled) {
+      throw new Error("must not enqueue when the sweep is disabled");
+    }
+    if (failFirstScanEnqueue || g.__qm_failFirstScanEnqueue) {
+      failFirstScanEnqueue = false;
+      g.__qm_failFirstScanEnqueue = false;
+      throw new Error("redis unavailable");
+    }
+    enqueuedScanMediaIds.push(mediaId);
+    return Promise.resolve();
+  },
   prisma: {
     media: {
       findMany: (args: FindManyArgs) => {
@@ -71,7 +89,10 @@ mock.module("@asm/db", () => ({
           throw new Error("must not query when the sweep is disabled");
         }
         findManyArgs.push(args);
-        return sweepRows;
+        // First call is the READY-without-derivatives query, the second is
+        // the unscanned-quarantine query. Return the ready-row fixtures for
+        // the first and the unscanned fixtures for the second.
+        return findManyArgs.length === 1 ? readyRows : unscannedRows;
       },
       update: () => ({}),
     },
@@ -105,17 +126,21 @@ beforeEach(() => {
   backfillEnabled = true;
   prismaDisabled = false;
   failFirstEnqueue = false;
-  sweepRows = [];
+  failFirstScanEnqueue = false;
+  readyRows = [];
+  unscannedRows = [];
   // Keep object identity for global reference — clear instead of reassign
   for (const k of Object.keys(derivativeCounts)) {
     // oxlint-disable-next-line typescript/no-dynamic-delete -- test helper clears the shared counter map between cases
     delete (derivativeCounts as Record<string, number>)[k];
   }
   enqueuedMediaIds.length = 0;
+  enqueuedScanMediaIds.length = 0;
   findManyArgs.length = 0;
   const g = globalThis as unknown as Record<string, unknown>;
   g.__qm_prismaDisabled = prismaDisabled;
   g.__qm_failFirstEnqueue = failFirstEnqueue;
+  g.__qm_failFirstScanEnqueue = failFirstScanEnqueue;
   g.__qm_derivativeCounts = derivativeCounts;
 });
 
@@ -146,14 +171,14 @@ describe("derived-heal sweep", () => {
   });
 
   test("re-enqueues READY rows older than the grace window with zero derivatives", async () => {
-    sweepRows = [{ id: "m-stranded" }];
+    readyRows = [{ id: "m-stranded" }];
     const result = await derivedHealSweep();
     expect(result).toEqual({ enqueued: 1 });
     expect(enqueuedMediaIds).toEqual(["m-stranded"]);
   });
 
   test("skips rows that already have derivatives", async () => {
-    sweepRows = [{ id: "m-fine" }];
+    readyRows = [{ id: "m-fine" }];
     derivativeCounts["m-fine"] = 3;
     const result = await derivedHealSweep();
     expect(result).toEqual({ enqueued: 0 });
@@ -161,13 +186,44 @@ describe("derived-heal sweep", () => {
   });
 
   test("continues past one failed enqueue without stranding siblings", async () => {
-    sweepRows = [{ id: "m-dead" }, { id: "m-alive" }];
+    readyRows = [{ id: "m-dead" }, { id: "m-alive" }];
     failFirstEnqueue = true;
     (globalThis as unknown as Record<string, unknown>).__qm_failFirstEnqueue =
       true;
     const result = await derivedHealSweep();
     // The failed candidate is skipped; the second one is still handed off.
     expect(enqueuedMediaIds).toEqual(["m-alive"]);
+    expect(result).toEqual({ enqueued: 1 });
+  });
+
+  test("re-enqueues unscanned quarantine stragglers with a jobId suffix", async () => {
+    unscannedRows = [{ id: "m-quarantined" }, { id: "m-scanning" }];
+    const result = await derivedHealSweep();
+    expect(result).toEqual({ enqueued: 2 });
+    expect(enqueuedScanMediaIds).toEqual(["m-quarantined", "m-scanning"]);
+    // The unscanned query must target only pre-publish stragglers holding
+    // quarantine bytes.
+    const [, unscannedArgs] = findManyArgs;
+    const unscannedWhere = unscannedArgs?.where;
+    if (!unscannedWhere) {
+      throw new Error("expected the unscanned-quarantine query");
+    }
+    expect((unscannedWhere.status as { in: string[] }).in).toEqual([
+      "QUARANTINED",
+      "SCANNING",
+    ]);
+    expect(unscannedWhere.pipelineVersion).toBeNull();
+    expect(unscannedWhere.originalKey).toBeDefined();
+  });
+
+  test("unscanned rescue continues past one failed scan enqueue", async () => {
+    unscannedRows = [{ id: "m-dead" }, { id: "m-alive" }];
+    failFirstScanEnqueue = true;
+    (
+      globalThis as unknown as Record<string, unknown>
+    ).__qm_failFirstScanEnqueue = true;
+    const result = await derivedHealSweep();
+    expect(enqueuedScanMediaIds).toEqual(["m-alive"]);
     expect(result).toEqual({ enqueued: 1 });
   });
 
