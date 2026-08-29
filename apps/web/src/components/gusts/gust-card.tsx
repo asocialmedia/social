@@ -43,7 +43,6 @@ import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
 import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
-import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { useVideoCaptionsStore } from "@/lib/video-captions-store";
@@ -420,7 +419,6 @@ export const GustCard: React.FC<GustCardProps> = ({
     user.id !== post.user.id &&
     !post.user.followers?.some((f) => f.followerId === user.id);
 
-  const canModerate = canModeratePost(user, post);
   const isFollowedByUser = Boolean(
     post.user.followers?.some((f) => f.followerId === user?.id)
   );
@@ -768,13 +766,11 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More (moderators only) */}
-          {canModerate ? (
-            <PostMoreButton
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
-              post={post}
-            />
-          ) : null}
+          {/* More options menu */}
+          <PostMoreButton
+            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            post={post}
+          />
 
           {/* Closed Captions toggle */}
           {post.moderated ? null : (

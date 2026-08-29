@@ -49,7 +49,6 @@ import Linkify from "@/helpers/global/linkify";
 import { useExplicitRevealed } from "@/lib/explicit-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
-import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -806,7 +805,6 @@ const MediaViewer = ({
   const isSelf = post ? sessionUser?.id === post.user.id : false;
   // The more-button is shown to the author and to admins so moderation is
   // reachable from the full-screen viewer too.
-  const canModerate = post ? canModeratePost(sessionUser, post) : false;
 
   const body = (
     <div className="flex h-full w-full overflow-hidden">
@@ -899,7 +897,7 @@ const MediaViewer = ({
           </button>
 
           {/* Compact mobile top bar: close (above) + post options (right). */}
-          {canModerate && post ? (
+          {post ? (
             <div
               className={cn(
                 "absolute top-3 right-3 z-50 transition-[opacity,visibility] duration-300 lg:hidden",
@@ -1456,13 +1454,11 @@ const MediaViewer = ({
                     @{post.user.username}
                   </Link>
                 </div>
-                {canModerate ? (
-                  <PostMoreButton
-                    className="shrink-0"
-                    post={post}
-                    variant="media-page"
-                  />
-                ) : null}
+                <PostMoreButton
+                  className="shrink-0"
+                  post={post}
+                  variant="media-page"
+                />
               </div>
 
               <div className="mt-2.5">
