@@ -18,6 +18,7 @@ interface PrismaQuery {
 }
 
 mock.module("@asm/db", () => ({
+  Prisma: { DbNull: null },
   consumeRateLimit: mock(() => ({ allowed: true })),
   deleteObject: mock((key: string) => {
     deletedKeys.push(key);
@@ -43,7 +44,12 @@ mock.module("@asm/db", () => ({
       findMany: (args: unknown) => derivativeFindManyImpl(args),
     },
   },
-  redis: { decrby: mock(() => 1), get: mock(() => "0") },
+  redis: {
+    decrby: mock(() => 1),
+    get: mock(() => "0"),
+    incrby: mock(() => 100),
+  },
+  scheduleMediaCleanup: mock(async () => {}),
 }));
 
 const { attachAudioOverlay } = await import("./media-pipeline");

@@ -13,6 +13,10 @@ const initiateSchema = z.object({
   audioOverlayId: z.string().min(1).nullish(),
   name: z.string().min(1).max(255),
   purpose: z.enum(["avatar", "banner", "comment", "message", "post"]).nullish(),
+  sha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .nullish(),
   size: z.number().int().positive(),
   type: z.string().min(3).max(100),
 });
@@ -39,7 +43,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { audioOverlayId, name, purpose, size, type } = parsed.data;
+  const { audioOverlayId, name, purpose, sha256, size, type } = parsed.data;
 
   try {
     const upload = await createInitiatedUpload({
@@ -48,12 +52,14 @@ export async function POST(request: Request) {
       fileName: name,
       fileSize: size,
       purpose: purpose ?? null,
+      sha256: sha256 ?? null,
       userId: user.id,
     });
     return NextResponse.json({
+      deduplicated: upload.deduplicated ?? false,
       extension: upload.extension,
       mediaId: upload.mediaId,
-      status: "UPLOADING",
+      status: upload.status ?? "UPLOADING",
       uploadUrl: upload.uploadUrl,
     });
   } catch (error) {

@@ -196,6 +196,38 @@ function putToPresignedUrl(
   });
 }
 
+/**
+ * Computes SHA-256 digest of a File using Web Crypto API.
+ * Returns null when Web Crypto is unavailable or file read fails.
+ */
+export async function computeFileSha256(file: File): Promise<string | null> {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    return null;
+  }
+  try {
+    const buffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    const bytes = new Uint8Array(digest);
+    let hex = "";
+    for (const byte of bytes) {
+      hex += byte.toString(16).padStart(2, "0");
+    }
+    return hex;
+  } catch {
+    return null;
+  }
+}
+
+function uploadStatusToStage(status: UploadStatus): UploadStage {
+  if (status === "SCANNING") {
+    return "scanning";
+  }
+  if (status === "PROCESSING") {
+    return "processing";
+  }
+  return "queued";
+}
+
 export async function uploadMediaFile(
   file: File,
   options: {
@@ -230,11 +262,15 @@ export async function uploadMediaFile(
     );
   }
 
+  // Pre-compute content hash to check for server-side deduplication / reuse
+  const sha256 = await computeFileSha256(file);
+
   const initiateResponse = await fetch("/api/upload/initiate", {
     body: JSON.stringify({
       audioOverlayId: options.audioOverlayId ?? undefined,
       name: file.name || "attachment",
       purpose: options.purpose ?? "post",
+      sha256: sha256 ?? undefined,
       size: file.size,
       type: contentType,
     }),
@@ -246,10 +282,51 @@ export async function uploadMediaFile(
   if (!initiateResponse.ok) {
     throw new MediaUploadError(await parseErrorMessage(initiateResponse));
   }
-  const { mediaId, uploadUrl } = (await initiateResponse.json()) as {
+  const {
+    mediaId,
+    status: initialStatus,
+    uploadUrl,
+  } = (await initiateResponse.json()) as {
     mediaId: string;
-    uploadUrl: string;
+    status: UploadStatus;
+    uploadUrl: string | null;
   };
+
+  // Instant deduplication cache hit: existing media is already processed & READY
+  if (initialStatus === "READY" && !uploadUrl) {
+    report(100);
+    return { mediaId, status: "READY" };
+  }
+
+  // Deduplication hit on an in-flight processing job: skip byte upload and join watcher
+  if (
+    !uploadUrl &&
+    (initialStatus === "SCANNING" ||
+      initialStatus === "PROCESSING" ||
+      initialStatus === "QUARANTINED")
+  ) {
+    report(100);
+    reportStage(uploadStatusToStage(initialStatus));
+    const outcome = await watchMediaStatus(mediaId, {
+      onStage: reportStage,
+      signal: options.signal,
+    });
+    if (outcome.status === "READY") {
+      return { mediaId, status: "READY" };
+    }
+    if (outcome.status === "DETACHED") {
+      throw new MediaUploadError("Still processing - check back in a moment");
+    }
+    return {
+      mediaId,
+      rejectedReason: outcome.rejectedReason,
+      status: "REJECTED",
+    };
+  }
+
+  if (!uploadUrl) {
+    throw new MediaUploadError("Upload URL was not provided");
+  }
 
   await putToPresignedUrl(uploadUrl, file, contentType, report);
 
