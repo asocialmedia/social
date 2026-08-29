@@ -38,6 +38,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
+import { VideoTranscriptSidebar } from "@/components/media/video-transcript-sidebar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
@@ -1574,6 +1575,27 @@ const MediaViewer = ({
                 />
               </div>
             </section>
+
+            {/* Desktop Video Transcript Card */}
+            {currentMedia?.type === "VIDEO" ? (
+              <VideoTranscriptSidebar
+                currentTime={videoState.currentTime}
+                mediaId={currentMedia.id}
+                onSeek={(seconds) => {
+                  const video = videoRef.current;
+                  if (video) {
+                    video.currentTime = seconds;
+                    void video.play();
+                  }
+                  setVideoState((prev) => ({
+                    ...prev,
+                    currentTime: seconds,
+                    isPlaying: true,
+                  }));
+                }}
+                rawTranscript={currentMedia.transcript}
+              />
+            ) : null}
 
             {/* The eddie thread on its own subcard. */}
             <section className="sidebar-subcard rounded-2xl p-3">

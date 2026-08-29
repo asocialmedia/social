@@ -191,9 +191,10 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
       {isOpen ? (
         <motion.div
           animate={{ opacity: 1, y: 0 }}
-          className="absolute inset-x-0 bottom-0 z-50 flex max-h-[80%] min-h-[320px] flex-col rounded-t-2xl border-t border-white/15 bg-black/90 text-white shadow-2xl backdrop-blur-xl"
+          className="pointer-events-auto absolute inset-x-0 bottom-0 z-60 flex max-h-[80%] min-h-[320px] flex-col rounded-t-2xl border-t border-white/15 bg-black/95 text-white shadow-2xl backdrop-blur-xl"
           exit={{ opacity: 0, y: "100%" }}
           initial={{ opacity: 0, y: "100%" }}
+          onClick={(e) => e.stopPropagation()}
           transition={{ damping: 25, stiffness: 260, type: "spring" }}
         >
           {/* Header */}
@@ -249,6 +250,8 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
                 aria-label="Search transcript"
                 className="w-full rounded-lg bg-white/10 py-1.5 pr-3 pl-8 text-xs text-white placeholder-white/40 outline-hidden transition-all focus:bg-white/15 focus:ring-1 focus:ring-orange-500/50"
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
                 placeholder="Search in transcript..."
                 type="text"
                 value={searchQuery}

@@ -15,6 +15,7 @@ import FollowButton from "@/components/layouts/follow-button";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import { VideoTranscriptSidebar } from "@/components/media/video-transcript-sidebar";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura";
@@ -172,6 +173,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
     followers: author._count.followers,
     isFollowedByUser,
   };
+  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
 
   const {
     data,
@@ -323,6 +325,14 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
             )}
           </div>
         </div>
+
+        {/* Video Transcript Card on Desktop */}
+        {videoMedia ? (
+          <VideoTranscriptSidebar
+            mediaId={videoMedia.id}
+            rawTranscript={videoMedia.transcript}
+          />
+        ) : null}
 
         {
           // More from the author

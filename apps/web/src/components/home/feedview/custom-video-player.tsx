@@ -714,11 +714,11 @@ export const CustomVideoPlayer = ({
     setShowHotkeys(false);
   }, []);
 
-  let captionBottomClass = "bottom-6 sm:bottom-8";
+  let captionBottomClass = "bottom-8 sm:bottom-10";
   if (hideControls) {
-    captionBottomClass = "bottom-16 sm:bottom-20";
-  } else if (showControls) {
     captionBottomClass = "bottom-20 sm:bottom-24";
+  } else if (showControls) {
+    captionBottomClass = "bottom-36 sm:bottom-40";
   }
 
   return (
@@ -773,7 +773,7 @@ export const CustomVideoPlayer = ({
           bar: with it hidden, single clicks on the video must reach the
           play/pause handler (and letterbox taps must reach the media page's
           UI toggle), so the zones are dropped entirely. */}
-      {hideControls ? null : (
+      {hideControls || showTranscript ? null : (
         <div className="absolute inset-0 z-30 flex select-none">
           <button
             aria-label="Double click to rewind 10 seconds"
