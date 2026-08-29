@@ -24,6 +24,7 @@ export const keys = createEnv({
     CLAMAV_PORT: process.env.CLAMAV_PORT,
     DATABASE_URL: process.env.DATABASE_URL,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GEMINI_EMBEDDING_MODEL: process.env.GEMINI_EMBEDDING_MODEL,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
     MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
@@ -89,6 +90,7 @@ export const keys = createEnv({
         "postgresql://postgres:postgres@localhost:5433/asocialmedia?schema=public"
       ),
     GEMINI_API_KEY: z.string().optional(),
+    GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
     GROQ_API_KEY: z.string().optional(),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
@@ -196,6 +198,9 @@ export const workerEnv = {
   },
   get GEMINI_API_KEY() {
     return keys.GEMINI_API_KEY;
+  },
+  get GEMINI_EMBEDDING_MODEL() {
+    return keys.GEMINI_EMBEDDING_MODEL;
   },
   get GROQ_API_KEY() {
     return keys.GROQ_API_KEY;

@@ -24,10 +24,8 @@ export interface TranscriptionResult {
   webvtt: string | null;
 }
 
-/**
- * Formats a float second count into standard WebVTT timestamp format:
- * HH:MM:SS.mmm
- */
+// Formats a float second count into standard WebVTT timestamp format:
+// HH:MM:SS.mmm
 export function formatVttTimestamp(seconds: number): string {
   const safeSec = Math.max(0, seconds);
   const hours = Math.floor(safeSec / 3600);
@@ -43,9 +41,7 @@ export function formatVttTimestamp(seconds: number): string {
   return `${hh}:${mm}:${ss}.${mmm}`;
 }
 
-/**
- * Generates a valid WebVTT string from timestamped caption segments.
- */
+// Generates a valid WebVTT string from timestamped caption segments.
 export function generateWebVtt(segments: CaptionSegment[]): string {
   const header = "WEBVTT - AsocialMedia Video Captions\n\n";
   const cues = segments
@@ -61,10 +57,8 @@ export function generateWebVtt(segments: CaptionSegment[]): string {
   return `${header}${cues}`;
 }
 
-/**
- * Extracts a 16kHz mono WAV audio track from any video or audio file using FFmpeg.
- * Returns null if the source contains no audio stream.
- */
+// Extracts a 16kHz mono WAV audio track from any video or audio file using FFmpeg.
+// Returns null if the source contains no audio stream.
 export async function extractAudioTrack(
   sourcePath: string,
   outputPath: string
@@ -103,10 +97,8 @@ export async function extractAudioTrack(
   }
 }
 
-/**
- * Voice Activity Detection / Volume check.
- * Returns false if the audio track is silent or near-silence (< -55dB).
- */
+// Voice Activity Detection / Volume check.
+// Returns false if the audio track is silent or near-silence (< -55dB).
 export async function detectAudioActivity(audioPath: string): Promise<boolean> {
   try {
     const proc = Bun.spawn(
@@ -143,9 +135,7 @@ export async function detectAudioActivity(audioPath: string): Promise<boolean> {
   }
 }
 
-/**
- * Transcribes audio via Groq Cloud Whisper API if GROQ_API_KEY is present.
- */
+// Transcribes audio via Groq Cloud Whisper API if GROQ_API_KEY is present.
 async function transcribeViaGroq(
   audioPath: string
 ): Promise<{ segments: CaptionSegment[]; transcript: string } | null> {
@@ -206,9 +196,7 @@ async function transcribeViaGroq(
   }
 }
 
-/**
- * Primary transcription runner with self-healing fallback and S3 WebVTT publishing.
- */
+// Primary transcription runner with self-healing fallback and S3 WebVTT publishing.
 export function transcribeMediaAudio(
   sourcePath: string,
   mediaId: string

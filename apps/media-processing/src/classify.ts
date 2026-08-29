@@ -209,9 +209,7 @@ const TOPIC_KEYWORDS: Record<string, string[]> = {
   ],
 };
 
-/**
- * Normalizes a list of strings into clean, unique, lowercase kebab-case tags.
- */
+// Normalizes a list of strings into clean, unique, lowercase kebab-case tags.
 export function sanitizeTags(tags: string[]): string[] {
   const seen = new Set<string>();
   for (const raw of tags) {
@@ -227,9 +225,7 @@ export function sanitizeTags(tags: string[]): string[] {
   return [...seen].slice(0, 10);
 }
 
-/**
- * Extracts semantic topic tags from combined textual cues (OCR text, transcript, caption).
- */
+// Extracts semantic topic tags from combined textual cues (OCR text, transcript, caption).
 export function extractTextTopics(combinedText: string): string[] {
   if (!combinedText || combinedText.trim().length === 0) {
     return [];
@@ -255,10 +251,8 @@ export function extractTextTopics(combinedText: string): string[] {
   return [...matchedTags];
 }
 
-/**
- * Primary semantic classification for media assets.
- * Combines visual analysis, OCR text, and speech transcripts into rich topic tags.
- */
+// Primary semantic classification for media assets.
+// Combines visual analysis, OCR text, and speech transcripts into rich topic tags.
 export function classifyMediaConcepts(input: {
   imagePath?: string | null;
   mediaId: string;

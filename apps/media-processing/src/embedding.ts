@@ -3,7 +3,8 @@
 // 384-dimensional unit vectors used by the recommendation engine.
 //
 // Dual-mode:
-// 1. Pluggable Gemini text-embedding-004 API when GEMINI_API_KEY is configured.
+// 1. Pluggable Gemini embedding API (configurable via GEMINI_EMBEDDING_MODEL)
+//    when GEMINI_API_KEY is configured.
 // 2. High-speed local hash-vector embedding engine (zero dependencies, 0ms latency,
 //    deterministic 384-dimensional unit vector).
 
@@ -12,10 +13,8 @@ import { mediaLogger } from "./log";
 
 export const EMBEDDING_DIMENSION = 384;
 
-/**
- * Computes cosine similarity between two float vectors.
- * For normalized unit vectors, this is simply the dot product.
- */
+// Computes cosine similarity between two float vectors.
+// For normalized unit vectors, this is simply the dot product.
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (!a || !b || a.length === 0 || b.length === 0 || a.length !== b.length) {
     return 0;
@@ -42,9 +41,7 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   );
 }
 
-/**
- * Normalizes a vector to unit length (L2 norm = 1.0).
- */
+// Normalizes a vector to unit length (L2 norm = 1.0).
 export function normalizeVector(vector: number[]): number[] {
   let sumSq = 0;
   for (const v of vector) {
@@ -57,10 +54,8 @@ export function normalizeVector(vector: number[]): number[] {
   return vector.map((v) => v / magnitude);
 }
 
-/**
- * Fast deterministic token hash mapping for 384-dimensional bag-of-words
- * and n-gram representations with term frequency and subword hashing.
- */
+// Fast deterministic token hash mapping for 384-dimensional bag-of-words
+// and n-gram representations with term frequency and subword hashing.
 function localHashEmbedding(text: string): number[] {
   const vector = Array.from({ length: EMBEDDING_DIMENSION }).fill(
     0
@@ -107,9 +102,7 @@ function localHashEmbedding(text: string): number[] {
   return normalizeVector(vector);
 }
 
-/**
- * Generates an embedding vector for a given text.
- */
+// Generates an embedding vector for a given text.
 export async function generateTextEmbedding(text: string): Promise<number[]> {
   if (!text || text.trim().length === 0) {
     return Array.from({ length: EMBEDDING_DIMENSION }).fill(0) as number[];
@@ -117,14 +110,15 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
 
   // Cloud Gemini Embedding API if GEMINI_API_KEY is configured
   const apiKey = workerEnv.GEMINI_API_KEY;
+  const modelName = workerEnv.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2";
   if (apiKey) {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent?key=${apiKey}`,
         {
           body: JSON.stringify({
             content: { parts: [{ text: text.slice(0, 2048) }] },
-            model: "models/text-embedding-004",
+            model: `models/${modelName}`,
           }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
