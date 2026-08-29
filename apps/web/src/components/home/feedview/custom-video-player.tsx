@@ -6,7 +6,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
-import zephImage from "@assets/zeph.png";
 import type Hls from "hls.js";
 import {
   FastForward,
@@ -16,12 +15,12 @@ import {
   Play,
   Rewind,
   Settings,
+  Speech,
   Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import Image from "next/image";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -717,8 +716,8 @@ export const CustomVideoPlayer = ({
 
   let captionBottomClass = "bottom-8 sm:bottom-10";
   if (hideControls) {
-    // In modal / MediaViewer on mobile, elevate above the action bar and player chips
-    captionBottomClass = "bottom-52 sm:bottom-56 lg:bottom-24";
+    // In modal / MediaViewer on mobile, elevate above the stacked post author, content, actions, and player chips
+    captionBottomClass = "bottom-72 sm:bottom-80 lg:bottom-24";
   } else if (showControls) {
     captionBottomClass = "bottom-36 sm:bottom-40";
   }
@@ -950,10 +949,11 @@ export const CustomVideoPlayer = ({
                         )}
                         onClick={toggleTranscript}
                       >
-                        <Image
-                          alt="Transcript"
-                          className="size-5 object-contain"
-                          src={zephImage}
+                        <Speech
+                          className={cn(
+                            "h-5 w-5",
+                            showTranscript ? "text-orange-400" : "text-white"
+                          )}
                         />
                       </GlassIconButton>
                     </TooltipTrigger>

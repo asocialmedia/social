@@ -5,7 +5,6 @@ import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import { Slider } from "@asm/ui/shadui/slider";
-import zephImage from "@assets/zeph.png";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { formatDate } from "date-fns";
 import {
@@ -19,6 +18,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Speech,
   Subtitles,
   Volume2,
   VolumeX,
@@ -1181,11 +1181,7 @@ const MediaViewer = ({
                     onClick={handleVideoToggleTranscript}
                     type="button"
                   >
-                    <Image
-                      alt="Transcript"
-                      className="size-5.5 object-contain"
-                      src={zephImage}
-                    />
+                    <Speech className="size-5" />
                   </button>
                   <button
                     aria-label="Fullscreen"
@@ -1386,11 +1382,7 @@ const MediaViewer = ({
                     onClick={handleVideoToggleTranscript}
                     type="button"
                   >
-                    <Image
-                      alt="Transcript"
-                      className="size-5.5 object-contain"
-                      src={zephImage}
-                    />
+                    <Speech className="size-5" />
                   </button>
                   <button
                     aria-label="Fullscreen"
