@@ -1,9 +1,9 @@
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
+import zephImage from "@assets/zeph.png";
 import {
   Eye,
-  FileText,
   Flame,
   MessageSquare,
   Pause,
@@ -13,6 +13,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import Link from "next/link";
 import React, {
   useCallback,
@@ -797,7 +798,11 @@ export const GustCard: React.FC<GustCardProps> = ({
               onClick={toggleTranscript}
               type="button"
             >
-              <FileText className="size-5" />
+              <Image
+                alt="Transcript"
+                className="size-5 object-contain"
+                src={zephImage}
+              />
             </button>
           )}
 

@@ -5,6 +5,7 @@ import type { Media, PostData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Dialog, DialogContent, DialogTitle } from "@asm/ui/shadui/dialog";
 import { Slider } from "@asm/ui/shadui/slider";
+import zephImage from "@assets/zeph.png";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { formatDate } from "date-fns";
 import {
@@ -13,7 +14,6 @@ import {
   Download,
   Eye,
   FileIcon,
-  FileText,
   Maximize,
   MessageSquare,
   Pause,
@@ -1181,7 +1181,11 @@ const MediaViewer = ({
                     onClick={handleVideoToggleTranscript}
                     type="button"
                   >
-                    <FileText className="size-5" />
+                    <Image
+                      alt="Transcript"
+                      className="size-5.5 object-contain"
+                      src={zephImage}
+                    />
                   </button>
                   <button
                     aria-label="Fullscreen"
@@ -1382,7 +1386,11 @@ const MediaViewer = ({
                     onClick={handleVideoToggleTranscript}
                     type="button"
                   >
-                    <FileText className="size-5" />
+                    <Image
+                      alt="Transcript"
+                      className="size-5.5 object-contain"
+                      src={zephImage}
+                    />
                   </button>
                   <button
                     aria-label="Fullscreen"
@@ -1399,29 +1407,30 @@ const MediaViewer = ({
               </div>
             </div>
           ) : null}
-
-          {currentMedia?.type === "VIDEO" ? (
-            <VideoTranscriptDrawer
-              currentTime={videoState.currentTime}
-              isOpen={showTranscript}
-              mediaId={currentMedia.id}
-              onClose={() => setShowTranscript(false)}
-              onSeek={(seconds) => {
-                const video = videoRef.current;
-                if (video) {
-                  video.currentTime = seconds;
-                  void video.play();
-                }
-                setVideoState((prev) => ({
-                  ...prev,
-                  currentTime: seconds,
-                  isPlaying: true,
-                }));
-              }}
-              rawTranscript={currentMedia.transcript}
-            />
-          ) : null}
         </div>
+
+        {/* Video Transcript Drawer (Mobile & Modal) */}
+        {currentMedia?.type === "VIDEO" ? (
+          <VideoTranscriptDrawer
+            currentTime={videoState.currentTime}
+            isOpen={showTranscript}
+            mediaId={currentMedia.id}
+            onClose={() => setShowTranscript(false)}
+            onSeek={(seconds) => {
+              const video = videoRef.current;
+              if (video) {
+                video.currentTime = seconds;
+                void video.play();
+              }
+              setVideoState((prev) => ({
+                ...prev,
+                currentTime: seconds,
+                isPlaying: true,
+              }));
+            }}
+            rawTranscript={currentMedia.transcript}
+          />
+        ) : null}
       </div>
 
       {post ? (

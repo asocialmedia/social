@@ -193,14 +193,19 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
       {isOpen ? (
         <motion.div
           animate={{ opacity: 1, y: 0 }}
-          className="pointer-events-auto absolute inset-x-0 bottom-0 z-60 flex max-h-[80%] min-h-[320px] flex-col rounded-t-2xl border-t border-white/15 bg-black/95 text-white shadow-2xl backdrop-blur-xl"
+          className="pointer-events-auto absolute inset-x-0 bottom-0 z-70 flex max-h-[75vh] min-h-[320px] flex-col rounded-t-3xl border-t border-white/15 bg-black/95 text-white shadow-2xl backdrop-blur-2xl"
           exit={{ opacity: 0, y: "100%" }}
           initial={{ opacity: 0, y: "100%" }}
           onClick={(e) => e.stopPropagation()}
-          transition={{ damping: 25, stiffness: 260, type: "spring" }}
+          transition={{ damping: 28, stiffness: 280, type: "spring" }}
         >
+          {/* Mobile grab handle pill */}
+          <div className="flex justify-center pt-2.5 pb-0.5">
+            <div className="h-1 w-10 rounded-full bg-white/30" />
+          </div>
+
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
             <div className="flex items-center gap-2.5">
               <Image
                 alt="Zeph"
