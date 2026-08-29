@@ -165,7 +165,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
       ) : null}
 
       {/* Cues List */}
-      <div className="hide-native-scrollbar mt-2 max-h-52 space-y-1 overflow-y-auto pr-0.5">
+      <div className="hide-native-scrollbar mt-2 max-h-52 space-y-1.5 overflow-y-auto p-1">
         {(() => {
           if (isLoading) {
             return (
@@ -187,7 +187,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
                   className={cn(
                     "group flex w-full items-start gap-2 rounded-xl p-1.5 text-left transition-all",
                     isCurrent
-                      ? "border border-orange-500/60 bg-linear-to-r from-orange-500/20 via-orange-500/10 to-transparent shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2),inset_0_1px_2px_rgba(255,255,255,0.25),0_0_0_1px_rgba(255,149,0,0.5),0_2px_4px_rgba(0,0,0,0.1)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.1),0_0_0_1px_rgba(255,149,0,0.7),0_2px_6px_rgba(0,0,0,0.25)]"
+                      ? "border border-orange-500 bg-orange-500/10 ring-1 ring-orange-400/40 ring-inset dark:ring-orange-400/30"
                       : "hover:bg-muted/60 active:bg-muted border border-transparent"
                   )}
                   key={`${cue.start}-${cue.end}-${idx}`}
@@ -198,8 +198,8 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
                     className={cn(
                       "mt-0.5 shrink-0 rounded px-1 py-0.5 font-mono text-[10px] font-semibold transition-colors",
                       isCurrent
-                        ? "bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.12)]"
-                        : "bg-muted text-muted-foreground group-hover:text-foreground shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
+                        ? "bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-xs"
+                        : "bg-muted text-muted-foreground group-hover:text-foreground"
                     )}
                   >
                     {formatSeconds(cue.start)}

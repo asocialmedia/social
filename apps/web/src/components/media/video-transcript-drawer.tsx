@@ -284,7 +284,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
                       className={cn(
                         "flex w-full items-start gap-3 rounded-xl p-2.5 text-left transition-all",
                         isCurrent
-                          ? "border border-orange-500/60 bg-linear-to-r from-orange-500/25 via-orange-500/15 to-transparent shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2),inset_0_1px_2px_rgba(255,255,255,0.25),0_0_0_1px_rgba(255,149,0,0.6),0_2px_6px_rgba(0,0,0,0.3)]"
+                          ? "border border-orange-500 bg-orange-500/15 ring-1 ring-orange-400/40 ring-inset"
                           : "border border-transparent hover:bg-white/10 active:bg-white/15"
                       )}
                       key={`${cue.start}-${cue.end}-${idx}`}
@@ -296,7 +296,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
                         className={cn(
                           "mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold transition-colors",
                           isCurrent
-                            ? "bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.12)]"
+                            ? "bg-linear-to-b from-[#ff9500] to-[#e65500] font-bold text-white shadow-xs"
                             : "bg-white/10 text-white/60 group-hover:text-white"
                         )}
                       >
