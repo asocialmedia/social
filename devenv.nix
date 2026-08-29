@@ -49,13 +49,6 @@ in
     if [ -x "${pkgs.prisma-engines}/bin/prisma-fmt" ]; then
       export PRISMA_FMT_BINARY="${pkgs.prisma-engines}/bin/prisma-fmt"
     fi
-
-    # portless: let Node/curl trust the local CA (NixOS has no update-ca-certificates,
-    # so `portless trust` can't touch the system store - browsers need the CA added
-    # via security.pki.certificateFiles in configuration.nix instead)
-    if [ -f "$HOME/.portless/ca.pem" ]; then
-      export NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem"
-    fi
   '';
 
   dotenv.disableHint = true;

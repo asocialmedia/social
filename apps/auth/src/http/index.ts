@@ -44,7 +44,6 @@ const OAUTH_CALLBACK_PATTERN = /^\/api\/auth\/callback\/[a-z-]+$/;
 // Allowed origins are derived from env — no hardcoded prod URLs.
 // Local-only origins are explicitly dev-only and never accepted in production.
 const DEV_ONLY_ORIGINS = [
-  "https://social.localhost",
   "http://localhost:3000",
   "http://localhost:3001",
 ] as const;
@@ -237,18 +236,21 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         request
       );
       if (OAUTH_CALLBACK_PATTERN.test(pathname)) {
-        // OAuth callbacks that fail state validation redirect to
-        // /api/auth/error with a 302. The better-auth error text reaches the
-        // browser but nothing server-side explains which provider/state
-        // failed, so log the callback outcome explicitly: 3xx here means the
-        // provider round-trip was rejected (state mismatch, expired flow,
-        // unknown account).
+        // A callback that passes validation ALSO answers with a 302 - it
+        // redirects onward to the web app's callbackURL. Distinguish the two
+        // by inspecting the Location header: a redirect to /api/auth/error is
+        // a rejection (state mismatch, expired flow, provider error); any
+        // other redirect means the provider round-trip succeeded and the
+        // session is being handed to the web app.
         const provider = pathname.split("/").at(-1);
         const state = new URL(request.url).searchParams.get("state");
-        if (response.status >= 300) {
+        const location = response.headers.get("location") ?? "";
+        const failed = location.includes("/api/auth/error");
+        if (failed) {
           log.error(
             {
               has_state: Boolean(state),
+              location,
               provider,
               status: response.status,
             },
@@ -256,7 +258,7 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
           );
         } else {
           log.info(
-            { provider, status: response.status },
+            { location, provider, status: response.status },
             "oauth callback accepted"
           );
         }

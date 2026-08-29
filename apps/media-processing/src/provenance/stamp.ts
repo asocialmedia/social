@@ -78,7 +78,7 @@ export async function stampAiGenerated(
 
   const flaggedAt = new Date().toISOString();
   // Identity fields derive from NEXT_PUBLIC_URL so dev stamps carry
-  // social.localhost and prod carries the real origin. The custom assertion
+  // http://localhost:3000 and prod carries the real origin. The custom assertion
   // LABEL stays fixed, though: it names this assertion's schema (reverse-DNS
   // of the production domain) and must not drift between environments.
   const baseUrl = workerEnv.PUBLIC_BASE_URL;

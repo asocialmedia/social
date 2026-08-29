@@ -7,7 +7,7 @@ const TEST_SECRET = "test-better-auth-secret-1234567890";
 
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return {
-    allowedOrigins: ["https://social.localhost"],
+    allowedOrigins: ["http://localhost:3000"],
     anonRateLimitMax: 5,
     anonRateLimitWindowMs: 60_000,
     authRateLimitMax: 10,
@@ -34,8 +34,8 @@ describe("createSecurity", () => {
 
   test("allows a request with an allowed browser origin", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
-      headers: { origin: "https://social.localhost" },
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
+      headers: { origin: "http://localhost:3000" },
       method: "POST",
     });
     const decision = await security.check(req, "1.2.3.4");
@@ -44,7 +44,7 @@ describe("createSecurity", () => {
 
   test("rejects a request with a disallowed origin", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
       headers: { origin: "https://evil.example.com" },
       method: "POST",
     });
@@ -58,7 +58,7 @@ describe("createSecurity", () => {
 
   test("rejects a request with no origin and no internal secret", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
       method: "POST",
     });
     const decision = await security.check(req, "1.2.3.4");
@@ -72,7 +72,7 @@ describe("createSecurity", () => {
   test("allows an OAuth callback GET without origin or secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
-      "http://auth.localhost/api/auth/callback/google?code=abc&state=xyz",
+      "http://localhost:3001/api/auth/callback/google?code=abc&state=xyz",
       { method: "GET" }
     );
     const decision = await security.check(req, "1.2.3.4");
@@ -82,7 +82,7 @@ describe("createSecurity", () => {
   test("allows a Reddit OAuth callback GET without origin or secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
-      "http://auth.localhost/api/auth/callback/reddit?code=abc&state=xyz",
+      "http://localhost:3001/api/auth/callback/reddit?code=abc&state=xyz",
       { method: "GET" }
     );
     const decision = await security.check(req, "1.2.3.4");
@@ -91,7 +91,7 @@ describe("createSecurity", () => {
 
   test("still requires origin or secret for OAuth callback POSTs", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/callback/google", {
+    const req = new Request("http://localhost:3001/api/auth/callback/google", {
       method: "POST",
     });
     const decision = await security.check(req, "1.2.3.4");
@@ -105,7 +105,7 @@ describe("createSecurity", () => {
   test("allows the Better Auth error redirect GET without origin or secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
-      "http://auth.localhost/api/auth/error?error=state_mismatch",
+      "http://localhost:3001/api/auth/error?error=state_mismatch",
       { method: "GET" }
     );
     const decision = await security.check(req, "1.2.3.4");
@@ -114,7 +114,7 @@ describe("createSecurity", () => {
 
   test("still requires origin or secret for error path POSTs", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/error", {
+    const req = new Request("http://localhost:3001/api/auth/error", {
       method: "POST",
     });
     const decision = await security.check(req, "1.2.3.4");
@@ -127,7 +127,7 @@ describe("createSecurity", () => {
 
   test("allows a request with the internal secret and no origin", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
       headers: { "x-internal-secret": TEST_SECRET },
       method: "POST",
     });
@@ -138,9 +138,9 @@ describe("createSecurity", () => {
   test("requires the internal secret on signup tRPC procedures even with an allowed origin", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
-      "http://auth.localhost/api/trpc/pendingSignupStart",
+      "http://localhost:3001/api/trpc/pendingSignupStart",
       {
-        headers: { origin: "https://social.localhost" },
+        headers: { origin: "http://localhost:3000" },
         method: "POST",
       }
     );
@@ -155,10 +155,10 @@ describe("createSecurity", () => {
   test("allows signup tRPC procedures with the internal secret", async () => {
     const security = createSecurity(baseConfig());
     const req = new Request(
-      "http://auth.localhost/api/trpc/pendingSignupVerify",
+      "http://localhost:3001/api/trpc/pendingSignupVerify",
       {
         headers: {
-          origin: "https://social.localhost",
+          origin: "http://localhost:3000",
           "x-internal-secret": TEST_SECRET,
         },
         method: "POST",
@@ -170,7 +170,7 @@ describe("createSecurity", () => {
 
   test("rejects a request with a wrong internal secret", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
       headers: { "x-internal-secret": "wrong-secret" },
       method: "POST",
     });
@@ -181,7 +181,7 @@ describe("createSecurity", () => {
 
   test("rejects non-GET/POST methods", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
       headers: { "x-internal-secret": TEST_SECRET },
       method: "DELETE",
     });
@@ -192,7 +192,7 @@ describe("createSecurity", () => {
 
   test("rejects unknown paths", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/admin/delete", {
+    const req = new Request("http://localhost:3001/api/admin/delete", {
       headers: { "x-internal-secret": TEST_SECRET },
       method: "POST",
     });
@@ -203,7 +203,7 @@ describe("createSecurity", () => {
 
   test("allows the health endpoint without a secret", async () => {
     const security = createSecurity(baseConfig());
-    const req = new Request("http://auth.localhost/api/health", {
+    const req = new Request("http://localhost:3001/api/health", {
       method: "GET",
     });
     const decision = await security.check(req, "1.2.3.4");
@@ -212,7 +212,7 @@ describe("createSecurity", () => {
 
   test("rejects oversized bodies", async () => {
     const security = createSecurity(baseConfig({ maxBodyBytes: 100 }));
-    const req = new Request("http://auth.localhost/api/auth/sign-in/email", {
+    const req = new Request("http://localhost:3001/api/auth/sign-in/email", {
       headers: {
         "content-length": "500",
         "x-internal-secret": TEST_SECRET,
@@ -229,7 +229,7 @@ describe("createSecurity", () => {
       baseConfig({ anonRateLimitMax: 3, anonRateLimitWindowMs: 60_000 })
     );
     const makeReq = () =>
-      new Request("http://auth.localhost/api/auth/get-session", {
+      new Request("http://localhost:3001/api/auth/get-session", {
         headers: { "x-internal-secret": TEST_SECRET },
         method: "GET",
       });
@@ -255,7 +255,7 @@ describe("createSecurity", () => {
       })
     );
     const makeReq = (withSession: boolean) =>
-      new Request("http://auth.localhost/api/auth/get-session", {
+      new Request("http://localhost:3001/api/auth/get-session", {
         headers: {
           "x-internal-secret": TEST_SECRET,
           ...(withSession ? { cookie: "better-auth.session_token=abc" } : {}),
@@ -287,7 +287,7 @@ describe("createSecurity", () => {
       baseConfig({ burstRateLimitMax: 2, burstRateLimitWindowMs: 60_000 })
     );
     const makeReq = () =>
-      new Request("http://auth.localhost/api/auth/get-session", {
+      new Request("http://localhost:3001/api/auth/get-session", {
         headers: { "x-internal-secret": TEST_SECRET },
         method: "GET",
       });
@@ -304,7 +304,7 @@ describe("createSecurity", () => {
   test("applies strict limits on sensitive paths", async () => {
     const security = createSecurity(baseConfig({ strictRateLimitMax: 2 }));
     const makeReq = () =>
-      new Request("http://auth.localhost/api/auth/sign-in/email", {
+      new Request("http://localhost:3001/api/auth/sign-in/email", {
         headers: { "x-internal-secret": TEST_SECRET },
         method: "POST",
       });
@@ -323,7 +323,7 @@ describe("createSecurity", () => {
       baseConfig({ anonRateLimitMax: 2, anonRateLimitWindowMs: 60_000 })
     );
     const makeReq = () =>
-      new Request("http://auth.localhost/api/auth/get-session", {
+      new Request("http://localhost:3001/api/auth/get-session", {
         headers: { "x-internal-secret": TEST_SECRET },
         method: "GET",
       });
@@ -379,7 +379,7 @@ describe("readSecurityConfig", () => {
     expect(config.anonRateLimitMax).toBe(120);
     expect(config.strictRateLimitMax).toBe(30);
     expect(config.burstRateLimitMax).toBe(30);
-    expect(config.allowedOrigins).toContain("https://social.localhost");
+    expect(config.allowedOrigins).toContain("http://localhost:3000");
   });
 
   test("allowed origins derive from APP_URL", () => {

@@ -110,7 +110,7 @@ describe("email service", () => {
     // process.env descriptors non-configurable, so defineProperty throws.
     process.env.RESEND_API_KEY = "test_key";
     process.env.NODE_ENV = "test";
-    process.env.APP_URL = "https://social.localhost";
+    process.env.APP_URL = "http://localhost:3000";
     process.env.DATABASE_URL = "postgresql://mock";
     process.env.POSTGRES_PRISMA_URL = "postgresql://mock";
     process.env.POSTGRES_URL_NON_POOLING = "postgresql://mock";
@@ -128,7 +128,7 @@ describe("email service", () => {
       writable: true,
     });
     Object.defineProperty(envModule.env, "APP_URL", {
-      value: "https://social.localhost",
+      value: "http://localhost:3000",
       writable: true,
     });
 

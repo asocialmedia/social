@@ -59,7 +59,7 @@ mock.module("@asm/db", () => ({
 }));
 
 const adminContext = {
-  req: new Request("https://auth.localhost/api/trpc"),
+  req: new Request("http://localhost:3001/api/trpc"),
   resHeaders: new Headers(),
   session: { id: "s1", userId: "admin1" },
   user: { id: "admin1", role: "admin" },

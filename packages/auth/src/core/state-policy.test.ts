@@ -70,8 +70,9 @@ describe("createAuthConfig oauth state cookie policy", () => {
     const account = lastCaptured().account as {
       skipStateCookieCheck?: boolean;
     };
-    // Dev runs auth on localhost:3001 and web on social.localhost; no shared
-    // parent domain means the state cookie can never reach the callback.
+    // Dev origins differ from the callback host, so the state cookie set
+    // during sign-in is not always replayed on the callback; the database
+    // verification row remains the CSRF guarantee in development.
     expect(account.skipStateCookieCheck).toBe(true);
   });
 

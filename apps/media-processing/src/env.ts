@@ -141,7 +141,7 @@ export const keys = createEnv({
     MEDIA_UPLOADS_PER_DAY: numericOverride,
     MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
     MEDIA_WHISPER_ENABLED: z.enum(["0", "1"]).default("1"),
-    NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
+    NEXT_PUBLIC_URL: z.url().default("http://localhost:3000"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
@@ -211,9 +211,8 @@ export const workerEnv = {
     return keys.GEMINI_TRANSCRIBE_MODEL;
   },
   get HEALTH_PORT() {
-    // Portless injects a dynamic PORT when running under `bun run dev`
-    // (media.localhost routes to whatever it assigned); production leaves
-    // PORT unset and falls back to the fixed container port.
+    // An injected PORT (from the container runtime) wins; dev and prod both
+    // fall back to the fixed MEDIA_HEALTH_PORT (3010).
     const dynamicPort = Number(process.env.PORT);
     if (Number.isInteger(dynamicPort) && dynamicPort > 0) {
       return dynamicPort;

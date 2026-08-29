@@ -13,18 +13,16 @@ import {
 
 describe("email templates", () => {
   test("renders verification email html", async () => {
-    const html = await getVerificationEmailHtml(
-      "https://social.localhost/verify"
-    );
+    const html = await getVerificationEmailHtml("http://localhost:3000/verify");
 
     expect(html).toContain("Verify your email");
-    expect(html).toContain("https://social.localhost/verify");
+    expect(html).toContain("http://localhost:3000/verify");
     expect(html).toContain("zephyr-githubanner.jpg");
   });
 
   test("verification email component returns JSX", () => {
     const element = VerificationEmail({
-      verificationUrl: "https://social.localhost/verify",
+      verificationUrl: "http://localhost:3000/verify",
     });
 
     expect(element).toBeDefined();
@@ -46,19 +44,19 @@ describe("email templates", () => {
 
   test("renders password reset email html", async () => {
     const html = await getPasswordResetEmailHtml(
-      "https://social.localhost/reset-password/confirm?token=t"
+      "http://localhost:3000/reset-password/confirm?token=t"
     );
 
     expect(html).toContain("Password Reset Request");
     expect(html).toContain(
-      "https://social.localhost/reset-password/confirm?token=t"
+      "http://localhost:3000/reset-password/confirm?token=t"
     );
     expect(html).toContain("zephyr-githubanner.jpg");
   });
 
   test("password reset component returns JSX", () => {
     const element = PasswordResetEmail({
-      resetUrl: "https://social.localhost/reset-password/confirm?token=t",
+      resetUrl: "http://localhost:3000/reset-password/confirm?token=t",
     });
 
     expect(element).toBeDefined();

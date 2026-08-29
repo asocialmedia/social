@@ -29,8 +29,7 @@ export type PreflightCheckKey =
   | "redis"
   | "asmob"
   | "openobserve"
-  | "clamav"
-  | "portless";
+  | "clamav";
 
 export type PreflightCheckState =
   | "pending"
@@ -49,7 +48,6 @@ export const PREFLIGHT_CHECK_ORDER: {
   { key: "asmob", label: "obj" },
   { key: "openobserve", label: "ozo" },
   { key: "clamav", label: "av" },
-  { key: "portless", label: "ptl" },
 ];
 
 export const DEFAULT_PREFLIGHT_CONFIG: PreflightConfig = {
@@ -238,12 +236,4 @@ export function buildPreflightProgressLine(
   ).join(" ");
 
   return `preflight ${body}`;
-}
-
-export function shouldUseSudoForPortless(output: string) {
-  return (
-    output.includes("requires sudo") ||
-    output.includes("no TTY") ||
-    output.includes("a terminal is required")
-  );
 }

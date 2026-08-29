@@ -186,7 +186,7 @@ services:
         aws --endpoint-url "$$ASMOB_ENDPOINT" s3api put-bucket-cors --bucket uploads --cors-configuration '{
           "CORSRules": [
             {
-              "AllowedOrigins": ["https://social.localhost", "http://localhost:3000", "https://asocialmedia.cc", "https://www.asocialmedia.cc"],
+              "AllowedOrigins": ["http://localhost:3000", "https://asocialmedia.cc", "https://www.asocialmedia.cc"],
               "AllowedMethods": ["PUT", "HEAD", "GET"],
               "AllowedHeaders": ["*"],
               "ExposeHeaders": ["ETag", "Content-Length"],

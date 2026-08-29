@@ -62,7 +62,7 @@ export function getSecureImageUrl(rawUrl: string): string {
     return "";
   }
 
-  // 1. Normalize any default avatar path or absolute URL (e.g. https://social.localhost/avatars/default-1.png,
+  // 1. Normalize any default avatar path or absolute URL (e.g. http://localhost:3000/avatars/default-1.png,
   // http://localhost:3000/avatars/default-2.png, /avatars/default-1.png) to a clean relative static asset path.
   const defaultAvatarMatch = rawUrl.match(DEFAULT_AVATAR_RE);
   if (defaultAvatarMatch?.groups?.file) {

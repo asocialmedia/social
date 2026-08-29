@@ -317,13 +317,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
       // OAuth state is dual-tracked: a database verification row (shared
       // Postgres, always present) plus a signed browser cookie (CSRF second
       // layer). In production the cookie reaches the auth subdomain via
-      // crossSubDomainCookies, so the check holds. In development auth runs
-      // on localhost:3001 while the web app sits on social.localhost - no
-      // shared parent domain - so Google's callback arrives at auth without
-      // the cookie the sign-in step stored under the web host, and every
-      // social sign-in fails with state_security_mismatch. The DB row still
-      // proves the callback belongs to a flow this server started, so the
-      // cookie layer is skipped in dev only.
+      // crossSubDomainCookies, so the check holds. In development the web app
+      // runs on localhost:3000 while auth runs on localhost:3001 - same site
+      // for cookies (ports are ignored), but the callback URL differs from
+      // the sign-in origin, so the state cookie set during sign-in is not
+      // always replayed on the callback. The DB row still proves the callback
+      // belongs to a flow this server started, so the cookie layer is skipped
+      // in dev only.
       skipStateCookieCheck: environment !== "production",
     },
 
@@ -395,16 +395,11 @@ export function createAuthConfig(config: AuthConfig = {}) {
       env.AUTH_URL,
       "https://asocialmedia.cc",
       "https://auth.asocialmedia.cc",
-      // Local development origins never ship to production. Web is served
-      // through portless (https://social.localhost); auth/media run plain
-      // Bun servers on 3001/3010.
+      // Local development origins never ship to production. Web, auth and
+      // media all run as plain localhost servers in dev (3000/3001/3010).
       ...(environment === "production"
         ? []
-        : [
-            "https://social.localhost",
-            "http://localhost:3000",
-            "http://localhost:3001",
-          ]),
+        : ["http://localhost:3000", "http://localhost:3001"]),
     ].filter(Boolean),
 
     telemetry: {

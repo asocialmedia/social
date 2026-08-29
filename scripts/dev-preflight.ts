@@ -21,7 +21,6 @@ import {
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
   parseServiceSnapshots,
-  shouldUseSudoForPortless,
   withinTtl,
 } from "./dev-preflight-lib";
 import type {
@@ -102,18 +101,6 @@ async function runCmd(args: string[]) {
     exitCode,
     stderr: stderr.trim(),
     stdout: stdout.trim(),
-  };
-}
-
-async function runInteractiveCmd(args: string[]) {
-  const proc = Bun.spawn(args, {
-    stderr: "inherit",
-    stdin: "inherit",
-    stdout: "inherit",
-  });
-
-  return {
-    exitCode: await proc.exited,
   };
 }
 
@@ -348,62 +335,6 @@ async function hasListenerOnPort(port: number) {
   return result.stdout.trim().length > 0;
 }
 
-async function ensurePortlessProxyReady() {
-  // Web runs behind the portless proxy (https://social.localhost on 443).
-  // Auth and media-processing run plain `bun --watch` on 3001/3010.
-  if (await hasListenerOnPort(443)) {
-    return;
-  }
-
-  if (await hasListenerOnPort(1355)) {
-    await runCmd(["portless", "proxy", "stop"]);
-  }
-
-  let startResult = await runCmd([
-    "portless",
-    "proxy",
-    "start",
-    "--https",
-    "--port",
-    "443",
-  ]);
-
-  if (startResult.exitCode !== 0) {
-    const output = `${startResult.stdout}\n${startResult.stderr}`;
-    const needsSudo = shouldUseSudoForPortless(output);
-
-    if (needsSudo && process.stdin.isTTY) {
-      const sudoStartResult = await runInteractiveCmd([
-        "sudo",
-        "portless",
-        "proxy",
-        "start",
-        "--https",
-        "--port",
-        "443",
-      ]);
-
-      if (sudoStartResult.exitCode !== 0) {
-        fatal("Portless proxy failed to start on port 443.");
-      }
-
-      startResult = { exitCode: 0, stderr: "", stdout: "" };
-    }
-  }
-
-  if (startResult.exitCode !== 0) {
-    fatal(
-      "Portless proxy is not ready on port 443. Run `sudo portless proxy start --https --port 443` and retry."
-    );
-  }
-
-  if (!(await hasListenerOnPort(443))) {
-    fatal(
-      "Portless proxy did not bind to port 443. Run `sudo portless proxy start --https --port 443` and retry."
-    );
-  }
-}
-
 async function getComposeFileFingerprint() {
   const composePath = path.join(
     process.cwd(),
@@ -422,9 +353,9 @@ async function getComposeFileFingerprint() {
 
 async function cleanupStaleDevServers() {
   // Ensures `bun run dev` is single-instance: kills any orphaned Next/Turbo/
-  // portless/bun-watch from a prior run that would otherwise block the new
-  // dev servers or hold stale ports. Failures are non-fatal (no process to kill
-  // is the common case).
+  // bun-watch from a prior run that would otherwise block the new dev servers
+  // or hold stale ports. Failures are non-fatal (no process to kill is the
+  // common case).
   const kill = async (pattern: string) => {
     try {
       await runCmd(["pkill", "-9", "-f", pattern]);
@@ -436,7 +367,6 @@ async function cleanupStaleDevServers() {
   // Kill stale dev processes (host-only — container pid namespaces are isolated)
   await kill("next dev");
   await kill("turbo dev");
-  await kill("portless social");
   await kill("bun --watch src/dev");
   await kill("src/server"); // the Bun.serve child inside the watcher
   // Free the fixed ports if a prior Bun.serve survived the watcher kill:
@@ -569,12 +499,6 @@ async function run() {
     () => assertClamAvReady()
   );
   setCheckState("clamav", clamAvStatus);
-  activeCheck = null;
-
-  activeCheck = "portless";
-  setCheckState("portless", "running");
-  await ensurePortlessProxyReady();
-  setCheckState("portless", "ok");
   activeCheck = null;
 
   await setCache(cache);

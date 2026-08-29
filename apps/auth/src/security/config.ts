@@ -51,7 +51,6 @@ function buildAllowedOrigins(env: NodeJS.ProcessEnv): string[] {
   if (env.NODE_ENV !== "production") {
     add("http://localhost:3000");
     add("http://localhost:3001");
-    add("https://social.localhost");
   }
   return [...origins];
 }
