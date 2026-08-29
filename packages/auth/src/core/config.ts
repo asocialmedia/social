@@ -1,4 +1,5 @@
 import { isReservedUsername, prisma } from "@asm/db";
+import { createLogger } from "@asm/logger";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
@@ -185,12 +186,33 @@ export function createAuthConfig(config: AuthConfig = {}) {
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
+  // Structured logger for better-auth's own diagnostics (OAuth state
+  // failures, provider errors) so they land in the same pino stream with
+  // trace context instead of raw console output.
+  const authLogger = createLogger({ serviceName: "auth-better-auth" });
+
   // eslint-disable-next-line sort-keys
   return betterAuth({
     baseURL: authBaseUrl,
     database: prismaAdapter(prisma, {
       provider: "postgresql",
     }),
+
+    // Pipe better-auth's internal logs (OAuth state failures, provider
+    // errors) into the service's structured pino output so they carry the
+    // same trace context and stream as every other auth log line.
+    logger: {
+      log(level, message, ...args) {
+        const entry = { details: args, source: "better-auth" };
+        if (level === "error") {
+          authLogger.error(entry, message);
+        } else if (level === "warn") {
+          authLogger.warn(entry, message);
+        } else {
+          authLogger.info(entry, message);
+        }
+      },
+    },
 
     user: {
       additionalFields: {
@@ -292,6 +314,17 @@ export function createAuthConfig(config: AuthConfig = {}) {
         enabled: trustedProviders.length > 0,
         trustedProviders,
       },
+      // OAuth state is dual-tracked: a database verification row (shared
+      // Postgres, always present) plus a signed browser cookie (CSRF second
+      // layer). In production the cookie reaches the auth subdomain via
+      // crossSubDomainCookies, so the check holds. In development auth runs
+      // on localhost:3001 while the web app sits on social.localhost - no
+      // shared parent domain - so Google's callback arrives at auth without
+      // the cookie the sign-in step stored under the web host, and every
+      // social sign-in fails with state_security_mismatch. The DB row still
+      // proves the callback belongs to a flow this server started, so the
+      // cookie layer is skipped in dev only.
+      skipStateCookieCheck: environment !== "production",
     },
 
     session: {

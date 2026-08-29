@@ -45,8 +45,8 @@ export async function GET(
       },
       embedding: true,
       id: true,
+      isGust: true,
       semanticTags: true,
-      type: true,
     },
     where: { id: postId },
   });
