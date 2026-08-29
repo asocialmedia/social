@@ -22,9 +22,13 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
+import {
+  parseWebVttCues,
+  VideoTranscriptDrawer,
+} from "@/components/media/video-transcript-drawer";
+import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { cn } from "@/lib/utils";
 import { useVideoMuteStore } from "@/lib/video-mute-store";
 
@@ -191,20 +195,60 @@ export const CustomVideoPlayer = ({
   const [showHotkeys, setShowHotkeys] = useState(false);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [cues, setCues] = useState<TranscriptCue[]>([]);
 
-  const toggleCaptions = useCallback(() => {
-    setCaptionsEnabled((prev) => {
-      const next = !prev;
-      const video = videoRef.current;
-      if (video?.textTracks) {
-        for (const track of video.textTracks) {
-          if (track) {
-            track.mode = next ? "showing" : "disabled";
+  const captionUrl =
+    captions[0]?.src || (mediaId ? `/api/media/${mediaId}?captions=1` : null);
+
+  useEffect(() => {
+    if (!captionUrl) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setCues([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadCues() {
+      try {
+        const res = await fetch(captionUrl as string);
+        if (res.ok) {
+          const vtt = await res.text();
+          if (!cancelled && vtt) {
+            setCues(parseWebVttCues(vtt));
           }
         }
+      } catch {
+        // Ignore fetch errors
       }
-      return next;
-    });
+    }
+    void loadCues();
+    return () => {
+      cancelled = true;
+    };
+  }, [captionUrl]);
+
+  // Keep native browser track hidden so unstyled cues don't collide with controls
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video?.textTracks) {
+      for (const track of video.textTracks) {
+        if (track) {
+          track.mode = "hidden";
+        }
+      }
+    }
+  });
+
+  const activeCue = useMemo(() => {
+    if (!captionsEnabled || cues.length === 0) {
+      return null;
+    }
+    return (
+      cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
+    );
+  }, [captionsEnabled, cues, currentTime]);
+
+  const toggleCaptions = useCallback(() => {
+    setCaptionsEnabled((prev) => !prev);
   }, []);
 
   const toggleTranscript = useCallback(() => {
@@ -670,6 +714,13 @@ export const CustomVideoPlayer = ({
     setShowHotkeys(false);
   }, []);
 
+  let captionBottomClass = "bottom-6 sm:bottom-8";
+  if (hideControls) {
+    captionBottomClass = "bottom-16 sm:bottom-20";
+  } else if (showControls) {
+    captionBottomClass = "bottom-20 sm:bottom-24";
+  }
+
   return (
     <div
       className={cn(
@@ -706,9 +757,9 @@ export const CustomVideoPlayer = ({
         }}
         src={src}
       >
-        {captions.map((caption, index) => (
+        {captions.map((caption) => (
           <track
-            default={captionsEnabled && index === 0}
+            default={false}
             key={caption.src}
             kind="subtitles"
             label={caption.label}
@@ -738,6 +789,27 @@ export const CustomVideoPlayer = ({
           />
         </div>
       )}
+
+      {/* Floating captions banner with dynamic placement above controls */}
+      <AnimatePresence>
+        {captionsEnabled && activeCue ? (
+          <motion.div
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className={cn(
+              "pointer-events-none absolute left-1/2 z-35 max-w-[85%] -translate-x-1/2 text-center transition-all duration-200 ease-out",
+              captionBottomClass
+            )}
+            exit={{ opacity: 0, scale: 0.96, y: 2 }}
+            initial={{ opacity: 0, scale: 0.96, y: 4 }}
+            key={`${activeCue.start}-${activeCue.text}`}
+            transition={{ duration: 0.12 }}
+          >
+            <span className="inline-block rounded-lg border border-white/15 bg-black/85 px-3.5 py-1.5 text-xs leading-snug font-semibold tracking-wide text-white shadow-2xl backdrop-blur-md select-none sm:text-sm md:text-base">
+              {activeCue.text}
+            </span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isBuffering ? (

@@ -14,7 +14,13 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
@@ -24,7 +30,11 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
-import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
+import {
+  parseWebVttCues,
+  VideoTranscriptDrawer,
+} from "@/components/media/video-transcript-drawer";
+import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
@@ -60,6 +70,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   shouldMountVideo = true,
 }) => {
   const { user } = useSession();
+  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
@@ -80,29 +91,69 @@ export const GustCard: React.FC<GustCardProps> = ({
   const altRevealed = useAltRevealed(post.id);
   const gustAltText = post.attachments.find((a) => a.altText)?.altText;
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [cues, setCues] = useState<TranscriptCue[]>([]);
+  const videoMediaId = videoMedia?.id;
+
+  useEffect(() => {
+    if (!videoMediaId) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setCues([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadCues() {
+      try {
+        const res = await fetch(`/api/media/${videoMediaId}?captions=1`);
+        if (res.ok) {
+          const vtt = await res.text();
+          if (!cancelled && vtt) {
+            setCues(parseWebVttCues(vtt));
+          }
+        }
+      } catch {
+        // Ignore fetch errors
+      }
+    }
+    void loadCues();
+    return () => {
+      cancelled = true;
+    };
+  }, [videoMediaId]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video?.textTracks) {
+      for (const track of video.textTracks) {
+        if (track) {
+          track.mode = "hidden";
+        }
+      }
+    }
+  });
+
+  const activeCue = useMemo(() => {
+    if (!captionsEnabled || cues.length === 0) {
+      return null;
+    }
+    return (
+      cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
+    );
+  }, [captionsEnabled, cues, currentTime]);
 
   const toggleCaptions = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setCaptionsEnabled((prev) => {
-      const next = !prev;
-      const video = videoRef.current;
-      if (video?.textTracks) {
-        for (const track of video.textTracks) {
-          if (track) {
-            track.mode = next ? "showing" : "disabled";
-          }
-        }
-      }
-      return next;
-    });
+    setCaptionsEnabled((prev) => !prev);
   }, []);
 
   const [showTranscript, setShowTranscript] = useState(false);
 
-  const toggleTranscript = useCallback((e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setShowTranscript((prev) => !prev);
-  }, []);
+  const toggleTranscript = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setShowTranscript((prev) => !prev);
+    },
+    [setShowTranscript]
+  );
 
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,7 +178,6 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
   }
 
-  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
   const authorName = post.user.displayName || post.user.username;
 
   // Shared vote state so the rail button and the double-tap gesture stay in
@@ -508,6 +558,24 @@ export const GustCard: React.FC<GustCardProps> = ({
               </motion.div>
             );
           })}
+        </AnimatePresence>
+
+        {/* Floating captions banner positioned cleanly in center-lower zone above author stack */}
+        <AnimatePresence>
+          {captionsEnabled && activeCue ? (
+            <motion.div
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="pointer-events-none absolute inset-x-4 bottom-52 z-25 flex justify-center text-center sm:bottom-56"
+              exit={{ opacity: 0, scale: 0.96, y: 2 }}
+              initial={{ opacity: 0, scale: 0.96, y: 4 }}
+              key={`${activeCue.start}-${activeCue.text}`}
+              transition={{ duration: 0.12 }}
+            >
+              <span className="inline-block max-w-[90%] rounded-lg border border-white/15 bg-black/85 px-3.5 py-1.5 text-xs leading-snug font-semibold tracking-wide text-white shadow-2xl backdrop-blur-md select-none sm:text-sm">
+                {activeCue.text}
+              </span>
+            </motion.div>
+          ) : null}
         </AnimatePresence>
 
         {/* Bottom scrim so the overlay text stays readable */}
