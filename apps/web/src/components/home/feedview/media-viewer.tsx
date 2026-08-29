@@ -1375,7 +1375,7 @@ const MediaViewer = ({
                   <button
                     aria-label="Transcript"
                     className={cn(
-                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px lg:hidden",
                       MOBILE_CHIP_3D,
                       showTranscript && "border-orange-500/60 text-orange-400"
                     )}

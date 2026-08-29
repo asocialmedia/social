@@ -110,9 +110,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
       {/* Header */}
       <div className="border-border/50 flex items-center justify-between border-b pb-2.5">
         <div className="flex items-center gap-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 text-orange-500 dark:bg-orange-500/20 dark:text-orange-400">
-            <FileText className="size-3.5" />
-          </div>
+          <FileText className="size-4 shrink-0 fill-orange-500 text-orange-500" />
           <div>
             <h3 className="text-foreground text-xs font-semibold">
               Transcript
@@ -161,7 +159,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
       ) : null}
 
       {/* Cues List */}
-      <div className="hide-native-scrollbar mt-2 max-h-64 space-y-1 overflow-y-auto pr-0.5">
+      <div className="hide-native-scrollbar mt-2 max-h-52 space-y-1 overflow-y-auto pr-0.5">
         {(() => {
           if (isLoading) {
             return (

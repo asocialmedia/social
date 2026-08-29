@@ -942,6 +942,7 @@ export const CustomVideoPlayer = ({
                       <GlassIconButton
                         aria-label="Transcript (T)"
                         className={cn(
+                          "xl:hidden",
                           showTranscript &&
                             "border-orange-500/60 bg-white/20 text-orange-400"
                         )}
