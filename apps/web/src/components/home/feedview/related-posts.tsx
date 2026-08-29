@@ -1,11 +1,9 @@
 "use client";
 
 import type { PostData } from "@asm/db";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";
 
 // eslint-disable-next-line import/no-cycle -- related posts reuse post-card which renders media-previews, which opens this viewer
@@ -16,45 +14,26 @@ interface RelatedPostsProps {
 }
 
 // Related-post list for the media viewer sidebar. Uses the same PostCard
-// component as the rest of the app so the posts look identical everywhere,
-// paginated via the same cursor-based endpoint + infinite scroll.
+// component ranked semantically by topic tags and vector embeddings.
 export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } =
-    useInfiniteQuery({
-      getNextPageParam: (lastPage) => lastPage.nextCursor,
-      initialPageParam: null as string | null,
-      queryFn: async ({ pageParam }: { pageParam: string | null }) => {
-        const result = await kyInstance
-          .get(
-            "/api/posts/for-you",
-            pageParam
-              ? { searchParams: { cursor: pageParam, excludeModerated: "1" } }
-              : { searchParams: { excludeModerated: "1" } }
-          )
-          .json<{ posts: PostData[]; nextCursor: string | null }>();
-        return result;
-      },
-      queryKey: ["related-posts", excludePostId],
-      refetchOnMount: false,
-      refetchOnReconnect: false,
-      refetchOnWindowFocus: false,
-      staleTime: 30 * 1000,
-    });
+  const { data, status } = useQuery({
+    queryFn: async () => {
+      const result = await kyInstance
+        .get(`/api/posts/${excludePostId}/related`)
+        .json<{ posts: PostData[] }>();
+      return result;
+    },
+    queryKey: ["related-posts", excludePostId],
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+    staleTime: 60 * 1000,
+  });
 
-  const posts = useMemo(() => {
-    const list = (data?.pages.flatMap((page) => page.posts) || []).filter(
-      (post) => post.id !== excludePostId
-    );
-    // Rank shifts between paginated refetches can land the same post on two
-    // pages (tail of one, head of the next); React keys demand uniqueness.
-    return [...new Map(list.map((post) => [post.id, post])).values()];
-  }, [data?.pages, excludePostId]);
-
-  const handleBottomReached = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+  const posts = useMemo(
+    () => (data?.posts || []).filter((post) => post.id !== excludePostId),
+    [data?.posts, excludePostId]
+  );
 
   if (status === "pending") {
     return (
@@ -71,11 +50,10 @@ export default function RelatedPosts({ excludePostId }: RelatedPostsProps) {
   }
 
   return (
-    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+    <div className="space-y-3">
       {posts.map((post) => (
         <PostCard isJoined key={post.id} mobileLayout post={post} />
       ))}
-      {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
-    </InfiniteScrollContainer>
+    </div>
   );
 }
