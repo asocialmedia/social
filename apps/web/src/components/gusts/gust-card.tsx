@@ -46,6 +46,7 @@ import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
 import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import GustVoteButton from "./gust-vote-button";
 import { useGustVote } from "./use-gust-vote";
@@ -90,7 +91,10 @@ export const GustCard: React.FC<GustCardProps> = ({
   // "Show alt" menu entry drives.
   const altRevealed = useAltRevealed(post.id);
   const gustAltText = post.attachments.find((a) => a.altText)?.altText;
-  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleGlobalCaptions = useVideoCaptionsStore(
+    (state) => state.toggleCaptions
+  );
   const [cues, setCues] = useState<TranscriptCue[]>([]);
   const videoMediaId = videoMedia?.id;
 
@@ -140,10 +144,13 @@ export const GustCard: React.FC<GustCardProps> = ({
     );
   }, [captionsEnabled, cues, currentTime]);
 
-  const toggleCaptions = useCallback((e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setCaptionsEnabled((prev) => !prev);
-  }, []);
+  const toggleCaptions = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      toggleGlobalCaptions();
+    },
+    [toggleGlobalCaptions]
+  );
 
   const [showTranscript, setShowTranscript] = useState(false);
 

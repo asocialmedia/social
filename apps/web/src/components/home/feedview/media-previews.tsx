@@ -17,11 +17,13 @@ import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
+import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useAltRevealed } from "@/lib/alt-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
@@ -31,6 +33,7 @@ import {
   getMediaProxyUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 import { useVideoMuteStore } from "@/lib/video-mute-store";
 import { withViewTransition } from "@/lib/view-transition";
 
@@ -268,6 +271,60 @@ export const VideoPreview = ({
   // (feed -> post page -> media viewer) via the video mute store.
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
+  const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
+  const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
+
+  const cues = useMemo(() => {
+    if (media.transcript) {
+      return parseWebVttCues(media.transcript);
+    }
+    return fetchedCues;
+  }, [media.transcript, fetchedCues]);
+
+  useEffect(() => {
+    if (
+      showCaptions &&
+      (isHovered || autoPlay || isVideoActive) &&
+      !media.transcript &&
+      fetchedCues.length === 0
+    ) {
+      let cancelled = false;
+      const loadCaptions = async () => {
+        try {
+          const res = await fetch(`/api/media/${media.id}?captions=1`);
+          if (res.ok) {
+            const vtt = await res.text();
+            if (!cancelled && vtt) {
+              setFetchedCues(parseWebVttCues(vtt));
+            }
+          }
+        } catch {
+          // Ignore network errors
+        }
+      };
+      void loadCaptions();
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [
+    showCaptions,
+    isHovered,
+    autoPlay,
+    isVideoActive,
+    media.id,
+    media.transcript,
+    fetchedCues.length,
+  ]);
+
+  const activeCue = useMemo(() => {
+    if (!showCaptions || cues.length === 0) {
+      return null;
+    }
+    return (
+      cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
+    );
+  }, [showCaptions, cues, currentTime]);
 
   const getExpandedHeight = useCallback((): number | null => {
     const container = containerRef.current;
@@ -624,6 +681,18 @@ export const VideoPreview = ({
         className="absolute bottom-11 left-2 z-10"
         media={media}
       />
+
+      {/* Live Floating Caption on feed card */}
+      {showCaptions && activeCue && isVideoActive ? (
+        <div className="pointer-events-none absolute inset-x-3 bottom-12 z-20 flex justify-center px-2">
+          <div className="rounded-lg bg-black/85 px-2.5 py-1 text-center shadow-md backdrop-blur-md">
+            <p className="line-clamp-2 text-xs font-medium text-white drop-shadow-xs">
+              {activeCue.text}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="pointer-events-none absolute inset-0 z-0 bg-linear-to-t from-black/50 via-transparent to-transparent opacity-40 transition-all duration-300 group-hover:opacity-20" />
     </div>
   );

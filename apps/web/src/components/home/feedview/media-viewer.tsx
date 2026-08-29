@@ -57,6 +57,7 @@ import {
   getMediaVariantUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import {
   CustomVideoPlayer,
@@ -237,22 +238,14 @@ const MediaViewer = ({
     }
     setVideoState((prev) => ({ ...prev, currentTime: newTime }));
   }, []);
-  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleGlobalCaptions = useVideoCaptionsStore(
+    (state) => state.toggleCaptions
+  );
 
   const handleVideoToggleCaptions = useCallback(() => {
-    setCaptionsEnabled((prev) => {
-      const next = !prev;
-      const video = videoRef.current;
-      if (video?.textTracks) {
-        for (const track of video.textTracks) {
-          if (track) {
-            track.mode = next ? "showing" : "disabled";
-          }
-        }
-      }
-      return next;
-    });
-  }, []);
+    toggleGlobalCaptions();
+  }, [toggleGlobalCaptions]);
 
   const [showTranscript, setShowTranscript] = useState(false);
 

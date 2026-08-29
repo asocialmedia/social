@@ -30,6 +30,7 @@ import {
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { cn } from "@/lib/utils";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 import { useVideoMuteStore } from "@/lib/video-mute-store";
 
 interface CustomVideoPlayerProps {
@@ -193,7 +194,8 @@ export const CustomVideoPlayer = ({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
-  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
   const [showTranscript, setShowTranscript] = useState(false);
   const [cues, setCues] = useState<TranscriptCue[]>([]);
 
@@ -246,10 +248,6 @@ export const CustomVideoPlayer = ({
       cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
     );
   }, [captionsEnabled, cues, currentTime]);
-
-  const toggleCaptions = useCallback(() => {
-    setCaptionsEnabled((prev) => !prev);
-  }, []);
 
   const toggleTranscript = useCallback(() => {
     setShowTranscript((prev) => !prev);

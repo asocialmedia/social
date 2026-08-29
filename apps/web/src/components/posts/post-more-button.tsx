@@ -10,6 +10,7 @@ import {
   Hash,
   MoreHorizontal,
   ShieldCheck,
+  Subtitles,
   Trash2,
 } from "lucide-react";
 import type * as React from "react";
@@ -21,6 +22,7 @@ import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
 import { canModeratePost } from "@/lib/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn } from "@/lib/utils";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import DeletePostDialog from "./delete-post-dialog";
 import PostModerationDialog from "./post-moderation-dialog";
@@ -56,6 +58,11 @@ export default function PostMoreButton({
   // media grid, so the entry only appears when something is described.
   const hasAltText = post.attachments.some((attachment) => attachment.altText);
   const isAltRevealed = useAltRevealed(post.id);
+  const hasVideo = post.attachments.some(
+    (attachment) => attachment.type === "VIDEO"
+  );
+  const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
 
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
@@ -101,6 +108,14 @@ export default function PostMoreButton({
       toggleAltReveal(post.id);
     },
     [post.id]
+  );
+
+  const handleToggleCaptions = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      toggleCaptions();
+    },
+    [toggleCaptions]
   );
 
   const handleTriggerClick = useCallback(
@@ -152,6 +167,17 @@ export default function PostMoreButton({
               <span className="flex items-center gap-3">
                 <Captions className="size-4" />
                 {isAltRevealed ? "Hide alt" : "Show alt"}
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {hasVideo ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleToggleCaptions}
+            >
+              <span className="flex items-center gap-3">
+                <Subtitles className="size-4" />
+                {showCaptions ? "Hide captions" : "Show captions"}
               </span>
             </DropdownMenuItem>
           ) : null}
