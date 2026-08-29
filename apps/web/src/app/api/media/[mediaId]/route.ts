@@ -177,6 +177,47 @@ export async function GET(
     const url = new URL(request.url);
     const download = url.searchParams.get("download") === "true";
     const isThumbnail = url.searchParams.get("thumb") === "1";
+    const isCaptions =
+      url.searchParams.get("captions") === "1" ||
+      url.searchParams.get("vtt") === "1";
+
+    if (isCaptions) {
+      const freshMedia = await prisma.media.findUnique({
+        select: { captionsKey: true },
+        where: { id: mediaId },
+      });
+      if (freshMedia?.captionsKey) {
+        try {
+          const captionsObject = await asmobClient.send(
+            new GetObjectCommand({
+              Bucket: ASMOB_BUCKET,
+              Key: freshMedia.captionsKey,
+            })
+          );
+          return new NextResponse(captionsObject.Body as ReadableStream, {
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Cache-Control": ownership.postId
+                ? "public, max-age=31536000, immutable"
+                : "private, max-age=86400",
+              "Content-Type": "text/vtt; charset=utf-8",
+              "X-Content-Type-Options": "nosniff",
+            },
+            status: 200,
+          });
+        } catch {
+          // Fall through to empty VTT
+        }
+      }
+      return new NextResponse("WEBVTT\n\n", {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "public, max-age=60",
+          "Content-Type": "text/vtt; charset=utf-8",
+        },
+        status: 200,
+      });
+    }
     if (isThumbnail && media.type === "VIDEO") {
       // thumbnailKey is written AFTER publish by the process job, so reading
       // it from the hours-cached object would pin "no thumbnail" until cache

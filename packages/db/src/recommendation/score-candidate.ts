@@ -12,6 +12,7 @@ export interface CandidatePost {
   commentCount: number;
   createdAt: Date;
   id: string;
+  semanticTags?: string[];
   tags: string[];
 }
 
@@ -82,7 +83,9 @@ export function scoreCandidateComponents(
     authorAffinity = Math.max(authorAffinity, FOLLOWED_AUTHOR_BASELINE);
   }
 
-  const distinctTags = [...new Set(post.tags)].filter(Boolean);
+  const distinctTags = [
+    ...new Set([...post.tags, ...(post.semanticTags ?? [])]),
+  ].filter(Boolean);
   let tagMass = 0;
   for (const tag of distinctTags) {
     tagMass += tagWeights[tag] ?? 0;

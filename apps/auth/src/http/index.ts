@@ -41,7 +41,6 @@ const TRPC_AUTH_PATHS = [
 // Local-only origins are explicitly dev-only and never accepted in production.
 const DEV_ONLY_ORIGINS = [
   "https://social.localhost",
-  "https://auth.localhost",
   "http://localhost:3000",
   "http://localhost:3001",
 ] as const;
@@ -76,9 +75,9 @@ export function getAllowedOrigin(request?: Request): string {
     // In dev, prefer the local dev origin for internal calls
     if (
       process.env.NODE_ENV !== "production" &&
-      allowed.has("https://social.localhost")
+      allowed.has("http://localhost:3000")
     ) {
-      return "https://social.localhost";
+      return "http://localhost:3000";
     }
     return [...allowed][0] || "";
   }
@@ -94,7 +93,7 @@ export function getAllowedOrigin(request?: Request): string {
   }
   return process.env.NODE_ENV === "production"
     ? prodFallback
-    : "https://social.localhost";
+    : "http://localhost:3000";
 }
 
 export function corsHeaders(request?: Request): Record<string, string> {

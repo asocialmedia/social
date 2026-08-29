@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "https://auth.localhost";
+const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:3001";
 const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;
 
 // Unlinks a social provider (google/reddit) from the current user's account by

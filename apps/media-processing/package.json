@@ -1,12 +1,12 @@
 {
   "name": "@asm/media-processing",
-  "version": "1.0.48",
+  "version": "1.0.49",
   "private": true,
   "description": "asocialmedia media pipeline worker: scan, validate, transcode, publish",
   "license": "AGPL-3.0",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "dev": "cross-env NODE_ENV=development portless media bun --watch src/index.ts",
+    "dev": "cross-env NODE_ENV=development bun --watch src/index.ts",
     "start": "bun run src/index.ts"
   },
   "dependencies": {

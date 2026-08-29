@@ -349,6 +349,8 @@ async function hasListenerOnPort(port: number) {
 }
 
 async function ensurePortlessProxyReady() {
+  // Web runs behind the portless proxy (https://social.localhost on 443).
+  // Auth and media-processing run plain `bun --watch` on 3001/3010.
   if (await hasListenerOnPort(443)) {
     return;
   }
@@ -435,8 +437,6 @@ async function cleanupStaleDevServers() {
   await kill("next dev");
   await kill("turbo dev");
   await kill("portless social");
-  await kill("portless auth");
-  await kill("portless media");
   await kill("bun --watch src/dev");
   await kill("src/server"); // the Bun.serve child inside the watcher
   // Free the fixed ports if a prior Bun.serve survived the watcher kill:

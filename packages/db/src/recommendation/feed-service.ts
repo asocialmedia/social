@@ -45,6 +45,7 @@ interface CachedProfile extends UserProfile {
 
 const AUTHOR_TAGS_SELECT = {
   select: {
+    semanticTags: true,
     tags: { select: { name: true } },
     userId: true,
   },
@@ -112,7 +113,10 @@ export async function buildAndCacheProfile(
       signals.push({
         authorId: vote.post.userId,
         kind: "amplify",
-        tags: vote.post.tags.map((tag) => tag.name),
+        tags: [
+          ...vote.post.tags.map((tag) => tag.name),
+          ...(vote.post.semanticTags ?? []),
+        ],
       });
     }
   }
@@ -121,7 +125,10 @@ export async function buildAndCacheProfile(
       signals.push({
         authorId: bookmark.post.userId,
         kind: "bookmark",
-        tags: bookmark.post.tags.map((tag) => tag.name),
+        tags: [
+          ...bookmark.post.tags.map((tag) => tag.name),
+          ...(bookmark.post.semanticTags ?? []),
+        ],
       });
     }
   }
@@ -130,7 +137,10 @@ export async function buildAndCacheProfile(
       signals.push({
         authorId: comment.post.userId,
         kind: "comment",
-        tags: comment.post.tags.map((tag) => tag.name),
+        tags: [
+          ...comment.post.tags.map((tag) => tag.name),
+          ...(comment.post.semanticTags ?? []),
+        ],
       });
     }
   }
@@ -139,7 +149,10 @@ export async function buildAndCacheProfile(
       signals.push({
         authorId: commentVote.comment.post.userId,
         kind: "commentVote",
-        tags: commentVote.comment.post.tags.map((tag) => tag.name),
+        tags: [
+          ...commentVote.comment.post.tags.map((tag) => tag.name),
+          ...(commentVote.comment.post.semanticTags ?? []),
+        ],
       });
     }
   }
@@ -209,6 +222,7 @@ export async function getPersonalizedFeedPage(options: {
         aura: true,
         createdAt: true,
         id: true,
+        semanticTags: true,
         tags: { select: { name: true } },
         userId: true,
         viewCount: true,
@@ -246,6 +260,7 @@ export async function getPersonalizedFeedPage(options: {
       commentCount: post._count.comments,
       createdAt: post.createdAt,
       id: post.id,
+      semanticTags: post.semanticTags,
       tags: post.tags.map((tag) => tag.name),
     };
     return {

@@ -1,26 +1,33 @@
-// Stage 3: semantic analysis. Runs on a still-image representative of the
-// asset (video poster, audio cover art, or the published original for
-// images): the NSFW classifier stores Media.safety and auto-flags the parent
-// post's explicitContent, while scene-text OCR extracts readable text into
-// Media.ocrText as input for alt-text assist and text-based moderation. Both
-// stages are env-gated and degrade independently - either can be absent.
+// Stage 3: semantic analysis & enrichment.
+// Runs asynchronously on published assets without blocking upload or serving.
+// Performs:
+// 1. NSFW Safety classification (falconsai ONNX model)
+// 2. Scene-text OCR (PP-OCRv4 ONNX model)
+// 3. Speech-to-Text Whisper transcription & WebVTT closed-caption generation
+// 4. Multi-label semantic topic/concept classification
+// 5. Post-level aggregation & 384-dimensional vector embedding for recommendations.
+//
+// All stages degrade independently with try/catch and timeout guards so a failure
+// in any one stage never cascades or impacts published post availability.
 
 import { prisma } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
 
+import { classifyMediaConcepts } from "../classify";
+import { generateTextEmbedding } from "../embedding";
 import { mediaLogger, withSpan } from "../log";
 import { extractImageText } from "../ocr";
 import { getS3 } from "../s3";
 import { classifyImageSafety } from "../safety";
+import { transcribeMediaAudio } from "../transcribe";
 
-// Only these types ever reach an NSFW run: AUDIO contributes its cover art,
-// DOCUMENT bytes are not images and classify only as "neutral" noise.
+// Only these types ever reach an analysis run
 const ANALYZABLE_TYPES = new Set(["AUDIO", "IMAGE", "VIDEO"]);
 
 interface AnalysisSource {
-  /** True when the object is a real raster (poster/thumb/original). */
+  avLocalPath: string | null;
   isRaster: boolean;
-  localPath: string;
+  rasterLocalPath: string | null;
   type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 }
 
@@ -33,40 +40,58 @@ async function resolveAnalysisSource(
         orderBy: { createdAt: "asc" },
         select: { key: true, kind: true },
       },
+      originalKey: true,
       publishedKey: true,
       status: true,
       type: true,
     },
     where: { id: mediaId },
   });
-  // Only servable rows get analyzed - the same lifecycle gate as serving.
-  // READY excludes every terminal state by construction.
+
   if (!media || media.status !== "READY") {
     return null;
   }
   if (!ANALYZABLE_TYPES.has(media.type)) {
     return null;
   }
-  const preferred =
+
+  const preferredRaster =
     media.derivatives.find((d) => d.kind === "poster") ??
     media.derivatives.find((d) => d.kind === "cover") ??
     media.derivatives.find((d) => d.kind === "thumb");
-  // Last-resort derivative fallback: promoted profile media (avatar/banner)
-  // has its published original deleted once a derivative takes over serving,
-  // so analysis must accept any committed derivative before the original.
-  const key = preferred?.key ?? media.derivatives[0]?.key ?? media.publishedKey;
-  if (!key) {
-    return null;
+
+  const rasterKey =
+    preferredRaster?.key ??
+    (media.type === "IMAGE" ? media.publishedKey : null) ??
+    media.derivatives[0]?.key;
+
+  let rasterLocalPath: string | null = null;
+  if (rasterKey) {
+    rasterLocalPath = `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}`;
+    try {
+      await Bun.write(rasterLocalPath, getS3().file(rasterKey));
+    } catch {
+      rasterLocalPath = null;
+    }
   }
-  const localPath = `/tmp/asm-analyze-${mediaId}-${crypto.randomUUID()}`;
-  // Streamed copy straight from storage; bytes stay out of worker RAM.
-  await Bun.write(localPath, getS3().file(key));
+
+  let avLocalPath: string | null = null;
+  if (media.type === "VIDEO" || media.type === "AUDIO") {
+    const avKey = media.publishedKey ?? media.originalKey;
+    if (avKey) {
+      avLocalPath = `/tmp/asm-av-${mediaId}-${crypto.randomUUID()}`;
+      try {
+        await Bun.write(avLocalPath, getS3().file(avKey));
+      } catch {
+        avLocalPath = null;
+      }
+    }
+  }
+
   return {
-    // A chosen derivative or the IMAGE original's published bytes are raster;
-    // a bare audio file without cover art is not - classifyImageSafety on
-    // such input would decode nonsense into a meaningless verdict.
-    isRaster: Boolean(preferred) || media.type === "IMAGE",
-    localPath,
+    avLocalPath,
+    isRaster: Boolean(preferredRaster) || media.type === "IMAGE",
+    rasterLocalPath,
     type: media.type,
   };
 }
@@ -81,69 +106,181 @@ export function processMediaAnalyze(
       if (!source) {
         return { outcome: "skipped" as const };
       }
-      const { localPath } = source;
-      try {
-        // Sequential on purpose: both stages are CPU-bound ONNX runs and the
-        // worker box is small - competing sessions would just trade cache
-        // misses for no wall-clock gain.
-        //
-        // Only real rasters reach the classifier: audio without cover art and
-        // any non-image source would decode as garbage pixels and yield a
-        // confident-sounding but meaningless NSFW score. The job stays a
-        // success (skipped) in that case so retries cannot loop.
-        const verdict = source.isRaster
-          ? await classifyImageSafety(localPath)
-          : null;
-        // Text lives in visuals; waveform posters and document pages have
-        // nothing worth OCRing today.
-        const wantsOcr = source.type === "IMAGE" || source.type === "VIDEO";
-        const ocr =
-          wantsOcr && source.isRaster
-            ? await extractImageText(localPath)
-            : null;
 
-        if (!verdict && !ocr) {
-          return { outcome: "skipped" as const };
+      const { avLocalPath, rasterLocalPath } = source;
+      try {
+        // Stage 1: NSFW Safety classification
+        let verdict = null;
+        if (source.isRaster && rasterLocalPath) {
+          try {
+            verdict = await classifyImageSafety(rasterLocalPath);
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error) },
+              "safety classification failed"
+            );
+          }
         }
+
+        // Stage 2: Scene-text OCR
+        let ocr = null;
+        const wantsOcr = source.type === "IMAGE" || source.type === "VIDEO";
+        if (wantsOcr && source.isRaster && rasterLocalPath) {
+          try {
+            ocr = await extractImageText(rasterLocalPath);
+          } catch (error) {
+            mediaLogger.warn({ error: String(error) }, "OCR extraction failed");
+          }
+        }
+
+        // Stage 3: Speech-to-text Whisper transcription & WebVTT generation
+        let transcription = null;
+        if (
+          avLocalPath &&
+          (source.type === "VIDEO" || source.type === "AUDIO")
+        ) {
+          try {
+            transcription = await transcribeMediaAudio(
+              avLocalPath,
+              jobData.mediaId
+            );
+          } catch (error) {
+            mediaLogger.warn({ error: String(error) }, "transcription failed");
+          }
+        }
+
+        // Stage 4: Multi-label concept & topic classification
+        let semanticTags: string[] = [];
+        try {
+          semanticTags = await classifyMediaConcepts({
+            imagePath: rasterLocalPath,
+            mediaId: jobData.mediaId,
+            ocrText: ocr?.text,
+            transcript: transcription?.transcript,
+          });
+        } catch (error) {
+          mediaLogger.warn(
+            { error: String(error) },
+            "concept classification failed"
+          );
+        }
+
+        // Stage 5: Update Media database row
         await prisma.media.update({
           data: {
-            // Empty OCR output means "no readable text", stored as null so
-            // the column's contract stays "null = nothing extracted".
+            ...captionsUpdate(transcription?.captionsKey),
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
             ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
+            ...(semanticTags.length > 0 ? { semanticTags } : {}),
+            ...(transcription?.transcript
+              ? { transcript: transcription.transcript }
+              : {}),
           },
           where: { id: jobData.mediaId },
         });
 
-        if (ocr?.text) {
+        // Stage 6: Update Parent Post (Explicit flag & Recommendation Embeddings)
+        const media = await prisma.media.findUnique({
+          select: {
+            post: {
+              select: {
+                attachments: {
+                  select: {
+                    ocrText: true,
+                    semanticTags: true,
+                    transcript: true,
+                  },
+                },
+                content: true,
+                id: true,
+                tags: { select: { name: true } },
+              },
+            },
+            postId: true,
+          },
+          where: { id: jobData.mediaId },
+        });
+
+        if (media?.post) {
+          const { post } = media;
+          const explicitContent = verdict?.explicit ? true : undefined;
+
+          // Aggregate all text and tags across the post and all its attachments
+          const allTranscripts = post.attachments
+            .map((a) => a.transcript)
+            .filter(Boolean)
+            .join(" ");
+          const allOcr = post.attachments
+            .map((a) => a.ocrText)
+            .filter(Boolean)
+            .join(" ");
+          const allSemanticTags = [
+            ...new Set([
+              ...post.tags.map((t) => t.name),
+              ...post.attachments.flatMap((a) => a.semanticTags),
+              ...semanticTags,
+            ]),
+          ];
+
+          const combinedText = [
+            post.content,
+            allTranscripts,
+            allOcr,
+            allSemanticTags.join(" "),
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          let embedding: number[] = [];
+          try {
+            embedding = await generateTextEmbedding(combinedText);
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error) },
+              "embedding generation failed"
+            );
+          }
+
+          await prisma.post.update({
+            data: {
+              ...(explicitContent === undefined ? {} : { explicitContent }),
+              ...(embedding.length > 0 ? { embedding } : {}),
+              ...(allSemanticTags.length > 0
+                ? { semanticTags: allSemanticTags }
+                : {}),
+            },
+            where: { id: post.id },
+          });
+
           mediaLogger.info(
             {
-              chars: ocr.text.length,
-              lines: ocr.text.split("\n").length,
-              mediaId: jobData.mediaId,
+              embeddingDim: embedding.length,
+              postId: post.id,
+              tagsCount: allSemanticTags.length,
             },
-            "scene text extracted"
+            "post semantic enrichment completed"
           );
         }
 
-        // Feed the existing content gate: auto-flag the linked post.
-        if (verdict?.explicit) {
-          const media = await prisma.media.findUnique({
-            select: { postId: true },
-            where: { id: jobData.mediaId },
-          });
-          if (media?.postId) {
-            await prisma.post.update({
-              data: { explicitContent: true },
-              where: { id: media.postId },
-            });
-          }
-        }
         return { outcome: "analyzed" as const };
       } finally {
-        await Bun.$`rm -f ${localPath}`.quiet().catch(() => null);
+        if (rasterLocalPath) {
+          await Bun.$`rm -f ${rasterLocalPath}`.quiet().catch(() => null);
+        }
+        if (avLocalPath) {
+          await Bun.$`rm -f ${avLocalPath}`.quiet().catch(() => null);
+        }
       }
     },
     { "media.id": jobData.mediaId }
   );
+}
+
+function captionsUpdate(
+  captionsKey: string | null | undefined
+): Record<string, string> {
+  if (captionsKey) {
+    return { captionsKey };
+  }
+  return {};
 }

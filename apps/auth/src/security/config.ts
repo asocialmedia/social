@@ -52,7 +52,6 @@ function buildAllowedOrigins(env: NodeJS.ProcessEnv): string[] {
     add("http://localhost:3000");
     add("http://localhost:3001");
     add("https://social.localhost");
-    add("https://auth.localhost");
   }
   return [...origins];
 }

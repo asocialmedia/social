@@ -362,12 +362,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
       env.AUTH_URL,
       "https://asocialmedia.cc",
       "https://auth.asocialmedia.cc",
-      // Local development origins never ship to production.
+      // Local development origins never ship to production. Web is served
+      // through portless (https://social.localhost); auth/media run plain
+      // Bun servers on 3001/3010.
       ...(environment === "production"
         ? []
         : [
             "https://social.localhost",
-            "https://auth.localhost",
             "http://localhost:3000",
             "http://localhost:3001",
           ]),

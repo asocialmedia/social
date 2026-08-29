@@ -23,15 +23,21 @@ export const keys = createEnv({
     CLAMAV_HOST: process.env.CLAMAV_HOST,
     CLAMAV_PORT: process.env.CLAMAV_PORT,
     DATABASE_URL: process.env.DATABASE_URL,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    MEDIA_AUDIO_WATERMARK_TIMEOUT_MS:
+      process.env.MEDIA_AUDIO_WATERMARK_TIMEOUT_MS,
     MEDIA_BACKFILL_ENABLED: process.env.MEDIA_BACKFILL_ENABLED,
     MEDIA_C2PA_CERT_PATH: process.env.MEDIA_C2PA_CERT_PATH,
     MEDIA_C2PA_KEY_PATH: process.env.MEDIA_C2PA_KEY_PATH,
     MEDIA_C2PA_STAMP: process.env.MEDIA_C2PA_STAMP,
     MEDIA_C2PA_STAMP_TIMEOUT_MS: process.env.MEDIA_C2PA_STAMP_TIMEOUT_MS,
     MEDIA_C2PA_TSA_URL: process.env.MEDIA_C2PA_TSA_URL,
+    MEDIA_CLASSIFY_ENABLED: process.env.MEDIA_CLASSIFY_ENABLED,
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
+    MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
     MEDIA_IMAGE_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS,
@@ -49,6 +55,7 @@ export const keys = createEnv({
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
     MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
+    MEDIA_WHISPER_ENABLED: process.env.MEDIA_WHISPER_ENABLED,
     // Same public origin the web app publishes; the worker needs it to write
     // absolute provenance identifiers into stamped manifests.
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
@@ -81,6 +88,8 @@ export const keys = createEnv({
       .default(
         "postgresql://postgres:postgres@localhost:5433/asocialmedia?schema=public"
       ),
+    GEMINI_API_KEY: z.string().optional(),
+    GROQ_API_KEY: z.string().optional(),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
       .default("info"),
@@ -98,7 +107,9 @@ export const keys = createEnv({
     // SSL.com tier expires yearly), timestamps are what keep OLD manifests
     // valid after expiry - without one every historical stamp ages badly.
     MEDIA_C2PA_TSA_URL: z.url().optional(),
+    MEDIA_CLASSIFY_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
+    MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
     MEDIA_IMAGE_WATERMARK_TIMEOUT_MS: numericOverride,
     MEDIA_LEGACY_GC_ENABLED: z.enum(["0", "1"]).default("0"),
@@ -122,6 +133,7 @@ export const keys = createEnv({
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
     MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
+    MEDIA_WHISPER_ENABLED: z.enum(["0", "1"]).default("1"),
     NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
@@ -175,6 +187,18 @@ export const workerEnv = {
   },
   get CLAMAV_PORT() {
     return keys.CLAMAV_PORT;
+  },
+  get CLASSIFY_ENABLED() {
+    return keys.MEDIA_CLASSIFY_ENABLED !== "0";
+  },
+  get EMBEDDING_ENABLED() {
+    return keys.MEDIA_EMBEDDING_ENABLED !== "0";
+  },
+  get GEMINI_API_KEY() {
+    return keys.GEMINI_API_KEY;
+  },
+  get GROQ_API_KEY() {
+    return keys.GROQ_API_KEY;
   },
   get HEALTH_PORT() {
     // Portless injects a dynamic PORT when running under `bun run dev`
@@ -230,6 +254,9 @@ export const workerEnv = {
   },
   get WATERMARK_PEPPER() {
     return keys.MEDIA_WATERMARK_PEPPER;
+  },
+  get WHISPER_ENABLED() {
+    return keys.MEDIA_WHISPER_ENABLED !== "0";
   },
 } as const;
 

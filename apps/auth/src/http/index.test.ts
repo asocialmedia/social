@@ -44,7 +44,7 @@ describe("auth service http handler", () => {
     );
     expect(res.status).toBe(204);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-      "https://social.localhost"
+      "http://localhost:3000"
     );
     expect(res.headers.get("Access-Control-Allow-Methods")).toContain("GET");
   });
@@ -92,7 +92,7 @@ describe("auth service http handler", () => {
     expect(mockAuthHandler).toHaveBeenCalledWith(req);
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-      "https://social.localhost"
+      "http://localhost:3000"
     );
   });
 
@@ -114,8 +114,8 @@ describe("auth service http handler", () => {
     expect(res.status).toBe(200);
     expect(mockAuthHandler).toHaveBeenCalled();
     const passedReq = mockAuthHandler.mock.calls[0]?.[0] as Request;
-    expect(passedReq.headers.get("origin")).toBe("https://social.localhost");
-    expect(passedReq.headers.get("referer")).toBe("https://social.localhost/");
+    expect(passedReq.headers.get("origin")).toBe("http://localhost:3000");
+    expect(passedReq.headers.get("referer")).toBe("http://localhost:3000/");
   });
 
   test.each([

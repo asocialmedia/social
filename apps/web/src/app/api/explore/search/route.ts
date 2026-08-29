@@ -45,15 +45,34 @@ export async function GET(request: Request) {
       ? [{ aura: "desc" }, { id: "desc" }]
       : { createdAt: "desc" };
 
+  const searchFilter: Prisma.PostWhereInput = {
+    OR: [
+      { content: { contains: q, mode: "insensitive" } },
+      { tags: { some: { name: { contains: q, mode: "insensitive" } } } },
+      { semanticTags: { has: q.toLowerCase() } },
+      {
+        attachments: {
+          some: {
+            OR: [
+              { transcript: { contains: q, mode: "insensitive" } },
+              { ocrText: { contains: q, mode: "insensitive" } },
+              { semanticTags: { has: q.toLowerCase() } },
+            ],
+          },
+        },
+      },
+    ],
+  };
+
   const postWhere: Prisma.PostWhereInput =
     tab === "gusts"
       ? {
-          content: { contains: q, mode: "insensitive" },
+          ...searchFilter,
           isGust: true,
           // Moderated posts are hidden from explore entirely.
           moderated: false,
         }
-      : { content: { contains: q, mode: "insensitive" }, moderated: false };
+      : { ...searchFilter, moderated: false };
 
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({

@@ -37,7 +37,7 @@ export function resolveAppOrigin(): string {
     process.env.NEXT_PUBLIC_URL ??
     (process.env.NODE_ENV === "production"
       ? "https://asocialmedia.cc"
-      : "https://social.localhost")
+      : "http://localhost:3000")
   );
 }
 
