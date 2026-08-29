@@ -10,6 +10,7 @@ import {
   FileAudioIcon,
   Pause,
   Play,
+  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -272,21 +273,28 @@ export const VideoPreview = ({
   const isMuted = useVideoMuteStore((state) => state.isMuted);
   const setMuted = useVideoMuteStore((state) => state.setMuted);
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
   const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
 
-  const cues = useMemo(() => {
-    if (media.transcript) {
+  const parsedDirectCues = useMemo(() => {
+    if (!media.transcript) {
+      return [];
+    }
+    if (media.transcript.includes("-->")) {
       return parseWebVttCues(media.transcript);
     }
-    return fetchedCues;
-  }, [media.transcript, fetchedCues]);
+    return [];
+  }, [media.transcript]);
+
+  const cues = parsedDirectCues.length > 0 ? parsedDirectCues : fetchedCues;
+  const hasCaptions =
+    Boolean(media.transcript) || Boolean(media.captionsKey) || cues.length > 0;
 
   useEffect(() => {
     if (
       showCaptions &&
       (isHovered || autoPlay || isVideoActive) &&
-      !media.transcript &&
-      fetchedCues.length === 0
+      cues.length === 0
     ) {
       let cancelled = false;
       const loadCaptions = async () => {
@@ -295,7 +303,23 @@ export const VideoPreview = ({
           if (res.ok) {
             const vtt = await res.text();
             if (!cancelled && vtt) {
-              setFetchedCues(parseWebVttCues(vtt));
+              const parsed = parseWebVttCues(vtt);
+              if (parsed.length > 0) {
+                setFetchedCues(parsed);
+              } else if (media.transcript) {
+                const lines = media.transcript
+                  .split(/\r?\n/)
+                  .map((l) => l.trim())
+                  .filter(Boolean);
+                let t = 0;
+                const generated: TranscriptCue[] = lines.map((line) => {
+                  const dur = Math.max(3, line.split(/\s+/).length * 0.4);
+                  const cue = { end: t + dur, start: t, text: line };
+                  t += dur;
+                  return cue;
+                });
+                setFetchedCues(generated);
+              }
             }
           }
         } catch {
@@ -314,7 +338,7 @@ export const VideoPreview = ({
     isVideoActive,
     media.id,
     media.transcript,
-    fetchedCues.length,
+    cues.length,
   ]);
 
   const activeCue = useMemo(() => {
@@ -634,6 +658,39 @@ export const VideoPreview = ({
       </div>
       {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
 
+      {/* Closed Captions toggle chip on video preview */}
+      {/* oxlint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
+      {hasCaptions ? (
+        <div
+          aria-label={showCaptions ? "Disable captions" : "Enable captions"}
+          className={cn(
+            "absolute bottom-2 left-22 z-10 flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-[#3a3f4a] to-[#23262e] px-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-all duration-200 hover:brightness-110 active:translate-y-px",
+            showCaptions && "border border-orange-500/60 text-orange-400",
+            autoPlay ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          )}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleCaptions();
+          }}
+          onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleCaptions();
+            }
+          }}
+          role="button"
+          tabIndex={-1}
+        >
+          <Subtitles className="h-3.5 w-3.5" />
+          <span className="text-xs font-medium">
+            {showCaptions ? "CC On" : "CC"}
+          </span>
+        </div>
+      ) : null}
+      {/* oxlint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
+
       {/* Minimal hover controls: play/pause + time, shown as two separate
           floating elements so they read independently. Rendered as divs (not a
           <button>) because the whole preview sits inside the tile's "open
@@ -683,7 +740,9 @@ export const VideoPreview = ({
       />
 
       {/* Live Floating Caption on feed card */}
-      {showCaptions && activeCue && isVideoActive ? (
+      {showCaptions &&
+      activeCue &&
+      (isVideoActive || isPlaying || isHovered) ? (
         <div className="pointer-events-none absolute inset-x-3 bottom-12 z-20 flex justify-center px-2">
           <div className="rounded-lg bg-black/85 px-2.5 py-1 text-center shadow-md backdrop-blur-md">
             <p className="line-clamp-2 text-xs font-medium text-white drop-shadow-xs">

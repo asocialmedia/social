@@ -228,12 +228,7 @@ const PostContent: React.FC<PostContentProps> = ({
           )}
 
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
-            <PostMoreButton
-              // Touch devices have no hover, so the button must always be
-              // visible there; on desktop it still fades in on card hover.
-              className="transition-opacity sm:opacity-0 sm:group-hover/post:opacity-100"
-              post={post}
-            />
+            <PostMoreButton className="h-8 w-8 p-0" post={post} />
             <BookmarkButton
               className="h-8 w-8 p-0"
               initialState={{

@@ -183,7 +183,7 @@ export async function GET(
 
     if (isCaptions) {
       const freshMedia = await prisma.media.findUnique({
-        select: { captionsKey: true },
+        select: { captionsKey: true, transcript: true },
         where: { id: mediaId },
       });
       if (freshMedia?.captionsKey) {
@@ -206,8 +206,21 @@ export async function GET(
             status: 200,
           });
         } catch {
-          // Fall through to empty VTT
+          // Fall through to transcript fallback
         }
+      }
+      if (freshMedia?.transcript) {
+        const vttContent = freshMedia.transcript.startsWith("WEBVTT")
+          ? freshMedia.transcript
+          : `WEBVTT\n\n00:00:00.000 --> 00:10:00.000\n${freshMedia.transcript}\n`;
+        return new NextResponse(vttContent, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=3600",
+            "Content-Type": "text/vtt; charset=utf-8",
+          },
+          status: 200,
+        });
       }
       return new NextResponse("WEBVTT\n\n", {
         headers: {
