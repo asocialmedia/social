@@ -9,6 +9,7 @@ import {
 import type Hls from "hls.js";
 import {
   FastForward,
+  FileText,
   Maximize,
   MinimizeIcon,
   Pause,
@@ -23,6 +24,7 @@ import { AnimatePresence, motion } from "motion/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
 import { cn } from "@/lib/utils";
 import { useVideoMuteStore } from "@/lib/video-mute-store";
 
@@ -38,6 +40,7 @@ interface CustomVideoPlayerProps {
    * (media page bottom panel) via videoRef + onExternalState. */
   hideControls?: boolean;
   hlsSrc?: string;
+  mediaId?: string;
   onError: () => void;
   onExternalState?: (state: {
     currentTime: number;
@@ -51,6 +54,7 @@ interface CustomVideoPlayerProps {
   onPlaying?: () => void;
   onProgress?: () => void;
   poster?: string;
+  rawTranscript?: string | null;
   src: string;
   /** Receives the inner video element so external controls can drive it. */
   videoRef?: React.RefObject<HTMLVideoElement | null>;
@@ -165,7 +169,9 @@ export const CustomVideoPlayer = ({
   captions = EMPTY_CAPTIONS,
   desktopGestures = false,
   hideControls = false,
+  mediaId,
   poster,
+  rawTranscript,
   videoRef: externalVideoRef,
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -184,6 +190,7 @@ export const CustomVideoPlayer = ({
   const [isBuffering, setIsBuffering] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const toggleCaptions = useCallback(() => {
     setCaptionsEnabled((prev) => {
@@ -198,6 +205,10 @@ export const CustomVideoPlayer = ({
       }
       return next;
     });
+  }, []);
+
+  const toggleTranscript = useCallback(() => {
+    setShowTranscript((prev) => !prev);
   }, []);
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
@@ -494,10 +505,12 @@ export const CustomVideoPlayer = ({
       ArrowRight: skipRight,
       ArrowUp: handleVolumeUp,
       C: toggleCaptions,
+      T: toggleTranscript,
       c: toggleCaptions,
       f: toggleFullscreen,
       k: handlePlayPause,
       m: toggleMute,
+      t: toggleTranscript,
     };
 
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -531,6 +544,7 @@ export const CustomVideoPlayer = ({
     skipLeft,
     skipRight,
     toggleCaptions,
+    toggleTranscript,
   ]);
 
   useEffect(() => {
@@ -849,6 +863,33 @@ export const CustomVideoPlayer = ({
                 </TooltipProvider>
               ) : null}
 
+              {mediaId ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <GlassIconButton
+                        aria-label="Transcript (T)"
+                        className={cn(
+                          showTranscript &&
+                            "border-orange-500/60 bg-white/20 text-orange-400"
+                        )}
+                        onClick={toggleTranscript}
+                      >
+                        <FileText
+                          className={cn(
+                            "h-5 w-5",
+                            showTranscript ? "text-orange-400" : "text-white"
+                          )}
+                        />
+                      </GlassIconButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>Transcript (T)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
+
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1031,6 +1072,7 @@ export const CustomVideoPlayer = ({
                   <li>↑ ↓ - Volume</li>
                   <li>M - Mute</li>
                   <li>C - Captions</li>
+                  <li>T - Transcript</li>
                   <li>F - Fullscreen</li>
                 </ul>
               </div>
@@ -1046,6 +1088,22 @@ export const CustomVideoPlayer = ({
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      {mediaId ? (
+        <VideoTranscriptDrawer
+          currentTime={currentTime}
+          isOpen={showTranscript}
+          mediaId={mediaId}
+          onClose={() => setShowTranscript(false)}
+          onSeek={(seconds) => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = seconds;
+              void videoRef.current.play();
+            }
+          }}
+          rawTranscript={rawTranscript}
+        />
+      ) : null}
     </div>
   );
 };

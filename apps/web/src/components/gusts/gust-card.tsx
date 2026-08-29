@@ -3,6 +3,7 @@
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import {
   Eye,
+  FileText,
   Flame,
   MessageSquare,
   Pause,
@@ -23,6 +24,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
@@ -61,6 +63,7 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<
     "play" | "pause" | null
   >(null);
@@ -92,6 +95,13 @@ export const GustCard: React.FC<GustCardProps> = ({
       }
       return next;
     });
+  }, []);
+
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  const toggleTranscript = useCallback((e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setShowTranscript((prev) => !prev);
   }, []);
 
   const lastTapRef = useRef<number>(0);
@@ -233,6 +243,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   const handleTimeUpdate = useCallback(() => {
     const video = videoRef.current;
     if (video && video.duration) {
+      setCurrentTime(video.currentTime);
       setProgress((video.currentTime / video.duration) * 100);
     }
   }, []);
@@ -707,6 +718,21 @@ export const GustCard: React.FC<GustCardProps> = ({
             </button>
           )}
 
+          {/* Transcript drawer toggle */}
+          {post.moderated || !videoMedia ? null : (
+            <button
+              aria-label="View transcript"
+              className={cn(
+                "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95",
+                showTranscript && "rail-3d-btn-gold text-amber-300"
+              )}
+              onClick={toggleTranscript}
+              type="button"
+            >
+              <FileText className="size-5" />
+            </button>
+          )}
+
           {/* Mute / unmute (aligned below the More button); no video to mute on
               a moderated gust */}
           {post.moderated ? null : (
@@ -746,6 +772,23 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           </div>
         )}
+
+        {videoMedia ? (
+          <VideoTranscriptDrawer
+            currentTime={currentTime}
+            isOpen={showTranscript}
+            mediaId={videoMedia.id}
+            onClose={() => setShowTranscript(false)}
+            onSeek={(seconds) => {
+              const video = videoRef.current;
+              if (video) {
+                video.currentTime = seconds;
+                void video.play();
+              }
+            }}
+            rawTranscript={videoMedia.transcript}
+          />
+        ) : null}
       </div>
 
       {isActive ? <ViewTracker postId={post.id} /> : null}

@@ -13,6 +13,7 @@ import {
   Download,
   Eye,
   FileIcon,
+  FileText,
   Maximize,
   MessageSquare,
   Pause,
@@ -36,6 +37,7 @@ import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
@@ -249,6 +251,12 @@ const MediaViewer = ({
       }
       return next;
     });
+  }, []);
+
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  const handleVideoToggleTranscript = useCallback(() => {
+    setShowTranscript((prev) => !prev);
   }, []);
 
   const handleVideoFullscreen = useCallback(async () => {
@@ -609,12 +617,14 @@ const MediaViewer = ({
         hideControls
         desktopGestures={!isMobileView}
         key={`${item.id}-${loadAttempt}`}
+        mediaId={item.id}
         onError={handleVideoError}
         onExternalState={handleExternalVideoState}
         onLoadedData={handleMediaLoaded}
         onPlaying={handleMediaLoaded}
         onProgress={handleMediaProgress}
         poster={getMediaProxyUrl(item)}
+        rawTranscript={item.transcript}
         src={getMediaVideoUrl(item.id)}
         videoRef={videoRef}
       />
@@ -1161,6 +1171,18 @@ const MediaViewer = ({
                     <Subtitles className="size-5" />
                   </button>
                   <button
+                    aria-label="Transcript"
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      showTranscript && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleTranscript}
+                    type="button"
+                  >
+                    <FileText className="size-5" />
+                  </button>
+                  <button
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
@@ -1350,6 +1372,18 @@ const MediaViewer = ({
                     <Subtitles className="size-5" />
                   </button>
                   <button
+                    aria-label="Transcript"
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      showTranscript && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleTranscript}
+                    type="button"
+                  >
+                    <FileText className="size-5" />
+                  </button>
+                  <button
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
@@ -1363,6 +1397,28 @@ const MediaViewer = ({
                 </div>
               </div>
             </div>
+          ) : null}
+
+          {currentMedia?.type === "VIDEO" ? (
+            <VideoTranscriptDrawer
+              currentTime={videoState.currentTime}
+              isOpen={showTranscript}
+              mediaId={currentMedia.id}
+              onClose={() => setShowTranscript(false)}
+              onSeek={(seconds) => {
+                const video = videoRef.current;
+                if (video) {
+                  video.currentTime = seconds;
+                  void video.play();
+                }
+                setVideoState((prev) => ({
+                  ...prev,
+                  currentTime: seconds,
+                  isPlaying: true,
+                }));
+              }}
+              rawTranscript={currentMedia.transcript}
+            />
           ) : null}
         </div>
       </div>
