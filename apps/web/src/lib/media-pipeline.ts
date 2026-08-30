@@ -12,11 +12,13 @@ import {
   sanitizeExtension,
 } from "@asm/media";
 import {
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 import { env } from "../../env";
 import {
@@ -59,6 +61,10 @@ function getPresignClient(): S3Client {
       forcePathStyle: true,
       maxAttempts: 3,
       region: "ap-south-1",
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: 5000,
+        socketTimeout: 10_000,
+      }),
     });
   }
   return presignClient;
@@ -426,11 +432,6 @@ export async function createInitiatedUpload(input: {
       Bucket: env.ASMOB_BUCKET_NAME,
       ContentType: declaredMime,
       Key: originalKey,
-      Metadata: {
-        mediaId: media.id,
-        uploadedAt: new Date().toISOString(),
-        userId,
-      },
     }),
     { expiresIn: 900 }
   );
@@ -627,8 +628,9 @@ export async function headStoredObject(key: string): Promise<{
   contentLength: number;
   contentType: string | undefined;
 } | null> {
+  const client = getPresignClient();
   try {
-    const head = await getPresignClient().send(
+    const head = await client.send(
       new HeadObjectCommand({
         Bucket: env.ASMOB_BUCKET_NAME,
         Key: key,
@@ -638,7 +640,41 @@ export async function headStoredObject(key: string): Promise<{
       contentLength: head.ContentLength ?? 0,
       contentType: head.ContentType,
     };
-  } catch {
-    return null;
+  } catch (headError) {
+    // If HEAD failed, attempt a range GET fallback before declaring the object missing
+    try {
+      const getRes = await client.send(
+        new GetObjectCommand({
+          Bucket: env.ASMOB_BUCKET_NAME,
+          Key: key,
+          Range: "bytes=0-0",
+        })
+      );
+      if (
+        getRes.Body &&
+        typeof (getRes.Body as { destroy?: () => void }).destroy === "function"
+      ) {
+        (getRes.Body as { destroy: () => void }).destroy();
+      }
+      let totalLength = getRes.ContentLength ?? 0;
+      if (getRes.ContentRange) {
+        const parts = getRes.ContentRange.split("/");
+        if (parts[1] && !Number.isNaN(Number(parts[1]))) {
+          totalLength = Number(parts[1]);
+        }
+      }
+      return {
+        contentLength: totalLength,
+        contentType: getRes.ContentType,
+      };
+    } catch (getError) {
+      console.error("[media-pipeline] headStoredObject failed:", {
+        bucket: env.ASMOB_BUCKET_NAME,
+        getError: getError instanceof Error ? getError.message : getError,
+        headError: headError instanceof Error ? headError.message : headError,
+        key,
+      });
+      return null;
+    }
   }
 }
