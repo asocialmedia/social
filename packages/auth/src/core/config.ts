@@ -186,6 +186,122 @@ export function createAuthConfig(config: AuthConfig = {}) {
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
+  // Resilient adapter that resolves legacy accounts (stored with empty/fallback
+  // issuer strings) and prevents duplicate key errors on account linking.
+  const basePrismaAdapterFactory = prismaAdapter(prisma, {
+    provider: "postgresql",
+  });
+
+  const resilientPrismaAdapter = (
+    adapterOptions: Parameters<typeof basePrismaAdapterFactory>[0]
+  ) => {
+    const adapter = basePrismaAdapterFactory(adapterOptions);
+    const originalFindOne = adapter.findOne.bind(adapter);
+    const originalCreate = adapter.create.bind(adapter);
+
+    adapter.findOne = async <T>(
+      args: Parameters<typeof originalFindOne>[0]
+    ): Promise<T | null> => {
+      const result = await originalFindOne<T>(args);
+      if (result) {
+        return result;
+      }
+
+      // If querying account by issuer & accountId and no row matched, check for legacy issuer ("" or providerId)
+      if (args.model === "account" && Array.isArray(args.where)) {
+        const issuerIndex = args.where.findIndex(
+          (w) => "field" in w && w.field === "issuer"
+        );
+        const accountIdIndex = args.where.findIndex(
+          (w) => "field" in w && w.field === "accountId"
+        );
+
+        if (issuerIndex !== -1 && accountIdIndex !== -1) {
+          const issuerClause = args.where[issuerIndex];
+          const currentIssuer =
+            typeof issuerClause.value === "string" ? issuerClause.value : "";
+          const fallbackIssuers = ["", "google", "reddit"].filter(
+            (issuer) => issuer !== currentIssuer
+          );
+
+          const fallbackPromises = fallbackIssuers.map((fallbackIssuer) => {
+            const fallbackWhere = args.where.map((w, index) =>
+              index === issuerIndex ? { ...w, value: fallbackIssuer } : w
+            );
+            return originalFindOne<T>({
+              ...args,
+              where: fallbackWhere,
+            });
+          });
+
+          const fallbackResults = await Promise.all(fallbackPromises);
+          const fallbackResult = fallbackResults.find(Boolean);
+
+          if (fallbackResult) {
+            // Self-heal: update issuer in the database to canonical issuer value
+            const accountId = (fallbackResult as { id?: string }).id;
+            if (typeof accountId === "string" && currentIssuer) {
+              try {
+                await prisma.account.update({
+                  data: { issuer: currentIssuer },
+                  where: { id: accountId },
+                });
+              } catch {
+                // Non-blocking self-healing attempt
+              }
+            }
+            return fallbackResult as T;
+          }
+        }
+      }
+
+      return result;
+    };
+
+    adapter.create = async <T extends Record<string, unknown>, R = T>(
+      args: {
+        model: string;
+        data: Omit<T, "id">;
+        select?: string[];
+        forceAllowId?: boolean;
+      }
+    ): Promise<R> => {
+      if (args.model === "account" && args.data) {
+        const data = args.data as {
+          providerId?: string;
+          accountId?: string;
+          userId?: string;
+          issuer?: string;
+          id?: string;
+        };
+        if (data.providerId && data.accountId) {
+          const existing = await prisma.account.findUnique({
+            where: {
+              providerId_accountId: {
+                accountId: data.accountId,
+                providerId: data.providerId,
+              },
+            },
+          });
+          if (existing) {
+            // Update existing account with latest token/issuer info instead of crashing on duplicate key
+            const updated = await prisma.account.update({
+              data: {
+                ...(data.issuer ? { issuer: data.issuer } : {}),
+                ...(data.userId ? { userId: data.userId } : {}),
+              },
+              where: { id: existing.id },
+            });
+            return updated as unknown as R;
+          }
+        }
+      }
+      return await originalCreate<T, R>(args);
+    };
+
+    return adapter;
+  };
+
   // Structured logger for better-auth's own diagnostics (OAuth state
   // failures, provider errors) so they land in the same pino stream with
   // trace context instead of raw console output.
@@ -194,9 +310,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
   // eslint-disable-next-line sort-keys
   return betterAuth({
     baseURL: authBaseUrl,
-    database: prismaAdapter(prisma, {
-      provider: "postgresql",
-    }),
+    database: resilientPrismaAdapter,
 
     // Pipe better-auth's internal logs (OAuth state failures, provider
     // errors) into the service's structured pino output so they carry the
