@@ -209,6 +209,21 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     if (pathname.startsWith("/api/trpc")) {
       return handleTrpc(request, "/api/trpc");
     }
+    if (
+      pathname === "/api/auth/error" ||
+      (pathname === "/" && new URL(request.url).searchParams.has("error"))
+    ) {
+      const url = new URL(request.url);
+      const appUrl =
+        process.env.APP_URL ||
+        process.env.NEXT_PUBLIC_URL ||
+        "https://asocialmedia.cc";
+      const target = new URL("/login", appUrl);
+      for (const [k, v] of url.searchParams) {
+        target.searchParams.set(k, v);
+      }
+      return Response.redirect(target.toString(), 302);
+    }
     if (pathname.startsWith("/api/auth")) {
       if (isTrpcPath(pathname)) {
         return handleTrpc(request, "/api/auth");
@@ -248,10 +263,20 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         const isRedirect =
           response.status >= 300 && response.status < 400 && Boolean(location);
         if (isRedirect && location?.includes("/api/auth/error")) {
+          const appUrl =
+            process.env.APP_URL ||
+            process.env.NEXT_PUBLIC_URL ||
+            "https://asocialmedia.cc";
+          const errUrl = new URL(location, request.url);
+          const target = new URL("/login", appUrl);
+          for (const [k, v] of errUrl.searchParams) {
+            target.searchParams.set(k, v);
+          }
+          response.headers.set("location", target.toString());
           log.error(
             {
               has_state: Boolean(state),
-              location,
+              location: target.toString(),
               provider,
               status: response.status,
             },

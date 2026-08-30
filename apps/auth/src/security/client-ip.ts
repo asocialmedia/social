@@ -14,9 +14,6 @@ export function getClientIpFromHeaders(headers: Headers | undefined): string {
   if (cf && cf.trim()) {
     return cf.trim();
   }
-  if (process.env.NODE_ENV === "production") {
-    return "unknown";
-  }
   const forwarded = headers?.get?.("x-forwarded-for");
   if (forwarded) {
     const entries = forwarded
