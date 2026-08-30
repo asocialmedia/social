@@ -109,6 +109,23 @@ END $$;
 COMMIT;
 SQL
 
+  # The pg_trgm search indexes are NOT schema-owned: packages/db/src/search.ts
+  # creates them at runtime (ensureSearchIndexes) because Prisma cannot express
+  # GIN/trgm indexes in the schema. Introspection therefore reports them as
+  # unknown objects, and every sync's diff demands DROP INDEX for them - which
+  # would trip the destructive-diff guard below forever. Drop them explicitly
+  # here instead: dropping an index touches no row data (lossless), and the
+  # search code recreates them via CREATE INDEX IF NOT EXISTS on the first
+  # query after boot, so search only runs unindexed for seconds.
+  echo "Dropping runtime-managed trgm search indexes (recreated by app runtime)..."
+  cat > /tmp/drop-trgm.sql <<'SQL'
+DROP INDEX IF EXISTS "idx_users_username_trgm";
+DROP INDEX IF EXISTS "idx_users_displayname_trgm";
+DROP INDEX IF EXISTS "idx_users_displayusername_trgm";
+DROP INDEX IF EXISTS "idx_posts_content_trgm";
+SQL
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/drop-trgm.sql
+
   # Prisma db push refuses to apply additive changes that introduce unique
   # constraints on fresh columns: its "might be data loss" heuristic cannot
   # prove the brand-new columns hold no duplicates, so it demands

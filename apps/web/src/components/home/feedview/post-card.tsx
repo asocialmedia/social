@@ -396,7 +396,7 @@ const FeedComments: React.FC<{ post: ExtendedPostData }> = ({ post }) => {
     // Owns its clicks like the media previews do: tapping eddies here must
     // not bubble into the card-wide navigation to the post page.
     <div
-      className="border-border/60 border-t px-4 pt-2 pb-4"
+      className="border-border/60 border-t px-4 pt-3.5 pb-4"
       data-card-interactive
     >
       <div
@@ -445,6 +445,23 @@ const CommentButton = ({ post, onClick }: CommentButtonProps) => {
   );
 };
 
+const INTERACTIVE_TARGET_SELECTOR =
+  "a, button, input, textarea, select, option, video, audio, [role='button'], [role='checkbox'], [role='menuitem'], [role='option'], [role='tab'], [role='combobox'], [data-card-interactive], [contenteditable='true']";
+
+export function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== "object") {
+    return false;
+  }
+  const el = target as Element;
+  if (typeof el.closest !== "function") {
+    return false;
+  }
+  const isContentEditable =
+    "isContentEditable" in target &&
+    Boolean((target as HTMLElement).isContentEditable);
+  return Boolean(el.closest(INTERACTIVE_TARGET_SELECTOR) || isContentEditable);
+}
+
 const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
   isJoined = false,
@@ -482,12 +499,7 @@ const PostCard: React.FC<PostCardProps> = ({
       if (detail) {
         return;
       }
-      const target = e.target as HTMLElement;
-      if (
-        target.closest(
-          "a, button, input, textarea, video, [role='button'], [data-card-interactive]"
-        )
-      ) {
+      if (isInteractiveTarget(e.target)) {
         return;
       }
       // If any popup (dialog/menu) is open, a click on the overlay to dismiss it
@@ -502,7 +514,14 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const handleCardKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (detail) {
+      if (detail || e.defaultPrevented) {
+        return;
+      }
+      if (isInteractiveTarget(e.target)) {
+        return;
+      }
+      // If any popup (dialog/menu) is open, key events should not navigate to the post.
+      if (isPopupOpen()) {
         return;
       }
       if (e.key === "Enter" || e.key === " ") {
@@ -530,7 +549,7 @@ const PostCard: React.FC<PostCardProps> = ({
   let commentsSection: React.ReactNode = null;
   if (showComments) {
     commentsSection = detail ? (
-      <div className="border-border/60 border-t px-4 pt-2 pb-4">
+      <div className="border-border/60 border-t px-4 pt-3.5 pb-4">
         <Comments hideComposerOnMobile={hideComposerOnMobile} post={post} />
       </div>
     ) : (

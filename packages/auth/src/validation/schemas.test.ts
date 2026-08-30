@@ -287,10 +287,43 @@ describe("schemas", () => {
         createCommentSchema.safeParse({ content: "Great post!" }).success
       ).toBe(true);
     });
+    test("validates comment with 1 attachment", () => {
+      expect(
+        createCommentSchema.safeParse({
+          content: "Look at this GIF!",
+          mediaIds: ["media1"],
+        }).success
+      ).toBe(true);
+    });
+    test("rejects comment with more than 1 attachment", () => {
+      expect(
+        createCommentSchema.safeParse({
+          content: "Too many attachments",
+          mediaIds: ["media1", "media2"],
+        }).success
+      ).toBe(false);
+    });
     test("rejects empty comment", () => {
       expect(createCommentSchema.safeParse({ content: "" }).success).toBe(
         false
       );
+    });
+    test("rejects comment exceeding 10000 characters", () => {
+      const longContent = "a".repeat(10_001);
+      expect(
+        createCommentSchema.safeParse({ content: longContent }).success
+      ).toBe(false);
+    });
+    test("rejects comment exceeding 2000 words", () => {
+      const word = "word ";
+      const longWords = word.repeat(2001);
+      expect(
+        createCommentSchema.safeParse({ content: longWords }).success
+      ).toBe(false);
+    });
+    test("accepts comment within 10000 characters and 2000 words", () => {
+      const content = "word ".repeat(500); // 500 words, ~2500 chars
+      expect(createCommentSchema.safeParse({ content }).success).toBe(true);
     });
   });
 });

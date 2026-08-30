@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
 import type { PostData, UserData } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -15,6 +16,8 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { CommentSuggestions } from "@/components/comments/comment-suggestions";
+import type { CommentSuggestionsHandle } from "@/components/comments/comment-suggestions";
 import { useCommentsRealtimeValue } from "@/components/comments/comments-realtime-context";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
@@ -23,6 +26,7 @@ import { useCommentAttachments } from "@/components/comments/use-comment-attachm
 import { useCommentsRealtime } from "@/components/comments/use-comments-realtime";
 import type { LiveCommentStore } from "@/components/comments/use-comments-realtime";
 import UserAvatar from "@/components/layouts/user-avatar";
+import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
@@ -40,6 +44,10 @@ const ICON_BTN_HOVER =
 const ICON_BTN_PURPLE =
   "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 interface FloatingPostEditorProps {
   post: PostData;
 }
@@ -55,6 +63,12 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const applyCreated = shared?.applyCreated ?? ownRealtime.applyCreated;
   const mutation = useSubmitCommentMutation(post.id, applyCreated);
   const [input, setInput] = useState("");
+  const [suggestions, setSuggestions] = useState<{
+    query: string;
+    type: "tag" | "mention";
+  } | null>(null);
+  const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
+  const suggestionsRef = useRef<CommentSuggestionsHandle>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,8 +114,18 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     };
   }, []);
 
+  const wordCount = countWords(input);
+  const isLengthExceeded =
+    wordCount > MAX_COMMENT_WORDS || input.length > MAX_COMMENT_CHARS;
+  const isNearLengthLimit =
+    wordCount >= MAX_COMMENT_WORDS * 0.8 ||
+    input.length >= MAX_COMMENT_CHARS * 0.8;
+
   const canSubmit =
-    input.trim().length > 0 || attachments.length > 0 || mediaIds.length > 0;
+    (input.trim().length > 0 ||
+      attachments.length > 0 ||
+      mediaIds.length > 0) &&
+    !isLengthExceeded;
 
   const handleSubmit = useCallback(() => {
     if (!user) {
@@ -116,6 +140,8 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       {
         onSuccess: () => {
           setInput("");
+          setDismissedEmbedUrls([]);
+          setSuggestions(null);
           reset();
           setGifPickerOpen(false);
           setIsExpanded(false);
@@ -135,11 +161,71 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     reset,
   ]);
 
+  const checkSuggestions = useCallback((text: string, cursorPos?: number) => {
+    const cursor = cursorPos ?? inputRef.current?.selectionStart ?? text.length;
+    const textBefore = text.slice(Math.max(0, cursor - 50), cursor);
+    const match = textBefore.match(/(?:^|\s)(?<trigger>[#@])(?<query>[\w-]*)$/);
+    if (match?.groups) {
+      setSuggestions({
+        query: match.groups.query || "",
+        type: match.groups.trigger === "#" ? "tag" : "mention",
+      });
+    } else {
+      setSuggestions(null);
+    }
+  }, []);
+
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setInput(e.target.value);
+      const nextVal = e.target.value;
+      setInput(nextVal);
+      checkSuggestions(nextVal, e.target.selectionStart ?? nextVal.length);
     },
-    []
+    [checkSuggestions]
+  );
+
+  const handleSelectTag = useCallback(
+    (tag: string) => {
+      const inputEl = inputRef.current;
+      const cursor = inputEl?.selectionStart ?? input.length;
+      const textBefore = input.slice(0, cursor);
+      const textAfter = input.slice(cursor);
+      const match = textBefore.match(/(?:^|\s)#(?<tag>[\w-]*)$/);
+      if (match?.groups) {
+        const triggerStart = cursor - match.groups.tag.length - 1;
+        const next = `${input.slice(0, triggerStart)}#${tag} ${textAfter}`;
+        setInput(next);
+        setTimeout(() => {
+          inputEl?.focus();
+          const newPos = triggerStart + tag.length + 2;
+          inputEl?.setSelectionRange(newPos, newPos);
+        }, 0);
+      }
+      setSuggestions(null);
+    },
+    [input]
+  );
+
+  const handleSelectMention = useCallback(
+    (userToMention: UserData) => {
+      const inputEl = inputRef.current;
+      const cursor = inputEl?.selectionStart ?? input.length;
+      const textBefore = input.slice(0, cursor);
+      const textAfter = input.slice(cursor);
+      const match = textBefore.match(/(?:^|\s)@(?<username>[\w-]*)$/);
+      if (match?.groups) {
+        const triggerStart = cursor - match.groups.username.length - 1;
+        const next = `${input.slice(0, triggerStart)}@${userToMention.username} ${textAfter}`;
+        setInput(next);
+        setTimeout(() => {
+          inputEl?.focus();
+          const newPos = triggerStart + userToMention.username.length + 2;
+          inputEl?.setSelectionRange(newPos, newPos);
+        }, 0);
+      }
+      setSuggestions(null);
+    },
+    [input]
   );
 
   const handleFocus = useCallback(() => {
@@ -156,17 +242,43 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (suggestions) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          suggestionsRef.current?.moveDown();
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          suggestionsRef.current?.moveUp();
+          return;
+        }
+        if (
+          (e.key === "Enter" || e.key === "Tab") &&
+          suggestionsRef.current?.selectActive()
+        ) {
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSuggestions(null);
+          return;
+        }
+      }
+
       if (e.key === "Enter") {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit]
+    [handleSubmit, suggestions]
   );
 
   const handleFilesSelected = useCallback(
     (files: FileList | null) => {
       if (files) {
+        setIsExpanded(true);
         void startUpload([...files]);
       }
     },
@@ -184,6 +296,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
       setGifPickerOpen(false);
+      setIsExpanded(true);
       try {
         const blob = await fetch(gif.url).then((r) => {
           if (!r.ok) {
@@ -209,15 +322,26 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   return (
     <div
       className={cn(
-        "fixed inset-x-0 z-50 px-3 pb-3 lg:hidden",
-        replyOpen && "hidden"
+        "bg-background/95 fixed right-0 bottom-0 left-0 z-40 border-t border-white/10 p-2 shadow-[0_-4px_20px_rgba(0,0,0,0.15)] backdrop-blur-md transition-transform duration-200 lg:hidden",
+        replyOpen && "translate-y-full"
       )}
-      style={{ bottom: keyboardOffset }}
+      onBlur={handleBarBlur}
+      style={{
+        bottom: `${keyboardOffset}px`,
+      }}
     >
-      <div
-        className="border-border/60 rounded-2xl border bg-[hsl(var(--background-alt))]/95 p-2 shadow-lg backdrop-blur-md"
-        onBlur={handleBarBlur}
-      >
+      <div className="relative mx-auto max-w-lg">
+        {suggestions ? (
+          <CommentSuggestions
+            onClose={() => setSuggestions(null)}
+            onSelectMention={handleSelectMention}
+            onSelectTag={handleSelectTag}
+            query={suggestions.query}
+            ref={suggestionsRef}
+            type={suggestions.type}
+          />
+        ) : null}
+
         <div className="flex items-center gap-2">
           <UserAvatar
             avatarUrl={userData?.avatarUrl || user?.image}
@@ -232,24 +356,28 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
             ref={inputRef}
             value={input}
           />
-          <AnimatePresence>
-            {isExpanded ? null : (
+          <AnimatePresence initial={false}>
+            {!isExpanded && (
               <motion.button
                 animate={{ opacity: 1, scale: 1 }}
-                aria-label="Send eddie"
                 className={cn(
-                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                  "flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-medium text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
                   SEND_BTN_SHADOW,
                   !canSubmit && "opacity-50"
                 )}
                 disabled={!canSubmit}
-                exit={{ opacity: 0, scale: 0.6 }}
-                initial={{ opacity: 0, scale: 0.6 }}
+                exit={{ opacity: 0, scale: 0.85 }}
+                initial={{ opacity: 0, scale: 0.85 }}
                 onClick={handleSubmit}
                 transition={{ duration: 0.15 }}
                 type="button"
               >
-                <SendHorizonal className="size-5" />
+                {mutation.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <SendHorizonal className="size-4" />
+                )}
+                Send
               </motion.button>
             )}
           </AnimatePresence>
@@ -264,43 +392,98 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
               initial={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: "easeInOut" }}
             >
+              <input
+                accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
+                aria-label="Add image or GIF attachment"
+                className="sr-only"
+                onChange={handleFileInputChange}
+                ref={fileInputRef}
+                type="file"
+              />
+
+              {attachments.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {attachments.map((attachment) => (
+                    <div
+                      className={cn(
+                        "group relative overflow-hidden rounded-xl border border-black/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3),0_1px_3px_rgba(0,0,0,0.1)] dark:border-white/15 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),0_2px_6px_rgba(0,0,0,0.3)]",
+                        attachment.file?.type === "image/gif"
+                          ? "flex h-36 w-56 items-center justify-center sm:h-44 sm:w-64"
+                          : "h-20 w-20"
+                      )}
+                      key={attachment.objectUrl}
+                    >
+                      <Image
+                        alt="Attachment preview"
+                        className="h-full w-full object-cover"
+                        fill
+                        src={attachment.objectUrl}
+                      />
+                      <div className="pointer-events-none absolute inset-0 rounded-xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_2px_rgba(255,255,255,0.06)]" />
+                      {attachment.isUploading ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs">
+                          <Loader2 className="size-5 animate-spin text-white" />
+                        </div>
+                      ) : (
+                        <button
+                          aria-label="Remove attachment"
+                          className="absolute top-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white shadow-[0_1px_3px_rgba(0,0,0,0.4),inset_0_0_0_1px_rgba(255,255,255,0.25)] transition-all hover:scale-105 hover:bg-black/90"
+                          onClick={() => removeAttachment(attachment.objectUrl)}
+                          type="button"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="mt-2 flex items-center justify-between gap-2 pt-2">
-                <div className="flex items-center gap-1">
-                  <input
-                    accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
-                    aria-label="Add image or GIF attachment"
-                    className="sr-only"
-                    multiple
-                    onChange={handleFileInputChange}
-                    ref={fileInputRef}
-                    type="file"
-                  />
-                  <button
-                    aria-label="Add image or GIF"
-                    className={cn(
-                      ICON_BTN_BASE,
-                      ICON_BTN_HOVER,
-                      (isUploading || mutation.isPending) && "opacity-50"
-                    )}
-                    disabled={isUploading || mutation.isPending}
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
-                  >
-                    <ImageIcon className="size-4" />
-                  </button>
-                  <button
-                    aria-label="Search and add a GIF"
-                    className={cn(
-                      ICON_BTN_BASE,
-                      gifPickerOpen ? ICON_BTN_PURPLE : ICON_BTN_HOVER,
-                      (isUploading || mutation.isPending) && "opacity-50"
-                    )}
-                    disabled={isUploading || mutation.isPending}
-                    onClick={() => setGifPickerOpen((prev) => !prev)}
-                    type="button"
-                  >
-                    <Clapperboard className="size-4" />
-                  </button>
+                <div className="flex items-center gap-2">
+                  {attachments.length === 0 ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        aria-label="Add image or GIF"
+                        className={cn(
+                          ICON_BTN_BASE,
+                          ICON_BTN_HOVER,
+                          (isUploading || mutation.isPending) && "opacity-50"
+                        )}
+                        disabled={isUploading || mutation.isPending}
+                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                      >
+                        <ImageIcon className="size-4" />
+                      </button>
+                      <button
+                        aria-label="Search and add a GIF"
+                        className={cn(
+                          ICON_BTN_BASE,
+                          gifPickerOpen ? ICON_BTN_PURPLE : ICON_BTN_HOVER,
+                          (isUploading || mutation.isPending) && "opacity-50"
+                        )}
+                        disabled={isUploading || mutation.isPending}
+                        onClick={() => setGifPickerOpen((prev) => !prev)}
+                        type="button"
+                      >
+                        <Clapperboard className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
+                  {isNearLengthLimit ? (
+                    <span
+                      className={cn(
+                        "text-[11px] font-medium tabular-nums",
+                        isLengthExceeded
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/
+                      {MAX_COMMENT_CHARS}c
+                    </span>
+                  ) : null}
                 </div>
                 <button
                   className={cn(
@@ -321,48 +504,6 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                 </button>
               </div>
 
-              {attachments.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {attachments.map((attachment) => (
-                    <div
-                      className={cn(
-                        "bg-muted/30 group relative overflow-hidden rounded-lg",
-                        attachment.file?.type === "image/gif"
-                          ? "flex h-32 w-48 items-center justify-center"
-                          : "h-16 w-16"
-                      )}
-                      key={attachment.objectUrl}
-                    >
-                      <Image
-                        alt="Attachment preview"
-                        className={cn(
-                          "h-full w-full",
-                          attachment.file?.type === "image/gif"
-                            ? "object-contain"
-                            : "object-cover"
-                        )}
-                        fill
-                        src={attachment.objectUrl}
-                      />
-                      {attachment.isUploading ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                          <Loader2 className="size-5 animate-spin text-white" />
-                        </div>
-                      ) : (
-                        <button
-                          aria-label="Remove attachment"
-                          className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                          onClick={() => removeAttachment(attachment.objectUrl)}
-                          type="button"
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {gifPickerOpen ? (
                 <div className="apple-panel mt-2 w-full rounded-2xl p-2">
                   <KlipyGifPicker
@@ -371,6 +512,16 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                   />
                 </div>
               ) : null}
+
+              <LinkEmbedComposer
+                content={input}
+                dismissedUrls={new Set<string>(dismissedEmbedUrls)}
+                onDismiss={(url) =>
+                  setDismissedEmbedUrls((prev) =>
+                    prev.includes(url) ? prev : [...prev, url]
+                  )
+                }
+              />
             </motion.div>
           ) : null}
         </AnimatePresence>

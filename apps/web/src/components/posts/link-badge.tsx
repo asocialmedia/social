@@ -1,8 +1,10 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import type { ComponentType } from "react";
 import { FaGithub, FaReddit, FaXTwitter, FaYoutube } from "react-icons/fa6";
 
+import kyInstance from "@/lib/ky";
 import { sanitizeEmbedUrl } from "@/lib/link-embeds/shared";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
@@ -51,23 +53,42 @@ export function hostLabel(url: string): string {
 }
 
 export function LinkBadge({
-  url,
   title,
+  url,
 }: {
   title?: string | null;
   url: string;
 }) {
+  const { data } = useQuery({
+    enabled: !title && Boolean(url),
+    queryFn: async () => {
+      try {
+        const res = await kyInstance
+          .get("/api/link-preview", {
+            searchParams: { url },
+            timeout: 10_000,
+          })
+          .json<{ embed: LinkEmbed }>();
+        return res.embed;
+      } catch {
+        return null;
+      }
+    },
+    queryKey: ["link-preview", url],
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
   const platform = platformFromUrl(url);
-  const label = title?.trim() || hostLabel(url);
+  const label = title?.trim() || data?.title?.trim() || hostLabel(url);
 
   return (
     <a
-      className="meta-chip max-w-full align-middle"
+      className="meta-chip inline-flex max-w-full items-center gap-1.5 align-middle text-xs"
       href={url}
       onClick={(event) => event.stopPropagation()}
       rel="nofollow ugc noopener noreferrer"
       target="_blank"
-      title={title ? `${label} · ${url}` : url}
+      title={label ? `${label} · ${url}` : url}
     >
       {platform ? (
         <platform.Icon className={`size-3.5 shrink-0 ${platform.className}`} />

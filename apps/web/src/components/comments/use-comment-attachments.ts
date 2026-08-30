@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 import { useToast } from "@/lib/gooey-toast";
 import { uploadMediaFile } from "@/lib/media-upload-client";
 
-const MAX_COMMENT_ATTACHMENTS = 4;
+const MAX_COMMENT_ATTACHMENTS = 1;
 
 export interface CommentAttachmentDraft {
   file: File;
@@ -55,7 +55,7 @@ export function useCommentAttachments() {
       // filter, not the raw selection (which may include ignored files).
       if (attachments.length + imageFiles.length > MAX_COMMENT_ATTACHMENTS) {
         toast({
-          description: `An eddie can hold up to ${MAX_COMMENT_ATTACHMENTS} images or GIFs.`,
+          description: "An eddie can hold only 1 image or GIF.",
           title: "Attachment Limit",
           variant: "destructive",
         });

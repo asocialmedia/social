@@ -197,7 +197,7 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
       {isOpen ? (
         <motion.div
           animate={{ opacity: 1, y: 0 }}
-          className="pointer-events-auto absolute inset-x-0 bottom-0 z-70 flex max-h-[75vh] min-h-[320px] flex-col rounded-t-3xl border-t border-white/15 bg-black/95 text-white shadow-2xl backdrop-blur-2xl"
+          className="pointer-events-auto absolute inset-x-0 bottom-0 z-70 flex max-h-[75vh] min-h-80 flex-col rounded-t-3xl border-t border-white/15 bg-black/95 text-white shadow-2xl backdrop-blur-2xl"
           exit={{ opacity: 0, y: "100%" }}
           initial={{ opacity: 0, y: "100%" }}
           onClick={(e) => e.stopPropagation()}

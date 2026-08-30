@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
 import type { CommentData, PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
@@ -17,11 +18,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
+import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
+import { CommentSuggestions } from "./comment-suggestions";
+import type { CommentSuggestionsHandle } from "./comment-suggestions";
 import KlipyGifPicker from "./klipy-gif-picker";
 import type { KlipyGif } from "./klipy-gif-picker";
 import { useSubmitCommentMutation } from "./mutations";
@@ -29,6 +33,10 @@ import { useCommentAttachments } from "./use-comment-attachments";
 
 const SEND_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
 interface CommentInputProps {
   applyCreated: (comment: CommentData) => void;
@@ -62,6 +70,12 @@ export default function CommentInput({
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
   const [input, setInput] = useState("");
+  const [suggestions, setSuggestions] = useState<{
+    query: string;
+    type: "tag" | "mention";
+  } | null>(null);
+  const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
+  const suggestionsRef = useRef<CommentSuggestionsHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -100,8 +114,18 @@ export default function CommentInput({
     staleTime: 1000 * 60 * 5,
   });
 
+  const wordCount = countWords(input);
+  const isLengthExceeded =
+    wordCount > MAX_COMMENT_WORDS || input.length > MAX_COMMENT_CHARS;
+  const isNearLengthLimit =
+    wordCount >= MAX_COMMENT_WORDS * 0.8 ||
+    input.length >= MAX_COMMENT_CHARS * 0.8;
+
   const canSubmit =
-    input.trim().length > 0 || attachments.length > 0 || mediaIds.length > 0;
+    (input.trim().length > 0 ||
+      attachments.length > 0 ||
+      mediaIds.length > 0) &&
+    !isLengthExceeded;
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -125,12 +149,79 @@ export default function CommentInput({
       {
         onSuccess: () => {
           setInput("");
+          setDismissedEmbedUrls([]);
+          setSuggestions(null);
           reset();
           onSubmitted?.();
         },
       }
     );
   }
+
+  const checkSuggestions = useCallback((text: string, cursorPos?: number) => {
+    const cursor =
+      cursorPos ?? textareaRef.current?.selectionStart ?? text.length;
+    const textBefore = text.slice(Math.max(0, cursor - 50), cursor);
+    const match = textBefore.match(/(?:^|\s)(?<trigger>[#@])(?<query>[\w-]*)$/);
+    if (match?.groups) {
+      setSuggestions({
+        query: match.groups.query || "",
+        type: match.groups.trigger === "#" ? "tag" : "mention",
+      });
+    } else {
+      setSuggestions(null);
+    }
+  }, []);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const nextVal = e.target.value;
+    setInput(nextVal);
+    checkSuggestions(nextVal, e.target.selectionStart ?? nextVal.length);
+  };
+
+  const handleSelectTag = useCallback(
+    (tag: string) => {
+      const textarea = textareaRef.current;
+      const cursor = textarea?.selectionStart ?? input.length;
+      const textBefore = input.slice(0, cursor);
+      const textAfter = input.slice(cursor);
+      const match = textBefore.match(/(?:^|\s)#(?<tag>[\w-]*)$/);
+      if (match?.groups) {
+        const triggerStart = cursor - match.groups.tag.length - 1;
+        const next = `${input.slice(0, triggerStart)}#${tag} ${textAfter}`;
+        setInput(next);
+        setTimeout(() => {
+          textarea?.focus();
+          const newPos = triggerStart + tag.length + 2;
+          textarea?.setSelectionRange(newPos, newPos);
+        }, 0);
+      }
+      setSuggestions(null);
+    },
+    [input]
+  );
+
+  const handleSelectMention = useCallback(
+    (userToMention: UserData) => {
+      const textarea = textareaRef.current;
+      const cursor = textarea?.selectionStart ?? input.length;
+      const textBefore = input.slice(0, cursor);
+      const textAfter = input.slice(cursor);
+      const match = textBefore.match(/(?:^|\s)@(?<username>[\w-]*)$/);
+      if (match?.groups) {
+        const triggerStart = cursor - match.groups.username.length - 1;
+        const next = `${input.slice(0, triggerStart)}@${userToMention.username} ${textAfter}`;
+        setInput(next);
+        setTimeout(() => {
+          textarea?.focus();
+          const newPos = triggerStart + userToMention.username.length + 2;
+          textarea?.setSelectionRange(newPos, newPos);
+        }, 0);
+      }
+      setSuggestions(null);
+    },
+    [input]
+  );
 
   const handleFilesSelected = useCallback(
     (files: FileList | null) => {
@@ -195,6 +286,31 @@ export default function CommentInput({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggestions) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        suggestionsRef.current?.moveDown();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        suggestionsRef.current?.moveUp();
+        return;
+      }
+      if (
+        (e.key === "Enter" || e.key === "Tab") &&
+        suggestionsRef.current?.selectActive()
+      ) {
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSuggestions(null);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (canSubmit && !mutation.isPending && !isUploading) {
@@ -220,24 +336,37 @@ export default function CommentInput({
           </span>
         </p>
       )}
-      <div className="flex w-full items-center gap-2">
+      <div className="flex w-full items-start gap-2">
         <UserAvatar
           avatarUrl={userData?.avatarUrl || user?.image}
-          className="h-10 w-10 shrink-0"
+          className="mt-0.5 h-10 w-10 shrink-0"
         />
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+          {suggestions ? (
+            <CommentSuggestions
+              onClose={() => setSuggestions(null)}
+              onSelectMention={handleSelectMention}
+              onSelectTag={handleSelectTag}
+              query={suggestions.query}
+              ref={suggestionsRef}
+              type={suggestions.type}
+            />
+          ) : null}
           <div
             className={cn(
-              "flex min-h-10 min-w-0 items-center gap-2 transition-all",
+              "flex min-w-0 transition-all",
               reels
-                ? "reels-input min-h-10 rounded-full py-0! pr-1 pl-3 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
-                : "premium-input min-h-10 py-0! pr-1 pl-3"
+                ? "reels-input rounded-2xl pr-1 pl-3 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
+                : "premium-input rounded-2xl pr-1 pl-3",
+              attachments.length > 0
+                ? "flex-col gap-2 py-2"
+                : "min-h-10 items-center gap-2 py-0!"
             )}
           >
             <textarea
               autoFocus={autoFocus}
               className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent py-2 text-sm leading-none outline-none"
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
               ref={textareaRef}
@@ -248,73 +377,177 @@ export default function CommentInput({
               accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
               aria-label="Add image or GIF attachment"
               className="sr-only"
-              multiple
               onChange={handleFileInputChange}
               ref={fileInputRef}
               type="file"
             />
-            <button
-              aria-label="Add image or GIF"
-              className={cn(
-                "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                (isUploading || mutation.isPending) && "opacity-50"
-              )}
-              disabled={isUploading || mutation.isPending}
-              onClick={() => fileInputRef.current?.click()}
-              type="button"
-            >
-              <span className="flex items-center gap-1.5">
-                <ImagePlus className="size-4" />
-                <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
-                  Image
-                </span>
-              </span>
-            </button>
-            <button
-              aria-label="Search and add a GIF"
-              className={cn(
-                "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                gifPickerOpen &&
-                  "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
-                (isUploading || mutation.isPending) && "opacity-50"
-              )}
-              disabled={isUploading || mutation.isPending}
-              onClick={() => setGifPickerOpen((prev) => !prev)}
-              type="button"
-            >
-              <span className="flex items-center gap-1.5">
-                <Clapperboard className="size-4" />
-                <span
+            {attachments.length === 0 ? (
+              <div className="flex shrink-0 items-center gap-1.5 self-end">
+                {isNearLengthLimit ? (
+                  <span
+                    className={cn(
+                      "text-[11px] font-medium tabular-nums",
+                      isLengthExceeded
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/
+                    {MAX_COMMENT_CHARS}c
+                  </span>
+                ) : null}
+                <button
+                  aria-label="Add image or GIF"
                   className={cn(
-                    "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                    gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                    (isUploading || mutation.isPending) && "opacity-50"
                   )}
+                  disabled={isUploading || mutation.isPending}
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
                 >
-                  GIFs
-                </span>
-              </span>
-            </button>
-            <button
-              aria-label={submitLabel ?? "Send eddie"}
-              className={cn(
-                "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                SEND_BTN_SHADOW,
-                (!canSubmit || mutation.isPending || isUploading) &&
-                  "opacity-50"
-              )}
-              disabled={!canSubmit || mutation.isPending || isUploading}
-              type="submit"
-            >
-              {mutation.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <>
-                  <span>Send</span>
-                  <SendHorizonal className="size-4" />
-                </>
-              )}
-            </button>
+                  <span className="flex items-center gap-1.5">
+                    <ImagePlus className="size-4" />
+                    <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
+                      Image
+                    </span>
+                  </span>
+                </button>
+                <button
+                  aria-label="Search and add a GIF"
+                  className={cn(
+                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                    gifPickerOpen &&
+                      "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+                    (isUploading || mutation.isPending) && "opacity-50"
+                  )}
+                  disabled={isUploading || mutation.isPending}
+                  onClick={() => setGifPickerOpen((prev) => !prev)}
+                  type="button"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Clapperboard className="size-4" />
+                    <span
+                      className={cn(
+                        "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                        gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                      )}
+                    >
+                      GIFs
+                    </span>
+                  </span>
+                </button>
+                <button
+                  aria-label={submitLabel ?? "Send eddie"}
+                  className={cn(
+                    "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                    SEND_BTN_SHADOW,
+                    (!canSubmit || mutation.isPending || isUploading) &&
+                      "opacity-50"
+                  )}
+                  disabled={!canSubmit || mutation.isPending || isUploading}
+                  type="submit"
+                >
+                  {mutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <>
+                      <span>Send</span>
+                      <SendHorizonal className="size-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : null}
+
+            {attachments.length > 0 ? (
+              <>
+                <div className="w-full pt-1">
+                  {attachments.map((attachment) => (
+                    <div
+                      className={cn(
+                        "group relative overflow-hidden rounded-xl border border-black/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3),0_1px_3px_rgba(0,0,0,0.1)] dark:border-white/15 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),0_2px_6px_rgba(0,0,0,0.3)]",
+                        attachment.file?.type === "image/gif"
+                          ? "flex h-44 w-full max-w-sm items-center justify-center sm:h-52 sm:max-w-md"
+                          : "h-24 w-24"
+                      )}
+                      key={attachment.objectUrl}
+                    >
+                      <Image
+                        alt="Attachment preview"
+                        className="h-full w-full object-cover"
+                        fill
+                        src={attachment.objectUrl}
+                      />
+                      <div className="pointer-events-none absolute inset-0 rounded-xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_2px_rgba(255,255,255,0.06)]" />
+                      {attachment.isUploading ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs">
+                          <Loader2 className="size-5 animate-spin text-white" />
+                        </div>
+                      ) : (
+                        <button
+                          aria-label="Remove attachment"
+                          className="absolute top-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white shadow-[0_1px_3px_rgba(0,0,0,0.4),inset_0_0_0_1px_rgba(255,255,255,0.25)] transition-all hover:scale-105 hover:bg-black/90"
+                          onClick={() => removeAttachment(attachment.objectUrl)}
+                          type="button"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <div>
+                    {isNearLengthLimit ? (
+                      <span
+                        className={cn(
+                          "text-[11px] font-medium tabular-nums",
+                          isLengthExceeded
+                            ? "text-destructive"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {wordCount}/{MAX_COMMENT_WORDS} words · {input.length}/
+                        {MAX_COMMENT_CHARS} chars
+                      </span>
+                    ) : null}
+                  </div>
+                  <button
+                    aria-label={submitLabel ?? "Send eddie"}
+                    className={cn(
+                      "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      SEND_BTN_SHADOW,
+                      (!canSubmit || mutation.isPending || isUploading) &&
+                        "opacity-50"
+                    )}
+                    disabled={!canSubmit || mutation.isPending || isUploading}
+                    type="submit"
+                  >
+                    {mutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Send</span>
+                        <SendHorizonal className="size-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
+
+          <LinkEmbedComposer
+            content={input}
+            dismissedUrls={new Set<string>(dismissedEmbedUrls)}
+            onDismiss={(url) =>
+              setDismissedEmbedUrls((prev) =>
+                prev.includes(url) ? prev : [...prev, url]
+              )
+            }
+          />
         </div>
       </div>
 
@@ -325,51 +558,6 @@ export default function CommentInput({
           <KlipyGifPicker disabled={isUploading} onSelect={handleGifSelect} />
         </div>
       ) : null}
-
-      {attachments.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {attachments.map((attachment) => (
-            <div
-              className={cn(
-                "bg-muted/30 group relative overflow-hidden rounded-lg",
-                // GIFs render at their final eddie size even while uploading so
-                // the preview matches what the post will look like; regular
-                // image attachments stay as small tiles.
-                attachment.file?.type === "image/gif"
-                  ? "flex h-48 w-72 items-center justify-center"
-                  : "h-20 w-20"
-              )}
-              key={attachment.objectUrl}
-            >
-              <Image
-                alt="Attachment preview"
-                className={cn(
-                  "h-full w-full",
-                  attachment.file?.type === "image/gif"
-                    ? "object-contain"
-                    : "object-cover"
-                )}
-                fill
-                src={attachment.objectUrl}
-              />
-              {attachment.isUploading ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <Loader2 className="size-5 animate-spin text-white" />
-                </div>
-              ) : (
-                <button
-                  aria-label="Remove attachment"
-                  className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                  onClick={() => removeAttachment(attachment.objectUrl)}
-                  type="button"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </form>
   );
 }
