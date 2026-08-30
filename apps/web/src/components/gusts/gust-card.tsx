@@ -205,7 +205,12 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
   }
 
-  const authorName = post.user.displayName || post.user.username;
+  const authorUsername = post.user?.username || "unknown";
+  const authorName =
+    post.user?.displayName || post.user?.username || "Anonymous";
+  const authorProfileHref = post.user?.username
+    ? `/users/${post.user.username}`
+    : "#";
 
   // Shared vote state so the rail button and the double-tap gesture stay in
   // sync (same ["vote-info", postId] cache entry).
@@ -435,13 +440,15 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   const thumbUrl = getMediaProxyUrl(videoMedia);
   const videoUrl = `/api/media/${videoMedia.id}`;
-  const canFollow =
+  const canFollow = Boolean(
     user &&
+    post.user &&
     user.id !== post.user.id &&
-    !post.user.followers?.some((f) => f.followerId === user.id);
+    !post.user.followers?.some((f) => f.followerId === user.id)
+  );
 
   const isFollowedByUser = Boolean(
-    post.user.followers?.some((f) => f.followerId === user?.id)
+    post.user?.followers?.some((f) => f.followerId === user?.id)
   );
   const isBookmarked = Boolean(post.bookmarks?.length);
 
@@ -620,9 +627,9 @@ export const GustCard: React.FC<GustCardProps> = ({
           </div>
           <div className="flex items-center gap-3">
             <UserTooltip user={post.user}>
-              <Link href={`/users/${post.user.username}`}>
+              <Link href={authorProfileHref}>
                 <UserAvatar
-                  avatarUrl={post.user.avatarUrl}
+                  avatarUrl={post.user?.avatarUrl}
                   className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
                 />
               </Link>
@@ -631,12 +638,15 @@ export const GustCard: React.FC<GustCardProps> = ({
               <div className="flex items-center gap-2">
                 <Link
                   className="truncate text-sm font-bold text-white drop-shadow-md hover:underline"
-                  href={`/users/${post.user.username}`}
+                  href={authorProfileHref}
                 >
                   {authorName}
                 </Link>
-                <UserBadge badge={post.user.badge} badges={post.user.badges} />
-                {canFollow ? (
+                <UserBadge
+                  badge={post.user?.badge}
+                  badges={post.user?.badges}
+                />
+                {canFollow && post.user ? (
                   <FollowButton
                     className="h-7 shrink-0 rounded-full px-3 text-xs"
                     initialState={{
@@ -649,9 +659,9 @@ export const GustCard: React.FC<GustCardProps> = ({
               </div>
               <Link
                 className="block truncate text-xs text-white/80 drop-shadow-md hover:underline"
-                href={`/users/${post.user.username}`}
+                href={authorProfileHref}
               >
-                @{post.user.username}
+                @{authorUsername}
               </Link>
             </div>
           </div>
@@ -771,7 +781,7 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
             shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/gusts?id=${post.id}`}
             thumbnail={thumbUrl}
-            title={`${authorName} (@${post.user.username})'s Gust on asocialmedia`}
+            title={`${authorName} (@${authorUsername})'s Gust on asocialmedia`}
           />
 
           {/* Bookmark */}

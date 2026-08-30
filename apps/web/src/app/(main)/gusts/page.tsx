@@ -37,11 +37,13 @@ export async function generateMetadata(
     });
 
     if (post) {
-      const authorName = post.user.displayName || post.user.username;
+      const authorUsername = post.user?.username || "unknown";
+      const authorName =
+        post.user?.displayName || post.user?.username || "Anonymous";
       const snippet = post.content ? excerpt(post.content, 60) : "";
       const title = snippet
-        ? `${authorName} (@${post.user.username}): ${snippet}`
-        : `${authorName} (@${post.user.username})'s Gust`;
+        ? `${authorName} (@${authorUsername}): ${snippet}`
+        : `${authorName} (@${authorUsername})'s Gust`;
       const description = post.content?.trim()
         ? `${excerpt(post.content, 140)} · ${post.aura} aura`
         : `Watch ${authorName}'s gust video clip on asocialmedia.`;
@@ -65,11 +67,11 @@ export async function generateMetadata(
           "short-form video",
           "reels",
           authorName,
-          post.user.username,
+          authorUsername,
           ...post.tags.map((t) => t.name),
         ],
         openGraph: {
-          authors: [absoluteUrl(`/users/${post.user.username}`)],
+          authors: [absoluteUrl(`/users/${authorUsername}`)],
           description,
           images: [
             {
@@ -89,7 +91,7 @@ export async function generateMetadata(
         title,
         twitter: {
           card: "summary_large_image",
-          creator: `@${post.user.username}`,
+          creator: `@${authorUsername}`,
           description,
           images: [ogImageUrl],
           title,

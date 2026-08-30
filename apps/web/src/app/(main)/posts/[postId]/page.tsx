@@ -74,7 +74,9 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     description,
     keywords: post.tags.map((tag) => tag.name),
     openGraph: {
-      authors: [absoluteUrl(`/users/${post.user.username}`)],
+      authors: post.user?.username
+        ? [absoluteUrl(`/users/${post.user.username}`)]
+        : [],
       description,
       images: [
         {
@@ -100,7 +102,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     title,
     twitter: {
       card: "summary_large_image",
-      creator: post.user.username ? `@${post.user.username}` : undefined,
+      creator: post.user?.username ? `@${post.user.username}` : undefined,
       description,
       images: [ogImageUrl],
       title,
@@ -125,18 +127,22 @@ async function PostContent({ params }: PageProps) {
     session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
 
+  const authorUsername = post.user?.username || "unknown";
+  const authorDisplayName =
+    post.user?.displayName || post.user?.username || "Anonymous";
   const url = absoluteUrl(`/posts/${post.id}`);
-  const authorUrl = absoluteUrl(`/users/${post.user.username}`);
-  const postImage = getPostImage(post);
+  const authorUrl = absoluteUrl(`/users/${authorUsername}`);
+
+  const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
 
   const postJsonLd = {
     "@context": "https://schema.org",
     "@type": "SocialMediaPosting",
     author: {
       "@type": "Person",
-      name: post.user.displayName,
+      name: authorDisplayName,
       url: authorUrl,
-      ...(post.user.username
+      ...(post.user?.username
         ? { alternateName: `@${post.user.username}` }
         : {}),
     },
@@ -144,9 +150,13 @@ async function PostContent({ params }: PageProps) {
     datePublished: post.createdAt.toISOString(),
     description: postDescription(post),
     headline: postTitle(post, 110),
-    image: postImage ?? undefined,
-    inLanguage: "en",
+    image: ogImageUrl,
     interactionStatistic: [
+      {
+        "@type": "InteractionCounter",
+        interactionType: "https://schema.org/CommentAction",
+        userInteractionCount: post._count.comments,
+      },
       {
         "@type": "InteractionCounter",
         interactionType: "https://schema.org/LikeAction",
@@ -154,11 +164,10 @@ async function PostContent({ params }: PageProps) {
       },
       {
         "@type": "InteractionCounter",
-        interactionType: "https://schema.org/CommentAction",
-        userInteractionCount: post._count.comments,
+        interactionType: "https://schema.org/ViewAction",
+        userInteractionCount: post.viewCount,
       },
     ],
-    keywords: post.tags.map((tag) => tag.name).join(", "),
     mainEntityOfPage: {
       "@id": url,
       "@type": "WebPage",
@@ -167,7 +176,7 @@ async function PostContent({ params }: PageProps) {
       "@type": "Organization",
       logo: {
         "@type": "ImageObject",
-        url: `${siteConfig.url}/favicon/android-chrome-512x512.png`,
+        url: absoluteUrl("/icons/icon-512x512.png"),
       },
       name: siteConfig.name,
       url: siteConfig.url,
@@ -188,7 +197,7 @@ async function PostContent({ params }: PageProps) {
       {
         "@type": "ListItem",
         item: authorUrl,
-        name: `@${post.user.username}`,
+        name: `@${authorUsername}`,
         position: 2,
       },
       {

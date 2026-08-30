@@ -336,15 +336,40 @@ export async function uploadMediaFile(
 
   await putToPresignedUrl(uploadUrl, file, contentType, report);
 
-  const finalizeResponse = await fetch("/api/upload/finalize", {
-    body: JSON.stringify({ mediaId }),
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    method: "POST",
-    signal: options.signal,
-  });
-  if (!finalizeResponse.ok) {
-    throw new MediaUploadError(await parseErrorMessage(finalizeResponse));
+  let finalizeResponse: Response | null = null;
+  const maxFinalizeAttempts = 4;
+  for (let attempt = 1; attempt <= maxFinalizeAttempts; attempt += 1) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- sequential retry on transient deployment errors
+      finalizeResponse = await fetch("/api/upload/finalize", {
+        body: JSON.stringify({ mediaId }),
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        signal: options.signal,
+      });
+      if (
+        finalizeResponse.ok ||
+        (finalizeResponse.status < 500 && finalizeResponse.status !== 408)
+      ) {
+        break;
+      }
+    } catch (fetchError) {
+      if (attempt === maxFinalizeAttempts || options.signal?.aborted) {
+        throw fetchError;
+      }
+    }
+    if (attempt < maxFinalizeAttempts) {
+      // eslint-disable-next-line no-await-in-loop, no-promise-executor-return, promise/avoid-new -- transient deployment retry
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+    }
+  }
+  if (!finalizeResponse || !finalizeResponse.ok) {
+    throw new MediaUploadError(
+      finalizeResponse
+        ? await parseErrorMessage(finalizeResponse)
+        : "Failed to finalize upload"
+    );
   }
   // Bytes are in quarantine; the pipeline owns the file from here.
   reportStage("queued");

@@ -775,7 +775,7 @@ const MediaViewer = ({
             postId={post.id}
             shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
             thumbnail={getShareThumbnail(post, currentMedia)}
-            title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+            title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
           />
           <BookmarkButton
             className="h-9 w-9"
@@ -959,10 +959,12 @@ const MediaViewer = ({
                 <Link
                   aria-label="View profile"
                   className="shrink-0 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
-                  href={`/users/${post.user.username}`}
+                  href={
+                    post.user?.username ? `/users/${post.user.username}` : "#"
+                  }
                 >
                   <UserAvatar
-                    avatarUrl={post.user.avatarUrl}
+                    avatarUrl={post.user?.avatarUrl}
                     className="h-10 w-10"
                   />
                 </Link>
@@ -970,27 +972,35 @@ const MediaViewer = ({
                   <span className="flex items-center gap-1.5">
                     <Link
                       className="block truncate font-semibold text-white hover:underline"
-                      href={`/users/${post.user.username}`}
+                      href={
+                        post.user?.username
+                          ? `/users/${post.user.username}`
+                          : "#"
+                      }
                     >
-                      {post.user.displayName}
+                      {post.user?.displayName ||
+                        post.user?.username ||
+                        "Anonymous"}
                     </Link>
                     <UserBadge
-                      badge={post.user.badge}
-                      badges={post.user.badges}
+                      badge={post.user?.badge}
+                      badges={post.user?.badges}
                     />
                   </span>
                   <Link
                     className="block truncate text-white/70 hover:underline"
-                    href={`/users/${post.user.username}`}
+                    href={
+                      post.user?.username ? `/users/${post.user.username}` : "#"
+                    }
                   >
-                    @{post.user.username}
+                    @{post.user?.username || "unknown"}
                   </Link>
                 </div>
-                {isSelf ? null : (
+                {isSelf || !post.user?.id ? null : (
                   <FollowButton
                     initialState={{
                       followers: post.user._count?.followers ?? 0,
-                      isFollowedByUser: post.user.followers.length > 0,
+                      isFollowedByUser: (post.user.followers || []).length > 0,
                     }}
                     userId={post.user.id}
                   />
@@ -1074,7 +1084,7 @@ const MediaViewer = ({
                     postId={post.id}
                     shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
                     thumbnail={getShareThumbnail(post, currentMedia)}
-                    title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+                    title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                   />
                   <BookmarkButton
                     className="h-9 w-9"
@@ -1419,10 +1429,12 @@ const MediaViewer = ({
                 <Link
                   aria-label="View profile"
                   className="focus-visible:ring-ring shrink-0 rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2"
-                  href={`/users/${post.user.username}`}
+                  href={
+                    post.user?.username ? `/users/${post.user.username}` : "#"
+                  }
                 >
                   <UserAvatar
-                    avatarUrl={post.user.avatarUrl}
+                    avatarUrl={post.user?.avatarUrl}
                     className="h-10 w-10"
                   />
                 </Link>
@@ -1430,20 +1442,28 @@ const MediaViewer = ({
                   <span className="flex items-center gap-1.5">
                     <Link
                       className="text-foreground block truncate font-semibold hover:underline"
-                      href={`/users/${post.user.username}`}
+                      href={
+                        post.user?.username
+                          ? `/users/${post.user.username}`
+                          : "#"
+                      }
                     >
-                      {post.user.displayName}
+                      {post.user?.displayName ||
+                        post.user?.username ||
+                        "Anonymous"}
                     </Link>
                     <UserBadge
-                      badge={post.user.badge}
-                      badges={post.user.badges}
+                      badge={post.user?.badge}
+                      badges={post.user?.badges}
                     />
                   </span>
                   <Link
                     className="text-muted-foreground block truncate hover:underline"
-                    href={`/users/${post.user.username}`}
+                    href={
+                      post.user?.username ? `/users/${post.user.username}` : "#"
+                    }
                   >
-                    @{post.user.username}
+                    @{post.user?.username || "unknown"}
                   </Link>
                 </div>
                 <PostMoreButton
@@ -1519,7 +1539,7 @@ const MediaViewer = ({
                   </span>
                 </button>
                 <AuraVoteButton
-                  authorName={post.user.displayName}
+                  authorName={post.user?.displayName || post.user?.username}
                   initialState={{
                     aura: post.aura,
                     userVote: post.vote[0]?.value || 0,
@@ -1544,7 +1564,7 @@ const MediaViewer = ({
                   postId={post.id}
                   shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
                   thumbnail={getShareThumbnail(post, currentMedia)}
-                  title={`${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`}
+                  title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                 />
                 <BookmarkButton
                   className="h-9 w-9"

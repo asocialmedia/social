@@ -115,16 +115,22 @@ const PostContent: React.FC<PostContentProps> = ({
     // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-measure on expand/collapse
   }, [isExpanded, post.content, updateOverflow]);
 
+  const authorUsername = post.user?.username || "unknown";
+  const authorDisplayName = post.user?.displayName || authorUsername;
+  const authorAvatarUrl = post.user?.avatarUrl;
+  const authorBadge = post.user?.badge;
+  const authorBadges = post.user?.badges;
+  const authorProfileHref = post.user?.username
+    ? `/users/${post.user.username}`
+    : "#";
+
   return (
     <div className="flex items-start gap-3">
       {!detail && (
         <UserTooltip user={post.user}>
-          <Link
-            className="shrink-0 self-start"
-            href={`/users/${post.user.username}`}
-          >
+          <Link className="shrink-0 self-start" href={authorProfileHref}>
             <UserAvatar
-              avatarUrl={post.user.avatarUrl}
+              avatarUrl={authorAvatarUrl}
               className="h-10 w-10"
               priority
             />
@@ -138,11 +144,11 @@ const PostContent: React.FC<PostContentProps> = ({
             <UserTooltip user={post.user}>
               <Link
                 className="shrink-0 self-start"
-                href={`/users/${post.user.username}`}
+                href={authorProfileHref}
                 prefetch={false}
               >
                 <UserAvatar
-                  avatarUrl={post.user.avatarUrl}
+                  avatarUrl={authorAvatarUrl}
                   className="h-12 w-12"
                   priority
                 />
@@ -156,13 +162,13 @@ const PostContent: React.FC<PostContentProps> = ({
                 <UserTooltip user={post.user}>
                   <Link
                     className="text-foreground truncate font-semibold hover:underline"
-                    href={`/users/${post.user.username}`}
+                    href={authorProfileHref}
                     prefetch={false}
                   >
-                    {post.user.displayName}
+                    {authorDisplayName}
                   </Link>
                 </UserTooltip>
-                <UserBadge badge={post.user.badge} badges={post.user.badges} />
+                <UserBadge badge={authorBadge} badges={authorBadges} />
                 <Link
                   className="text-muted-foreground shrink-0 hover:underline"
                   href={`/posts/${post.id}`}
@@ -176,13 +182,13 @@ const PostContent: React.FC<PostContentProps> = ({
                 <UserTooltip user={post.user}>
                   <Link
                     className="text-muted-foreground truncate hover:underline"
-                    href={`/users/${post.user.username}`}
+                    href={authorProfileHref}
                     prefetch={false}
                   >
-                    @{post.user.username}
+                    @{authorUsername}
                   </Link>
                 </UserTooltip>
-                {post.user.id === currentUserId ? null : (
+                {!post.user || post.user.id === currentUserId ? null : (
                   <FollowButton
                     className="h-7 px-3 text-xs"
                     initialState={{
@@ -199,20 +205,20 @@ const PostContent: React.FC<PostContentProps> = ({
               <UserTooltip user={post.user}>
                 <Link
                   className="text-foreground truncate font-semibold hover:underline"
-                  href={`/users/${post.user.username}`}
+                  href={authorProfileHref}
                   prefetch={false}
                 >
-                  {post.user.displayName}
+                  {authorDisplayName}
                 </Link>
               </UserTooltip>
-              <UserBadge badge={post.user.badge} badges={post.user.badges} />
+              <UserBadge badge={authorBadge} badges={authorBadges} />
               <UserTooltip user={post.user}>
                 <Link
                   className="text-muted-foreground truncate hover:underline"
-                  href={`/users/${post.user.username}`}
+                  href={authorProfileHref}
                   prefetch={false}
                 >
-                  @{post.user.username}
+                  @{authorUsername}
                 </Link>
               </UserTooltip>
               <span className="text-muted-foreground shrink-0">·</span>
@@ -349,7 +355,7 @@ const PostContent: React.FC<PostContentProps> = ({
               title={
                 post.moderated
                   ? `Post on asocialmedia`
-                  : `${post.user.displayName || post.user.username} (@${post.user.username}) on asocialmedia`
+                  : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
               }
             />
           </div>
