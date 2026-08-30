@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData } from "@asm/db";
+import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useState } from "react";
@@ -108,7 +109,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
   return (
     <div className="flex flex-col">
       {sortedPosts.map((post) => (
-        <MemoizedPostCard isJoined={true} key={post.id} post={post} />
+        <React.Fragment key={post.id}>
+          <MemoizedPostCard isJoined={true} post={post} />
+          <Separator className="bg-border/60" />
+        </React.Fragment>
       ))}
       {sortedPosts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
