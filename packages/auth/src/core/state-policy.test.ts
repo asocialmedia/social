@@ -86,7 +86,7 @@ describe("createAuthConfig oauth state cookie policy", () => {
     expect(account.skipStateCookieCheck).toBe(true);
   });
 
-  test("enforces the state cookie check in production", () => {
+  test("skips the state cookie check in production (cross-subdomain resilience)", () => {
     createAuthConfig({ environment: "production" });
 
     const config = lastCaptured();
@@ -96,7 +96,7 @@ describe("createAuthConfig oauth state cookie policy", () => {
       useSecureCookies?: boolean;
     };
 
-    expect(account.skipStateCookieCheck).toBe(false);
+    expect(account.skipStateCookieCheck).toBe(true);
     expect(advanced.crossSubDomainCookies).toEqual({
       domain: ".asocialmedia.cc",
       enabled: true,

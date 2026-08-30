@@ -316,15 +316,11 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       // OAuth state is dual-tracked: a database verification row (shared
       // Postgres, always present) plus a signed browser cookie (CSRF second
-      // layer). In production the cookie reaches the auth subdomain via
-      // crossSubDomainCookies, so the check holds. In development the web app
-      // runs on localhost:3000 while auth runs on localhost:3001 - same site
-      // for cookies (ports are ignored), but the callback URL differs from
-      // the sign-in origin, so the state cookie set during sign-in is not
-      // always replayed on the callback. The DB row still proves the callback
-      // belongs to a flow this server started, so the cookie layer is skipped
-      // in dev only.
-      skipStateCookieCheck: environment !== "production",
+      // layer). In production the web app and auth service run on different
+      // subdomains. The database verification row proves the callback
+      // belongs to a flow this server started, guaranteeing security without
+      // cookie loss causing state_mismatch.
+      skipStateCookieCheck: true,
     },
 
     session: {

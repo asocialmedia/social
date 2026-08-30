@@ -52,10 +52,11 @@ function buildUpstreamHeaders(request: NextRequest) {
   const vouchedIp = getClientIpFromHeaders(request.headers);
   if (vouchedIp && vouchedIp !== "unknown") {
     headers.set("x-forwarded-for", vouchedIp);
+    headers.set("cf-connecting-ip", vouchedIp);
   } else {
     headers.delete("x-forwarded-for");
+    headers.delete("cf-connecting-ip");
   }
-  headers.delete("cf-connecting-ip");
   headers.delete("x-real-ip");
 
   if (!headers.get("origin")) {
