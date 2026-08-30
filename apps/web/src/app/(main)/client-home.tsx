@@ -23,7 +23,6 @@ import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import SearchField from "@/components/layouts/search-field";
 import PostEditor from "@/components/posts/editor/post-editor";
 import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
@@ -117,11 +116,8 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   Following
                 </AnimatedTabTrigger>
               </TabsList>
-              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
-                <div className="w-full max-w-[24rem] xl:max-w-md">
-                  <SearchField />
-                </div>
-                {isLoggedIn ? (
+              {isLoggedIn ? (
+                <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
@@ -151,8 +147,8 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

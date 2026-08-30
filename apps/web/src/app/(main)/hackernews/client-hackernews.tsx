@@ -96,14 +96,6 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
                   Comments
                 </TabsTrigger>
               </TabsList>
-              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
-                <HNSearchBar
-                  filter={filter}
-                  onFilterChange={setFilter}
-                  onSearchChange={setSearch}
-                  search={search}
-                />
-              </div>
             </div>
             <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2 md:hidden">
               <HNSearchBar
@@ -131,7 +123,12 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
         </Tabs>
       </div>
 
-      <HnRightSideBar />
+      <HnRightSideBar
+        filter={filter}
+        onFilterChange={setFilter}
+        onSearchChange={setSearch}
+        search={search}
+      />
       <MobileBottomNav />
     </>
   );

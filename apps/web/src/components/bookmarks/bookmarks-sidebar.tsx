@@ -4,6 +4,7 @@ import { Bookmark, Clapperboard, Newspaper, Terminal } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
+import SearchField from "@/components/layouts/search-field";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { formatNumber } from "@/lib/utils";
 
@@ -44,8 +45,11 @@ const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
     postBookmarkCount + gustBookmarkCount + hnBookmarkCount;
 
   return (
-    <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
-      <div className="flex flex-col gap-4">
+    <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-5 pt-2.5 pb-6 xl:flex">
+      <div className="shrink-0 pb-4">
+        <SearchField />
+      </div>
+      <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
         <div className="sidebar-subcard rounded-2xl p-2">
           <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">
             <Bookmark className="text-muted-foreground h-4 w-4 shrink-0" />

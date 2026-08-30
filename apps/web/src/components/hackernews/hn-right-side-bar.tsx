@@ -14,6 +14,9 @@ import PostHistoryCard from "@/components/posts/post-history-card";
 import kyInstance from "@/lib/ky";
 import { formatNumber } from "@/lib/utils";
 
+import { HNSearchBar } from "./hn-search-bar";
+import type { HNFilterId } from "./hn-search-bar";
+
 const FOOTER_LINKS = [
   { href: "/toc", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
@@ -36,7 +39,19 @@ const SubCard: React.FC<{
   </div>
 );
 
-const HnRightSideBar: React.FC = () => {
+interface HnRightSideBarProps {
+  filter: HNFilterId;
+  onFilterChange: (filter: HNFilterId) => void;
+  onSearchChange: (value: string) => void;
+  search: string;
+}
+
+const HnRightSideBar: React.FC<HnRightSideBarProps> = ({
+  filter,
+  onFilterChange,
+  onSearchChange,
+  search,
+}) => {
   const { data } = useQuery({
     queryFn: () =>
       kyInstance
@@ -57,8 +72,16 @@ const HnRightSideBar: React.FC = () => {
   );
 
   return (
-    <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
-      <div className="flex flex-col gap-4">
+    <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-5 pt-2.5 pb-6 xl:flex">
+      <div className="shrink-0 pb-4">
+        <HNSearchBar
+          filter={filter}
+          onFilterChange={onFilterChange}
+          onSearchChange={onSearchChange}
+          search={search}
+        />
+      </div>
+      <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
         <SubCard
           icon={<HackerNewsLogo className="h-4 w-4 text-[10px]" />}
           title="HackerNews Stats"

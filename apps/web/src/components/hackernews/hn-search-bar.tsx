@@ -78,7 +78,7 @@ export const HNSearchBar = ({
         <Input
           aria-label="Search HackerNews stories"
           autoComplete="off"
-          className="focus-visible:ring-primary h-10 w-full py-2.5 pr-8 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+          className="focus-visible:ring-primary h-10 w-full !bg-[hsl(var(--background-alt))] py-2.5 pr-8 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
           onChange={handleChange}
           placeholder="Search stories..."
           ref={inputRef}

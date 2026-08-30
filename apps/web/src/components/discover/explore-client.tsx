@@ -15,13 +15,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
+import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import PostHistoryCard from "@/components/posts/post-history-card";
 import useDebounce from "@/hooks/use-debounce";
 import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
+import { cn } from "@/lib/utils";
 
 import { ExploreGustsGrid } from "./explore-gusts-grid";
 import { ExploreGustsRail } from "./explore-gusts-rail";
@@ -377,118 +381,130 @@ const ExploreClient: React.FC = () => {
   }
 
   return (
-    <Tabs
-      className="flex min-h-0 flex-1 flex-col"
-      onValueChange={handleTabChange}
-      value={activeTab}
-    >
-      <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
-        <CollapsibleTopBar hidden={hideTopBar}>
-          <MobileTopBar />
-        </CollapsibleTopBar>
-        <div className="border-border/60 flex items-center gap-2 border-b px-3 py-1.5">
-          <TabsList className="flex h-full min-w-0 flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
-            {(Object.keys(TAB_META) as ExploreTab[]).map((tab) => (
-              <AnimatedTabTrigger
-                active={activeTab === tab}
-                key={tab}
-                layoutId="explore-tab-indicator"
-                value={tab}
-              >
-                {TAB_META[tab]}
-              </AnimatedTabTrigger>
-            ))}
-          </TabsList>
+    <>
+      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
+        <Tabs
+          className="flex min-h-0 flex-1 flex-col"
+          onValueChange={handleTabChange}
+          value={activeTab}
+        >
+          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
+            <CollapsibleTopBar hidden={hideTopBar}>
+              <MobileTopBar />
+            </CollapsibleTopBar>
+            <div className="border-border/60 flex items-center border-b px-3 py-1.5">
+              <TabsList className="flex h-full min-w-0 flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
+                {(Object.keys(TAB_META) as ExploreTab[]).map((tab) => (
+                  <AnimatedTabTrigger
+                    active={activeTab === tab}
+                    key={tab}
+                    layoutId="explore-tab-indicator"
+                    value={tab}
+                  >
+                    {TAB_META[tab]}
+                  </AnimatedTabTrigger>
+                ))}
+              </TabsList>
+            </div>
+          </div>
 
-          <div
-            className={`relative ml-auto hidden min-w-0 items-center gap-2 md:flex ${
-              activeTab === "gusts" || activeTab === "people" ? "invisible" : ""
-            }`}
-          >
-            {" "}
-            <div className="w-full max-w-60">
-              <div className="relative">
-                {isFetching && debouncedSearch.trim() ? (
-                  <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
-                ) : (
-                  <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                )}
-                <Input
-                  aria-label="Search explore"
-                  autoComplete="off"
-                  className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
-                  onChange={handleSearchChange}
-                  placeholder="Search explore"
-                  type="text"
-                  value={search}
-                />
-                {search ? (
+          <div className="relative min-h-0 flex-1">
+            <div className="relative h-full" ref={feedRootRef}>
+              {newPostsCount > 0 &&
+              activeTab !== "gusts" &&
+              activeTab !== "people" &&
+              !debouncedSearch.trim() ? (
+                <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
                   <button
-                    aria-label="Clear search"
-                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
-                    onClick={handleClearSearch}
+                    className="rail-3d-btn pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"
+                    onClick={showNewPosts}
                     type="button"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <RefreshCw className="size-4" />
+                    {newPostsCount} new post{newPostsCount === 1 ? "" : "s"}
                   </button>
-                ) : null}
+                </div>
+              ) : null}
+              <div
+                className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
+                  isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                }`}
+                ref={feedScrollRef}
+              >
+                <TabsContent className="mt-0" value="for-you">
+                  {showForYou ? (
+                    body
+                  ) : (
+                    <div className="px-4 py-10">
+                      <AuthPromptCard
+                        className="mx-auto w-full max-w-md"
+                        description="Sign in to see fleets curated just for you."
+                        imageSize={128}
+                        title="Log in to see your feed"
+                      />
+                    </div>
+                  )}
+                </TabsContent>
+                <TabsContent className="mt-0" value="trending">
+                  {body}
+                </TabsContent>
+                <TabsContent className="mt-0" value="gusts">
+                  <ExploreGustsGrid />
+                </TabsContent>
+                <TabsContent className="mt-0" value="people">
+                  <ExplorePeople />
+                </TabsContent>
               </div>
             </div>
+            <FeedScrollbar containerRef={feedScrollRef} />
           </div>
-        </div>
+        </Tabs>
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        <div className="relative h-full" ref={feedRootRef}>
-          {newPostsCount > 0 &&
-          activeTab !== "gusts" &&
-          activeTab !== "people" &&
-          !debouncedSearch.trim() ? (
-            <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
-              <button
-                className="rail-3d-btn pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"
-                onClick={showNewPosts}
-                type="button"
-              >
-                <RefreshCw className="size-4" />
-                {newPostsCount} new post{newPostsCount === 1 ? "" : "s"}
-              </button>
-            </div>
-          ) : null}
+      <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-5 pt-2.5 pb-6 xl:flex">
+        <div className="shrink-0 pb-4">
           <div
-            className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
-              isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
-            }`}
-            ref={feedScrollRef}
+            className={cn(
+              "relative",
+              (activeTab === "gusts" || activeTab === "people") && "invisible"
+            )}
           >
-            <TabsContent className="mt-0" value="for-you">
-              {showForYou ? (
-                body
+            <div className="relative">
+              {isFetching && debouncedSearch.trim() ? (
+                <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
               ) : (
-                <div className="px-4 py-10">
-                  <AuthPromptCard
-                    className="mx-auto w-full max-w-md"
-                    description="Sign in to see fleets curated just for you."
-                    imageSize={128}
-                    title="Log in to see your feed"
-                  />
-                </div>
+                <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
               )}
-            </TabsContent>
-            <TabsContent className="mt-0" value="trending">
-              {body}
-            </TabsContent>
-            <TabsContent className="mt-0" value="gusts">
-              <ExploreGustsGrid />
-            </TabsContent>
-            <TabsContent className="mt-0" value="people">
-              <ExplorePeople />
-            </TabsContent>
+              <Input
+                aria-label="Search explore"
+                autoComplete="off"
+                className="focus-visible:ring-primary h-10 !bg-[hsl(var(--background-alt))] py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+                onChange={handleSearchChange}
+                placeholder="Search explore"
+                type="text"
+                value={search}
+              />
+              {search ? (
+                <button
+                  aria-label="Clear search"
+                  className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
+                  onClick={handleClearSearch}
+                  type="button"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
-        <FeedScrollbar containerRef={feedScrollRef} />
-      </div>
-    </Tabs>
+        <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
+          {isLoggedIn ? <PostHistoryCard /> : null}
+          <TrendingTopics />
+        </div>
+      </aside>
+
+      <MobileBottomNav />
+    </>
   );
 };
 

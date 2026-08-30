@@ -102,7 +102,7 @@ export function ActiveFriendsRail({
   return (
     <>
       {/* Desktop rail: always visible on lg+. */}
-      <aside className="hide-native-scrollbar bg-background border-border/60 hidden w-64 shrink-0 flex-col overflow-y-auto border-l lg:flex">
+      <aside className="hide-native-scrollbar bg-background border-border/60 hidden w-72 shrink-0 flex-col overflow-y-auto border-l lg:flex">
         <RailHeader onlineCount={online.length} />
         <div className="flex flex-1 flex-col px-4 py-4">{body}</div>
       </aside>

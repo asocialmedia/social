@@ -21,7 +21,6 @@ import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import SearchField from "@/components/layouts/search-field";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBookmarkCount } from "@/hooks/use-bookmark-count";
@@ -302,11 +301,6 @@ const Bookmarks: React.FC<BookmarksProps> = ({
                   </TabLabel>
                 </AnimatedTabTrigger>
               </TabsList>
-              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
-                <div className="w-full max-w-[24rem] xl:max-w-md">
-                  <SearchField />
-                </div>
-              </div>
             </div>
           </div>
 
