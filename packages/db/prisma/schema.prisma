@@ -395,7 +395,7 @@ model PostVisit {
 
 // Ops bookkeeping for one-shot data backfills (guarded runs that must happen
 // exactly once across a deployment fleet). The table is created and consumed
-// by scripts/backfill-trending-scores.ts and docker/prisma-sync.sh; it is
+// by scripts/sync-trending-scores.ts and docker/prisma-sync.sh; it is
 // declared here with @@ignore purely so `prisma db push` never drops it as an
 // unknown table. It intentionally emits no client types.
 model BackfillMarker {

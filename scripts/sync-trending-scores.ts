@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 
-// One-shot backfill for Post.trendingScore: computes the initial trending
+// One-shot synchronization for Post.trendingScore: computes the initial trending
 // score for every non-gust post from its current aura / view / bookmark /
 // comment signals using the pure computeTrendingScore() helper from @asm/db.
 //
 // Run:
-//   bun scripts/backfill-trending-scores.ts
+//   bun scripts/sync-trending-scores.ts
 //
 // The run is guarded by a row in the self-managed backfill_markers table, so
 // wiring it into the deploy pipeline is safe: every container runs this on
@@ -16,7 +16,7 @@
 // chunks and each chunk is written with a single parameterized unnest UPDATE,
 // so an interrupted run leaves no half-written batch behind. To resume after
 // an interruption, rerun with the last post id printed by the previous run:
-//   bun scripts/backfill-trending-scores.ts --after=<postId>
+//   bun scripts/sync-trending-scores.ts --after=<postId>
 // A completed resume still records the marker.
 
 import { computeTrendingScore, prisma } from "@asm/db";
@@ -157,7 +157,7 @@ export async function backfillTrendingScores(options: {
         `[backfill] ${batches} batches done, ${postsBackfilled} posts updated; last processed post id: ${cursorId}`
       );
       console.log(
-        `[backfill] to resume from here: bun scripts/backfill-trending-scores.ts --after=${cursorId}`
+        `[sync-scores] to resume from here: bun scripts/sync-trending-scores.ts --after=${cursorId}`
       );
     }
 

@@ -30,7 +30,7 @@ if (import.meta.main) {
   const { processMediaCleanup } = await import("./jobs/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analyze");
   const { workerEnv } = await import("./env");
-  const { registerBackfillSchedulers } = await import("./backfill");
+  const { registerSweepSchedulers } = await import("./sweeps");
 
   let running = true;
 
@@ -207,8 +207,8 @@ if (import.meta.main) {
     mediaLogger.error({ error: String(error) }, "process worker error");
   });
 
-  // Self-healing backfill watchdog + legacy object GC (daily sweeps).
-  const sweepWorker = await registerBackfillSchedulers(bullConnection());
+  // Self-healing watchdog + retention GC (daily sweeps).
+  const sweepWorker = await registerSweepSchedulers(bullConnection());
 
   scanWorker.on("completed", (job) => {
     mediaLogger.debug({ jobId: job.id, name: job.name }, "scan completed");
