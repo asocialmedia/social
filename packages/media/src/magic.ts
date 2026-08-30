@@ -28,6 +28,59 @@ interface Signature {
   test: (head: Buffer) => boolean;
 }
 
+function isMpegAudioFrame(b: Buffer, offset: number): boolean {
+  if (offset + 3 >= b.length) {
+    return false;
+  }
+  const b0 = b[offset];
+  const b1 = b[offset + 1];
+  const b2 = b[offset + 2];
+  if (b0 !== 0xff) {
+    return false;
+  }
+  // 11 sync bits: 0xFF followed by top 3 bits = 1 (0xE0 mask)
+  if ((b1 & 0xe0) !== 0xe0) {
+    return false;
+  }
+  // MPEG Audio Version: 00 = 2.5, 10 = 2, 11 = 1. (01 is reserved)
+  if ((b1 & 0x18) === 0x08) {
+    return false;
+  }
+  // Layer: 01 = Layer III, 10 = Layer II, 11 = Layer I. (00 is reserved)
+  if ((b1 & 0x06) === 0x00) {
+    return false;
+  }
+  // Bitrate index: 1111 is bad/invalid
+  if ((b2 & 0xf0) === 0xf0) {
+    return false;
+  }
+  // Sampling rate index: 11 is reserved
+  if ((b2 & 0x0c) === 0x0c) {
+    return false;
+  }
+  return true;
+}
+
+function testMpegAudio(b: Buffer): boolean {
+  if (b.length < 4) {
+    return false;
+  }
+  if (asciiAt(b, "ID3", 0) || asciiAt(b, "TAG", 0)) {
+    return true;
+  }
+  const id3Index = b.indexOf(Buffer.from("ID3"));
+  if (id3Index !== -1 && id3Index < 64) {
+    return true;
+  }
+  const limit = Math.min(b.length - 3, 512);
+  for (let i = 0; i < limit; i += 1) {
+    if (isMpegAudioFrame(b, i)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const SIGNATURES: Signature[] = [
   {
     container: "jpeg",
@@ -131,11 +184,7 @@ const SIGNATURES: Signature[] = [
     container: "mpeg-audio",
     family: "AUDIO",
     mime: "audio/mpeg",
-    test: (b) =>
-      asciiAt(b, "ID3", 0) ||
-      startsWith(b, [0xff, 0xfb]) ||
-      startsWith(b, [0xff, 0xf3]) ||
-      startsWith(b, [0xff, 0xf2]),
+    test: (b) => testMpegAudio(b),
   },
   {
     container: "ogg",

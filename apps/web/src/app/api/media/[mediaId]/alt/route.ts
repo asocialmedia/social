@@ -67,6 +67,7 @@ export async function GET(
       id: true,
       ocrText: true,
       semanticTags: true,
+      status: true,
       transcript: true,
       type: true,
       userId: true,
@@ -78,6 +79,11 @@ export async function GET(
     return Response.json({ error: "Media not found" }, { status: 404 });
   }
 
+  const isProcessing =
+    media.status !== "READY" &&
+    media.status !== "REJECTED" &&
+    media.status !== "DELETED";
+
   // Generate suggested alt text based on available semantic enrichment
   let suggestedAlt = "";
   const tagsStr =
@@ -87,10 +93,12 @@ export async function GET(
 
   if (media.type === "VIDEO") {
     if (media.transcript) {
+      const cleanTranscript = media.transcript.trim();
+      const maxLen = tagsStr ? 850 : 950;
       const snippet =
-        media.transcript.length > 150
-          ? `${media.transcript.slice(0, 147)}...`
-          : media.transcript;
+        cleanTranscript.length > maxLen
+          ? `${cleanTranscript.slice(0, maxLen - 3)}...`
+          : cleanTranscript;
       suggestedAlt = `Video with spoken dialogue: "${snippet}"`;
       if (tagsStr) {
         suggestedAlt += ` (Topics: ${tagsStr})`;
@@ -100,10 +108,12 @@ export async function GET(
     }
   } else if (media.type === "IMAGE") {
     if (media.ocrText) {
+      const cleanOcr = media.ocrText.trim();
+      const maxLen = tagsStr ? 850 : 950;
       const snippet =
-        media.ocrText.length > 150
-          ? `${media.ocrText.slice(0, 147)}...`
-          : media.ocrText;
+        cleanOcr.length > maxLen
+          ? `${cleanOcr.slice(0, maxLen - 3)}...`
+          : cleanOcr;
       suggestedAlt = `Image containing text: "${snippet}"`;
       if (tagsStr) {
         suggestedAlt += ` (Themes: ${tagsStr})`;
@@ -112,18 +122,22 @@ export async function GET(
       suggestedAlt = `Image depicting ${tagsStr}`;
     }
   } else if (media.type === "AUDIO" && media.transcript) {
+    const cleanTranscript = media.transcript.trim();
+    const maxLen = 950;
     const snippet =
-      media.transcript.length > 150
-        ? `${media.transcript.slice(0, 147)}...`
-        : media.transcript;
+      cleanTranscript.length > maxLen
+        ? `${cleanTranscript.slice(0, maxLen - 3)}...`
+        : cleanTranscript;
     suggestedAlt = `Audio recording: "${snippet}"`;
   }
 
   return NextResponse.json({
     altText: media.altText,
+    isProcessing: isProcessing && !suggestedAlt,
     mediaId: media.id,
     ocrText: media.ocrText,
     semanticTags: media.semanticTags,
+    status: media.status,
     suggestedAlt: suggestedAlt.trim(),
     transcript: media.transcript,
   });

@@ -1,6 +1,8 @@
 import { toast } from "@asm/ui/lib/gooey-toast";
 import { Button } from "@asm/ui/shadui/button";
-import { Sparkles, X } from "lucide-react";
+import zephImage from "@assets/zeph.png";
+import { X } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 
 import type { Attachment } from "@/components/posts/editor/attachment-store";
@@ -65,10 +67,19 @@ const AltTextPanel = ({
     try {
       const res = await fetch(`/api/media/${attachment.mediaId}/alt`);
       if (res.ok) {
-        const data = (await res.json()) as { suggestedAlt?: string };
+        const data = (await res.json()) as {
+          isProcessing?: boolean;
+          suggestedAlt?: string;
+        };
         if (data.suggestedAlt) {
           setDraft(data.suggestedAlt);
           toast({ title: "Alt text generated from media analysis" });
+        } else if (data.isProcessing) {
+          toast({
+            description:
+              "Media is still being transcribed and analyzed in the background. Please try again in a few moments.",
+            title: "Analysis in progress",
+          });
         } else {
           toast({
             description: "No spoken speech or text was detected in this media.",
@@ -87,7 +98,8 @@ const AltTextPanel = ({
         });
       } else {
         toast({
-          description: "Media is still being processed in the background.",
+          description:
+            "Media is still being processed in the background. Please try again shortly.",
           title: "Analysis in progress",
         });
       }
@@ -121,13 +133,20 @@ const AltTextPanel = ({
           <div className="flex justify-end">
             <button
               aria-label="Auto-generate alt text from speech and text detection"
-              className="flex h-6 shrink-0 items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-medium text-orange-400 transition-colors hover:bg-orange-500/25 disabled:opacity-50"
+              className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-amber-500/20 via-orange-500/15 to-orange-500/10 px-3 text-[11px] font-semibold text-orange-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.4),0_0_0_1px_rgba(234,88,12,0.6),0_1px_1px_rgba(255,255,255,0.2),0_2px_4px_rgba(0,0,0,0.15)] backdrop-blur-md transition-all duration-200 hover:scale-[1.02] hover:from-amber-500/30 hover:to-orange-500/20 hover:text-orange-300 active:translate-y-px disabled:opacity-50"
               disabled={isAutoGenerating}
               onClick={handleAutoAltText}
               type="button"
             >
-              <Sparkles
-                className={cn("size-3", isAutoGenerating && "animate-spin")}
+              <Image
+                alt=""
+                className={cn(
+                  "size-3.5 object-contain",
+                  isAutoGenerating && "animate-spin"
+                )}
+                height={20}
+                src={zephImage}
+                width={20}
               />
               <span>{isAutoGenerating ? "Analyzing..." : "Auto Alt-Text"}</span>
             </button>
@@ -162,13 +181,20 @@ const AltTextPanel = ({
       {attachment.mediaId ? (
         <button
           aria-label="Auto-generate alt text from speech and text detection"
-          className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/15 px-2.5 text-xs font-medium text-orange-400 transition-colors hover:bg-orange-500/25 disabled:opacity-50"
+          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-amber-500/20 via-orange-500/15 to-orange-500/10 px-3 text-xs font-semibold text-orange-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.4),0_0_0_1px_rgba(234,88,12,0.6),0_1px_1px_rgba(255,255,255,0.2),0_2px_4px_rgba(0,0,0,0.15)] backdrop-blur-md transition-all duration-200 hover:scale-[1.02] hover:from-amber-500/30 hover:to-orange-500/20 hover:text-orange-300 active:translate-y-px disabled:opacity-50"
           disabled={isAutoGenerating}
           onClick={handleAutoAltText}
           type="button"
         >
-          <Sparkles
-            className={cn("size-3.5", isAutoGenerating && "animate-spin")}
+          <Image
+            alt=""
+            className={cn(
+              "size-3.5 object-contain",
+              isAutoGenerating && "animate-spin"
+            )}
+            height={20}
+            src={zephImage}
+            width={20}
           />
           <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
         </button>

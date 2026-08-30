@@ -1,6 +1,6 @@
 import { getPostDataInclude, prisma } from "@asm/db";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
@@ -153,6 +153,11 @@ async function MediaContent(props: PageProps) {
       notFound();
     }
     resolvedIndex = mediaIndex;
+  }
+
+  const targetMedia = post.attachments[resolvedIndex];
+  if (targetMedia?.type === "AUDIO") {
+    redirect(`/posts/${post.id}`);
   }
 
   return <MediaPage initialMediaIndex={resolvedIndex} post={post} />;

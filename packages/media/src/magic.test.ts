@@ -73,6 +73,25 @@ describe("content detection from bytes", () => {
     expect(detectContent(OGG_HEAD).detected?.container).toBe("ogg");
     expect(detectContent(ID3_HEAD).detected?.mime).toBe("audio/mpeg");
     expect(detectContent(WAV_HEAD).detected?.container).toBe("wav");
+    // Raw MPEG-1 Layer 3 with and without CRC
+    expect(
+      detectContent(Buffer.from([0xff, 0xfb, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    expect(
+      detectContent(Buffer.from([0xff, 0xfa, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    // MPEG-2 and MPEG-2.5 Layer 3
+    expect(
+      detectContent(Buffer.from([0xff, 0xf3, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    expect(
+      detectContent(Buffer.from([0xff, 0xe2, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    // Padded / offset sync MP3
+    expect(
+      detectContent(Buffer.from([0x00, 0x00, 0x00, 0xff, 0xfa, 0x90, 0x00]))
+        .detected?.mime
+    ).toBe("audio/mpeg");
   });
 
   test("unknown bytes fail closed", () => {

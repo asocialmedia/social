@@ -58,6 +58,7 @@ import {
 } from "@/lib/utils/image-url";
 import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
+import { AudioPreview } from "./audio-preview";
 import {
   CustomVideoPlayer,
   isClickInVideoContent,
@@ -624,37 +625,6 @@ const MediaViewer = ({
     </div>
   );
 
-  const renderAudioMedia = (item: Media) => (
-    <div className="bg-background/50 flex flex-col items-center gap-4 rounded-lg p-8">
-      <div className="bg-primary/10 flex h-40 w-40 items-center justify-center rounded-full">
-        <FileIcon className="text-primary h-20 w-20" />
-      </div>
-      <p className="text-lg font-medium">{formatFileName(item.key)}</p>
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption -- audio content may not have captions available */}
-      <audio
-        aria-label={`Audio ${currentIndex + 1} of ${media.length}`}
-        autoPlay
-        className="w-full max-w-md"
-        controls
-        ref={(el) => {
-          if (el) {
-            const handleStop = () => {
-              try {
-                el.pause();
-              } catch {
-                // Ignore
-              }
-            };
-            window.addEventListener("pagehide", handleStop, { once: true });
-            window.addEventListener("popstate", handleStop, { once: true });
-          }
-        }}
-        src={getMediaUrl(item.id)}
-      />
-      <DownloadButton />
-    </div>
-  );
-
   // Grid of ALL the post's media in the sidebar's post section, so a
   // multi-photo post shows every attachment next to the fullscreen view. The
   // item being viewed is ringed; tapping any tile jumps to it. Video tiles
@@ -742,7 +712,16 @@ const MediaViewer = ({
         return renderVideoMedia(currentMedia);
       }
       case "AUDIO": {
-        return renderAudioMedia(currentMedia);
+        return (
+          <div className="flex w-full max-w-xl flex-col items-center gap-6 p-4">
+            <AudioPreview
+              className="w-full shadow-2xl"
+              fill
+              media={currentMedia}
+            />
+            <DownloadButton />
+          </div>
+        );
       }
       default: {
         return <p className="text-destructive">Unsupported media type</p>;
