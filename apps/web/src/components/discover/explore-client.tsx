@@ -405,6 +405,45 @@ const ExploreClient: React.FC = () => {
                   </AnimatedTabTrigger>
                 ))}
               </TabsList>
+              {/* xl:hidden: the right rail owns the search input from xl up;
+                  this header copy serves the md-xl gap. Hidden (kept in flow)
+                  on tabs where search does not apply, matching the rail. */}
+              <div
+                className={`relative ml-auto hidden min-w-0 items-center gap-2 md:flex xl:hidden ${
+                  activeTab === "gusts" || activeTab === "people"
+                    ? "invisible"
+                    : ""
+                }`}
+              >
+                <div className="w-full max-w-60">
+                  <div className="relative">
+                    {isFetching && debouncedSearch.trim() ? (
+                      <span className="border-primary/30 border-t-primary absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2" />
+                    ) : (
+                      <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                    )}
+                    <Input
+                      aria-label="Search explore"
+                      autoComplete="off"
+                      className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+                      onChange={handleSearchChange}
+                      placeholder="Search explore"
+                      type="text"
+                      value={search}
+                    />
+                    {search ? (
+                      <button
+                        aria-label="Clear search"
+                        className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-0.5 transition-colors"
+                        onClick={handleClearSearch}
+                        type="button"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
