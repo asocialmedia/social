@@ -896,11 +896,21 @@ export default function PostEditor({
           : "rounded-none border-0 bg-transparent"
       )}
     >
-      {/* The avatar leads the composer on every breakpoint: the fleet/gust
-          switcher and the input bar sit beside it on mobile too. Gust mode
-          with a clip keeps its stacked mobile grid instead - there the
-          avatar leads the rail beside the thumbnail and the outer copy is
-          hidden. */}
+      {/* Single fixed mode switcher pinned to the top of the composer for
+          every mode and breakpoint. It must stay OUTSIDE the gust grid below:
+          inside it, the wrapper would claim the first grid cell and shove the
+          video/fields columns out of place. */}
+      <div className="flex">
+        <ModeToggle
+          disabled={modeSwitchLocked}
+          disabledReason={modeSwitchReason}
+          isGust={isGust}
+        />
+      </div>
+      {/* The avatar leads the composer on every breakpoint: the input bar
+          sits beside it on mobile too. Gust mode with a clip keeps its
+          stacked mobile grid instead - there the avatar leads the rail
+          beside the thumbnail and the outer copy is hidden. */}
       <div
         className={cn(
           "flex gap-5",
@@ -938,8 +948,7 @@ export default function PostEditor({
         >
           {/* Gust mode: the avatar leads the left rail on mobile (thumbnail
               rises to the same top line beside it); on sm+ the outer avatar
-              beside the composer takes over. The fleet/gust switcher leads
-              the rail on sm+ and sits on the publish row on mobile. */}
+              beside the composer takes over. */}
           {isGust && hasVideoAttachment ? (
             <div className="min-w-0">
               <div className="mb-3 sm:hidden">
@@ -948,24 +957,8 @@ export default function PostEditor({
                   className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
                 />
               </div>
-              <div className="mb-2 flex max-sm:hidden">
-                <ModeToggle
-                  disabled={modeSwitchLocked}
-                  disabledReason={modeSwitchReason}
-                  isGust={isGust}
-                />
-              </div>
               {previewsBlock}
               {gustHintLine}
-            </div>
-          ) : null}
-          {isGust && !hasVideoAttachment ? (
-            <div className="mb-2 flex max-sm:hidden">
-              <ModeToggle
-                disabled={modeSwitchLocked}
-                disabledReason={modeSwitchReason}
-                isGust={isGust}
-              />
             </div>
           ) : null}
           <div
@@ -976,16 +969,6 @@ export default function PostEditor({
               isGust && hasVideoAttachment && "max-sm:[display:contents]"
             )}
           >
-            {/* Mobile-only mode switcher above the editor so the Post button stays on screen (fleet mode; gust carries its own at the top) */}
-            {isGust ? null : (
-              <div className="mb-3 flex md:hidden">
-                <ModeToggle
-                  disabled={modeSwitchLocked}
-                  disabledReason={modeSwitchReason}
-                  isGust={isGust}
-                />
-              </div>
-            )}
             {/* Fleet mode renders selected tags/mentions above the editor;
                 gust mode carries them inside its picker sections instead. */}
             {!isGust &&
@@ -1319,15 +1302,6 @@ export default function PostEditor({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {isGust ? null : (
-                    <div className="hidden md:flex">
-                      <ModeToggle
-                        disabled={modeSwitchLocked}
-                        disabledReason={modeSwitchReason}
-                        isGust={isGust}
-                      />
-                    </div>
-                  )}
                   {isGust ? null : publishButton}
                 </div>
               </div>
@@ -1508,18 +1482,10 @@ export default function PostEditor({
             ) : null}
           </div>
 
-          {/* Gust publish: switcher bottom-left, button bottom-right on
-              mobile; sm+ keeps the button alone on the right (its switcher
-              leads the left rail). */}
+          {/* Gust publish: full-width row on the mobile grid, right-aligned
+              on sm+. */}
           {isGust ? (
-            <div className="col-span-2 mt-3 flex items-center justify-between sm:justify-end">
-              <div className="sm:hidden">
-                <ModeToggle
-                  disabled={modeSwitchLocked}
-                  disabledReason={modeSwitchReason}
-                  isGust={isGust}
-                />
-              </div>
+            <div className="col-span-2 mt-3 flex justify-end">
               {publishButton}
             </div>
           ) : null}

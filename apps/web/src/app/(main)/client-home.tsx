@@ -117,7 +117,9 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                   Following
                 </AnimatedTabTrigger>
               </TabsList>
-              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex">
+              {/* xl:hidden: the right sidebar owns the search bar from xl up;
+                  this header copy serves the md-xl gap. */}
+              <div className="ml-auto hidden min-w-0 items-center gap-2 pr-1.5 md:flex xl:hidden">
                 <div className="w-full max-w-[24rem] xl:max-w-md">
                   <SearchField />
                 </div>

@@ -159,7 +159,7 @@ export default function SearchField({
         <Input
           aria-label="Search on asocialmedia"
           autoComplete="off"
-          className="focus-visible:ring-primary h-10 py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
+          className="focus-visible:ring-primary h-10 !bg-[hsl(var(--background-alt))] py-2.5 pr-4 pl-9 transition-all duration-300 ease-in-out focus-visible:ring-2"
           onChange={handleChange}
           onFocus={handleFocus}
           placeholder="Search on asocialmedia"
@@ -174,7 +174,7 @@ export default function SearchField({
           (history && history.length > 0) ||
           (suggestions && suggestions.length > 0)) && (
           <div
-            className="absolute left-1/2 z-205 mt-2 w-[min(92vw,30rem)] -translate-x-1/2 md:right-0 md:left-auto md:z-50 md:w-[30rem] md:translate-x-0"
+            className="absolute top-full left-1/2 z-50 mt-2 w-[min(92vw,30rem)] -translate-x-1/2 md:right-0 md:left-auto md:w-[30rem] md:translate-x-0"
             ref={commandRef}
           >
             <SearchCommandList

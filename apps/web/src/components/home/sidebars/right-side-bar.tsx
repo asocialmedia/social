@@ -1,8 +1,9 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import notFoundImage from "@assets/general/notfound.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, UserRound, Users, X } from "lucide-react";
+import { RefreshCw, UserRound, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -19,6 +20,7 @@ import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import UserReasonLine from "@/components/discover/user-reason-line";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import FollowButton from "@/components/layouts/follow-button";
+import SearchField from "@/components/layouts/search-field";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import PostHistoryCard from "@/components/posts/post-history-card";
@@ -228,9 +230,14 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
   if (showEmpty) {
     return (
       <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
-        <div className="bg-muted text-muted-foreground flex h-10 w-10 items-center justify-center rounded-full">
-          <Users className="h-5 w-5" />
-        </div>
+        <Image
+          alt=""
+          className="h-24 w-auto object-contain opacity-85"
+          draggable={false}
+          height={1145}
+          src={notFoundImage}
+          width={1374}
+        />
         <p className="text-sm font-medium">
           No suggestions yet, come back later
         </p>
@@ -405,8 +412,11 @@ const RightSideBar: React.FC = () => {
   const showSkeletons = isLoggedIn && isLoading && suggestedUsers.length === 0;
 
   return (
-    <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
-      <div className="flex flex-col gap-4">
+    <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-6 xl:flex">
+      <div className="shrink-0 pb-4">
+        <SearchField />
+      </div>
+      <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
         <TrendingTopics />
 
         <SubCard
