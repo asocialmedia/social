@@ -128,7 +128,7 @@ mock.module("./s3", () => ({
   objectExists: () => Promise.resolve(false),
 }));
 
-const { derivedHealSweep, DERIVED_HEAL_GRACE_MS } = await import("./backfill");
+const { derivedHealSweep, DERIVED_HEAL_GRACE_MS } = await import("./sweeps");
 
 beforeEach(() => {
   backfillEnabled = true;

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Builder: bundles the one-shot trending-score backfill (scripts/
-# backfill-trending-scores.ts) into a single self-contained JS file so the
+# Builder: bundles the one-shot trending-score sync (scripts/
+# sync-trending-scores.ts) into a single self-contained JS file so the
 # slim sync image can run it without the workspace or @asm/db resolution.
 FROM oven/bun:1.4 AS build
 WORKDIR /app
@@ -22,13 +22,13 @@ COPY packages/next/package.json ./packages/next/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 RUN bun install --ignore-scripts
 
-# Sources the bundle needs: the backfill imports @asm/db, which pulls in the
+# Sources the bundle needs: the sync script imports @asm/db, which pulls in the
 # whole db package graph.
 COPY scripts ./scripts
 COPY packages ./packages
 RUN cd packages/db && bunx prisma generate
 
-RUN bun build scripts/backfill-trending-scores.ts \
+RUN bun build scripts/sync-trending-scores.ts \
       --target=bun \
       --outfile /app/dist/backfill.js \
       --tsconfig-override scripts/tsconfig.json \

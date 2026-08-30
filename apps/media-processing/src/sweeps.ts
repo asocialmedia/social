@@ -3,7 +3,7 @@
 // legacy raw objects once derivatives fully supersede them.
 //
 // Two entry points:
-//  - CLI: bun run src/backfill.ts [--limit N] [--dry-run] — one-shot conversion
+//  - CLI: bun run src/sweeps.ts [--limit N] [--dry-run] — one-shot conversion
 //  - scheduled sweeps registered on the media queue so crashed/partial runs
 //    self-heal forever
 //
@@ -316,7 +316,7 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
 
 // Registers self-healing schedules on the media queue. Idempotent via
 // upsertJobScheduler.
-export async function registerBackfillSchedulers(connectionOptions: {
+export async function registerSweepSchedulers(connectionOptions: {
   maxRetriesPerRequest: null | number;
   url: string;
 }): Promise<Worker> {

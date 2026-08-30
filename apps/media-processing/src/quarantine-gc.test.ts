@@ -97,7 +97,7 @@ mock.module("./s3", () => ({
   }),
 }));
 
-const { quarantineGcSweep } = await import("./backfill");
+const { quarantineGcSweep } = await import("./sweeps");
 
 describe("quarantine retention sweep", () => {
   beforeEach(() => {
