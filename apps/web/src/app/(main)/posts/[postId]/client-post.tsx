@@ -1,7 +1,7 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -25,13 +25,21 @@ interface ClientPostProps {
 }
 
 const ClientPost: React.FC<ClientPostProps> = ({
-  post,
+  post: initialPost,
   // userData was only consumed by LeftSidebar, which now lives in the shared
   // layout; it is kept on the props contract so page parents can keep passing
   // it and reuse it for auth guards.
   userData: _userData,
   initialMediaIndex,
 }) => {
+  const { data: post = initialPost } = useQuery<PostData>({
+    initialData: initialPost,
+    queryFn: () =>
+      kyInstance.get(`/api/posts/${initialPost.id}`).json<PostData>(),
+    queryKey: ["post", initialPost.id],
+    staleTime: 30_000,
+  });
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const queryClient = useQueryClient();

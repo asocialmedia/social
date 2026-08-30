@@ -18,6 +18,9 @@ describe("db client queries", () => {
     const include = getPostDataInclude("user123");
     expect(include.user).toBeDefined();
     expect(include.attachments).toBe(true);
+    expect(include._count.select.comments).toEqual({
+      where: { deleted: false },
+    });
     expect(include.bookmarks.where.userId).toBe("user123");
     expect(include.vote.where.userId).toBe("user123");
   });

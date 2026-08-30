@@ -55,6 +55,8 @@ export default function Comments({
           )
           .json<CommentsPage>(),
       queryKey: ["comments", post.id],
+      refetchInterval: 8000,
+      refetchIntervalInBackground: false,
       select: (commentsData) => {
         const pages = [...commentsData.pages].toReversed();
         const serverComments = pages.flatMap((page) => page.comments);

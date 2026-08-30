@@ -93,7 +93,9 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
 
   // Lift the bar above the on-screen keyboard: when the visual viewport
   // shrinks (keyboard opens), offset the bar by the difference so it stays
-  // visible and doesn't get covered.
+  // visible and doesn't get covered. The visual viewport's own scroll
+  // (offsetTop) is subtracted too, otherwise the offset over-counts by that
+  // scroll and leaves a dead gap between the bar and the keyboard.
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   useEffect(() => {
@@ -102,7 +104,8 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       return;
     }
     const updateOffset = () => {
-      const offset = window.innerHeight - visualViewport.height;
+      const offset =
+        window.innerHeight - (visualViewport.height + visualViewport.offsetTop);
       setKeyboardOffset(Math.max(0, offset));
     };
     visualViewport.addEventListener("resize", updateOffset);
