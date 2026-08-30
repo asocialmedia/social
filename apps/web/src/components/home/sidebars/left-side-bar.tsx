@@ -140,7 +140,7 @@ const renderActionItem = ({
   onClick: () => void;
 }) => (
   <button
-    className="group pill-3d-hover text-foreground hover:text-foreground flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out"
+    className="group pill-3d-hover text-foreground hover:text-foreground flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out"
     key={label}
     onClick={onClick}
     type="button"
@@ -239,7 +239,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   }: NavItem) => {
     const isActive = isRouteActive(currentHref, href);
     const className = cn(
-      "group flex w-full items-center gap-3 rounded-full border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out",
+      "group flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-2.5 text-left text-base transition-all duration-200 ease-out",
       isActive
         ? "pill-nav-active"
         : "pill-3d-hover text-foreground hover:text-foreground"
@@ -492,7 +492,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   }
 
   return (
-    <aside className="bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
+    <aside className="bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-2.5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
       <div className="mb-8 flex items-center justify-between gap-2 px-2">
         <Link href="/">
           <div className="relative h-11 w-14.5">
@@ -543,7 +543,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
       <div className="mt-auto flex flex-col gap-3">
         {isLoggedIn ? (
           <Button
-            className="h-12 w-full rounded-full px-6 py-3"
+            className="h-12 w-full rounded-2xl px-6 py-3"
             onClick={handleOpenComposer}
             variant="premium"
           >

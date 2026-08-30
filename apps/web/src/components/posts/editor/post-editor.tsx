@@ -767,6 +767,9 @@ export default function PostEditor({
               "grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
           )}
         >
+          <div className="mb-3 flex">
+            <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+          </div>
           {/* Gust mode: the avatar leads the left rail on mobile (thumbnail
               rises to the same top line beside it); on sm+ the outer avatar
               beside the composer takes over. The fleet/gust switcher leads
@@ -779,16 +782,8 @@ export default function PostEditor({
                   className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
                 />
               </div>
-              <div className="mb-2 flex max-sm:hidden">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
-              </div>
               {previewsBlock}
               {gustHintLine}
-            </div>
-          ) : null}
-          {isGust && !hasVideoAttachment ? (
-            <div className="mb-2 flex max-sm:hidden">
-              <ModeToggle disabled={isGroupMedia} isGust={isGust} />
             </div>
           ) : null}
           <div
@@ -799,12 +794,6 @@ export default function PostEditor({
               isGust && hasVideoAttachment && "max-sm:[display:contents]"
             )}
           >
-            {/* Mobile-only mode switcher above the editor so the Post button stays on screen (fleet mode; gust carries its own at the top) */}
-            {isGust ? null : (
-              <div className="mb-3 flex md:hidden">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
-              </div>
-            )}
             {/* Fleet mode renders selected tags/mentions above the editor;
                 gust mode carries them inside its picker sections instead. */}
             {!isGust &&
@@ -1115,11 +1104,6 @@ export default function PostEditor({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {isGust ? null : (
-                    <div className="hidden md:flex">
-                      <ModeToggle disabled={isGroupMedia} isGust={isGust} />
-                    </div>
-                  )}
                   {isGust ? null : publishButton}
                 </div>
               </div>
@@ -1304,10 +1288,7 @@ export default function PostEditor({
               mobile; sm+ keeps the button alone on the right (its switcher
               leads the left rail). */}
           {isGust ? (
-            <div className="col-span-2 mt-3 flex items-center justify-between sm:justify-end">
-              <div className="sm:hidden">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
-              </div>
+            <div className="col-span-2 mt-3 flex justify-end">
               {publishButton}
             </div>
           ) : null}

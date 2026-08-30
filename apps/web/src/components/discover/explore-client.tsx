@@ -461,7 +461,7 @@ const ExploreClient: React.FC = () => {
         </Tabs>
       </div>
 
-      <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-5 pt-2.5 pb-6 xl:flex">
+      <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-6 xl:flex">
         <div className="shrink-0 pb-4">
           <div
             className={cn(
