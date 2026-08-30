@@ -4,6 +4,7 @@ import type { NotificationData, NotificationType } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
+  Captions,
   Heart,
   MessageCircle,
   ShieldAlert,
@@ -98,6 +99,17 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     badgeClass: "bg-gradient-to-b from-emerald-400 to-teal-600",
     href: (notification) => `/posts/${notification.postId}`,
     icon: Sparkles,
+  },
+  // Platform-persona notice: closed captions and transcript were generated.
+  TRANSCRIPTION: {
+    action: (notification) =>
+      notification.post?.isGust
+        ? "captions & transcript ready for your gust"
+        : "captions & transcript ready for your post",
+    badgeClass: "bg-gradient-to-b from-amber-400 to-orange-600",
+    href: (notification) =>
+      notification.postId ? `/posts/${notification.postId}` : "/notifications",
+    icon: Captions,
   },
 };
 

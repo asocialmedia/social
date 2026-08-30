@@ -48,7 +48,7 @@ import { LoadingButton } from "@/components/auth/loading-button";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { useToast } from "@/lib/gooey-toast";
+import { toast as showToast, useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import {
   ALT_TEXT_MAX_LENGTH,
@@ -65,6 +65,7 @@ import { useComposerStore } from "@/store/composer-store";
 import AltTextPanel from "./alt-text-panel";
 import { AttachmentPreview } from "./attachment-preview";
 import { useComposerAttachmentStore } from "./attachment-store";
+import type { FileButtonType } from "./file-input";
 import { FileInput } from "./file-input";
 import { GustMentionPicker, GustTagPicker } from "./gust-meta-pickers";
 import { HNStoryPreview } from "./hn-story-preview";
@@ -106,6 +107,47 @@ function capacityChipClass(count: number, full: boolean): string {
     return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
   }
   return "bg-muted";
+}
+
+/** Media-type gate shared by drag-drop and paste so those paths obey the
+ * same rules as the toolbar buttons: a video-only, grouped, audio, or GIF
+ * post rejects anything outside its allowed format with a toast. */
+function createMediaTypeGate(config: {
+  allowed: (file: File) => boolean;
+  isGust: boolean;
+  message: string;
+  onFileSelected: (files: File[]) => void;
+}) {
+  return (incomingFiles: File[]) => {
+    if (config.isGust) {
+      const gustVideos = incomingFiles.filter((file) =>
+        file.type.startsWith("video/")
+      );
+      if (incomingFiles.length > gustVideos.length) {
+        showToast({
+          description: "Gusts only accept a single vertical video.",
+          title: "Only video allowed",
+          variant: "destructive",
+        });
+      }
+      if (gustVideos.length > 0) {
+        config.onFileSelected(gustVideos);
+      }
+      return;
+    }
+    const allowedFiles = incomingFiles.filter(config.allowed);
+    const rejectedCount = incomingFiles.length - allowedFiles.length;
+    if (rejectedCount > 0) {
+      showToast({
+        description: config.message,
+        title: "Not allowed with this media",
+        variant: "destructive",
+      });
+    }
+    if (allowedFiles.length > 0) {
+      config.onFileSelected(allowedFiles);
+    }
+  };
 }
 
 export default function PostEditor({
@@ -163,8 +205,67 @@ export default function PostEditor({
   const hasVideoAttachment = attachments.some((a) =>
     (a.file?.type ?? a.type ?? "").startsWith("video/")
   );
-  const mixedMediaLocked = hasVideoAttachment;
+  const hasImageAttachment = attachments.some((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("image/")
+  );
+  const hasAudioAttachment = attachments.some((a) =>
+    (a.file?.type ?? a.type ?? "").startsWith("audio/")
+  );
+  const hasGifAttachment = attachments.some(
+    (a) => (a.file?.type ?? a.type ?? "") === "image/gif"
+  );
+  // GIFs and audio lock the moment ANY media is attached (image, video,
+  // audio) or the draft is a group - neither format mixes with anything.
+  const mixedMediaLocked =
+    hasImageAttachment ||
+    hasVideoAttachment ||
+    hasAudioAttachment ||
+    isGroupMedia;
+  // Images/videos lock only when an audio track or a GIF owns the post.
+  const mediaButtonsLocked = hasAudioAttachment || hasGifAttachment;
+  // Reason strings surfaced as tooltips on the disabled controls.
+  let mediaLockReason: string | undefined;
+  if (hasAudioAttachment) {
+    mediaLockReason = "Audio is attached - remove it to add other media";
+  } else if (hasGifAttachment) {
+    mediaLockReason = "A GIF is attached - remove it to add other media";
+  }
+  let gifLockReason: string | undefined;
+  if (hasAudioAttachment) {
+    gifLockReason = "Audio is attached - remove it to add GIFs";
+  } else if (hasGifAttachment) {
+    gifLockReason = "A GIF is already attached";
+  } else {
+    gifLockReason = "Remove the current media to add GIFs";
+  }
+  let audioLockReason: string | undefined;
+  if (hasAudioAttachment) {
+    audioLockReason = "Audio is already attached";
+  } else if (hasGifAttachment) {
+    audioLockReason = "A GIF is attached - remove it to add audio";
+  } else {
+    audioLockReason = "Remove the current media to add audio";
+  }
+  // A single video may still switch between fleet and gust freely; a group,
+  // audio post, or GIF post cannot (a gust is one video).
+  const modeSwitchLocked =
+    isGroupMedia || hasAudioAttachment || hasGifAttachment;
+  let modeSwitchReason: string | undefined;
+  if (hasAudioAttachment) {
+    modeSwitchReason = "Audio is attached - remove it to switch post type";
+  } else if (hasGifAttachment) {
+    modeSwitchReason = "A GIF is attached - remove it to switch post type";
+  } else if (isGroupMedia) {
+    modeSwitchReason = "Remove extra media to switch post type";
+  }
+
+  const lockedFileButtons: FileButtonType[] = [
+    ...(mediaButtonsLocked ? (["image"] as const) : []),
+    ...(mixedMediaLocked ? (["audio"] as const) : []),
+  ];
+
   const attachmentOptionsDisabled = isUploading || capacityFull;
+
   // A gust is one video at a time: the moment one exists (uploading or
   // settled) the pickers disappear - tapping the preview replaces the clip.
   const gustPickerHidden = isGust && hasVideoAttachment;
@@ -174,30 +275,6 @@ export default function PostEditor({
   const hasPublishableMedia =
     attachments.length > 0 &&
     attachments.every((a) => !a.isUploading && !a.error);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    accept: {
-      "image/*": isGust ? [] : [],
-      "video/*": [],
-    },
-    maxSize: 128 * 1024 * 1024,
-    noClick: true,
-    noKeyboard: true,
-    onDrop: async (acceptedFiles: File[]) => {
-      const validFiles = acceptedFiles.filter((file: { type: string }) =>
-        isGust
-          ? file.type.startsWith("video/")
-          : file.type.startsWith("image/") || file.type.startsWith("video/")
-      );
-      if (validFiles.length) {
-        await startUpload(validFiles, {
-          audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
-        });
-      }
-    },
-  });
-
-  const rootProps = getRootProps();
 
   const { toast } = useToast();
   const [inputText, setInputText] = useState("");
@@ -225,6 +302,56 @@ export default function PostEditor({
   // writes here as the user types; the draft is flushed to the media row
   // when the gust is published.
   const [altDrafts, setAltDrafts] = useState<Record<string, string>>({});
+
+  // Which formats the current draft still accepts (drag-drop and paste). A
+  // gust draft only ever takes videos; an audio or GIF post takes nothing
+  // new; any fleet draft that already carries media only takes more
+  // images/videos (and nothing at all once it holds audio or a GIF).
+  const allowedForDrop = useCallback(
+    (file: File): boolean => {
+      if (hasAudioAttachment || hasGifAttachment) {
+        return false;
+      }
+      if (mixedMediaLocked) {
+        return file.type.startsWith("image/") || file.type.startsWith("video/");
+      }
+      return true;
+    },
+    [hasAudioAttachment, hasGifAttachment, mixedMediaLocked]
+  );
+
+  const guardMediaType = useCallback(
+    (files: File[]) => {
+      const gate = createMediaTypeGate({
+        allowed: allowedForDrop,
+        isGust,
+        message:
+          "This post can't mix that format with its current media. Remove it first.",
+        onFileSelected: (validFiles) => {
+          void startUpload(validFiles, {
+            audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
+          });
+        },
+      });
+      gate(files);
+    },
+    [allowedForDrop, isGust, soundTrack?.mediaId, startUpload]
+  );
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: {
+      "image/*": isGust ? [] : [],
+      "video/*": [],
+    },
+    maxSize: 128 * 1024 * 1024,
+    noClick: true,
+    noKeyboard: true,
+    onDrop: (acceptedFiles: File[]) => {
+      guardMediaType(acceptedFiles);
+    },
+  });
+
+  const rootProps = getRootProps();
 
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
@@ -697,12 +824,11 @@ export default function PostEditor({
     (e: ClipboardEvent<HTMLInputElement>) => {
       const files = [...e.clipboardData.items]
         .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile()) as File[];
-      startUpload(files, {
-        audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
-      });
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      guardMediaType(files);
     },
-    [startUpload, isGust, soundTrack]
+    [guardMediaType]
   );
 
   const uploadWithOverlay = useCallback(
@@ -780,7 +906,11 @@ export default function PostEditor({
                 />
               </div>
               <div className="mb-2 flex max-sm:hidden">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                <ModeToggle
+                  disabled={modeSwitchLocked}
+                  disabledReason={modeSwitchReason}
+                  isGust={isGust}
+                />
               </div>
               {previewsBlock}
               {gustHintLine}
@@ -788,7 +918,11 @@ export default function PostEditor({
           ) : null}
           {isGust && !hasVideoAttachment ? (
             <div className="mb-2 flex max-sm:hidden">
-              <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+              <ModeToggle
+                disabled={modeSwitchLocked}
+                disabledReason={modeSwitchReason}
+                isGust={isGust}
+              />
             </div>
           ) : null}
           <div
@@ -802,7 +936,11 @@ export default function PostEditor({
             {/* Mobile-only mode switcher above the editor so the Post button stays on screen (fleet mode; gust carries its own at the top) */}
             {isGust ? null : (
               <div className="mb-3 flex md:hidden">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                <ModeToggle
+                  disabled={modeSwitchLocked}
+                  disabledReason={modeSwitchReason}
+                  isGust={isGust}
+                />
               </div>
             )}
             {/* Fleet mode renders selected tags/mentions above the editor;
@@ -1011,6 +1149,11 @@ export default function PostEditor({
                       >
                         <FileInput
                           disabled={attachmentOptionsDisabled}
+                          disabledTypes={lockedFileButtons}
+                          explanations={{
+                            audio: audioLockReason,
+                            image: mediaLockReason,
+                          }}
                           onFilesSelected={uploadWithOverlay}
                           types={["image"]}
                           videoOnly={isGust}
@@ -1047,6 +1190,11 @@ export default function PostEditor({
                               attachmentOptionsDisabled || mixedMediaLocked
                             }
                             onClick={() => setGifPickerOpen((prev) => !prev)}
+                            title={
+                              attachmentOptionsDisabled || mixedMediaLocked
+                                ? gifLockReason
+                                : undefined
+                            }
                           >
                             <span className="flex items-center gap-3">
                               <Clapperboard className="size-4" />
@@ -1055,9 +1203,12 @@ export default function PostEditor({
                           </DropdownMenuItem>
                           <div className="flex items-center px-1 py-1">
                             <FileInput
-                              disabled={
-                                attachmentOptionsDisabled || mixedMediaLocked
-                              }
+                              disabled={attachmentOptionsDisabled}
+                              disabledTypes={lockedFileButtons}
+                              explanations={{
+                                audio: audioLockReason,
+                                image: mediaLockReason,
+                              }}
                               onFilesSelected={uploadWithOverlay}
                               types={["audio"]}
                             />
@@ -1076,6 +1227,11 @@ export default function PostEditor({
                       >
                         <FileInput
                           disabled={attachmentOptionsDisabled}
+                          disabledTypes={lockedFileButtons}
+                          explanations={{
+                            audio: audioLockReason,
+                            image: mediaLockReason,
+                          }}
                           onFilesSelected={uploadWithOverlay}
                           videoOnly={isGust}
                         />
@@ -1092,6 +1248,11 @@ export default function PostEditor({
                         )}
                         disabled={attachmentOptionsDisabled || mixedMediaLocked}
                         onClick={() => setGifPickerOpen((prev) => !prev)}
+                        title={
+                          attachmentOptionsDisabled || mixedMediaLocked
+                            ? gifLockReason
+                            : undefined
+                        }
                         type="button"
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -1117,7 +1278,11 @@ export default function PostEditor({
                 <div className="flex items-center gap-2">
                   {isGust ? null : (
                     <div className="hidden md:flex">
-                      <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                      <ModeToggle
+                        disabled={modeSwitchLocked}
+                        disabledReason={modeSwitchReason}
+                        isGust={isGust}
+                      />
                     </div>
                   )}
                   {isGust ? null : publishButton}
@@ -1306,7 +1471,11 @@ export default function PostEditor({
           {isGust ? (
             <div className="col-span-2 mt-3 flex items-center justify-between sm:justify-end">
               <div className="sm:hidden">
-                <ModeToggle disabled={isGroupMedia} isGust={isGust} />
+                <ModeToggle
+                  disabled={modeSwitchLocked}
+                  disabledReason={modeSwitchReason}
+                  isGust={isGust}
+                />
               </div>
               {publishButton}
             </div>
@@ -1675,10 +1844,11 @@ const RemoveChip = ({
   );
 };
 
-const ModeToggle: React.FC<{ disabled?: boolean; isGust: boolean }> = ({
-  disabled = false,
-  isGust,
-}) => {
+const ModeToggle: React.FC<{
+  disabled?: boolean;
+  disabledReason?: string;
+  isGust: boolean;
+}> = ({ disabled = false, disabledReason, isGust }) => {
   const setMode = useComposerStore((state) => state.setMode);
 
   const activeClasses =
@@ -1691,7 +1861,11 @@ const ModeToggle: React.FC<{ disabled?: boolean; isGust: boolean }> = ({
         "flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] transition-opacity duration-200 dark:border-white/10 dark:bg-[#232323]",
         disabled && "pointer-events-none opacity-50"
       )}
-      title={disabled ? "Remove extra media to switch post type" : undefined}
+      title={
+        disabled
+          ? (disabledReason ?? "Remove extra media to switch post type")
+          : undefined
+      }
     >
       <button
         aria-label="Create a fleet post"

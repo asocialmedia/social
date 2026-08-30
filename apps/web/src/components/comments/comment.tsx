@@ -61,7 +61,10 @@ export default function CommentItem({
   const shared = useCommentsRealtimeValue();
   const [showReply, setShowReply] = useState(false);
 
-  const isOwnComment = Boolean(user) && comment.user.id === user?.id;
+  const commentUser = comment.user;
+  const username = commentUser?.username ?? "unknown";
+  const displayName = commentUser?.displayName || username;
+  const isOwnComment = Boolean(user) && commentUser?.id === user?.id;
   const isDeleted = comment.deleted;
   const clampedDepth = Math.min(depth, MAX_COMMENT_DEPTH);
   const hasRail = clampedDepth > 0;
@@ -155,23 +158,23 @@ export default function CommentItem({
           </svg>
         )}
         <div className="flex gap-2.5">
-          {comment.deleted ? (
+          {comment.deleted || !commentUser ? (
             <CommentAvatarFallback
               className="relative z-10 h-10 w-10"
               src={undefined}
             />
           ) : (
-            <UserTooltip user={comment.user}>
+            <UserTooltip user={commentUser}>
               <Link
-                aria-label={`View @${comment.user.username}'s profile`}
+                aria-label={`View @${username}'s profile`}
                 className="relative z-10 shrink-0"
-                href={`/users/${comment.user.username}`}
+                href={`/users/${username}`}
               >
                 <CommentAvatarFallback
                   className="h-10 w-10"
                   src={
-                    comment.user.avatarUrl
-                      ? getSecureImageUrl(comment.user.avatarUrl)
+                    commentUser.avatarUrl
+                      ? getSecureImageUrl(commentUser.avatarUrl)
                       : undefined
                   }
                 />
@@ -181,29 +184,29 @@ export default function CommentItem({
 
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2 text-sm">
-              {isDeleted ? (
+              {isDeleted || !commentUser ? (
                 <span className="text-muted-foreground text-xs font-medium">
                   [deleted]
                 </span>
               ) : (
                 <>
-                  <UserTooltip user={comment.user}>
+                  <UserTooltip user={commentUser}>
                     <Link
                       className="text-foreground truncate font-semibold hover:underline"
-                      href={`/users/${comment.user.username}`}
+                      href={`/users/${username}`}
                     >
-                      {comment.user.displayName}
+                      {displayName}
                     </Link>
                   </UserTooltip>
                   <UserBadge
-                    badge={comment.user.badge}
-                    badges={comment.user.badges}
+                    badge={commentUser.badge}
+                    badges={commentUser.badges}
                   />
                   <Link
                     className="text-muted-foreground truncate hover:underline"
-                    href={`/users/${comment.user.username}`}
+                    href={`/users/${username}`}
                   >
-                    @{comment.user.username}
+                    @{username}
                   </Link>
                 </>
               )}
@@ -233,7 +236,7 @@ export default function CommentItem({
             {!isDeleted && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 <AuraVoteButton
-                  authorName={comment.user.displayName}
+                  authorName={displayName}
                   commentId={comment.id}
                   expandable={false}
                   initialState={{
@@ -272,9 +275,9 @@ export default function CommentItem({
                   shared?.setReplyOpen(false);
                 }}
                 parentId={comment.id}
-                placeholder={`Reply to @${comment.user.username}...`}
+                placeholder={`Reply to @${username}...`}
                 post={post}
-                replyingTo={{ username: comment.user.username }}
+                replyingTo={{ username }}
               />
             )}
           </div>
