@@ -258,14 +258,12 @@ export function createAuthConfig(config: AuthConfig = {}) {
       return result;
     };
 
-    adapter.create = async <T extends Record<string, unknown>, R = T>(
-      args: {
-        model: string;
-        data: Omit<T, "id">;
-        select?: string[];
-        forceAllowId?: boolean;
-      }
-    ): Promise<R> => {
+    adapter.create = async <T extends Record<string, unknown>, R = T>(args: {
+      model: string;
+      data: Omit<T, "id">;
+      select?: string[];
+      forceAllowId?: boolean;
+    }): Promise<R> => {
       if (args.model === "account" && args.data) {
         const data = args.data as {
           providerId?: string;
