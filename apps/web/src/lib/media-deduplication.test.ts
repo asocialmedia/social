@@ -6,55 +6,69 @@ let mediaFindFirstImpl: (args: unknown) => unknown = () => null;
 let mediaCreateArgs: unknown = null;
 let mediaUpdateArgs: unknown = null;
 let derivativeCreateManyArgs: unknown = null;
+let cancelCleanupCalls: string[] = [];
 let scheduledCleanups: string[] = [];
+
+const cancelMediaCleanupMock = mock((mediaId: string) => {
+  cancelCleanupCalls.push(mediaId);
+  return Promise.resolve();
+});
+
+const prismaMock = {
+  media: {
+    count: mock(() => 0),
+    create: mock((args: unknown) => {
+      mediaCreateArgs = args;
+      return {
+        id: "new-media-id",
+        status: "UPLOADING",
+        ...(args as { data: Record<string, unknown> }).data,
+      };
+    }),
+    findFirst: (args: unknown) => mediaFindFirstImpl(args),
+    update: mock((args: unknown) => {
+      mediaUpdateArgs = args;
+      return {
+        id: "updated-media-id",
+        ...(args as { data: Record<string, unknown> }).data,
+      };
+    }),
+  },
+  mediaDerivative: {
+    createMany: mock((args: unknown) => {
+      derivativeCreateManyArgs = args;
+      return { count: 1 };
+    }),
+    findMany: mock(() => [
+      {
+        durationMs: null,
+        height: 720,
+        id: "deriv-1",
+        key: "media/video-1/720p.mp4",
+        kind: "video_mp4",
+        mediaId: "existing-media-id",
+        mimeType: "video/mp4",
+        pipelineVersion: "1.0",
+        sizeBytes: 1024,
+        variant: "720p",
+        width: 1280,
+      },
+    ]),
+  },
+};
 
 mock.module("@asm/db", () => ({
   Prisma: {
     DbNull: null,
   },
-  cancelMediaCleanup: mock(() => Promise.resolve()),
+  cancelMediaCleanup: cancelMediaCleanupMock,
   consumeRateLimit: mock(() => ({ allowed: true })),
   prisma: {
-    media: {
-      count: mock(() => 0),
-      create: mock((args: unknown) => {
-        mediaCreateArgs = args;
-        return {
-          id: "new-media-id",
-          status: "UPLOADING",
-          ...(args as { data: Record<string, unknown> }).data,
-        };
-      }),
-      findFirst: (args: unknown) => mediaFindFirstImpl(args),
-      update: mock((args: unknown) => {
-        mediaUpdateArgs = args;
-        return {
-          id: "updated-media-id",
-          ...(args as { data: Record<string, unknown> }).data,
-        };
-      }),
-    },
-    mediaDerivative: {
-      createMany: mock((args: unknown) => {
-        derivativeCreateManyArgs = args;
-        return { count: 1 };
-      }),
-      findMany: mock(() => [
-        {
-          durationMs: null,
-          height: 720,
-          id: "deriv-1",
-          key: "media/video-1/720p.mp4",
-          kind: "video_mp4",
-          mediaId: "existing-media-id",
-          mimeType: "video/mp4",
-          pipelineVersion: "1.0",
-          sizeBytes: 1024,
-          variant: "720p",
-          width: 1280,
-        },
-      ]),
-    },
+    // Interactive-transaction passthrough: the clone fast path wraps the
+    // media create + derivative copy in one callback.
+    $transaction: async (fn: (tx: never) => Promise<unknown>) =>
+      await fn(prismaMock as never),
+    ...prismaMock,
   },
   redis: {
     get: mock(() => "0"),
@@ -76,6 +90,7 @@ beforeEach(() => {
   mediaCreateArgs = null;
   mediaUpdateArgs = null;
   derivativeCreateManyArgs = null;
+  cancelCleanupCalls = [];
   scheduledCleanups = [];
 });
 
@@ -169,6 +184,9 @@ describe("createInitiatedUpload deduplication", () => {
     };
     expect(update.data.status).toBe("READY");
     expect(update.where.id).toBe("discarded-draft-id");
+    // The pending cleanup must be cancelled BEFORE the revive, otherwise the
+    // delayed job would delete the storage objects out from under the row.
+    expect(cancelCleanupCalls).toEqual(["discarded-draft-id"]);
     expect(scheduledCleanups).toContain("discarded-draft-id");
   });
 

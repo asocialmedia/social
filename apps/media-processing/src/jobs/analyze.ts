@@ -198,39 +198,23 @@ export function processMediaAnalyze(
 
         // Stage 6: Update Parent Post (Explicit flag & Recommendation Embeddings)
         const media = await prisma.media.findUnique({
-          select: {
-            post: {
-              select: {
-                attachments: {
-                  select: {
-                    ocrText: true,
-                    semanticTags: true,
-                    transcript: true,
-                  },
-                },
-                content: true,
-                id: true,
-                tags: { select: { name: true } },
-              },
-            },
-            postId: true,
-          },
+          select: { post: { select: { id: true } }, postId: true },
           where: { id: jobData.mediaId },
         });
 
         if (media?.post) {
-          const { post } = media;
-
           // Concurrent analyze jobs for different attachments of the same
           // post would read the same attachment list and then race their
           // post.update calls, letting the slower job overwrite the faster
           // one's embedding/semanticTags with stale aggregates. The per-post
           // Redis lock serializes Stage 5+6 so each job re-reads attachments
-          // that include every already-written sibling result. Locks carry a
-          // TTL so a crashed worker cannot wedge the post forever; a skipped
-          // stage (lock busy or Redis down) only defers the aggregate to the
-          // next analyze job, which recomputes it from scratch.
-          const postLockKey = `lock:post-aggregate:${post.id}`;
+          // AFTER acquiring the lock - reading before it would still observe
+          // a stale sibling set. Locks carry a TTL so a crashed worker cannot
+          // wedge the post forever; a skipped stage (lock busy or Redis down)
+          // only defers the aggregate to the next analyze job, which
+          // recomputes it from scratch.
+          const postId = media.post.id;
+          const postLockKey = `lock:post-aggregate:${postId}`;
           let locked = false;
           try {
             const { redis } = await import("@asm/db");
@@ -245,18 +229,38 @@ export function processMediaAnalyze(
           } catch (error) {
             mediaLogger.warn(
               { error: String(error) },
-              "post aggregate lock unavailable; continuing unlocked"
+              "post aggregate lock unavailable; aborting Stage 6 until the next analyze job"
             );
           }
           if (!locked) {
             mediaLogger.info(
-              { postId: post.id },
+              { postId },
               "another analyze job holds the post aggregate lock; skipping Stage 6"
             );
             return { outcome: "analyzed" as const };
           }
 
           try {
+            // Re-read the post and every sibling attachment while holding
+            // the lock so the aggregate below includes results already
+            // written by sibling jobs that finished ahead of this one.
+            const post = await prisma.post.findUnique({
+              include: {
+                attachments: {
+                  select: {
+                    ocrText: true,
+                    semanticTags: true,
+                    transcript: true,
+                  },
+                },
+                tags: { select: { name: true } },
+              },
+              where: { id: postId },
+            });
+            if (!post) {
+              return { outcome: "analyzed" as const };
+            }
+
             const postExplicitContent = verdict?.explicit ? true : undefined;
 
             // Aggregate all text and tags across the post and all its attachments

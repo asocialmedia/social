@@ -217,69 +217,75 @@ export async function createInitiatedUpload(input: {
 
         // Fast path 2: Existing row is attached to another post/comment (or
         // was baked with a different audio overlay). Clone the media record
-        // referencing the same published objects.
+        // referencing the same published objects. Row + derivatives commit
+        // atomically: a failure between the two writes would otherwise leave
+        // a READY clone with no playable variants.
         if (overlayMatches) {
-          const cloned = await prisma.media.create({
-            data: {
-              aiGenerated: existing.aiGenerated,
-              aiProvenance: (existing.aiProvenance ??
-                Prisma.DbNull) as Prisma.InputJsonValue,
-              blurDataUrl: existing.blurDataUrl,
-              captionsKey: existing.captionsKey,
-              claimedMime: existing.claimedMime,
-              customThumbnailKey: null,
-              detectedMime: existing.detectedMime,
-              encoderVersion: existing.encoderVersion,
-              exifStripped: existing.exifStripped,
-              hasHls: existing.hasHls,
-              height: existing.height,
-              key: existing.key,
-              mimeType: existing.mimeType,
-              originalName: sanitizeDisplayName(fileName),
-              pipelineVersion: existing.pipelineVersion,
-              platform: existing.platform,
-              processedAt: new Date(),
-              publishedKey: existing.publishedKey,
-              semanticTags: existing.semanticTags,
-              sha256: existing.sha256,
-              size: existing.size,
-              status: "READY",
-              techMetadata: (existing.techMetadata ??
-                Prisma.DbNull) as Prisma.InputJsonValue,
-              thumbnailHeight: existing.thumbnailHeight,
-              thumbnailKey: existing.thumbnailKey,
-              thumbnailWidth: existing.thumbnailWidth,
-              transcript: existing.transcript,
-              type: existing.type,
-              uploaderDisplayName: existing.uploaderDisplayName,
-              uploaderUsername: existing.uploaderUsername,
-              url: existing.url,
-              userId,
-              width: existing.width,
-              ...(audioOverlayId ? { audioOverlayId } : {}),
-            },
-          });
-
-          // Mirror any pre-computed derivative variants
-          const existingDerivatives = await prisma.mediaDerivative.findMany({
-            where: { mediaId: existing.id },
-          });
-          if (existingDerivatives.length > 0) {
-            await prisma.mediaDerivative.createMany({
-              data: existingDerivatives.map((d) => ({
-                durationMs: d.durationMs,
-                height: d.height,
-                key: d.key,
-                kind: d.kind,
-                mediaId: cloned.id,
-                mimeType: d.mimeType,
-                pipelineVersion: d.pipelineVersion,
-                sizeBytes: d.sizeBytes,
-                variant: d.variant,
-                width: d.width,
-              })),
+          const cloned = await prisma.$transaction(async (tx) => {
+            const created = await tx.media.create({
+              data: {
+                aiGenerated: existing.aiGenerated,
+                aiProvenance: (existing.aiProvenance ??
+                  Prisma.DbNull) as Prisma.InputJsonValue,
+                blurDataUrl: existing.blurDataUrl,
+                captionsKey: existing.captionsKey,
+                claimedMime: existing.claimedMime,
+                customThumbnailKey: null,
+                detectedMime: existing.detectedMime,
+                encoderVersion: existing.encoderVersion,
+                exifStripped: existing.exifStripped,
+                hasHls: existing.hasHls,
+                height: existing.height,
+                key: existing.key,
+                mimeType: existing.mimeType,
+                originalName: sanitizeDisplayName(fileName),
+                pipelineVersion: existing.pipelineVersion,
+                platform: existing.platform,
+                processedAt: new Date(),
+                publishedKey: existing.publishedKey,
+                semanticTags: existing.semanticTags,
+                sha256: existing.sha256,
+                size: existing.size,
+                status: "READY",
+                techMetadata: (existing.techMetadata ??
+                  Prisma.DbNull) as Prisma.InputJsonValue,
+                thumbnailHeight: existing.thumbnailHeight,
+                thumbnailKey: existing.thumbnailKey,
+                thumbnailWidth: existing.thumbnailWidth,
+                transcript: existing.transcript,
+                type: existing.type,
+                uploaderDisplayName: existing.uploaderDisplayName,
+                uploaderUsername: existing.uploaderUsername,
+                url: existing.url,
+                userId,
+                width: existing.width,
+                ...(audioOverlayId ? { audioOverlayId } : {}),
+              },
             });
-          }
+
+            // Mirror any pre-computed derivative variants
+            const existingDerivatives = await tx.mediaDerivative.findMany({
+              where: { mediaId: existing.id },
+            });
+            if (existingDerivatives.length > 0) {
+              await tx.mediaDerivative.createMany({
+                data: existingDerivatives.map((d) => ({
+                  durationMs: d.durationMs,
+                  height: d.height,
+                  key: d.key,
+                  kind: d.kind,
+                  mediaId: created.id,
+                  mimeType: d.mimeType,
+                  pipelineVersion: d.pipelineVersion,
+                  sizeBytes: d.sizeBytes,
+                  variant: d.variant,
+                  width: d.width,
+                })),
+              });
+            }
+
+            return created;
+          });
 
           if (purpose !== "message") {
             try {

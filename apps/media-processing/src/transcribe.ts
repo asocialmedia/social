@@ -170,6 +170,20 @@ async function transcribeViaGemini(
     if (audioBytes.byteLength < 500) {
       return null;
     }
+    // The inline (base64) generateContent path has a hard request ceiling;
+    // audio past it must not be sent (the API would reject the whole call).
+    // No Files API upload path exists in this worker yet, so oversized audio
+    // is skipped with a logged reason instead of attempting a doomed request.
+    if (audioBytes.byteLength > workerEnv.MAX_TRANSCRIBE_AUDIO_BYTES) {
+      mediaLogger.warn(
+        {
+          bytes: audioBytes.byteLength,
+          limit: workerEnv.MAX_TRANSCRIBE_AUDIO_BYTES,
+        },
+        "audio exceeds inline transcription limit; skipping transcription"
+      );
+      return null;
+    }
     const audioBase64 = Buffer.from(audioBytes).toString("base64");
     const audioDurationSeconds = await probeAudioDuration(audioPath);
     const model =

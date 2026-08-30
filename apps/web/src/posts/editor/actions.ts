@@ -218,36 +218,19 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         );
       }
 
-      // Atomically claim the attachments for THIS post before creating it:
-      // the ownership pre-check above is a read that two concurrent post
-      // creations could both pass, and a plain connect would then let the
-      // second write silently steal Media.postId. The post id is generated
-      // up front so the conditional updateMany can claim each row while it
-      // is still unclaimed; a count mismatch means another transaction won
-      // the race and this post creation aborts (the claim rolls back with
-      // the transaction).
+      // Atomically claim the attachments for THIS post: the ownership
+      // pre-check above is a read that two concurrent post creations could
+      // both pass, and a plain connect would then let the second write
+      // silently steal Media.postId. The post row is created FIRST so its id
+      // exists inside this transaction - Media.postId carries a
+      // non-deferrable FK, so claiming before the row exists would abort
+      // every post with attachments. The conditional updateMany still only
+      // matches unclaimed rows owned by the caller; a count mismatch means
+      // another transaction won the race and this post creation aborts (the
+      // claim rolls back with the transaction).
       const postId = crypto.randomUUID();
-      if (validatedInput.mediaIds.length > 0) {
-        const claim = await tx.media.updateMany({
-          data: { postId },
-          where: {
-            commentId: null,
-            id: { in: validatedInput.mediaIds },
-            postId: null,
-            status: { in: [...CLAIMABLE_STATUSES] },
-            userId: sessionData.user.id,
-          },
-        });
-        if (claim.count !== validatedInput.mediaIds.length) {
-          throw new Error("One or more attachments are invalid");
-        }
-      }
-
       const post = await tx.post.create({
         data: {
-          attachments: {
-            connect: validatedInput.mediaIds.map((id) => ({ id })),
-          },
           aura: 0,
           content: validatedInput.content,
           // Resolved link previews; text-only posts keep the column null.
@@ -288,6 +271,22 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           tags: true,
         },
       });
+
+      if (validatedInput.mediaIds.length > 0) {
+        const claim = await tx.media.updateMany({
+          data: { postId },
+          where: {
+            commentId: null,
+            id: { in: validatedInput.mediaIds },
+            postId: null,
+            status: { in: [...CLAIMABLE_STATUSES] },
+            userId: sessionData.user.id,
+          },
+        });
+        if (claim.count !== validatedInput.mediaIds.length) {
+          throw new Error("One or more attachments are invalid");
+        }
+      }
 
       // Publish confirmation from Zeph, the platform persona: lands in the
       // author's notifications the moment their fleet/gust goes live. Same

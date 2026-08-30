@@ -79,7 +79,7 @@ describe("GET /api/explore/search", () => {
 
   test("filters by isGust: true when tab=gusts", async () => {
     const req = new Request(
-      "http://localhost:3000/api/explore/search?q=viral&tab=gusts"
+      "http://localhost:3000/api/explore/search?q=Viral&tab=gusts"
     );
     const res = await GET(req);
 
@@ -100,14 +100,18 @@ describe("GET /api/explore/search", () => {
     const contentContains =
       postArgs?.where?.content?.contains ??
       orBranches.find((item) => item.content?.contains)?.content?.contains;
-    expect(contentContains).toBe("viral");
+    // The raw query reaches content predicates untouched (mode: insensitive
+    // handles casing); the same mixed-case input must land here.
+    expect(contentContains).toBe("Viral");
     expect(postArgs?.where?.isGust).toBe(true);
 
     // Every enrichment predicate in the OR chain must carry the query so a
-    // tag/transcript/OCR hit is impossible to miss. Post-tag and media-tag
-    // use the lowercased form (array `has` is case-sensitive).
+    // tag/transcript/OCR hit is impossible to miss. `contains` predicates
+    // are case-insensitive and carry the raw mixed-case query; the exact
+    // `has` predicates must be lowercased (array matching is case-sensitive),
+    // so the semanticTags branches verify normalization.
     const postTagBranch = orBranches.find((item) => item.tags);
-    expect(postTagBranch?.tags?.some?.name?.contains).toBe("viral");
+    expect(postTagBranch?.tags?.some?.name?.contains).toBe("Viral");
 
     const postSemanticBranch = orBranches.find((item) => item.semanticTags);
     expect(postSemanticBranch?.semanticTags?.has).toBe("viral");
@@ -115,11 +119,11 @@ describe("GET /api/explore/search", () => {
     const attachmentBranch = orBranches.find((item) => item.attachments);
     const attachmentOr = attachmentBranch?.attachments?.some?.OR ?? [];
     expect(attachmentOr.find((item) => item.transcript)?.transcript).toEqual({
-      contains: "viral",
+      contains: "Viral",
       mode: "insensitive",
     });
     expect(attachmentOr.find((item) => item.ocrText)?.ocrText).toEqual({
-      contains: "viral",
+      contains: "Viral",
       mode: "insensitive",
     });
     expect(

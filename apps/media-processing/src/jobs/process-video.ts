@@ -261,6 +261,7 @@ export async function processMediaVideo(input: {
       await prisma.mediaDerivative.createMany({
         data: [
           {
+            durationMs: Math.round(probe.durationSec * 1000),
             key: posterKey,
             kind: "poster",
             mediaId: input.mediaId,
@@ -276,6 +277,7 @@ export async function processMediaVideo(input: {
         where: { id: input.mediaId },
       });
       const posterRow = {
+        durationMs: Math.round(probe.durationSec * 1000),
         key: posterKey,
         kind: "poster",
         mimeType: "image/jpeg",
@@ -330,6 +332,7 @@ export async function processMediaVideo(input: {
         await s3.write(mp4Key, Bun.file(mp4Path));
         input.uploadedKeys?.push(mp4Key);
         derivatives.push({
+          durationMs: Math.round(probe.durationSec * 1000),
           key: mp4Key,
           kind: "mp4",
           mimeType: "video/mp4",
@@ -433,6 +436,7 @@ export async function processMediaVideo(input: {
           input.uploadedKeys?.push(key);
           if (!derivatives.some((d) => d.kind === "hls")) {
             derivatives.push({
+              durationMs: Math.round(probe.durationSec * 1000),
               key: derivativeKey(
                 MEDIA_PIPELINE_VERSION,
                 input.mediaId,
@@ -540,6 +544,9 @@ export async function processMediaVideo(input: {
 }
 
 interface PrismaDerivativeInsert {
+  // Source duration, carried on every derivative so the serving route can
+  // synthesize a full-length fallback cue from any row it happens to read.
+  durationMs?: number;
   kind: string;
   key: string;
   mimeType: string;

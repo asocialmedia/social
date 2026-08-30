@@ -51,7 +51,11 @@ export const keys = createEnv({
     MEDIA_LEGACY_GC_ENABLED: process.env.MEDIA_LEGACY_GC_ENABLED,
     MEDIA_MAX_AUDIO_BYTES: process.env.MEDIA_MAX_AUDIO_BYTES,
     MEDIA_MAX_IMAGE_BYTES: process.env.MEDIA_MAX_IMAGE_BYTES,
+    // Inline transcription request ceiling in bytes. Larger audio cannot ride
+    // the base64 inline path and is skipped with a logged reason.
     MEDIA_MAX_REQUEST_BYTES: process.env.MEDIA_MAX_REQUEST_BYTES,
+    MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES:
+      process.env.MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES,
     MEDIA_MAX_VIDEO_BYTES: process.env.MEDIA_MAX_VIDEO_BYTES,
     MEDIA_OCR_ENABLED: process.env.MEDIA_OCR_ENABLED,
     MEDIA_ORIGINAL_RETENTION_DAYS: process.env.MEDIA_ORIGINAL_RETENTION_DAYS,
@@ -130,6 +134,7 @@ export const keys = createEnv({
     MEDIA_MAX_AUDIO_BYTES: numericOverride,
     MEDIA_MAX_IMAGE_BYTES: numericOverride,
     MEDIA_MAX_REQUEST_BYTES: numericOverride,
+    MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES: numericOverride,
     MEDIA_MAX_VIDEO_BYTES: numericOverride,
     // Scene-text OCR in the analyze stage (PP-OCRv4 via onnxruntime-node).
     // Models ship inside the @gutenye/ocr-node dependency - no external
@@ -241,6 +246,13 @@ export const workerEnv = {
   },
   get LEGACY_GC_ENABLED() {
     return keys.MEDIA_LEGACY_GC_ENABLED === "1";
+  },
+  // Ceiling for audio sent inline (base64) to the Gemini transcription API.
+  // 20MB matches the Generative Language inline-request limit; the transcoded
+  // 32kbps mono MP3 keeps an hour of speech far below it.
+  get MAX_TRANSCRIBE_AUDIO_BYTES() {
+    const parsed = Number(keys.MEDIA_MAX_TRANSCRIBE_AUDIO_BYTES);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 20_000_000;
   },
   get OCR_ENABLED() {
     // Default-on: under NODE_ENV=production t3-env skipValidation bypasses

@@ -244,6 +244,7 @@ export async function GET(
               ? "public, max-age=3600"
               : "private, no-store",
             "Content-Type": "text/vtt; charset=utf-8",
+            "X-Content-Type-Options": "nosniff",
           },
           status: 200,
         });
@@ -253,6 +254,7 @@ export async function GET(
           "Access-Control-Allow-Origin": "*",
           "Cache-Control": "public, max-age=60",
           "Content-Type": "text/vtt; charset=utf-8",
+          "X-Content-Type-Options": "nosniff",
         },
         status: 200,
       });
