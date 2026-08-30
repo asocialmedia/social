@@ -139,12 +139,12 @@ export function processMediaScan(
       if (!media || !media.originalKey) {
         return { detail: "row or object key missing", outcome: "skipped" };
       }
-      // Legacy rows migrating through the backfill sweep are recognized by
+      // Legacy rows migrating through the maintenance sweep are recognized by
       // their live serving key (new uploads keep key="" until publish).
       // These bytes have been served publicly for years, so verification is
       // tolerant below: a sloppy historical mimeType or size column must
       // never flip a working post's attachment into REJECTED.
-      const isLegacyBackfillRow =
+      const isLegacyUnmigratedRow =
         media.pipelineVersion === null && media.key.length > 0;
       if (["DELETED", "REJECTED", "READY"].includes(media.status)) {
         return { detail: `status ${media.status}`, outcome: "skipped" };
@@ -201,11 +201,11 @@ export function processMediaScan(
         await writer.end();
         reader.releaseLock();
 
-        // 2. Reality check on size before anything else. Backfilled legacy
+        // 2. Reality check on size before anything else. Unmigrated legacy
         // rows adopt the actual stored size instead of rejecting - the
         // bytes on storage are by definition what has been serving.
         if (totalBytes <= 0 || totalBytes !== media.size) {
-          if (!isLegacyBackfillRow || totalBytes <= 0) {
+          if (!isLegacyUnmigratedRow || totalBytes <= 0) {
             return await rejectMedia(
               mediaId,
               "CORRUPT",
@@ -215,14 +215,14 @@ export function processMediaScan(
           }
           mediaLogger.warn(
             { declared: media.size, mediaId, stored: totalBytes },
-            "legacy backfill size mismatch tolerated"
+            "legacy unmigrated rows size mismatch tolerated"
           );
         }
 
         // 3. Content-based type detection; declared MIME is untrusted.
         // Legacy (pre-pipeline) rows carry no claimedMime - their original
         // upload MIME lives in the legacy mimeType column and is the best
-        // available declaration for the backfill path.
+        // available declaration for the migration path.
         const declaredMime = media.claimedMime ?? media.mimeType ?? "";
         const headBuffer = Buffer.from(
           await Bun.file(tempPath).slice(0, 512).arrayBuffer()
@@ -246,7 +246,7 @@ export function processMediaScan(
           // uploads treat that as a rejection signal; legacy rows adopt the
           // detected type instead - a sloppy historical mimeType must never
           // 404 a post attachment that has been serving for years.
-          if (!isLegacyBackfillRow) {
+          if (!isLegacyUnmigratedRow) {
             return await rejectMedia(
               mediaId,
               "MIME_MISMATCH",
@@ -260,7 +260,7 @@ export function processMediaScan(
               detectedMime: verification.detected.mime,
               mediaId,
             },
-            "legacy backfill mime mismatch tolerated"
+            "legacy unmigrated rows mime mismatch tolerated"
           );
         }
         const { detected } = verification;

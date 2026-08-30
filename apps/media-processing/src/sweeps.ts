@@ -26,7 +26,7 @@ async function enqueueScanForLegacyRow(mediaId: string): Promise<void> {
   await enqueueMediaScan(mediaId, { backfill: true });
 }
 
-export async function backfillSweep(): Promise<{ enqueued: number }> {
+export async function legacyMigrationSweep(): Promise<{ enqueued: number }> {
   // Kill switch: MEDIA_BACKFILL_ENABLED=0 stops converting legacy rows
   // without redeploying (the scheduler stays registered but no-ops).
   if (!workerEnv.BACKFILL_ENABLED) {
@@ -61,7 +61,10 @@ export async function backfillSweep(): Promise<{ enqueued: number }> {
         await enqueueScanForLegacyRow(candidate.id);
         enqueued += 1;
       } catch (error) {
-        console.error(`Backfill enqueue failed for ${candidate.id}:`, error);
+        console.error(
+          `Legacy migration enqueue failed for ${candidate.id}:`,
+          error
+        );
         await prisma.media.updateMany({
           data: { originalKey: null, status: "UPLOADING" },
           where: { id: candidate.id },
@@ -70,10 +73,15 @@ export async function backfillSweep(): Promise<{ enqueued: number }> {
     }
   }
   if (enqueued > 0) {
-    mediaLogger.info({ count: enqueued }, "backfill sweep enqueued media");
+    mediaLogger.info(
+      { count: enqueued },
+      "legacy migration sweep enqueued media"
+    );
   }
   return { enqueued };
 }
+
+export const backfillSweep = legacyMigrationSweep;
 
 export async function legacyGcSweep(): Promise<{ deletedObjects: number }> {
   // Opt-in destruction: MEDIA_LEGACY_GC_ENABLED must be set to "1" before
@@ -323,7 +331,7 @@ export async function registerSweepSchedulers(connectionOptions: {
   const { Queue } = await import("bullmq");
   const queue = new Queue("media-sweeps", { connection: connectionOptions });
   const daily = 24 * 60 * 60 * 1000;
-  await queue.upsertJobScheduler("media-backfill-sweep", { every: daily });
+  await queue.upsertJobScheduler("media-legacy-migration", { every: daily });
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
   await queue.upsertJobScheduler("media-derived-heal", { every: daily });
@@ -331,8 +339,9 @@ export async function registerSweepSchedulers(connectionOptions: {
     "media-sweeps",
     async (job) => {
       switch (job.name) {
+        case "media-legacy-migration":
         case "media-backfill-sweep": {
-          return await backfillSweep();
+          return await legacyMigrationSweep();
         }
         case "media-legacy-gc": {
           return await legacyGcSweep();
