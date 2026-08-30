@@ -339,7 +339,6 @@ export async function transcriptionBackfillSweep(): Promise<{
     where: {
       captionsKey: null,
       status: "READY",
-      transcript: null,
       type: { in: ["VIDEO", "AUDIO"] },
     },
   });

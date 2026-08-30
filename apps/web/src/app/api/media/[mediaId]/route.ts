@@ -84,23 +84,6 @@ async function getMediaOwnership(mediaId: string) {
   });
 }
 
-// Builds the end timestamp for a synthesized single-cue WebVTT transcript.
-// The cue must cover the whole recording, so the end derives from the media's
-// known duration rather than a hard-coded 10s that would expire immediately
-// on longer media; when duration is unknown a generous fixed window is used.
-function vttEndTimestamp(durationMsList: { durationMs: number | null }[]) {
-  const maxDurationMs = Math.max(
-    0,
-    ...durationMsList.map((d) => d.durationMs ?? 0)
-  );
-  const totalSeconds =
-    maxDurationMs > 0 ? Math.ceil(maxDurationMs / 1000) + 1 : 600;
-  const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
-  const ss = String(totalSeconds % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss}.000`;
-}
-
 // Object storage rejects invalid or unsatisfiable byte ranges with the
 // InvalidRange error (HTTP 416); respond Range Not Satisfiable so clients can
 // retry or resume instead of surfacing a server error. Preserve the
@@ -224,9 +207,47 @@ export async function GET(
         }
       }
       if (freshMedia?.transcript) {
-        const vttContent = freshMedia.transcript.startsWith("WEBVTT")
-          ? freshMedia.transcript
-          : `WEBVTT\n\n00:00:00.000 --> ${vttEndTimestamp(ownership.derivatives)}\n${freshMedia.transcript}\n`;
+        let vttContent = freshMedia.transcript;
+        if (!vttContent.includes("-->")) {
+          const lines = freshMedia.transcript
+            .split(/(?<=[.?!])\s+|\r?\n+/)
+            .map((l) => l.trim())
+            .filter(Boolean);
+
+          const maxDurationMs = Math.max(
+            0,
+            ...ownership.derivatives.map((d) => d.durationMs ?? 0)
+          );
+          const totalSeconds =
+            maxDurationMs > 0
+              ? Math.max(5, Math.ceil(maxDurationMs / 1000))
+              : Math.max(30, lines.length * 4);
+
+          const step = Math.max(2, totalSeconds / Math.max(1, lines.length));
+          let currentT = 0;
+          const formattedCues = lines.map((line, idx) => {
+            const startSec = currentT;
+            const endSec = Math.min(totalSeconds, currentT + step);
+            currentT = endSec;
+
+            const sH = String(Math.floor(startSec / 3600)).padStart(2, "0");
+            const sM = String(Math.floor((startSec % 3600) / 60)).padStart(
+              2,
+              "0"
+            );
+            const sS = String(Math.floor(startSec % 60)).padStart(2, "0");
+
+            const eH = String(Math.floor(endSec / 3600)).padStart(2, "0");
+            const eM = String(Math.floor((endSec % 3600) / 60)).padStart(
+              2,
+              "0"
+            );
+            const eS = String(Math.floor(endSec % 60)).padStart(2, "0");
+
+            return `${idx + 1}\n${sH}:${sM}:${sS}.000 --> ${eH}:${eM}:${eS}.000\n${line}\n`;
+          });
+          vttContent = `WEBVTT\n\n${formattedCues.join("\n")}`;
+        }
         return new NextResponse(vttContent, {
           headers: {
             "Access-Control-Allow-Origin": "*",

@@ -145,16 +145,16 @@ const GustRowCard: React.FC<{
       {/* Author, content, and metrics */}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <UserAvatar avatarUrl={post.user.avatarUrl} className="h-7 w-7" />
+          <UserAvatar avatarUrl={post.user?.avatarUrl} className="h-7 w-7" />
           <span className="min-w-0">
             <span className="flex items-center gap-1.5">
               <span className="text-foreground block truncate text-sm font-semibold">
-                {post.user.displayName || post.user.username}
+                {post.user?.displayName || post.user?.username || "Anonymous"}
               </span>
-              <UserBadge badge={post.user.badge} badges={post.user.badges} />
+              <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
             </span>
             <span className="text-muted-foreground block truncate text-xs">
-              @{post.user.username}
+              @{post.user?.username || "unknown"}
             </span>
           </span>
         </div>

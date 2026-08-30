@@ -71,17 +71,45 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
     };
   }, [mediaId]);
 
+  const resolvedCues = useMemo(() => {
+    if (cues.length > 1) {
+      return cues;
+    }
+    if (cues.length === 1 && cues[0] && cues[0].end - cues[0].start <= 15) {
+      return cues;
+    }
+    const textToSplit = (cues[0]?.text || rawTranscript || "").trim();
+    if (textToSplit) {
+      const sentences = textToSplit
+        .split(/(?<=[.?!])\s+|\r?\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (sentences.length > 1) {
+        let t = 0;
+        return sentences.map((text) => {
+          const dur = Math.max(3, Math.min(10, text.split(/\s+/).length * 0.5));
+          const cue: TranscriptCue = { end: t + dur, start: t, text };
+          t += dur;
+          return cue;
+        });
+      }
+    }
+    return cues;
+  }, [cues, rawTranscript]);
+
   const filteredCues = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) {
-      return cues;
+      return resolvedCues;
     }
-    return cues.filter((c) => c.text.toLowerCase().includes(q));
-  }, [cues, searchQuery]);
+    return resolvedCues.filter((c) => c.text.toLowerCase().includes(q));
+  }, [resolvedCues, searchQuery]);
 
   const handleCopy = useCallback(() => {
     const fullText =
-      cues.length > 0 ? cues.map((c) => c.text).join(" ") : rawTranscript || "";
+      resolvedCues.length > 0
+        ? resolvedCues.map((c) => c.text).join(" ")
+        : rawTranscript || "";
     if (!fullText) {
       return;
     }
@@ -89,7 +117,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
     setCopied(true);
     toast({ title: "Transcript copied to clipboard" });
     setTimeout(() => setCopied(false), 2000);
-  }, [cues, rawTranscript, toast]);
+  }, [resolvedCues, rawTranscript, toast]);
 
   const handleSeekCue = useCallback(
     (seconds: number) => {
@@ -107,7 +135,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
     [onSeek]
   );
 
-  if (!rawTranscript && cues.length === 0 && !isLoading) {
+  if (!rawTranscript && resolvedCues.length === 0 && !isLoading) {
     return null;
   }
 

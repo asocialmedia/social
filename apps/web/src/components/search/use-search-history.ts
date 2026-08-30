@@ -249,9 +249,9 @@ export function useSearchHistory(enabled = true) {
             (item.query === trimmedTarget ||
               item.query.toLowerCase() === trimmedTarget.toLowerCase())) ||
           (item.type === "user" &&
-            (item.user.id === trimmedTarget ||
-              item.user.username === trimmedTarget)) ||
-          (item.type === "post" && item.post.id === trimmedTarget) ||
+            (item.user?.id === trimmedTarget ||
+              item.user?.username === trimmedTarget)) ||
+          (item.type === "post" && item.post?.id === trimmedTarget) ||
           item.raw === trimmedTarget;
         return !isMatch;
       });

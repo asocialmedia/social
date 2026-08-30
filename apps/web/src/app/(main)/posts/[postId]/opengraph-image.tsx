@@ -246,10 +246,10 @@ export default async function Image({
           ) : null}
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <div style={{ fontSize: 24, fontWeight: 700 }}>
-              {post.user.displayName}
+              {post.user?.displayName || post.user?.username || "Anonymous"}
             </div>
             <div style={{ color: "#a1a1aa", fontSize: 17, fontWeight: 500 }}>
-              @{post.user.username}
+              @{post.user?.username || "unknown"}
             </div>
           </div>
         </div>

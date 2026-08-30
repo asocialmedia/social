@@ -188,28 +188,30 @@ const Spotlight: React.FC<SpotlightProps> = ({
       for (const rawEntry of history ?? []) {
         const entry = normalizeHistoryItem(rawEntry);
         let removeTarget = entry.raw;
-        if (entry.type === "user") {
+        if (entry.type === "user" && entry.user) {
           if (!removeTarget) {
             removeTarget = entry.user.id;
           }
+          const username = entry.user.username || "";
           const match =
             !q ||
-            entry.user.username.toLowerCase().includes(q) ||
+            username.toLowerCase().includes(q) ||
             entry.user.displayName?.toLowerCase().includes(q);
           if (match) {
             const isSelf = Boolean(
               user &&
               (entry.user.id === user.id ||
-                entry.user.username.toLowerCase() ===
-                  user.username.toLowerCase())
+                (username &&
+                  entry.user.username.toLowerCase() ===
+                    user.username.toLowerCase()))
             );
             const searchTimeStr = entry.searchedAt
               ? formatSearchTime(entry.searchedAt)
               : "";
             items.push({
               avatarUrl: entry.user.avatarUrl,
-              displayName: entry.user.displayName || entry.user.username,
-              href: `/users/${entry.user.username}`,
+              displayName: entry.user.displayName || username || "Anonymous",
+              href: username ? `/users/${username}` : "#",
               id: `history-user-${entry.user.id}`,
               isSelf,
               meta: `${formatNumber(entry.user.aura ?? 0)} aura`,
@@ -217,12 +219,12 @@ const Spotlight: React.FC<SpotlightProps> = ({
               removeTarget,
               searchedAt: entry.searchedAt,
               subtitle: searchTimeStr
-                ? `@${entry.user.username} · ${searchTimeStr}`
-                : `@${entry.user.username}`,
+                ? `@${username} · ${searchTimeStr}`
+                : `@${username}`,
               type: "user",
             });
           }
-        } else if (entry.type === "post") {
+        } else if (entry.type === "post" && entry.post) {
           if (!removeTarget) {
             removeTarget = entry.post.id;
           }

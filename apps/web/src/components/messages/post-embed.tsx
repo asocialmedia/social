@@ -103,9 +103,9 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
             )}
           >
             <span className="truncate">
-              {data.user.displayName || data.user.username}
+              {data.user?.displayName || data.user?.username || "Anonymous"}
             </span>
-            <UserBadge badge={data.user.badge} badges={data.user.badges} />
+            <UserBadge badge={data.user?.badge} badges={data.user?.badges} />
           </span>
           <span
             className={cn(
@@ -113,7 +113,8 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
               mine ? "text-white/70" : "text-muted-foreground"
             )}
           >
-            @{data.user.username} · {formatRelativeDate(data.createdAt)}
+            @{data.user?.username || "unknown"} ·{" "}
+            {formatRelativeDate(data.createdAt)}
           </span>
         </div>
       </div>
