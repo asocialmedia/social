@@ -1,28 +1,65 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "../test-support/asm-db-mock";
+
 const AUTHOR_ID = "author-1";
 const OTHER_USER_ID = "user-2";
-const POST_ID = "new-post-1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
   user: { id: AUTHOR_ID },
 }));
 
 const state = {
+  attachmentClaims: [] as { claimedPostId: string; mediaIds: string[] }[],
   auraAwards: [] as { recipientId: string; type: string }[],
+  createdPostId: null as string | null,
   mentionCreates: [] as { userId: string }[],
   notifications: [] as { recipientId: string; type: string }[],
+  ownedMediaIds: [] as string[],
 };
 
 function resetState() {
+  state.attachmentClaims = [];
   state.auraAwards = [];
+  state.createdPostId = null;
   state.mentionCreates = [];
   state.notifications = [];
+  state.ownedMediaIds = [];
 }
 
 const mockTx = {
   media: {
-    findMany: () => Promise.resolve([]),
+    // Only rows the fixture marks as owned-and-unclaimed resolve; the claim's
+    // updateMany counts exactly those matches so shortfall paths are real.
+    findMany: (args: { where?: { id?: { in?: string[] } } }) =>
+      Promise.resolve(
+        (args.where?.id?.in ?? [])
+          .filter((id) => state.ownedMediaIds.includes(id))
+          .map((id) => ({
+            commentId: null,
+            id,
+            postId: null,
+            status: "READY",
+            userId: AUTHOR_ID,
+          }))
+      ),
+    updateMany: (args: {
+      data: { postId: string };
+      where: { id?: { in?: string[] }; postId?: null };
+    }) => {
+      const requested = args.where?.id?.in ?? [];
+      const claimable = requested.filter((id) =>
+        state.ownedMediaIds.includes(id)
+      );
+      const count = args.where?.postId === null ? claimable.length : 0;
+      if (count > 0) {
+        state.attachmentClaims.push({
+          claimedPostId: args.data.postId,
+          mediaIds: requested,
+        });
+      }
+      return Promise.resolve({ count });
+    },
   },
   notification: {
     create: (args: { data: { recipientId: string; type: string } }) => {
@@ -32,14 +69,15 @@ const mockTx = {
   },
   post: {
     create: (args: {
-      data: { mentions?: { create: { userId: string }[] } };
+      data: { id: string; mentions?: { create: { userId: string }[] } };
     }) => {
       // Mentions persist through the nested create on the post row.
       const created = args.data.mentions?.create ?? [];
       state.mentionCreates.push(...created);
+      state.createdPostId = args.data.id;
       return Promise.resolve({
         hnStoryShare: null,
-        id: POST_ID,
+        id: args.data.id,
         mentions: [],
         tags: [],
       });
@@ -56,16 +94,13 @@ const mockTx = {
 };
 
 // Registered before the module under test is (dynamically) imported so its
-// named bindings resolve to these fakes.
+// named bindings resolve to these fakes. The shared fixture carries every
+// @asm/db export; only the prisma surface is suite-specific.
 mock.module("@asm/db", () => ({
-  ATTACHMENT_BONUSES: {},
-  HN_SHARE_BONUS_AURA: 15,
-  MENTION_RECEIVED_AURA: 10,
-  POST_CREATION_AURA: 10,
-  POST_CREATION_MAX_AURA: 150,
+  ...asmDbMockBase,
+  Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
   // Pulled by the system-moderation-user helper actions.ts delegates to;
   // without it the static named import reaches the real barrel.
-  SYSTEM_MODERATION_USER_ID: "sys-zeph",
   applyFlatAward: (
     _tx: typeof mockTx,
     args: { recipientId: string; type: string }
@@ -73,14 +108,17 @@ mock.module("@asm/db", () => ({
     state.auraAwards.push({ recipientId: args.recipientId, type: args.type });
     return Promise.resolve({ amount: 10 });
   },
-  cancelMediaCleanup: () => Promise.resolve(),
-  enqueueNotificationCreated: () => Promise.resolve(),
-  enqueueShitposterCheck: () => Promise.resolve(),
-  getPostDataInclude: () => ({ user: true }),
-  invalidateAuraSignals: () => Promise.resolve(),
-  postViewsCache: {},
   prisma: {
     $transaction: (fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx),
+    // calculateAuraReward reads attachment types outside the transaction.
+    media: {
+      findMany: (args: { where?: { id?: { in?: string[] } } }) =>
+        Promise.resolve(
+          (args.where?.id?.in ?? [])
+            .filter((id) => state.ownedMediaIds.includes(id))
+            .map((id) => ({ id, type: "IMAGE" }))
+        ),
+    },
     user: {
       // Zeph persona upsert (getModerationSystemUserId).
       upsert: () =>
@@ -89,13 +127,10 @@ mock.module("@asm/db", () => ({
         }),
     },
   },
-  // Pulled statically by the link-embed resolver the submit path delegates
-  // to; the tests never touch the cache itself.
   redis: {
     get: () => Promise.resolve(null),
     set: () => Promise.resolve("OK"),
   },
-  tagCache: {},
 }));
 
 mock.module("next/cache", () => ({
@@ -130,7 +165,7 @@ describe("submitPost mention validation", () => {
     expect(state.notifications).toEqual([
       {
         issuerId: "sys-zeph",
-        postId: POST_ID,
+        postId: state.createdPostId,
         recipientId: AUTHOR_ID,
         type: "PUBLISHED",
       },
@@ -156,13 +191,13 @@ describe("submitPost mention validation", () => {
     expect(state.notifications).toEqual([
       {
         issuerId: "sys-zeph",
-        postId: POST_ID,
+        postId: state.createdPostId,
         recipientId: AUTHOR_ID,
         type: "PUBLISHED",
       },
       {
         issuerId: AUTHOR_ID,
-        postId: POST_ID,
+        postId: state.createdPostId,
         recipientId: OTHER_USER_ID,
         type: "MENTION",
       },
@@ -187,13 +222,13 @@ describe("submitPost mention validation", () => {
     expect(state.notifications).toEqual([
       {
         issuerId: "sys-zeph",
-        postId: POST_ID,
+        postId: state.createdPostId,
         recipientId: AUTHOR_ID,
         type: "PUBLISHED",
       },
       {
         issuerId: AUTHOR_ID,
-        postId: POST_ID,
+        postId: state.createdPostId,
         recipientId: OTHER_USER_ID,
         type: "MENTION",
       },
@@ -204,5 +239,49 @@ describe("submitPost mention validation", () => {
     expect(mentionAwards).toEqual([
       { recipientId: OTHER_USER_ID, type: "MENTION_RECEIVED" },
     ]);
+  });
+});
+
+describe("submitPost attachment claiming", () => {
+  beforeEach(() => {
+    resetState();
+    mockGetSession.mockClear();
+  });
+
+  test("a successful claim assigns the created post id to the attachments", async () => {
+    const { submitPost } = await import("./actions");
+    state.ownedMediaIds = ["media-1", "media-2"];
+
+    await submitPost({
+      content: "with attachments",
+      mediaIds: ["media-1", "media-2"],
+      mentions: [],
+      tags: [],
+    } as Parameters<typeof submitPost>[0]);
+
+    // The post row was created first and the claim stamped that exact id.
+    expect(state.createdPostId).toBeString();
+    expect(state.attachmentClaims).toEqual([
+      {
+        claimedPostId: state.createdPostId,
+        mediaIds: ["media-1", "media-2"],
+      },
+    ]);
+  });
+
+  test("a claim shortfall aborts with the invalid-attachments error", async () => {
+    const { submitPost } = await import("./actions");
+    // One of the two requested ids is not owned-and-unclaimed, so the
+    // updateMany count comes back short.
+    state.ownedMediaIds = ["media-1"];
+
+    await expect(
+      submitPost({
+        content: "raced attachments",
+        mediaIds: ["media-1", "media-2"],
+        mentions: [],
+        tags: [],
+      } as Parameters<typeof submitPost>[0])
+    ).rejects.toThrow("One or more attachments are invalid");
   });
 });

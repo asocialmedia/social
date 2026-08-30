@@ -46,7 +46,7 @@ export const keys = createEnv({
   },
 
   server: {
-    APP_URL: z.url().default("https://social.localhost"),
+    APP_URL: z.url().default("http://localhost:3000"),
     AUTH_ANON_RATE_LIMIT_MAX: z.coerce.number().default(120),
     AUTH_ANON_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
     AUTH_AUTH_RATE_LIMIT_MAX: z.coerce.number().default(600),
@@ -58,7 +58,7 @@ export const keys = createEnv({
     AUTH_REQUEST_TIMEOUT_MS: z.coerce.number().default(15_000),
     AUTH_STRICT_RATE_LIMIT_MAX: z.coerce.number().default(30),
     AUTH_STRICT_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
-    AUTH_URL: z.url().default("https://auth.localhost"),
+    AUTH_URL: z.url().default("http://localhost:3001"),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_TELEMETRY: z.enum(["0", "1"]).default("0"),
     DATABASE_URL: z.url(),

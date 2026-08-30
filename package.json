@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.4.19",
+  "version": "1.4.57",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -43,7 +43,6 @@
     "lefthook": "^2.1.10",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
-    "portless": "^0.15.5",
     "prisma": "7.9.1",
     "turbo": "^2.10.9",
     "typescript": "^7.0.2",

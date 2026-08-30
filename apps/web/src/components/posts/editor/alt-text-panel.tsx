@@ -1,9 +1,11 @@
+import { toast } from "@asm/ui/lib/gooey-toast";
 import { Button } from "@asm/ui/shadui/button";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
 import type { Attachment } from "@/components/posts/editor/attachment-store";
 import { ALT_TEXT_MAX_LENGTH } from "@/lib/media-upload-client";
+import { cn } from "@/lib/utils";
 
 interface AltTextPanelProps {
   attachment: Attachment;
@@ -35,6 +37,7 @@ const AltTextPanel = ({
 }: AltTextPanelProps) => {
   const fileName = attachment.file?.name ?? attachment.name ?? "attachment";
   const [internalDraft, setInternalDraft] = useState(attachment.altText ?? "");
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   // Docked variant is controlled (parent flushes the draft on publish);
   // popover variant owns its draft until Done.
   const isControlled = onDraftChange !== undefined;
@@ -47,6 +50,54 @@ const AltTextPanel = ({
     } else {
       setInternalDraft(value);
     }
+  };
+
+  const handleAutoAltText = async () => {
+    if (!attachment.mediaId) {
+      toast({
+        description:
+          "Please wait until the media finishes uploading to generate alt text.",
+        title: "Media upload in progress",
+      });
+      return;
+    }
+    setIsAutoGenerating(true);
+    try {
+      const res = await fetch(`/api/media/${attachment.mediaId}/alt`);
+      if (res.ok) {
+        const data = (await res.json()) as { suggestedAlt?: string };
+        if (data.suggestedAlt) {
+          setDraft(data.suggestedAlt);
+          toast({ title: "Alt text generated from media analysis" });
+        } else {
+          toast({
+            description: "No spoken speech or text was detected in this media.",
+            title: "No text detected",
+          });
+        }
+      } else if (res.status === 401) {
+        toast({
+          description: "Your session expired. Please sign in again.",
+          title: "Authentication required",
+        });
+      } else if (res.status === 404) {
+        toast({
+          description: "This media is no longer available.",
+          title: "Media unavailable",
+        });
+      } else {
+        toast({
+          description: "Media is still being processed in the background.",
+          title: "Analysis in progress",
+        });
+      }
+    } catch {
+      toast({
+        description: "Network error while fetching media analysis.",
+        title: "Could not generate alt text",
+      });
+    }
+    setIsAutoGenerating(false);
   };
 
   const handleSave = () => {
@@ -65,14 +116,32 @@ const AltTextPanel = ({
     // input's class set (the shadui Textarea chrome would fight it). The
     // draft rides to the media row on publish, so there is nothing to click.
     return (
-      <textarea
-        aria-label="Alt text"
-        className="premium-input text-foreground focus-within:ring-primary field-sizing-content max-h-40 w-full max-w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto px-5 py-3 break-words transition-all duration-300 ease-in-out focus-within:ring-2"
-        maxLength={ALT_TEXT_MAX_LENGTH}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="Describe this video for people who can't see it…"
-        value={draft}
-      />
+      <div className="relative flex flex-col gap-1.5">
+        {attachment.mediaId ? (
+          <div className="flex justify-end">
+            <button
+              aria-label="Auto-generate alt text from speech and text detection"
+              className="flex h-6 shrink-0 items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/15 px-2.5 text-[11px] font-medium text-orange-400 transition-colors hover:bg-orange-500/25 disabled:opacity-50"
+              disabled={isAutoGenerating}
+              onClick={handleAutoAltText}
+              type="button"
+            >
+              <Sparkles
+                className={cn("size-3", isAutoGenerating && "animate-spin")}
+              />
+              <span>{isAutoGenerating ? "Analyzing..." : "Auto Alt-Text"}</span>
+            </button>
+          </div>
+        ) : null}
+        <textarea
+          aria-label="Alt text"
+          className="premium-input text-foreground focus-within:ring-primary field-sizing-content max-h-40 w-full max-w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto px-5 py-3 break-words transition-all duration-300 ease-in-out focus-within:ring-2"
+          maxLength={ALT_TEXT_MAX_LENGTH}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Describe this video for people who can't see it…"
+          value={draft}
+        />
+      </div>
     );
   }
 
@@ -90,6 +159,20 @@ const AltTextPanel = ({
         placeholder="Write a description so everyone can follow along…"
         value={draft}
       />
+      {attachment.mediaId ? (
+        <button
+          aria-label="Auto-generate alt text from speech and text detection"
+          className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/15 px-2.5 text-xs font-medium text-orange-400 transition-colors hover:bg-orange-500/25 disabled:opacity-50"
+          disabled={isAutoGenerating}
+          onClick={handleAutoAltText}
+          type="button"
+        >
+          <Sparkles
+            className={cn("size-3.5", isAutoGenerating && "animate-spin")}
+          />
+          <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
+        </button>
+      ) : null}
       <button
         aria-label="Dismiss alt text editor"
         className="text-muted-foreground flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-white/10"

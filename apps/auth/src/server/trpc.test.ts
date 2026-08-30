@@ -25,7 +25,7 @@ mock.module("@asm/auth/core", () => ({
 
 function createBaseCtx(overrides: Record<string, unknown> = {}) {
   return {
-    req: new Request("https://auth.localhost/api/trpc"),
+    req: new Request("http://localhost:3001/api/trpc"),
     resHeaders: new Headers(),
     session: null,
     user: null,
@@ -35,7 +35,7 @@ function createBaseCtx(overrides: Record<string, unknown> = {}) {
 
 describe("server trpc", () => {
   test("createContext delegates to getSessionFromRequest", async () => {
-    const req = new Request("https://auth.localhost/api/trpc");
+    const req = new Request("http://localhost:3001/api/trpc");
     const resHeaders = new Headers();
     const session: Session = {
       createdAt: new Date("2030-01-01T00:00:00.000Z"),

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Imported directly from the aura config source: this file mocks the
 // @asm/db barrel wholesale, so its factory cannot re-export real values.
 import { MODERATION_PENALTY_AURA } from "../../../../packages/db/src/aura/config";
+import { asmDbMockBase } from "./test-support/asm-db-mock";
 
 const POST_ID = "post1";
 const AUTHOR_ID = "author1";
@@ -116,6 +117,9 @@ const tx = {
 
 const mockPrisma = {
   $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+  media: {
+    updateMany: () => ({ count: 0 }),
+  },
   post: {
     findUnique: (args: { where: { id: string } }) =>
       args.where.id === POST_ID ? { ...postState } : null,
@@ -133,11 +137,9 @@ const mockIncrementUnread = mock((userId: string) => {
 const mockNoop = mock(() => {});
 
 mock.module("@asm/db", () => ({
-  POST_VIEWS_KEY_PREFIX: "post:views:",
-  POST_VIEWS_SET: "posts:with:views",
-  SYSTEM_MODERATION_USER_ID: "sys-zeph",
-  // Mirrors the ledger writer: docks the configured penalty and writes the
-  // audit row with the acting admin as issuer.
+  // Shared base FIRST so the suite-specific entries below override it.
+  ...asmDbMockBase,
+  applyFlatAward: () => Promise.resolve({ amount: 10 }),
   applyModerationPenalty: (
     t: typeof tx,
     args: { actorId: string; postId?: string | null; recipientId: string }
@@ -158,12 +160,55 @@ mock.module("@asm/db", () => ({
     });
     return Promise.resolve({ amount: -100 });
   },
-  enqueuePostDeleted: mockNoop,
+  applyWeightedAward: () => Promise.resolve({ amount: 0 }),
+  computeShareMilestoneAura: () => ({ amount: 0, tiersCrossed: 0 }),
+  computeTrendingScore: () => 0,
+  computeViewMilestoneAura: (last: number, next: number) => ({
+    // Mirror the real engine's contract (engine.ts): 1 aura per full
+    // 10-view step, one-shot bonus tiers on top.
+    aura:
+      Math.max(0, Math.floor(next / 10) - Math.floor(last / 10)) +
+      (last < 1000 && next >= 1000 ? 100 : 0) +
+      (last < 10_000 && next >= 10_000 ? 1000 : 0),
+    tiersCrossed: 0,
+  }),
+  enqueueMediaProcess: () => Promise.resolve(),
+  enqueueMediaScan: () => Promise.resolve(),
+  enqueueShitposterCheck: () => Promise.resolve(),
+  ensureStreamGroups: () => Promise.resolve(),
+  getBlockingRedisClient: () => ({ duplicate: () => ({}) }),
+  getClientIpFromHeaders: () => "unknown",
+  getIdleUsers: () => Promise.resolve([]),
+  getOnlineUsers: () => Promise.resolve([]),
+  // This suite's admin/moderation flows read the richer include shape.
   getPostDataInclude: mockInclude,
-  invalidateAuraSignals: mockNoop,
+  getUserDataSelect: () => ({ id: true }),
+  grantShitposterBadgeIfQualified: () => Promise.resolve(false),
+  hydrateViewCounts: (posts: unknown[]) => Promise.resolve(posts),
+  isReservedUsername: () => false,
+  jwtSessionCache: {
+    get: () => Promise.resolve(null),
+    set: () => Promise.resolve(),
+  },
+  markUserOnline: () => Promise.resolve(),
+  messageConversationInclude: {},
   prisma: mockPrisma,
+  publishConversationRead: () => Promise.resolve(),
+  publishMessageCreated: () => Promise.resolve(),
+  publishTrendingSnapshot: () => Promise.resolve(),
+  publishTypingStarted: () => Promise.resolve(),
   redis: { del: mockNoop, srem: mockNoop },
+  reverseExactAura: () => Promise.resolve(),
+  revokeBadge: () => Promise.resolve(true),
+  settleVoteTransition: () => Promise.resolve({ auraDelta: 0 }),
+  tagCache: {},
+  unreadMessageCache: {
+    decrement: () => Promise.resolve(0),
+    increment: () => Promise.resolve(1),
+    reset: () => Promise.resolve(),
+  },
   unreadNotificationCache: { increment: mockIncrementUnread },
+  userCache: {},
 }));
 
 mock.module("@/lib/session", () => ({

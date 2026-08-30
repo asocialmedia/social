@@ -6,6 +6,7 @@ import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import { VideoCaptionsHydration } from "@/components/media/video-captions-hydration";
 import JsonLd from "@/components/seo/json-ld";
 
 export const viewport: Viewport = {
@@ -200,6 +201,7 @@ const RootLayout = ({ children }: RootLayoutProperties) => (
     </head>
     <body className="min-h-screen font-sans antialiased">
       <JsonLd data={websiteJsonLd} />
+      <VideoCaptionsHydration />
       <DesignSystemProvider>{children}</DesignSystemProvider>
     </body>
   </html>

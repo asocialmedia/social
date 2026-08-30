@@ -46,7 +46,7 @@ describe("jwt helpers", () => {
   beforeEach(() => {
     console.error = mock(() => {}) as typeof console.error;
     process.env.NEXTAUTH_SECRET = "test-secret";
-    process.env.APP_URL = "https://social.localhost";
+    process.env.APP_URL = "http://localhost:3000";
 
     secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
     issuer = process.env.APP_URL;

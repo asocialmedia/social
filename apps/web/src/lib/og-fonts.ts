@@ -49,9 +49,11 @@ function loadAllFonts(): {
     return cached;
   }
 
-  const bold = tryLoadFont("SofiaProSoftBold.woff2");
-  const medium = tryLoadFont("SofiaProSoftMed.woff2");
-  const regular = tryLoadFont("SofiaProSoftReg.woff2");
+  // Satori parses font buffers with an OpenType parser that rejects WOFF2
+  // ("Unsupported OpenType signature wOF2") - OG cards need the raw TTFs.
+  const bold = tryLoadFont("SofiaProSoftBold.ttf");
+  const medium = tryLoadFont("SofiaProSoftMed.ttf");
+  const regular = tryLoadFont("SofiaProSoftReg.ttf");
 
   if (!bold || !medium || !regular) {
     cached = null;

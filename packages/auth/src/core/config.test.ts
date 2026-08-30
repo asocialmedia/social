@@ -6,18 +6,18 @@ import { hashPasswordWithScrypt, verifyPasswordHash } from "./password";
 describe("extractTokenFromUrl", () => {
   test("extracts token from better-auth reset url with callbackURL", () => {
     const url =
-      "https://auth.localhost/reset-password/abc123def456?callbackURL=";
+      "http://localhost:3001/reset-password/abc123def456?callbackURL=";
     expect(extractTokenFromUrl(url)).toBe("abc123def456");
   });
 
   test("extracts token from query param style url", () => {
-    const url = "https://social.localhost/reset-password/confirm?token=tok123";
+    const url = "http://localhost:3000/reset-password/confirm?token=tok123";
     expect(extractTokenFromUrl(url)).toBe("tok123");
   });
 
   test("extracts token from bare path", () => {
     expect(
-      extractTokenFromUrl("https://auth.localhost/reset-password/mytoken")
+      extractTokenFromUrl("http://localhost:3001/reset-password/mytoken")
     ).toBe("mytoken");
   });
 
@@ -26,7 +26,7 @@ describe("extractTokenFromUrl", () => {
   });
 
   test("prefers query token over path token", () => {
-    const url = "https://social.localhost/verify-email?token=querytok";
+    const url = "http://localhost:3000/verify-email?token=querytok";
     expect(extractTokenFromUrl(url)).toBe("querytok");
   });
 });

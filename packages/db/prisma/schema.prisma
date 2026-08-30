@@ -366,6 +366,10 @@ model Post {
   // validation and stored so feed rendering never performs outbound fetches.
   // Author-dismissed links are simply excluded at write time.
   embeds                Json?
+  // Extracted topics & keywords from text, transcript, and OCR for recommendations
+  semanticTags          String[]       @default([])
+  // Semantic vector embedding for recommendation & similarity
+  embedding             Float[]        @default([])
   createdAt             DateTime       @default(now())
 
   @@index([isGust, createdAt])
@@ -466,6 +470,12 @@ model Media {
   // Input for alt-text assist and text-based moderation; null when OCR is
   // disabled or nothing readable was found.
   ocrText              String?
+  // Spoken speech transcript from Whisper STT
+  transcript           String?
+  // WebVTT subtitles file key in object storage (e.g. captions/{mediaId}.vtt)
+  captionsKey          String?
+  // Visual and audio concept tags extracted during semantic analysis
+  semanticTags         String[]         @default([])
   safety               Json?
   semantics            Json?
   // Content provenance (C2PA): AI-generation classification recorded by the

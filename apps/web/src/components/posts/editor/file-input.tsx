@@ -120,11 +120,11 @@ const FileButton = ({
         </span>
       </button>
       <input
-        accept={accept}
-        aria-label={label}
+        accept={videoOnly ? "video/*,.mp4,.mov,.avi,.webm" : accept}
+        aria-label={videoOnly ? "Upload video" : label}
         capture={capture}
         className="sr-only"
-        multiple
+        multiple={!videoOnly}
         onChange={handleChange}
         ref={handleRef}
         type="file"

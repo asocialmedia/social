@@ -22,8 +22,8 @@ export async function validateJWTToken(
     const secret = new TextEncoder().encode(secretValue);
 
     const { payload } = await jwtVerify(token, secret, {
-      audience: process.env.APP_URL || "https://social.localhost",
-      issuer: process.env.APP_URL || "https://social.localhost",
+      audience: process.env.APP_URL || "http://localhost:3000",
+      issuer: process.env.APP_URL || "http://localhost:3000",
     });
 
     return { payload, valid: true };

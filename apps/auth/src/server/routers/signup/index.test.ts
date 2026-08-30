@@ -132,7 +132,7 @@ const pendingPayload = {
 
 function baseCtx() {
   return {
-    req: new Request("http://auth.localhost/api/trpc/pendingSignupVerify", {
+    req: new Request("http://localhost:3001/api/trpc/pendingSignupVerify", {
       headers: { "x-forwarded-for": "203.0.113.7" },
     }),
     resHeaders: new Headers(),

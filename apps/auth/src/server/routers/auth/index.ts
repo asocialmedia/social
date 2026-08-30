@@ -25,8 +25,8 @@ export const authRouter = router({
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
       .setExpirationTime("7d")
-      .setIssuer(process.env.APP_URL || "https://social.localhost")
-      .setAudience(process.env.APP_URL || "https://social.localhost")
+      .setIssuer(process.env.APP_URL || "http://localhost:3000")
+      .setAudience(process.env.APP_URL || "http://localhost:3000")
       .sign(secret);
 
     return { token };

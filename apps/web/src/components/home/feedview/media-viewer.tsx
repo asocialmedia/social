@@ -18,6 +18,8 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Speech,
+  Subtitles,
   Volume2,
   VolumeX,
   X,
@@ -35,6 +37,8 @@ import Spinner3D from "@/components/layouts/spinner-3d";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import { VideoTranscriptDrawer } from "@/components/media/video-transcript-drawer";
+import { VideoTranscriptSidebar } from "@/components/media/video-transcript-sidebar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
@@ -45,7 +49,6 @@ import Linkify from "@/helpers/global/linkify";
 import { useExplicitRevealed } from "@/lib/explicit-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
-import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -53,6 +56,7 @@ import {
   getMediaVariantUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import {
   CustomVideoPlayer,
@@ -233,6 +237,21 @@ const MediaViewer = ({
     }
     setVideoState((prev) => ({ ...prev, currentTime: newTime }));
   }, []);
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleGlobalCaptions = useVideoCaptionsStore(
+    (state) => state.toggleCaptions
+  );
+
+  const handleVideoToggleCaptions = useCallback(() => {
+    toggleGlobalCaptions();
+  }, [toggleGlobalCaptions]);
+
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  const handleVideoToggleTranscript = useCallback(() => {
+    setShowTranscript((prev) => !prev);
+  }, []);
+
   const handleVideoFullscreen = useCallback(async () => {
     const video = videoRef.current;
     if (!video) {
@@ -562,6 +581,13 @@ const MediaViewer = ({
     <div className="relative flex h-full max-h-full w-full items-center justify-center focus-within:outline-none">
       <CustomVideoPlayer
         autoPlay
+        captions={[
+          {
+            label: "Captions",
+            src: `/api/media/${item.id}?captions=1`,
+            srclang: "en",
+          },
+        ]}
         className={cn(
           // The box fills the media area; object-contain letterboxes the
           // video inside, centered for any orientation and screen size.
@@ -584,12 +610,14 @@ const MediaViewer = ({
         hideControls
         desktopGestures={!isMobileView}
         key={`${item.id}-${loadAttempt}`}
+        mediaId={item.id}
         onError={handleVideoError}
         onExternalState={handleExternalVideoState}
         onLoadedData={handleMediaLoaded}
         onPlaying={handleMediaLoaded}
         onProgress={handleMediaProgress}
         poster={getMediaProxyUrl(item)}
+        rawTranscript={item.transcript}
         src={getMediaVideoUrl(item.id)}
         videoRef={videoRef}
       />
@@ -777,7 +805,6 @@ const MediaViewer = ({
   const isSelf = post ? sessionUser?.id === post.user.id : false;
   // The more-button is shown to the author and to admins so moderation is
   // reachable from the full-screen viewer too.
-  const canModerate = post ? canModeratePost(sessionUser, post) : false;
 
   const body = (
     <div className="flex h-full w-full overflow-hidden">
@@ -870,7 +897,7 @@ const MediaViewer = ({
           </button>
 
           {/* Compact mobile top bar: close (above) + post options (right). */}
-          {canModerate && post ? (
+          {post ? (
             <div
               className={cn(
                 "absolute top-3 right-3 z-50 transition-[opacity,visibility] duration-300 lg:hidden",
@@ -1122,6 +1149,32 @@ const MediaViewer = ({
                     {videoState.playbackRate}x
                   </button>
                   <button
+                    aria-label={
+                      captionsEnabled ? "Disable captions" : "Enable captions"
+                    }
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      captionsEnabled && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleCaptions}
+                    type="button"
+                  >
+                    <Subtitles className="size-5" />
+                  </button>
+                  <button
+                    aria-label="Transcript"
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      showTranscript && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleTranscript}
+                    type="button"
+                  >
+                    <Speech className="size-5" />
+                  </button>
+                  <button
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
@@ -1297,6 +1350,32 @@ const MediaViewer = ({
                     {videoState.playbackRate}x
                   </button>
                   <button
+                    aria-label={
+                      captionsEnabled ? "Disable captions" : "Enable captions"
+                    }
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      MOBILE_CHIP_3D,
+                      captionsEnabled && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleCaptions}
+                    type="button"
+                  >
+                    <Subtitles className="size-5" />
+                  </button>
+                  <button
+                    aria-label="Transcript"
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px lg:hidden",
+                      MOBILE_CHIP_3D,
+                      showTranscript && "border-orange-500/60 text-orange-400"
+                    )}
+                    onClick={handleVideoToggleTranscript}
+                    type="button"
+                  >
+                    <Speech className="size-5" />
+                  </button>
+                  <button
                     aria-label="Fullscreen"
                     className={cn(
                       "flex h-11 w-11 items-center justify-center rounded-full transition-all duration-200 hover:brightness-110 active:translate-y-px",
@@ -1312,6 +1391,29 @@ const MediaViewer = ({
             </div>
           ) : null}
         </div>
+
+        {/* Video Transcript Drawer (Mobile & Modal) */}
+        {currentMedia?.type === "VIDEO" ? (
+          <VideoTranscriptDrawer
+            currentTime={videoState.currentTime}
+            isOpen={showTranscript}
+            mediaId={currentMedia.id}
+            onClose={() => setShowTranscript(false)}
+            onSeek={(seconds) => {
+              const video = videoRef.current;
+              if (video) {
+                video.currentTime = seconds;
+                void video.play();
+              }
+              setVideoState((prev) => ({
+                ...prev,
+                currentTime: seconds,
+                isPlaying: true,
+              }));
+            }}
+            rawTranscript={currentMedia.transcript}
+          />
+        ) : null}
       </div>
 
       {post ? (
@@ -1352,13 +1454,11 @@ const MediaViewer = ({
                     @{post.user.username}
                   </Link>
                 </div>
-                {canModerate ? (
-                  <PostMoreButton
-                    className="shrink-0"
-                    post={post}
-                    variant="media-page"
-                  />
-                ) : null}
+                <PostMoreButton
+                  className="shrink-0"
+                  post={post}
+                  variant="media-page"
+                />
               </div>
 
               <div className="mt-2.5">
@@ -1465,6 +1565,27 @@ const MediaViewer = ({
                 />
               </div>
             </section>
+
+            {/* Desktop Video Transcript Card */}
+            {currentMedia?.type === "VIDEO" ? (
+              <VideoTranscriptSidebar
+                currentTime={videoState.currentTime}
+                mediaId={currentMedia.id}
+                onSeek={(seconds) => {
+                  const video = videoRef.current;
+                  if (video) {
+                    video.currentTime = seconds;
+                    void video.play();
+                  }
+                  setVideoState((prev) => ({
+                    ...prev,
+                    currentTime: seconds,
+                    isPlaying: true,
+                  }));
+                }}
+                rawTranscript={currentMedia.transcript}
+              />
+            ) : null}
 
             {/* The eddie thread on its own subcard. */}
             <section className="sidebar-subcard rounded-2xl p-3">

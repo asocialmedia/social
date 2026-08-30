@@ -194,7 +194,7 @@ export async function processMediaVideo(input: {
           "-map_metadata",
           "-1",
           "-q:v",
-          "3",
+          "2",
           posterPath,
         ],
         input.limits.processingTimeoutMs / 2
@@ -214,9 +214,9 @@ export async function processMediaVideo(input: {
         }
       ).placeholder();
 
-      // Thumb variant for feed tiles (320w) so list scroll does not download 4K JPEGs.
+      // Thumb variant for feed tiles (720w high-DPI retina crispness)
       const thumbPath = `${input.sourcePath}-poster-thumb.jpg`;
-      const thumbWidth = 320;
+      const thumbWidth = 720;
       await runFfmpeg(
         [
           "-i",
@@ -224,7 +224,7 @@ export async function processMediaVideo(input: {
           "-vf",
           `scale=${thumbWidth}:-2`,
           "-q:v",
-          "4",
+          "2",
           "-map_metadata",
           "-1",
           thumbPath,
@@ -261,6 +261,7 @@ export async function processMediaVideo(input: {
       await prisma.mediaDerivative.createMany({
         data: [
           {
+            durationMs: Math.round(probe.durationSec * 1000),
             key: posterKey,
             kind: "poster",
             mediaId: input.mediaId,
@@ -272,10 +273,11 @@ export async function processMediaVideo(input: {
         skipDuplicates: true,
       });
       await prisma.media.update({
-        data: { blurDataUrl },
+        data: { blurDataUrl, thumbnailKey: posterKey },
         where: { id: input.mediaId },
       });
       const posterRow = {
+        durationMs: Math.round(probe.durationSec * 1000),
         key: posterKey,
         kind: "poster",
         mimeType: "image/jpeg",
@@ -330,6 +332,7 @@ export async function processMediaVideo(input: {
         await s3.write(mp4Key, Bun.file(mp4Path));
         input.uploadedKeys?.push(mp4Key);
         derivatives.push({
+          durationMs: Math.round(probe.durationSec * 1000),
           key: mp4Key,
           kind: "mp4",
           mimeType: "video/mp4",
@@ -433,6 +436,7 @@ export async function processMediaVideo(input: {
           input.uploadedKeys?.push(key);
           if (!derivatives.some((d) => d.kind === "hls")) {
             derivatives.push({
+              durationMs: Math.round(probe.durationSec * 1000),
               key: derivativeKey(
                 MEDIA_PIPELINE_VERSION,
                 input.mediaId,
@@ -540,6 +544,9 @@ export async function processMediaVideo(input: {
 }
 
 interface PrismaDerivativeInsert {
+  // Source duration, carried on every derivative so the serving route can
+  // synthesize a full-length fallback cue from any row it happens to read.
+  durationMs?: number;
   kind: string;
   key: string;
   mimeType: string;

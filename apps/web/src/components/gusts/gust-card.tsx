@@ -7,12 +7,20 @@ import {
   MessageSquare,
   Pause,
   Play,
+  Speech,
+  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
@@ -22,6 +30,11 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
+import {
+  parseWebVttCues,
+  VideoTranscriptDrawer,
+} from "@/components/media/video-transcript-drawer";
+import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
@@ -30,9 +43,9 @@ import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
 import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
-import { canModeratePost } from "@/lib/moderation";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import GustVoteButton from "./gust-vote-button";
 import { useGustVote } from "./use-gust-vote";
@@ -57,9 +70,11 @@ export const GustCard: React.FC<GustCardProps> = ({
   shouldMountVideo = true,
 }) => {
   const { user } = useSession();
+  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<
     "play" | "pause" | null
   >(null);
@@ -75,6 +90,85 @@ export const GustCard: React.FC<GustCardProps> = ({
   // "Show alt" menu entry drives.
   const altRevealed = useAltRevealed(post.id);
   const gustAltText = post.attachments.find((a) => a.altText)?.altText;
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleGlobalCaptions = useVideoCaptionsStore(
+    (state) => state.toggleCaptions
+  );
+  const [cues, setCues] = useState<TranscriptCue[]>([]);
+  const videoMediaId = videoMedia?.id;
+
+  useEffect(() => {
+    // Captions are only fetched when the card can actually show them: the
+    // preference is on, the video is mounted, and the card is the active
+    // feed item. VideoTranscriptDrawer loads its own cues independently
+    // when opened.
+    if (!captionsEnabled || !shouldMountVideo || !isActive || !videoMediaId) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setCues([]);
+      return;
+    }
+    // Clear before fetching so stale cues from another gust never render
+    // while this one's captions load or after a failed request.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCues([]);
+    let cancelled = false;
+    async function loadCues() {
+      try {
+        const res = await fetch(`/api/media/${videoMediaId}?captions=1`);
+        if (res.ok) {
+          const vtt = await res.text();
+          if (!cancelled && vtt) {
+            setCues(parseWebVttCues(vtt));
+          }
+        }
+      } catch {
+        // Ignore fetch errors
+      }
+    }
+    void loadCues();
+    return () => {
+      cancelled = true;
+    };
+  }, [captionsEnabled, isActive, shouldMountVideo, videoMediaId]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video?.textTracks) {
+      for (const track of video.textTracks) {
+        if (track) {
+          track.mode = "hidden";
+        }
+      }
+    }
+  });
+
+  const activeCue = useMemo(() => {
+    if (!captionsEnabled || cues.length === 0) {
+      return null;
+    }
+    return (
+      cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
+    );
+  }, [captionsEnabled, cues, currentTime]);
+
+  const toggleCaptions = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      toggleGlobalCaptions();
+    },
+    [toggleGlobalCaptions]
+  );
+
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  const toggleTranscript = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setShowTranscript((prev) => !prev);
+    },
+    [setShowTranscript]
+  );
+
   const lastTapRef = useRef<number>(0);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Floating aura bursts from repeated taps (TikTok-style). Each tap spawns a
@@ -98,7 +192,6 @@ export const GustCard: React.FC<GustCardProps> = ({
     }
   }
 
-  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
   const authorName = post.user.displayName || post.user.username;
 
   // Shared vote state so the rail button and the double-tap gesture stay in
@@ -214,6 +307,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   const handleTimeUpdate = useCallback(() => {
     const video = videoRef.current;
     if (video && video.duration) {
+      setCurrentTime(video.currentTime);
       setProgress((video.currentTime / video.duration) * 100);
     }
   }, []);
@@ -333,7 +427,6 @@ export const GustCard: React.FC<GustCardProps> = ({
     user.id !== post.user.id &&
     !post.user.followers?.some((f) => f.followerId === user.id);
 
-  const canModerate = canModeratePost(user, post);
   const isFollowedByUser = Boolean(
     post.user.followers?.some((f) => f.followerId === user?.id)
   );
@@ -379,7 +472,17 @@ export const GustCard: React.FC<GustCardProps> = ({
               preload={preloadMode}
               ref={videoRef}
               src={shouldMountVideo ? videoUrl : undefined}
-            />
+            >
+              {shouldMountVideo ? (
+                <track
+                  default={captionsEnabled}
+                  kind="subtitles"
+                  label="Captions"
+                  src={`/api/media/${videoMedia.id}?captions=1`}
+                  srcLang="en"
+                />
+              ) : null}
+            </video>
           );
           return post.explicitContent ? (
             <ExplicitContentGate
@@ -468,6 +571,24 @@ export const GustCard: React.FC<GustCardProps> = ({
               </motion.div>
             );
           })}
+        </AnimatePresence>
+
+        {/* Floating captions banner positioned cleanly in center-lower zone above author stack */}
+        <AnimatePresence>
+          {captionsEnabled && activeCue ? (
+            <motion.div
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="pointer-events-none absolute inset-x-4 bottom-52 z-25 flex justify-center text-center sm:bottom-56"
+              exit={{ opacity: 0, scale: 0.96, y: 2 }}
+              initial={{ opacity: 0, scale: 0.96, y: 4 }}
+              key={`${activeCue.start}-${activeCue.text}`}
+              transition={{ duration: 0.12 }}
+            >
+              <span className="inline-block max-w-[90%] rounded-lg border border-white/15 bg-black/85 px-3.5 py-1.5 text-xs leading-snug font-semibold tracking-wide text-white shadow-2xl backdrop-blur-md select-none sm:text-sm">
+                {activeCue.text}
+              </span>
+            </motion.div>
+          ) : null}
         </AnimatePresence>
 
         {/* Bottom scrim so the overlay text stays readable */}
@@ -653,13 +774,43 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More (moderators only) */}
-          {canModerate ? (
-            <PostMoreButton
-              className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
-              post={post}
-            />
-          ) : null}
+          {/* More options menu */}
+          <PostMoreButton
+            className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            post={post}
+          />
+
+          {/* Closed Captions toggle */}
+          {post.moderated ? null : (
+            <button
+              aria-label={
+                captionsEnabled ? "Disable captions" : "Enable captions"
+              }
+              className={cn(
+                "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95",
+                captionsEnabled && "rail-3d-btn-gold text-amber-300"
+              )}
+              onClick={toggleCaptions}
+              type="button"
+            >
+              <Subtitles className="size-5" />
+            </button>
+          )}
+
+          {/* Transcript drawer toggle */}
+          {post.moderated || !videoMedia ? null : (
+            <button
+              aria-label="View transcript"
+              className={cn(
+                "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95",
+                showTranscript && "rail-3d-btn-gold text-amber-300"
+              )}
+              onClick={toggleTranscript}
+              type="button"
+            >
+              <Speech className="size-5" />
+            </button>
+          )}
 
           {/* Mute / unmute (aligned below the More button); no video to mute on
               a moderated gust */}
@@ -700,6 +851,23 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           </div>
         )}
+
+        {videoMedia ? (
+          <VideoTranscriptDrawer
+            currentTime={currentTime}
+            isOpen={showTranscript}
+            mediaId={videoMedia.id}
+            onClose={() => setShowTranscript(false)}
+            onSeek={(seconds) => {
+              const video = videoRef.current;
+              if (video) {
+                video.currentTime = seconds;
+                void video.play();
+              }
+            }}
+            rawTranscript={videoMedia.transcript}
+          />
+        ) : null}
       </div>
 
       {isActive ? <ViewTracker postId={post.id} /> : null}

@@ -32,7 +32,6 @@ import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
-import { canModeratePost } from "@/lib/moderation";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -69,7 +68,6 @@ interface PostCardProps {
 }
 
 interface PostContentProps {
-  canModerate: boolean;
   currentUserId: string;
   detail: boolean;
   initialMediaIndex?: number;
@@ -82,7 +80,6 @@ interface PostContentProps {
 }
 
 const PostContent: React.FC<PostContentProps> = ({
-  canModerate,
   currentUserId,
   detail,
   isExpanded,
@@ -231,14 +228,7 @@ const PostContent: React.FC<PostContentProps> = ({
           )}
 
           <div className="absolute top-0 right-0 flex items-center gap-1.5">
-            {canModerate && (
-              <PostMoreButton
-                // Touch devices have no hover, so the button must always be
-                // visible there; on desktop it still fades in on card hover.
-                className="transition-opacity sm:opacity-0 sm:group-hover/post:opacity-100"
-                post={post}
-              />
-            )}
+            <PostMoreButton className="h-8 w-8 p-0" post={post} />
             <BookmarkButton
               className="h-8 w-8 p-0"
               initialState={{
@@ -486,7 +476,6 @@ const PostCard: React.FC<PostCardProps> = ({
   }, []);
 
   const currentUserId = user?.id ?? "";
-  const canModerate = canModeratePost(user, post);
 
   const handleCardClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -526,7 +515,6 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const body = (
     <PostContent
-      canModerate={canModerate}
       currentUserId={currentUserId}
       detail={detail}
       initialMediaIndex={initialMediaIndex}

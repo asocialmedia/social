@@ -64,27 +64,23 @@ export async function DELETE(
   });
 
   if (media) {
-    const objectKeys = [
-      media.customThumbnailKey,
-      media.originalKey,
-      media.publishedKey,
-      media.thumbnailKey,
-      // Legacy rows carry their object key in the old column.
-      media.key.length > 0 ? media.key : null,
-    ].filter((key): key is string => Boolean(key));
-    if (objectKeys.length > 0) {
+    // Only immediately delete unfinalized quarantine objects; published
+    // artifacts are preserved for the 24h cleanup window so subsequent
+    // re-uploads of the same media can be deduplicated instantly. The
+    // scheduled media cleanup job reaps any truly abandoned artifacts.
+    if (media.originalKey?.startsWith("quarantine/")) {
       try {
-        // Best-effort parallel deletes: the row is already DELETED so the
-        // reaper's object GC remains the backstop for any straggler.
-        await Promise.all(
-          objectKeys.map((key) =>
-            asmobClient.send(
-              new DeleteObjectCommand({ Bucket: ASMOB_BUCKET, Key: key })
-            )
-          )
+        await asmobClient.send(
+          new DeleteObjectCommand({
+            Bucket: ASMOB_BUCKET,
+            Key: media.originalKey,
+          })
         );
       } catch (error) {
-        console.error(`Failed to delete objects for ${mediaId}:`, error);
+        console.error(
+          `Failed to delete quarantine object for ${mediaId}:`,
+          error
+        );
       }
     }
     try {

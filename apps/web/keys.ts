@@ -3,8 +3,8 @@ import { z } from "zod";
 
 export const keys = createEnv({
   client: {
-    NEXT_PUBLIC_AUTH_URL: z.url().default("https://auth.localhost"),
-    NEXT_PUBLIC_URL: z.url().default("https://social.localhost"),
+    NEXT_PUBLIC_AUTH_URL: z.url().default("http://localhost:3001"),
+    NEXT_PUBLIC_URL: z.url().default("http://localhost:3000"),
   },
   runtimeEnv: {
     ASMOB_BUCKET_NAME: process.env.ASMOB_BUCKET_NAME,

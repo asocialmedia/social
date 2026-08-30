@@ -656,7 +656,7 @@ export default function PostEditor({
   // ("tap the preview to change it"), or above the caption fields while
   // there is no video yet. Carries the caption counter near the limits.
   const gustHintLine = (
-    <output className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+    <output className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
       {hasGustVideo ? (
         <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
           Tap the preview to change your gust
@@ -896,7 +896,9 @@ export default function PostEditor({
                   >
                     <div className="tiptap">
                       <p className="text-muted-foreground/70 select-none">
-                        What&apos;s crack-a-lackin&apos;?
+                        {isGust
+                          ? "Add a caption for your gust..."
+                          : "What's crack-a-lackin'?"}
                       </p>
                     </div>
                   </div>
@@ -975,7 +977,7 @@ export default function PostEditor({
                 </p>
               </div>
             ) : null}
-            {isGust ? (
+            {isGust && hasGustVideo ? (
               <div className="max-sm:col-span-2 max-sm:-mt-3">
                 <AltTextEditorPanel
                   altDrafts={altDrafts}
@@ -1156,7 +1158,7 @@ export default function PostEditor({
                     preview always reflects the served ?thumb=1 (custom cover
                     once attached, generated poster otherwise); the uploaded
                     image's bytes are copied onto the video row server-side. */}
-                {isGust && hasGustVideo && gustVideoMediaId ? (
+                {isGust && hasGustVideo ? (
                   <div className="min-w-0 max-sm:col-start-2 max-sm:row-start-1">
                     <p className="text-muted-foreground mb-2 line-clamp-2 text-[11px] leading-snug">
                       <span className="text-foreground text-xs font-semibold whitespace-nowrap">
@@ -1168,7 +1170,7 @@ export default function PostEditor({
                     {/* While the pipeline is still working on the clip there
                         is no cover to show (or change): a skeleton holds the
                         slot until the poster lands. */}
-                    {gustVideoProcessing ? (
+                    {gustVideoProcessing || !gustVideoMediaId ? (
                       <Skeleton className="aspect-9/16 w-36 max-w-full rounded-2xl max-sm:w-full" />
                     ) : (
                       <button

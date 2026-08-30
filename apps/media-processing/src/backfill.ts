@@ -214,13 +214,19 @@ export async function quarantineGcSweep(): Promise<{
   return { deletedObjects, reclaimedBytes };
 }
 
-// Derived-heal sweep: rescans pipeline READY rows whose process stage never
-// produced any derivatives. Every ready row spends some time in this state
-// while its queued process job runs (images take seconds, HLS ladders
-// minutes), so the candidate window starts well past normal processing:
-// only rows published (processedAt) older than DERIVED_HEAL_GRACE_MS count as
-// stranded. Covers the scan-stage enqueue failure the awaiting-scan contract
-// defers here, BullMQ attempts exhausted, and worker crashes after publish.
+// Derived-heal sweep: rescans pipeline rows whose processing never completed.
+// Two stranded shapes are covered:
+//  1. READY rows whose process stage never produced any derivatives. Every
+//     ready row spends some time in this state while its queued process job
+//     runs (images take seconds, HLS ladders minutes), so the candidate
+//     window starts well past normal processing: only rows published
+//     (processedAt) older than DERIVED_HEAL_GRACE_MS count as stranded.
+//  2. QUARANTINED/SCANNING rows whose scan job never ran (e.g. enqueued
+//     while the worker was down, then swallowed by a stale jobId). These
+//     still hold unscanned bytes under quarantine/, so they are re-enqueued
+//     for a fresh scan with a dedupe-busting jobId suffix.
+// Covers the scan-stage enqueue failure the awaiting-scan contract defers
+// here, BullMQ attempts exhausted, and worker crashes mid-flight.
 // DOCUMENT uploads legitimately have no derivatives; only types known to
 // generate them are healed.
 export const DERIVED_HEAL_GRACE_MS = 60 * 60 * 1000;
@@ -232,7 +238,8 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
     return { enqueued: 0 };
   }
   // The enqueue path is shared with the initial handoff, so duplicate jobs
-  // collapse on jobId; the re-enqueue overwrites the completed one.
+  // collapse on jobId; addWithFreshId clears completed/failed jobs holding
+  // the id so the re-enqueue actually lands.
   const cutoff = new Date(Date.now() - DERIVED_HEAL_GRACE_MS);
   const candidates = await prisma.media.findMany({
     orderBy: { processedAt: "asc" },
@@ -264,6 +271,40 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
       console.error(`Derived-heal enqueue failed for ${row.id}:`, error);
     }
   }
+
+  // Unscanned quarantine stragglers: rows parked in QUARANTINED for over a
+  // grace period whose bytes are still under quarantine/. The strict age
+  // window keeps rows mid-scan (or racing a just-restarted worker) out, and
+  // SCANNING is excluded because processMediaScan only claims QUARANTINED
+  // rows - a stuck SCANNING row is recovered when its worker restarts and
+  // the claim flips it back through the pipeline.
+  const unscanned = await prisma.media.findMany({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+    take: SWEEP_BATCH,
+    where: {
+      createdAt: { lt: cutoff },
+      originalKey: { startsWith: "quarantine/" },
+      pipelineVersion: null,
+      status: "QUARANTINED",
+      type: { in: [...DERIVED_HEAL_TYPES] },
+    },
+  });
+  for (const row of unscanned) {
+    try {
+      const { enqueueMediaScan } = await import("@asm/db");
+      // Suffix busts any dead jobId occupying the dedupe slot.
+      await enqueueMediaScan(row.id, { jobIdSuffix: `heal-${Date.now()}` });
+      enqueued += 1;
+      mediaLogger.info(
+        { mediaId: row.id },
+        "derived-heal re-enqueued unscanned quarantine row"
+      );
+    } catch (error) {
+      console.error(`Derived-heal scan enqueue failed for ${row.id}:`, error);
+    }
+  }
+
   if (enqueued > 0) {
     mediaLogger.info(
       { count: enqueued },
@@ -286,7 +327,7 @@ export async function registerBackfillSchedulers(connectionOptions: {
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
   await queue.upsertJobScheduler("media-derived-heal", { every: daily });
-  return new Worker(
+  const sweepWorker = new Worker(
     "media-sweeps",
     async (job) => {
       switch (job.name) {
@@ -312,4 +353,8 @@ export async function registerBackfillSchedulers(connectionOptions: {
       connection: connectionOptions as unknown as never,
     }
   );
+  sweepWorker.on("error", (error) => {
+    mediaLogger.error({ error: String(error) }, "sweep worker error");
+  });
+  return sweepWorker;
 }

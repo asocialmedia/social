@@ -1,4 +1,10 @@
-import { consumeRateLimit, prisma, redis } from "@asm/db";
+import {
+  consumeRateLimit,
+  cancelMediaCleanup,
+  Prisma,
+  prisma,
+  redis,
+} from "@asm/db";
 import {
   maxBytesForType,
   quarantineKey,
@@ -59,9 +65,11 @@ function getPresignClient(): S3Client {
 }
 
 export interface InitiatedUpload {
+  deduplicated?: boolean;
   extension: string;
   mediaId: string;
-  uploadUrl: string;
+  status?: string;
+  uploadUrl: string | null;
 }
 
 export async function createInitiatedUpload(input: {
@@ -72,10 +80,18 @@ export async function createInitiatedUpload(input: {
   fileName: string;
   fileSize: number;
   purpose: string | null;
+  sha256?: string | null;
   userId: string;
 }): Promise<InitiatedUpload> {
-  const { audioOverlayId, declaredMime, fileName, fileSize, purpose, userId } =
-    input;
+  const {
+    audioOverlayId,
+    declaredMime,
+    fileName,
+    fileSize,
+    purpose,
+    sha256,
+    userId,
+  } = input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
   const maxBytes = maxBytesForType(MEDIA_LIMITS, mediaType);
@@ -144,6 +160,230 @@ export async function createInitiatedUpload(input: {
     ? (fileName.split(".").pop() ?? "")
     : "";
 
+  // Content-addressable deduplication: if the user already uploaded this exact
+  // file (matching SHA-256 and size) and it finished processing or is in-flight,
+  // reuse the existing media row and storage artifacts to skip redundant uploads
+  // and transcoding.
+  if (sha256) {
+    const existing = await prisma.media.findFirst({
+      include: {
+        avatarOf: { select: { id: true } },
+        bannerOf: { select: { id: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      where: {
+        sha256,
+        size: fileSize,
+        status: {
+          in: ["READY", "PROCESSING", "SCANNING", "QUARANTINED", "DELETED"],
+        },
+        type: mediaType,
+        userId,
+      },
+    });
+
+    if (existing) {
+      const isUnattached =
+        !existing.postId &&
+        !existing.commentId &&
+        !existing.avatarOf &&
+        !existing.bannerOf;
+
+      // Fast path 1: Existing row reached READY and publishedKey exists
+      if (existing.status === "READY" && existing.publishedKey) {
+        // A different audio overlay means the stored bytes were baked with
+        // another track; reusing them would serve the wrong audio. Fall
+        // through to full processing so the overlay is re-baked.
+        const overlayMatches =
+          (existing.audioOverlayId ?? null) === (audioOverlayId ?? null);
+        if (overlayMatches && isUnattached) {
+          // An unattached draft already exists (e.g. author uploaded in another tab
+          // or cancelled before post): reuse it directly and extend its TTL.
+          if (purpose !== "message") {
+            try {
+              await scheduleMediaCleanup(existing.id);
+            } catch (error) {
+              console.error("Failed to schedule media cleanup:", error);
+            }
+          }
+          return {
+            deduplicated: true,
+            extension: sanitizeExtension(extensionGuess),
+            mediaId: existing.id,
+            status: "READY",
+            uploadUrl: null,
+          };
+        }
+
+        // Fast path 2: Existing row is attached to another post/comment (or
+        // was baked with a different audio overlay). Clone the media record
+        // referencing the same published objects. Row + derivatives commit
+        // atomically: a failure between the two writes would otherwise leave
+        // a READY clone with no playable variants.
+        if (overlayMatches) {
+          const cloned = await prisma.$transaction(async (tx) => {
+            const created = await tx.media.create({
+              data: {
+                aiGenerated: existing.aiGenerated,
+                aiProvenance: (existing.aiProvenance ??
+                  Prisma.DbNull) as Prisma.InputJsonValue,
+                blurDataUrl: existing.blurDataUrl,
+                captionsKey: existing.captionsKey,
+                claimedMime: existing.claimedMime,
+                customThumbnailKey: null,
+                detectedMime: existing.detectedMime,
+                encoderVersion: existing.encoderVersion,
+                exifStripped: existing.exifStripped,
+                hasHls: existing.hasHls,
+                height: existing.height,
+                key: existing.key,
+                mimeType: existing.mimeType,
+                originalName: sanitizeDisplayName(fileName),
+                pipelineVersion: existing.pipelineVersion,
+                platform: existing.platform,
+                processedAt: new Date(),
+                publishedKey: existing.publishedKey,
+                semanticTags: existing.semanticTags,
+                sha256: existing.sha256,
+                size: existing.size,
+                status: "READY",
+                techMetadata: (existing.techMetadata ??
+                  Prisma.DbNull) as Prisma.InputJsonValue,
+                thumbnailHeight: existing.thumbnailHeight,
+                thumbnailKey: existing.thumbnailKey,
+                thumbnailWidth: existing.thumbnailWidth,
+                transcript: existing.transcript,
+                type: existing.type,
+                uploaderDisplayName: existing.uploaderDisplayName,
+                uploaderUsername: existing.uploaderUsername,
+                url: existing.url,
+                userId,
+                width: existing.width,
+                ...(audioOverlayId ? { audioOverlayId } : {}),
+              },
+            });
+
+            // Mirror any pre-computed derivative variants
+            const existingDerivatives = await tx.mediaDerivative.findMany({
+              where: { mediaId: existing.id },
+            });
+            if (existingDerivatives.length > 0) {
+              await tx.mediaDerivative.createMany({
+                data: existingDerivatives.map((d) => ({
+                  durationMs: d.durationMs,
+                  height: d.height,
+                  key: d.key,
+                  kind: d.kind,
+                  mediaId: created.id,
+                  mimeType: d.mimeType,
+                  pipelineVersion: d.pipelineVersion,
+                  sizeBytes: d.sizeBytes,
+                  variant: d.variant,
+                  width: d.width,
+                })),
+              });
+            }
+
+            return created;
+          });
+
+          if (purpose !== "message") {
+            try {
+              await scheduleMediaCleanup(cloned.id);
+            } catch (error) {
+              console.error("Failed to schedule media cleanup:", error);
+            }
+          }
+          try {
+            await redis.incrby(`user:storage:${userId}`, fileSize);
+          } catch (error) {
+            console.error("Failed to update storage quota:", error);
+          }
+
+          return {
+            deduplicated: true,
+            extension: sanitizeExtension(extensionGuess),
+            mediaId: cloned.id,
+            status: "READY",
+            uploadUrl: null,
+          };
+        }
+      }
+
+      // Fast path 3: The media was soft-discarded (status DELETED) but its
+      // publishedKey is still intact in storage. Revive the row and quota.
+      // Cancel any pending cleanup first: the delayed cleanup job would
+      // otherwise delete the storage objects out from under the revived row
+      // once its 24h delay elapses (cleanup skips attached rows, but a fresh
+      // revival is unattached by definition).
+      if (
+        existing.status === "DELETED" &&
+        existing.publishedKey &&
+        isUnattached
+      ) {
+        try {
+          await cancelMediaCleanup(existing.id);
+        } catch (error) {
+          console.error("Failed to cancel pending media cleanup:", error);
+        }
+        await prisma.media.update({
+          data: {
+            failureCode: null,
+            failureDetail: Prisma.DbNull,
+            originalName: sanitizeDisplayName(fileName),
+            rejectedReason: null,
+            status: "READY",
+            ...(audioOverlayId ? { audioOverlayId } : {}),
+          },
+          where: { id: existing.id },
+        });
+        if (purpose !== "message") {
+          try {
+            await scheduleMediaCleanup(existing.id);
+          } catch (error) {
+            console.error("Failed to schedule media cleanup:", error);
+          }
+        }
+        try {
+          await redis.incrby(`user:storage:${userId}`, fileSize);
+        } catch (error) {
+          console.error("Failed to update storage quota:", error);
+        }
+        return {
+          deduplicated: true,
+          extension: sanitizeExtension(extensionGuess),
+          mediaId: existing.id,
+          status: "READY",
+          uploadUrl: null,
+        };
+      }
+
+      // Fast path 4: In-flight pipeline (SCANNING, PROCESSING, QUARANTINED)
+      // for an unattached upload: re-attach to the existing processing job.
+      if (
+        isUnattached &&
+        (existing.status === "SCANNING" ||
+          existing.status === "PROCESSING" ||
+          existing.status === "QUARANTINED")
+      ) {
+        if (purpose !== "message") {
+          try {
+            await scheduleMediaCleanup(existing.id);
+          } catch (error) {
+            console.error("Failed to schedule media cleanup:", error);
+          }
+        }
+        return {
+          deduplicated: true,
+          extension: sanitizeExtension(extensionGuess),
+          mediaId: existing.id,
+          status: existing.status,
+          uploadUrl: null,
+        };
+      }
+    }
+  }
+
   const media = await prisma.media.create({
     data: {
       // New-flow rows carry no legacy URL/key; serving falls back to the
@@ -152,6 +392,7 @@ export async function createInitiatedUpload(input: {
       key: "",
       mimeType: declaredMime.toLowerCase(),
       originalName: sanitizeDisplayName(fileName),
+      sha256: sha256 ?? null,
       size: fileSize,
       status: "UPLOADING",
       type: mediaType,

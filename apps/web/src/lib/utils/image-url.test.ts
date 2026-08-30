@@ -76,7 +76,7 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     expect(getSecureImageUrl(defaultAvatar)).toBe("/avatars/default-2.png");
     expect(toAppProxyUrl(defaultAvatar)).toBe("/avatars/default-2.png");
 
-    const localhostAvatar = "https://social.localhost/avatars/default-1.png";
+    const localhostAvatar = "http://localhost:3000/avatars/default-1.png";
     expect(getSecureImageUrl(localhostAvatar)).toBe("/avatars/default-1.png");
     expect(toAppProxyUrl(localhostAvatar)).toBe("/avatars/default-1.png");
   });

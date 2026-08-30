@@ -45,21 +45,48 @@ mock.module("@asm/auth/core", () => ({
 }));
 
 mock.module("@asm/db", () => ({
+  ATTACHMENT_BONUSES: {},
   BADGES: ["author", "dev", "early", "shitposter"],
   BadgeLimitError,
+  HN_SHARE_BONUS_AURA: 15,
+  MENTION_RECEIVED_AURA: 10,
+  POST_CREATION_AURA: 10,
+  POST_CREATION_MAX_AURA: 150,
+  POST_VIEWS_KEY_PREFIX: "post:views:",
+  POST_VIEWS_SET: "posts:with:views",
   Prisma: {
     TransactionIsolationLevel: {
       Serializable: "Serializable",
     },
   },
+  SYSTEM_MODERATION_USER_ID: "sys-zeph",
+  applyFlatAward: () => Promise.resolve({ amount: 10 }),
+  applyModerationPenalty: () => Promise.resolve(),
+  cancelMediaCleanup: () => Promise.resolve(),
+  enqueueNotificationCreated: () => Promise.resolve(),
+  enqueuePostDeleted: () => Promise.resolve(),
+  enqueueShitposterCheck: () => Promise.resolve(),
+  getPostDataInclude: () => ({ user: true }),
   grantBadge: grantBadgeMock,
+  invalidateAuraSignals: () => Promise.resolve(),
+  postViewsCache: {},
   prisma: prismaMock,
+  redis: {
+    get: () => Promise.resolve(null),
+    set: () => Promise.resolve("OK"),
+  },
   revokeBadge: revokeBadgeMock,
+  tagCache: {},
+  unreadNotificationCache: {
+    decrement: () => Promise.resolve(0),
+    increment: () => Promise.resolve(1),
+    reset: () => Promise.resolve(),
+  },
   userCache: userCacheMock,
 }));
 
 const adminContext = {
-  req: new Request("https://auth.localhost/api/trpc"),
+  req: new Request("http://localhost:3001/api/trpc"),
   resHeaders: new Headers(),
   session: { id: "s1", userId: "admin1" },
   user: { id: "admin1", role: "admin" },

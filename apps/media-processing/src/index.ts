@@ -197,6 +197,16 @@ if (import.meta.main) {
   scanWorker.on("failed", handleFailed);
   processWorker.on("failed", handleFailed);
 
+  // "error" fires on connection problems (Redis drops, auth failures) that
+  // do not fail any specific job - without this listener a wedged worker
+  // looks perfectly healthy while consuming nothing.
+  scanWorker.on("error", (error) => {
+    mediaLogger.error({ error: String(error) }, "scan worker error");
+  });
+  processWorker.on("error", (error) => {
+    mediaLogger.error({ error: String(error) }, "process worker error");
+  });
+
   // Self-healing backfill watchdog + legacy object GC (daily sweeps).
   const sweepWorker = await registerBackfillSchedulers(bullConnection());
 

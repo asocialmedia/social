@@ -13,7 +13,6 @@ import {
   hasSchemaTables,
   PREFLIGHT_CHECK_ORDER,
   parseServiceSnapshots,
-  shouldUseSudoForPortless,
   withinTtl,
 } from "./dev-preflight-lib";
 import type {
@@ -223,26 +222,11 @@ describe("preflight ui helpers", () => {
       ...PREFLIGHT_CHECK_ORDER.map((check) => [check.key, "pending"] as const),
       ["services", "ok"] as const,
       ["postgres", "running"] as const,
-      ["portless", "cached"] as const,
+      ["clamav", "cached"] as const,
     ]);
 
     expect(buildPreflightProgressLine(states)).toBe(
-      "preflight svc:ok pg:... rd:wait obj:wait ozo:wait av:wait ptl:cache"
+      "preflight svc:ok pg:... rd:wait obj:wait ozo:wait av:cache"
     );
-  });
-});
-
-describe("portless start helpers", () => {
-  test("detects sudo-required messages", () => {
-    expect(shouldUseSudoForPortless("Error: Port 443 requires sudo.")).toBe(
-      true
-    );
-    expect(shouldUseSudoForPortless("no TTY is available for sudo")).toBe(true);
-    expect(
-      shouldUseSudoForPortless(
-        "sudo: a terminal is required to read the password"
-      )
-    ).toBe(true);
-    expect(shouldUseSudoForPortless("Proxy started in background")).toBe(false);
   });
 });

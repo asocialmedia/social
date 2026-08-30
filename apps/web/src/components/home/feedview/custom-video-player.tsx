@@ -15,14 +15,22 @@ import {
   Play,
   Rewind,
   Settings,
+  Speech,
+  Subtitles,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  parseWebVttCues,
+  VideoTranscriptDrawer,
+} from "@/components/media/video-transcript-drawer";
+import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { cn } from "@/lib/utils";
+import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 import { useVideoMuteStore } from "@/lib/video-mute-store";
 
 interface CustomVideoPlayerProps {
@@ -37,6 +45,7 @@ interface CustomVideoPlayerProps {
    * (media page bottom panel) via videoRef + onExternalState. */
   hideControls?: boolean;
   hlsSrc?: string;
+  mediaId?: string;
   onError: () => void;
   onExternalState?: (state: {
     currentTime: number;
@@ -50,6 +59,7 @@ interface CustomVideoPlayerProps {
   onPlaying?: () => void;
   onProgress?: () => void;
   poster?: string;
+  rawTranscript?: string | null;
   src: string;
   /** Receives the inner video element so external controls can drive it. */
   videoRef?: React.RefObject<HTMLVideoElement | null>;
@@ -126,14 +136,22 @@ export function isClickInVideoContent(
 const GlassIconButton: React.FC<{
   "aria-label": string;
   children: React.ReactNode;
+  className?: string;
   onClick?: () => void;
   onMouseEnter?: () => void;
-}> = ({ "aria-label": ariaLabel, children, onClick, onMouseEnter }) => (
+}> = ({
+  "aria-label": ariaLabel,
+  children,
+  className,
+  onClick,
+  onMouseEnter,
+}) => (
   <button
     aria-label={ariaLabel}
     className={cn(
       "flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:brightness-110 active:translate-y-px",
-      GLASS_BTN_SHADOW
+      GLASS_BTN_SHADOW,
+      className
     )}
     onClick={onClick}
     onMouseEnter={onMouseEnter}
@@ -156,7 +174,9 @@ export const CustomVideoPlayer = ({
   captions = EMPTY_CAPTIONS,
   desktopGestures = false,
   hideControls = false,
+  mediaId,
   poster,
+  rawTranscript,
   videoRef: externalVideoRef,
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -174,6 +194,68 @@ export const CustomVideoPlayer = ({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const toggleCaptions = useVideoCaptionsStore((state) => state.toggleCaptions);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [cues, setCues] = useState<TranscriptCue[]>([]);
+
+  const captionUrl =
+    captions[0]?.src || (mediaId ? `/api/media/${mediaId}?captions=1` : null);
+
+  useEffect(() => {
+    if (!captionUrl) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setCues([]);
+      return;
+    }
+    // Drop stale cues immediately so the previous media's captions never
+    // render while the new request is in flight or after it fails.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCues([]);
+    let cancelled = false;
+    async function loadCues() {
+      try {
+        const res = await fetch(captionUrl as string);
+        if (res.ok) {
+          const vtt = await res.text();
+          if (!cancelled && vtt) {
+            setCues(parseWebVttCues(vtt));
+          }
+        }
+      } catch {
+        // Ignore fetch errors
+      }
+    }
+    void loadCues();
+    return () => {
+      cancelled = true;
+    };
+  }, [captionUrl]);
+
+  // Keep native browser track hidden so unstyled cues don't collide with controls
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video?.textTracks) {
+      for (const track of video.textTracks) {
+        if (track) {
+          track.mode = "hidden";
+        }
+      }
+    }
+  });
+
+  const activeCue = useMemo(() => {
+    if (!captionsEnabled || cues.length === 0) {
+      return null;
+    }
+    return (
+      cues.find((c) => currentTime >= c.start && currentTime <= c.end) ?? null
+    );
+  }, [captionsEnabled, cues, currentTime]);
+
+  const toggleTranscript = useCallback(() => {
+    setShowTranscript((prev) => !prev);
+  }, []);
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
 
@@ -468,9 +550,13 @@ export const CustomVideoPlayer = ({
       ArrowLeft: skipLeft,
       ArrowRight: skipRight,
       ArrowUp: handleVolumeUp,
+      C: toggleCaptions,
+      T: toggleTranscript,
+      c: toggleCaptions,
       f: toggleFullscreen,
       k: handlePlayPause,
       m: toggleMute,
+      t: toggleTranscript,
     };
 
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -503,6 +589,8 @@ export const CustomVideoPlayer = ({
     handleVolumeDown,
     skipLeft,
     skipRight,
+    toggleCaptions,
+    toggleTranscript,
   ]);
 
   useEffect(() => {
@@ -628,6 +716,14 @@ export const CustomVideoPlayer = ({
     setShowHotkeys(false);
   }, []);
 
+  let captionBottomClass = "bottom-8 sm:bottom-10";
+  if (hideControls) {
+    // In modal / MediaViewer on mobile, elevate above the stacked post author, content, actions, and player chips
+    captionBottomClass = "bottom-72 sm:bottom-80 lg:bottom-24";
+  } else if (showControls) {
+    captionBottomClass = "bottom-36 sm:bottom-40";
+  }
+
   return (
     <div
       className={cn(
@@ -664,11 +760,11 @@ export const CustomVideoPlayer = ({
         }}
         src={src}
       >
-        {captions.map((caption, index) => (
+        {captions.map((caption) => (
           <track
-            default={index === 0}
+            default={false}
             key={caption.src}
-            kind="captions"
+            kind="subtitles"
             label={caption.label}
             src={caption.src}
             srcLang={caption.srclang}
@@ -680,7 +776,7 @@ export const CustomVideoPlayer = ({
           bar: with it hidden, single clicks on the video must reach the
           play/pause handler (and letterbox taps must reach the media page's
           UI toggle), so the zones are dropped entirely. */}
-      {hideControls ? null : (
+      {hideControls || showTranscript ? null : (
         <div className="absolute inset-0 z-30 flex select-none">
           <button
             aria-label="Double click to rewind 10 seconds"
@@ -696,6 +792,27 @@ export const CustomVideoPlayer = ({
           />
         </div>
       )}
+
+      {/* Floating captions banner with dynamic placement above controls */}
+      <AnimatePresence>
+        {captionsEnabled && activeCue ? (
+          <motion.div
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className={cn(
+              "pointer-events-none absolute left-1/2 z-35 max-w-[85%] -translate-x-1/2 text-center transition-all duration-200 ease-out",
+              captionBottomClass
+            )}
+            exit={{ opacity: 0, scale: 0.96, y: 2 }}
+            initial={{ opacity: 0, scale: 0.96, y: 4 }}
+            key={`${activeCue.start}-${activeCue.text}`}
+            transition={{ duration: 0.12 }}
+          >
+            <span className="inline-block rounded-lg border border-white/15 bg-black/85 px-3.5 py-1.5 text-xs leading-snug font-semibold tracking-wide text-white shadow-2xl backdrop-blur-md select-none sm:text-sm md:text-base">
+              {activeCue.text}
+            </span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isBuffering ? (
@@ -785,6 +902,69 @@ export const CustomVideoPlayer = ({
                   ) : null}
                 </AnimatePresence>
               </div>
+
+              {captions && captions.length > 0 ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <GlassIconButton
+                        aria-label={
+                          captionsEnabled
+                            ? "Disable captions (C)"
+                            : "Enable captions (C)"
+                        }
+                        className={cn(
+                          captionsEnabled &&
+                            "border-orange-500/60 bg-white/20 text-orange-400"
+                        )}
+                        onClick={toggleCaptions}
+                      >
+                        <Subtitles
+                          className={cn(
+                            "h-5 w-5",
+                            captionsEnabled ? "text-orange-400" : "text-white"
+                          )}
+                        />
+                      </GlassIconButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>
+                        {captionsEnabled
+                          ? "Captions On (C)"
+                          : "Captions Off (C)"}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
+
+              {mediaId ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <GlassIconButton
+                        aria-label="Transcript (T)"
+                        className={cn(
+                          "xl:hidden",
+                          showTranscript &&
+                            "border-orange-500/60 bg-white/20 text-orange-400"
+                        )}
+                        onClick={toggleTranscript}
+                      >
+                        <Speech
+                          className={cn(
+                            "h-5 w-5",
+                            showTranscript ? "text-orange-400" : "text-white"
+                          )}
+                        />
+                      </GlassIconButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p>Transcript (T)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
 
               <TooltipProvider>
                 <Tooltip>
@@ -967,6 +1147,8 @@ export const CustomVideoPlayer = ({
                   <li>← → - Seek 10s</li>
                   <li>↑ ↓ - Volume</li>
                   <li>M - Mute</li>
+                  <li>C - Captions</li>
+                  <li>T - Transcript</li>
                   <li>F - Fullscreen</li>
                 </ul>
               </div>
@@ -982,6 +1164,22 @@ export const CustomVideoPlayer = ({
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      {mediaId ? (
+        <VideoTranscriptDrawer
+          currentTime={currentTime}
+          isOpen={showTranscript}
+          mediaId={mediaId}
+          onClose={() => setShowTranscript(false)}
+          onSeek={(seconds) => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = seconds;
+              void videoRef.current.play();
+            }
+          }}
+          rawTranscript={rawTranscript}
+        />
+      ) : null}
     </div>
   );
 };

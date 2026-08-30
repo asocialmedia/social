@@ -45,15 +45,39 @@ export async function GET(request: Request) {
       ? [{ aura: "desc" }, { id: "desc" }]
       : { createdAt: "desc" };
 
+  // Tags (post and media) are stored lowercased (connectOrCreate lowercases
+  // on write), so the exact-match `has` predicate needs the normalized form;
+  // `contains` predicates are case-insensitive and use the raw query.
+  const lowerQ = q.toLowerCase();
+
+  const searchFilter: Prisma.PostWhereInput = {
+    OR: [
+      { content: { contains: q, mode: "insensitive" } },
+      { tags: { some: { name: { contains: q, mode: "insensitive" } } } },
+      { semanticTags: { has: lowerQ } },
+      {
+        attachments: {
+          some: {
+            OR: [
+              { transcript: { contains: q, mode: "insensitive" } },
+              { ocrText: { contains: q, mode: "insensitive" } },
+              { semanticTags: { has: lowerQ } },
+            ],
+          },
+        },
+      },
+    ],
+  };
+
   const postWhere: Prisma.PostWhereInput =
     tab === "gusts"
       ? {
-          content: { contains: q, mode: "insensitive" },
+          ...searchFilter,
           isGust: true,
           // Moderated posts are hidden from explore entirely.
           moderated: false,
         }
-      : { content: { contains: q, mode: "insensitive" }, moderated: false };
+      : { ...searchFilter, moderated: false };
 
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({

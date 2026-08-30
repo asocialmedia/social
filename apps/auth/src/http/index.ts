@@ -37,11 +37,13 @@ const TRPC_AUTH_PATHS = [
   "/api/auth/pending-resend",
 ];
 
+// Matches better-auth's provider callback endpoints
+// (/api/auth/callback/google, /api/auth/callback/reddit, ...).
+const OAUTH_CALLBACK_PATTERN = /^\/api\/auth\/callback\/[a-z-]+$/;
+
 // Allowed origins are derived from env — no hardcoded prod URLs.
 // Local-only origins are explicitly dev-only and never accepted in production.
 const DEV_ONLY_ORIGINS = [
-  "https://social.localhost",
-  "https://auth.localhost",
   "http://localhost:3000",
   "http://localhost:3001",
 ] as const;
@@ -76,9 +78,9 @@ export function getAllowedOrigin(request?: Request): string {
     // In dev, prefer the local dev origin for internal calls
     if (
       process.env.NODE_ENV !== "production" &&
-      allowed.has("https://social.localhost")
+      allowed.has("http://localhost:3000")
     ) {
-      return "https://social.localhost";
+      return "http://localhost:3000";
     }
     return [...allowed][0] || "";
   }
@@ -94,7 +96,7 @@ export function getAllowedOrigin(request?: Request): string {
   }
   return process.env.NODE_ENV === "production"
     ? prodFallback
-    : "https://social.localhost";
+    : "http://localhost:3000";
 }
 
 export function corsHeaders(request?: Request): Record<string, string> {
@@ -229,7 +231,49 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         authRequest = new Request(request, { headers: nextHeaders });
       }
 
-      return addCorsHeaders(await authInstance.handler(authRequest), request);
+      const response = addCorsHeaders(
+        await authInstance.handler(authRequest),
+        request
+      );
+      if (OAUTH_CALLBACK_PATTERN.test(pathname)) {
+        // A callback that passes validation answers with a 3xx redirect
+        // onward to the web app's callbackURL. Classify by Location: a
+        // redirect to /api/auth/error is a rejection (state mismatch,
+        // expired flow, provider error); any other 3xx means the provider
+        // round-trip succeeded. Missing Location or a non-3xx status is
+        // unexpected and logged separately.
+        const provider = pathname.split("/").at(-1);
+        const state = new URL(request.url).searchParams.get("state");
+        const location = response.headers.get("location");
+        const isRedirect =
+          response.status >= 300 && response.status < 400 && Boolean(location);
+        if (isRedirect && location?.includes("/api/auth/error")) {
+          log.error(
+            {
+              has_state: Boolean(state),
+              location,
+              provider,
+              status: response.status,
+            },
+            "oauth callback rejected"
+          );
+        } else if (isRedirect) {
+          log.info(
+            { location, provider, status: response.status },
+            "oauth callback accepted"
+          );
+        } else {
+          log.warn(
+            {
+              has_state: Boolean(state),
+              provider,
+              status: response.status,
+            },
+            "oauth callback ended without redirect"
+          );
+        }
+      }
+      return response;
     }
     return new Response("Not Found", { status: 404 });
   }

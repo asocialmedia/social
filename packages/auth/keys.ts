@@ -19,8 +19,8 @@ export const keys = createEnv({
   },
 
   server: {
-    APP_URL: z.url().default("https://social.localhost"),
-    AUTH_URL: z.url().default("https://auth.localhost"),
+    APP_URL: z.url().default("http://localhost:3000"),
+    AUTH_URL: z.url().default("http://localhost:3001"),
     DISCORD_CLIENT_ID: z.string().optional(),
     DISCORD_CLIENT_SECRET: z.string().optional(),
     GITHUB_CLIENT_ID: z.string().optional(),
