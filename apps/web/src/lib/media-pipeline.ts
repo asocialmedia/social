@@ -70,6 +70,36 @@ function getPresignClient(): S3Client {
   return presignClient;
 }
 
+// Internal storage client for server-side operations (HEAD, GET). This
+// always points at ASMOB_ENDPOINT (the internal Docker network address)
+// and never the public Cloudflare-fronted URL. Going through Cloudflare
+// for server-to-server S3 requests causes SigV4 signature mismatches
+// because CF rewrites headers that are part of the signed payload.
+let internalClient: S3Client | null = null;
+
+function getInternalClient(): S3Client {
+  if (!internalClient) {
+    const endpoint = env.ASMOB_ENDPOINT;
+    internalClient = new S3Client({
+      credentials: {
+        accessKeyId: env.ASMOB_ROOT_USER,
+        secretAccessKey: env.ASMOB_ROOT_PASSWORD,
+      },
+      endpoint: /^https?:\/\//i.test(endpoint)
+        ? endpoint
+        : `https://${endpoint}`,
+      forcePathStyle: true,
+      maxAttempts: 3,
+      region: "ap-south-1",
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: 5000,
+        socketTimeout: 10_000,
+      }),
+    });
+  }
+  return internalClient;
+}
+
 export interface InitiatedUpload {
   deduplicated?: boolean;
   extension: string;
@@ -628,7 +658,10 @@ export async function headStoredObject(key: string): Promise<{
   contentLength: number;
   contentType: string | undefined;
 } | null> {
-  const client = getPresignClient();
+  // Use the internal client (ASMOB_ENDPOINT) for server-side checks, not the
+  // presign client (ASMOB_PUBLIC_ENDPOINT). Cloudflare rewrites headers on the
+  // public URL, breaking SigV4 signatures for server-to-server requests.
+  const client = getInternalClient();
   try {
     const head = await client.send(
       new HeadObjectCommand({
