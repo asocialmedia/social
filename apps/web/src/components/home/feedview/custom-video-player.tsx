@@ -180,6 +180,7 @@ export const CustomVideoPlayer = ({
   videoRef: externalVideoRef,
 }: CustomVideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const activeVideoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -259,15 +260,31 @@ export const CustomVideoPlayer = ({
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
 
-  useEffect(
-    () => () => {
-      hlsInstanceRef.current?.destroy();
-      hlsInstanceRef.current = null;
-      const video = videoRef.current;
+  useEffect(() => {
+    const handleStopPlayback = () => {
+      const video = activeVideoRef.current || videoRef.current;
       if (video) {
         try {
           video.pause();
-          video.src = "";
+        } catch {
+          // Ignore
+        }
+      }
+    };
+
+    window.addEventListener("pagehide", handleStopPlayback);
+    window.addEventListener("popstate", handleStopPlayback);
+
+    return () => {
+      window.removeEventListener("pagehide", handleStopPlayback);
+      window.removeEventListener("popstate", handleStopPlayback);
+      hlsInstanceRef.current?.destroy();
+      hlsInstanceRef.current = null;
+      const video = activeVideoRef.current || videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.removeAttribute("src");
           video.load();
         } catch {
           // Ignore
@@ -276,9 +293,8 @@ export const CustomVideoPlayer = ({
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
-    },
-    []
-  );
+    };
+  }, []);
 
   // Prefer an adaptive HLS stream when the pipeline generated one.
   // Safari plays HLS natively; everywhere else a 40 kB hls.js bundle
@@ -754,6 +770,9 @@ export const CustomVideoPlayer = ({
         preload="metadata"
         ref={(element) => {
           videoRef.current = element;
+          if (element) {
+            activeVideoRef.current = element;
+          }
           if (externalVideoRef) {
             externalVideoRef.current = element;
           }

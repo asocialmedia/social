@@ -354,13 +354,11 @@ export default function CommentInput({
           ) : null}
           <div
             className={cn(
-              "flex min-w-0 transition-all",
+              "flex min-w-0 flex-col transition-all",
               reels
-                ? "reels-input rounded-2xl pr-1 pl-3 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
-                : "premium-input rounded-2xl pr-1 pl-3",
-              attachments.length > 0
-                ? "flex-col gap-2 py-2"
-                : "min-h-10 items-center gap-2 py-0!"
+                ? "reels-input rounded-2xl py-1.5 pr-2 pl-3 focus-within:shadow-[0_0_0_3px_rgba(255,149,0,0.18)]"
+                : "premium-input rounded-2xl py-1.5 pr-2 pl-3",
+              attachments.length > 0 && "gap-2"
             )}
           >
             <textarea
@@ -382,7 +380,7 @@ export default function CommentInput({
               type="file"
             />
             {attachments.length === 0 ? (
-              <div className="flex shrink-0 items-center gap-1.5 self-end">
+              <div className="flex shrink-0 items-center gap-1.5">
                 {isNearLengthLimit ? (
                   <span
                     className={cn(
@@ -396,67 +394,69 @@ export default function CommentInput({
                     {MAX_COMMENT_CHARS}c
                   </span>
                 ) : null}
-                <button
-                  aria-label="Add image or GIF"
-                  className={cn(
-                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                    (isUploading || mutation.isPending) && "opacity-50"
-                  )}
-                  disabled={isUploading || mutation.isPending}
-                  onClick={() => fileInputRef.current?.click()}
-                  type="button"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <ImagePlus className="size-4" />
-                    <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
-                      Image
+                <div className="ml-auto flex items-center gap-1.5">
+                  <button
+                    aria-label="Add image or GIF"
+                    className={cn(
+                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                      (isUploading || mutation.isPending) && "opacity-50"
+                    )}
+                    disabled={isUploading || mutation.isPending}
+                    onClick={() => fileInputRef.current?.click()}
+                    type="button"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <ImagePlus className="size-4" />
+                      <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
+                        Image
+                      </span>
                     </span>
-                  </span>
-                </button>
-                <button
-                  aria-label="Search and add a GIF"
-                  className={cn(
-                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                    gifPickerOpen &&
-                      "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
-                    (isUploading || mutation.isPending) && "opacity-50"
-                  )}
-                  disabled={isUploading || mutation.isPending}
-                  onClick={() => setGifPickerOpen((prev) => !prev)}
-                  type="button"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Clapperboard className="size-4" />
-                    <span
-                      className={cn(
-                        "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                        gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
-                      )}
-                    >
-                      GIFs
+                  </button>
+                  <button
+                    aria-label="Search and add a GIF"
+                    className={cn(
+                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                      gifPickerOpen &&
+                        "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+                      (isUploading || mutation.isPending) && "opacity-50"
+                    )}
+                    disabled={isUploading || mutation.isPending}
+                    onClick={() => setGifPickerOpen((prev) => !prev)}
+                    type="button"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Clapperboard className="size-4" />
+                      <span
+                        className={cn(
+                          "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                          gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                        )}
+                      >
+                        GIFs
+                      </span>
                     </span>
-                  </span>
-                </button>
-                <button
-                  aria-label={submitLabel ?? "Send eddie"}
-                  className={cn(
-                    "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                    SEND_BTN_SHADOW,
-                    (!canSubmit || mutation.isPending || isUploading) &&
-                      "opacity-50"
-                  )}
-                  disabled={!canSubmit || mutation.isPending || isUploading}
-                  type="submit"
-                >
-                  {mutation.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <>
-                      <span>Send</span>
-                      <SendHorizonal className="size-4" />
-                    </>
-                  )}
-                </button>
+                  </button>
+                  <button
+                    aria-label={submitLabel ?? "Send eddie"}
+                    className={cn(
+                      "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                      SEND_BTN_SHADOW,
+                      (!canSubmit || mutation.isPending || isUploading) &&
+                        "opacity-50"
+                    )}
+                    disabled={!canSubmit || mutation.isPending || isUploading}
+                    type="submit"
+                  >
+                    {mutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Send</span>
+                        <SendHorizonal className="size-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             ) : null}
 

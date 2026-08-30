@@ -47,6 +47,21 @@ export async function stripAvContainerMetadata(input: {
   if (!plan) {
     throw new Error(`no remux muxer for container "${input.container}"`);
   }
+  const muxerFormat: Record<string, string> = {
+    aac: "adts",
+    flac: "flac",
+    m4a: "ipod",
+    mkv: "matroska",
+    mov: "mov",
+    mp3: "mp3",
+    mp4: "mp4",
+    ogg: "ogg",
+    wav: "wav",
+    webm: "webm",
+  };
+  const formatArg = muxerFormat[plan.extension]
+    ? ["-f", muxerFormat[plan.extension]]
+    : [];
   await runFfmpeg(
     [
       "-i",
@@ -63,6 +78,7 @@ export async function stripAvContainerMetadata(input: {
       "-c",
       "copy",
       ...(plan.faststart ? ["-movflags", "+faststart"] : []),
+      ...formatArg,
       input.outputPath,
     ],
     input.timeoutMs

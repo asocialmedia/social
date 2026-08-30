@@ -60,7 +60,11 @@ export function getPostDataInclude(loggedInUserId: string) {
   return {
     _count: {
       select: {
-        comments: true,
+        comments: {
+          where: {
+            deleted: false,
+          },
+        },
         mentions: true,
         vote: true,
       },

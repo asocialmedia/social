@@ -533,6 +533,16 @@ export const VideoPreview = ({
       if (hoverTimeoutRef.current) {
         clearTimeout(hoverTimeoutRef.current);
       }
+      const video = containerRef.current?.querySelector("video");
+      if (video) {
+        try {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        } catch {
+          // Ignore
+        }
+      }
     },
     []
   );

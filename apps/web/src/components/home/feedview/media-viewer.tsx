@@ -636,6 +636,19 @@ const MediaViewer = ({
         autoPlay
         className="w-full max-w-md"
         controls
+        ref={(el) => {
+          if (el) {
+            const handleStop = () => {
+              try {
+                el.pause();
+              } catch {
+                // Ignore
+              }
+            };
+            window.addEventListener("pagehide", handleStop, { once: true });
+            window.addEventListener("popstate", handleStop, { once: true });
+          }
+        }}
         src={getMediaUrl(item.id)}
       />
       <DownloadButton />
