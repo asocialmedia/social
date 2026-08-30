@@ -29,7 +29,8 @@ describe.skipIf(!REAL_GEMINI_KEY)(
               ? args[0].url
               : (args[0] as RequestInfo | URL).toString()
           );
-          if (request.url.includes("generativelanguage.googleapis.com")) {
+          const parsedUrl = new URL(request.url);
+          if (parsedUrl.hostname === "generativelanguage.googleapis.com") {
             geminiCalls.push({ ok: response.ok, url: request.url });
           }
           return response;
