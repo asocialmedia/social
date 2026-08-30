@@ -131,54 +131,76 @@ jobs:
             const { owner, repo } = context.repo
             const commit_sha = context.sha
 
-            const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner,
-              repo,
-              commit_sha
-            })
+            let mergedPr = null
 
-            const mergedPr = response.data.find((pr) => pr.merged_at && pr.base.ref === "main")
+            // 1. Try to extract PR number from commit message (e.g. "Merge pull request #117 from ...", "... (#117)")
+            const commitMsg = context.payload?.head_commit?.message || ""
+            const prMatch = commitMsg.match(/Merge pull request #(\d+)/i) || commitMsg.match(/\(#(\d+)\)/m)
+            if (prMatch && prMatch[1]) {
+              try {
+                const prRes = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: Number(prMatch[1]),
+                })
+                if (prRes.data && prRes.data.merged_at && prRes.data.base.ref === "main") {
+                  mergedPr = prRes.data
+                }
+              } catch (err) {
+                core.warning(`Could not fetch PR #${prMatch[1]} from commit message: ${err.message}`)
+              }
+            }
 
-            core.setOutput("should-build", mergedPr ? "true" : "false")
+            // 2. Fallback to listPullRequestsAssociatedWithCommit
+            if (!mergedPr) {
+              try {
+                const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner,
+                  repo,
+                  commit_sha
+                })
+                mergedPr = response.data.find((pr) => pr.merged_at && pr.base.ref === "main")
+              } catch (err) {
+                core.warning(`listPullRequestsAssociatedWithCommit failed: ${err.message}`)
+              }
+            }
+
+            // Always build on push to main
+            core.setOutput("should-build", "true")
             core.setOutput("pr-number", mergedPr ? String(mergedPr.number) : "")
             core.setOutput("quality-already-passed", "false")
 
-            if (!mergedPr) {
-              core.info(`No merged PR associated with ${commit_sha}; skipping build.`)
-              return
+            if (mergedPr) {
+              core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
+            } else {
+              core.info(`Push on main without PR association for ${commit_sha}; will build from push diff.`)
             }
 
-            core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
+            if (mergedPr) {
+              try {
+                const headSha = mergedPr.head?.sha || mergedPr.merge_commit_sha
+                const checks = await github.rest.checks.listForRef({
+                  check_name: "Lint and Typecheck",
+                  filter: "latest",
+                  owner,
+                  per_page: 1,
+                  ref: headSha,
+                  repo,
+                })
 
-            // The merge push re-triggers the whole workflow, which would re-run
-            // the Lint/Typecheck job that already passed on the PR. Check the
-            // status of the "Lint and Typecheck" check run on the PR's head
-            // commit and, if it succeeded, let the quality job skip itself.
-            // (Workflow-run pull_requests arrays are frequently empty, so query
-            // check runs by the PR head SHA instead of filtering runs by PR.)
-            try {
-              const headSha = mergedPr.head?.sha || mergedPr.merge_commit_sha
-              const checks = await github.rest.checks.listForRef({
-                check_name: "Lint and Typecheck",
-                filter: "latest",
-                owner,
-                per_page: 1,
-                ref: headSha,
-                repo,
-              })
-
-              const qualityCheck = checks.data.check_runs[0]
-              const alreadyPassed = Boolean(
-                qualityCheck && qualityCheck.conclusion === "success"
-              )
-              core.setOutput("quality-already-passed", alreadyPassed ? "true" : "false")
-              core.info(
-                alreadyPassed
-                  ? `PR #${mergedPr.number} "Lint and Typecheck" already passed (status ${qualityCheck.status}, conclusion ${qualityCheck.conclusion}); skipping quality on merge.`
-                  : `PR #${mergedPr.number} "Lint and Typecheck" did not pass (${qualityCheck?.conclusion ?? "no check run"}); quality will re-run.`
-              )
-            } catch (error) {
-              core.warning(`Failed to check PR CI status: ${error.message}; quality will re-run.`)
+                const qualityCheck = checks.data.check_runs[0]
+                const alreadyPassed = Boolean(
+                  qualityCheck && qualityCheck.conclusion === "success"
+                )
+                core.setOutput("quality-already-passed", alreadyPassed ? "true" : "false")
+                core.info(
+                  alreadyPassed
+                    ? `PR #${mergedPr.number} "Lint and Typecheck" already passed (status ${qualityCheck.status}, conclusion ${qualityCheck.conclusion}); skipping quality on merge.`
+                    : `PR #${mergedPr.number} "Lint and Typecheck" did not pass (${qualityCheck?.conclusion ?? "no check run"}); quality will re-run.`
+                )
+              } catch (error) {
+                core.warning(`Failed to check PR CI status: ${error.message}; quality will re-run.`)
+              }
             }
 
   determine-build-matrix:
@@ -198,25 +220,37 @@ jobs:
             const { owner, repo } = context.repo
             const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
 
-            if (!prNumber) {
-              core.setOutput('matrix', JSON.stringify({ include: [] }))
-              core.setOutput('has-app-changes', 'false')
-              core.info('No merged PR number found; skipping image build matrix.')
-              return
+            let changedFiles = []
+            if (prNumber) {
+              const files = await github.paginate(
+                github.rest.pulls.listFiles,
+                {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  per_page: 100,
+                },
+              )
+              changedFiles = files.map((file) => file.filename)
+              core.info(`Merged PR #${prNumber} changed ${changedFiles.length} files.`)
+            } else {
+              if (context.payload.before && context.payload.after && context.payload.before !== '0000000000000000000000000000000000000000') {
+                const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${context.payload.before}...${context.payload.after}`,
+                })
+                changedFiles = (comparison.data.files || []).map((file) => file.filename)
+              } else {
+                const commit = await github.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: context.sha,
+                })
+                changedFiles = (commit.data.files || []).map((file) => file.filename)
+              }
+              core.info(`Push changed ${changedFiles.length} files.`)
             }
-
-            const files = await github.paginate(
-              github.rest.pulls.listFiles,
-              {
-                owner,
-                repo,
-                pull_number: prNumber,
-                per_page: 100,
-              },
-            )
-
-            const changedFiles = files.map((file) => file.filename)
-            core.info(`Merged PR #${prNumber} changed ${changedFiles.length} files.`)
 
             const appEntries = [
               {
@@ -250,7 +284,7 @@ jobs:
             if (selectedApps.length === 0) {
               core.setOutput('matrix', JSON.stringify({ include: [] }))
               core.setOutput('has-app-changes', 'false')
-              core.info(`No app-specific changes detected in PR #${prNumber}; skipping Docker builds.`)
+              core.info(`No app-specific changes detected; skipping Docker builds.`)
               return
             }
 
@@ -499,7 +533,7 @@ jobs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -516,22 +550,35 @@ jobs:
             const { owner, repo } = context.repo
             const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
 
-            if (!prNumber) {
-              core.setOutput('should-run', 'false')
-              core.info('No merged PR number found; skipping Prisma sync resolution.')
-              return
+            let changedFiles = []
+            if (prNumber) {
+              const files = await github.paginate(
+                github.rest.pulls.listFiles,
+                {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  per_page: 100,
+                },
+              )
+              changedFiles = files.map((file) => file.filename)
+            } else {
+              if (context.payload.before && context.payload.after && context.payload.before !== '0000000000000000000000000000000000000000') {
+                const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${context.payload.before}...${context.payload.after}`,
+                })
+                changedFiles = (comparison.data.files || []).map((file) => file.filename)
+              } else {
+                const commit = await github.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: context.sha,
+                })
+                changedFiles = (commit.data.files || []).map((file) => file.filename)
+              }
             }
-
-            const files = await github.paginate(
-              github.rest.pulls.listFiles,
-              {
-                owner,
-                repo,
-                pull_number: prNumber,
-                per_page: 100,
-              },
-            )
-            const changedFiles = files.map((file) => file.filename)
 
             const prismaPaths = [
               'packages/db/prisma/schema.prisma',
