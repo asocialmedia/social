@@ -186,6 +186,22 @@ ON "users" ((CASE WHEN 'author' = ANY(badges) THEN 'author' ELSE NULL END));
 SQL
 bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
 
+echo "Normalizing OAuth account issuers..."
+cat > /tmp/normalize-account-issuers.sql <<'SQL'
+UPDATE "accounts"
+SET "issuer" = 'https://accounts.google.com'
+WHERE "providerId" = 'google' AND ("issuer" = '' OR "issuer" IS NULL OR "issuer" = 'google');
+
+UPDATE "accounts"
+SET "issuer" = 'reddit'
+WHERE "providerId" = 'reddit' AND ("issuer" = '' OR "issuer" IS NULL);
+
+UPDATE "accounts"
+SET "issuer" = "providerId"
+WHERE ("issuer" = '' OR "issuer" IS NULL);
+SQL
+bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/normalize-account-issuers.sql
+
 # One-shot data synchronizations run here on every sync invocation. Each one guards
 # itself (marker table + advisory lock) so exactly zero or one of them does
 # work per deployment fleet, and failures never block app deploys: the next
