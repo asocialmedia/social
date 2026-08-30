@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
+import { DropdownMenuItem } from "@asm/ui/shadui/dropdown-menu";
 import {
   Eye,
   Flame,
@@ -774,43 +775,44 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More options menu */}
+          {/* More options menu: captions and transcript toggles are folded in
+              as extra entries so the button rail stays short. */}
           <PostMoreButton
             className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+            extraItems={
+              <>
+                {post.moderated ? null : (
+                  <DropdownMenuItem
+                    className="pill-3d-hover rounded-md px-2 py-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleCaptions();
+                    }}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Subtitles className="size-4" />
+                      {captionsEnabled ? "Hide captions" : "Show captions"}
+                    </span>
+                  </DropdownMenuItem>
+                )}
+                {post.moderated || !videoMedia ? null : (
+                  <DropdownMenuItem
+                    className="pill-3d-hover rounded-md px-2 py-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleTranscript();
+                    }}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Speech className="size-4" />
+                      {showTranscript ? "Hide transcript" : "View transcript"}
+                    </span>
+                  </DropdownMenuItem>
+                )}
+              </>
+            }
             post={post}
           />
-
-          {/* Closed Captions toggle */}
-          {post.moderated ? null : (
-            <button
-              aria-label={
-                captionsEnabled ? "Disable captions" : "Enable captions"
-              }
-              className={cn(
-                "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95",
-                captionsEnabled && "rail-3d-btn-gold text-amber-300"
-              )}
-              onClick={toggleCaptions}
-              type="button"
-            >
-              <Subtitles className="size-5" />
-            </button>
-          )}
-
-          {/* Transcript drawer toggle */}
-          {post.moderated || !videoMedia ? null : (
-            <button
-              aria-label="View transcript"
-              className={cn(
-                "rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95",
-                showTranscript && "rail-3d-btn-gold text-amber-300"
-              )}
-              onClick={toggleTranscript}
-              type="button"
-            >
-              <Speech className="size-5" />
-            </button>
-          )}
 
           {/* Mute / unmute (aligned below the More button); no video to mute on
               a moderated gust */}

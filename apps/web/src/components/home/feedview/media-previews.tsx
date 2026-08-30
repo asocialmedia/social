@@ -16,7 +16,6 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
@@ -25,7 +24,6 @@ import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useAltRevealed } from "@/lib/alt-reveal-store";
-import { formatFileName } from "@/lib/format-file-name";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,
@@ -37,6 +35,7 @@ import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 import { useVideoMuteStore } from "@/lib/video-mute-store";
 import { withViewTransition } from "@/lib/view-transition";
 
+import { AudioPreview } from "./audio-preview";
 // eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
 import MediaViewer from "./media-viewer";
 
@@ -863,34 +862,6 @@ const SingleImagePreview = ({
   );
 };
 
-const renderFilePreview = (
-  m: Media,
-  isSmall: boolean,
-  icon: React.ReactNode
-) => (
-  <div className="relative w-full">
-    <div
-      className={cn(
-        "bg-primary/5 h-full w-full rounded-lg p-4 transition-transform duration-300 group-hover:scale-105",
-        isSmall ? "" : "min-h-40"
-      )}
-    >
-      <div className="flex h-full flex-col items-center justify-center gap-2">
-        <div className={cn("text-primary", isSmall ? "h-6 w-6" : "h-12 w-12")}>
-          {icon}
-        </div>
-        {!isSmall && (
-          <div className="flex flex-col items-center">
-            <p className="max-w-full truncate text-sm font-medium">
-              {formatFileName(m.key)}
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  </div>
-);
-
 export const MediaPreviews = ({
   attachments,
   autoPlayVideos = false,
@@ -1058,7 +1029,7 @@ export const MediaPreviews = ({
         );
       }
       case "AUDIO": {
-        return renderFilePreview(m, isSmall, <FileAudioIcon />);
+        return <AudioPreview media={m} />;
       }
       default: {
         return null;
@@ -1092,6 +1063,9 @@ export const MediaPreviews = ({
     }
     if (m.type === "VIDEO") {
       return <VideoPreview autoPlay={autoPlayVideos} fill media={m} />;
+    }
+    if (m.type === "AUDIO") {
+      return <AudioPreview fill media={m} />;
     }
     return renderPreview(m, index, true);
   };
@@ -1131,6 +1105,26 @@ export const MediaPreviews = ({
       wrapperHeightClass = "h-auto";
     } else if (!isMobile) {
       wrapperHeightClass = "aspect-square sm:h-72";
+    }
+
+    if (m.type === "AUDIO") {
+      return (
+        <motion.div
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="relative block w-full overflow-hidden rounded-2xl text-left"
+          data-card-interactive
+          exit={{ opacity: 0, scale: 0.96, y: 8 }}
+          initial={{ opacity: 0, scale: 0.96, y: 8 }}
+          key={m.id}
+          transition={{
+            delay: (index % 3) * 0.04,
+            duration: 0.32,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+        >
+          {renderPreview(m, index, isSmall)}
+        </motion.div>
+      );
     }
 
     return (

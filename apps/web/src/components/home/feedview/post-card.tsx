@@ -133,7 +133,7 @@ const PostContent: React.FC<PostContentProps> = ({
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-2">
+        <div className="relative flex items-start gap-2">
           {detail ? (
             <UserTooltip user={post.user}>
               <Link
@@ -151,7 +151,7 @@ const PostContent: React.FC<PostContentProps> = ({
           ) : null}
 
           {detail ? (
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 pr-[4.75rem]">
               <div className="flex min-w-0 items-center gap-2">
                 <UserTooltip user={post.user}>
                   <Link
@@ -195,7 +195,7 @@ const PostContent: React.FC<PostContentProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+            <div className="flex min-w-0 flex-1 items-center gap-2 pr-[4.75rem] text-sm">
               <UserTooltip user={post.user}>
                 <Link
                   className="text-foreground truncate font-semibold hover:underline"
@@ -227,7 +227,7 @@ const PostContent: React.FC<PostContentProps> = ({
             </div>
           )}
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="absolute top-0 right-0 flex shrink-0 items-center gap-1.5">
             <PostMoreButton className="h-8 w-8 p-0" post={post} />
             <BookmarkButton
               className="h-8 w-8 p-0"
