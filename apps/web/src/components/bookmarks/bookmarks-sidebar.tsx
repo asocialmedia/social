@@ -44,7 +44,7 @@ const BookmarksSidebar: React.FC<BookmarksSidebarProps> = ({
     postBookmarkCount + gustBookmarkCount + hnBookmarkCount;
 
   return (
-    <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
+    <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
       <div className="flex flex-col gap-4">
         <div className="sidebar-subcard rounded-2xl p-2">
           <div className="flex items-center gap-2 px-2 pt-0.5 pb-1">

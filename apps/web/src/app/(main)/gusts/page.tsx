@@ -141,7 +141,7 @@ export default function Page() {
   return (
     <Suspense
       fallback={
-        <div className="bg-background flex h-dvh w-full items-center justify-center">
+        <div className="flex h-dvh w-full items-center justify-center bg-[hsl(var(--background-alt))]">
           <GustCardSkeleton />
         </div>
       }

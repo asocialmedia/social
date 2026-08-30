@@ -33,9 +33,11 @@ export function MainShell({
   }
 
   return (
-    <div className="relative flex h-dvh overflow-hidden">
+    <div className="relative flex h-dvh overflow-hidden bg-[hsl(var(--background-alt))]">
       <LeftSidebar userData={userData} />
-      <div className="flex min-w-0 flex-1 items-stretch">{children}</div>
+      <div className="flex min-w-0 flex-1 items-stretch bg-[hsl(var(--background-alt))]">
+        {children}
+      </div>
     </div>
   );
 }

@@ -370,7 +370,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
 
   if (isCollapsed) {
     return (
-      <aside className="border-border/60 sticky top-0 hidden h-screen w-16 shrink-0 flex-col items-center border-r py-5 transition-[width] duration-300 ease-in-out lg:flex">
+      <aside className="bg-background border-border/60 sticky top-0 hidden h-screen w-16 shrink-0 flex-col items-center border-r py-5 transition-[width] duration-300 ease-in-out lg:flex">
         <TooltipProvider delayDuration={0}>
           {/* Top-pinned: expand sidebar toggle */}
           <div className="flex shrink-0 flex-col items-center">
@@ -492,7 +492,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   }
 
   return (
-    <aside className="border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
+    <aside className="bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
       <div className="mb-8 flex items-center justify-between gap-2 px-2">
         <Link href="/">
           <div className="relative h-11 w-14.5">

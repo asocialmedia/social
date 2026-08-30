@@ -34,7 +34,7 @@ const FeedCardSkeleton: React.FC = () => (
 );
 
 const RightRailSkeleton: React.FC = () => (
-  <aside className="hide-native-scrollbar border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
+  <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-5 pt-2.5 pb-6 xl:flex">
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Skeleton className="h-4 w-28" />

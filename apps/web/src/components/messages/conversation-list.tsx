@@ -232,7 +232,7 @@ export function ConversationList({
             {presence?.status ? (
               <span
                 className={cn(
-                  "absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-[hsl(var(--background-alt))] shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.2)]",
+                  "border-background absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.2)]",
                   presence.status === "online" ? "bg-green-500" : "bg-amber-500"
                 )}
               />

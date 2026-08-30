@@ -504,7 +504,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   return (
     <>
       {/* Main Gusts Container */}
-      <div className="bg-background relative flex min-w-0 flex-1 justify-center overflow-hidden">
+      <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden bg-[hsl(var(--background-alt))]">
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"
