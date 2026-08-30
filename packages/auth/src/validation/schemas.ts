@@ -170,8 +170,19 @@ export const updateUserProfileSchema = z.object({
   twitterUsername: socialUsername,
 });
 
+export const MAX_COMMENT_CHARS = 10_000;
+export const MAX_COMMENT_WORDS = 2000;
+
 export const createCommentSchema = z.object({
-  content: requiredString,
+  content: requiredString
+    .max(
+      MAX_COMMENT_CHARS,
+      `An eddie must be at most ${MAX_COMMENT_CHARS} characters`
+    )
+    .refine(
+      (text) => countWords(text) <= MAX_COMMENT_WORDS,
+      `An eddie must be at most ${MAX_COMMENT_WORDS} words`
+    ),
   mediaIds: z
     .array(z.string())
     .max(1, "An eddie can have at most 1 attachment")

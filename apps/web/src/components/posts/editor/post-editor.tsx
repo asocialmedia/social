@@ -39,13 +39,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import { useDropzone } from "react-dropzone";
 
@@ -85,13 +79,6 @@ export const GUST_CAPTION_MAX_CHARS = 900;
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
-
-// Mounted detection for hydration-safe interactive state (see PostEditor).
-const subscribeNoop = (): (() => void) => () => {
-  /* empty */
-};
-const getMountedSnapshot = (): boolean => true;
-const getServerSnapshotFalse = (): boolean => false;
 
 const containerVariants = {
   hidden: { opacity: 0, y: 20 },
@@ -684,17 +671,6 @@ export default function PostEditor({
     </output>
   );
 
-  // Volatile composer state (persisted HN-share flag, restored drafts) can
-  // legitimately differ from the server render; gating the publish button's
-  // disabled state on mount keeps the SSR'd markup and the client's first
-  // render identical no matter what the stores restore. useSyncExternalStore
-  // yields false through SSR + hydration and true on the first client pass.
-  const isComposerMounted = useSyncExternalStore(
-    subscribeNoop,
-    getMountedSnapshot,
-    getServerSnapshotFalse
-  );
-
   // Shared publish button: fleet keeps it in the toolbar; gust renders it
   // below the sound section.
   const publishButton = (
@@ -702,7 +678,6 @@ export default function PostEditor({
       <LoadingButton
         className="min-w-20"
         disabled={
-          !isComposerMounted ||
           !(input.trim() || isHnSharing || hasPublishableMedia) ||
           isUploading ||
           hasUploadError ||

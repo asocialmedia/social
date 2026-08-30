@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
 import type { PostData, UserData } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -42,6 +43,10 @@ const ICON_BTN_HOVER =
   "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110";
 const ICON_BTN_PURPLE =
   "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
 interface FloatingPostEditorProps {
   post: PostData;
@@ -109,8 +114,18 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     };
   }, []);
 
+  const wordCount = countWords(input);
+  const isLengthExceeded =
+    wordCount > MAX_COMMENT_WORDS || input.length > MAX_COMMENT_CHARS;
+  const isNearLengthLimit =
+    wordCount >= MAX_COMMENT_WORDS * 0.8 ||
+    input.length >= MAX_COMMENT_CHARS * 0.8;
+
   const canSubmit =
-    input.trim().length > 0 || attachments.length > 0 || mediaIds.length > 0;
+    (input.trim().length > 0 ||
+      attachments.length > 0 ||
+      mediaIds.length > 0) &&
+    !isLengthExceeded;
 
   const handleSubmit = useCallback(() => {
     if (!user) {
@@ -425,38 +440,51 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
               )}
 
               <div className="mt-2 flex items-center justify-between gap-2 pt-2">
-                {attachments.length === 0 ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      aria-label="Add image or GIF"
+                <div className="flex items-center gap-2">
+                  {attachments.length === 0 ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        aria-label="Add image or GIF"
+                        className={cn(
+                          ICON_BTN_BASE,
+                          ICON_BTN_HOVER,
+                          (isUploading || mutation.isPending) && "opacity-50"
+                        )}
+                        disabled={isUploading || mutation.isPending}
+                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                      >
+                        <ImageIcon className="size-4" />
+                      </button>
+                      <button
+                        aria-label="Search and add a GIF"
+                        className={cn(
+                          ICON_BTN_BASE,
+                          gifPickerOpen ? ICON_BTN_PURPLE : ICON_BTN_HOVER,
+                          (isUploading || mutation.isPending) && "opacity-50"
+                        )}
+                        disabled={isUploading || mutation.isPending}
+                        onClick={() => setGifPickerOpen((prev) => !prev)}
+                        type="button"
+                      >
+                        <Clapperboard className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
+                  {isNearLengthLimit ? (
+                    <span
                       className={cn(
-                        ICON_BTN_BASE,
-                        ICON_BTN_HOVER,
-                        (isUploading || mutation.isPending) && "opacity-50"
+                        "text-[11px] font-medium tabular-nums",
+                        isLengthExceeded
+                          ? "text-destructive"
+                          : "text-muted-foreground"
                       )}
-                      disabled={isUploading || mutation.isPending}
-                      onClick={() => fileInputRef.current?.click()}
-                      type="button"
                     >
-                      <ImageIcon className="size-4" />
-                    </button>
-                    <button
-                      aria-label="Search and add a GIF"
-                      className={cn(
-                        ICON_BTN_BASE,
-                        gifPickerOpen ? ICON_BTN_PURPLE : ICON_BTN_HOVER,
-                        (isUploading || mutation.isPending) && "opacity-50"
-                      )}
-                      disabled={isUploading || mutation.isPending}
-                      onClick={() => setGifPickerOpen((prev) => !prev)}
-                      type="button"
-                    >
-                      <Clapperboard className="size-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div />
-                )}
+                      {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/
+                      {MAX_COMMENT_CHARS}c
+                    </span>
+                  ) : null}
+                </div>
                 <button
                   className={cn(
                     "flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-medium text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",

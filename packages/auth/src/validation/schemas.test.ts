@@ -308,5 +308,22 @@ describe("schemas", () => {
         false
       );
     });
+    test("rejects comment exceeding 10000 characters", () => {
+      const longContent = "a".repeat(10_001);
+      expect(
+        createCommentSchema.safeParse({ content: longContent }).success
+      ).toBe(false);
+    });
+    test("rejects comment exceeding 2000 words", () => {
+      const word = "word ";
+      const longWords = word.repeat(2001);
+      expect(
+        createCommentSchema.safeParse({ content: longWords }).success
+      ).toBe(false);
+    });
+    test("accepts comment within 10000 characters and 2000 words", () => {
+      const content = "word ".repeat(500); // 500 words, ~2500 chars
+      expect(createCommentSchema.safeParse({ content }).success).toBe(true);
+    });
   });
 });

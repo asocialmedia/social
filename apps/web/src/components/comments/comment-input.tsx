@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
 import type { CommentData, PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
@@ -32,6 +33,10 @@ import { useCommentAttachments } from "./use-comment-attachments";
 
 const SEND_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
 interface CommentInputProps {
   applyCreated: (comment: CommentData) => void;
@@ -109,8 +114,18 @@ export default function CommentInput({
     staleTime: 1000 * 60 * 5,
   });
 
+  const wordCount = countWords(input);
+  const isLengthExceeded =
+    wordCount > MAX_COMMENT_WORDS || input.length > MAX_COMMENT_CHARS;
+  const isNearLengthLimit =
+    wordCount >= MAX_COMMENT_WORDS * 0.8 ||
+    input.length >= MAX_COMMENT_CHARS * 0.8;
+
   const canSubmit =
-    input.trim().length > 0 || attachments.length > 0 || mediaIds.length > 0;
+    (input.trim().length > 0 ||
+      attachments.length > 0 ||
+      mediaIds.length > 0) &&
+    !isLengthExceeded;
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -348,91 +363,102 @@ export default function CommentInput({
                 : "min-h-10 items-center gap-2 py-0!"
             )}
           >
-            <div className="flex w-full items-center gap-2">
-              <textarea
-                autoFocus={autoFocus}
-                className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent py-2 text-sm leading-none outline-none"
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder={placeholder}
-                ref={textareaRef}
-                rows={1}
-                value={input}
-              />
-              <input
-                accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
-                aria-label="Add image or GIF attachment"
-                className="sr-only"
-                onChange={handleFileInputChange}
-                ref={fileInputRef}
-                type="file"
-              />
-              {attachments.length === 0 ? (
-                <>
-                  <button
-                    aria-label="Add image or GIF"
+            <textarea
+              autoFocus={autoFocus}
+              className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent py-2 text-sm leading-none outline-none"
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              ref={textareaRef}
+              rows={1}
+              value={input}
+            />
+            <input
+              accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
+              aria-label="Add image or GIF attachment"
+              className="sr-only"
+              onChange={handleFileInputChange}
+              ref={fileInputRef}
+              type="file"
+            />
+            {attachments.length === 0 ? (
+              <div className="flex shrink-0 items-center gap-1.5 self-end">
+                {isNearLengthLimit ? (
+                  <span
                     className={cn(
-                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                      (isUploading || mutation.isPending) && "opacity-50"
+                      "text-[11px] font-medium tabular-nums",
+                      isLengthExceeded
+                        ? "text-destructive"
+                        : "text-muted-foreground"
                     )}
-                    disabled={isUploading || mutation.isPending}
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
                   >
-                    <span className="flex items-center gap-1.5">
-                      <ImagePlus className="size-4" />
-                      <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
-                        Image
-                      </span>
+                    {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/
+                    {MAX_COMMENT_CHARS}c
+                  </span>
+                ) : null}
+                <button
+                  aria-label="Add image or GIF"
+                  className={cn(
+                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                    (isUploading || mutation.isPending) && "opacity-50"
+                  )}
+                  disabled={isUploading || mutation.isPending}
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <ImagePlus className="size-4" />
+                    <span className="max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out group-hover:max-w-32">
+                      Image
                     </span>
-                  </button>
-                  <button
-                    aria-label="Search and add a GIF"
-                    className={cn(
-                      "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
-                      gifPickerOpen &&
-                        "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
-                      (isUploading || mutation.isPending) && "opacity-50"
-                    )}
-                    disabled={isUploading || mutation.isPending}
-                    onClick={() => setGifPickerOpen((prev) => !prev)}
-                    type="button"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Clapperboard className="size-4" />
-                      <span
-                        className={cn(
-                          "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-                          gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
-                        )}
-                      >
-                        GIFs
-                      </span>
+                  </span>
+                </button>
+                <button
+                  aria-label="Search and add a GIF"
+                  className={cn(
+                    "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+                    gifPickerOpen &&
+                      "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
+                    (isUploading || mutation.isPending) && "opacity-50"
+                  )}
+                  disabled={isUploading || mutation.isPending}
+                  onClick={() => setGifPickerOpen((prev) => !prev)}
+                  type="button"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Clapperboard className="size-4" />
+                    <span
+                      className={cn(
+                        "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                        gifPickerOpen ? "max-w-32" : "group-hover:max-w-32"
+                      )}
+                    >
+                      GIFs
                     </span>
-                  </button>
-                  <button
-                    aria-label={submitLabel ?? "Send eddie"}
-                    className={cn(
-                      "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
-                      SEND_BTN_SHADOW,
-                      (!canSubmit || mutation.isPending || isUploading) &&
-                        "opacity-50"
-                    )}
-                    disabled={!canSubmit || mutation.isPending || isUploading}
-                    type="submit"
-                  >
-                    {mutation.isPending ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <>
-                        <span>Send</span>
-                        <SendHorizonal className="size-4" />
-                      </>
-                    )}
-                  </button>
-                </>
-              ) : null}
-            </div>
+                  </span>
+                </button>
+                <button
+                  aria-label={submitLabel ?? "Send eddie"}
+                  className={cn(
+                    "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                    SEND_BTN_SHADOW,
+                    (!canSubmit || mutation.isPending || isUploading) &&
+                      "opacity-50"
+                  )}
+                  disabled={!canSubmit || mutation.isPending || isUploading}
+                  type="submit"
+                >
+                  {mutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <>
+                      <span>Send</span>
+                      <SendHorizonal className="size-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : null}
 
             {attachments.length > 0 ? (
               <>
@@ -472,7 +498,22 @@ export default function CommentInput({
                   ))}
                 </div>
 
-                <div className="flex items-center justify-end pt-1">
+                <div className="flex items-center justify-between pt-1">
+                  <div>
+                    {isNearLengthLimit ? (
+                      <span
+                        className={cn(
+                          "text-[11px] font-medium tabular-nums",
+                          isLengthExceeded
+                            ? "text-destructive"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {wordCount}/{MAX_COMMENT_WORDS} words · {input.length}/
+                        {MAX_COMMENT_CHARS} chars
+                      </span>
+                    ) : null}
+                  </div>
                   <button
                     aria-label={submitLabel ?? "Send eddie"}
                     className={cn(
