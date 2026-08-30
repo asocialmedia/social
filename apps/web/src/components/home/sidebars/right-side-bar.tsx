@@ -1,8 +1,9 @@
 "use client";
 
 import type { UserData } from "@asm/db";
+import notFoundImage from "@assets/general/notfound.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, UserRound, Users, X } from "lucide-react";
+import { RefreshCw, UserRound, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -229,9 +230,14 @@ const WhoToFollowContent: React.FC<WhoToFollowContentProps> = ({
   if (showEmpty) {
     return (
       <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
-        <div className="bg-muted text-muted-foreground flex h-10 w-10 items-center justify-center rounded-full">
-          <Users className="h-5 w-5" />
-        </div>
+        <Image
+          alt=""
+          className="h-24 w-auto object-contain opacity-85"
+          draggable={false}
+          height={1145}
+          src={notFoundImage}
+          width={1374}
+        />
         <p className="text-sm font-medium">
           No suggestions yet, come back later
         </p>
