@@ -175,7 +175,7 @@ export default function PostMoreButton({
               </span>
             </DropdownMenuItem>
           ) : null}
-          {hasVideo ? (
+          {hasVideo && !post.moderated ? (
             <DropdownMenuItem
               className="pill-3d-hover rounded-md px-2 py-2"
               onClick={handleToggleCaptions}

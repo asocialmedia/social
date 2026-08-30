@@ -35,4 +35,21 @@ describe("Alt-Text Assist generator logic", () => {
 
     expect(suggestedAlt).toBe("Image depicting nature, travel, japan");
   });
+
+  test("falls back to semantic tags when transcript or OCR is whitespace-only", () => {
+    const whitespaceTranscript = "   \n\t  ";
+    const cleanTranscript = whitespaceTranscript.trim();
+    const semanticTags = ["podcast", "discussion"];
+    const tagsStr = semanticTags.slice(0, 5).join(", ");
+
+    let suggestedAlt = "";
+    if (cleanTranscript) {
+      suggestedAlt = `Video with spoken dialogue: "${cleanTranscript}"`;
+    } else if (tagsStr) {
+      suggestedAlt = `Video featuring ${tagsStr}`;
+    }
+
+    expect(cleanTranscript).toBe("");
+    expect(suggestedAlt).toBe("Video featuring podcast, discussion");
+  });
 });

@@ -15,7 +15,7 @@
   <br>
   <br>
 
-  <h3><strong>ASOCIALMEDIA</strong> <sub><em> a · social · media </em></sub></h3>
+  <h3><strong>asocialmedia</strong></h3>
   <sub><em>"Your entire internet, finally yours."</em></sub>
 
 </div>
@@ -36,7 +36,7 @@ Oh, and it's open source. Because the audacity of building this should be public
 
 | Logo | About |
 | --- | --- |
-| <img src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png" alt="asocialmedia Logo" width="120px"/> | **asocialmedia ✦ Asocialverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Asocialverse<br>- A unified algorithm that actually learns _you_ |
+| <img src="https://zr2.asocialmedia.cc/Assets/asm.png" alt="asocialmedia Logo" width="120px"/> | **asocialmedia ✦ Asocialverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Asocialverse<br>- A unified algorithm that actually learns _you_ |
 | <img src="https://zr2.asocialmedia.cc/Assets/zeph.png" alt="Zeph AI Logo" width="120px"/> | **Zeph ✦ Companion**<br><br>- Your AI companion that lives inside the Asocialverse<br>- Remembers everything across the entire platform<br>- Helps you write, refine, and post better<br>- Knows your context wherever you go<br>- Not a chatbot. A companion. |
 
 <sub><em>Logos that you will see frequently</em></sub>
@@ -47,7 +47,7 @@ Oh, and it's open source. Because the audacity of building this should be public
 
 #### _<div align="right"><sub>Aura !?</sub></div>_
 
-Most platforms have likes. asocialmedia has **Aura**.
+Most platforms have likes/karma/upvotes. asocialmedia has **Aura**.
 
 Aura is your unified reputation score across everything you do on the platform. Post something brilliant? Aura goes up. Get tipped on a piece of content? Aura goes up. Contribute meaningfully to a community? You guessed it. Aura is not just a vanity number it's a living record of your presence, your contributions, and your credibility on asocialmedia.
 
@@ -104,7 +104,7 @@ This isn't a feature list. It's a different way of thinking about what social so
   <tr>
     <td align="center">
       <a href="https://asocialmedia.cc">
-        <img src="https://zr2.asocialmedia.cc/Assets/zephyr-logo.png" alt="asocialmedia Logo" width="80px"/><br>
+        <img src="https://zr2.asocialmedia.cc/Assets/asm.png" alt="asocialmedia Logo" width="80px"/><br>
         <strong>asocialmedia</strong><br>
         <sub>Social media aggregator</sub>
       </a>
@@ -120,7 +120,7 @@ This isn't a feature list. It's a different way of thinking about what social so
       <a href="https://itssingularity.com">
         <img src="https://swr2.itssingularity.com/brand-icons/sw-logo.png" alt="SW Logo" width="80px"/><br>
         <strong>Singularity Works</strong><br>
-        <sub>A product studio engineering agency</sub>
+        <sub>A product studio engineering studio</sub>
       </a>
     </td>
   </tr>

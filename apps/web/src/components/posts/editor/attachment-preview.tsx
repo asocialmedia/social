@@ -20,7 +20,7 @@ import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
 
 // Single unified progress mapper combining upload byte progression and
 // server-side processing states into one continuous 0-100% flow.
-function getUploadProgressInfo(
+export function getUploadProgressInfo(
   stage?: UploadStage,
   progress?: number
 ): { label: string; percent: number } {

@@ -133,7 +133,7 @@ const PostContent: React.FC<PostContentProps> = ({
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="relative flex items-start gap-2">
+        <div className="relative flex min-h-8 items-start gap-2">
           {detail ? (
             <UserTooltip user={post.user}>
               <Link

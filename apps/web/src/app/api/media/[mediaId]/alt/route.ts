@@ -92,8 +92,8 @@ export async function GET(
       : "";
 
   if (media.type === "VIDEO") {
-    if (media.transcript) {
-      const cleanTranscript = media.transcript.trim();
+    const cleanTranscript = media.transcript?.trim();
+    if (cleanTranscript) {
       const maxLen = tagsStr ? 850 : 950;
       const snippet =
         cleanTranscript.length > maxLen
@@ -107,8 +107,8 @@ export async function GET(
       suggestedAlt = `Video featuring ${tagsStr}`;
     }
   } else if (media.type === "IMAGE") {
-    if (media.ocrText) {
-      const cleanOcr = media.ocrText.trim();
+    const cleanOcr = media.ocrText?.trim();
+    if (cleanOcr) {
       const maxLen = tagsStr ? 850 : 950;
       const snippet =
         cleanOcr.length > maxLen
@@ -121,14 +121,16 @@ export async function GET(
     } else if (tagsStr) {
       suggestedAlt = `Image depicting ${tagsStr}`;
     }
-  } else if (media.type === "AUDIO" && media.transcript) {
-    const cleanTranscript = media.transcript.trim();
-    const maxLen = 950;
-    const snippet =
-      cleanTranscript.length > maxLen
-        ? `${cleanTranscript.slice(0, maxLen - 3)}...`
-        : cleanTranscript;
-    suggestedAlt = `Audio recording: "${snippet}"`;
+  } else if (media.type === "AUDIO") {
+    const cleanTranscript = media.transcript?.trim();
+    if (cleanTranscript) {
+      const maxLen = 950;
+      const snippet =
+        cleanTranscript.length > maxLen
+          ? `${cleanTranscript.slice(0, maxLen - 3)}...`
+          : cleanTranscript;
+      suggestedAlt = `Audio recording: "${snippet}"`;
+    }
   }
 
   return NextResponse.json({

@@ -109,9 +109,9 @@ function capacityChipClass(count: number, full: boolean): string {
   return "bg-muted";
 }
 
-/** Media-type gate shared by drag-drop and paste so those paths obey the
- * same rules as the toolbar buttons: a video-only, grouped, audio, or GIF
- * post rejects anything outside its allowed format with a toast. */
+// Media-type gate shared by toolbar buttons, drag-drop and paste so all paths obey
+// the same rules: a video-only, grouped, audio, or GIF post rejects anything
+// outside its allowed format with a toast.
 function createMediaTypeGate(config: {
   allowed: (file: File) => boolean;
   isGust: boolean;
@@ -120,9 +120,9 @@ function createMediaTypeGate(config: {
 }) {
   return (incomingFiles: File[]) => {
     if (config.isGust) {
-      const gustVideos = incomingFiles.filter((file) =>
-        file.type.startsWith("video/")
-      );
+      const gustVideos = incomingFiles
+        .filter((file) => file.type.startsWith("video/"))
+        .slice(0, 1);
       if (incomingFiles.length > gustVideos.length) {
         showToast({
           description: "Gusts only accept a single vertical video.",
@@ -135,7 +135,58 @@ function createMediaTypeGate(config: {
       }
       return;
     }
-    const allowedFiles = incomingFiles.filter(config.allowed);
+    const allowedFiles: File[] = [];
+    let hasAudio = false;
+    let hasGif = false;
+    let hasImage = false;
+    let hasVideo = false;
+
+    for (const file of incomingFiles) {
+      if (!config.allowed(file)) {
+        continue;
+      }
+      const isAudio = file.type.startsWith("audio/");
+      const isGif = file.type === "image/gif";
+      const isVideo = file.type.startsWith("video/");
+      const isImg = file.type.startsWith("image/") && !isGif;
+
+      // Exclusive media rules: Audio and GIF do not mix with other files in the same batch
+      if (isAudio) {
+        if (
+          hasAudio ||
+          hasGif ||
+          hasImage ||
+          hasVideo ||
+          allowedFiles.length > 0
+        ) {
+          continue;
+        }
+        hasAudio = true;
+      } else if (isGif) {
+        if (
+          hasAudio ||
+          hasGif ||
+          hasImage ||
+          hasVideo ||
+          allowedFiles.length > 0
+        ) {
+          continue;
+        }
+        hasGif = true;
+      } else {
+        if (hasAudio || hasGif) {
+          continue;
+        }
+        if (isImg) {
+          hasImage = true;
+        }
+        if (isVideo) {
+          hasVideo = true;
+        }
+      }
+      allowedFiles.push(file);
+    }
+
     const rejectedCount = incomingFiles.length - allowedFiles.length;
     if (rejectedCount > 0) {
       showToast({
@@ -831,14 +882,6 @@ export default function PostEditor({
     [guardMediaType]
   );
 
-  const uploadWithOverlay = useCallback(
-    (files: File[]) =>
-      startUpload(files, {
-        audioOverlayId: isGust ? (soundTrack?.mediaId ?? null) : null,
-      }),
-    [isGust, soundTrack, startUpload]
-  );
-
   // The composer is account-gated; guests see login CTAs instead.
   if (!user) {
     return null;
@@ -1154,7 +1197,7 @@ export default function PostEditor({
                             audio: audioLockReason,
                             image: mediaLockReason,
                           }}
-                          onFilesSelected={uploadWithOverlay}
+                          onFilesSelected={guardMediaType}
                           types={["image"]}
                           videoOnly={isGust}
                         />
@@ -1209,7 +1252,7 @@ export default function PostEditor({
                                 audio: audioLockReason,
                                 image: mediaLockReason,
                               }}
-                              onFilesSelected={uploadWithOverlay}
+                              onFilesSelected={guardMediaType}
                               types={["audio"]}
                             />
                           </div>
@@ -1232,7 +1275,7 @@ export default function PostEditor({
                             audio: audioLockReason,
                             image: mediaLockReason,
                           }}
-                          onFilesSelected={uploadWithOverlay}
+                          onFilesSelected={guardMediaType}
                           videoOnly={isGust}
                         />
                       </motion.div>
@@ -1859,7 +1902,7 @@ const ModeToggle: React.FC<{
     <div
       className={cn(
         "flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] transition-opacity duration-200 dark:border-white/10 dark:bg-[#232323]",
-        disabled && "pointer-events-none opacity-50"
+        disabled && "opacity-50"
       )}
       title={
         disabled
@@ -1872,9 +1915,11 @@ const ModeToggle: React.FC<{
         aria-pressed={!isGust}
         className={cn(
           "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
-          isGust ? idleClasses : activeClasses
+          isGust ? idleClasses : activeClasses,
+          disabled && "cursor-not-allowed"
         )}
-        onClick={() => setMode("post")}
+        disabled={disabled}
+        onClick={() => !disabled && setMode("post")}
         type="button"
       >
         Fleets
@@ -1884,9 +1929,11 @@ const ModeToggle: React.FC<{
         aria-pressed={isGust}
         className={cn(
           "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
-          isGust ? activeClasses : idleClasses
+          isGust ? activeClasses : idleClasses,
+          disabled && "cursor-not-allowed"
         )}
-        onClick={() => setMode("gust")}
+        disabled={disabled}
+        onClick={() => !disabled && setMode("gust")}
         type="button"
       >
         Gust

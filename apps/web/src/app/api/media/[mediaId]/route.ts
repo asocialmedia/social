@@ -1,6 +1,5 @@
 import { prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
-import { cacheLife, cacheTag } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { decideMediaAccess } from "@/lib/media-access";
@@ -18,16 +17,10 @@ import {
   shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
 
-// Object-serving fields are immutable for a given media id (the stored key,
-// mime and size never change), so they are safe to cache for a long window.
-// This keeps feed scrolls that render many posters/images from hammering the
-// database on every request; the object itself is still streamed fresh from
-// storage each time.
+// Object-serving fields are queried fresh to ensure pipeline status transitions
+// (UPLOADING -> SCANNING -> READY) and published keys are immediately visible
+// without stale cache misses.
 async function getMediaObject(mediaId: string) {
-  "use cache";
-  cacheLife("hours");
-  cacheTag("media-object");
-
   return await prisma.media.findUnique({
     select: {
       id: true,
