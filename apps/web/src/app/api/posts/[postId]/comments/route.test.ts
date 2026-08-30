@@ -124,7 +124,7 @@ describe("POST /api/posts/[postId]/comments API enforcement", () => {
   test("rejects comments exceeding 2000 words with 400", async () => {
     const req = new Request("http://localhost/api/posts/valid-post/comments", {
       body: JSON.stringify({
-        content: "word ".repeat(2001),
+        content: "a ".repeat(2001),
       }),
       headers: { "Content-Type": "application/json" },
       method: "POST",

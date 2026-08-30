@@ -315,8 +315,7 @@ describe("schemas", () => {
       ).toBe(false);
     });
     test("rejects comment exceeding 2000 words", () => {
-      const word = "word ";
-      const longWords = word.repeat(2001);
+      const longWords = "a ".repeat(2001); // 2001 words, 4002 chars (under 10k chars)
       expect(
         createCommentSchema.safeParse({ content: longWords }).success
       ).toBe(false);

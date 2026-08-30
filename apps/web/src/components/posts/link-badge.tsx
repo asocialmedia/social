@@ -52,30 +52,33 @@ export function hostLabel(url: string): string {
   }
 }
 
+export const MAX_INLINE_LINK_PREVIEWS = 5;
+
 export function LinkBadge({
+  index = 0,
+  maxPreviews = MAX_INLINE_LINK_PREVIEWS,
   title,
   url,
 }: {
+  index?: number;
+  maxPreviews?: number;
   title?: string | null;
   url: string;
 }) {
+  const isPreviewAllowed = index < maxPreviews;
   const { data } = useQuery({
-    enabled: !title && Boolean(url),
+    enabled: isPreviewAllowed && !title && Boolean(url),
     queryFn: async () => {
-      try {
-        const res = await kyInstance
-          .get("/api/link-preview", {
-            searchParams: { url },
-            timeout: 10_000,
-          })
-          .json<{ embed: LinkEmbed }>();
-        return res.embed;
-      } catch {
-        return null;
-      }
+      const res = await kyInstance
+        .get("/api/link-preview", {
+          searchParams: { url },
+          timeout: 10_000,
+        })
+        .json<{ embed: LinkEmbed }>();
+      return res.embed;
     },
     queryKey: ["link-preview", url],
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime: 1000 * 60 * 30,
   });
 
   const platform = platformFromUrl(url);

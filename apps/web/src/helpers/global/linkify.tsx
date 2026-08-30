@@ -10,7 +10,8 @@ interface LinkifyProps {
 }
 const usernameRegex = /(?<username>@[a-zA-Z0-9_-]+)/;
 const hashtagRegex = /(?<hashtag>#[a-zA-Z0-9]+)/;
-const urlRegex = /(?<url>https?:\/\/[^\s]+)/;
+const urlRegex =
+  /(?<url>https?:\/\/[^\s<>"'`()[\]]+(?:\([^\s<>"'`()]+\)[^\s<>"'`()[\]]*)*(?<![.,!?:;]))/;
 
 export default function Linkify({ children }: LinkifyProps) {
   return (
@@ -23,7 +24,7 @@ export default function Linkify({ children }: LinkifyProps) {
 }
 
 function renderUrlBadge(match: string, key: number) {
-  return <LinkBadge key={key} url={match} />;
+  return <LinkBadge index={key} key={key} url={match} />;
 }
 
 const LinkifyUrl = ({ children }: LinkifyProps) => (

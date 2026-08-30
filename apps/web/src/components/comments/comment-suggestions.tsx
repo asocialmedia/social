@@ -66,6 +66,12 @@ export const CommentSuggestions = forwardRef<
   const loading = type === "tag" ? tagsLoading : usersLoading;
   const items = type === "tag" ? tags : users;
 
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect
+    setActiveIndex(0);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [query, items]);
+
   const handleSelect = useCallback(
     (item: string | UserData) => {
       if (type === "tag") {
