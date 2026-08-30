@@ -9,16 +9,49 @@ import { getSessionFromApi } from "@/lib/session";
 // link cards. Per-user or per-IP rate limited: resolution costs an outbound
 // fetch (cache misses) behind the SSRF guard and caches server-side.
 
+const anonMemoryLimiter = new Map<string, { count: number; resetAt: number }>();
+const ANON_LIMIT = 30;
+const ANON_WINDOW_MS = 60_000;
+
+function consumeAnonMemoryLimit(identifier: string): boolean {
+  const now = Date.now();
+  const entry = anonMemoryLimiter.get(identifier);
+  if (!entry || now > entry.resetAt) {
+    if (anonMemoryLimiter.size > 10_000) {
+      for (const [key, value] of anonMemoryLimiter.entries()) {
+        if (now > value.resetAt) {
+          anonMemoryLimiter.delete(key);
+        }
+      }
+    }
+    anonMemoryLimiter.set(identifier, {
+      count: 1,
+      resetAt: now + ANON_WINDOW_MS,
+    });
+    return true;
+  }
+  if (entry.count >= ANON_LIMIT) {
+    return false;
+  }
+  entry.count += 1;
+  return true;
+}
+
 export async function GET(request: Request) {
   const session = await getSessionFromApi();
+  const isAnonymous = !session?.user;
   const identifier =
     session?.user?.id ?? getClientIpFromHeaders(request.headers);
-  const bucket = session?.user ? "link-preview-user" : "link-preview-ip";
+  const bucket = isAnonymous ? "link-preview-ip" : "link-preview-user";
+
+  if (isAnonymous && !consumeAnonMemoryLimit(identifier)) {
+    return Response.json({ error: "Slow down a little" }, { status: 429 });
+  }
 
   const rate = await consumeRateLimit({
     bucket,
     identifier,
-    limit: session?.user ? 60 : 30,
+    limit: isAnonymous ? 30 : 60,
     windowSeconds: 60,
   });
   if (!rate.allowed) {

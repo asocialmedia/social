@@ -118,13 +118,16 @@ SQL
   # search code recreates them via CREATE INDEX IF NOT EXISTS on the first
   # query after boot, so search only runs unindexed for seconds.
   echo "Dropping runtime-managed trgm search indexes (recreated by app runtime)..."
-  cat > /tmp/drop-trgm.sql <<'SQL'
+  DROP_TRGM_SQL="$(mktemp "${TMPDIR:-/tmp}/drop-trgm.XXXXXX.sql")"
+  trap 'rm -f "$DROP_TRGM_SQL"' EXIT
+  cat > "$DROP_TRGM_SQL" <<'SQL'
 DROP INDEX IF EXISTS "idx_users_username_trgm";
 DROP INDEX IF EXISTS "idx_users_displayname_trgm";
 DROP INDEX IF EXISTS "idx_users_displayusername_trgm";
 DROP INDEX IF EXISTS "idx_posts_content_trgm";
 SQL
-  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/drop-trgm.sql
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file "$DROP_TRGM_SQL"
+  rm -f "$DROP_TRGM_SQL"
 
   # Prisma db push refuses to apply additive changes that introduce unique
   # constraints on fresh columns: its "might be data loss" heuristic cannot

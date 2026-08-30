@@ -109,7 +109,7 @@ export const createPostSchema = createPostShape.refine(
 export const GUST_CAPTION_MAX_WORDS = 150;
 export const GUST_CAPTION_MAX_CHARS = 900;
 
-function countWords(text: string): number {
+export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
