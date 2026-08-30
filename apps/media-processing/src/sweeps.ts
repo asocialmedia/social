@@ -322,6 +322,55 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   return { enqueued };
 }
 
+// Transcription backfill sweep: finds READY audio and video rows that do not
+// have captions or a transcript yet (e.g. uploaded before GEMINI_API_KEY was
+// set or when transcription was temporarily offline), and re-enqueues them for
+// semantic analysis & transcription.
+export async function transcriptionBackfillSweep(): Promise<{
+  enqueued: number;
+}> {
+  if (!workerEnv.BACKFILL_ENABLED) {
+    return { enqueued: 0 };
+  }
+  const candidates = await prisma.media.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+    take: SWEEP_BATCH,
+    where: {
+      captionsKey: null,
+      status: "READY",
+      transcript: null,
+      type: { in: ["VIDEO", "AUDIO"] },
+    },
+  });
+
+  let enqueued = 0;
+  for (const candidate of candidates) {
+    try {
+      const { enqueueMediaAnalyze } = await import("@asm/db");
+      await enqueueMediaAnalyze(candidate.id);
+      enqueued += 1;
+      mediaLogger.info(
+        { mediaId: candidate.id },
+        "transcription backfill sweep enqueued media for analyze"
+      );
+    } catch (error) {
+      console.error(
+        `Transcription backfill enqueue failed for ${candidate.id}:`,
+        error
+      );
+    }
+  }
+
+  if (enqueued > 0) {
+    mediaLogger.info(
+      { count: enqueued },
+      "transcription backfill sweep enqueued media"
+    );
+  }
+  return { enqueued };
+}
+
 // Registers self-healing schedules on the media queue. Idempotent via
 // upsertJobScheduler.
 export async function registerSweepSchedulers(connectionOptions: {
@@ -331,10 +380,14 @@ export async function registerSweepSchedulers(connectionOptions: {
   const { Queue } = await import("bullmq");
   const queue = new Queue("media-sweeps", { connection: connectionOptions });
   const daily = 24 * 60 * 60 * 1000;
+  const thirtyMinutes = 30 * 60 * 1000;
   await queue.upsertJobScheduler("media-legacy-migration", { every: daily });
   await queue.upsertJobScheduler("media-legacy-gc", { every: daily });
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
   await queue.upsertJobScheduler("media-derived-heal", { every: daily });
+  await queue.upsertJobScheduler("media-transcription-backfill", {
+    every: thirtyMinutes,
+  });
   const sweepWorker = new Worker(
     "media-sweeps",
     async (job) => {
@@ -352,6 +405,9 @@ export async function registerSweepSchedulers(connectionOptions: {
         case "media-derived-heal": {
           return await derivedHealSweep();
         }
+        case "media-transcription-backfill": {
+          return await transcriptionBackfillSweep();
+        }
         default: {
           throw new Error(`Unknown sweep job: ${job.name}`);
         }
@@ -365,5 +421,18 @@ export async function registerSweepSchedulers(connectionOptions: {
   sweepWorker.on("error", (error) => {
     mediaLogger.error({ error: String(error) }, "sweep worker error");
   });
+
+  // Run an initial pass on worker boot so existing uncaptioned videos start processing immediately
+  void (async () => {
+    try {
+      await transcriptionBackfillSweep();
+    } catch (error) {
+      mediaLogger.warn(
+        { error: String(error) },
+        "initial transcription backfill pass failed"
+      );
+    }
+  })();
+
   return sweepWorker;
 }
