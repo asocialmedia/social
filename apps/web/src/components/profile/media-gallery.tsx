@@ -280,18 +280,18 @@ const AudioTile = ({
   aspectRatio: number;
   item: Media;
 }) => (
+  // Top-right: 3D audio icon indicator
+  // Center: Sound Waveform visualizer bars
   <div
     className="group apple-panel relative flex w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-white/10 p-3 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
     style={{ aspectRatio: Math.max(0.75, Math.min(1.2, aspectRatio)) }}
   >
-    {/* Top-right: 3D audio icon indicator */}
     <div className="absolute top-2 right-2 z-10">
       <div className="flex h-6 w-6 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4)] transition-transform duration-200 group-hover:scale-110">
         <Volume2 className="size-3.5 text-white" />
       </div>
     </div>
 
-    {/* Center: Sound Waveform visualizer bars */}
     <div className="relative z-10 flex h-14 w-full items-center justify-center gap-1 px-2">
       {AUDIO_WAVEFORM_BARS.map((height, idx) => (
         <span

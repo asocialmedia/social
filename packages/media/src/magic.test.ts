@@ -99,6 +99,16 @@ describe("content detection from bytes", () => {
     expect(detection.ok).toBe(false);
     expect(detection.detected).toBeUndefined();
   });
+
+  test("does not misclassify random TAG or malformed ID3 text as MPEG audio", () => {
+    // Arbitrary text starting with TAG
+    const tagText = Buffer.from("TAGS: coding, tech, linux, guide");
+    expect(detectContent(tagText).ok).toBe(false);
+
+    // Arbitrary text with ID3 substring embedded without valid ID3 structure
+    const randomId3 = Buffer.from("SOMETHING_ID3_DATA_NOT_AUDIO");
+    expect(detectContent(randomId3).ok).toBe(false);
+  });
 });
 
 describe("declared-vs-content verification", () => {

@@ -404,6 +404,9 @@ jobs:
           esac
 
           curl -L -X 'POST' \
+            --retry 3 \
+            --retry-delay 5 \
+            --retry-connrefused \
             "${API_URL}/api/application.deploy" \
             -H 'accept: application/json' \
             -H 'Content-Type: application/json' \
@@ -425,6 +428,9 @@ jobs:
 
           if [ -n "${DOKPLOY_WORKER_APP_ID}" ]; then
             curl -L -X 'POST' \
+              --retry 3 \
+              --retry-delay 5 \
+              --retry-connrefused \
               "${API_URL}/api/application.deploy" \
               -H 'accept: application/json' \
               -H 'Content-Type: application/json' \
@@ -635,6 +641,9 @@ jobs:
           esac
 
           BASELINE=$(curl -sS -L \
+            --retry 3 \
+            --retry-delay 3 \
+            --retry-connrefused \
             "${API_URL}/api/deployment.all?applicationId=${DOKPLOY_PRISMA_APP_ID}" \
             -H 'accept: application/json' \
             -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
@@ -643,6 +652,9 @@ jobs:
           echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
 
           curl -L -X 'POST' \
+            --retry 3 \
+            --retry-delay 5 \
+            --retry-connrefused \
             "${API_URL}/api/application.deploy" \
             -H 'accept: application/json' \
             -H 'Content-Type: application/json' \
@@ -671,6 +683,9 @@ jobs:
 
           fetch_deployments() {
             curl -sS -L \
+              --retry 2 \
+              --retry-delay 3 \
+              --retry-connrefused \
               "${API_URL}/api/deployment.all?applicationId=${APP_ID}" \
               -H 'accept: application/json' \
               -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
@@ -679,21 +694,34 @@ jobs:
 
           fetch_logs() {
             curl -sS -L \
+              --retry 2 \
+              --retry-delay 3 \
+              --retry-connrefused \
               "${API_URL}/api/deployment.readLogs?deploymentId=${1}&tail=300" \
               -H 'accept: application/json' \
               -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
               || true
           }
 
-          RETRIES=36
+          RETRIES=45
+          CONSECUTIVE_ERRORS=0
+          MAX_CONSECUTIVE_ERRORS=6
           for i in $(seq 1 "${RETRIES}"); do
             RESPONSE=$(fetch_deployments)
             if ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
-              echo "deployment.all did not return an array. Check the Dokploy API endpoint / token."
-              printf '%s\n' "$RESPONSE" | head -c 500
+              CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+              echo "Attempt ${i}/${RETRIES}: deployment.all did not return an array (${CONSECUTIVE_ERRORS}/${MAX_CONSECUTIVE_ERRORS} consecutive transient errors). Response snippet:"
+              printf '%s\n' "$RESPONSE" | head -c 300
               echo ""
-              exit 1
+              if [ "$CONSECUTIVE_ERRORS" -ge "$MAX_CONSECUTIVE_ERRORS" ]; then
+                echo "Exceeded maximum consecutive API errors from Dokploy endpoint. Exiting."
+                exit 1
+              fi
+              sleep 10
+              continue
             fi
+            CONSECUTIVE_ERRORS=0
+
             DEPLOYMENT=$(printf '%s' "$RESPONSE" | jq -r 'if length > 0 then .[0] else empty end' 2>/dev/null || true)
             DEPLOYMENT_ID=$(printf '%s' "$DEPLOYMENT" | jq -r '.deploymentId // empty' 2>/dev/null || true)
             STATUS=$(printf '%s' "$DEPLOYMENT" | jq -r '.status // empty' 2>/dev/null || true)

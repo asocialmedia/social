@@ -65,12 +65,34 @@ function testMpegAudio(b: Buffer): boolean {
   if (b.length < 4) {
     return false;
   }
-  if (asciiAt(b, "ID3", 0) || asciiAt(b, "TAG", 0)) {
-    return true;
-  }
-  const id3Index = b.indexOf(Buffer.from("ID3"));
-  if (id3Index !== -1 && id3Index < 64) {
-    return true;
+  // Validate structured ID3v2 tag at the start: requires valid version and synchsafe size
+  if (asciiAt(b, "ID3", 0) && b.length >= 10) {
+    const [vMajor, vMinor] = b.subarray(3, 5);
+    const [s0, s1, s2, s3] = b.subarray(6, 10);
+    if (
+      vMajor !== undefined &&
+      vMinor !== undefined &&
+      vMajor < 255 &&
+      vMinor < 255 &&
+      s0 !== undefined &&
+      s1 !== undefined &&
+      s2 !== undefined &&
+      s3 !== undefined &&
+      (s0 & 0x80) === 0 &&
+      (s1 & 0x80) === 0 &&
+      (s2 & 0x80) === 0 &&
+      (s3 & 0x80) === 0
+    ) {
+      const tagSize = (s0 << 21) | (s1 << 14) | (s2 << 7) | s3;
+      const tagEnd = 10 + tagSize;
+      if (b.length >= tagEnd + 4) {
+        if (isMpegAudioFrame(b, tagEnd)) {
+          return true;
+        }
+      } else {
+        return true;
+      }
+    }
   }
   const limit = Math.min(b.length - 3, 512);
   for (let i = 0; i < limit; i += 1) {

@@ -103,7 +103,13 @@ export const GustCard: React.FC<GustCardProps> = ({
     // preference is on, the video is mounted, and the card is the active
     // feed item. VideoTranscriptDrawer loads its own cues independently
     // when opened.
-    if (!captionsEnabled || !shouldMountVideo || !isActive || !videoMediaId) {
+    if (
+      !captionsEnabled ||
+      !isActive ||
+      !shouldMountVideo ||
+      !videoMediaId ||
+      post.moderated
+    ) {
       // oxlint-disable-next-line react/set-state-in-effect
       setCues([]);
       return;
@@ -130,7 +136,13 @@ export const GustCard: React.FC<GustCardProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [captionsEnabled, isActive, shouldMountVideo, videoMediaId]);
+  }, [
+    captionsEnabled,
+    isActive,
+    post.moderated,
+    shouldMountVideo,
+    videoMediaId,
+  ]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -775,13 +787,11 @@ export const GustCard: React.FC<GustCardProps> = ({
             postId={post.id}
           />
 
-          {/* More options menu: captions and transcript toggles are folded in
-              as extra entries so the button rail stays short. */}
           <PostMoreButton
             className="rail-3d-btn flex h-11 w-11 items-center justify-center rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
             extraItems={
-              <>
-                {post.moderated ? null : (
+              post.moderated ? null : (
+                <>
                   <DropdownMenuItem
                     className="pill-3d-hover rounded-md px-2 py-2"
                     onClick={(e) => {
@@ -794,22 +804,22 @@ export const GustCard: React.FC<GustCardProps> = ({
                       {captionsEnabled ? "Hide captions" : "Show captions"}
                     </span>
                   </DropdownMenuItem>
-                )}
-                {post.moderated || !videoMedia ? null : (
-                  <DropdownMenuItem
-                    className="pill-3d-hover rounded-md px-2 py-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleTranscript();
-                    }}
-                  >
-                    <span className="flex items-center gap-3">
-                      <Speech className="size-4" />
-                      {showTranscript ? "Hide transcript" : "View transcript"}
-                    </span>
-                  </DropdownMenuItem>
-                )}
-              </>
+                  {videoMedia ? (
+                    <DropdownMenuItem
+                      className="pill-3d-hover rounded-md px-2 py-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleTranscript();
+                      }}
+                    >
+                      <span className="flex items-center gap-3">
+                        <Speech className="size-4" />
+                        {showTranscript ? "Hide transcript" : "View transcript"}
+                      </span>
+                    </DropdownMenuItem>
+                  ) : null}
+                </>
+              )
             }
             post={post}
           />
@@ -854,7 +864,7 @@ export const GustCard: React.FC<GustCardProps> = ({
           </div>
         )}
 
-        {videoMedia ? (
+        {!post.moderated && videoMedia ? (
           <VideoTranscriptDrawer
             currentTime={currentTime}
             isOpen={showTranscript}

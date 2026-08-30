@@ -139,7 +139,9 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                   >
                     {formatRelativeDate(reply.createdAt)}
                   </Link>
-                  {sessionUser?.id === reply.user?.id ? (
+                  {sessionUser?.id &&
+                  reply.user?.id &&
+                  sessionUser.id === reply.user.id ? (
                     <div className="ml-auto shrink-0">
                       <CommentMoreButton
                         applyDeleted={handleReplyDeleted}
@@ -189,7 +191,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                 {reply.deleted ? null : (
                   <div className="mt-2 flex items-center gap-2">
                     <AuraVoteButton
-                      authorName={reply.user.displayName}
+                      authorName={replyDisplayName}
                       commentId={reply.id}
                       expandable={false}
                       initialState={{

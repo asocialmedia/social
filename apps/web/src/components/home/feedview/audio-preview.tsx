@@ -27,6 +27,8 @@ function formatAudioTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+const waveformCache = new Map<string, number[]>();
+
 export const AudioPreview = memo(
   ({ media, className, fill = false }: AudioPreviewProps) => {
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -36,19 +38,25 @@ export const AudioPreview = memo(
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
-    const [waveform, setWaveform] = useState<number[] | null>(null);
+    const [waveform, setWaveform] = useState<number[] | null>(
+      () => waveformCache.get(media.id) ?? null
+    );
 
     const audioUrl = `/api/media/${media.id}`;
 
     // Decode the audio bytes to build a track-accurate waveform visualizer.
     useEffect(() => {
-      if (!audioUrl) {
+      if (!audioUrl || waveformCache.has(media.id)) {
         return;
       }
       let cancelled = false;
+      const abortController = new AbortController();
       const computeWaveform = async () => {
+        let context: AudioContext | null = null;
         try {
-          const response = await fetch(audioUrl);
+          const response = await fetch(audioUrl, {
+            signal: abortController.signal,
+          });
           const arrayBuffer = await response.arrayBuffer();
           const AudioContextClass =
             window.AudioContext ||
@@ -57,26 +65,36 @@ export const AudioPreview = memo(
           if (!AudioContextClass) {
             return;
           }
-          const context = new AudioContextClass();
+          context = new AudioContextClass();
           const decoded = await context.decodeAudioData(arrayBuffer);
-          void context.close();
           if (!cancelled) {
             if (Number.isFinite(decoded.duration) && decoded.duration > 0) {
               setDuration((prev) => (prev > 0 ? prev : decoded.duration));
             }
-            setWaveform(
-              extractWaveform(decoded.getChannelData(0), EQ_BAR_COUNT)
+            const extracted = extractWaveform(
+              decoded.getChannelData(0),
+              EQ_BAR_COUNT
             );
+            waveformCache.set(media.id, extracted);
+            setWaveform(extracted);
           }
         } catch {
-          // Fallback profile is used if audio decoding fails.
+          // Fallback profile is used if audio decoding fails or fetch is aborted.
+        }
+        if (context) {
+          try {
+            await context.close();
+          } catch {
+            // Ignore context close error
+          }
         }
       };
       void computeWaveform();
       return () => {
         cancelled = true;
+        abortController.abort();
       };
-    }, [audioUrl]);
+    }, [audioUrl, media.id]);
 
     // Clean up audio playback when component unmounts or page navigates.
     useEffect(() => {
@@ -202,7 +220,6 @@ export const AudioPreview = memo(
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* oxlint-enable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div className="flex items-center gap-3 sm:gap-4">
           <button
             aria-label={isPlaying ? "Pause audio" : "Play audio"}
