@@ -287,6 +287,22 @@ describe("schemas", () => {
         createCommentSchema.safeParse({ content: "Great post!" }).success
       ).toBe(true);
     });
+    test("validates comment with 1 attachment", () => {
+      expect(
+        createCommentSchema.safeParse({
+          content: "Look at this GIF!",
+          mediaIds: ["media1"],
+        }).success
+      ).toBe(true);
+    });
+    test("rejects comment with more than 1 attachment", () => {
+      expect(
+        createCommentSchema.safeParse({
+          content: "Too many attachments",
+          mediaIds: ["media1", "media2"],
+        }).success
+      ).toBe(false);
+    });
     test("rejects empty comment", () => {
       expect(createCommentSchema.safeParse({ content: "" }).success).toBe(
         false

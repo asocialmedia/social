@@ -9,6 +9,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import type { UserRepliesPage } from "@/app/api/users/[userId]/replies/route";
 import { CommentAttachments } from "@/components/comments/comment-attachments";
+import { CommentLinkEmbeds } from "@/components/comments/comment-link-embeds";
 import CommentMoreButton from "@/components/comments/comment-more-button";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
@@ -175,6 +176,10 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                     <CommentAttachments attachments={reply.attachments} />
                   </div>
                 ) : null}
+
+                {!reply.deleted && (
+                  <CommentLinkEmbeds content={reply.content} />
+                )}
 
                 {/* Actions */}
                 {reply.deleted ? null : (

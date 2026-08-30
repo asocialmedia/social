@@ -174,7 +174,7 @@ export const createCommentSchema = z.object({
   content: requiredString,
   mediaIds: z
     .array(z.string())
-    .max(4, "Cannot have more than 4 attachments")
+    .max(1, "An eddie can have at most 1 attachment")
     .default([]),
   parentId: z.string().optional(),
 });

@@ -1,14 +1,16 @@
 import Link from "next/link";
 import type React from "react";
-import { LinkIt, LinkItUrl } from "react-linkify-it";
+import { LinkIt } from "react-linkify-it";
 
 import UserLinkWithTooltip from "@/components/layouts/user-link-with-tooltip";
+import { LinkBadge } from "@/components/posts/link-badge";
 
 interface LinkifyProps {
   children: React.ReactNode;
 }
 const usernameRegex = /(?<username>@[a-zA-Z0-9_-]+)/;
 const hashtagRegex = /(?<hashtag>#[a-zA-Z0-9]+)/;
+const urlRegex = /(?<url>https?:\/\/[^\s]+)/;
 
 export default function Linkify({ children }: LinkifyProps) {
   return (
@@ -20,8 +22,14 @@ export default function Linkify({ children }: LinkifyProps) {
   );
 }
 
+function renderUrlBadge(match: string, key: number) {
+  return <LinkBadge key={key} url={match} />;
+}
+
 const LinkifyUrl = ({ children }: LinkifyProps) => (
-  <LinkItUrl className="text-primary hover:underline">{children}</LinkItUrl>
+  <LinkIt component={renderUrlBadge} regex={urlRegex}>
+    {children}
+  </LinkIt>
 );
 
 function renderUsernameLink(match: string, key: number) {

@@ -74,7 +74,7 @@ export default function Comments({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <CommentInput
         applyCreated={applyCreated}
         hideOnMobile={hideComposerOnMobile}
@@ -119,7 +119,7 @@ export default function Comments({
           </p>
         </div>
       )}
-      <div className="divide-y">
+      <div className="divide-border/40 divide-y pt-1">
         {tree.map((node) => (
           <CommentItem
             applyCreated={applyCreated}

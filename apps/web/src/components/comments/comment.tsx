@@ -3,7 +3,7 @@
 import type { CommentData, PostData } from "@asm/db";
 import { CornerDownRight } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserBadge from "@/components/layouts/user-badge";
@@ -19,6 +19,7 @@ import {
   CommentAvatarFallback,
 } from "./comment-attachments";
 import CommentInput from "./comment-input";
+import { CommentLinkEmbeds } from "./comment-link-embeds";
 import CommentMoreButton from "./comment-more-button";
 import { MAX_COMMENT_DEPTH } from "./comment-tree";
 import type { CommentNode } from "./comment-tree";
@@ -72,12 +73,19 @@ export default function CommentItem({
       goToLogin();
       return;
     }
-    setShowReply((prev) => {
-      const next = !prev;
-      shared?.setReplyOpen(next);
-      return next;
-    });
-  }, [goToLogin, isLoggedIn, shared]);
+    const next = !showReply;
+    setShowReply(next);
+    shared?.setReplyOpen(next);
+  }, [goToLogin, isLoggedIn, shared, showReply]);
+
+  useEffect(
+    () => () => {
+      if (showReply) {
+        shared?.setReplyOpen(false);
+      }
+    },
+    [shared, showReply]
+  );
 
   return (
     <div
@@ -129,7 +137,7 @@ export default function CommentItem({
 
       {/* Stub: connects THIS comment's avatar down to its first reply's rail
           segment, so the thread line reads as hanging off the parent avatar. */}
-      <div className="group/comment relative min-w-0 pt-1.5 pr-1 pb-1.5">
+      <div className="group/comment relative min-w-0 pt-2.5 pr-1 pb-2.5">
         {children.length > 0 && (
           <svg
             aria-hidden="true"
@@ -218,6 +226,7 @@ export default function CommentItem({
                   <Linkify>{comment.content}</Linkify>
                 </p>
                 <CommentAttachments attachments={comment.attachments} />
+                <CommentLinkEmbeds content={comment.content} />
               </>
             )}
 
