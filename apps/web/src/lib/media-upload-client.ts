@@ -262,8 +262,14 @@ export async function uploadMediaFile(
     );
   }
 
-  // Pre-compute content hash to check for server-side deduplication / reuse
-  const sha256 = await computeFileSha256(file);
+  // Pre-compute content hash to check for server-side deduplication / reuse.
+  // file.arrayBuffer() materializes the whole upload in memory, so on large
+  // videos (the dominant bandwidth cost of hashing) dedup is skipped: a
+  // fresh upload pipeline run costs far less than buffering a 2GB file in a
+  // browser tab. Smaller files always hash and keep instant reuse.
+  const DEDUP_HASH_MAX_BYTES = 256 * 1024 * 1024;
+  const sha256 =
+    file.size <= DEDUP_HASH_MAX_BYTES ? await computeFileSha256(file) : null;
 
   const initiateResponse = await fetch("/api/upload/initiate", {
     body: JSON.stringify({

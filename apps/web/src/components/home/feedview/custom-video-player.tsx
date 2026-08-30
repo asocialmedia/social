@@ -208,6 +208,10 @@ export const CustomVideoPlayer = ({
       setCues([]);
       return;
     }
+    // Drop stale cues immediately so the previous media's captions never
+    // render while the new request is in flight or after it fails.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCues([]);
     let cancelled = false;
     async function loadCues() {
       try {

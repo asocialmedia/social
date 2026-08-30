@@ -1,5 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
 
+mock.module("../../env", () => ({
+  env: {
+    APP_URL: "http://localhost:3000",
+    AUTH_URL: "http://localhost:3001",
+    GOOGLE_CLIENT_ID: "mock-google-client-id",
+    GOOGLE_CLIENT_SECRET: "mock-google-client-secret",
+    NODE_ENV: "development",
+  },
+}));
+
 // The prisma adapter reaches the database at import time through @asm/db, so
 // mock it before the module under test loads. Reddit credentials are unset in
 // the test environment, so only the google provider gets configured.

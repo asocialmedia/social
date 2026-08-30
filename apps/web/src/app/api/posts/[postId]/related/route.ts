@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/session";
 
-function cosineSimilarity(a: number[], b: number[]): number {
+// Exported for test parity: related-ranking.test.ts asserts against this
+// exact scorer so the ranking contract cannot silently drift from the math
+// the route actually runs.
+export function cosineSimilarity(a: number[], b: number[]): number {
   if (!a || !b || a.length === 0 || b.length === 0 || a.length !== b.length) {
     return 0;
   }
@@ -35,7 +38,9 @@ export async function GET(
     return NextResponse.json({ error: "Post ID is required" }, { status: 400 });
   }
 
-  // 1. Fetch origin post semantic features
+  // 1. Fetch origin post semantic features. Moderated origin posts follow
+  // the not-found path: their content is hidden everywhere else, so ranking
+  // recommendations against them would leak semantic features.
   const originPost = await prisma.post.findUnique({
     select: {
       attachments: {
@@ -48,7 +53,7 @@ export async function GET(
       isGust: true,
       semanticTags: true,
     },
-    where: { id: postId },
+    where: { id: postId, moderated: false },
   });
 
   if (!originPost) {

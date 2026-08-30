@@ -108,20 +108,38 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
     return Array.from({ length: EMBEDDING_DIMENSION }).fill(0) as number[];
   }
 
+  // The whole workflow is switchable: when embedding is disabled the local
+  // hash embedder still runs so rankings keep a same-space signal.
+  if (!workerEnv.EMBEDDING_ENABLED) {
+    return localHashEmbedding(text);
+  }
+
   // Cloud Gemini Embedding API if GEMINI_API_KEY is configured
   const apiKey = workerEnv.GEMINI_API_KEY;
   const modelName = workerEnv.GEMINI_EMBEDDING_MODEL || "gemini-embedding-2";
   if (apiKey) {
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent`,
         {
+          // AbortSignal timeout keeps a stalled API call from holding an
+          // analyze worker slot; the catch below degrades to local hashing.
           body: JSON.stringify({
             content: { parts: [{ text: text.slice(0, 2048) }] },
+            // Top-level REST field (verified against the live API): requests
+            // the model's native output at our dimension instead of receiving
+            // the full 3072d vector and slicing it.
             model: `models/${modelName}`,
+            outputDimensionality: EMBEDDING_DIMENSION,
           }),
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            // Header auth instead of a key query param keeps the credential
+            // out of access logs and error URLs.
+            "x-goog-api-key": apiKey,
+          },
           method: "POST",
+          signal: AbortSignal.timeout(workerEnv.EMBEDDING_TIMEOUT_MS),
         }
       );
       if (response.ok) {
@@ -129,10 +147,20 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
           embedding?: { values?: number[] };
         };
         const values = data.embedding?.values;
-        if (Array.isArray(values) && values.length > 0) {
-          // Downsample or slice to 384d if needed, or normalize
-          return normalizeVector(values.slice(0, EMBEDDING_DIMENSION));
+        // Accept only exact-dimension vectors: a sliced or short vector would
+        // normalize into a different space than every stored embedding, so a
+        // mismatched response falls back to the local embedder instead.
+        if (
+          Array.isArray(values) &&
+          values.length === EMBEDDING_DIMENSION &&
+          values.every((v) => Number.isFinite(v))
+        ) {
+          return normalizeVector(values);
         }
+        mediaLogger.warn(
+          { actual: Array.isArray(values) ? values.length : "missing" },
+          "Gemini embedding dimension mismatch; falling back to local"
+        );
       }
     } catch (error) {
       mediaLogger.warn(

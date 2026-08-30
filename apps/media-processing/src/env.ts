@@ -44,6 +44,7 @@ export const keys = createEnv({
     MEDIA_CONCURRENT_PROCESSING_PER_USER:
       process.env.MEDIA_CONCURRENT_PROCESSING_PER_USER,
     MEDIA_EMBEDDING_ENABLED: process.env.MEDIA_EMBEDDING_ENABLED,
+    MEDIA_EMBEDDING_TIMEOUT_MS: process.env.MEDIA_EMBEDDING_TIMEOUT_MS,
     MEDIA_HEALTH_PORT: process.env.MEDIA_HEALTH_PORT,
     MEDIA_IMAGE_WATERMARK_TIMEOUT_MS:
       process.env.MEDIA_IMAGE_WATERMARK_TIMEOUT_MS,
@@ -59,6 +60,7 @@ export const keys = createEnv({
     MEDIA_REQUIRE_CLAMAV: process.env.MEDIA_REQUIRE_CLAMAV,
     MEDIA_SCAN_CONCURRENCY: process.env.MEDIA_SCAN_CONCURRENCY,
     MEDIA_SCAN_TIMEOUT_MS: process.env.MEDIA_SCAN_TIMEOUT_MS,
+    MEDIA_TRANSCRIBE_TIMEOUT_MS: process.env.MEDIA_TRANSCRIBE_TIMEOUT_MS,
     MEDIA_UPLOADS_PER_DAY: process.env.MEDIA_UPLOADS_PER_DAY,
     MEDIA_WATERMARK_PEPPER: process.env.MEDIA_WATERMARK_PEPPER,
     MEDIA_WHISPER_ENABLED: process.env.MEDIA_WHISPER_ENABLED,
@@ -96,6 +98,10 @@ export const keys = createEnv({
       ),
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-2"),
+    // generateContent model for speech transcription. Must be a valid
+    // Generative Language API model id resolvable at
+    // models/{id}:generateContent; "gemini-flash-lite-latest" is the
+    // maintained alias for the Flash Lite family.
     GEMINI_TRANSCRIBE_MODEL: z.string().default("gemini-flash-lite-latest"),
     LOG_LEVEL: z
       .enum(["trace", "debug", "info", "warn", "error", "fatal"])
@@ -117,6 +123,7 @@ export const keys = createEnv({
     MEDIA_CLASSIFY_ENABLED: z.enum(["0", "1"]).default("1"),
     MEDIA_CONCURRENT_PROCESSING_PER_USER: numericOverride,
     MEDIA_EMBEDDING_ENABLED: z.enum(["0", "1"]).default("1"),
+    MEDIA_EMBEDDING_TIMEOUT_MS: numericOverride,
     MEDIA_HEALTH_PORT: z.coerce.number().int().default(3010),
     MEDIA_IMAGE_WATERMARK_TIMEOUT_MS: numericOverride,
     MEDIA_LEGACY_GC_ENABLED: z.enum(["0", "1"]).default("0"),
@@ -138,6 +145,9 @@ export const keys = createEnv({
     MEDIA_REQUIRE_CLAMAV: z.enum(["0", "1"]).default("1"),
     MEDIA_SCAN_CONCURRENCY: z.coerce.number().int().positive().default(4),
     MEDIA_SCAN_TIMEOUT_MS: numericOverride,
+    // Gemini generateContent (transcription) request budget in ms; the fetch
+    // aborts past it and transcribeMediaAudio returns no transcript.
+    MEDIA_TRANSCRIBE_TIMEOUT_MS: numericOverride,
     MEDIA_UPLOADS_PER_DAY: numericOverride,
     MEDIA_WATERMARK_PEPPER: z.string().min(16).optional(),
     MEDIA_WHISPER_ENABLED: z.enum(["0", "1"]).default("1"),
@@ -201,6 +211,12 @@ export const workerEnv = {
   get EMBEDDING_ENABLED() {
     return keys.MEDIA_EMBEDDING_ENABLED !== "0";
   },
+  // Gemini Embedding API budget. Default 15s: embedding requests are small
+  // (2048 chars) and the caller degrades to the local hash embedder.
+  get EMBEDDING_TIMEOUT_MS() {
+    const parsed = Number(keys.MEDIA_EMBEDDING_TIMEOUT_MS);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+  },
   get GEMINI_API_KEY() {
     return keys.GEMINI_API_KEY;
   },
@@ -257,6 +273,12 @@ export const workerEnv = {
     // Same production string-coercion story as PROCESS_CONCURRENCY above.
     const parsed = Number(keys.MEDIA_SCAN_CONCURRENCY);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : 4;
+  },
+  // Gemini generateContent (transcription) budget. Default 120s: audio
+  // uploads are larger and generation is slower than embeddings.
+  get TRANSCRIBE_TIMEOUT_MS() {
+    const parsed = Number(keys.MEDIA_TRANSCRIBE_TIMEOUT_MS);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000;
   },
   get WATERMARK_ENABLED() {
     return true;

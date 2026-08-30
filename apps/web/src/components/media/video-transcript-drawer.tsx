@@ -127,6 +127,10 @@ export const VideoTranscriptDrawer: React.FC<VideoTranscriptDrawerProps> = ({
       return;
     }
     let isCancelled = false;
+    // Stale cues from a previously opened media must not linger while the
+    // new transcript loads or if the request fails.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCues([]);
 
     async function loadTranscript() {
       setIsLoading(true);

@@ -12,6 +12,7 @@ mock.module("@asm/db", () => ({
   Prisma: {
     DbNull: null,
   },
+  cancelMediaCleanup: mock(() => Promise.resolve()),
   consumeRateLimit: mock(() => ({ allowed: true })),
   prisma: {
     media: {

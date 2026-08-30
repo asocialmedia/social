@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 // Global video captions preference across all surfaces (feed cards, post pages,
 // gusts, and media viewer). Toggling this in the Post More menu updates all video
@@ -19,7 +19,13 @@ export const useVideoCaptionsStore = create<VideoCaptionsState>()(
         set((state) => ({ showCaptions: !state.showCaptions })),
     }),
     {
+      // Hydration is deferred to an explicit rehydrate() call on mount so the
+      // persisted value cannot flash the default (true) during SSR/hydration
+      // before localStorage is read - a mismatch would re-render every video
+      // card on the feed after first paint.
       name: "asocialmedia-video-captions",
+      skipHydration: true,
+      storage: createJSONStorage(() => localStorage),
     }
   )
 );

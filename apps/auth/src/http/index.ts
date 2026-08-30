@@ -236,17 +236,18 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
         request
       );
       if (OAUTH_CALLBACK_PATTERN.test(pathname)) {
-        // A callback that passes validation ALSO answers with a 302 - it
-        // redirects onward to the web app's callbackURL. Distinguish the two
-        // by inspecting the Location header: a redirect to /api/auth/error is
-        // a rejection (state mismatch, expired flow, provider error); any
-        // other redirect means the provider round-trip succeeded and the
-        // session is being handed to the web app.
+        // A callback that passes validation answers with a 3xx redirect
+        // onward to the web app's callbackURL. Classify by Location: a
+        // redirect to /api/auth/error is a rejection (state mismatch,
+        // expired flow, provider error); any other 3xx means the provider
+        // round-trip succeeded. Missing Location or a non-3xx status is
+        // unexpected and logged separately.
         const provider = pathname.split("/").at(-1);
         const state = new URL(request.url).searchParams.get("state");
-        const location = response.headers.get("location") ?? "";
-        const failed = location.includes("/api/auth/error");
-        if (failed) {
+        const location = response.headers.get("location");
+        const isRedirect =
+          response.status >= 300 && response.status < 400 && Boolean(location);
+        if (isRedirect && location?.includes("/api/auth/error")) {
           log.error(
             {
               has_state: Boolean(state),
@@ -256,10 +257,19 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
             },
             "oauth callback rejected"
           );
-        } else {
+        } else if (isRedirect) {
           log.info(
             { location, provider, status: response.status },
             "oauth callback accepted"
+          );
+        } else {
+          log.warn(
+            {
+              has_state: Boolean(state),
+              provider,
+              status: response.status,
+            },
+            "oauth callback ended without redirect"
           );
         }
       }

@@ -8,6 +8,13 @@ const POST_ID = "post1";
 const AUTHOR_ID = "author1";
 const OTHER_USER_ID = "user2";
 
+class BadgeLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BadgeLimitError";
+  }
+}
+
 const updatedPosts: { changes: Record<string, unknown>; id: string }[] = [];
 const auraPenalties: string[] = [];
 const auraLogs: {
@@ -116,6 +123,9 @@ const tx = {
 
 const mockPrisma = {
   $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+  media: {
+    updateMany: () => ({ count: 0 }),
+  },
   post: {
     findUnique: (args: { where: { id: string } }) =>
       args.where.id === POST_ID ? { ...postState } : null,
@@ -133,11 +143,28 @@ const mockIncrementUnread = mock((userId: string) => {
 const mockNoop = mock(() => {});
 
 mock.module("@asm/db", () => ({
+  // Pulled by the admin router test and the editor actions module; present
+  // so batching test files in one bun test invocation always resolves every
+  // @asm/db export regardless of which file registers its mock first.
+  ATTACHMENT_BONUSES: {},
+  BADGES: ["author", "dev", "early", "shitposter"],
+  BOOKMARK_GIVEN_AURA: 1,
+  BOOKMARK_RECEIVED_AURA: 4,
+  BadgeLimitError,
+  HN_SHARE_BONUS_AURA: 15,
+  MENTION_RECEIVED_AURA: 10,
+  POST_CREATION_AURA: 10,
+  POST_CREATION_MAX_AURA: 150,
   POST_VIEWS_KEY_PREFIX: "post:views:",
   POST_VIEWS_SET: "posts:with:views",
+  SHARE_CONSUMER_PREFIX: "share-worker",
+  SHARE_GROUP: "share-flush",
+  SHARE_STREAM: "share:stream",
   SYSTEM_MODERATION_USER_ID: "sys-zeph",
-  // Mirrors the ledger writer: docks the configured penalty and writes the
-  // audit row with the acting admin as issuer.
+  VIEWS_CONSUMER_PREFIX: "views-worker",
+  VIEWS_GROUP: "views-flush",
+  VIEWS_STREAM: "views:stream",
+  applyFlatAward: () => Promise.resolve({ amount: 10 }),
   applyModerationPenalty: (
     t: typeof tx,
     args: { actorId: string; postId?: string | null; recipientId: string }
@@ -158,12 +185,62 @@ mock.module("@asm/db", () => ({
     });
     return Promise.resolve({ amount: -100 });
   },
+  applyWeightedAward: () => Promise.resolve({ amount: 0 }),
+  cancelMediaCleanup: () => Promise.resolve(),
+  computeShareMilestoneAura: () => ({ amount: 0, tiersCrossed: 0 }),
+  computeTrendingScore: () => 0,
+  computeViewMilestoneAura: (last: number, next: number) => ({
+    // Mirror the real engine's contract (engine.ts): 1 aura per full
+    // 10-view step, one-shot bonus tiers on top.
+    aura:
+      Math.max(0, Math.floor(next / 10) - Math.floor(last / 10)) +
+      (last < 1000 && next >= 1000 ? 100 : 0) +
+      (last < 10_000 && next >= 10_000 ? 1000 : 0),
+    tiersCrossed: 0,
+  }),
+  deleteObject: () => Promise.resolve(),
+  enqueueMediaProcess: () => Promise.resolve(),
+  enqueueMediaScan: () => Promise.resolve(),
+  enqueueNotificationCreated: () => Promise.resolve(),
+  enqueueNotificationDeleted: () => Promise.resolve(),
   enqueuePostDeleted: mockNoop,
+  enqueueShitposterCheck: () => Promise.resolve(),
+  ensureStreamGroups: () => Promise.resolve(),
+  getBlockingRedisClient: () => ({ duplicate: () => ({}) }),
+  getClientIpFromHeaders: () => "unknown",
+  getIdleUsers: () => Promise.resolve([]),
+  getOnlineUsers: () => Promise.resolve([]),
   getPostDataInclude: mockInclude,
+  getUserDataSelect: () => ({ id: true }),
+  grantBadge: () => Promise.resolve(true),
+  grantShitposterBadgeIfQualified: () => Promise.resolve(false),
+  hydrateViewCounts: (posts: unknown[]) => Promise.resolve(posts),
   invalidateAuraSignals: mockNoop,
+  isReservedUsername: () => false,
+  jwtSessionCache: {
+    get: () => Promise.resolve(null),
+    set: () => Promise.resolve(),
+  },
+  markUserOnline: () => Promise.resolve(),
+  messageConversationInclude: {},
+  postViewsCache: {},
   prisma: mockPrisma,
+  publishConversationRead: () => Promise.resolve(),
+  publishMessageCreated: () => Promise.resolve(),
+  publishTrendingSnapshot: () => Promise.resolve(),
+  publishTypingStarted: () => Promise.resolve(),
   redis: { del: mockNoop, srem: mockNoop },
+  reverseExactAura: () => Promise.resolve(),
+  revokeBadge: () => Promise.resolve(true),
+  settleVoteTransition: () => Promise.resolve({ auraDelta: 0 }),
+  tagCache: {},
+  unreadMessageCache: {
+    decrement: () => Promise.resolve(0),
+    increment: () => Promise.resolve(1),
+    reset: () => Promise.resolve(),
+  },
   unreadNotificationCache: { increment: mockIncrementUnread },
+  userCache: {},
 }));
 
 mock.module("@/lib/session", () => ({

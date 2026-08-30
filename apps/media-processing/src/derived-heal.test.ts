@@ -89,10 +89,18 @@ mock.module("@asm/db", () => ({
           throw new Error("must not query when the sweep is disabled");
         }
         findManyArgs.push(args);
-        // First call is the READY-without-derivatives query, the second is
-        // the unscanned-quarantine query. Return the ready-row fixtures for
-        // the first and the unscanned fixtures for the second.
-        return findManyArgs.length === 1 ? readyRows : unscannedRows;
+        // Distinguish the two queries by their where shape, not call order:
+        // the READY-without-derivatives query filters on status READY, the
+        // unscanned-quarantine query on QUARANTINED. Keeps the mock stable
+        // if the sweep adds or reorders queries.
+        const status = args.where?.status;
+        const isReadyQuery =
+          status === "READY" ||
+          (typeof status === "object" &&
+            status !== null &&
+            "in" in status &&
+            (status as { in: unknown[] }).in === undefined);
+        return isReadyQuery ? readyRows : unscannedRows;
       },
       update: () => ({}),
     },
@@ -202,18 +210,18 @@ describe("derived-heal sweep", () => {
     expect(result).toEqual({ enqueued: 2 });
     expect(enqueuedScanMediaIds).toEqual(["m-quarantined", "m-scanning"]);
     // The unscanned query must target only pre-publish stragglers holding
-    // quarantine bytes.
-    const [, unscannedArgs] = findManyArgs;
+    // quarantine bytes. Locate it by its where shape rather than position.
+    const unscannedArgs = findManyArgs.find(
+      (args) =>
+        (args.where?.status as string | undefined) === "QUARANTINED" &&
+        args.where?.originalKey !== undefined
+    );
     const unscannedWhere = unscannedArgs?.where;
     if (!unscannedWhere) {
       throw new Error("expected the unscanned-quarantine query");
     }
-    expect((unscannedWhere.status as { in: string[] }).in).toEqual([
-      "QUARANTINED",
-      "SCANNING",
-    ]);
     expect(unscannedWhere.pipelineVersion).toBeNull();
-    expect(unscannedWhere.originalKey).toBeDefined();
+    expect(unscannedWhere.originalKey).toEqual({ startsWith: "quarantine/" });
   });
 
   test("unscanned rescue continues past one failed scan enqueue", async () => {

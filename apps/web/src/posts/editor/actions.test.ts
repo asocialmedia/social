@@ -23,6 +23,7 @@ function resetState() {
 const mockTx = {
   media: {
     findMany: () => Promise.resolve([]),
+    updateMany: () => Promise.resolve({ count: 0 }),
   },
   notification: {
     create: (args: { data: { recipientId: string; type: string } }) => {
@@ -57,15 +58,27 @@ const mockTx = {
 
 // Registered before the module under test is (dynamically) imported so its
 // named bindings resolve to these fakes.
+class BadgeLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BadgeLimitError";
+  }
+}
+
 mock.module("@asm/db", () => ({
   ATTACHMENT_BONUSES: {},
+  BADGES: ["author", "dev", "early", "shitposter"],
+  BadgeLimitError,
   HN_SHARE_BONUS_AURA: 15,
   MENTION_RECEIVED_AURA: 10,
   POST_CREATION_AURA: 10,
   POST_CREATION_MAX_AURA: 150,
+  POST_VIEWS_KEY_PREFIX: "post:views:",
+  POST_VIEWS_SET: "posts:with:views",
+  Prisma: { TransactionIsolationLevel: { Serializable: "Serializable" } },
+  SYSTEM_MODERATION_USER_ID: "sys-zeph",
   // Pulled by the system-moderation-user helper actions.ts delegates to;
   // without it the static named import reaches the real barrel.
-  SYSTEM_MODERATION_USER_ID: "sys-zeph",
   applyFlatAward: (
     _tx: typeof mockTx,
     args: { recipientId: string; type: string }
@@ -73,10 +86,13 @@ mock.module("@asm/db", () => ({
     state.auraAwards.push({ recipientId: args.recipientId, type: args.type });
     return Promise.resolve({ amount: 10 });
   },
+  applyModerationPenalty: () => Promise.resolve(),
   cancelMediaCleanup: () => Promise.resolve(),
   enqueueNotificationCreated: () => Promise.resolve(),
+  enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
   getPostDataInclude: () => ({ user: true }),
+  grantBadge: () => Promise.resolve(true),
   invalidateAuraSignals: () => Promise.resolve(),
   postViewsCache: {},
   prisma: {
@@ -89,13 +105,13 @@ mock.module("@asm/db", () => ({
         }),
     },
   },
-  // Pulled statically by the link-embed resolver the submit path delegates
-  // to; the tests never touch the cache itself.
   redis: {
     get: () => Promise.resolve(null),
     set: () => Promise.resolve("OK"),
   },
+  revokeBadge: () => Promise.resolve(true),
   tagCache: {},
+  userCache: {},
 }));
 
 mock.module("next/cache", () => ({

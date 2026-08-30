@@ -207,7 +207,12 @@ describe("oauth callback logging", () => {
 
   test("logs accepted oauth callbacks at info level", async () => {
     mockAuthHandler.mockImplementationOnce(() =>
-      Promise.resolve(new Response(null, { status: 200 }))
+      Promise.resolve(
+        new Response(null, {
+          headers: { location: "http://localhost:3000/" },
+          status: 302,
+        })
+      )
     );
     const { handler, logs } = createLoggingHandler();
 
@@ -250,6 +255,23 @@ describe("oauth callback logging", () => {
     expect(
       logs.some((entry) => entry.message === "oauth callback accepted")
     ).toBe(false);
+  });
+
+  test("logs callbacks that end without a redirect as unexpected", async () => {
+    mockAuthHandler.mockImplementationOnce(() =>
+      Promise.resolve(new Response("boom", { status: 500 }))
+    );
+    const { handler, logs } = createLoggingHandler();
+
+    await handler(
+      new Request("http://localhost/api/auth/callback/google?state=abc")
+    );
+
+    expect(
+      logs.some(
+        (entry) => entry.message === "oauth callback ended without redirect"
+      )
+    ).toBe(true);
   });
 
   test("does not log non-callback auth paths as oauth callbacks", async () => {

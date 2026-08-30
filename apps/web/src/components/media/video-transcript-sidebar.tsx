@@ -43,6 +43,10 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
       setCues([]);
       return;
     }
+    // Clear before fetching so stale cues from the previous media never
+    // render while the new captions load or after a failed request.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCues([]);
     let cancelled = false;
     async function loadCues() {
       setIsLoading(true);

@@ -272,19 +272,21 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
     }
   }
 
-  // Unscanned quarantine stragglers: rows parked in QUARANTINED/SCANNING for
-  // over a grace period whose bytes are still under quarantine/. The strict
-  // age window keeps rows mid-scan (or racing a just-restarted worker) out.
-  const unscannedCutoff = new Date(Date.now() - DERIVED_HEAL_GRACE_MS);
+  // Unscanned quarantine stragglers: rows parked in QUARANTINED for over a
+  // grace period whose bytes are still under quarantine/. The strict age
+  // window keeps rows mid-scan (or racing a just-restarted worker) out, and
+  // SCANNING is excluded because processMediaScan only claims QUARANTINED
+  // rows - a stuck SCANNING row is recovered when its worker restarts and
+  // the claim flips it back through the pipeline.
   const unscanned = await prisma.media.findMany({
     orderBy: { createdAt: "asc" },
     select: { id: true },
     take: SWEEP_BATCH,
     where: {
-      createdAt: { lt: unscannedCutoff },
+      createdAt: { lt: cutoff },
       originalKey: { startsWith: "quarantine/" },
       pipelineVersion: null,
-      status: { in: ["QUARANTINED", "SCANNING"] },
+      status: "QUARANTINED",
       type: { in: [...DERIVED_HEAL_TYPES] },
     },
   });

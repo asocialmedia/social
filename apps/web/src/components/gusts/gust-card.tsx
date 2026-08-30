@@ -98,11 +98,19 @@ export const GustCard: React.FC<GustCardProps> = ({
   const videoMediaId = videoMedia?.id;
 
   useEffect(() => {
-    if (!videoMediaId) {
+    // Captions are only fetched when the card can actually show them: the
+    // preference is on, the video is mounted, and the card is the active
+    // feed item. VideoTranscriptDrawer loads its own cues independently
+    // when opened.
+    if (!captionsEnabled || !shouldMountVideo || !isActive || !videoMediaId) {
       // oxlint-disable-next-line react/set-state-in-effect
       setCues([]);
       return;
     }
+    // Clear before fetching so stale cues from another gust never render
+    // while this one's captions load or after a failed request.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setCues([]);
     let cancelled = false;
     async function loadCues() {
       try {
@@ -121,7 +129,7 @@ export const GustCard: React.FC<GustCardProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [videoMediaId]);
+  }, [captionsEnabled, isActive, shouldMountVideo, videoMediaId]);
 
   useEffect(() => {
     const video = videoRef.current;

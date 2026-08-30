@@ -86,17 +86,45 @@ describe("GET /api/explore/search", () => {
     expect(res.status).toBe(200);
     const postArgs = lastPostFindManyArgs as {
       where?: {
-        OR?: { content?: { contains?: string } }[];
+        OR?: {
+          attachments?: { some: { OR?: Record<string, unknown>[] } };
+          content?: { contains?: string };
+          semanticTags?: { has?: string };
+          tags?: { some: { name: { contains?: string } } };
+        }[];
         content?: { contains?: string };
         isGust?: boolean;
       };
     };
+    const orBranches = postArgs?.where?.OR ?? [];
     const contentContains =
       postArgs?.where?.content?.contains ??
-      postArgs?.where?.OR?.find((item) => item.content?.contains)?.content
-        ?.contains;
+      orBranches.find((item) => item.content?.contains)?.content?.contains;
     expect(contentContains).toBe("viral");
     expect(postArgs?.where?.isGust).toBe(true);
+
+    // Every enrichment predicate in the OR chain must carry the query so a
+    // tag/transcript/OCR hit is impossible to miss. Post-tag and media-tag
+    // use the lowercased form (array `has` is case-sensitive).
+    const postTagBranch = orBranches.find((item) => item.tags);
+    expect(postTagBranch?.tags?.some?.name?.contains).toBe("viral");
+
+    const postSemanticBranch = orBranches.find((item) => item.semanticTags);
+    expect(postSemanticBranch?.semanticTags?.has).toBe("viral");
+
+    const attachmentBranch = orBranches.find((item) => item.attachments);
+    const attachmentOr = attachmentBranch?.attachments?.some?.OR ?? [];
+    expect(attachmentOr.find((item) => item.transcript)?.transcript).toEqual({
+      contains: "viral",
+      mode: "insensitive",
+    });
+    expect(attachmentOr.find((item) => item.ocrText)?.ocrText).toEqual({
+      contains: "viral",
+      mode: "insensitive",
+    });
+    expect(
+      attachmentOr.find((item) => item.semanticTags)?.semanticTags
+    ).toEqual({ has: "viral" });
   });
 
   test("orders by aura desc when tab=trending", async () => {

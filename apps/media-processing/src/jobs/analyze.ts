@@ -15,6 +15,7 @@ import type { MediaAnalyzeJobData } from "@asm/media";
 
 import { classifyMediaConcepts } from "../classify";
 import { generateTextEmbedding } from "../embedding";
+import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 import { extractImageText } from "../ocr";
 import { getS3 } from "../s3";
@@ -70,15 +71,21 @@ async function resolveAnalysisSource(
   if (rasterKey) {
     rasterLocalPath = `/tmp/asm-raster-${mediaId}-${crypto.randomUUID()}`;
     try {
-      const bytes = await getS3().file(rasterKey).arrayBuffer();
-      await Bun.write(rasterLocalPath, bytes);
+      // Stream the S3 object directly to disk instead of buffering the whole
+      // image through an ArrayBuffer first.
+      await Bun.write(rasterLocalPath, getS3().file(rasterKey));
     } catch {
       rasterLocalPath = null;
     }
   }
 
   let avLocalPath: string | null = null;
-  if (media.type === "VIDEO" || media.type === "AUDIO") {
+  // Download AV bytes only when transcription can actually run: with
+  // Whisper disabled the multi-hundred-MB fetch would be pure waste.
+  if (
+    workerEnv.WHISPER_ENABLED &&
+    (media.type === "VIDEO" || media.type === "AUDIO")
+  ) {
     const avKey =
       media.publishedKey ??
       media.originalKey ??
@@ -86,8 +93,10 @@ async function resolveAnalysisSource(
     if (avKey) {
       avLocalPath = `/tmp/asm-av-${mediaId}-${crypto.randomUUID()}`;
       try {
-        const bytes = await getS3().file(avKey).arrayBuffer();
-        await Bun.write(avLocalPath, bytes);
+        // Stream straight to disk; the S3 file is a lazy handle so buffering
+        // through arrayBuffer first would double the peak memory for large
+        // videos.
+        await Bun.write(avLocalPath, getS3().file(avKey));
       } catch {
         avLocalPath = null;
       }
@@ -174,7 +183,9 @@ export function processMediaAnalyze(
         // Stage 5: Update Media database row
         await prisma.media.update({
           data: {
-            ...captionsUpdate(transcription?.captionsKey),
+            ...(transcription?.captionsKey
+              ? { captionsKey: transcription.captionsKey }
+              : {}),
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
             ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
             ...(semanticTags.length > 0 ? { semanticTags } : {}),
@@ -209,63 +220,121 @@ export function processMediaAnalyze(
 
         if (media?.post) {
           const { post } = media;
-          const explicitContent = verdict?.explicit ? true : undefined;
 
-          // Aggregate all text and tags across the post and all its attachments
-          const allTranscripts = post.attachments
-            .map((a) => a.transcript)
-            .filter(Boolean)
-            .join(" ");
-          const allOcr = post.attachments
-            .map((a) => a.ocrText)
-            .filter(Boolean)
-            .join(" ");
-          const allSemanticTags = [
-            ...new Set([
-              ...post.tags.map((t) => t.name),
-              ...post.attachments.flatMap((a) => a.semanticTags),
-              ...semanticTags,
-            ]),
-          ];
-
-          const combinedText = [
-            post.content,
-            allTranscripts,
-            allOcr,
-            allSemanticTags.join(" "),
-          ]
-            .filter(Boolean)
-            .join("\n");
-
-          let embedding: number[] = [];
+          // Concurrent analyze jobs for different attachments of the same
+          // post would read the same attachment list and then race their
+          // post.update calls, letting the slower job overwrite the faster
+          // one's embedding/semanticTags with stale aggregates. The per-post
+          // Redis lock serializes Stage 5+6 so each job re-reads attachments
+          // that include every already-written sibling result. Locks carry a
+          // TTL so a crashed worker cannot wedge the post forever; a skipped
+          // stage (lock busy or Redis down) only defers the aggregate to the
+          // next analyze job, which recomputes it from scratch.
+          const postLockKey = `lock:post-aggregate:${post.id}`;
+          let locked = false;
           try {
-            embedding = await generateTextEmbedding(combinedText);
+            const { redis } = await import("@asm/db");
+            locked =
+              (await redis.set(
+                postLockKey,
+                jobData.mediaId,
+                "EX",
+                300,
+                "NX"
+              )) === "OK";
           } catch (error) {
             mediaLogger.warn(
               { error: String(error) },
-              "embedding generation failed"
+              "post aggregate lock unavailable; continuing unlocked"
             );
           }
+          if (!locked) {
+            mediaLogger.info(
+              { postId: post.id },
+              "another analyze job holds the post aggregate lock; skipping Stage 6"
+            );
+            return { outcome: "analyzed" as const };
+          }
 
-          await prisma.post.update({
-            data: {
-              ...(explicitContent === undefined ? {} : { explicitContent }),
-              ...(embedding.length > 0 ? { embedding } : {}),
-              ...(allSemanticTags.length > 0
-                ? { semanticTags: allSemanticTags }
-                : {}),
-            },
-            where: { id: post.id },
-          });
+          try {
+            const postExplicitContent = verdict?.explicit ? true : undefined;
 
-          mediaLogger.info(
-            {
-              embeddingDim: embedding.length,
-              postId: post.id,
-              tagsCount: allSemanticTags.length,
-            },
-            "post semantic enrichment completed"
-          );
+            // Aggregate all text and tags across the post and all its attachments
+            const allTranscripts = post.attachments
+              .map((a) => a.transcript)
+              .filter(Boolean)
+              .join(" ");
+            const allOcr = post.attachments
+              .map((a) => a.ocrText)
+              .filter(Boolean)
+              .join(" ");
+            const allSemanticTags = [
+              ...new Set([
+                ...post.tags.map((t) => t.name),
+                ...post.attachments.flatMap((a) => a.semanticTags),
+                ...semanticTags,
+              ]),
+            ];
+
+            const combinedText = [
+              post.content,
+              allTranscripts,
+              allOcr,
+              allSemanticTags.join(" "),
+            ]
+              .filter(Boolean)
+              .join("\n");
+
+            let embedding: number[] = [];
+            try {
+              embedding = await generateTextEmbedding(combinedText);
+            } catch (error) {
+              mediaLogger.warn(
+                { error: String(error) },
+                "embedding generation failed"
+              );
+            }
+
+            await prisma.post.update({
+              data: {
+                ...(postExplicitContent === undefined
+                  ? {}
+                  : { explicitContent: postExplicitContent }),
+                ...(embedding.length > 0 ? { embedding } : {}),
+                ...(allSemanticTags.length > 0
+                  ? { semanticTags: allSemanticTags }
+                  : {}),
+              },
+              where: { id: post.id },
+            });
+
+            mediaLogger.info(
+              {
+                embeddingDim: embedding.length,
+                postId: post.id,
+                tagsCount: allSemanticTags.length,
+              },
+              "post semantic enrichment completed"
+            );
+          } finally {
+            try {
+              const { redis } = await import("@asm/db");
+              // Only delete when we still own the lock so an expired lock
+              // taken over by another job is not released early. Compare-
+              // and-delete via a Lua script keeps the check atomic.
+              await redis.eval(
+                `if redis.call('get', KEYS[1]) == ARGV[1] then
+                   return redis.call('del', KEYS[1])
+                 end
+                 return 0`,
+                1,
+                postLockKey,
+                jobData.mediaId
+              );
+            } catch {
+              // Lock expiry or Redis hiccup: the TTL cleans up either way.
+            }
+          }
         }
 
         return { outcome: "analyzed" as const };
@@ -280,13 +349,4 @@ export function processMediaAnalyze(
     },
     { "media.id": jobData.mediaId }
   );
-}
-
-function captionsUpdate(
-  captionsKey: string | null | undefined
-): Record<string, string> {
-  if (captionsKey) {
-    return { captionsKey };
-  }
-  return {};
 }

@@ -19,6 +19,7 @@ interface PrismaQuery {
 
 mock.module("@asm/db", () => ({
   Prisma: { DbNull: null },
+  cancelMediaCleanup: () => Promise.resolve(),
   consumeRateLimit: mock(() => ({ allowed: true })),
   deleteObject: mock((key: string) => {
     deletedKeys.push(key);

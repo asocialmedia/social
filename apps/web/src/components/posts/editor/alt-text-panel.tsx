@@ -75,6 +75,16 @@ const AltTextPanel = ({
             title: "No text detected",
           });
         }
+      } else if (res.status === 401) {
+        toast({
+          description: "Your session expired. Please sign in again.",
+          title: "Authentication required",
+        });
+      } else if (res.status === 404) {
+        toast({
+          description: "This media is no longer available.",
+          title: "Media unavailable",
+        });
       } else {
         toast({
           description: "Media is still being processed in the background.",

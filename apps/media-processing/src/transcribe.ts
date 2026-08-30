@@ -122,7 +122,7 @@ export async function detectAudioActivity(audioPath: string): Promise<boolean> {
 
     const meanMatch = /mean_volume:\s*(?<mean>-?[\d.]+)\s*dB/i.exec(stderrText);
     if (meanMatch && meanMatch.groups?.mean) {
-      const meanDb = Number(meanMatch[1]);
+      const meanDb = Number(meanMatch.groups.mean);
       if (Number.isFinite(meanDb) && meanDb < -55) {
         // Nearly total silence
         return false;
@@ -165,16 +165,25 @@ async function transcribeViaGemini(
     );
     await proc.exited;
 
-    const audioBytes = await Bun.file(tempMp3Path).arrayBuffer();
+    const audioFile = Bun.file(tempMp3Path);
+    const audioBytes = await audioFile.arrayBuffer();
     if (audioBytes.byteLength < 500) {
       return null;
     }
     const audioBase64 = Buffer.from(audioBytes).toString("base64");
+    const audioDurationSeconds = await probeAudioDuration(audioPath);
     const model =
       workerEnv.GEMINI_TRANSCRIBE_MODEL || "gemini-flash-lite-latest";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    const prompt = `Transcribe this audio verbatim. Also provide timestamped subtitle cues in seconds.
+    // Telling the model the media length bounds its cue timestamps; without
+    // it a response missing per-segment timings would otherwise fall back to
+    // a guessed 10s cue on a potentially hour-long recording.
+    const durationHint =
+      audioDurationSeconds === null
+        ? ""
+        : ` The audio is ${audioDurationSeconds.toFixed(1)} seconds long: every cue must end at or before that.`;
+    const prompt = `Transcribe this audio verbatim. Also provide timestamped subtitle cues in seconds.${durationHint}
 Return JSON with this schema:
 {
   "transcript": "full speech text transcript here",
@@ -201,8 +210,16 @@ If there is no speech or only background music/silence, return: { "transcript": 
         ],
         generationConfig: { responseMimeType: "application/json" },
       }),
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // Header auth keeps the API key out of access logs and error URLs.
+        "x-goog-api-key": apiKey,
+      },
       method: "POST",
+      // Bounded request so a stalled Gemini call cannot pin the analyze
+      // worker; the surrounding catch treats an abort like any other
+      // failure and returns null.
+      signal: AbortSignal.timeout(workerEnv.TRANSCRIBE_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -243,8 +260,20 @@ If there is no speech or only background music/silence, return: { "transcript": 
       text: s.text || "",
     }));
 
-    if (segments.length === 0 && transcript) {
-      segments.push({ end: 10, start: 0, text: transcript });
+    // A transcript without usable segment timings still deserves a cue, but
+    // the end must track the real media length - a guessed 10s cue would
+    // expire almost immediately on longer recordings. Without a duration,
+    // keep the plain-text transcript and skip cue generation.
+    if (
+      segments.length === 0 &&
+      audioDurationSeconds !== null &&
+      audioDurationSeconds > 0
+    ) {
+      segments.push({
+        end: audioDurationSeconds,
+        start: 0,
+        text: transcript,
+      });
     }
 
     return { segments, transcript };
@@ -258,6 +287,31 @@ If there is no speech or only background music/silence, return: { "transcript": 
     await Bun.file(tempMp3Path)
       .delete()
       .catch(() => null);
+  }
+}
+
+// Probes media duration in seconds via ffprobe; null when unavailable.
+async function probeAudioDuration(mediaPath: string): Promise<number | null> {
+  try {
+    const proc = Bun.spawn(
+      [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        mediaPath,
+      ],
+      { stderr: "pipe", stdout: "pipe" }
+    );
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    const seconds = Number(stdout.trim());
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  } catch {
+    return null;
   }
 }
 
