@@ -97,18 +97,22 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
       {visibleReplies.map((reply) => {
         const postHref = `/posts/${reply.post.id}?comment=${reply.id}`;
         const repliedToUsername =
-          reply.parent?.user.username ?? reply.post.user.username;
+          reply.parent?.user?.username ??
+          reply.post?.user?.username ??
+          "someone";
+        const replyUsername = reply.user?.username ?? "unknown";
+        const replyDisplayName = reply.user?.displayName || replyUsername;
 
         return (
           <div className="border-border/60 border-b px-4 py-3" key={reply.id}>
             <div className="flex gap-3">
               <Link
-                aria-label={`View @${reply.user.username}'s profile`}
+                aria-label={`View @${replyUsername}'s profile`}
                 className="shrink-0"
-                href={`/users/${reply.user.username}`}
+                href={`/users/${replyUsername}`}
               >
                 <UserAvatar
-                  avatarUrl={reply.user.avatarUrl}
+                  avatarUrl={reply.user?.avatarUrl}
                   className="size-10"
                 />
               </Link>
@@ -118,15 +122,15 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                 <div className="flex items-center gap-1.5 text-sm">
                   <Link
                     className="text-foreground truncate font-semibold hover:underline"
-                    href={`/users/${reply.user.username}`}
+                    href={`/users/${replyUsername}`}
                   >
-                    {reply.user.displayName}
+                    {replyDisplayName}
                   </Link>
                   <Link
                     className="text-muted-foreground truncate hover:underline"
-                    href={`/users/${reply.user.username}`}
+                    href={`/users/${replyUsername}`}
                   >
-                    @{reply.user.username}
+                    @{replyUsername}
                   </Link>
                   <span className="text-muted-foreground shrink-0">·</span>
                   <Link
@@ -135,7 +139,9 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                   >
                     {formatRelativeDate(reply.createdAt)}
                   </Link>
-                  {sessionUser?.id === reply.user.id ? (
+                  {sessionUser?.id &&
+                  reply.user?.id &&
+                  sessionUser.id === reply.user.id ? (
                     <div className="ml-auto shrink-0">
                       <CommentMoreButton
                         applyDeleted={handleReplyDeleted}
@@ -185,7 +191,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                 {reply.deleted ? null : (
                   <div className="mt-2 flex items-center gap-2">
                     <AuraVoteButton
-                      authorName={reply.user.displayName}
+                      authorName={replyDisplayName}
                       commentId={reply.id}
                       expandable={false}
                       initialState={{

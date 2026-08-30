@@ -119,9 +119,9 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="block truncate text-sm font-semibold">
-            {post.user.displayName || post.user.username}
+            {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge badge={post.user.badge} badges={post.user.badges} />
+          <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
         </span>
         {post.moderated ? (
           <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">

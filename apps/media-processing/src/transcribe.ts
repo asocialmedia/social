@@ -207,39 +207,56 @@ Return JSON with this schema:
 }
 If there is no speech or only background music/silence, return: { "transcript": "", "segments": [] }`;
 
-    const response = await fetch(url, {
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                inlineData: {
-                  data: audioBase64,
-                  mimeType: "audio/mp3",
-                },
-              },
-              { text: prompt },
-            ],
-          },
-        ],
-        generationConfig: { responseMimeType: "application/json" },
-      }),
-      headers: {
-        "Content-Type": "application/json",
-        // Header auth keeps the API key out of access logs and error URLs.
-        "x-goog-api-key": apiKey,
-      },
-      method: "POST",
-      // Bounded request so a stalled Gemini call cannot pin the analyze
-      // worker; the surrounding catch treats an abort like any other
-      // failure and returns null.
-      signal: AbortSignal.timeout(workerEnv.TRANSCRIBE_TIMEOUT_MS),
-    });
+    const maxRetries = 3;
+    let response: Response | null = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      if (attempt > 0) {
+        const delay = Math.min(15_000, 3000 * 2 ** (attempt - 1));
+        mediaLogger.warn(
+          { attempt, delay, status: 429 },
+          "Gemini rate limited; waiting before retry"
+        );
+        await Bun.sleep(delay);
+      }
 
-    if (!response.ok) {
-      const err = await response.text();
+      response = await fetch(url, {
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  inlineData: {
+                    data: audioBase64,
+                    mimeType: "audio/mp3",
+                  },
+                },
+                { text: prompt },
+              ],
+            },
+          ],
+          generationConfig: { responseMimeType: "application/json" },
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          // Header auth keeps the API key out of access logs and error URLs.
+          "x-goog-api-key": apiKey,
+        },
+        method: "POST",
+        // Bounded request so a stalled Gemini call cannot pin the analyze
+        // worker; the surrounding catch treats an abort like any other
+        // failure and returns null.
+        signal: AbortSignal.timeout(workerEnv.TRANSCRIBE_TIMEOUT_MS),
+      });
+
+      if (response.status !== 429) {
+        break;
+      }
+    }
+
+    if (!response || !response.ok) {
+      const err = response ? await response.text() : "no response";
       mediaLogger.warn(
-        { err, status: response.status },
+        { err, status: response?.status },
         "Gemini transcription failed"
       );
       return null;

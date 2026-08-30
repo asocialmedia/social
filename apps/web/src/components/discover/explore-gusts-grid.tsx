@@ -164,18 +164,18 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/40 to-transparent p-3 pt-8 text-white">
         <div className="flex items-center gap-2">
           <UserAvatar
-            avatarUrl={post.user.avatarUrl}
+            avatarUrl={post.user?.avatarUrl}
             className="size-7 rounded-lg border border-white/40"
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1">
               <p className="truncate text-xs font-semibold text-white/95">
-                {post.user.displayName || post.user.username}
+                {post.user?.displayName || post.user?.username || "Anonymous"}
               </p>
-              <UserBadge badge={post.user.badge} badges={post.user.badges} />
+              <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
             </div>
             <p className="truncate text-[11px] text-white/70">
-              @{post.user.username}
+              @{post.user?.username || "unknown"}
             </p>
           </div>
         </div>

@@ -3,7 +3,7 @@
 import type { Media } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
-import { FileAudioIcon, FileIcon, Loader2 } from "lucide-react";
+import { FileIcon, Loader2, Volume2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -269,6 +269,44 @@ const VideoTile = ({
   );
 };
 
+const AUDIO_WAVEFORM_BARS = [
+  0.35, 0.6, 0.45, 0.85, 0.7, 1, 0.65, 0.9, 0.5, 0.75, 0.4, 0.65, 0.3, 0.55,
+];
+
+const AudioTile = ({
+  aspectRatio,
+  item: _item,
+}: {
+  aspectRatio: number;
+  item: Media;
+}) => (
+  // Top-right: 3D audio icon indicator
+  // Center: Sound Waveform visualizer bars
+  <div
+    className="group apple-panel relative flex w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-white/10 p-3 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
+    style={{ aspectRatio: Math.max(0.75, Math.min(1.2, aspectRatio)) }}
+  >
+    <div className="absolute top-2 right-2 z-10">
+      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4)] transition-transform duration-200 group-hover:scale-110">
+        <Volume2 className="size-3.5 text-white" />
+      </div>
+    </div>
+
+    <div className="relative z-10 flex h-14 w-full items-center justify-center gap-1 px-2">
+      {AUDIO_WAVEFORM_BARS.map((height, idx) => (
+        <span
+          className="flex-1 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] transition-all duration-300 group-hover:scale-y-110"
+          key={idx}
+          style={{
+            height: `${height * 100}%`,
+            opacity: 0.6 + height * 0.4,
+          }}
+        />
+      ))}
+    </div>
+  </div>
+);
+
 const renderMediaTile = (item: Media) => {
   const aspectRatio =
     item.width && item.height ? item.width / item.height : DEFAULT_ASPECT;
@@ -278,17 +316,7 @@ const renderMediaTile = (item: Media) => {
   }
 
   if (item.type === "AUDIO") {
-    return (
-      <div
-        className="group bg-primary/5 hover:bg-primary/10 relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl p-4 shadow-xs transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-        style={{ aspectRatio }}
-      >
-        <FileAudioIcon className="text-primary h-8 w-8" />
-        <span className="text-muted-foreground max-w-full truncate text-[10px]">
-          {formatFileName(item.key)}
-        </span>
-      </div>
-    );
+    return <AudioTile aspectRatio={aspectRatio} item={item} />;
   }
 
   if (item.type !== "IMAGE") {
@@ -426,6 +454,43 @@ const MediaTile: React.FC<MediaTileProps> = ({ item, index, onSelect }) => {
                 kind={item.post?.isGust ? "gust" : "post"}
                 vertical
               />
+            </div>
+          </div>
+        </Link>
+        {postHref ? (
+          <Link
+            className="text-muted-foreground hover:text-primary mt-1 block truncate text-[11px] transition-colors duration-200"
+            href={postHref}
+          >
+            View {item.post?.isGust ? "gust" : "post"}
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Audio files link directly to the post page rather than opening the media viewer modal.
+  if (item.type === "AUDIO") {
+    return (
+      <div className="mb-2 break-inside-avoid">
+        <Link
+          aria-label={`Open post for audio ${item.id}`}
+          className="group relative block w-full text-left"
+          href={postHref ?? "#"}
+          onClick={(event) => {
+            if (!postHref) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <div className="bg-muted/20 border-border/60 relative w-full overflow-hidden rounded-xl border shadow-xs">
+            <div
+              className={cn(
+                "pointer-events-none",
+                item.post?.explicitContent && "opacity-60 blur-lg saturate-50"
+              )}
+            >
+              {renderMediaTile(item)}
             </div>
           </div>
         </Link>

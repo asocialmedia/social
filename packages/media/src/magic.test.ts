@@ -73,12 +73,41 @@ describe("content detection from bytes", () => {
     expect(detectContent(OGG_HEAD).detected?.container).toBe("ogg");
     expect(detectContent(ID3_HEAD).detected?.mime).toBe("audio/mpeg");
     expect(detectContent(WAV_HEAD).detected?.container).toBe("wav");
+    // Raw MPEG-1 Layer 3 with and without CRC
+    expect(
+      detectContent(Buffer.from([0xff, 0xfb, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    expect(
+      detectContent(Buffer.from([0xff, 0xfa, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    // MPEG-2 and MPEG-2.5 Layer 3
+    expect(
+      detectContent(Buffer.from([0xff, 0xf3, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    expect(
+      detectContent(Buffer.from([0xff, 0xe2, 0x90, 0x00])).detected?.mime
+    ).toBe("audio/mpeg");
+    // Padded / offset sync MP3
+    expect(
+      detectContent(Buffer.from([0x00, 0x00, 0x00, 0xff, 0xfa, 0x90, 0x00]))
+        .detected?.mime
+    ).toBe("audio/mpeg");
   });
 
   test("unknown bytes fail closed", () => {
     const detection = detectContent(Buffer.from("<?php echo 1; ?>"));
     expect(detection.ok).toBe(false);
     expect(detection.detected).toBeUndefined();
+  });
+
+  test("does not misclassify random TAG or malformed ID3 text as MPEG audio", () => {
+    // Arbitrary text starting with TAG
+    const tagText = Buffer.from("TAGS: coding, tech, linux, guide");
+    expect(detectContent(tagText).ok).toBe(false);
+
+    // Arbitrary text with ID3 substring embedded without valid ID3 structure
+    const randomId3 = Buffer.from("SOMETHING_ID3_DATA_NOT_AUDIO");
+    expect(detectContent(randomId3).ok).toBe(false);
   });
 });
 

@@ -196,6 +196,79 @@ export function processMediaAnalyze(
           where: { id: jobData.mediaId },
         });
 
+        // Stage 5.5: Notify author that closed captions and transcription are ready
+        if (transcription?.captionsKey || transcription?.transcript) {
+          try {
+            const mediaWithOwner = await prisma.media.findUnique({
+              select: {
+                id: true,
+                post: { select: { id: true, isGust: true, userId: true } },
+                postId: true,
+                type: true,
+                userId: true,
+              },
+              where: { id: jobData.mediaId },
+            });
+
+            if (mediaWithOwner) {
+              const recipientId =
+                mediaWithOwner.post?.userId ?? mediaWithOwner.userId;
+              if (recipientId) {
+                const {
+                  SYSTEM_MODERATION_USER_ID,
+                  enqueueNotificationCreated,
+                } = await import("@asm/db");
+
+                await prisma.user.upsert({
+                  create: {
+                    avatarUrl: "/avatars/avatar-placeholder.png",
+                    displayName: "Zeph",
+                    email: "zeph@asocialmedia.cc",
+                    emailVerified: false,
+                    id: SYSTEM_MODERATION_USER_ID,
+                    role: "user",
+                    username: "zeph",
+                  },
+                  update: {},
+                  where: { id: SYSTEM_MODERATION_USER_ID },
+                });
+
+                const existingNotification = mediaWithOwner.postId
+                  ? await prisma.notification.findFirst({
+                      where: {
+                        issuerId: SYSTEM_MODERATION_USER_ID,
+                        postId: mediaWithOwner.postId,
+                        recipientId,
+                        type: "TRANSCRIPTION",
+                      },
+                    })
+                  : null;
+
+                if (!existingNotification) {
+                  await prisma.notification.create({
+                    data: {
+                      issuerId: SYSTEM_MODERATION_USER_ID,
+                      postId: mediaWithOwner.postId ?? null,
+                      recipientId,
+                      type: "TRANSCRIPTION",
+                    },
+                  });
+                  await enqueueNotificationCreated(recipientId);
+                  mediaLogger.info(
+                    { mediaId: jobData.mediaId, recipientId },
+                    "transcription completion notification dispatched"
+                  );
+                }
+              }
+            }
+          } catch (error) {
+            mediaLogger.warn(
+              { error: String(error), mediaId: jobData.mediaId },
+              "failed to dispatch transcription notification"
+            );
+          }
+        }
+
         // Stage 6: Update Parent Post (Explicit flag & Recommendation Embeddings)
         const media = await prisma.media.findUnique({
           select: { post: { select: { id: true } }, postId: true },

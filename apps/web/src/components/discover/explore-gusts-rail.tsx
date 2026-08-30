@@ -125,27 +125,27 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/90 via-black/40 to-transparent p-2.5 pt-6 text-white">
         <div className="flex items-center gap-1.5">
           <UserAvatar
-            avatarUrl={gust.user.avatarUrl}
+            avatarUrl={gust.user?.avatarUrl}
             className="size-6 rounded-lg border border-white/40"
           />
           <div className="min-w-0 flex-1 leading-tight">
             <p className="truncate text-xs font-semibold text-white/95">
-              {gust.user.displayName || gust.user.username}
+              {gust.user?.displayName || gust.user?.username || "Anonymous"}
             </p>
             <p className="truncate text-[10px] text-white/70">
-              @{gust.user.username}
+              @{gust.user?.username || "unknown"}
             </p>
           </div>
           <UserBadge
-            badge={gust.user.badge}
-            badges={gust.user.badges}
+            badge={gust.user?.badge}
+            badges={gust.user?.badges}
             className="hidden shrink-0 sm:inline-flex"
           />
         </div>
         <UserBadge
-          badge={gust.user.badge}
-          badges={gust.user.badges}
-          className="mt-1 sm:hidden"
+          badge={gust.user?.badge}
+          badges={gust.user?.badges}
+          className="mt-1 shrink-0 sm:hidden"
         />
         {gust.content ? (
           <p className="mt-1 line-clamp-1 text-[11px] text-white/80">

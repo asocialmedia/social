@@ -18,15 +18,28 @@ import { cn } from "@/lib/utils";
 
 import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
 
-// How much of the track stays filled once bytes have landed, per REAL
-// pipeline phase. Stages are genuine server states, so these widths are
-// progress in the only honest unit available - completed stages - never a
-// fabricated percentage.
-const STAGE_FILL_FRACTION: Record<Exclude<UploadStage, "uploading">, number> = {
-  processing: 0.88,
-  queued: 0.45,
-  scanning: 0.7,
-};
+// Single unified progress mapper combining upload byte progression and
+// server-side processing states into one continuous 0-100% flow.
+export function getUploadProgressInfo(
+  stage?: UploadStage,
+  progress?: number
+): { label: string; percent: number } {
+  switch (stage) {
+    case "queued": {
+      return { label: "55% · Queued…", percent: 55 };
+    }
+    case "scanning": {
+      return { label: "75% · Scanning…", percent: 75 };
+    }
+    case "processing": {
+      return { label: "90% · Processing…", percent: 90 };
+    }
+    default: {
+      const p = Math.max(1, Math.min(50, Math.round((progress ?? 0) * 0.5)));
+      return { label: `${p}% · Uploading…`, percent: p };
+    }
+  }
+}
 
 interface AttachmentPreviewProps {
   attachment: {
@@ -557,6 +570,7 @@ const AttachmentPreviewInner = ({
 
   let actionBar: React.ReactNode;
   if (isUploading) {
+    const { label, percent } = getUploadProgressInfo(stage, progress);
     actionBar = (
       <div className="mt-2 flex items-center gap-3">
         <div
@@ -571,10 +585,7 @@ const AttachmentPreviewInner = ({
               stage !== "uploading" && "asm-progress-active"
             )}
             style={{
-              width:
-                stage === "uploading"
-                  ? `${progress ?? 0}%`
-                  : `${(STAGE_FILL_FRACTION[stage ?? "queued"] ?? 0.45) * 100}%`,
+              width: `${percent}%`,
             }}
           >
             {stage === "uploading" ? null : (
@@ -583,7 +594,7 @@ const AttachmentPreviewInner = ({
           </div>
         </div>
         <span className="text-muted-foreground shrink-0 text-xs font-semibold tabular-nums">
-          {stage === "uploading" ? `${progress ?? 0}%` : stageText(stage)}
+          {label}
         </span>
         <button
           aria-label="Cancel upload"

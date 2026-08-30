@@ -314,16 +314,21 @@ export const SearchCommandList = ({
               } else if (item.type === "user") {
                 removeTarget = item.user.id;
               } else {
-                removeTarget = item.post.id;
+                removeTarget = item.post?.id;
               }
             }
 
             if (item.type === "user") {
+              if (!item.user) {
+                return null;
+              }
+              const username = item.user.username || "";
               const isSelf = Boolean(
                 currentUser &&
                 (item.user.id === currentUser.id ||
-                  item.user.username.toLowerCase() ===
-                    currentUser.username.toLowerCase())
+                  (username &&
+                    username.toLowerCase() ===
+                      currentUser.username.toLowerCase()))
               );
               return (
                 <div
@@ -349,7 +354,7 @@ export const SearchCommandList = ({
                   <span className="min-w-0 flex-1 truncate">
                     <span className="flex items-center gap-1.5 truncate text-sm font-medium">
                       <span className="truncate">
-                        {item.user.displayName || item.user.username}
+                        {item.user.displayName || username || "Anonymous"}
                       </span>
                       {isSelf ? (
                         <span className="bg-primary/10 text-primary border-primary/20 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] leading-none font-semibold">
@@ -358,7 +363,7 @@ export const SearchCommandList = ({
                       ) : null}
                     </span>
                     <span className="text-muted-foreground block truncate text-xs">
-                      @{item.user.username}
+                      @{username}
                       {item.searchedAt
                         ? ` · ${formatSearchTime(item.searchedAt)}`
                         : ""}

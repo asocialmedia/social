@@ -51,18 +51,22 @@ export function excerpt(content: string, maxLength = 160): string {
 // SEO title for a post, Reddit-style: author + opening snippet.
 export function postTitle(post: PostData, maxLength = 60): string {
   const snippet = excerpt(post.content, maxLength);
-  return `${post.user.displayName} (@${post.user.username}): ${snippet}`;
+  const name = post.user?.displayName || post.user?.username || "Anonymous";
+  const username = post.user?.username || "unknown";
+  return `${name} (@${username}): ${snippet}`;
 }
 
 // SEO description for a post: the content excerpt plus the tags as keywords.
 export function postDescription(post: PostData): string {
   const content = post.content?.trim();
+  const name = post.user?.displayName || post.user?.username || "Anonymous";
+  const username = post.user?.username || "unknown";
   const base =
     content && content.length >= 20
       ? content
-      : `${content || "Eddie"} on asocialmedia by ${post.user.displayName || post.user.username} (@${post.user.username})`;
+      : `${content || "Eddie"} on asocialmedia by ${name} (@${username})`;
   const contentExcerpt = excerpt(base, 140);
-  const tags = post.tags.map((tag) => `#${tag.name}`).join(" ");
+  const tags = (post.tags || []).map((tag) => `#${tag.name}`).join(" ");
   return [contentExcerpt, tags].filter(Boolean).join(" · ");
 }
 

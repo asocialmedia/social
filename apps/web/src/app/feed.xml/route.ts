@@ -32,7 +32,10 @@ export async function GET(): Promise<Response> {
 
   const items = posts
     .map((post) => {
-      const title = `${post.user.displayName || post.user.username} (@${post.user.username}): ${excerpt(post.content, 72)}`;
+      const authorUsername = post.user?.username || "anonymous";
+      const authorDisplayName =
+        post.user?.displayName || post.user?.username || "Anonymous";
+      const title = `${authorDisplayName} (@${authorUsername}): ${excerpt(post.content, 72)}`;
       const description = excerpt(post.content, 220);
       const link = `${siteConfig.url}/posts/${post.id}`;
       const categories = post.tags.map((tag) => tag.name);
@@ -47,7 +50,7 @@ export async function GET(): Promise<Response> {
           (cat) => `      <category>${escapeXml(cat)}</category>`
         ),
         `      <pubDate>${escapeXml(toRfc822(post.createdAt))}</pubDate>`,
-        `      <author>${escapeXml(`${post.user.username}@asocialmedia.cc (${post.user.displayName || post.user.username})`)}</author>`,
+        `      <author>${escapeXml(`${authorUsername}@asocialmedia.cc (${authorDisplayName})`)}</author>`,
         "    </item>",
       ].join("\n");
     })

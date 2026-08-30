@@ -102,16 +102,17 @@ const ClientPost: React.FC<ClientPostProps> = ({
     }
   }, [router]);
 
+  const authorUsername = post.user?.username;
   // Mobile swipes: a right-to-left slide opens the author's profile. The
   // fullscreen media viewer is a Radix dialog portaled outside this scroll
   // container, so swiping inside an open viewer never reaches this handler.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      if (direction === 1) {
-        withViewTransition(() => router.push(`/users/${post.user.username}`));
+      if (direction === 1 && authorUsername) {
+        withViewTransition(() => router.push(`/users/${authorUsername}`));
       }
     },
-    [post.user.username, router]
+    [authorUsername, router]
   );
   useFeedSwipeNavigation(scrollRef, handleSwipeNavigate);
 

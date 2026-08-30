@@ -41,15 +41,16 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
     [post.id]
   );
 
+  const authorUsername = post.user?.username;
   // Mobile swipes: a right-to-left slide opens the author's profile. The hook
   // only binds below md, so desktop keyboard/button navigation is untouched.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      if (direction === 1) {
-        router.push(`/users/${post.user.username}`);
+      if (direction === 1 && authorUsername) {
+        router.push(`/users/${authorUsername}`);
       }
     },
-    [post.user.username, router]
+    [authorUsername, router]
   );
   useFeedSwipeNavigation(containerRef, handleSwipeNavigate);
 

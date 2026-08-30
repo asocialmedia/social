@@ -175,19 +175,22 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
 
           <div className="flex items-center gap-2">
             <UserAvatar
-              avatarUrl={post.user.avatarUrl}
+              avatarUrl={post.user?.avatarUrl}
               className="h-8 w-8"
               user={post.user}
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1">
                 <span className="truncate text-xs font-medium">
-                  {post.user.displayName || post.user.username}
+                  {post.user?.displayName || post.user?.username || "Anonymous"}
                 </span>
-                <UserBadge badge={post.user.badge} badges={post.user.badges} />
+                <UserBadge
+                  badge={post.user?.badge}
+                  badges={post.user?.badges}
+                />
               </div>
               <p className="text-muted-foreground truncate text-[11px]">
-                @{post.user.username}
+                @{post.user?.username || "unknown"}
               </p>
             </div>
           </div>
@@ -196,7 +199,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
 
       <div className="text-muted-foreground flex flex-nowrap items-center gap-2 overflow-x-hidden px-3 pb-3 text-xs">
         <AuraVoteButton
-          authorName={post.user.displayName}
+          authorName={post.user?.displayName || post.user?.username}
           expandable={false}
           initialState={{
             aura: post.aura,

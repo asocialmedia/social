@@ -77,6 +77,10 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
     getServerIsMobile
   );
 
+  if (!user || isMobile) {
+    return children;
+  }
+
   const followerState: FollowerInfo = {
     followers: user._count?.followers ?? 0,
     isFollowedByUser: user.followers
@@ -85,10 +89,6 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
         )
       : false,
   };
-
-  if (isMobile) {
-    return children;
-  }
 
   return (
     <TooltipProvider>

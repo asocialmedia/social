@@ -29,6 +29,9 @@ import PostModerationDialog from "./post-moderation-dialog";
 
 interface PostMoreButtonProps {
   className?: string;
+  // Extra entries rendered at the top of the dropdown (e.g. the gust player's
+  // captions and transcript toggles), styled like the built-in items.
+  extraItems?: React.ReactNode;
   post: PostData;
   /** Applies the media page's dark 3D chip styling (same look as the mobile
    * viewer's control buttons) instead of the default pill hover treatment. */
@@ -39,6 +42,7 @@ export default function PostMoreButton({
   post,
   className,
   variant = "default",
+  extraItems,
 }: PostMoreButtonProps) {
   const { user } = useSession();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -148,6 +152,7 @@ export default function PostMoreButton({
           align="end"
           className="apple-panel p-1.5 shadow-none"
         >
+          {extraItems}
           {canModerate ? (
             <DropdownMenuItem
               className="pill-3d-hover rounded-md px-2 py-2"
@@ -170,7 +175,7 @@ export default function PostMoreButton({
               </span>
             </DropdownMenuItem>
           ) : null}
-          {hasVideo ? (
+          {hasVideo && !post.moderated ? (
             <DropdownMenuItem
               className="pill-3d-hover rounded-md px-2 py-2"
               onClick={handleToggleCaptions}

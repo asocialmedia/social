@@ -6,6 +6,11 @@ import { cn } from "@/lib/utils";
 
 interface FileInputProps {
   disabled: boolean;
+  // Button types that are individually locked (e.g. audio when the draft
+  // already carries a video or a GIF) while sibling buttons stay available.
+  disabledTypes?: FileButtonType[];
+  // Per-type lock reason shown as a native tooltip on the disabled button.
+  explanations?: Partial<Record<FileButtonType, string>>;
   onFilesSelected: (files: File[]) => void;
   // Restrict which file buttons render; undefined = all. videoOnly (gusts)
   // keeps only the image button regardless.
@@ -13,13 +18,16 @@ interface FileInputProps {
   videoOnly?: boolean;
 }
 
-type FileButtonType = "image" | "audio";
+export type FileButtonType = "image" | "audio";
 
 interface FileButtonProps {
   accept: string;
   buttonType: FileButtonType;
   capture?: boolean | "user" | "environment";
   disabled: boolean;
+  // Native tooltip explaining why the button is disabled (disabled buttons
+  // swallow pointer events, so a title is the reliable way to surface this).
+  explanation?: string;
   handleFileSelect: (files: FileList | null) => void;
   hoveredButton: FileButtonType | null;
   icon: typeof ImageIcon | typeof FileAudioIcon;
@@ -41,6 +49,7 @@ const FileButton = ({
   hoveredButton,
   setHoveredButton,
   disabled,
+  explanation,
   handleFileSelect,
   videoOnly = false,
 }: FileButtonProps) => {
@@ -90,6 +99,7 @@ const FileButton = ({
     <>
       <button
         aria-label={label}
+        aria-disabled={disabled || undefined}
         className={cn(
           "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
           disabled &&
@@ -101,6 +111,7 @@ const FileButton = ({
         onFocus={handleFocus}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        title={disabled ? explanation : undefined}
         type="button"
       >
         <span className="flex items-center gap-1.5">
@@ -163,6 +174,8 @@ const FILE_BUTTONS: Omit<
 export const FileInput = ({
   onFilesSelected,
   disabled,
+  disabledTypes,
+  explanations,
   types,
   videoOnly = false,
 }: FileInputProps) => {
@@ -203,7 +216,10 @@ export const FileInput = ({
       {buttons.map((config) => (
         <FileButton
           {...config}
-          disabled={disabled}
+          disabled={
+            disabled || Boolean(disabledTypes?.includes(config.buttonType))
+          }
+          explanation={explanations?.[config.buttonType]}
           handleFileSelect={handleFileSelect}
           hoveredButton={hoveredButton}
           inputRef={setInputRef(config.buttonType)}
