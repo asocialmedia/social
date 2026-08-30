@@ -186,15 +186,17 @@ ON "users" ((CASE WHEN 'author' = ANY(badges) THEN 'author' ELSE NULL END));
 SQL
 bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file /tmp/single-slot-indexes.sql
 
-# One-shot data backfills run here on every sync invocation. Each one guards
+# One-shot data synchronizations run here on every sync invocation. Each one guards
 # itself (marker table + advisory lock) so exactly zero or one of them does
 # work per deployment fleet, and failures never block app deploys: the next
 # sync retries until the marker lands.
-echo "Running one-shot backfills..."
-if bun /app/backfill.js; then
-  echo "Trending-score backfill step OK."
+echo "Running score synchronization..."
+if [ -f /app/sync-scores.js ] && bun /app/sync-scores.js; then
+  echo "Trending-score sync step OK."
+elif [ -f /app/backfill.js ] && bun /app/backfill.js; then
+  echo "Trending-score sync (legacy fallback) step OK."
 else
-  echo "WARNING: trending-score backfill failed; it will retry on the next sync deploy." >&2
+  echo "WARNING: trending-score sync failed; it will retry on the next sync deploy." >&2
 fi
 
 echo "PRISMA_SYNC_OK: Prisma schema sync complete."

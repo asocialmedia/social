@@ -71,15 +71,15 @@ async function recordMarker(name: string): Promise<void> {
   `;
 }
 
-// Backfills trendingScore for all non-gust posts in chunks, resuming after
+// Synchronizes trendingScore for all non-gust posts in chunks, resuming after
 // `resumeAfterId` when provided. Returns the number of batches processed and
 // posts updated so tests/wrappers can assert on the outcome.
-export async function backfillTrendingScores(options: {
+export async function syncTrendingScores(options: {
   resumeAfterId?: string;
 }): Promise<{ batches: number; postsUpdated: number }> {
   const startedAtMs = Date.now();
   let batches = 0;
-  let postsBackfilled = 0;
+  let postsSynced = 0;
 
   // findMany with a cursor pointing at a nonexistent id makes Prisma throw,
   // so verify the resume anchor exists up front and fail with a clear message.
@@ -90,7 +90,7 @@ export async function backfillTrendingScores(options: {
     });
     if (anchorPost === null) {
       throw new Error(
-        `Cannot resume: no post exists with id "${options.resumeAfterId}" (--after). Omit --after to backfill from the beginning.`
+        `Cannot resume: no post exists with id "${options.resumeAfterId}" (--after). Omit --after to sync from the beginning.`
       );
     }
   }
@@ -143,7 +143,7 @@ export async function backfillTrendingScores(options: {
       ) AS v(id, score)
       WHERE p.id = v.id
     `;
-    postsBackfilled += updatedCount;
+    postsSynced += updatedCount;
     batches += 1;
 
     const lastPostInBatch = posts.at(-1);
@@ -154,7 +154,7 @@ export async function backfillTrendingScores(options: {
 
     if (batches % LOG_EVERY_BATCHES === 0) {
       console.log(
-        `[backfill] ${batches} batches done, ${postsBackfilled} posts updated; last processed post id: ${cursorId}`
+        `[sync-scores] ${batches} batches done, ${postsSynced} posts updated; last processed post id: ${cursorId}`
       );
       console.log(
         `[sync-scores] to resume from here: bun scripts/sync-trending-scores.ts --after=${cursorId}`
@@ -170,10 +170,10 @@ export async function backfillTrendingScores(options: {
     2
   );
   console.log(
-    `[backfill] complete: ${postsBackfilled} posts updated across ${batches} batches in ${elapsedSeconds}s`
+    `[sync-scores] complete: ${postsSynced} posts updated across ${batches} batches in ${elapsedSeconds}s`
   );
 
-  return { batches, postsUpdated: postsBackfilled };
+  return { batches, postsUpdated: postsSynced };
 }
 
 // Deploy-safe entrypoint: marker-checked, lock-guarded, single-run. Returns
@@ -187,18 +187,18 @@ const LOCK_MAX_WAIT_MS = 30_000;
 // 'void'"), so the try variant - which returns a real boolean - is used
 // instead, wrapped in a short bounded wait to preserve the old
 // lose-and-recheck behaviour across concurrent deploy containers.
-async function tryAcquireBackfillLock(): Promise<boolean> {
+async function tryAcquireSyncLock(): Promise<boolean> {
   const rows = await prisma.$queryRaw<{ locked: boolean }[]>`
     SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY}) AS locked
   `;
   return rows[0]?.locked === true;
 }
 
-async function acquireBackfillLock(): Promise<boolean> {
+async function acquireSyncLock(): Promise<boolean> {
   let waitedMs = 0;
   while (true) {
     // oxlint-disable-next-line no-await-in-loop -- polling is inherently sequential
-    const locked = await tryAcquireBackfillLock();
+    const locked = await tryAcquireSyncLock();
     if (locked) {
       return true;
     }
@@ -211,7 +211,7 @@ async function acquireBackfillLock(): Promise<boolean> {
   }
 }
 
-export async function ensureTrendingScoresBackfilled(options: {
+export async function ensureTrendingScoresSynced(options: {
   force?: boolean;
   resumeAfterId?: string;
 }): Promise<{ ran: boolean; batches: number; postsUpdated: number }> {
@@ -219,19 +219,19 @@ export async function ensureTrendingScoresBackfilled(options: {
 
   // Advisory lock across containers: the loser polls briefly, then sees the
   // winner's marker and skips without touching data.
-  const locked = await acquireBackfillLock();
+  const locked = await acquireSyncLock();
   if (!locked) {
     throw new Error(
-      "Could not acquire the backfill advisory lock within 30s - another container is likely mid-backfill. Retry shortly."
+      "Could not acquire the sync advisory lock within 30s - another container is likely mid-sync. Retry shortly."
     );
   }
   try {
     if (!options.force && (await hasMarker(MARKER_NAME))) {
-      console.log("[backfill] already completed previously, skipping");
+      console.log("[sync-scores] already completed previously, skipping");
       return { batches: 0, postsUpdated: 0, ran: false };
     }
 
-    const result = await backfillTrendingScores({
+    const result = await syncTrendingScores({
       resumeAfterId: options.resumeAfterId,
     });
     await recordMarker(MARKER_NAME);
@@ -246,18 +246,18 @@ if (import.meta.main) {
   const resumeAfterId = parseFlag(process.argv, RESUME_FLAG_PREFIX);
   const force = process.argv.includes(FORCE_FLAG);
   if (resumeAfterId !== undefined) {
-    console.log(`[backfill] resuming after post id: ${resumeAfterId}`);
+    console.log(`[sync-scores] resuming after post id: ${resumeAfterId}`);
   }
   if (force) {
-    console.log("[backfill] --force set, ignoring any completion marker");
+    console.log("[sync-scores] --force set, ignoring any completion marker");
   }
 
   let exitCode = 0;
   try {
-    await ensureTrendingScoresBackfilled({ force, resumeAfterId });
+    await ensureTrendingScoresSynced({ force, resumeAfterId });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[backfill] failed: ${message}`);
+    console.error(`[sync-scores] failed: ${message}`);
     exitCode = 1;
   } finally {
     await prisma.$disconnect();

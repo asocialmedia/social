@@ -30,7 +30,7 @@ RUN cd packages/db && bunx prisma generate
 
 RUN bun build scripts/sync-trending-scores.ts \
       --target=bun \
-      --outfile /app/dist/backfill.js \
+      --outfile /app/dist/sync-scores.js \
       --tsconfig-override scripts/tsconfig.json \
       --external msgpackr-extract
 
@@ -47,7 +47,7 @@ COPY packages/db/prisma ./packages/db/prisma
 COPY packages/db/prisma.config.ts ./packages/db/prisma.config.ts
 COPY packages/db/keys.ts ./packages/db/keys.ts
 
-COPY --from=build /app/dist/backfill.js /app/backfill.js
+COPY --from=build /app/dist/sync-scores.js /app/sync-scores.js
 
 COPY docker/prisma-sync.sh /usr/local/bin/prisma-sync.sh
 RUN chmod +x /usr/local/bin/prisma-sync.sh
