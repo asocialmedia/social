@@ -33,6 +33,7 @@ import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
+import { isBookmarkedByUser } from "@/lib/post-normalize";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
@@ -131,7 +132,7 @@ const PostContent: React.FC<PostContentProps> = ({
           <Link className="shrink-0 self-start" href={authorProfileHref}>
             <UserAvatar
               avatarUrl={authorAvatarUrl}
-              className="h-10 w-10"
+              className="h-9 w-9 sm:h-10 sm:w-10"
               priority
             />
           </Link>
@@ -139,8 +140,8 @@ const PostContent: React.FC<PostContentProps> = ({
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="relative flex min-h-8 items-start gap-2">
-          {detail ? (
+        {detail ? (
+          <div className="relative flex items-start gap-2 sm:gap-3">
             <UserTooltip user={post.user}>
               <Link
                 className="shrink-0 self-start"
@@ -149,14 +150,12 @@ const PostContent: React.FC<PostContentProps> = ({
               >
                 <UserAvatar
                   avatarUrl={authorAvatarUrl}
-                  className="h-12 w-12"
+                  className="h-10 w-10 sm:h-12 sm:w-12"
                   priority
                 />
               </Link>
             </UserTooltip>
-          ) : null}
 
-          {detail ? (
             <div className="min-w-0 flex-1 pr-[4.75rem]">
               <div className="flex min-w-0 items-center gap-2">
                 <UserTooltip user={post.user}>
@@ -200,8 +199,24 @@ const PostContent: React.FC<PostContentProps> = ({
                 )}
               </div>
             </div>
-          ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-2 pr-[4.75rem] text-sm">
+
+            <div className="absolute top-0 right-0 z-10 flex shrink-0 items-center gap-1 sm:gap-1.5">
+              <PostMoreButton
+                className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5"
+                post={post}
+              />
+              <BookmarkButton
+                className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
+                initialState={{
+                  isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+                }}
+                postId={post.id}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="relative z-10 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
               <UserTooltip user={post.user}>
                 <Link
                   className="text-foreground truncate font-semibold hover:underline"
@@ -231,27 +246,31 @@ const PostContent: React.FC<PostContentProps> = ({
                 {formatRelativeDate(post.createdAt)}
               </Link>
             </div>
-          )}
 
-          <div className="absolute top-0 right-0 flex shrink-0 items-center gap-1.5">
-            <PostMoreButton className="h-8 w-8 p-0" post={post} />
-            <BookmarkButton
-              className="h-8 w-8 p-0"
-              initialState={{
-                isBookmarkedByUser: post.bookmarks.some(
-                  (bookmark) => bookmark.userId === currentUserId
-                ),
-              }}
-              postId={post.id}
-            />
+            <div className="-my-1 flex shrink-0 items-center gap-1 sm:gap-1.5">
+              <PostMoreButton
+                className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5"
+                post={post}
+              />
+              <BookmarkButton
+                className="hidden h-7 w-7 p-0 sm:inline-flex sm:h-7.5 sm:w-7.5"
+                initialState={{
+                  isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+                }}
+                postId={post.id}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {post.moderated ? (
           <ModeratedNotice className="mt-2.5" kind="post" />
         ) : (
           <>
-            <div className={cn(!isExpanded && "line-clamp-6")} ref={contentRef}>
+            <div
+              className={cn(!isExpanded && "line-clamp-6", detail && "mt-3.5")}
+              ref={contentRef}
+            >
               {/* URLs inside the content render as inline badges (platform
                   logo + resolved embed title) instead of raw URLs. */}
               <PostLinkedContent content={post.content} embeds={postEmbeds} />
@@ -318,8 +337,57 @@ const PostContent: React.FC<PostContentProps> = ({
           </>
         )}
 
-        <div className="mt-3 flex items-center justify-between gap-2">
+        {/* Mobile bottom action bar: full-width justified with equal spacing across all buttons (Twitter style) */}
+        <div className="mt-3 flex w-full items-center justify-between sm:hidden">
+          <AuraVoteButton
+            authorName={post.user.displayName}
+            initialState={{
+              aura: post.aura,
+              userVote: post.vote[0]?.value || 0,
+            }}
+            postId={post.id}
+          />
+          <CommentButton onClick={onToggleComments} post={post} />
+          <span
+            className="text-muted-foreground flex h-7 cursor-default items-center gap-1 rounded-full px-1"
+            title="Views"
+          >
+            <Eye className="size-4" />
+            <span className="text-xs tabular-nums">
+              {formatNumber(post.viewCount)}
+            </span>
+          </span>
           <div className="flex items-center gap-1">
+            <ShareButton
+              defaultTab="link"
+              description={post.moderated ? "" : post.content}
+              dialogDescription="Share this post with your network"
+              dialogTitle="Share Post"
+              postId={post.id}
+              thumbnail={
+                post.moderated || !post.attachments[0]
+                  ? `/posts/${post.id}/opengraph-image`
+                  : getMediaProxyUrl(post.attachments[0])
+              }
+              title={
+                post.moderated
+                  ? `Post on asocialmedia`
+                  : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
+              }
+            />
+            <BookmarkButton
+              className="h-7 w-7 p-0"
+              initialState={{
+                isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+              }}
+              postId={post.id}
+            />
+          </div>
+        </div>
+
+        {/* Desktop bottom action bar: classic layout with left and right groups, sized 1pt smaller */}
+        <div className="mt-3 hidden sm:flex sm:items-center sm:justify-between sm:gap-2">
+          <div className="flex items-center gap-1.5">
             <AuraVoteButton
               authorName={post.user.displayName}
               initialState={{
@@ -331,13 +399,13 @@ const PostContent: React.FC<PostContentProps> = ({
             <CommentButton onClick={onToggleComments} post={post} />
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <span
-              className="text-muted-foreground flex h-8 cursor-default items-center gap-1.5 rounded-full px-2"
+              className="text-muted-foreground flex h-7.5 cursor-default items-center gap-1.5 rounded-full px-2"
               title="Views"
             >
-              <Eye className="size-5" />
-              <span className="text-sm tabular-nums">
+              <Eye className="size-4.5" />
+              <span className="text-[13px] tabular-nums">
                 {formatNumber(post.viewCount)}
               </span>
             </span>
@@ -439,12 +507,14 @@ const CommentButton = ({ post, onClick }: CommentButtonProps) => {
   const hasComments = post._count.comments > 0;
   return (
     <button
-      className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
+      className="pill-3d-hover group text-muted-foreground inline-flex h-7 items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs font-medium active:translate-y-px sm:h-7.5 sm:px-2 sm:text-[13px]"
       onClick={onClick}
       type="button"
     >
-      <MessageSquare className={cn("size-5", hasComments && "fill-current")} />
-      <span className="text-sm font-medium tabular-nums">
+      <MessageSquare
+        className={cn("size-4 sm:size-4.5", hasComments && "fill-current")}
+      />
+      <span className="text-xs font-medium tabular-nums sm:text-[13px]">
         {post._count.comments}
       </span>
     </button>

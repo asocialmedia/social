@@ -94,7 +94,7 @@ export default function BookmarkButton({
     <button
       aria-label={data.isBookmarkedByUser ? "Remove bookmark" : "Bookmark post"}
       className={cn(
-        "group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium transition-all duration-200 ease-out outline-none active:translate-y-px",
+        "group text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-full border-0 p-0 transition-all duration-200 ease-out outline-none active:translate-y-px sm:h-7.5 sm:w-7.5",
         !data.isBookmarkedByUser && "pill-3d-hover",
         data.isBookmarkedByUser &&
           "bg-gradient-to-b from-[#fbbf24] to-[#d97706] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(150,90,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]",
@@ -105,7 +105,7 @@ export default function BookmarkButton({
     >
       <Bookmark
         className={cn(
-          "size-5 transition-colors",
+          "size-4 transition-colors sm:size-4.5",
           data.isBookmarkedByUser && "fill-white text-white"
         )}
       />

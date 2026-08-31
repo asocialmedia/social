@@ -168,3 +168,122 @@ export function applyCommentCountDeltaToCaches(
     }
   );
 }
+
+// Heals stale PostData that lost its viewer-scoped `bookmarks` (and `vote`)
+// join during serialization or optimistic construction. Runs as a synchronous
+// patch over every cached query so the UI stops crashing immediately; the
+// caller should then invalidate the affected queries to revalidate from the
+// server Data Cache (`hydrateViewCounts` now guarantees the shape).
+function isStalePostRecord(record: Record<string, unknown>): boolean {
+  if (typeof record.id !== "string" || typeof record.content !== "string") {
+    return false;
+  }
+  if (typeof record.aura !== "number" || typeof record.userId !== "string") {
+    return false;
+  }
+  return !Array.isArray(record.bookmarks);
+}
+
+function hasStalePostData(data: unknown): boolean {
+  let found = false;
+  walkForStale(data, (record) => {
+    if (isStalePostRecord(record)) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+export function repairStalePostCaches(queryClient: QueryClient): boolean {
+  // Avoid calling setQueriesData when there is nothing stale - otherwise the
+  // queryCache.subscribe listener (FeedView) would be retriggered on every
+  // cache write and recurse infinitely. Pre-scan first without writing.
+  let hasStale = false;
+  for (const query of queryClient.getQueryCache().findAll()) {
+    const { data } = query.state;
+    if (!data || typeof data !== "object") {
+      continue;
+    }
+    if (hasStalePostData(data)) {
+      hasStale = true;
+      break;
+    }
+  }
+  if (!hasStale) {
+    return false;
+  }
+  let repaired = false;
+  updateCacheByPredicate(queryClient, isStalePostRecord, (record) => {
+    repaired = true;
+    return {
+      ...record,
+      attachments: Array.isArray(record.attachments) ? record.attachments : [],
+      bookmarks: [],
+      mentions: Array.isArray(record.mentions) ? record.mentions : [],
+      tags: Array.isArray(record.tags) ? record.tags : [],
+      vote: Array.isArray(record.vote) ? record.vote : [],
+    };
+  });
+  return repaired;
+}
+
+export function forceInvalidatePostFeeds(queryClient: QueryClient): void {
+  for (const key of [
+    ["post-feed"],
+    ["gusts-feed"],
+    ["related-posts"],
+    ["post-history"],
+    ["popularTags"],
+  ] as const) {
+    void queryClient.invalidateQueries({
+      queryKey: key as unknown as unknown[],
+    });
+  }
+}
+
+export function invalidateStalePostCaches(queryClient: QueryClient): boolean {
+  const staleKeys = new Set<string>();
+  const cache = queryClient.getQueryCache();
+  for (const query of cache.findAll()) {
+    const { data } = query.state;
+    if (!data || typeof data !== "object") {
+      continue;
+    }
+    if (hasStalePostData(data)) {
+      staleKeys.add(JSON.stringify(query.queryKey));
+    }
+  }
+  if (staleKeys.size === 0) {
+    return false;
+  }
+  forceInvalidatePostFeeds(queryClient);
+  // Also invalidate any exact stale keys not covered by the broad set.
+  for (const raw of staleKeys) {
+    try {
+      const key = JSON.parse(raw) as unknown[];
+      void queryClient.invalidateQueries({ queryKey: key });
+    } catch {
+      // ignore
+    }
+  }
+  return true;
+}
+
+function walkForStale(
+  node: unknown,
+  onRecord: (record: Record<string, unknown>) => void
+): void {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      walkForStale(item, onRecord);
+    }
+    return;
+  }
+  if (node && typeof node === "object") {
+    const record = node as Record<string, unknown>;
+    onRecord(record);
+    for (const value of Object.values(record)) {
+      walkForStale(value, onRecord);
+    }
+  }
+}

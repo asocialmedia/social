@@ -1,18 +1,9 @@
 <div align="center">
 
-<a href="#about---the-whats--whys"><kbd> <br> What? <br> </kbd></a>&ensp;&ensp; <a href="#aura-"><kbd> <br> Aura!? <br> </kbd></a>&ensp;&ensp; <a href="#the-algorithm-"><kbd> <br> Algorithm! <br> </kbd></a>&ensp;&ensp; <a href="#zeph-"><kbd> <br> The Big Idea? <br> </kbd></a>&ensp;&ensp; <a href="#the-big-idea-"><kbd> <br> References  <br> </kbd></a>&ensp;&ensp;
-
-</div>
-
----
-
-<div align="center">
-
-  <a href="https://github.com/asocialmedia/social">
+  <a href="https://asocialmedia.cc">
     <img src="https://zr2.asocialmedia.cc/Assets/zephyr-githubanner.jpg" alt="asocialmedia Banner" width="90%"/>
   </a>
 
-  <br>
   <br>
 
   <h3><strong>asocialmedia</strong></h3>
@@ -20,28 +11,12 @@
 
 </div>
 <br>
-<br>
 
 ### _<div align="center"><sub>About - The What's & Why's?</sub></div>_
 
-It's a social platform but not in the "here's another place to doom scroll" way. asocialmedia is built around the idea that your online life is fragmented across too many places, and that a single intelligent platform should be able to hold all of it together without making you feel like you're using a Swiss Army knife that's also on fire.
-
 You post. You discover. You engage. You build a reputation. And the longer you're here, the more asocialmedia understands you what you care about, what you create, what kind of chaos you enjoy at 2am. It's a living, breathing feed that grows with you, not against you.
 
-Oh, and it's open source. Because the audacity of building this should be public.
-
-<br>
-
-<div align="center">
-
-| Logo | About |
-| --- | --- |
-| <img src="https://zr2.asocialmedia.cc/Assets/asm.png" alt="asocialmedia Logo" width="120px"/> | **asocialmedia ✦ Asocialverse**<br><br>- Your entire internet in one cozy feed<br>- Open source & built in public<br>- Aggregate, bookmark & reshare from anywhere<br>- Earn Aura your reputation across the Asocialverse<br>- A unified algorithm that actually learns _you_ |
-| <img src="https://zr2.asocialmedia.cc/Assets/zeph.png" alt="Zeph AI Logo" width="120px"/> | **Zeph ✦ Companion**<br><br>- Your AI companion that lives inside the Asocialverse<br>- Remembers everything across the entire platform<br>- Helps you write, refine, and post better<br>- Knows your context wherever you go<br>- Not a chatbot. A companion. |
-
-<sub><em>Logos that you will see frequently</em></sub>
-
-</div>
+Oh, and it's open. Because the audacity of building this should be public.
 
 <br>
 
@@ -63,28 +38,10 @@ Think of it like XP in a game, except the game is the internet and the leaderboa
   <!-- <img src="https://zr2.asocialmedia.cc/Assets/singxzep-github-banner.jpg"
       alt="asocialmedia atmospheric artwork" width="80%"> -->
   <br>
-  <sub><em>Artwork by the Singularity Works team</em></sub>
+  <sub><em>Artwork by the Singularity Works</em></sub>
 </p>
 
 <br>
-
-#### _<div align="right"><sub>The Algorithm ?</sub></div>_
-
-Here's the thing about most recommendation algorithms: they optimize for engagement, which is a polite word for "we figured out what makes you anxious and we're leaning into it."
-
-asocialmedia's algorithm is different not because we're morally superior (we're not, we're just developers), but because it has more to work with. Every interaction you have across every feature posts, communities, bookmarks, content you engage with, content you skip feeds a single unified recommendation layer.
-
-It's not "here are things similar to the last thing you clicked." It's "here is a picture of what you actually care about, assembled from everything you've done here." The algorithm learns across contexts, not just within one. Which means the more you use asocialmedia, the more eerily accurate it gets. You've been warned.
-
-#### _<div align="right"><sub>Zeph !</sub></div>_
-
-Every platform has an AI assistant now. Most of them have the memory of a goldfish with a concussion.
-
-**Zeph** is asocialmedia's AI companion, and the key difference is context. Zeph is woven into the entire platform not bolted on as an afterthought. It remembers what you've posted, what you've bookmarked, what communities you're in, what you've been working on. It retains memory across every corner of asocialmedia.
-
-Ask Zeph to help you write a post it knows your voice. Ask it to summarize a community thread it knows what you've already read. Ask it for recommendations it knows what you actually like, not what the algorithm thinks you should like.
-
-It's not a chatbot. It's a companion that's been paying attention.
 
 #### _<div align="right"><sub>The Big Idea ?</sub></div>_
 
@@ -112,7 +69,7 @@ This isn't a feature list. It's a different way of thinking about what social so
     <td align="center">
       <a href="https://asocialmedia.cc">
         <img src="https://zr2.asocialmedia.cc/Assets/zeph.png" alt="Zeph AI" width="80px"/><br>
-        <strong>Zeph AI (WIP)</strong><br>
+        <strong>Zeph</strong><br>
         <sub>Your Companion for asocialmedia</sub>
       </a>
     </td>

@@ -515,13 +515,13 @@ const ShareButton = ({
       <button
         aria-label="Share"
         className={cn(
-          "pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center rounded-full border-0 px-2 text-sm font-medium active:translate-y-px",
+          "pill-3d-hover group text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-full border-0 p-0 active:translate-y-px sm:h-7.5 sm:w-7.5",
           className
         )}
         onClick={handleOpen}
         type="button"
       >
-        <Share2 className="h-5 w-5" />
+        <Share2 className="size-4 sm:size-4.5" />
       </button>
       <DialogContent
         className="apple-panel w-full max-w-120 gap-4 overflow-hidden rounded-2xl p-0"

@@ -49,6 +49,7 @@ import Linkify from "@/helpers/global/linkify";
 import { useExplicitRevealed } from "@/lib/explicit-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
+import { isBookmarkedByUser } from "@/lib/post-normalize";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -780,9 +781,7 @@ const MediaViewer = ({
           <BookmarkButton
             className="h-9 w-9"
             initialState={{
-              isBookmarkedByUser: post.bookmarks.some(
-                (bookmark) => bookmark.userId === sessionUser?.id
-              ),
+              isBookmarkedByUser: isBookmarkedByUser(post, sessionUser?.id),
             }}
             postId={post.id}
           />
@@ -1089,8 +1088,9 @@ const MediaViewer = ({
                   <BookmarkButton
                     className="h-9 w-9"
                     initialState={{
-                      isBookmarkedByUser: post.bookmarks.some(
-                        (bookmark) => bookmark.userId === sessionUser?.id
+                      isBookmarkedByUser: isBookmarkedByUser(
+                        post,
+                        sessionUser?.id
                       ),
                     }}
                     postId={post.id}
@@ -1569,8 +1569,9 @@ const MediaViewer = ({
                 <BookmarkButton
                   className="h-9 w-9"
                   initialState={{
-                    isBookmarkedByUser: post.bookmarks.some(
-                      (bookmark) => bookmark.userId === sessionUser?.id
+                    isBookmarkedByUser: isBookmarkedByUser(
+                      post,
+                      sessionUser?.id
                     ),
                   }}
                   postId={post.id}

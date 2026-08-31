@@ -29,7 +29,7 @@ Thank you for your interest in contributing to asocialmedia! This guide will hel
 
 ```sh
 # Start development server
-bun turbo dev
+bun run docker:dev && bun run dev
 ```
 
 ```sh

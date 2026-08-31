@@ -4,7 +4,14 @@ import type { PostData } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useState } from "react";
+
+import {
+  forceInvalidatePostFeeds,
+  repairStalePostCaches,
+} from "@/lib/cache-sync";
+import { normalizePostsData } from "@/lib/post-normalize";
 
 import PostCard from "./feedview/post-card";
 
@@ -25,7 +32,28 @@ export const FeedView: React.FC<FeedViewProps> = ({
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
   const queryClient = useQueryClient();
-  const [posts, setPosts] = useState<PostData[]>(initialPosts);
+  const router = useRouter();
+  const normalizedInitial = useMemo(
+    () => normalizePostsData(initialPosts ?? []),
+    [initialPosts]
+  );
+  const [posts, setPosts] = useState<PostData[]>(normalizedInitial);
+
+  // Self-heal: stale `post.bookmarks` entries (pre-fix cache, persisted SSR
+  // props, or optimistic drafts) crash `post.bookmarks.some` in production.
+  // Patch them synchronously to `[]` so the render never throws, then
+  // revalidate the server Data Cache (Next.js `use cache` / `fetchCache`) and
+  // React Query feeds in the background. This respects `cacheComponents: true`
+  // (`app` default) - `router.refresh()` revalidates the `use cache` segments
+  // and `fetchCache` routes, while `forceInvalidatePostFeeds` refetches the
+  // client `post-feed` queries that hydrated from `hydrateViewCounts`.
+  useEffect(() => {
+    const didRepair = repairStalePostCaches(queryClient);
+    if (didRepair) {
+      forceInvalidatePostFeeds(queryClient);
+      router.refresh();
+    }
+  }, [queryClient, router]);
 
   useEffect(() => {
     const unsubscribe = queryClient.getQueryCache().subscribe(() => {
@@ -37,11 +65,15 @@ export const FeedView: React.FC<FeedViewProps> = ({
         });
 
         if (feedQueries.length > 0) {
-          const updatedPosts = feedQueries
-            .flatMap(([, data]) =>
-              (data?.pages?.flatMap((page) => page.posts) || []).filter(Boolean)
-            )
-            .filter((post) => post.id !== excludePostId);
+          const updatedPosts = normalizePostsData(
+            feedQueries
+              .flatMap(([, data]) =>
+                (data?.pages?.flatMap((page) => page.posts) || []).filter(
+                  Boolean
+                )
+              )
+              .filter((post) => post.id !== excludePostId)
+          );
 
           if (updatedPosts.length) {
             const uniquePosts = [
@@ -71,10 +103,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
   if (
     syncInputs === null ||
     syncInputs.excludePostId !== excludePostId ||
-    syncInputs.initialPosts !== initialPosts ||
+    syncInputs.initialPosts !== normalizedInitial ||
     syncInputs.posts !== posts
   ) {
-    const safeInitial = (initialPosts || [])
+    const safeInitial = (normalizedInitial || [])
       .filter(Boolean)
       .filter((post) => post.id !== excludePostId);
     const initialFirstId = safeInitial[0]?.id;
@@ -87,10 +119,14 @@ export const FeedView: React.FC<FeedViewProps> = ({
       const uniquePosts = [
         ...new Map(safeInitial.map((post) => [post.id, post])).values(),
       ];
-      setSyncInputs({ excludePostId, initialPosts, posts: uniquePosts });
+      setSyncInputs({
+        excludePostId,
+        initialPosts: normalizedInitial,
+        posts: uniquePosts,
+      });
       setPosts(uniquePosts);
     } else {
-      setSyncInputs({ excludePostId, initialPosts, posts });
+      setSyncInputs({ excludePostId, initialPosts: normalizedInitial, posts });
     }
   }
 

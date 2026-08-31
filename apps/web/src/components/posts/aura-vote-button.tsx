@@ -14,6 +14,7 @@ import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {
   authorName: string;
+  className?: string;
   // When set, the vote targets a comment eddie instead of a post. The rest of
   // the component (optimistic aura, endpoints, toasts) adapts automatically so
   // posts and eddies share one implementation.
@@ -35,6 +36,7 @@ function calculateVoteChange(oldVote: number, newVote: number): number {
 
 export default function AuraVoteButton({
   authorName,
+  className,
   commentId,
   expandable = true,
   initialState,
@@ -182,7 +184,7 @@ export default function AuraVoteButton({
   }, [goToLogin, isLoggedIn, mutate]);
 
   const baseButtonClasses =
-    "group inline-flex h-8 items-center justify-center rounded-full border-0 px-2 font-medium text-sm text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
+    "group inline-flex h-7 sm:h-7.5 items-center justify-center rounded-full border-0 px-1.5 sm:px-2 font-medium text-xs sm:text-[13px] text-muted-foreground outline-none transition-all duration-200 ease-out active:translate-y-px";
 
   const upGradientClasses = cn(
     "vote-btn-up",
@@ -201,56 +203,64 @@ export default function AuraVoteButton({
     "hover:bg-gradient-to-b hover:from-[#7c5cff] hover:to-[#5a3ae0] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4),inset_0_1.5px_2px_rgba(255,255,255,0.6),0_0_0_1px_rgba(70,40,170,0.45),0_1px_1px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.1)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
   return (
-    <div className="flex items-center gap-1">
-      <button
-        aria-label="Amplify"
-        className={cn(
-          baseButtonClasses,
-          data.userVote === 1 ? upGradientClasses : upHoverClasses
-        )}
-        onClick={handleVoteUp}
-        type="button"
-      >
-        <ArrowBigUp
+    <div
+      className={cn("contents sm:flex sm:items-center sm:gap-1.5", className)}
+    >
+      <div className="flex items-center gap-0.5 sm:gap-1">
+        <button
+          aria-label="Amplify"
           className={cn(
-            "size-5 transition-all duration-200",
-            data.userVote === 1 ? "fill-white" : ""
+            baseButtonClasses,
+            data.userVote === 1
+              ? cn(upGradientClasses, "text-white")
+              : upHoverClasses
           )}
-        />
-        {expandable ? (
-          <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
-            Amplify
-          </span>
-        ) : null}
-      </button>
-      <button
-        aria-label="Mute"
-        className={cn(
-          baseButtonClasses,
-          data.userVote === -1 ? downGradientClasses : downHoverClasses
-        )}
-        onClick={handleVoteDown}
-        type="button"
-      >
-        <ArrowBigDown
+          onClick={handleVoteUp}
+          type="button"
+        >
+          <ArrowBigUp
+            className={cn(
+              "size-4 transition-all duration-200 sm:size-4.5",
+              data.userVote === 1 ? "fill-white" : ""
+            )}
+          />
+          {expandable ? (
+            <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:max-w-20 group-hover:opacity-100">
+              Amplify
+            </span>
+          ) : null}
+        </button>
+        <button
+          aria-label="Mute"
           className={cn(
-            "size-5 transition-all duration-200",
-            data.userVote === -1 ? "fill-white" : ""
+            baseButtonClasses,
+            data.userVote === -1
+              ? cn(downGradientClasses, "text-white")
+              : downHoverClasses
           )}
-        />
-        {expandable ? (
-          <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-2 group-hover:max-w-20">
-            Mute
-          </span>
-        ) : null}
-      </button>
+          onClick={handleVoteDown}
+          type="button"
+        >
+          <ArrowBigDown
+            className={cn(
+              "size-4 transition-all duration-200 sm:size-4.5",
+              data.userVote === -1 ? "fill-white" : ""
+            )}
+          />
+          {expandable ? (
+            <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:max-w-20 group-hover:opacity-100">
+              Mute
+            </span>
+          ) : null}
+        </button>
+      </div>
       <span
-        className="text-muted-foreground flex h-8 items-center gap-1 rounded-full px-2 text-base font-semibold tabular-nums"
+        className="text-muted-foreground flex h-7 items-center gap-1 rounded-full px-1.5 text-xs font-semibold tabular-nums sm:h-7.5 sm:px-2 sm:text-[13px]"
         title="Aura"
       >
         <Flame
           aria-hidden="true"
-          className={cn("h-6 w-6", getAuraFlameClass(data.aura))}
+          className={cn("h-4 w-4 sm:h-5 sm:w-5", getAuraFlameClass(data.aura))}
         />
         {formatNumber(data.aura)}
       </span>
