@@ -150,5 +150,17 @@ describe("post-normalize", () => {
         userId: "u1",
       })
     ).toBe(true); // vote is missing
+    expect(
+      isStalePost({
+        ...basePost,
+        _count: [],
+      } as unknown as Record<string, unknown>)
+    ).toBe(true);
+    expect(
+      isStalePost({
+        ...basePost,
+        _count: { comments: "5", mentions: 0, vote: 0 },
+      } as unknown as Record<string, unknown>)
+    ).toBe(true);
   });
 });

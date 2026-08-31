@@ -33,12 +33,16 @@ const getPost = cache(async (postId: string, loggedInUser: string) => {
   });
 
   if (!post && postId.length >= 8) {
-    post = await prisma.post.findFirst({
+    const matches = await prisma.post.findMany({
       include: getPostDataInclude(loggedInUser),
+      take: 2,
       where: {
         id: { startsWith: postId },
       },
     });
+    if (matches.length === 1) {
+      post = matches[0] ?? null;
+    }
   }
 
   if (!post) {

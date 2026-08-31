@@ -491,7 +491,7 @@ export default function EditProfileDialog({
           <div className="space-y-1.5">
             <Label>Header image</Label>
             <BannerInput
-              canRemove={Boolean(user.bannerUrl)}
+              canRemove={Boolean(user.bannerUrl || user.bannerKey)}
               isRemoved={bannerRemoved}
               isUploading={bannerMutation.isPending}
               onBannerCropped={setCroppedBanner}

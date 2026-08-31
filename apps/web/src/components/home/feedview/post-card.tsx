@@ -173,7 +173,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 <UserBadge badge={authorBadge} badges={authorBadges} />
                 <Link
                   className="text-muted-foreground shrink-0 hover:underline"
-                  href={`/posts/${post.id}`}
+                  href={getPostPath(post)}
                   prefetch={false}
                   suppressHydrationWarning
                 >
@@ -242,7 +242,7 @@ const PostContent: React.FC<PostContentProps> = ({
               <span className="text-muted-foreground shrink-0">·</span>
               <Link
                 className="text-muted-foreground shrink-0 hover:underline"
-                href={`/posts/${post.id}`}
+                href={getPostPath(post)}
                 prefetch={false}
                 suppressHydrationWarning
               >

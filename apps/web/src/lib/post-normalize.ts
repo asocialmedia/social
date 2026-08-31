@@ -92,7 +92,7 @@ export function normalizePostData<T extends PostData>(post: T): T {
   const count = (rawPost as Record<string, unknown>)._count as
     | Record<string, unknown>
     | undefined;
-  if (!count || typeof count !== "object") {
+  if (!count || typeof count !== "object" || Array.isArray(count)) {
     if (!mutated) {
       next = { ...rawPost } as T;
       mutated = true;
@@ -156,6 +156,10 @@ export function isStalePost(record: Record<string, unknown>): boolean {
     !Array.isArray(record.tags) ||
     !Array.isArray(record.mentions) ||
     !record._count ||
-    typeof record._count !== "object"
+    typeof record._count !== "object" ||
+    Array.isArray(record._count) ||
+    typeof (record._count as Record<string, unknown>).comments !== "number" ||
+    typeof (record._count as Record<string, unknown>).mentions !== "number" ||
+    typeof (record._count as Record<string, unknown>).vote !== "number"
   );
 }

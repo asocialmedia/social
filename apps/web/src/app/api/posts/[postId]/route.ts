@@ -21,10 +21,14 @@ export async function GET(
     where: { id: postId },
   });
   if (!post && postId.length >= 8) {
-    post = await prisma.post.findFirst({
+    const matches = await prisma.post.findMany({
       include: getPostDataInclude(user.id),
+      take: 2,
       where: { id: { startsWith: postId } },
     });
+    if (matches.length === 1) {
+      post = matches[0] ?? null;
+    }
   }
   if (!post) {
     return Response.json({ error: "Post not found" }, { status: 404 });

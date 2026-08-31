@@ -96,7 +96,8 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       {visibleReplies.map((reply) => {
-        const postHref = `${getPostPath(reply.post)}?comment=${reply.id}`;
+        const basePath = getPostPath(reply.post);
+        const postHref = `${basePath}${basePath.includes("?") ? "&" : "?"}comment=${reply.id}`;
         const repliedToUsername =
           reply.parent?.user?.username ??
           reply.post?.user?.username ??

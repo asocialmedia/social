@@ -54,10 +54,14 @@ async function getPostForCard(postId: string) {
   });
 
   if (!post && postId.length >= 8) {
-    post = await prisma.post.findFirst({
+    const matches = await prisma.post.findMany({
       select,
+      take: 2,
       where: { id: { startsWith: postId } },
     });
+    if (matches.length === 1) {
+      post = matches[0] ?? null;
+    }
   }
 
   return post;

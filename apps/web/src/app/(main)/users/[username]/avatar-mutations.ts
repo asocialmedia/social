@@ -339,19 +339,13 @@ export function useDeleteAvatarMutation() {
         throw new Error((await response.text()) || "Failed to remove avatar");
       }
     },
-    onError: (error, _, context) => {
+    onError: (error, { userId }, context) => {
       clientLog.error("Avatar delete error:", error);
       if (context?.previousUser) {
-        queryClient.setQueryData(
-          ["user", context.previousUser.id],
-          context.previousUser
-        );
+        queryClient.setQueryData(["user", userId], context.previousUser);
       }
       if (context?.previousAvatar) {
-        queryClient.setQueryData(
-          ["avatar", context.previousUser?.id],
-          context.previousAvatar
-        );
+        queryClient.setQueryData(["avatar", userId], context.previousAvatar);
       }
     },
     onMutate: async ({ userId }) => {
