@@ -324,20 +324,32 @@ const AttachmentPreviewInner = ({
     }
 
     if (mimeType.startsWith("image")) {
+      const isGif = mimeType === "image/gif";
+      let imageSizeClass = "max-h-[380px] w-full sm:max-h-[480px]";
+      if (isPortrait) {
+        imageSizeClass =
+          "h-[320px] max-h-[380px] w-auto max-w-full sm:h-[400px] sm:max-h-[480px]";
+      } else if (isGif) {
+        imageSizeClass = "max-h-[280px] w-auto max-w-full sm:max-h-[340px]";
+      } else if (!dimensions) {
+        imageSizeClass = "h-44 max-h-52 w-auto max-w-full sm:h-52";
+      }
+
       return (
         <div
           className={cn(
             "apple-panel relative flex items-center justify-center overflow-hidden rounded-2xl shadow-xs transition-shadow duration-300 hover:shadow-md",
-            isPortrait
-              ? "h-[380px] max-h-[380px] w-auto max-w-full sm:h-[480px] sm:max-h-[480px]"
-              : "max-h-[380px] w-full sm:max-h-[480px]"
+            imageSizeClass
           )}
-          style={{ aspectRatio: aspect }}
+          style={dimensions ? { aspectRatio: aspect } : undefined}
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- blob/local object URL preview with natural aspect ratio */}
           <img
             alt={fileName}
-            className="h-full w-full rounded-2xl object-cover"
+            className={cn(
+              "h-full w-full rounded-2xl",
+              isGif ? "object-contain" : "object-cover"
+            )}
             onError={handlePreviewError}
             onLoad={(e) => {
               const img = e.currentTarget;
@@ -756,7 +768,9 @@ const AttachmentPreviewInner = ({
     <div
       className={cn(
         "relative",
-        isPortrait && !isGust ? "w-fit max-w-full" : "w-full"
+        (isPortrait || mimeType === "image/gif") && !isGust
+          ? "w-fit max-w-full"
+          : "w-full"
       )}
     >
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- see above; a semantic button cannot wrap media controls */}

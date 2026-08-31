@@ -142,6 +142,18 @@ describe("schemas", () => {
       ).toBe(true);
     });
 
+    test("validates a gust with no caption", () => {
+      expect(
+        createGustSchema.safeParse({
+          content: "",
+          isGust: true,
+          mediaIds: ["video1"],
+          mentions: [],
+          tags: [],
+        }).success
+      ).toBe(true);
+    });
+
     test("rejects a gust with more than one attachment", () => {
       expect(
         createGustSchema.safeParse({
@@ -295,6 +307,14 @@ describe("schemas", () => {
         }).success
       ).toBe(true);
     });
+    test("validates comment with 1 attachment and no text", () => {
+      expect(
+        createCommentSchema.safeParse({
+          content: "",
+          mediaIds: ["media1"],
+        }).success
+      ).toBe(true);
+    });
     test("rejects comment with more than 1 attachment", () => {
       expect(
         createCommentSchema.safeParse({
@@ -303,7 +323,7 @@ describe("schemas", () => {
         }).success
       ).toBe(false);
     });
-    test("rejects empty comment", () => {
+    test("rejects empty comment without attachment", () => {
       expect(createCommentSchema.safeParse({ content: "" }).success).toBe(
         false
       );

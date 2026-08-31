@@ -17,9 +17,11 @@ import type React from "react";
 
 import { ROW_HOVER_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import UserBadge from "@/components/layouts/user-badge";
+import { embedImageProxyUrl } from "@/components/posts/embed-utils";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -39,7 +41,68 @@ interface HistoryRowProps {
 }
 
 const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
-  const [firstMedia] = post.attachments;
+  const [firstMedia] = post.attachments ?? [];
+  const embeds = parseStoredEmbeds(post.embeds);
+  const firstEmbedWithImage = embeds.find((e) => Boolean(e.imageUrl));
+
+  let thumbnail: React.ReactNode = null;
+
+  if (firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO") {
+    thumbnail = (
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
+        {post.explicitContent ? (
+          <ExplicitContentGate
+            revealKey={post.id}
+            className="h-full w-full"
+            compact
+            label="Explicit"
+          >
+            <Image
+              alt="Post media"
+              className="object-cover"
+              fill
+              sizes="48px"
+              src={getMediaProxyUrl(firstMedia)}
+              unoptimized
+            />
+          </ExplicitContentGate>
+        ) : (
+          <Image
+            alt="Post media"
+            className="object-cover"
+            fill
+            sizes="48px"
+            src={getMediaProxyUrl(firstMedia)}
+            unoptimized
+          />
+        )}
+        {firstMedia.type === "VIDEO" && !post.explicitContent ? (
+          <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+            <Play className="h-3 w-3 fill-white text-white" />
+          </span>
+        ) : null}
+      </div>
+    );
+  } else if (firstEmbedWithImage?.imageUrl) {
+    const isYoutube = firstEmbedWithImage.type === "youtube";
+    thumbnail = (
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
+        {/* eslint-disable-next-line @next/next/no-img-element -- dynamic third-party origin, optimizer rejects proxy paths */}
+        <img
+          alt={firstEmbedWithImage.title || "Link preview"}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={embedImageProxyUrl(firstEmbedWithImage.imageUrl)}
+        />
+        {isYoutube ? (
+          <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
+            <Play className="h-3 w-3 fill-white text-white" />
+          </span>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <Link
@@ -49,41 +112,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
       )}
       href={post.isGust ? `/gusts?id=${post.id}` : `/posts/${post.id}`}
     >
-      {firstMedia?.type === "IMAGE" || firstMedia?.type === "VIDEO" ? (
-        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
-          {post.explicitContent ? (
-            <ExplicitContentGate
-              revealKey={post.id}
-              className="h-full w-full"
-              compact
-              label="Explicit"
-            >
-              <Image
-                alt="Post media"
-                className="object-cover"
-                fill
-                sizes="48px"
-                src={getMediaProxyUrl(firstMedia)}
-                unoptimized
-              />
-            </ExplicitContentGate>
-          ) : (
-            <Image
-              alt="Post media"
-              className="object-cover"
-              fill
-              sizes="48px"
-              src={getMediaProxyUrl(firstMedia)}
-              unoptimized
-            />
-          )}
-          {firstMedia.type === "VIDEO" && !post.explicitContent ? (
-            <span className="absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
-              <Play className="h-3 w-3 fill-white text-white" />
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      {thumbnail}
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
           <span className="block truncate text-sm font-semibold">

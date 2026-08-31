@@ -692,7 +692,7 @@ export default function PostEditor({
     }
 
     // Caption OR attachment - media-only posts are valid fleets.
-    if (!(input.trim() || isHnSharing || hasPublishableMedia)) {
+    if (!isGust && !(input.trim() || isHnSharing || hasPublishableMedia)) {
       return;
     }
 
@@ -874,11 +874,12 @@ export default function PostEditor({
       <LoadingButton
         className="h-8 min-w-18 px-4 text-xs font-semibold"
         disabled={
-          !(input.trim() || isHnSharing || hasPublishableMedia) ||
+          (isGust
+            ? !hasGustVideo
+            : !(input.trim() || isHnSharing || hasPublishableMedia)) ||
           isUploading ||
           hasUploadError ||
-          (isGust && gustCaptionExceeded) ||
-          (isGust && !hasGustVideo)
+          (isGust && gustCaptionExceeded)
         }
         loading={mutation.isPending}
         onClick={onSubmit}
@@ -1009,7 +1010,7 @@ export default function PostEditor({
               )}
 
             {/* Gust field headings: label + what the field does, on one line. */}
-            {isGust ? (
+            {isGust && hasGustVideo ? (
               <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 max-sm:col-span-2">
                 <p className="text-xs font-semibold">Caption</p>
                 <p className="text-muted-foreground text-[11px]">

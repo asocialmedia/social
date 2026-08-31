@@ -468,14 +468,19 @@ export default function CommentInput({
                       className={cn(
                         "group relative overflow-hidden rounded-xl border border-black/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3),0_1px_3px_rgba(0,0,0,0.1)] dark:border-white/15 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),0_2px_6px_rgba(0,0,0,0.3)]",
                         attachment.file?.type === "image/gif"
-                          ? "flex h-44 w-full max-w-sm items-center justify-center sm:h-52 sm:max-w-md"
+                          ? "flex h-36 w-auto max-w-xs items-center justify-center sm:h-44 sm:max-w-sm"
                           : "h-24 w-24"
                       )}
                       key={attachment.objectUrl}
                     >
                       <Image
                         alt="Attachment preview"
-                        className="h-full w-full object-cover"
+                        className={cn(
+                          "h-full w-full",
+                          attachment.file?.type === "image/gif"
+                            ? "object-contain"
+                            : "object-cover"
+                        )}
                         fill
                         src={attachment.objectUrl}
                       />
