@@ -1403,7 +1403,7 @@ export const MediaPreviews = ({
       {!isFeedBento && !isBento && isMobile && first ? (
         <motion.div
           animate={{ opacity: 1, y: 0 }}
-          className="mb-4 w-full"
+          className={cn("w-full", rest.length > 0 && "mb-3")}
           initial={{ opacity: 0, y: 6 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         >
@@ -1557,7 +1557,7 @@ export const MediaPreviews = ({
           </AnimatePresence>
         </motion.div>
       ) : null}
-      {!isFeedBento && !isBento ? (
+      {!isFeedBento && !isBento && (!isMobile || rest.length > 0) ? (
         // The wrapper's height is a real CSS transition (measured px values,
         // never a layout transform or "auto" interpolation), so the card
         // grows and collapses smoothly without stretching the tiles. Only
@@ -1580,7 +1580,8 @@ export const MediaPreviews = ({
         >
           <div
             className={cn(
-              "grid gap-4 pt-1 pb-2",
+              "grid gap-4",
+              !isMobile && visibleAttachments.length > 1 && "pt-1 pb-2",
               (() => {
                 if (isMobile) {
                   return "grid-cols-2";

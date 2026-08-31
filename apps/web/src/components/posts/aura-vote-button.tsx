@@ -206,13 +206,13 @@ export default function AuraVoteButton({
     <div
       className={cn("contents sm:flex sm:items-center sm:gap-1.5", className)}
     >
-      <div className="contents sm:flex sm:items-center sm:gap-1">
+      <div className="flex items-center gap-0.5 sm:gap-1">
         <button
           aria-label="Amplify"
           className={cn(
             baseButtonClasses,
             data.userVote === 1
-              ? cn(upGradientClasses, "px-2 text-white sm:px-2.5")
+              ? cn(upGradientClasses, "text-white")
               : upHoverClasses
           )}
           onClick={handleVoteUp}
@@ -224,15 +224,8 @@ export default function AuraVoteButton({
               data.userVote === 1 ? "fill-white" : ""
             )}
           />
-          {expandable || data.userVote === 1 ? (
-            <span
-              className={cn(
-                "overflow-hidden whitespace-nowrap transition-all duration-200",
-                data.userVote === 1
-                  ? "ml-1 max-w-20 opacity-100 sm:ml-1.5"
-                  : "max-w-0 opacity-0 group-hover:ml-2 group-hover:max-w-20 group-hover:opacity-100"
-              )}
-            >
+          {expandable ? (
+            <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:max-w-20 group-hover:opacity-100">
               Amplify
             </span>
           ) : null}
@@ -242,7 +235,7 @@ export default function AuraVoteButton({
           className={cn(
             baseButtonClasses,
             data.userVote === -1
-              ? cn(downGradientClasses, "px-2 text-white sm:px-2.5")
+              ? cn(downGradientClasses, "text-white")
               : downHoverClasses
           )}
           onClick={handleVoteDown}
@@ -254,15 +247,8 @@ export default function AuraVoteButton({
               data.userVote === -1 ? "fill-white" : ""
             )}
           />
-          {expandable || data.userVote === -1 ? (
-            <span
-              className={cn(
-                "overflow-hidden whitespace-nowrap transition-all duration-200",
-                data.userVote === -1
-                  ? "ml-1 max-w-20 opacity-100 sm:ml-1.5"
-                  : "max-w-0 opacity-0 group-hover:ml-2 group-hover:max-w-20 group-hover:opacity-100"
-              )}
-            >
+          {expandable ? (
+            <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:max-w-20 group-hover:opacity-100">
               Mute
             </span>
           ) : null}

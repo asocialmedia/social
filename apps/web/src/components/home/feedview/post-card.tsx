@@ -357,30 +357,32 @@ const PostContent: React.FC<PostContentProps> = ({
               {formatNumber(post.viewCount)}
             </span>
           </span>
-          <ShareButton
-            defaultTab="link"
-            description={post.moderated ? "" : post.content}
-            dialogDescription="Share this post with your network"
-            dialogTitle="Share Post"
-            postId={post.id}
-            thumbnail={
-              post.moderated || !post.attachments[0]
-                ? `/posts/${post.id}/opengraph-image`
-                : getMediaProxyUrl(post.attachments[0])
-            }
-            title={
-              post.moderated
-                ? `Post on asocialmedia`
-                : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
-            }
-          />
-          <BookmarkButton
-            className="h-7 w-7 p-0"
-            initialState={{
-              isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
-            }}
-            postId={post.id}
-          />
+          <div className="flex items-center gap-1">
+            <ShareButton
+              defaultTab="link"
+              description={post.moderated ? "" : post.content}
+              dialogDescription="Share this post with your network"
+              dialogTitle="Share Post"
+              postId={post.id}
+              thumbnail={
+                post.moderated || !post.attachments[0]
+                  ? `/posts/${post.id}/opengraph-image`
+                  : getMediaProxyUrl(post.attachments[0])
+              }
+              title={
+                post.moderated
+                  ? `Post on asocialmedia`
+                  : `${authorDisplayName} (@${authorUsername}) on asocialmedia`
+              }
+            />
+            <BookmarkButton
+              className="h-7 w-7 p-0"
+              initialState={{
+                isBookmarkedByUser: isBookmarkedByUser(post, currentUserId),
+              }}
+              postId={post.id}
+            />
+          </div>
         </div>
 
         {/* Desktop bottom action bar: classic layout with left and right groups, sized 1pt smaller */}
