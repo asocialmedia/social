@@ -69,21 +69,41 @@ export default function CommentItem({
   const clampedDepth = Math.min(depth, MAX_COMMENT_DEPTH);
   const hasRail = clampedDepth > 0;
 
-  // On mobile, route replies to the page-level floating composer.
-  // On desktop, toggle the inline reply composer.
+  const hasFloatingComposer = Boolean(shared?.hasFloatingComposer);
+
+  // When a floating mobile composer is present (on the post detail page), route
+  // mobile replies directly to it. Otherwise (home feed, explore, profile),
+  // open the inline reply composer on all devices including mobile.
   const handleReplyOpen = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      shared?.setReplyingTo({ commentId: comment.id, username });
+    if (
+      hasFloatingComposer &&
+      typeof window !== "undefined" &&
+      window.innerWidth < 1024
+    ) {
+      shared?.setReplyingTo({
+        commentId: comment.id,
+        content: comment.content,
+        username,
+      });
       return;
     }
     const next = !showReply;
     setShowReply(next);
     shared?.setReplyOpen(next);
-  }, [comment.id, goToLogin, isLoggedIn, shared, showReply, username]);
+  }, [
+    comment.content,
+    comment.id,
+    goToLogin,
+    hasFloatingComposer,
+    isLoggedIn,
+    shared,
+    showReply,
+    username,
+  ]);
 
   useEffect(
     () => () => {
@@ -269,7 +289,7 @@ export default function CommentItem({
             )}
 
             {showReply && !isDeleted && (
-              <div className="hidden lg:block">
+              <div className={hasFloatingComposer ? "hidden lg:block" : ""}>
                 <CommentInput
                   applyCreated={applyCreated}
                   autoFocus

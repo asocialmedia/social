@@ -4,17 +4,21 @@ import type { CommentData } from "@asm/db";
 import type { MutableRefObject, ReactNode } from "react";
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 
+import { getCommentDraft } from "./comment-draft-store";
 import { useCommentsRealtime } from "./use-comments-realtime";
 import type { LiveCommentStore } from "./use-comments-realtime";
 
 export interface ReplyingToTarget {
-  commentId: string;
+  commentId?: string;
+  content?: string;
   username: string;
 }
 
 export interface CommentsRealtimeValue {
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
+  // Indicates that a floating mobile composer is actively mounted on this page
+  hasFloatingComposer?: boolean;
   liveStoreRef: MutableRefObject<LiveCommentStore>;
   // Active reply target when replying via the mobile floating composer
   replyingTo: ReplyingToTarget | null;
@@ -45,12 +49,15 @@ export function CommentsRealtimeProvider({
     liveStoreRef
   );
   const [replyOpen, setReplyOpen] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<ReplyingToTarget | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ReplyingToTarget | null>(
+    () => getCommentDraft(postId)?.replyingTo ?? null
+  );
 
   const value = useMemo<CommentsRealtimeValue>(
     () => ({
       applyCreated,
       applyDeleted,
+      hasFloatingComposer: true,
       liveStoreRef,
       replyOpen,
       replyingTo,

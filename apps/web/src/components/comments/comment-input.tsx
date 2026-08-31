@@ -28,6 +28,11 @@ import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 
+import {
+  clearCommentDraft,
+  getCommentDraft,
+  saveCommentDraft,
+} from "./comment-draft-store";
 import { CommentSuggestions } from "./comment-suggestions";
 import type { CommentSuggestionsHandle } from "./comment-suggestions";
 import KlipyGifPicker from "./klipy-gif-picker";
@@ -50,7 +55,11 @@ interface CommentInputProps {
   placeholder?: string;
   post: PostData;
   reels?: boolean;
-  replyingTo?: { username: string } | null;
+  replyingTo?: {
+    commentId?: string;
+    content?: string;
+    username: string;
+  } | null;
   submitLabel?: string;
 }
 
@@ -69,7 +78,9 @@ export default function CommentInput({
 }: CommentInputProps) {
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(
+    () => getCommentDraft(post.id, parentId)?.content ?? ""
+  );
   const [suggestions, setSuggestions] = useState<{
     query: string;
     type: "tag" | "mention";
@@ -127,6 +138,15 @@ export default function CommentInput({
       mediaIds.length > 0) &&
     !isLengthExceeded;
 
+  // Persist draft to storage whenever input changes
+  useEffect(() => {
+    saveCommentDraft(post.id, {
+      content: input,
+      parentId,
+      replyingTo,
+    });
+  }, [input, parentId, post.id, replyingTo]);
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -148,6 +168,7 @@ export default function CommentInput({
       },
       {
         onSuccess: () => {
+          clearCommentDraft(post.id, parentId);
           setInput("");
           setDismissedEmbedUrls([]);
           setSuggestions(null);

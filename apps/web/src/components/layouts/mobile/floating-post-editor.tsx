@@ -16,6 +16,11 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import {
+  clearCommentDraft,
+  getCommentDraft,
+  saveCommentDraft,
+} from "@/components/comments/comment-draft-store";
 import { CommentSuggestions } from "@/components/comments/comment-suggestions";
 import type { CommentSuggestionsHandle } from "@/components/comments/comment-suggestions";
 import { useCommentsRealtimeValue } from "@/components/comments/comments-realtime-context";
@@ -62,7 +67,9 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const ownRealtime = useCommentsRealtime(post.id, ownStoreRef, !shared);
   const applyCreated = shared?.applyCreated ?? ownRealtime.applyCreated;
   const mutation = useSubmitCommentMutation(post.id, applyCreated);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(
+    () => getCommentDraft(post.id)?.content ?? ""
+  );
   const [suggestions, setSuggestions] = useState<{
     query: string;
     type: "tag" | "mention";
@@ -90,6 +97,15 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   });
 
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Persist draft to storage whenever input or replying target changes
+  useEffect(() => {
+    saveCommentDraft(post.id, {
+      content: input,
+      parentId: replyingTo?.commentId,
+      replyingTo,
+    });
+  }, [input, post.id, replyingTo]);
 
   // Focus input whenever a reply target is chosen
   useEffect(() => {
@@ -155,6 +171,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       },
       {
         onSuccess: () => {
+          clearCommentDraft(post.id, replyingTo?.commentId);
           setInput("");
           setDismissedEmbedUrls([]);
           setSuggestions(null);
@@ -348,16 +365,25 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     >
       <div className="relative mx-auto max-w-lg">
         {replyingTo ? (
-          <div className="mb-1.5 flex items-center justify-between px-1 text-xs">
-            <span className="text-muted-foreground flex items-center gap-1 truncate">
-              <span>Replying to</span>
-              <span className="text-primary font-semibold">
-                @{replyingTo.username}
-              </span>
-            </span>
+          <div className="mb-1.5 flex items-start justify-between gap-2 rounded-lg bg-black/5 px-2.5 py-1.5 text-xs dark:bg-white/5">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground font-medium">
+                  Replying to
+                </span>
+                <span className="text-primary font-semibold">
+                  @{replyingTo.username}
+                </span>
+              </div>
+              {replyingTo.content ? (
+                <p className="text-muted-foreground line-clamp-1 truncate text-[11px] opacity-80">
+                  {replyingTo.content}
+                </p>
+              ) : null}
+            </div>
             <button
               aria-label="Cancel reply"
-              className="text-muted-foreground hover:text-foreground flex h-5 w-5 items-center justify-center rounded-full transition-colors active:translate-y-px"
+              className="text-muted-foreground hover:text-foreground mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors active:translate-y-px"
               onClick={() => shared?.setReplyingTo(null)}
               type="button"
             >
