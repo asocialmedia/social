@@ -20,7 +20,7 @@ import { getMediaProxyUrl } from "@/lib/utils/image-url";
 const GustRowCard: React.FC<{
   post: PostsPage["posts"][number];
 }> = ({ post }) => {
-  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+  const videoMedia = post.attachments?.find((m) => m.type === "VIDEO");
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

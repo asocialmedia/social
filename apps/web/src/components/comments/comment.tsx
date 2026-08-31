@@ -69,17 +69,21 @@ export default function CommentItem({
   const clampedDepth = Math.min(depth, MAX_COMMENT_DEPTH);
   const hasRail = clampedDepth > 0;
 
-  // Tell the page-level context when this reply composer is open so the mobile
-  // floating bar hides while the user is typing a reply inline.
+  // On mobile, route replies to the page-level floating composer.
+  // On desktop, toggle the inline reply composer.
   const handleReplyOpen = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      shared?.setReplyingTo({ commentId: comment.id, username });
+      return;
+    }
     const next = !showReply;
     setShowReply(next);
     shared?.setReplyOpen(next);
-  }, [goToLogin, isLoggedIn, shared, showReply]);
+  }, [comment.id, goToLogin, isLoggedIn, shared, showReply, username]);
 
   useEffect(
     () => () => {
@@ -265,20 +269,22 @@ export default function CommentItem({
             )}
 
             {showReply && !isDeleted && (
-              <CommentInput
-                applyCreated={applyCreated}
-                autoFocus
-                className="mt-1"
-                key={`reply-${comment.id}`}
-                onSubmitted={() => {
-                  setShowReply(false);
-                  shared?.setReplyOpen(false);
-                }}
-                parentId={comment.id}
-                placeholder={`Reply to @${username}...`}
-                post={post}
-                replyingTo={{ username }}
-              />
+              <div className="hidden lg:block">
+                <CommentInput
+                  applyCreated={applyCreated}
+                  autoFocus
+                  className="mt-1"
+                  key={`reply-${comment.id}`}
+                  onSubmitted={() => {
+                    setShowReply(false);
+                    shared?.setReplyOpen(false);
+                  }}
+                  parentId={comment.id}
+                  placeholder={`Reply to @${username}...`}
+                  post={post}
+                  replyingTo={{ username }}
+                />
+              </div>
             )}
           </div>
         </div>

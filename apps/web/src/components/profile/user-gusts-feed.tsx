@@ -25,7 +25,7 @@ interface UserGustsFeedProps {
 }
 
 const GustGridItem = ({ post }: { post: PostsPage["posts"][number] }) => {
-  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+  const videoMedia = post.attachments?.find((m) => m.type === "VIDEO");
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

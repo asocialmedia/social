@@ -88,7 +88,7 @@ function isPreviewable(media: { type: string }): boolean {
 // First previewable attachment of a post, absolute, or null when the post has
 // none (videos without a stored thumbnail are skipped).
 export function getPostImage(post: PostData): string | null {
-  const media = post.attachments.find((attachment) =>
+  const media = (post.attachments ?? []).find((attachment) =>
     isPreviewable(attachment)
   );
   return media ? absoluteUrl(toMediaProxyUrl(media)) : null;
@@ -96,7 +96,7 @@ export function getPostImage(post: PostData): string | null {
 
 // The image for a given media index (used by the shareable media route).
 export function getMediaImage(post: PostData, index: number): string | null {
-  const media = post.attachments[index];
+  const media = (post.attachments ?? [])[index];
   if (!media || !isPreviewable(media)) {
     return null;
   }

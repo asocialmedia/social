@@ -115,7 +115,7 @@ interface ExplorePostCardProps {
 }
 
 const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
-  const media = post.attachments.find(
+  const media = post.attachments?.find(
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
   const isGustPost = Boolean(post.isGust);

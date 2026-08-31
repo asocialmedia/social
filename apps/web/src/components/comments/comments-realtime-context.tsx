@@ -7,12 +7,19 @@ import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { useCommentsRealtime } from "./use-comments-realtime";
 import type { LiveCommentStore } from "./use-comments-realtime";
 
+export interface ReplyingToTarget {
+  commentId: string;
+  username: string;
+}
+
 export interface CommentsRealtimeValue {
   applyCreated: (comment: CommentData) => void;
   applyDeleted: (comment: CommentData) => void;
   liveStoreRef: MutableRefObject<LiveCommentStore>;
-  // True while an inline reply composer is open, so overlays that would
-  // compete with it (the mobile floating bar) can step out of the way.
+  // Active reply target when replying via the mobile floating composer
+  replyingTo: ReplyingToTarget | null;
+  setReplyingTo: (target: ReplyingToTarget | null) => void;
+  // True while a desktop inline reply composer is open
   setReplyOpen: (open: boolean) => void;
   replyOpen: boolean;
 }
@@ -38,6 +45,7 @@ export function CommentsRealtimeProvider({
     liveStoreRef
   );
   const [replyOpen, setReplyOpen] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<ReplyingToTarget | null>(null);
 
   const value = useMemo<CommentsRealtimeValue>(
     () => ({
@@ -45,9 +53,19 @@ export function CommentsRealtimeProvider({
       applyDeleted,
       liveStoreRef,
       replyOpen,
+      replyingTo,
       setReplyOpen,
+      setReplyingTo,
     }),
-    [applyCreated, applyDeleted, liveStoreRef, replyOpen, setReplyOpen]
+    [
+      applyCreated,
+      applyDeleted,
+      liveStoreRef,
+      replyOpen,
+      replyingTo,
+      setReplyOpen,
+      setReplyingTo,
+    ]
   );
 
   return (

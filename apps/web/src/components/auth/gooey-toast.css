@@ -46,6 +46,44 @@
   height: 0.8rem;
 }
 
+/* Plain-icon toasts: show only a filled icon, no orange circle */
+[data-gooey-badge]:has(.flame-only),
+[data-gooey-badge]:has(.message-only),
+[data-gooey-badge].flame-only,
+[data-gooey-badge].message-only {
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: #ff7a00 !important;
+}
+
+[data-gooey-badge]:has(.flame-only) svg,
+[data-gooey-badge]:has(.message-only) svg,
+[data-gooey-badge].flame-only svg,
+[data-gooey-badge].message-only svg {
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  fill: #ff7a00 !important;
+  stroke: #ff7a00 !important;
+}
+
+/* Muting toasts: filled violet icon, no orange circle */
+[data-gooey-badge]:has(.mute-only),
+[data-gooey-badge].mute-only {
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: #7c5cff !important;
+}
+
+[data-gooey-badge]:has(.mute-only) svg,
+[data-gooey-badge].mute-only svg {
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  fill: #7c5cff !important;
+  stroke: #7c5cff !important;
+}
+
 [data-gooey-title] {
   color: #f5f5f5;
   text-transform: none;

@@ -177,9 +177,9 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                   </p>
                 </Link>
 
-                {!reply.deleted && reply.attachments.length > 0 ? (
+                {!reply.deleted && (reply.attachments?.length ?? 0) > 0 ? (
                   <div className="mt-2">
-                    <CommentAttachments attachments={reply.attachments} />
+                    <CommentAttachments attachments={reply.attachments ?? []} />
                   </div>
                 ) : null}
 

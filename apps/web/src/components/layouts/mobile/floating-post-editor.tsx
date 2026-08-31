@@ -57,7 +57,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const { goToLogin } = useRequireAuth();
   const { toast } = useToast();
   const shared = useCommentsRealtimeValue();
-  const replyOpen = shared?.replyOpen ?? false;
+  const replyingTo = shared?.replyingTo;
   const ownStoreRef = useRef<LiveCommentStore>(new Map());
   const ownRealtime = useCommentsRealtime(post.id, ownStoreRef, !shared);
   const applyCreated = shared?.applyCreated ?? ownRealtime.applyCreated;
@@ -91,11 +91,17 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
 
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Lift the bar above the on-screen keyboard: when the visual viewport
-  // shrinks (keyboard opens), offset the bar by the difference so it stays
-  // visible and doesn't get covered. The visual viewport's own scroll
-  // (offsetTop) is subtracted too, otherwise the offset over-counts by that
-  // scroll and leaves a dead gap between the bar and the keyboard.
+  // Focus input whenever a reply target is chosen
+  useEffect(() => {
+    if (replyingTo) {
+      inputRef.current?.focus();
+    }
+  }, [replyingTo]);
+
+  // Lift the bar above the on-screen keyboard: on iOS Safari where layout
+  // viewport stays full-height, visualViewport shrinks and offset > 50 lifts
+  // the bar. On Android Chrome/Brave where layout viewport automatically
+  // resizes with the keyboard, clientHeight matches visualHeight so offset is 0.
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   useEffect(() => {
@@ -104,9 +110,11 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       return;
     }
     const updateOffset = () => {
-      const offset =
-        window.innerHeight - (visualViewport.height + visualViewport.offsetTop);
-      setKeyboardOffset(Math.max(0, offset));
+      const layoutHeight = document.documentElement.clientHeight;
+      const visualHeight = visualViewport.height;
+      const visualTop = visualViewport.offsetTop;
+      const offset = layoutHeight - (visualHeight + visualTop);
+      setKeyboardOffset(offset > 50 ? Math.round(offset) : 0);
     };
     visualViewport.addEventListener("resize", updateOffset);
     visualViewport.addEventListener("scroll", updateOffset);
@@ -139,7 +147,12 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       return;
     }
     mutation.mutate(
-      { content: input.trim(), mediaIds, post },
+      {
+        content: input.trim(),
+        mediaIds,
+        parentId: replyingTo?.commentId,
+        post,
+      },
       {
         onSuccess: () => {
           setInput("");
@@ -149,19 +162,22 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
           setGifPickerOpen(false);
           setIsExpanded(false);
           inputRef.current?.blur();
+          shared?.setReplyingTo(null);
         },
       }
     );
   }, [
     canSubmit,
+    goToLogin,
     input,
+    isUploading,
     mediaIds,
     mutation,
     post,
-    user,
-    goToLogin,
-    isUploading,
+    replyingTo?.commentId,
     reset,
+    shared,
+    user,
   ]);
 
   const checkSuggestions = useCallback((text: string, cursorPos?: number) => {
@@ -324,16 +340,32 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
 
   return (
     <div
-      className={cn(
-        "bg-background/95 fixed right-0 bottom-0 left-0 z-40 border-t border-white/10 p-2 shadow-[0_-4px_20px_rgba(0,0,0,0.15)] backdrop-blur-md transition-transform duration-200 lg:hidden",
-        replyOpen && "translate-y-full"
-      )}
+      className="bg-background/95 fixed right-0 bottom-0 left-0 z-40 border-t border-white/10 p-2 shadow-[0_-4px_20px_rgba(0,0,0,0.15)] backdrop-blur-md transition-transform duration-200 lg:hidden"
       onBlur={handleBarBlur}
       style={{
         bottom: `${keyboardOffset}px`,
       }}
     >
       <div className="relative mx-auto max-w-lg">
+        {replyingTo ? (
+          <div className="mb-1.5 flex items-center justify-between px-1 text-xs">
+            <span className="text-muted-foreground flex items-center gap-1 truncate">
+              <span>Replying to</span>
+              <span className="text-primary font-semibold">
+                @{replyingTo.username}
+              </span>
+            </span>
+            <button
+              aria-label="Cancel reply"
+              className="text-muted-foreground hover:text-foreground flex h-5 w-5 items-center justify-center rounded-full transition-colors active:translate-y-px"
+              onClick={() => shared?.setReplyingTo(null)}
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+
         {suggestions ? (
           <CommentSuggestions
             onClose={() => setSuggestions(null)}
@@ -355,7 +387,11 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
             onChange={handleInputChange}
             onFocus={handleFocus}
             onKeyDown={handleKeyDown}
-            placeholder="Add your Eddie to the flow..."
+            placeholder={
+              replyingTo
+                ? `Reply to @${replyingTo.username}...`
+                : "Add your Eddie to the flow..."
+            }
             ref={inputRef}
             value={input}
           />

@@ -10,6 +10,7 @@ import { VideoCaptionsHydration } from "@/components/media/video-captions-hydrat
 import JsonLd from "@/components/seo/json-ld";
 
 export const viewport: Viewport = {
+  interactiveWidget: "resizes-content",
   themeColor: [
     { color: colors.light.primary, media: "(prefers-color-scheme: light)" },
     { color: colors.dark.primary, media: "(prefers-color-scheme: dark)" },

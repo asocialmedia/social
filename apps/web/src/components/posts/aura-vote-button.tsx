@@ -2,7 +2,7 @@ import { clientLog } from "@asm/config/debug";
 import type { VoteInfo } from "@asm/db";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
-import { ArrowBigDown, ArrowBigUp, Flame, RotateCcw } from "lucide-react";
+import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
@@ -143,25 +143,29 @@ export default function AuraVoteButton({
       if (serverResponse.userVote === 1) {
         toast({
           description: `Amplified ${authorName}'s ${noun}, nice boost!`,
-          icon: <Flame />,
+          icon: <Flame fill="#ff7a00" color="#ff7a00" />,
+          styles: { badge: "flame-only" },
           title: "+1 Aura",
         });
       } else if (serverResponse.userVote === -1) {
         toast({
           description: `You muted ${authorName}'s ${noun}, we'll show you fewer like this`,
-          icon: <ArrowBigDown />,
+          icon: <ArrowBigDown fill="#7c5cff" color="#7c5cff" />,
+          styles: { badge: "mute-only" },
           title: "Muted",
         });
       } else if (serverResponse.userVote === 0 && previousVote === 1) {
         toast({
           description: "You can always amplify it again later",
-          icon: <RotateCcw />,
+          icon: <Flame fill="#ff7a00" color="#ff7a00" />,
+          styles: { badge: "flame-only" },
           title: "Amplification Removed",
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
           description: "It'll show up normally again",
-          icon: <RotateCcw />,
+          icon: <ArrowBigUp fill="#7c5cff" color="#7c5cff" />,
+          styles: { badge: "mute-only" },
           title: "Mute Removed",
         });
       }

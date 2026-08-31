@@ -165,7 +165,7 @@ export async function searchPosts(
       createdAt: post.createdAt,
       explicitContent: post.explicitContent,
       id: post.id,
-      previewMedia: post.attachments[0]
+      previewMedia: post.attachments?.[0]
         ? {
             id: post.attachments[0].id,
             thumbnailKey: post.attachments[0].thumbnailKey,

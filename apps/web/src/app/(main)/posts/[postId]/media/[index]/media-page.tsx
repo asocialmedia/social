@@ -55,7 +55,10 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
   useFeedSwipeNavigation(containerRef, handleSwipeNavigate);
 
   return (
-    <div ref={containerRef} className="h-dvh w-full overflow-hidden">
+    <div
+      ref={containerRef}
+      className="h-full w-full overflow-hidden overscroll-none"
+    >
       <MediaViewer
         initialIndex={initialMediaIndex}
         isOpen

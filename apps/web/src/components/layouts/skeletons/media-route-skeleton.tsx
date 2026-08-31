@@ -9,7 +9,7 @@ import { PostCardSkeleton } from "./post-only-loading-skeleton";
 // screen" rather than a flash of the post page or a tiny box on the left.
 export default function MediaRouteSkeleton() {
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-black">
+    <div className="fixed inset-0 flex h-dvh w-full overflow-hidden overscroll-none bg-black">
       {/* Media column */}
       <div className="relative flex h-full min-w-0 flex-1 flex-col bg-black">
         {/* Mobile header (hidden on desktop, mirroring the real viewer) */}

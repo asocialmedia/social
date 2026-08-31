@@ -140,25 +140,29 @@ export function useGustVote({
       if (serverResponse.userVote === 1) {
         toast({
           description: `Amplified ${authorName}'s gust, nice boost!`,
-          icon: <Flame />,
+          icon: <Flame fill="#ff7a00" color="#ff7a00" />,
+          styles: { badge: "flame-only" },
           title: "+1 Aura",
         });
       } else if (serverResponse.userVote === -1) {
         toast({
           description: `Muted ${authorName}'s gust, we'll show you fewer like this`,
-          icon: <ArrowBigDown />,
+          icon: <ArrowBigDown fill="#7c5cff" color="#7c5cff" />,
+          styles: { badge: "mute-only" },
           title: "Muted",
         });
       } else if (serverResponse.userVote === 0 && previousVote === 1) {
         toast({
           description: "You can always amplify it again later",
-          icon: <Flame />,
+          icon: <Flame fill="#ff7a00" color="#ff7a00" />,
+          styles: { badge: "flame-only" },
           title: "Amplification Removed",
         });
       } else if (serverResponse.userVote === 0 && previousVote === -1) {
         toast({
           description: "It'll show up normally again",
-          icon: <ArrowBigUp />,
+          icon: <ArrowBigUp fill="#7c5cff" color="#7c5cff" />,
+          styles: { badge: "mute-only" },
           title: "Mute Removed",
         });
       }

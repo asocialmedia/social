@@ -129,7 +129,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
   return posts
     .filter((post) => {
       const text = (post.content ?? "").trim();
-      const hasMedia = post.attachments.length > 0;
+      const hasMedia = (post.attachments ?? []).length > 0;
       // Keep posts with >=20 chars or with media; thin text-only posts are deprioritized
       // but still discoverable via feed HTML - just not in the high-priority sitemap.
       if (text.length >= 20 || hasMedia) {
@@ -140,7 +140,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
       return false;
     })
     .map((post) => {
-      const preview = post.attachments.find(
+      const preview = (post.attachments ?? []).find(
         (m) =>
           m.mimeType.toLowerCase().startsWith("image/") ||
           (m as { type?: string }).type === "VIDEO"
@@ -169,7 +169,7 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
   });
 
   return posts.map((post) => {
-    const video = post.attachments.find(
+    const video = (post.attachments ?? []).find(
       (m) => (m as { type?: string }).type === "VIDEO"
     );
     const imageUrl = video

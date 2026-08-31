@@ -60,9 +60,11 @@ export default function PostMoreButton({
   // Anyone may view alt text - it is reader accessibility info, not an
   // authoring or moderation surface. The toggle reveals it inline below the
   // media grid, so the entry only appears when something is described.
-  const hasAltText = post.attachments.some((attachment) => attachment.altText);
+  const hasAltText = (post.attachments ?? []).some(
+    (attachment) => attachment.altText
+  );
   const isAltRevealed = useAltRevealed(post.id);
-  const hasVideo = post.attachments.some(
+  const hasVideo = (post.attachments ?? []).some(
     (attachment) => attachment.type === "VIDEO"
   );
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
