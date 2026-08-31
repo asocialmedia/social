@@ -25,6 +25,7 @@ import { updateTag } from "next/cache";
 
 import { resolvePostEmbeds } from "@/lib/link-embeds/server";
 import { MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
+import { getPostUrl } from "@/lib/seo";
 import { getModerationSystemUserId } from "@/lib/system-moderation-user";
 
 type ExtendedCreatePostInput = CreatePostInput & {
@@ -454,9 +455,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     // IndexNow: fire-and-forget so Bing/Yandex discover the URL same-day.
     // Never block the response on network; swallow errors.
     if (newPost) {
-      const postUrl = newPost.isGust
-        ? `${siteConfig.url}/gusts?id=${newPost.id}`
-        : `${siteConfig.url}/posts/${newPost.id}`;
+      const postUrl = getPostUrl(newPost);
       const authorUrl = `${siteConfig.url}/users/${sessionData.user.username ?? sessionData.user.id}`;
       void (async () => {
         try {

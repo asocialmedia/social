@@ -25,6 +25,7 @@ import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import { getAuraFlameClass } from "@/lib/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import { getPostPath } from "@/lib/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -129,7 +130,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
         "group flex items-center gap-2.5 rounded-lg px-2.5 py-2",
         ROW_HOVER_CLASS
       )}
-      href={post.isGust ? `/gusts?id=${post.id}` : `/posts/${post.id}`}
+      href={getPostPath(post)}
     >
       {thumbnail}
       <span className="min-w-0 flex-1">

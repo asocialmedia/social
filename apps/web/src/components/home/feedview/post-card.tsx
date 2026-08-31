@@ -34,6 +34,7 @@ import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import { isBookmarkedByUser, normalizePostData } from "@/lib/post-normalize";
+import { getPostPath } from "@/lib/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
@@ -492,7 +493,7 @@ const FeedComments: React.FC<{ post: ExtendedPostData }> = ({ post }) => {
             className="h-8 rounded-full px-4 text-xs"
             variant="premium"
           >
-            <Link href={`/posts/${post.id}`}>Show more eddies</Link>
+            <Link href={getPostPath(post)}>Show more eddies</Link>
           </Button>
         </div>
       ) : null}
@@ -587,9 +588,9 @@ const PostCard: React.FC<PostCardProps> = ({
       if (isPopupOpen()) {
         return;
       }
-      withViewTransition(() => router.push(`/posts/${post.id}`));
+      withViewTransition(() => router.push(getPostPath(post)));
     },
-    [detail, post.id, router]
+    [detail, post, router]
   );
 
   const handleCardKeyDown = useCallback(
@@ -606,10 +607,10 @@ const PostCard: React.FC<PostCardProps> = ({
       }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        withViewTransition(() => router.push(`/posts/${post.id}`));
+        withViewTransition(() => router.push(getPostPath(post)));
       }
     },
-    [detail, post.id, router]
+    [detail, post, router]
   );
 
   const body = (

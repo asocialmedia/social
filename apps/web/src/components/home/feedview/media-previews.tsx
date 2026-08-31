@@ -24,6 +24,7 @@ import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useAltRevealed } from "@/lib/alt-reveal-store";
+import { getPostMediaPath, getPostPath } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,
@@ -1034,7 +1035,7 @@ export const MediaPreviews = ({
       if (typeof window !== "undefined" && window.history.length > 1) {
         withViewTransition(() => router.back());
       } else {
-        withViewTransition(() => router.replace(`/posts/${post.id}`));
+        withViewTransition(() => router.replace(getPostPath(post)));
       }
       return;
     }
@@ -1044,9 +1045,7 @@ export const MediaPreviews = ({
   const openAtIndex = useCallback(
     (index: number) => {
       if (post) {
-        withViewTransition(() =>
-          router.push(`/posts/${post.id}/media/${index}`)
-        );
+        withViewTransition(() => router.push(getPostMediaPath(post, index)));
         return;
       }
       setSelectedIndex(index);
@@ -1058,9 +1057,7 @@ export const MediaPreviews = ({
     (index: number) => {
       if (post) {
         // Update the URL in place so the shared link tracks the viewed asset.
-        withViewTransition(() =>
-          router.replace(`/posts/${post.id}/media/${index}`)
-        );
+        withViewTransition(() => router.replace(getPostMediaPath(post, index)));
         return;
       }
       setSelectedIndex(index);

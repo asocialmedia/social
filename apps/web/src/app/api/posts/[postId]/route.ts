@@ -16,10 +16,16 @@ export async function GET(
   }
 
   const { postId } = await ctx.params;
-  const post = await prisma.post.findUnique({
+  let post = await prisma.post.findUnique({
     include: getPostDataInclude(user.id),
     where: { id: postId },
   });
+  if (!post && postId.length >= 8) {
+    post = await prisma.post.findFirst({
+      include: getPostDataInclude(user.id),
+      where: { id: { startsWith: postId } },
+    });
+  }
   if (!post) {
     return Response.json({ error: "Post not found" }, { status: 404 });
   }
