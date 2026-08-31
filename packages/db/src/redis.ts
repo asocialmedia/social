@@ -885,6 +885,10 @@ export const postViewsCache = {
 // Adds the live Redis view delta on top of each post's persisted viewCount so
 // the UI shows near-instant counts while the worker batch-flushes deltas to
 // Postgres. Accepts any array of objects that carry `id` and `viewCount`.
+// Also normalizes viewer-scoped joins (`bookmarks`, `vote`) that older caches
+// or optimistically constructed rows may omit, so downstream
+// `post.bookmarks.some(...)` never throws in production (the "some is undefined"
+// Next.js 12 crash).
 export async function hydrateViewCounts<
   T extends { id: string; viewCount: number },
 >(items: T[]): Promise<T[]> {
@@ -894,10 +898,28 @@ export async function hydrateViewCounts<
   const deltas = await postViewsCache.getMultipleViews(
     items.map((item) => item.id)
   );
-  return items.map((item) => ({
-    ...item,
-    viewCount: item.viewCount + (deltas[item.id] ?? 0),
-  }));
+  return items.map((item) => {
+    const viewCount = item.viewCount + (deltas[item.id] ?? 0);
+    const record = item as unknown as Record<string, unknown>;
+    // If this is a PostData-like row, patch missing viewer joins. Spread
+    // first so the original is not mutated, then assign defaults only when
+    // the field is not already an array.
+    const next: T = { ...item, viewCount } as T;
+    if ("bookmarks" in record && !Array.isArray(record.bookmarks)) {
+      (next as unknown as Record<string, unknown>).bookmarks = [];
+    } else if (
+      "aura" in record &&
+      "userId" in record &&
+      !Array.isArray(record.bookmarks)
+    ) {
+      // Stale serialized post that never had the join at all.
+      (next as unknown as Record<string, unknown>).bookmarks = [];
+    }
+    if ("vote" in record && !Array.isArray(record.vote)) {
+      (next as unknown as Record<string, unknown>).vote = [];
+    }
+    return next;
+  });
 }
 
 export interface CachedSession {

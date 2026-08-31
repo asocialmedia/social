@@ -138,14 +138,14 @@ export default function PostMoreButton({
             className={cn(
               variant === "media-page"
                 ? "group inline-flex h-10 w-10 items-center justify-center rounded-full border-0 bg-linear-to-b from-[#3a3f4a] to-[#23262e] p-0 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15),inset_0_1px_2px_rgba(255,255,255,0.18),0_2px_6px_rgba(0,0,0,0.35)] transition-all duration-200 hover:brightness-110 active:translate-y-px"
-                : "pill-3d-hover group text-muted-foreground inline-flex h-8 w-8 items-center justify-center rounded-full border-0 p-0 active:translate-y-px",
+                : "pill-3d-hover group text-muted-foreground inline-flex h-7 w-7 items-center justify-center rounded-full border-0 p-0 active:translate-y-px sm:h-7.5 sm:w-7.5",
               className,
               isOpen ? "opacity-100" : undefined
             )}
             onClick={handleTriggerClick}
             type="button"
           >
-            <MoreHorizontal className="size-5" />
+            <MoreHorizontal className="size-4 sm:size-4.5" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
