@@ -5,6 +5,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useToast } from "@/lib/gooey-toast";
+import { getShortPostId } from "@/lib/seo";
 
 import { deletePost, updatePostModeration } from "./actions";
 import type { PostModerationChanges } from "./actions";
@@ -52,7 +53,14 @@ export function useDeletePostMutation() {
         description: "Post deleted",
       });
 
-      if (pathname === `/posts/${deletedPost.id}`) {
+      const shortId = getShortPostId(deletedPost.id);
+      const isPostPage =
+        pathname === `/posts/${shortId}` ||
+        pathname?.startsWith(`/posts/${shortId}/`) ||
+        pathname === `/posts/${deletedPost.id}` ||
+        pathname?.startsWith(`/posts/${deletedPost.id}/`);
+
+      if (isPostPage) {
         if (deletedPost.user?.username) {
           router.push(`/users/${deletedPost.user.username}`);
         } else {

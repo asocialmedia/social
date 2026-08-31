@@ -6,6 +6,7 @@ import { useCallback, useRef } from "react";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
+import { getPostMediaPath, getPostPath } from "@/lib/seo";
 
 // Renders the media viewer as the media page itself (not an overlay on the post
 // page). Navigating here jumps straight to a fullscreen media screen; closing
@@ -26,9 +27,9 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
-      router.replace(`/posts/${post.id}`);
+      router.replace(getPostPath(post));
     }
-  }, [post.id, router]);
+  }, [post, router]);
 
   const handleNavigate = useCallback(
     (index: number) => {
@@ -36,9 +37,9 @@ export default function MediaPage({ initialMediaIndex, post }: MediaPageProps) {
       // server navigation — the viewer already manages currentIndex
       // locally, so a router.replace would remount the page and look
       // like a full refresh.
-      window.history.replaceState(null, "", `/posts/${post.id}/media/${index}`);
+      window.history.replaceState(null, "", getPostMediaPath(post, index));
     },
-    [post.id]
+    [post]
   );
 
   const authorUsername = post.user?.username;

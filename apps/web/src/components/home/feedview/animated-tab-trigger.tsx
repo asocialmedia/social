@@ -41,7 +41,7 @@ export function AnimatedTabTrigger({
             type: "spring",
           }}
         >
-          <span className="h-1 w-6 rounded-full bg-gradient-to-b from-[#ff9500] to-[#e65500]" />
+          <span className="h-1 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]" />
         </motion.span>
       ) : null}
       <span className="relative z-10 flex items-center gap-1.5">
@@ -87,7 +87,7 @@ export function AnimatedTabButton({
             type: "spring",
           }}
         >
-          <span className="h-1 w-6 rounded-full bg-gradient-to-b from-[#ff9500] to-[#e65500]" />
+          <span className="h-1 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]" />
         </motion.span>
       ) : null}
       <span className="relative z-10 flex items-center gap-1.5">

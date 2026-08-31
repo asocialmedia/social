@@ -1,6 +1,7 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import Link from "next/link";
 
+import { getPostPath, getPostUrl } from "@/lib/seo";
 import type { CrawlPost } from "@/lib/server-feed";
 
 interface CrawlableFeedProps {
@@ -18,24 +19,23 @@ interface CrawlableFeedProps {
 // normal link equity, but styled subtly so it doesn't compete with the interactive
 // client feed for logged-in users.
 export function CrawlableFeed({
-  description,
-  gust = false,
   posts,
-  title = "Latest eddies",
-  viewAllHref,
+  title = "Recent posts",
+  viewAllHref = "/explore",
+  gust = false,
+  description,
 }: CrawlableFeedProps) {
   if (posts.length === 0) {
     return null;
   }
 
   return (
-    <section
-      aria-label={title}
-      className="border-border/60 border-t bg-[hsl(var(--background-alt))]"
-    >
-      <div className="mx-auto max-w-5xl px-4 py-6">
-        <div className="mb-3 flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+    <section aria-label={title} className="border-border/60 border-t px-4 py-4">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+            {title}
+          </h2>
           {viewAllHref ? (
             <Link
               className="text-muted-foreground hover:text-foreground text-xs underline-offset-4 hover:underline"
@@ -51,10 +51,10 @@ export function CrawlableFeed({
         <nav aria-label={`${title} navigation`}>
           <ul className="grid gap-1.5 sm:grid-cols-2">
             {posts.map((post) => {
-              const href = gust ? `/gusts?id=${post.id}` : `/posts/${post.id}`;
+              const href = gust ? `/gusts?id=${post.id}` : getPostPath(post);
               const absoluteHref = gust
                 ? `${siteConfig.url}/gusts?id=${post.id}`
-                : `${siteConfig.url}/posts/${post.id}`;
+                : getPostUrl(post);
               // microdata: each link is a SocialMediaPosting entry so crawlers
               // can enrich the internal graph without needing LD+JSON.
               return (

@@ -17,6 +17,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import Linkify from "@/helpers/global/linkify";
 import kyInstance from "@/lib/ky";
+import { getPostPath } from "@/lib/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 import EmptyFeedState from "./empty-feed-state";
@@ -95,7 +96,8 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
       {visibleReplies.map((reply) => {
-        const postHref = `/posts/${reply.post.id}?comment=${reply.id}`;
+        const basePath = getPostPath(reply.post);
+        const postHref = `${basePath}${basePath.includes("?") ? "&" : "?"}comment=${reply.id}`;
         const repliedToUsername =
           reply.parent?.user?.username ??
           reply.post?.user?.username ??
@@ -195,8 +197,8 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                       commentId={reply.id}
                       expandable={false}
                       initialState={{
-                        aura: reply.aura,
-                        userVote: reply.votes[0]?.value ?? 0,
+                        aura: reply.aura ?? 0,
+                        userVote: reply.votes?.[0]?.value ?? 0,
                       }}
                       postId={reply.post.id}
                     />

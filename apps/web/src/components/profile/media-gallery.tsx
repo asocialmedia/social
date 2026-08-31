@@ -18,6 +18,7 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";
+import { getPostMediaPath, getPostPath } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,
@@ -401,9 +402,7 @@ function postHrefFor(item: UserMediaItem): string | null {
   if (!item.postId) {
     return null;
   }
-  return item.post?.isGust
-    ? `/gusts?id=${item.postId}`
-    : `/posts/${item.postId}`;
+  return getPostPath({ id: item.postId, isGust: item.post?.isGust });
 }
 
 // The aspect ratio a media tile renders at, so the moderated banner matches the
@@ -590,7 +589,9 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
           }
           return;
         }
-        router.push(`/posts/${item.postId}/media/0?mediaId=${item.id}`);
+        router.push(
+          `${getPostMediaPath({ id: item.postId }, 0)}?mediaId=${item.id}`
+        );
         return;
       }
       setSelectedMedia(item);

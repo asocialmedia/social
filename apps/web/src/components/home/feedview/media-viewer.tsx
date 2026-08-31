@@ -50,6 +50,7 @@ import { useExplicitRevealed } from "@/lib/explicit-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
 import { isBookmarkedByUser } from "@/lib/post-normalize";
+import { getPostMediaPath, getPostPath } from "@/lib/seo";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -745,7 +746,7 @@ const MediaViewer = ({
               "flex h-11 items-center gap-1.5 rounded-full px-3.5 transition-all duration-200 hover:brightness-110 active:translate-y-px",
               MOBILE_CHIP_3D
             )}
-            onClick={() => router.push(`/posts/${post.id}`)}
+            onClick={() => router.push(getPostPath(post))}
             type="button"
           >
             <MessageSquare
@@ -759,10 +760,10 @@ const MediaViewer = ({
             </span>
           </button>
           <AuraVoteButton
-            authorName={post.user.displayName}
+            authorName={post.user?.displayName || post.user?.username}
             initialState={{
-              aura: post.aura,
-              userVote: post.vote[0]?.value || 0,
+              aura: post.aura ?? 0,
+              userVote: post.vote?.[0]?.value ?? 0,
             }}
             postId={post.id}
           />
@@ -774,7 +775,7 @@ const MediaViewer = ({
             dialogDescription="Share this media with your network"
             dialogTitle="Share Media"
             postId={post.id}
-            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+            shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
             thumbnail={getShareThumbnail(post, currentMedia)}
             title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
           />
@@ -1052,24 +1053,24 @@ const MediaViewer = ({
                       "flex h-11 items-center gap-1.5 rounded-full px-3.5 transition-all duration-200 hover:brightness-110 active:translate-y-px",
                       MOBILE_CHIP_3D
                     )}
-                    onClick={() => router.push(`/posts/${post.id}`)}
+                    onClick={() => router.push(getPostPath(post))}
                     type="button"
                   >
                     <MessageSquare
                       className={cn(
                         "size-4.5",
-                        post._count.comments > 0 && "fill-current"
+                        (post._count?.comments ?? 0) > 0 && "fill-current"
                       )}
                     />
                     <span className="text-sm font-semibold tabular-nums">
-                      {post._count.comments}
+                      {post._count?.comments ?? 0}
                     </span>
                   </button>
                   <AuraVoteButton
-                    authorName={post.user.displayName}
+                    authorName={post.user?.displayName || post.user?.username}
                     initialState={{
-                      aura: post.aura,
-                      userVote: post.vote[0]?.value || 0,
+                      aura: post.aura ?? 0,
+                      userVote: post.vote?.[0]?.value ?? 0,
                     }}
                     postId={post.id}
                   />
@@ -1081,7 +1082,7 @@ const MediaViewer = ({
                     dialogDescription="Share this media with your network"
                     dialogTitle="Share Media"
                     postId={post.id}
-                    shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+                    shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
                     thumbnail={getShareThumbnail(post, currentMedia)}
                     title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                   />
@@ -1525,7 +1526,7 @@ const MediaViewer = ({
                 <button
                   aria-label="View eddies"
                   className="pill-3d-hover group text-muted-foreground inline-flex h-8 items-center justify-center gap-1 rounded-full border-0 px-2 text-sm font-medium active:translate-y-px"
-                  onClick={() => router.push(`/posts/${post.id}`)}
+                  onClick={() => router.push(getPostPath(post))}
                   type="button"
                 >
                   <MessageSquare
@@ -1541,8 +1542,8 @@ const MediaViewer = ({
                 <AuraVoteButton
                   authorName={post.user?.displayName || post.user?.username}
                   initialState={{
-                    aura: post.aura,
-                    userVote: post.vote[0]?.value || 0,
+                    aura: post.aura ?? 0,
+                    userVote: post.vote?.[0]?.value ?? 0,
                   }}
                   postId={post.id}
                 />
@@ -1562,7 +1563,7 @@ const MediaViewer = ({
                   dialogDescription="Share this media with your network"
                   dialogTitle="Share Media"
                   postId={post.id}
-                  shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}/posts/${post.id}/media/${currentIndex}`}
+                  shareUrl={`${typeof window === "undefined" ? "" : window.location.origin}${getPostMediaPath(post, currentIndex)}`}
                   thumbnail={getShareThumbnail(post, currentMedia)}
                   title={`${post.user?.displayName || post.user?.username || "Post"} (@${post.user?.username || "unknown"}) on asocialmedia`}
                 />

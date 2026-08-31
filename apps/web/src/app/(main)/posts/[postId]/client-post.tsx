@@ -16,6 +16,7 @@ import FloatingPostEditor from "@/components/layouts/mobile/floating-post-editor
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
 import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
+import { normalizePostData } from "@/lib/post-normalize";
 import { withViewTransition } from "@/lib/view-transition";
 
 interface ClientPostProps {
@@ -32,13 +33,21 @@ const ClientPost: React.FC<ClientPostProps> = ({
   userData: _userData,
   initialMediaIndex,
 }) => {
-  const { data: post = initialPost } = useQuery<PostData>({
+  const { data: rawPost = initialPost } = useQuery<PostData>({
     initialData: initialPost,
-    queryFn: () =>
-      kyInstance.get(`/api/posts/${initialPost.id}`).json<PostData>(),
+    queryFn: async () => {
+      const json = await kyInstance
+        .get(`/api/posts/${initialPost.id}`)
+        .json<{ post: PostData } | PostData>();
+      const unwrapped =
+        "post" in json && json.post ? json.post : (json as PostData);
+      return normalizePostData(unwrapped);
+    },
     queryKey: ["post", initialPost.id],
     staleTime: 30_000,
   });
+
+  const post = normalizePostData(rawPost);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();

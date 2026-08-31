@@ -44,6 +44,7 @@ import { MessageIdentityProvider } from "@/components/messages/message-identity-
 import { MessageSharePicker } from "@/components/messages/message-share-picker";
 import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
+import { getShortPostPath } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_THUMBNAIL = "/fallback.png";
@@ -94,7 +95,11 @@ const ShareButton = ({
   const [isLoading, setIsLoading] = useState(false);
 
   const baseUrl = typeof window === "undefined" ? "" : window.location.origin;
-  const postUrl = shareUrl || (postId ? `${baseUrl}/posts/${postId}` : baseUrl);
+  const defaultPostPath = postId
+    ? getShortPostPath({ content: description, id: postId })
+    : "";
+  const postUrl =
+    shareUrl || (defaultPostPath ? `${baseUrl}${defaultPostPath}` : baseUrl);
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   // Sharing to DMs needs a post id; without one the Messages tab is hidden.

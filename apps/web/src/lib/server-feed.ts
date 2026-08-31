@@ -1,7 +1,7 @@
 import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { excerpt } from "@/lib/seo";
+import { excerpt, getPostUrl } from "@/lib/seo";
 
 // Server-side feed helpers for SEO crawlable HTML.
 // These mirror the API route logic but run via Prisma directly so
@@ -168,8 +168,13 @@ export async function getRecentPostDataForCrawl(limit = 20) {
   return hydrateViewCounts(rows);
 }
 
-export function crawlPostHref(postId: string): string {
-  return `${siteConfig.url}/posts/${postId}`;
+export function crawlPostHref(
+  post: { content?: string | null; id: string } | string
+): string {
+  if (typeof post === "string") {
+    return `${siteConfig.url}/posts/${post}`;
+  }
+  return getPostUrl(post);
 }
 
 export function gustHref(postId: string): string {

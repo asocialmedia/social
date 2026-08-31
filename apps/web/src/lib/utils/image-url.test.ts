@@ -81,6 +81,26 @@ describe("getSecureImageUrl & toAppProxyUrl", () => {
     expect(toAppProxyUrl(localhostAvatar)).toBe("/avatars/default-1.png");
   });
 
+  test("normalizes absolute app proxy avatar and banner URLs to relative proxy paths", () => {
+    const absAvatarUrl =
+      "https://asocialmedia.cc/api/users/avatar/cmsoqgm0f000001qoz22kys9b/image?v=0ca06123";
+    expect(getSecureImageUrl(absAvatarUrl)).toBe(
+      "/api/users/avatar/cmsoqgm0f000001qoz22kys9b/image?v=0ca06123"
+    );
+    expect(toAppProxyUrl(absAvatarUrl)).toBe(
+      "/api/users/avatar/cmsoqgm0f000001qoz22kys9b/image?v=0ca06123"
+    );
+
+    const absBannerUrl =
+      "https://asocialmedia.cc/api/users/banner/cmsoqgm0f000001qoz22kys9b/image?v=51447097";
+    expect(getSecureImageUrl(absBannerUrl)).toBe(
+      "/api/users/banner/cmsoqgm0f000001qoz22kys9b/image?v=51447097"
+    );
+    expect(toAppProxyUrl(absBannerUrl)).toBe(
+      "/api/users/banner/cmsoqgm0f000001qoz22kys9b/image?v=51447097"
+    );
+  });
+
   test("does not modify relative default avatar paths", () => {
     expect(getSecureImageUrl("/avatars/default-1.png")).toBe(
       "/avatars/default-1.png"

@@ -46,7 +46,7 @@ import {
 import { LoadingButton } from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { useToast } from "@/lib/gooey-toast";
-import { cn, isGifUrl } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import CropImageDialog from "./crop-image-dialog";
@@ -270,9 +270,11 @@ export default function EditProfileDialog({
       values.twitterUsername !== (user.twitterUsername ?? "") ||
       values.redditUsername !== (user.redditUsername ?? "");
     const hasAvatarChanges = Boolean(croppedAvatar || gifToCenter);
-    const hasAvatarDeleted = avatarDeleted && Boolean(user.avatarKey);
+    const hasAvatarDeleted =
+      avatarDeleted && Boolean(user.avatarUrl || user.avatarKey);
     const hasBannerChanges =
-      Boolean(croppedBanner || bannerGif) || bannerRemoved;
+      Boolean(croppedBanner || bannerGif) ||
+      (bannerRemoved && Boolean(user.bannerUrl || user.bannerKey));
     return {
       hasAvatarChanges,
       hasAvatarDeleted,
@@ -323,9 +325,9 @@ export default function EditProfileDialog({
       });
       return;
     }
-    if (bannerRemoved && user.bannerKey) {
+    if (bannerRemoved && (user.bannerUrl || user.bannerKey)) {
       await deleteBannerMutation.mutateAsync({
-        bannerKey: user.bannerKey,
+        bannerKey: user.bannerKey ?? "",
         userId: user.id,
       });
     }
@@ -361,7 +363,7 @@ export default function EditProfileDialog({
 
       if (hasAvatarChanges) {
         await updateAvatar();
-      } else if (hasAvatarDeleted && user.avatarKey) {
+      } else if (hasAvatarDeleted) {
         await deleteAvatarMutation.mutateAsync({ userId: user.id });
       }
 
@@ -489,7 +491,7 @@ export default function EditProfileDialog({
           <div className="space-y-1.5">
             <Label>Header image</Label>
             <BannerInput
-              canRemove={Boolean(user.bannerUrl)}
+              canRemove={Boolean(user.bannerUrl || user.bannerKey)}
               isRemoved={bannerRemoved}
               isUploading={bannerMutation.isPending}
               onBannerCropped={setCroppedBanner}
@@ -740,6 +742,20 @@ const BannerInput = ({
     resetInput();
   }, [onRemove, resetInput]);
 
+  const cropUrl = useMemo(
+    () => (imageToCrop ? URL.createObjectURL(imageToCrop) : null),
+    [imageToCrop]
+  );
+
+  useEffect(
+    () => () => {
+      if (cropUrl) {
+        URL.revokeObjectURL(cropUrl);
+      }
+    },
+    [cropUrl]
+  );
+
   return (
     <>
       <input
@@ -763,10 +779,7 @@ const BannerInput = ({
               fill
               sizes="480px"
               src={bannerSrc}
-              unoptimized={
-                typeof bannerSrc === "string" &&
-                (bannerSrc.includes("asmob") || bannerSrc.startsWith("blob:"))
-              }
+              unoptimized
             />
           ) : (
             <div className="text-muted-foreground absolute inset-0 flex items-center justify-center gap-2 bg-linear-to-br from-[#ff9500]/10 via-transparent to-[#e65500]/10 text-sm">
@@ -807,12 +820,12 @@ const BannerInput = ({
         />
       ) : null}
 
-      {imageToCrop ? (
+      {imageToCrop && cropUrl ? (
         <CropImageDialog
           cropAspectRatio={3}
           onClose={handleCropClose}
           onCropped={handleCropped}
-          src={URL.createObjectURL(imageToCrop)}
+          src={cropUrl}
         />
       ) : null}
     </>
@@ -945,6 +958,20 @@ const AvatarInput = ({
     [onImageCropped]
   );
 
+  const cropUrl = useMemo(
+    () => (imageToCrop ? URL.createObjectURL(imageToCrop) : null),
+    [imageToCrop]
+  );
+
+  useEffect(
+    () => () => {
+      if (cropUrl) {
+        URL.revokeObjectURL(cropUrl);
+      }
+    },
+    [cropUrl]
+  );
+
   return (
     <>
       <input
@@ -971,12 +998,7 @@ const AvatarInput = ({
               height={150}
               onError={handleAvatarError}
               src={avatarSrc}
-              unoptimized={
-                typeof avatarSrc === "string" &&
-                (isGifUrl(avatarSrc) ||
-                  avatarSrc.includes("asmob") ||
-                  avatarSrc.startsWith("blob:"))
-              }
+              unoptimized
               width={150}
             />
             <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 text-white ring-2 ring-white/50 transition-colors duration-200 group-hover:bg-black/30">
@@ -1016,12 +1038,12 @@ const AvatarInput = ({
         />
       ) : null}
 
-      {imageToCrop ? (
+      {imageToCrop && cropUrl ? (
         <CropImageDialog
           cropAspectRatio={1}
           onClose={handleCropClose}
           onCropped={handleCropped}
-          src={URL.createObjectURL(imageToCrop)}
+          src={cropUrl}
         />
       ) : null}
     </>

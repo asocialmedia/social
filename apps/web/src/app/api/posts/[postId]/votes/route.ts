@@ -44,7 +44,7 @@ export async function GET(
 
     const voteInfo: VoteInfo = {
       aura: post.aura,
-      userVote: post.vote[0]?.value || 0,
+      userVote: post.vote?.[0]?.value ?? 0,
     };
 
     const postData: PostData & VoteInfo = {
@@ -215,7 +215,7 @@ export async function POST(
 
     const voteInfo: VoteInfo = {
       aura: result.aura,
-      userVote: result.vote[0]?.value || 0,
+      userVote: result.vote?.[0]?.value ?? 0,
     };
 
     return Response.json(voteInfo);

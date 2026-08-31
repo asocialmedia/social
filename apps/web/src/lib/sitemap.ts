@@ -1,6 +1,8 @@
 import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
+import { getPostUrl } from "@/lib/seo";
+
 // Sitemap architecture
 // ────────────────────
 // /sitemap.xml        → sitemap index listing every child below (route handler)
@@ -151,7 +153,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
       return {
         ...(imageUrl ? { images: [imageUrl] } : {}),
         lastModified: post.createdAt,
-        url: `${siteConfig.url}/posts/${post.id}`,
+        url: getPostUrl(post),
       };
     });
 }

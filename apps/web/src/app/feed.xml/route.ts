@@ -1,7 +1,7 @@
 import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { excerpt } from "@/lib/seo";
+import { excerpt, getPostUrl } from "@/lib/seo";
 
 function escapeXml(value: string): string {
   return value
@@ -37,7 +37,7 @@ export async function GET(): Promise<Response> {
         post.user?.displayName || post.user?.username || "Anonymous";
       const title = `${authorDisplayName} (@${authorUsername}): ${excerpt(post.content, 72)}`;
       const description = excerpt(post.content, 220);
-      const link = `${siteConfig.url}/posts/${post.id}`;
+      const link = getPostUrl(post);
       const categories = post.tags.map((tag) => tag.name);
 
       return [

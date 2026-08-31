@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import Image from "next/image";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   useUpdateAvatarMutation,
@@ -47,6 +47,15 @@ export default function GifCenteringDialog({
   const gifRef = useRef<HTMLImageElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+
+  const previewUrl = useMemo(() => URL.createObjectURL(gifFile), [gifFile]);
+
+  useEffect(
+    () => () => {
+      URL.revokeObjectURL(previewUrl);
+    },
+    [previewUrl]
+  );
 
   // Hooks can't be conditional; call both and pick by target.
   const avatarMutation = useUpdateAvatarMutation();
@@ -173,11 +182,12 @@ export default function GifCenteringDialog({
                 fill
                 ref={gifRef}
                 sizes={target === "banner" ? "320px" : "256px"}
-                src={URL.createObjectURL(gifFile)}
+                src={previewUrl}
                 style={{
                   objectFit: "contain",
                   transformOrigin: "center",
                 }}
+                unoptimized
               />
             </motion.div>
           </div>

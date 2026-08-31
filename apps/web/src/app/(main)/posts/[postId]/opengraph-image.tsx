@@ -31,25 +31,40 @@ async function getPostForCard(postId: string) {
   cacheLife("hours");
   cacheTag("og-post-card");
 
-  return await prisma.post.findUnique({
-    select: {
-      _count: { select: { comments: true, vote: true } },
-      attachments: true,
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      tags: { select: { name: true } },
-      user: {
-        select: {
-          displayName: true,
-          id: true,
-          username: true,
-        },
+  const select = {
+    _count: { select: { comments: true, vote: true } },
+    attachments: true,
+    aura: true,
+    content: true,
+    createdAt: true,
+    id: true,
+    tags: { select: { name: true } },
+    user: {
+      select: {
+        displayName: true,
+        id: true,
+        username: true,
       },
     },
+  };
+
+  let post = await prisma.post.findUnique({
+    select,
     where: { id: postId },
   });
+
+  if (!post && postId.length >= 8) {
+    const matches = await prisma.post.findMany({
+      select,
+      take: 2,
+      where: { id: { startsWith: postId } },
+    });
+    if (matches.length === 1) {
+      post = matches[0] ?? null;
+    }
+  }
+
+  return post;
 }
 
 interface PostCardData {

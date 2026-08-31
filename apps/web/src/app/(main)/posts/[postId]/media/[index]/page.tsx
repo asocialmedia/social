@@ -8,6 +8,9 @@ import { getUserData } from "@/hooks/use-user-data";
 import {
   absoluteUrl,
   getMediaImage,
+  getPostMediaPath,
+  getPostMediaUrl,
+  getPostPath,
   postDescription,
   postTitle,
   siteConfig,
@@ -26,12 +29,25 @@ interface PageProps {
 const INDEX_SEGMENT_PATTERN = /^\d+$/;
 
 const getPost = cache(async (postId: string, loggedInUser: string) => {
-  const post = await prisma.post.findUnique({
+  let post = await prisma.post.findUnique({
     include: getPostDataInclude(loggedInUser),
     where: {
       id: postId,
     },
   });
+
+  if (!post && postId.length >= 8) {
+    const matches = await prisma.post.findMany({
+      include: getPostDataInclude(loggedInUser),
+      take: 2,
+      where: {
+        id: { startsWith: postId },
+      },
+    });
+    if (matches.length === 1) {
+      post = matches[0] ?? null;
+    }
+  }
 
   if (!post) {
     notFound();
@@ -71,14 +87,15 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
   const title = postTitle(post);
   const description = postDescription(post);
-  const mediaUrl = `/posts/${post.id}/media/${parsedIndex}`;
+  const mediaPath = getPostMediaPath(post, parsedIndex);
+  const mediaUrl = getPostMediaUrl(post, parsedIndex);
   const mediaImage = getMediaImage(post, resolvedIndex);
 
   const ogImageUrl =
     mediaImage || absoluteUrl(`/posts/${post.id}/opengraph-image`);
 
   return {
-    alternates: { canonical: mediaUrl },
+    alternates: { canonical: mediaPath },
     description,
     openGraph: {
       description,
@@ -93,7 +110,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
       siteName: siteConfig.name,
       title,
       type: "article",
-      url: absoluteUrl(mediaUrl),
+      url: mediaUrl,
     },
     title,
     twitter: {
@@ -157,7 +174,7 @@ async function MediaContent(props: PageProps) {
 
   const targetMedia = post.attachments[resolvedIndex];
   if (targetMedia?.type === "AUDIO") {
-    redirect(`/posts/${post.id}`);
+    redirect(getPostPath(post));
   }
 
   return <MediaPage initialMediaIndex={resolvedIndex} post={post} />;

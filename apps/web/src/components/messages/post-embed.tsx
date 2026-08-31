@@ -11,6 +11,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import Linkify from "@/helpers/global/linkify";
+import { getPostPath } from "@/lib/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl, getSecureImageUrl } from "@/lib/utils/image-url";
 
@@ -61,7 +62,7 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
     );
   }
 
-  const href = data.isGust ? `/gusts?id=${postId}` : `/posts/${postId}`;
+  const href = getPostPath(data);
   // Images render directly; videos render their extracted thumbnail frame.
   const previews = (data.attachments ?? []).filter(
     (attachment) =>

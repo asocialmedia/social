@@ -95,7 +95,7 @@ export function CommentMedia({ media }: CommentMediaProps) {
 }
 
 interface CommentAttachmentsProps {
-  attachments: Media[];
+  attachments?: Media[] | null;
   className?: string;
 }
 
@@ -103,7 +103,7 @@ export function CommentAttachments({
   attachments,
   className,
 }: CommentAttachmentsProps) {
-  if (attachments.length === 0) {
+  if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
     return null;
   }
 

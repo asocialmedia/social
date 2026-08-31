@@ -12,6 +12,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import { getPostPath } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -125,7 +126,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   } else if (media?.width && media?.height) {
     aspectRatio = media.width / media.height;
   }
-  const href = isGustPost ? `/gusts?id=${post.id}` : `/posts/${post.id}`;
+  const href = getPostPath(post);
 
   let mediaContent: React.ReactNode = null;
   if (media?.type === "IMAGE") {
@@ -202,8 +203,8 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           authorName={post.user?.displayName || post.user?.username}
           expandable={false}
           initialState={{
-            aura: post.aura,
-            userVote: post.vote[0]?.value || 0,
+            aura: post.aura ?? 0,
+            userVote: post.vote?.[0]?.value ?? 0,
           }}
           postId={post.id}
         />

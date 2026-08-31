@@ -10,6 +10,8 @@ import { getUserData } from "@/hooks/use-user-data";
 import {
   absoluteUrl,
   getPostImage,
+  getPostPath,
+  getPostUrl,
   postDescription,
   postTitle,
 } from "@/lib/seo";
@@ -18,17 +20,30 @@ import { getSessionFromApi } from "@/lib/session";
 
 import ClientPost from "./client-post";
 
-interface PageProps {
-  params: Promise<{ postId: string }>;
+export interface PageProps {
+  params: Promise<{ postId: string; slug?: string }>;
 }
 
 const getPost = cache(async (postId: string, loggedInUser: string) => {
-  const post = await prisma.post.findUnique({
+  let post = await prisma.post.findUnique({
     include: getPostDataInclude(loggedInUser),
     where: {
       id: postId,
     },
   });
+
+  if (!post && postId.length >= 8) {
+    const matches = await prisma.post.findMany({
+      include: getPostDataInclude(loggedInUser),
+      take: 2,
+      where: {
+        id: { startsWith: postId },
+      },
+    });
+    if (matches.length === 1) {
+      post = matches[0] ?? null;
+    }
+  }
 
   if (!post) {
     notFound();
@@ -65,12 +80,13 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
   const title = postTitle(post);
   const description = postDescription(post);
-  const url = absoluteUrl(`/posts/${post.id}`);
+  const canonicalPath = getPostPath(post);
+  const url = absoluteUrl(canonicalPath);
   const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
   const postImage = getPostImage(post);
 
   return {
-    alternates: { canonical: `/posts/${post.id}` },
+    alternates: { canonical: canonicalPath },
     category: post.tags[0]?.name,
     description,
     keywords: post.tags.map((tag) => tag.name),
@@ -131,7 +147,7 @@ async function PostContent({ params }: PageProps) {
   const authorUsername = post.user?.username || "unknown";
   const authorDisplayName =
     post.user?.displayName || post.user?.username || "Anonymous";
-  const url = absoluteUrl(`/posts/${post.id}`);
+  const url = getPostUrl(post);
   const authorUrl = absoluteUrl(`/users/${authorUsername}`);
 
   const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
@@ -224,7 +240,7 @@ async function PostContent({ params }: PageProps) {
           itemListElement: filteredRelated.map((p, i) => ({
             "@type": "ListItem",
             position: i + 1,
-            url: `${siteConfig.url}/posts/${p.id}`,
+            url: getPostUrl(p),
           })),
           name: "More eddies",
         }
@@ -247,7 +263,7 @@ async function PostContent({ params }: PageProps) {
             <ul>
               {filteredRelated.map((p) => (
                 <li key={p.id}>
-                  <a href={`/posts/${p.id}`} tabIndex={-1}>
+                  <a href={getPostPath(p)} tabIndex={-1}>
                     {p.content || p.id}
                   </a>
                 </li>

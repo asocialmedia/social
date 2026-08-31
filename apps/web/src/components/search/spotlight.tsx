@@ -19,6 +19,7 @@ import {
   useSearchHistory,
 } from "@/components/search/use-search-history";
 import { getAuraFlameClass } from "@/lib/aura";
+import { getPostPath } from "@/lib/seo";
 import {
   cn,
   formatNumber,
@@ -166,7 +167,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
         createdAt: post.createdAt,
         displayName: post.content,
         explicitContent: post.explicitContent,
-        href: `/posts/${post.id}`,
+        href: getPostPath(post),
         id: `post-${post.id}`,
         meta: `${formatNumber(post.aura)} aura · ${formatNumber(post.viewCount)} views`,
         previewMedia: post.previewMedia,
@@ -240,7 +241,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               createdAt: entry.post.createdAt,
               displayName: entry.post.content,
               explicitContent: entry.post.explicitContent,
-              href: `/posts/${entry.post.id}`,
+              href: getPostPath(entry.post),
               id: `history-post-${entry.post.id}`,
               meta: `${formatNumber(entry.post.aura)} aura · ${formatNumber(entry.post.viewCount)} views`,
               previewMedia: entry.post.previewMedia,
