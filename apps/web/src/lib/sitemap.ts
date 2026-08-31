@@ -5,7 +5,8 @@ import { siteConfig } from "@asm/ui/meta/site";
 // ────────────────────
 // /sitemap.xml        → sitemap index listing every child below (route handler)
 // /sitemaps/core.xml  → hand-picked public pages
-// /sitemaps/posts.xml → latest public posts
+// /sitemaps/posts.xml → latest public posts (isGust=false)
+// /sitemaps/gusts.xml → latest gusts (isGust=true, video posts)
 // /sitemaps/users.xml → active user profiles
 // /sitemaps/tags.xml  → hashtag pages
 //
@@ -17,7 +18,7 @@ import { siteConfig } from "@asm/ui/meta/site";
 // the index at /sitemap.xml is emitted explicitly, which robots.txt has been
 // promising all along.
 
-export const SITEMAP_IDS = ["core", "posts", "users", "tags"] as const;
+export const SITEMAP_IDS = ["core", "posts", "gusts", "users", "tags"] as const;
 
 export type SitemapId = (typeof SITEMAP_IDS)[number];
 
@@ -97,7 +98,7 @@ export function buildSitemapIndexXml(entries: SitemapEntry[]): string {
 // Hand-picked crawlable public pages. Login, signup, and HackerNews are
 // deliberately absent: auth pages are noindexed and HackerNews redirects
 // guests to login, so listing them only burns crawl budget.
-const CORE_PATHS = ["", "/discover"] as const;
+const CORE_PATHS = ["", "/discover", "/gusts"] as const;
 
 // oxlint-disable-next-line require-await -- kept async for Promise-return consistency with DB-backed siblings
 async function getCoreEntries(): Promise<SitemapEntry[]> {
@@ -110,6 +111,9 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
 // moderated posts are hidden from every feed surface, so they stay out.
 // Each entry carries the first previewable media image so crawlers discover
 // visual content; video gets its poster frame via ?thumb=1.
+// Thin-content filter: very short text-only posts (<20 chars after trim)
+// with no media rarely get indexed and burn crawl budget. We prioritize
+// posts that have substance or visual content.
 async function getPostEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.post.findMany({
     include: { attachments: { where: { status: "READY" as const } } },
@@ -122,19 +126,59 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
     },
   });
 
+  return posts
+    .filter((post) => {
+      const text = (post.content ?? "").trim();
+      const hasMedia = post.attachments.length > 0;
+      // Keep posts with >=20 chars or with media; thin text-only posts are deprioritized
+      // but still discoverable via feed HTML - just not in the high-priority sitemap.
+      if (text.length >= 20 || hasMedia) {
+        return true;
+      }
+      // Exclude ultra-thin posts (empty, single emoji, 1-word) from sitemap
+      // to keep sitemap quality high for Google's quality filters.
+      return false;
+    })
+    .map((post) => {
+      const preview = post.attachments.find(
+        (m) =>
+          m.mimeType.toLowerCase().startsWith("image/") ||
+          (m as { type?: string }).type === "VIDEO"
+      );
+      const imageUrl = preview
+        ? `${siteConfig.url}/api/media/${preview.id}${(preview as { type?: string }).type === "VIDEO" ? "?thumb=1" : ""}`
+        : undefined;
+      return {
+        ...(imageUrl ? { images: [imageUrl] } : {}),
+        lastModified: post.createdAt,
+        url: `${siteConfig.url}/posts/${post.id}`,
+      };
+    });
+}
+
+async function getGustEntries(): Promise<SitemapEntry[]> {
+  const posts = await prisma.post.findMany({
+    include: { attachments: { where: { status: "READY" as const } } },
+    orderBy: { createdAt: "desc" },
+    take: SITEMAP_URL_LIMIT,
+    where: {
+      isGust: true,
+      moderated: false,
+      user: { banned: false },
+    },
+  });
+
   return posts.map((post) => {
-    const preview = post.attachments.find(
-      (m) =>
-        m.mimeType.toLowerCase().startsWith("image/") ||
-        (m as { type?: string }).type === "VIDEO"
+    const video = post.attachments.find(
+      (m) => (m as { type?: string }).type === "VIDEO"
     );
-    const imageUrl = preview
-      ? `${siteConfig.url}/api/media/${preview.id}${(preview as { type?: string }).type === "VIDEO" ? "?thumb=1" : ""}`
+    const imageUrl = video
+      ? `${siteConfig.url}/api/media/${video.id}?thumb=1`
       : undefined;
     return {
       ...(imageUrl ? { images: [imageUrl] } : {}),
       lastModified: post.createdAt,
-      url: `${siteConfig.url}/posts/${post.id}`,
+      url: `${siteConfig.url}/gusts?id=${post.id}`,
     };
   });
 }
@@ -171,6 +215,9 @@ export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
     case "posts": {
       return getPostEntries();
     }
+    case "gusts": {
+      return getGustEntries();
+    }
     case "tags": {
       return getTagEntries();
     }
@@ -191,7 +238,15 @@ export async function getSitemapLastModified(
       const latest = await prisma.post.findFirst({
         orderBy: { createdAt: "desc" },
         select: { createdAt: true },
-        where: { moderated: false },
+        where: { isGust: false, moderated: false },
+      });
+      return latest?.createdAt;
+    }
+    case "gusts": {
+      const latest = await prisma.post.findFirst({
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+        where: { isGust: true, moderated: false },
       });
       return latest?.createdAt;
     }

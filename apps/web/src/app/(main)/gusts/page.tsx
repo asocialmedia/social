@@ -3,8 +3,10 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
+import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
 import { absoluteUrl, excerpt, siteConfig } from "@/lib/seo";
+import { getRecentGustsForCrawl } from "@/lib/server-feed";
 import { getSessionFromApi } from "@/lib/session";
 
 import { ClientGusts } from "./client-gusts";
@@ -159,5 +161,51 @@ async function GustsContent() {
     ? await getUserData(session.user.id)
     : null;
 
-  return <ClientGusts loggedInUserData={loggedInUserData} />;
+  const gusts = await getRecentGustsForCrawl(16);
+
+  const itemListJsonLd =
+    gusts.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          itemListElement: gusts.map((post, index) => ({
+            "@type": "ListItem",
+            position: index + 1,
+            url: `${siteConfig.url}/gusts?id=${post.id}`,
+          })),
+          name: "Latest gusts on asocialmedia",
+        }
+      : null;
+
+  return (
+    <>
+      {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
+      <ClientGusts loggedInUserData={loggedInUserData} />
+      {/* Hidden crawlable gust links for bots: JS-only stream has no SSR links */}
+      <div className="sr-only" aria-hidden={false}>
+        <nav aria-label="Latest gusts crawlable">
+          <ul>
+            {gusts.map((g) => (
+              <li key={g.id}>
+                <a href={`/gusts?id=${g.id}`}>{g.content || g.id}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
+      {/* Visible crawlable fallback below the interactive area on no-JS */}
+      <noscript>
+        <div style={{ padding: 16 }}>
+          <p>Recent gusts:</p>
+          <ul>
+            {gusts.map((g) => (
+              <li key={g.id}>
+                <a href={`/gusts?id=${g.id}`}>{g.content || g.id}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </noscript>
+    </>
+  );
 }

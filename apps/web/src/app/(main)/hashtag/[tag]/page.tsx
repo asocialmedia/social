@@ -10,6 +10,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import HashtagFeed from "@/components/posts/hashtag-feed";
 import JsonLd from "@/components/seo/json-ld";
 import { absoluteUrl } from "@/lib/seo";
+import { getHashtagPostsForCrawl } from "@/lib/server-feed";
 
 interface PageProps {
   params: Promise<{ tag: string }>;
@@ -117,6 +118,24 @@ async function HashtagContent({ params }: PageProps) {
     url: tagUrl,
   };
 
+  // Crawlable links for this tag - visible in SSR so bots discover post URLs
+  // without JS, even though the interactive feed is client-fetched.
+  const crawlPosts = await getHashtagPostsForCrawl(canonicalName, 20);
+
+  const itemListJsonLd =
+    crawlPosts.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          itemListElement: crawlPosts.map((post, index) => ({
+            "@type": "ListItem",
+            position: index + 1,
+            url: `${siteConfig.url}/posts/${post.id}`,
+          })),
+          name: `#${canonicalName} posts`,
+        }
+      : null;
+
   return (
     <>
       <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
@@ -132,12 +151,27 @@ async function HashtagContent({ params }: PageProps) {
             <div className="mt-5">
               <HashtagFeed tag={canonicalName} />
             </div>
+            {crawlPosts.length > 0 ? (
+              <div className="sr-only" aria-hidden={false}>
+                <nav aria-label={`Recent #${canonicalName} crawlable`}>
+                  <ul>
+                    {crawlPosts.map((p) => (
+                      <li key={p.id}>
+                        <a href={`/posts/${p.id}`}>{p.content || p.id}</a>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
 
       <SecondaryRightSideBar />
-      <JsonLd data={collectionJsonLd} />
+      <JsonLd
+        data={[collectionJsonLd, ...(itemListJsonLd ? [itemListJsonLd] : [])]}
+      />
     </>
   );
 }

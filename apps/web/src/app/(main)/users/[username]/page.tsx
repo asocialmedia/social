@@ -9,6 +9,7 @@ import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/use-user-data";
 import { absoluteUrl, excerpt } from "@/lib/seo";
+import { getUserPostsForCrawl } from "@/lib/server-feed";
 import { getSessionFromApi } from "@/lib/session";
 
 import ClientProfile from "./client-profile";
@@ -161,10 +162,42 @@ async function ProfileContent({ params }: PageProps) {
     url: profileUrl,
   };
 
+  // Crawlable recent posts from this user - visible in SSR HTML so
+  // profile pages link to post URLs without JS.
+  const recentPosts = await getUserPostsForCrawl(userData.id, 12);
+
+  const itemListJsonLd =
+    recentPosts.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          itemListElement: recentPosts.map((post, index) => ({
+            "@type": "ListItem",
+            position: index + 1,
+            url: `${siteConfig.url}/posts/${post.id}`,
+          })),
+          name: `Posts by @${userData.username}`,
+        }
+      : null;
+
   return (
     <>
-      <JsonLd data={profileJsonLd} />
+      <JsonLd
+        data={itemListJsonLd ? [profileJsonLd, itemListJsonLd] : profileJsonLd}
+      />
       <ClientProfile loggedInUserData={loggedInUserData} userData={userData} />
+      {/* Hidden fallback list for bots - no visible block */}
+      <div className="sr-only" aria-hidden={false}>
+        <nav aria-label={`Posts by @${userData.username} crawlable`}>
+          <ul>
+            {recentPosts.map((p) => (
+              <li key={p.id}>
+                <a href={`/posts/${p.id}`}>{p.content || p.id}</a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
     </>
   );
 }

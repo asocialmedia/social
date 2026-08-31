@@ -20,6 +20,7 @@ import {
   tagCache,
 } from "@asm/db";
 import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
+import { siteConfig } from "@asm/ui/meta/site";
 import { updateTag } from "next/cache";
 
 import { resolvePostEmbeds } from "@/lib/link-embeds/server";
@@ -448,6 +449,32 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       await invalidateAuraSignals([...signalUserIds]);
     } catch (error) {
       console.error("Failed to invalidate aura signals:", error);
+    }
+
+    // IndexNow: fire-and-forget so Bing/Yandex discover the URL same-day.
+    // Never block the response on network; swallow errors.
+    if (newPost) {
+      const postUrl = newPost.isGust
+        ? `${siteConfig.url}/gusts?id=${newPost.id}`
+        : `${siteConfig.url}/posts/${newPost.id}`;
+      const authorUrl = `${siteConfig.url}/users/${sessionData.user.username ?? sessionData.user.id}`;
+      void (async () => {
+        try {
+          const { submitManyToIndexNow } = await import("@/lib/indexnow");
+          // Submit the post + author profile + first hashtag page if any
+          const urls = [postUrl, authorUrl];
+          const firstTag = (newPost as { tags?: { name: string }[] }).tags?.[0]
+            ?.name;
+          if (firstTag) {
+            urls.push(
+              `${siteConfig.url}/hashtag/${encodeURIComponent(firstTag)}`
+            );
+          }
+          await submitManyToIndexNow(urls);
+        } catch (error) {
+          console.warn("[indexnow] post submit failed", error);
+        }
+      })();
     }
 
     // The worker checks whether this post (or gust) pushed the author over the
