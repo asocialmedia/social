@@ -29,6 +29,8 @@ function isIntegrationTestFile(repoRelativePath: string): boolean {
   return INTEGRATION_TEST_PATTERN.test(repoRelativePath);
 }
 
+export { isIntegrationTestFile };
+
 async function collectTestFilesRecursive(
   directory: string,
   rootDir: string

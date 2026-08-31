@@ -15,6 +15,7 @@ strix_runs/
 
 # Testing
 coverage
+test-timings.json
 
 # Turbo
 .turbo
