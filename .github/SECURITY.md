@@ -1,6 +1,6 @@
 # Security
 
-Contact: dev.hashcodes@gmail.com
+Contact: harsh@itssingularity.com
 
 We consider the security of our systems a top priority. But no matter how much effort we put into system security, there can still be vulnerabilities present.
 
@@ -20,7 +20,7 @@ If you discover a vulnerability, we would like to know about it so we can take s
 
 ## Please do the following:
 
-- E-mail your findings to [dev.hashcodes@gmail.com](mailto:dev.hashcodes@gmail.com).
+- E-mail your findings to [harsh@itssingularity.com](mailto:harsh@itssingularity.com).
 - Do not take advantage of the vulnerability or problem you have discovered, for example by downloading more data than necessary to demonstrate the vulnerability or deleting or modifying other people's data,
 - Do not use attacks on physical security, social engineering, distributed denial of service, spam or applications of third parties,
 - Do provide sufficient information to reproduce the problem, so we will be able to resolve it as quickly as possible. Usually, the IP address or the URL of the affected system and a description of the vulnerability will be sufficient, but complex vulnerabilities may require further explanation.
