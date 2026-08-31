@@ -29,7 +29,7 @@ export function EmbedCard({ embed }: { embed: LinkEmbed }) {
       <div className="flex items-stretch gap-3 p-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <EmbedSiteBadge siteName={embed.siteName} />
+            <EmbedSiteBadge siteName={embed.siteName} url={embed.url} />
             <span className="text-muted-foreground truncate text-xs">
               {embed.siteName ?? "Link"}
             </span>

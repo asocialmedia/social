@@ -85,7 +85,10 @@ export default function LinkEmbedComposer({
             <div className="embed-panel-3d overflow-hidden p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
-                  <EmbedSiteBadge siteName={embed?.siteName ?? null} />
+                  <EmbedSiteBadge
+                    siteName={embed?.siteName ?? null}
+                    url={embed?.url ?? url}
+                  />
                   <span className="text-muted-foreground truncate text-xs">
                     {embed?.siteName ??
                       (isLoading ? "Resolving link…" : "Link")}

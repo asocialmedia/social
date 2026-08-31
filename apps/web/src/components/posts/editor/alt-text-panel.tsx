@@ -123,43 +123,39 @@ const AltTextPanel = ({
   };
 
   if (compact) {
-    // Mirrors the caption bar above it exactly: same premium-input surface,
-    // same padding, same focus ring - a plain textarea carrying the caption
-    // input's class set (the shadui Textarea chrome would fight it). The
-    // draft rides to the media row on publish, so there is nothing to click.
+    // Docked variant (gust): renders as a single inline bar matching fleet mode,
+    // with the Auto button docked on the right side of the input.
     return (
-      <div className="relative flex flex-col gap-1.5">
-        {attachment.mediaId ? (
-          <div className="flex justify-end">
-            <button
-              aria-label="Auto-generate alt text from speech and text detection"
-              className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-amber-500/20 via-orange-500/15 to-orange-500/10 px-3 text-[11px] font-semibold text-orange-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.4),0_0_0_1px_rgba(234,88,12,0.6),0_1px_1px_rgba(255,255,255,0.2),0_2px_4px_rgba(0,0,0,0.15)] backdrop-blur-md transition-all duration-200 hover:scale-[1.02] hover:from-amber-500/30 hover:to-orange-500/20 hover:text-orange-300 active:translate-y-px disabled:opacity-50"
-              disabled={isAutoGenerating}
-              onClick={handleAutoAltText}
-              type="button"
-            >
-              <Image
-                alt=""
-                className={cn(
-                  "size-3.5 object-contain",
-                  isAutoGenerating && "animate-spin"
-                )}
-                height={20}
-                src={zephImage}
-                width={20}
-              />
-              <span>{isAutoGenerating ? "Analyzing..." : "Auto Alt-Text"}</span>
-            </button>
-          </div>
-        ) : null}
+      <div className="premium-input focus-within:ring-primary flex items-center gap-1.5 rounded-2xl py-2 pr-2 pl-5 transition-all duration-300 ease-in-out focus-within:ring-2">
         <textarea
           aria-label="Alt text"
-          className="premium-input text-foreground focus-within:ring-primary field-sizing-content max-h-40 w-full max-w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto px-5 py-3 break-words transition-all duration-300 ease-in-out focus-within:ring-2"
+          className="placeholder:text-muted-foreground/70 field-sizing-content max-h-24 w-full resize-none border-0 bg-transparent p-0 text-sm outline-none"
           maxLength={ALT_TEXT_MAX_LENGTH}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Describe this video for people who can't see it…"
           value={draft}
         />
+        {attachment.mediaId ? (
+          <button
+            aria-label="Auto-generate alt text from speech and text detection"
+            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-linear-to-b from-amber-500/20 via-orange-500/15 to-orange-500/10 px-3 text-xs font-semibold text-orange-400 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.4),0_0_0_1px_rgba(234,88,12,0.6),0_1px_1px_rgba(255,255,255,0.2),0_2px_4px_rgba(0,0,0,0.15)] backdrop-blur-md transition-all duration-200 hover:scale-[1.02] hover:from-amber-500/30 hover:to-orange-500/20 hover:text-orange-300 active:translate-y-px disabled:opacity-50"
+            disabled={isAutoGenerating}
+            onClick={handleAutoAltText}
+            type="button"
+          >
+            <Image
+              alt=""
+              className={cn(
+                "size-3.5 object-contain",
+                isAutoGenerating && "animate-spin"
+              )}
+              height={20}
+              src={zephImage}
+              width={20}
+            />
+            <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
+          </button>
+        ) : null}
       </div>
     );
   }

@@ -30,6 +30,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import {
   Clapperboard,
+  FileAudioIcon,
   GripVertical,
   Hash,
   Image as ImageIcon,
@@ -354,6 +355,10 @@ export default function PostEditor({
   // when the gust is published.
   const [altDrafts, setAltDrafts] = useState<Record<string, string>>({});
 
+  const handleAltEditRequest = useCallback((key: string) => {
+    setAltEditorKey((prev) => (prev === key ? null : key));
+  }, []);
+
   // Which formats the current draft still accepts (drag-drop and paste). A
   // gust draft only ever takes videos; an audio or GIF post takes nothing
   // new; any fleet draft that already carries media only takes more
@@ -558,6 +563,19 @@ export default function PostEditor({
       event.target.value = "";
     },
     [handleThumbnailFile]
+  );
+
+  const mobileAudioInputRef = useRef<HTMLInputElement>(null);
+
+  const handleMobileAudioSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const { files } = event.target;
+      if (files && files.length > 0) {
+        guardMediaType([...files]);
+      }
+      event.target.value = "";
+    },
+    [guardMediaType]
   );
 
   const editor = useEditor({
@@ -806,7 +824,7 @@ export default function PostEditor({
             attachments={attachments}
             cancelUpload={cancelUpload}
             isGust={isGust}
-            onAltEditRequest={setAltEditorKey}
+            onAltEditRequest={handleAltEditRequest}
             onChangeVideoRequest={isGust ? requestGustVideoChange : undefined}
             removeAttachment={removeAttachment}
             reorderAttachments={reorderAttachments}
@@ -854,7 +872,7 @@ export default function PostEditor({
   const publishButton = (
     <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
       <LoadingButton
-        className="min-w-20"
+        className="h-8 min-w-18 px-4 text-xs font-semibold"
         disabled={
           !(input.trim() || isHnSharing || hasPublishableMedia) ||
           isUploading ||
@@ -864,9 +882,10 @@ export default function PostEditor({
         }
         loading={mutation.isPending}
         onClick={onSubmit}
+        size="sm"
         variant="premium"
       >
-        {isGust ? "Gust" : "Post"}
+        {isGust ? "Gust" : "Fleet"}
       </LoadingButton>
     </motion.div>
   );
@@ -896,17 +915,6 @@ export default function PostEditor({
           : "rounded-none border-0 bg-transparent"
       )}
     >
-      {/* Single fixed mode switcher pinned to the top of the composer for
-          every mode and breakpoint. It must stay OUTSIDE the gust grid below:
-          inside it, the wrapper would claim the first grid cell and shove the
-          video/fields columns out of place. */}
-      <div className="flex">
-        <ModeToggle
-          disabled={modeSwitchLocked}
-          disabledReason={modeSwitchReason}
-          isGust={isGust}
-        />
-      </div>
       {/* The avatar leads the composer on every breakpoint: the input bar
           sits beside it on mobile too. Gust mode with a clip keeps its
           stacked mobile grid instead - there the avatar leads the rail
@@ -919,7 +927,7 @@ export default function PostEditor({
       >
         <div
           className={cn(
-            "mt-1 shrink-0",
+            "shrink-0",
             isGust && hasVideoAttachment && "max-sm:hidden"
           )}
         >
@@ -930,7 +938,8 @@ export default function PostEditor({
           >
             <UserAvatar
               avatarUrl={userData?.avatarUrl || user.image}
-              className="h-10 w-10"
+              className="size-12 rounded-2xl"
+              size={48}
             />
           </motion.div>
         </div>
@@ -943,7 +952,7 @@ export default function PostEditor({
             // fields stack in the right rail.
             isGust &&
               hasVideoAttachment &&
-              "grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
+              "grid grid-cols-2 gap-3 sm:grid-cols-[minmax(0,17.5rem)_minmax(0,1fr)] sm:items-start sm:gap-4"
           )}
         >
           {/* Gust mode: the avatar leads the left rail on mobile (thumbnail
@@ -954,7 +963,8 @@ export default function PostEditor({
               <div className="mb-3 sm:hidden">
                 <UserAvatar
                   avatarUrl={userData?.avatarUrl || user.image}
-                  className="size-10 shrink-0 rounded-xl ring-2 ring-white/60"
+                  className="size-12 shrink-0 rounded-2xl ring-2 ring-white/60"
+                  size={48}
                 />
               </div>
               {previewsBlock}
@@ -1117,7 +1127,7 @@ export default function PostEditor({
               </div>
             ) : null}
             {isGust && hasGustVideo ? (
-              <div className="max-sm:col-span-2 max-sm:-mt-3">
+              <div className="max-sm:col-span-2">
                 <AltTextEditorPanel
                   altDrafts={altDrafts}
                   altEditorKey={altEditorKey}
@@ -1158,6 +1168,46 @@ export default function PostEditor({
             {/* With a video the hint lives under the preview; this copy
                 covers the no-video state only. */}
             {isGust && !hasGustVideo ? gustHintLine : null}
+
+            {/* Capacity indicator: n/10 with context hints; turns warning near the
+                cap and destructive at it. Gusts take a single video, so the counter
+                is meaningless there and is hidden. */}
+            {!isGust && !!attachments.length && (
+              <div className="text-muted-foreground mt-3 flex items-center gap-2 text-xs font-medium">
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 tabular-nums",
+                    capacityChipClass(attachments.length, capacityFull)
+                  )}
+                >
+                  {attachments.length}/{MAX_POST_ATTACHMENTS}
+                </span>
+                {capacityFull ? (
+                  <span className="text-destructive">limit reached</span>
+                ) : (
+                  attachments.length > 1 && (
+                    <span>drag the grip to reorder</span>
+                  )
+                )}
+              </div>
+            )}
+
+            {/* Post attachments preview grid */}
+            {isGust && hasVideoAttachment ? null : (
+              <div className={cn(!!attachments.length && "mt-3")}>
+                {previewsBlock}
+              </div>
+            )}
+
+            {/* Post-mode alt text editor, directly under the attachment grid. */}
+            {isGust ? null : (
+              <AltTextEditorPanel
+                altEditorKey={altEditorKey}
+                attachments={attachments}
+                onClose={() => setAltEditorKey(null)}
+                onSave={setAltText}
+              />
+            )}
 
             {/* Toolbar: in gust mode with a video every control here is
                 hidden or relocated (pickers gone, publish under sound), so
@@ -1203,15 +1253,15 @@ export default function PostEditor({
                             disabled={attachmentOptionsDisabled}
                             type="button"
                           >
-                            <MoreHorizontal className="size-5" size={20} />
+                            <MoreHorizontal className="size-[18px]" size={18} />
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
                           align="start"
-                          className="apple-panel min-w-44 p-1.5 shadow-none"
+                          className="apple-panel min-w-44 p-1.5 shadow-md"
                         >
                           <DropdownMenuItem
-                            className="pill-3d-hover rounded-md px-2 py-2"
+                            className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
                             disabled={
                               attachmentOptionsDisabled || mixedMediaLocked
                             }
@@ -1222,25 +1272,36 @@ export default function PostEditor({
                                 : undefined
                             }
                           >
-                            <span className="flex items-center gap-3">
-                              <Clapperboard className="size-4" />
-                              GIFs
-                            </span>
+                            <Clapperboard className="text-muted-foreground size-[18px] shrink-0" />
+                            <span>GIFs</span>
                           </DropdownMenuItem>
-                          <div className="flex items-center px-1 py-1">
-                            <FileInput
-                              disabled={attachmentOptionsDisabled}
-                              disabledTypes={lockedFileButtons}
-                              explanations={{
-                                audio: audioLockReason,
-                                image: mediaLockReason,
-                              }}
-                              onFilesSelected={guardMediaType}
-                              types={["audio"]}
-                            />
-                          </div>
+                          <DropdownMenuItem
+                            className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                            disabled={
+                              attachmentOptionsDisabled ||
+                              Boolean(lockedFileButtons.includes("audio"))
+                            }
+                            onClick={() => mobileAudioInputRef.current?.click()}
+                            title={
+                              attachmentOptionsDisabled ||
+                              Boolean(lockedFileButtons.includes("audio"))
+                                ? audioLockReason
+                                : undefined
+                            }
+                          >
+                            <FileAudioIcon className="text-muted-foreground size-[18px] shrink-0" />
+                            <span>Audio Files</span>
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      <input
+                        accept="audio/*,.mp3,.wav,.ogg,.m4a"
+                        aria-label="Upload audio"
+                        className="sr-only"
+                        onChange={handleMobileAudioSelect}
+                        ref={mobileAudioInputRef}
+                        type="file"
+                      />
                     </div>
                   )}
 
@@ -1284,7 +1345,7 @@ export default function PostEditor({
                         whileTap={{ scale: 0.98 }}
                       >
                         <span className="flex items-center gap-1.5">
-                          <Clapperboard className="size-5" size={20} />
+                          <Clapperboard className="size-[18px]" size={18} />
                           <span
                             className={cn(
                               "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
@@ -1301,16 +1362,23 @@ export default function PostEditor({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {isGust ? null : publishButton}
-                </div>
+                {isGust ? null : (
+                  <div className="flex items-center gap-2">
+                    <ModeToggle
+                      disabled={modeSwitchLocked}
+                      disabledReason={modeSwitchReason}
+                      isGust={isGust}
+                    />
+                    {publishButton}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Thumbnail + sound: a two-column strip under the text fields,
                 so neither section waits on the video column's height. */}
             {isGust && hasGustVideo ? (
-              <div className="mt-3 grid gap-4 max-sm:col-span-2 max-sm:[display:contents] sm:grid-cols-2">
+              <div className="mt-3 grid gap-4 max-sm:col-span-2 max-sm:[display:contents] sm:grid-cols-[9.5rem_minmax(0,1fr)] sm:gap-5">
                 {/* Gust thumbnail: vertical 9:16 like the clip above it. The
                     preview always reflects the served ?thumb=1 (custom cover
                     once attached, generated poster otherwise); the uploaded
@@ -1485,44 +1553,17 @@ export default function PostEditor({
           {/* Gust publish: full-width row on the mobile grid, right-aligned
               on sm+. */}
           {isGust ? (
-            <div className="col-span-2 mt-3 flex justify-end">
+            <div className="col-span-2 mt-3 flex items-center justify-end gap-2">
+              <ModeToggle
+                disabled={modeSwitchLocked}
+                disabledReason={modeSwitchReason}
+                isGust={isGust}
+              />
               {publishButton}
             </div>
           ) : null}
         </div>
       </div>
-
-      {/* Capacity indicator: n/10 with context hints; turns warning near the
-          cap and destructive at it. Gusts take a single video, so the counter
-          is meaningless there and is hidden. */}
-      {!isGust && !!attachments.length && (
-        <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 tabular-nums",
-              capacityChipClass(attachments.length, capacityFull)
-            )}
-          >
-            {attachments.length}/{MAX_POST_ATTACHMENTS}
-          </span>
-          {capacityFull ? (
-            <span className="text-destructive">limit reached</span>
-          ) : (
-            attachments.length > 1 && <span>drag the grip to reorder</span>
-          )}
-        </div>
-      )}
-
-      {isGust && hasVideoAttachment ? null : previewsBlock}
-      {/* Post-mode alt text editor, directly under the attachment grid. */}
-      {isGust ? null : (
-        <AltTextEditorPanel
-          altEditorKey={altEditorKey}
-          attachments={attachments}
-          onClose={() => setAltEditorKey(null)}
-          onSave={setAltText}
-        />
-      )}
     </div>
   );
 }
@@ -1585,8 +1626,8 @@ const SortableAttachment = ({
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
-      <div className="group/reorder relative">
+    <div className="w-full" ref={setNodeRef} style={style}>
+      <div className="group/reorder relative w-full">
         {/* Grip handle carries the drag listeners so clicks on the preview
             body (play button, remove X) never start a drag. */}
         {/* Reordering needs at least two tiles - a lone attachment has
@@ -1780,7 +1821,7 @@ const AltTextEditorPanel = ({
           <div
             className={cn(
               "-mx-1.5 -mb-1.5 overflow-hidden p-1.5",
-              docked ? "mt-1.5" : "-mt-1.5"
+              docked ? "mt-1.5" : "mt-0.5"
             )}
           >
             <AltTextPanel
@@ -1861,13 +1902,13 @@ const ModeToggle: React.FC<{
   const setMode = useComposerStore((state) => state.setMode);
 
   const activeClasses =
-    "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+    "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.1)]";
   const idleClasses = "text-muted-foreground hover:text-foreground";
 
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center gap-1 rounded-full border border-black/10 bg-[hsl(var(--background))] p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)] transition-opacity duration-200 dark:border-white/10 dark:bg-[#232323]",
+        "flex h-9 shrink-0 items-center gap-0.5 rounded-full border border-black/10 bg-[hsl(var(--background))] p-0.5 shadow-xs transition-opacity duration-200 dark:border-white/10 dark:bg-[#232323]",
         disabled && "opacity-50"
       )}
       title={
@@ -1880,7 +1921,7 @@ const ModeToggle: React.FC<{
         aria-label="Create a fleet post"
         aria-pressed={!isGust}
         className={cn(
-          "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
+          "flex h-8 items-center justify-center rounded-full px-3.5 text-xs font-semibold transition-all duration-200",
           isGust ? idleClasses : activeClasses,
           disabled && "cursor-not-allowed"
         )}
@@ -1894,7 +1935,7 @@ const ModeToggle: React.FC<{
         aria-label="Create a gust"
         aria-pressed={isGust}
         className={cn(
-          "rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200",
+          "flex h-8 items-center justify-center rounded-full px-3.5 text-xs font-semibold transition-all duration-200",
           isGust ? activeClasses : idleClasses,
           disabled && "cursor-not-allowed"
         )}
