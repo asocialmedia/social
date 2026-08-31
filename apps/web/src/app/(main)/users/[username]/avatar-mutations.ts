@@ -54,6 +54,8 @@ interface UpdateProfileResponse {
   user: {
     avatarKey: string | null;
     avatarUrl: string | null;
+    bannerKey: string | null;
+    bannerUrl: string | null;
     bio: string | null;
     displayName: string;
     githubUsername: string | null;
@@ -269,21 +271,11 @@ export function useDeleteBannerMutation() {
     // oxlint-disable-next-line typescript/no-invalid-void-type -- delete mutations carry no data
     void,
     Error,
-    { bannerKey: string; userId: string },
+    { bannerKey?: string; userId: string },
     ProfileMutationContext
   >({
-    mutationFn: async ({
-      bannerKey,
-      userId,
-    }: {
-      bannerKey: string;
-      userId: string;
-    }) => {
+    mutationFn: async () => {
       const response = await fetch("/api/users/banner", {
-        body: JSON.stringify({ bannerKey, userId }),
-        headers: {
-          "Content-Type": "application/json",
-        },
         method: "DELETE",
       });
 
@@ -308,10 +300,20 @@ export function useDeleteBannerMutation() {
       ]);
 
       queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
-        old ? { ...old, bannerKey: null, bannerUrl: null } : old
+        old
+          ? { ...old, bannerKey: null, bannerMediaId: null, bannerUrl: null }
+          : old
       );
 
       return { previousUser };
+    },
+    onSuccess: (_, { userId }) => {
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
+        old
+          ? { ...old, bannerKey: null, bannerMediaId: null, bannerUrl: null }
+          : old
+      );
+      queryClient.invalidateQueries({ queryKey: ["post-feed"] });
     },
   });
 }
@@ -324,7 +326,7 @@ export function useDeleteAvatarMutation() {
     void,
     Error,
     { userId: string },
-    ProfileMutationContext
+    AvatarMutationContext
   >({
     mutationFn: async () => {
       // The route resolves the stored key server-side from the session, so no
@@ -345,19 +347,39 @@ export function useDeleteAvatarMutation() {
           context.previousUser
         );
       }
+      if (context?.previousAvatar) {
+        queryClient.setQueryData(
+          ["avatar", context.previousUser?.id],
+          context.previousAvatar
+        );
+      }
     },
     onMutate: async ({ userId }) => {
       await queryClient.cancelQueries({ queryKey: ["user", userId] });
+      await queryClient.cancelQueries({ queryKey: ["avatar", userId] });
       const previousUser = queryClient.getQueryData<PrivateUserData>([
         "user",
         userId,
       ]);
+      const previousAvatar = queryClient.getQueryData(["avatar", userId]);
 
       queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
-        old ? { ...old, avatarKey: null, avatarUrl: null } : old
+        old
+          ? { ...old, avatarKey: null, avatarMediaId: null, avatarUrl: null }
+          : old
       );
+      queryClient.setQueryData(["avatar", userId], null);
 
-      return { previousUser };
+      return { optimisticUrl: "", previousAvatar, previousUser };
+    },
+    onSuccess: (_, { userId }) => {
+      queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
+        old
+          ? { ...old, avatarKey: null, avatarMediaId: null, avatarUrl: null }
+          : old
+      );
+      queryClient.setQueryData(["avatar", userId], null);
+      queryClient.invalidateQueries({ queryKey: ["post-feed"] });
     },
   });
 }
@@ -415,10 +437,12 @@ export function useUpdateProfileMutation() {
         old
           ? {
               ...old,
-              // Profile updates never change the avatar; keep the cached key
-              // (avatar uploads update it via their own mutation).
+              // Profile updates never change the avatar or banner directly;
+              // preserve existing keys/urls.
               avatarKey: old.avatarKey,
               avatarUrl: updatedUser.avatarUrl ?? old.avatarUrl,
+              bannerKey: old.bannerKey,
+              bannerUrl: updatedUser.bannerUrl ?? old.bannerUrl,
               bio: updatedUser.bio ?? "",
               displayName: updatedUser.displayName,
               githubUsername: updatedUser.githubUsername,

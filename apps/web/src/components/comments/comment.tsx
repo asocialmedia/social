@@ -264,8 +264,8 @@ export default function CommentItem({
                   commentId={comment.id}
                   expandable={false}
                   initialState={{
-                    aura: comment.aura,
-                    userVote: comment.votes[0]?.value || 0,
+                    aura: comment.aura ?? 0,
+                    userVote: comment.votes?.[0]?.value ?? 0,
                   }}
                   postId={post.id}
                 />

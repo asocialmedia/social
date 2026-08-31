@@ -40,7 +40,7 @@ import { AudioPreview } from "./audio-preview";
 import MediaViewer from "./media-viewer";
 
 interface MediaPreviewsProps {
-  attachments: Media[];
+  attachments?: Media[];
   autoPlayVideos?: boolean;
   // Renders the mobile layout regardless of the actual viewport (used in
   // narrow embedded columns like the media page's sidebar, where the desktop
@@ -803,10 +803,10 @@ const SingleImagePreview = ({
 
   if (isFailed) {
     return (
-      <div className="bg-muted/20 relative flex max-h-[380px] w-full items-center justify-center overflow-hidden rounded-xl sm:max-h-[480px]">
+      <div className="bg-muted/20 relative flex max-h-95 w-full items-center justify-center overflow-hidden rounded-xl sm:max-h-120">
         <Image
           alt="Attachment unavailable"
-          className="h-auto max-h-[380px] w-full object-contain opacity-60 sm:max-h-[480px]"
+          className="h-auto max-h-95 w-full object-contain opacity-60 sm:max-h-120"
           height={600}
           sizes="(max-width: 768px) 100vw, 640px"
           src={noMediaImage}
@@ -840,8 +840,8 @@ const SingleImagePreview = ({
         className={cn(
           "rounded-xl object-contain",
           isPortrait
-            ? "h-auto max-h-[380px] w-auto max-w-full sm:max-h-[480px]"
-            : "h-auto max-h-[380px] w-full object-cover sm:max-h-[480px]",
+            ? "h-auto max-h-95 w-auto max-w-full sm:max-h-120"
+            : "h-auto max-h-95 w-full object-cover sm:max-h-120",
           isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
@@ -954,13 +954,17 @@ const SingleVideoPreview = ({
 };
 
 export const MediaPreviews = ({
-  attachments,
+  attachments: rawAttachments,
   autoPlayVideos = false,
   forceMobile = false,
   interactive = true,
   post,
   initialMediaIndex,
 }: MediaPreviewsProps) => {
+  const attachments = useMemo(
+    () => (Array.isArray(rawAttachments) ? rawAttachments : []),
+    [rawAttachments]
+  );
   const [selectedIndex, setSelectedIndex] = useState<number | null>(
     initialMediaIndex ?? null
   );
@@ -1528,9 +1532,9 @@ export const MediaPreviews = ({
         <motion.div
           className={cn(
             "grid gap-2",
-            "auto-rows-[130px]",
-            !isMobile && "sm:auto-rows-[180px]",
-            FEED_BENTO_LAYOUTS[attachments.length].cols
+            "auto-rows-32.5",
+            !isMobile && "sm:auto-rows-45",
+            FEED_BENTO_LAYOUTS[attachments.length]?.cols
           )}
         >
           {attachments.map((m, index) => (
@@ -1538,7 +1542,7 @@ export const MediaPreviews = ({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               className={cn(
                 "group relative overflow-hidden rounded-lg shadow-xs transition-shadow duration-300 hover:shadow-md",
-                FEED_BENTO_LAYOUTS[attachments.length].spans[index]
+                FEED_BENTO_LAYOUTS[attachments.length]?.spans?.[index]
               )}
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
               key={m.id}
@@ -1577,9 +1581,7 @@ export const MediaPreviews = ({
         <motion.div
           className={cn(
             "grid gap-2",
-            isMobile
-              ? "auto-rows-[140px] grid-cols-2"
-              : "auto-rows-[180px] grid-cols-3"
+            isMobile ? "auto-rows-35 grid-cols-2" : "auto-rows-45 grid-cols-3"
           )}
           layout
           transition={{ damping: 30, stiffness: 300, type: "spring" }}
@@ -1781,7 +1783,7 @@ export const MediaPreviews = ({
               className="apple-panel flex items-start rounded-lg px-3 py-2"
               key={media.id}
             >
-              <p className="text-muted-foreground min-w-0 flex-1 text-xs leading-snug break-words">
+              <p className="text-muted-foreground min-w-0 flex-1 text-xs leading-snug wrap-break-word">
                 {media.altText}
               </p>
             </div>

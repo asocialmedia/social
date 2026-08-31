@@ -759,10 +759,10 @@ const MediaViewer = ({
             </span>
           </button>
           <AuraVoteButton
-            authorName={post.user.displayName}
+            authorName={post.user?.displayName || post.user?.username}
             initialState={{
-              aura: post.aura,
-              userVote: post.vote[0]?.value || 0,
+              aura: post.aura ?? 0,
+              userVote: post.vote?.[0]?.value ?? 0,
             }}
             postId={post.id}
           />
@@ -1058,18 +1058,18 @@ const MediaViewer = ({
                     <MessageSquare
                       className={cn(
                         "size-4.5",
-                        post._count.comments > 0 && "fill-current"
+                        (post._count?.comments ?? 0) > 0 && "fill-current"
                       )}
                     />
                     <span className="text-sm font-semibold tabular-nums">
-                      {post._count.comments}
+                      {post._count?.comments ?? 0}
                     </span>
                   </button>
                   <AuraVoteButton
-                    authorName={post.user.displayName}
+                    authorName={post.user?.displayName || post.user?.username}
                     initialState={{
-                      aura: post.aura,
-                      userVote: post.vote[0]?.value || 0,
+                      aura: post.aura ?? 0,
+                      userVote: post.vote?.[0]?.value ?? 0,
                     }}
                     postId={post.id}
                   />
@@ -1541,8 +1541,8 @@ const MediaViewer = ({
                 <AuraVoteButton
                   authorName={post.user?.displayName || post.user?.username}
                   initialState={{
-                    aura: post.aura,
-                    userVote: post.vote[0]?.value || 0,
+                    aura: post.aura ?? 0,
+                    userVote: post.vote?.[0]?.value ?? 0,
                   }}
                   postId={post.id}
                 />

@@ -202,8 +202,8 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
           authorName={post.user?.displayName || post.user?.username}
           expandable={false}
           initialState={{
-            aura: post.aura,
-            userVote: post.vote[0]?.value || 0,
+            aura: post.aura ?? 0,
+            userVote: post.vote?.[0]?.value ?? 0,
           }}
           postId={post.id}
         />

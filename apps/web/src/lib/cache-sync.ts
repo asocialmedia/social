@@ -181,7 +181,15 @@ function isStalePostRecord(record: Record<string, unknown>): boolean {
   if (typeof record.aura !== "number" || typeof record.userId !== "string") {
     return false;
   }
-  return !Array.isArray(record.bookmarks);
+  return (
+    !Array.isArray(record.bookmarks) ||
+    !Array.isArray(record.vote) ||
+    !Array.isArray(record.attachments) ||
+    !Array.isArray(record.tags) ||
+    !Array.isArray(record.mentions) ||
+    !record._count ||
+    typeof record._count !== "object"
+  );
 }
 
 function hasStalePostData(data: unknown): boolean {
@@ -215,10 +223,20 @@ export function repairStalePostCaches(queryClient: QueryClient): boolean {
   let repaired = false;
   updateCacheByPredicate(queryClient, isStalePostRecord, (record) => {
     repaired = true;
+    const count = record._count as Record<string, unknown> | undefined;
     return {
       ...record,
+      _count:
+        count && typeof count === "object"
+          ? {
+              comments: typeof count.comments === "number" ? count.comments : 0,
+              mentions: typeof count.mentions === "number" ? count.mentions : 0,
+              vote: typeof count.vote === "number" ? count.vote : 0,
+              ...count,
+            }
+          : { comments: 0, mentions: 0, vote: 0 },
       attachments: Array.isArray(record.attachments) ? record.attachments : [],
-      bookmarks: [],
+      bookmarks: Array.isArray(record.bookmarks) ? record.bookmarks : [],
       mentions: Array.isArray(record.mentions) ? record.mentions : [],
       tags: Array.isArray(record.tags) ? record.tags : [],
       vote: Array.isArray(record.vote) ? record.vote : [],

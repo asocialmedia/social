@@ -195,8 +195,8 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                       commentId={reply.id}
                       expandable={false}
                       initialState={{
-                        aura: reply.aura,
-                        userVote: reply.votes[0]?.value ?? 0,
+                        aura: reply.aura ?? 0,
+                        userVote: reply.votes?.[0]?.value ?? 0,
                       }}
                       postId={reply.post.id}
                     />

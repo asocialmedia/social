@@ -905,18 +905,40 @@ export async function hydrateViewCounts<
     // first so the original is not mutated, then assign defaults only when
     // the field is not already an array.
     const next: T = { ...item, viewCount } as T;
-    if ("bookmarks" in record && !Array.isArray(record.bookmarks)) {
-      (next as unknown as Record<string, unknown>).bookmarks = [];
-    } else if (
-      "aura" in record &&
-      "userId" in record &&
+    const isPostLike = "aura" in record && "userId" in record;
+    if (
+      (isPostLike || "bookmarks" in record) &&
       !Array.isArray(record.bookmarks)
     ) {
-      // Stale serialized post that never had the join at all.
       (next as unknown as Record<string, unknown>).bookmarks = [];
     }
-    if ("vote" in record && !Array.isArray(record.vote)) {
+    if ((isPostLike || "vote" in record) && !Array.isArray(record.vote)) {
       (next as unknown as Record<string, unknown>).vote = [];
+    }
+    if (
+      (isPostLike || "attachments" in record) &&
+      !Array.isArray(record.attachments)
+    ) {
+      (next as unknown as Record<string, unknown>).attachments = [];
+    }
+    if ((isPostLike || "tags" in record) && !Array.isArray(record.tags)) {
+      (next as unknown as Record<string, unknown>).tags = [];
+    }
+    if (
+      (isPostLike || "mentions" in record) &&
+      !Array.isArray(record.mentions)
+    ) {
+      (next as unknown as Record<string, unknown>).mentions = [];
+    }
+    if (isPostLike || "_count" in record) {
+      const count = record._count as Record<string, unknown> | undefined;
+      if (!count || typeof count !== "object") {
+        (next as unknown as Record<string, unknown>)._count = {
+          comments: 0,
+          mentions: 0,
+          vote: 0,
+        };
+      }
     }
     return next;
   });

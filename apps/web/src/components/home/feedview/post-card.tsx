@@ -33,7 +33,7 @@ import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
-import { isBookmarkedByUser } from "@/lib/post-normalize";
+import { isBookmarkedByUser, normalizePostData } from "@/lib/post-normalize";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
@@ -342,10 +342,10 @@ const PostContent: React.FC<PostContentProps> = ({
         {/* Mobile bottom action bar: full-width justified with equal spacing across all buttons (Twitter style) */}
         <div className="mt-3 flex w-full items-center justify-between sm:hidden">
           <AuraVoteButton
-            authorName={post.user.displayName}
+            authorName={post.user?.displayName || post.user?.username}
             initialState={{
-              aura: post.aura,
-              userVote: post.vote[0]?.value || 0,
+              aura: post.aura ?? 0,
+              userVote: post.vote?.[0]?.value ?? 0,
             }}
             postId={post.id}
           />
@@ -356,7 +356,7 @@ const PostContent: React.FC<PostContentProps> = ({
           >
             <Eye className="size-4" />
             <span className="text-xs tabular-nums">
-              {formatNumber(post.viewCount)}
+              {formatNumber(post.viewCount ?? 0)}
             </span>
           </span>
           <div className="flex items-center gap-1">
@@ -391,10 +391,10 @@ const PostContent: React.FC<PostContentProps> = ({
         <div className="mt-3 hidden sm:flex sm:items-center sm:justify-between sm:gap-2">
           <div className="flex items-center gap-1.5">
             <AuraVoteButton
-              authorName={post.user.displayName}
+              authorName={post.user?.displayName || post.user?.username}
               initialState={{
-                aura: post.aura,
-                userVote: post.vote[0]?.value || 0,
+                aura: post.aura ?? 0,
+                userVote: post.vote?.[0]?.value ?? 0,
               }}
               postId={post.id}
             />
@@ -506,7 +506,8 @@ interface CommentButtonProps {
 }
 
 const CommentButton = ({ post, onClick }: CommentButtonProps) => {
-  const hasComments = post._count.comments > 0;
+  const commentCount = post._count?.comments ?? 0;
+  const hasComments = commentCount > 0;
   return (
     <button
       className="pill-3d-hover group text-muted-foreground inline-flex h-7 items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs font-medium active:translate-y-px sm:h-7.5 sm:px-2 sm:text-[13px]"
@@ -517,7 +518,7 @@ const CommentButton = ({ post, onClick }: CommentButtonProps) => {
         className={cn("size-4 sm:size-4.5", hasComments && "fill-current")}
       />
       <span className="text-xs font-medium tabular-nums sm:text-[13px]">
-        {post._count.comments}
+        {commentCount}
       </span>
     </button>
   );
@@ -550,7 +551,8 @@ const PostCard: React.FC<PostCardProps> = ({
 }) => {
   const { user } = useSession();
   const router = useRouter();
-  const [post, setPost] = useState(initialPost);
+  const normalizedInitial = normalizePostData(initialPost);
+  const [post, setPost] = useState(normalizedInitial);
   const [showComments, setShowComments] = useState(detail);
   const [isExpanded, setIsExpanded] = useState(detail);
 
@@ -559,7 +561,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const [prevInitialPost, setPrevInitialPost] = useState(initialPost);
   if (prevInitialPost !== initialPost) {
     setPrevInitialPost(initialPost);
-    setPost(initialPost);
+    setPost(normalizePostData(initialPost));
   }
 
   const handleToggleComments = useCallback(() => {

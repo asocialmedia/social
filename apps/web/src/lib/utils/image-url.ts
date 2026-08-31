@@ -56,6 +56,8 @@ export function getDefaultAvatar(seed?: string | null): string {
 }
 
 const DEFAULT_AVATAR_RE = /\/avatars\/(?<file>default-[12]\.png)(?:[?#]|$)/i;
+const PROXY_USER_IMAGE_RE =
+  /(?:^|\/)api\/users\/(?<kind>avatar|banner)\/(?<userId>[^/?#]+)\/image(?:\?(?<query>[^#]*))?/i;
 
 export function getSecureImageUrl(rawUrl: string): string {
   if (!rawUrl) {
@@ -69,14 +71,21 @@ export function getSecureImageUrl(rawUrl: string): string {
     return `/avatars/${defaultAvatarMatch.groups.file}`;
   }
 
-  // 2. Route object-storage avatar/banner URLs through the app proxy so content
+  // 2. Normalize full app proxy URLs to relative proxy paths (e.g. https://domain.com/api/users/avatar/... -> /api/users/avatar/...)
+  const proxyMatch = rawUrl.match(PROXY_USER_IMAGE_RE);
+  if (proxyMatch?.groups) {
+    const { kind, userId, query } = proxyMatch.groups;
+    return `/api/users/${kind}/${userId}/image${query ? `?${query}` : ""}`;
+  }
+
+  // 3. Route object-storage avatar/banner URLs through the app proxy so content
   // is never fetched directly from the (private) buckets.
   const rewritten = rewriteAsmobUrl(rawUrl);
   if (rewritten !== rawUrl || rewritten.startsWith("/")) {
     return rewritten;
   }
 
-  // 3. For external images, ensure HTTPS in production.
+  // 4. For external images, ensure HTTPS in production.
   // Avoid client/server branches (e.g. window.location checks) during render to prevent SSR hydration mismatches.
   if (process.env.NODE_ENV === "production" && rawUrl.startsWith("http://")) {
     return rawUrl.replace("http://", "https://");
@@ -94,6 +103,11 @@ export function toAppProxyUrl(url: string | null | undefined): string {
   const defaultAvatarMatch = url.match(DEFAULT_AVATAR_RE);
   if (defaultAvatarMatch?.groups?.file) {
     return `/avatars/${defaultAvatarMatch.groups.file}`;
+  }
+  const proxyMatch = url.match(PROXY_USER_IMAGE_RE);
+  if (proxyMatch?.groups) {
+    const { kind, userId, query } = proxyMatch.groups;
+    return `/api/users/${kind}/${userId}/image${query ? `?${query}` : ""}`;
   }
   return rewriteAsmobUrl(url);
 }

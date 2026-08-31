@@ -39,7 +39,11 @@ export default function UserAvatar({
   // Storage avatars are served through our /api/users/avatar/{id}/image proxy
   // (already sized variants). The image optimizer rejects same-origin /api/
   // URLs, so skip optimization for those; static default avatars can keep it.
-  const isProxyAvatar = resolvedSrc.startsWith("/api/");
+  const isProxyAvatar =
+    resolvedSrc.startsWith("/api/") ||
+    resolvedSrc.includes("/api/users/avatar") ||
+    resolvedSrc.includes("/api/media") ||
+    resolvedSrc.includes("asmob");
   // Optimistic previews carry object URLs (blob:), which only the uploading
   // client can resolve - the optimizer endpoint would 400 them into the
   // default-avatar fallback, so they must render unoptimized too.
