@@ -129,7 +129,7 @@ const AltTextPanel = ({
       <div className="premium-input focus-within:ring-primary flex items-center gap-1.5 rounded-2xl py-2 pr-2 pl-5 transition-all duration-300 ease-in-out focus-within:ring-2">
         <textarea
           aria-label="Alt text"
-          className="placeholder:text-muted-foreground/70 field-sizing-content max-h-24 w-full resize-none border-0 bg-transparent p-0 text-sm outline-none"
+          className="placeholder:text-muted-foreground/70 field-sizing-content max-h-24 min-w-0 flex-1 resize-none border-0 bg-transparent p-0 text-sm outline-none"
           maxLength={ALT_TEXT_MAX_LENGTH}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Describe this video for people who can't see it…"

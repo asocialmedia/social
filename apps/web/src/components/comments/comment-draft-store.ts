@@ -48,10 +48,7 @@ export function getCommentDraft(
   }
   try {
     const key = getCommentDraftKey(postId, parentId);
-    let raw = sessionStorage.getItem(key);
-    if (!raw && parentId) {
-      raw = sessionStorage.getItem(getCommentDraftKey(postId));
-    }
+    const raw = sessionStorage.getItem(key);
     if (!raw) {
       return null;
     }

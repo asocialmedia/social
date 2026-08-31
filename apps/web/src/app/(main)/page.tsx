@@ -84,7 +84,9 @@ async function HomeContent() {
           <ul>
             {recentPosts.map((post) => (
               <li key={post.id}>
-                <a href={`/posts/${post.id}`}>{post.content || post.id}</a>
+                <a href={`/posts/${post.id}`} tabIndex={-1}>
+                  {post.content || post.id}
+                </a>
               </li>
             ))}
           </ul>

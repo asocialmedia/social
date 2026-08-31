@@ -187,7 +187,9 @@ async function GustsContent() {
           <ul>
             {gusts.map((g) => (
               <li key={g.id}>
-                <a href={`/gusts?id=${g.id}`}>{g.content || g.id}</a>
+                <a href={`/gusts?id=${g.id}`} tabIndex={-1}>
+                  {g.content || g.id}
+                </a>
               </li>
             ))}
           </ul>

@@ -94,6 +94,11 @@ describe("comment-draft-store", () => {
     expect(getCommentDraft("post-1")).toBeNull();
   });
 
+  it("does not return top-level draft when querying an unrelated reply parentId", () => {
+    saveCommentDraft("post-1", { content: "Top level draft" });
+    expect(getCommentDraft("post-1", "unrelated-comment-id")).toBeNull();
+  });
+
   it("clears drafts cleanly on submit", () => {
     saveCommentDraft("post-1", { content: "To be cleared" });
     clearCommentDraft("post-1");

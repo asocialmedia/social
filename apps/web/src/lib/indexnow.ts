@@ -23,6 +23,8 @@ export async function submitToIndexNow(url: string): Promise<void> {
   if (!INDEXNOW_KEY) {
     return;
   }
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 10_000);
   try {
     const payload = {
       host: new URL(siteConfig.url).host,
@@ -32,18 +34,20 @@ export async function submitToIndexNow(url: string): Promise<void> {
     };
 
     // 30s timeout, no retries here - caller may retry if needed.
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 10_000);
-    await fetch(INDEXNOW_ENDPOINT, {
+    const res = await fetch(INDEXNOW_ENDPOINT, {
       body: JSON.stringify(payload),
       headers: { "content-type": "application/json; charset=utf-8" },
       method: "POST",
       signal: controller.signal,
     });
-    clearTimeout(t);
+    if (!res.ok) {
+      console.warn("[indexnow] submit returned status", res.status, "for", url);
+    }
   } catch (error) {
     // IndexNow is best-effort; don't break post creation.
     console.warn("[indexnow] submit failed for", url, error);
+  } finally {
+    clearTimeout(t);
   }
 }
 
@@ -60,6 +64,8 @@ export async function submitManyToIndexNow(urls: string[]): Promise<void> {
 
   await Promise.all(
     batches.map(async (batch) => {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 10_000);
       try {
         const payload = {
           host: new URL(siteConfig.url).host,
@@ -67,17 +73,25 @@ export async function submitManyToIndexNow(urls: string[]): Promise<void> {
           keyLocation: `${siteConfig.url}/${INDEXNOW_KEY}.txt`,
           urlList: batch,
         };
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 10_000);
-        await fetch(INDEXNOW_ENDPOINT, {
+        const res = await fetch(INDEXNOW_ENDPOINT, {
           body: JSON.stringify(payload),
           headers: { "content-type": "application/json; charset=utf-8" },
           method: "POST",
           signal: controller.signal,
         });
-        clearTimeout(t);
+        if (!res.ok) {
+          console.warn(
+            "[indexnow] batch submit returned status",
+            res.status,
+            "for",
+            batch.length,
+            "urls"
+          );
+        }
       } catch (error) {
         console.warn("[indexnow] batch submit failed", error);
+      } finally {
+        clearTimeout(t);
       }
     })
   );

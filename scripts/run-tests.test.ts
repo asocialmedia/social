@@ -232,6 +232,61 @@ describe("runTestSuite", () => {
     expect(invocations.length).toBe(0);
   });
 
+  test("skips integration tests when both service URLs are missing", async () => {
+    const { deps, invocations, logger } = makeDeps({
+      allFiles: ["apps/auth/a.integration.test.ts", "apps/web/b.test.ts"],
+      servicesReachable: true,
+    });
+
+    const exitCode = await runTestSuite([], {
+      ...deps,
+      readEnvFile: () => Promise.resolve(""),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(logger.log).toHaveBeenCalledWith(
+      expect.stringContaining("postgres and redis unreachable")
+    );
+    expect(invocations.length).toBe(1);
+    expect(invocations[0]?.cmd).toEqual([
+      "bun",
+      "test",
+      "--parallel",
+      "--env-file=.env.test",
+      "--timings=test-timings.json",
+      "--update-timings",
+      "./apps/web/b.test.ts",
+    ]);
+  });
+
+  test("skips integration tests when exactly one service URL is missing", async () => {
+    const { deps, invocations, logger } = makeDeps({
+      allFiles: ["apps/auth/a.integration.test.ts", "apps/web/b.test.ts"],
+      servicesReachable: true,
+    });
+
+    const exitCode = await runTestSuite([], {
+      ...deps,
+      readEnvFile: () =>
+        Promise.resolve('DATABASE_URL="postgresql://u:p@db.local:5433/app"\n'),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(logger.log).toHaveBeenCalledWith(
+      expect.stringContaining("redis unreachable")
+    );
+    expect(invocations.length).toBe(1);
+    expect(invocations[0]?.cmd).toEqual([
+      "bun",
+      "test",
+      "--parallel",
+      "--env-file=.env.test",
+      "--timings=test-timings.json",
+      "--update-timings",
+      "./apps/web/b.test.ts",
+    ]);
+  });
+
   test("prefers process env over env file for service urls", async () => {
     const { deps, invocations } = makeDeps({
       allFiles: ["apps/web/b.test.ts"],

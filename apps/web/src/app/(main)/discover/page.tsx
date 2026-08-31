@@ -56,7 +56,9 @@ async function DiscoveryContent() {
           <ul>
             {trendingPosts.map((p) => (
               <li key={p.id}>
-                <a href={`/posts/${p.id}`}>{p.content || p.id}</a>
+                <a href={`/posts/${p.id}`} tabIndex={-1}>
+                  {p.content || p.id}
+                </a>
               </li>
             ))}
           </ul>
@@ -65,7 +67,9 @@ async function DiscoveryContent() {
           <ul>
             {recentPosts.map((p) => (
               <li key={p.id}>
-                <a href={`/posts/${p.id}`}>{p.content || p.id}</a>
+                <a href={`/posts/${p.id}`} tabIndex={-1}>
+                  {p.content || p.id}
+                </a>
               </li>
             ))}
           </ul>
@@ -74,7 +78,9 @@ async function DiscoveryContent() {
           <ul>
             {gusts.map((p) => (
               <li key={p.id}>
-                <a href={`/gusts?id=${p.id}`}>{p.content || p.id}</a>
+                <a href={`/gusts?id=${p.id}`} tabIndex={-1}>
+                  {p.content || p.id}
+                </a>
               </li>
             ))}
           </ul>

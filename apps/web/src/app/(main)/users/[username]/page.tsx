@@ -192,7 +192,9 @@ async function ProfileContent({ params }: PageProps) {
           <ul>
             {recentPosts.map((p) => (
               <li key={p.id}>
-                <a href={`/posts/${p.id}`}>{p.content || p.id}</a>
+                <a href={`/posts/${p.id}`} tabIndex={-1}>
+                  {p.content || p.id}
+                </a>
               </li>
             ))}
           </ul>

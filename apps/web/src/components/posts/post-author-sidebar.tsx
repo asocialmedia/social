@@ -15,7 +15,10 @@ import FollowButton from "@/components/layouts/follow-button";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
-import { embedImageProxyUrl } from "@/components/posts/embed-utils";
+import {
+  embedImageProxyUrl,
+  useEmbedImageError,
+} from "@/components/posts/embed-utils";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura";
@@ -76,6 +79,7 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
   const [firstMedia] = post.attachments ?? [];
   const embeds = parseStoredEmbeds(post.embeds);
   const firstEmbedWithImage = embeds.find((e) => Boolean(e.imageUrl));
+  const embedImage = useEmbedImageError(firstEmbedWithImage?.imageUrl);
 
   let thumbnail: React.ReactNode = null;
 
@@ -115,19 +119,34 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
         ) : null}
       </div>
     );
-  } else if (firstEmbedWithImage?.imageUrl) {
+  } else if (firstEmbedWithImage?.imageUrl && !embedImage.failed) {
     const isYoutube = firstEmbedWithImage.type === "youtube";
+    const imgElement = (
+      // eslint-disable-next-line @next/next/no-img-element -- dynamic third-party origin, optimizer rejects proxy paths
+      <img
+        alt={firstEmbedWithImage.title || "Link preview"}
+        className="h-full w-full object-cover"
+        loading="lazy"
+        onError={embedImage.handleError}
+        referrerPolicy="no-referrer"
+        src={embedImageProxyUrl(firstEmbedWithImage.imageUrl)}
+      />
+    );
     thumbnail = (
       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-black shadow-xs">
-        {/* eslint-disable-next-line @next/next/no-img-element -- dynamic third-party origin, optimizer rejects proxy paths */}
-        <img
-          alt={firstEmbedWithImage.title || "Link preview"}
-          className="h-full w-full object-cover"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          src={embedImageProxyUrl(firstEmbedWithImage.imageUrl)}
-        />
-        {isYoutube ? (
+        {post.explicitContent ? (
+          <ExplicitContentGate
+            className="h-full w-full"
+            compact
+            label="Explicit"
+            revealKey={post.id}
+          >
+            {imgElement}
+          </ExplicitContentGate>
+        ) : (
+          imgElement
+        )}
+        {isYoutube && !post.explicitContent ? (
           <span className="absolute inset-0 m-auto flex size-6 items-center justify-center rounded-full bg-black/40 backdrop-blur-xs">
             <MdPlayArrow className="h-4 w-4 text-white" />
           </span>

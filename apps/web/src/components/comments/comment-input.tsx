@@ -78,9 +78,13 @@ export default function CommentInput({
 }: CommentInputProps) {
   const { user } = useSession();
   const { goToLogin } = useRequireAuth();
-  const [input, setInput] = useState(
-    () => getCommentDraft(post.id, parentId)?.content ?? ""
-  );
+  const [input, setInput] = useState(() => {
+    const draft = getCommentDraft(post.id, parentId);
+    if (draft && (draft.parentId ?? undefined) === (parentId ?? undefined)) {
+      return draft.content;
+    }
+    return "";
+  });
   const [suggestions, setSuggestions] = useState<{
     query: string;
     type: "tag" | "mention";

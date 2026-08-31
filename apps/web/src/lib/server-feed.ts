@@ -137,7 +137,12 @@ export async function getUserPostsForCrawl(
       user: { select: { displayName: true, username: true } },
     },
     take: limit,
-    where: { isGust: false, moderated: false, userId },
+    where: {
+      isGust: false,
+      moderated: false,
+      user: { banned: false },
+      userId,
+    },
   });
 
   return posts.map((p) => ({

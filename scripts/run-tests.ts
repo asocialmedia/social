@@ -165,20 +165,26 @@ export async function runTestSuite(
     ...processEnv,
   };
 
-  const endpoints = [
-    endpointFromUrl("postgres", envValues.DATABASE_URL),
-    endpointFromUrl("redis", envValues.REDIS_URL),
-  ].filter((endpoint): endpoint is ServiceEndpoint => endpoint !== undefined);
+  const postgresEndpoint = endpointFromUrl("postgres", envValues.DATABASE_URL);
+  const redisEndpoint = endpointFromUrl("redis", envValues.REDIS_URL);
 
-  const probeResults = await Promise.all(endpoints.map(probeService));
-  const servicesReachable = probeResults.every((reachable) => reachable);
+  const postgresReachable = postgresEndpoint
+    ? await probeService(postgresEndpoint)
+    : false;
+  const redisReachable = redisEndpoint
+    ? await probeService(redisEndpoint)
+    : false;
+
+  const servicesReachable = postgresReachable && redisReachable;
 
   let selectedTests = allTests;
 
   if (!servicesReachable) {
-    const unreachableNames = endpoints
-      .filter((_endpoint, index) => !probeResults[index])
-      .map((endpoint) => endpoint.name)
+    const unreachableNames = [
+      !postgresReachable ? "postgres" : null,
+      !redisReachable ? "redis" : null,
+    ]
+      .filter(Boolean)
       .join(" and ");
     logger.log(
       `Skipping integration tests: ${unreachableNames || "required services"} unreachable (start the dev services to include them).`
