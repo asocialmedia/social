@@ -377,6 +377,8 @@ export async function runCoverageForScope(
   const sourceLcovPath = await getSourceLcovPath(deps);
 
   const coverageArgs = [
+    "--parallel",
+    "--timings=test-timings.json",
     "--coverage",
     "--coverage-reporter=text",
     "--coverage-reporter=lcov",
@@ -425,18 +427,13 @@ export async function runCoverageCli(
   const [scopeInput] = args;
 
   const usage =
-    "Usage: bun scripts/run-coverage-suite.ts <all|unit|integration>";
-  if (scopeInput === undefined) {
+    "Usage: bun scripts/run-coverage-suite.ts [all|unit|integration]";
+  if (scopeInput !== undefined && isCoverageScope(scopeInput) === false) {
     console.error(usage);
     return 1;
   }
 
-  if (isCoverageScope(scopeInput) === false) {
-    console.error(usage);
-    return 1;
-  }
-
-  return await runCoverageForScope(scopeInput);
+  return await runCoverageForScope(scopeInput ?? "all");
 }
 
 const isDirectExecution = Bun.argv.some(

@@ -66,7 +66,7 @@ const FEED_BENTO_LAYOUTS: Record<number, { cols: string; spans: string[] }> = {
 
 const getMediaUrl = (mediaId: string) => `/api/media/${mediaId}`;
 
-function formatTime(time: number): string {
+export function formatTime(time: number): string {
   if (!Number.isFinite(time) || time < 0) {
     return "0:00";
   }
@@ -78,7 +78,7 @@ function formatTime(time: number): string {
 // Resolves a media item's natural aspect ratio (when stored) so the single
 // featured image can preserve true proportions instead of shrinking to a
 // corner tile on mobile.
-function mediaAspectRatio(media: Media, fallback = "1 / 1"): string {
+export function mediaAspectRatio(media: Media, fallback = "1 / 1"): string {
   const w =
     typeof media.width === "number" && media.width > 0 ? media.width : null;
   const h =
@@ -245,18 +245,26 @@ export const VideoPreview = ({
   autoPlay = false,
   fill = false,
   media,
+  onDimensionsChange,
 }: {
   autoPlay?: boolean;
   /** Stretch to the parent box (uniform grid cells) instead of sizing by
    * natural aspect - the parent supplies width AND height, video covers. */
   fill?: boolean;
   media: Media;
+  onDimensionsChange?: (dims: { h: number; w: number }) => void;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoveredRef = useRef(false);
   const previewStartedRef = useRef(false);
-  const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
+  const storedW =
+    typeof media.width === "number" && media.width > 0 ? media.width : null;
+  const storedH =
+    typeof media.height === "number" && media.height > 0 ? media.height : null;
+  const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(
+    storedW && storedH ? { h: storedH, w: storedW } : null
+  );
   const [isVideoActive, setIsVideoActive] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   // Set when the poster or the video itself fails to load, so a broken clip
@@ -272,6 +280,22 @@ export const VideoPreview = ({
   const setMuted = useVideoMuteStore((state) => state.setMuted);
   const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
   const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
+
+  const handleDimensionsUpdate = useCallback(
+    (dims: { h: number; w: number }) => {
+      setVideoDims(dims);
+      onDimensionsChange?.(dims);
+    },
+    [onDimensionsChange]
+  );
+
+  const isPortrait = videoDims
+    ? videoDims.h > videoDims.w
+    : Boolean(storedW && storedH && storedH > storedW);
+
+  const aspect = videoDims
+    ? `${videoDims.w} / ${videoDims.h}`
+    : mediaAspectRatio(media, "16 / 9");
 
   const parsedDirectCues = useMemo(() => {
     if (!media.transcript) {
@@ -345,20 +369,6 @@ export const VideoPreview = ({
     );
   }, [showCaptions, cues, currentTime]);
 
-  const getExpandedHeight = useCallback((): number | null => {
-    const container = containerRef.current;
-    const video = container?.querySelector("video");
-    if (container && video && video.videoWidth > 0 && video.videoHeight > 0) {
-      const naturalHeight =
-        (container.clientWidth * video.videoHeight) / video.videoWidth;
-      return Math.min(naturalHeight, window.innerHeight * 0.75);
-    }
-    return null;
-  }, []);
-
-  // Marks the preview as started and kicks off playback without touching
-  // layout state; the expanded height is applied from event handlers
-  // (handleLoadedMetadata) once the clip reports its dimensions.
   const beginPreview = useCallback(() => {
     previewStartedRef.current = true;
     const video = containerRef.current?.querySelector("video");
@@ -375,11 +385,7 @@ export const VideoPreview = ({
 
   const startPreview = useCallback(() => {
     beginPreview();
-    const height = getExpandedHeight();
-    if (height !== null) {
-      setExpandedHeight(height);
-    }
-  }, [beginPreview, getExpandedHeight]);
+  }, [beginPreview]);
 
   const handleMouseEnter = useCallback(() => {
     if (autoPlay) {
@@ -417,7 +423,6 @@ export const VideoPreview = ({
         // Ignore pause/seek aborts
       }
     }
-    setExpandedHeight(null);
     setIsVideoActive(false);
   }, [autoPlay]);
 
@@ -501,6 +506,12 @@ export const VideoPreview = ({
   const handleLoadedMetadata = useCallback(
     (event: React.SyntheticEvent<HTMLVideoElement>) => {
       const video = event.currentTarget;
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        handleDimensionsUpdate({
+          h: video.videoHeight,
+          w: video.videoWidth,
+        });
+      }
       if (!autoPlay && video.duration > 2) {
         try {
           video.currentTime = 2;
@@ -508,23 +519,17 @@ export const VideoPreview = ({
           // Ignore seek aborts
         }
       }
-      if (previewStartedRef.current) {
-        const height = getExpandedHeight();
-        if (height !== null) {
-          setExpandedHeight(height);
-        }
-        if (autoPlay) {
-          void (async () => {
-            try {
-              await video.play();
-            } catch {
-              // Autoplay may be blocked or aborted; ignore
-            }
-          })();
-        }
+      if (previewStartedRef.current && autoPlay) {
+        void (async () => {
+          try {
+            await video.play();
+          } catch {
+            // Autoplay may be blocked or aborted; ignore
+          }
+        })();
       }
     },
-    [autoPlay, getExpandedHeight]
+    [autoPlay, handleDimensionsUpdate]
   );
 
   useEffect(
@@ -550,9 +555,6 @@ export const VideoPreview = ({
     if (!autoPlay) {
       return;
     }
-    // Kick the preview off one frame later so the expanded-height state
-    // update stays off the effect's synchronous path; the clip itself starts
-    // essentially immediately.
     const frame = requestAnimationFrame(() => {
       startPreview();
     });
@@ -560,10 +562,21 @@ export const VideoPreview = ({
   }, [autoPlay, startPreview]);
 
   if (isFailed) {
+    let failedSizeClasses = "max-h-[380px] w-full sm:max-h-[480px]";
+    if (fill) {
+      failedSizeClasses = "h-full w-full";
+    } else if (isPortrait) {
+      failedSizeClasses =
+        "h-[380px] max-h-[380px] w-auto max-w-full sm:h-[480px] sm:max-h-[480px]";
+    }
+
     return (
       <div
-        className="bg-muted/20 relative w-full overflow-hidden rounded-lg"
-        style={{ aspectRatio: mediaAspectRatio(media, "16 / 9") }}
+        className={cn(
+          "bg-muted/20 relative overflow-hidden rounded-xl",
+          failedSizeClasses
+        )}
+        style={fill ? undefined : { aspectRatio: aspect }}
       >
         <Image
           alt="Video unavailable"
@@ -576,21 +589,25 @@ export const VideoPreview = ({
     );
   }
 
+  let containerClassName: string;
   let containerStyle: React.CSSProperties | undefined;
+
   if (fill) {
+    containerClassName = "group overflow-hidden absolute inset-0 h-full w-full";
     containerStyle = undefined;
-  } else if (expandedHeight === null) {
-    containerStyle = { aspectRatio: mediaAspectRatio(media, "16 / 9") };
+  } else if (isPortrait) {
+    containerClassName =
+      "group relative overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md h-[380px] sm:h-[480px] max-h-[380px] sm:max-h-[480px] w-auto max-w-full";
+    containerStyle = { aspectRatio: aspect };
   } else {
-    containerStyle = { height: expandedHeight };
+    containerClassName =
+      "group relative w-full overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md max-h-[380px] sm:max-h-[480px]";
+    containerStyle = { aspectRatio: aspect };
   }
 
   return (
     <div
-      className={cn(
-        "group overflow-hidden transition-[height] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
-        fill ? "absolute inset-0 h-full w-full" : "relative w-full"
-      )}
+      className={containerClassName}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       ref={containerRef}
@@ -627,7 +644,7 @@ export const VideoPreview = ({
       <div
         className={cn(
           "absolute top-2 right-2 transition-opacity duration-300",
-          expandedHeight === null ? "opacity-100" : "opacity-0"
+          isVideoActive ? "opacity-0" : "opacity-100"
         )}
       >
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
@@ -786,10 +803,10 @@ const SingleImagePreview = ({
 
   if (isFailed) {
     return (
-      <div className="bg-muted/20 relative flex max-h-125 w-full items-center justify-center overflow-hidden rounded-xl">
+      <div className="bg-muted/20 relative flex max-h-[380px] w-full items-center justify-center overflow-hidden rounded-xl sm:max-h-[480px]">
         <Image
           alt="Attachment unavailable"
-          className="h-auto max-h-125 w-full object-contain opacity-60"
+          className="h-auto max-h-[380px] w-full object-contain opacity-60 sm:max-h-[480px]"
           height={600}
           sizes="(max-width: 768px) 100vw, 640px"
           src={noMediaImage}
@@ -823,8 +840,8 @@ const SingleImagePreview = ({
         className={cn(
           "rounded-xl object-contain",
           isPortrait
-            ? "h-auto max-h-[72vh] w-auto max-w-full"
-            : "h-auto w-full",
+            ? "h-auto max-h-[380px] w-auto max-w-full sm:max-h-[480px]"
+            : "h-auto max-h-[380px] w-full object-cover sm:max-h-[480px]",
           isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
@@ -834,7 +851,15 @@ const SingleImagePreview = ({
           setIsFailed(true);
           setIsLoading(false);
         }}
-        onLoad={() => setIsLoading(false)}
+        onLoad={(e) => {
+          setIsLoading(false);
+          if (!hasStoredDims && !natural && e.currentTarget.naturalWidth > 0) {
+            setNatural({
+              h: e.currentTarget.naturalHeight,
+              w: e.currentTarget.naturalWidth,
+            });
+          }
+        }}
         ref={singleImgRef}
         sizes="(max-width: 768px) 100vw, 640px"
         src={getMediaImageUrl(media, "lg-webp.webp")}
@@ -851,7 +876,73 @@ const SingleImagePreview = ({
   return interactive ? (
     <button
       aria-label="View attachment"
-      className="block w-full cursor-pointer text-left"
+      className={cn(
+        "block cursor-pointer text-left",
+        isPortrait ? "w-fit max-w-full" : "w-full"
+      )}
+      onClick={onSelect}
+      type="button"
+    >
+      {previewContent}
+    </button>
+  ) : (
+    <div>{previewContent}</div>
+  );
+};
+
+const SingleVideoPreview = ({
+  autoPlay,
+  interactive,
+  media,
+  onSelect,
+}: {
+  autoPlay?: boolean;
+  interactive: boolean;
+  media: Media;
+  onSelect: () => void;
+}) => {
+  const storedW =
+    typeof media.width === "number" && media.width > 0 ? media.width : null;
+  const storedH =
+    typeof media.height === "number" && media.height > 0 ? media.height : null;
+  const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(
+    storedW && storedH ? { h: storedH, w: storedW } : null
+  );
+
+  const isPortrait = videoDims
+    ? videoDims.h > videoDims.w
+    : Boolean(storedW && storedH && storedH > storedW);
+
+  const handleDimensionsChange = useCallback(
+    (dims: { h: number; w: number }) => {
+      setVideoDims(dims);
+    },
+    []
+  );
+
+  const previewContent = (
+    <div
+      className={cn(
+        "relative block overflow-hidden rounded-xl text-left",
+        isPortrait ? "w-fit max-w-full" : "w-full"
+      )}
+    >
+      <VideoPreview
+        autoPlay={autoPlay}
+        fill={false}
+        media={media}
+        onDimensionsChange={handleDimensionsChange}
+      />
+    </div>
+  );
+
+  return interactive ? (
+    <button
+      aria-label="View attachment"
+      className={cn(
+        "block cursor-pointer text-left",
+        isPortrait ? "w-fit max-w-full" : "w-full"
+      )}
       onClick={onSelect}
       type="button"
     >
@@ -1089,6 +1180,16 @@ export const MediaPreviews = ({
     />
   );
 
+  const renderSingleVideo = (m: Media, index: number) => (
+    <SingleVideoPreview
+      autoPlay={autoPlayVideos}
+      interactive={interactive}
+      key={m.id}
+      media={m}
+      onSelect={handleSelectImage(index)}
+    />
+  );
+
   const renderGridTile = (m: Media, index: number, size: "small" | "large") => {
     const isSmall = size === "small";
     const handleSelect = () => openAtIndex(index);
@@ -1106,6 +1207,14 @@ export const MediaPreviews = ({
     } else if (!isMobile) {
       wrapperHeightClass = "aspect-square sm:h-72";
     }
+
+    const isLonePortraitVideo =
+      !isSmall &&
+      m.type === "VIDEO" &&
+      attachments.length === 1 &&
+      typeof m.width === "number" &&
+      typeof m.height === "number" &&
+      m.height > m.width;
 
     if (m.type === "AUDIO") {
       return (
@@ -1132,7 +1241,8 @@ export const MediaPreviews = ({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         aria-label="View attachment"
         className={cn(
-          "relative block w-full cursor-pointer overflow-hidden rounded-lg p-0 text-left shadow-xs transition-shadow duration-300 hover:shadow-md",
+          "relative block cursor-pointer overflow-hidden rounded-lg p-0 text-left shadow-xs transition-shadow duration-300 hover:shadow-md",
+          isLonePortraitVideo ? "w-fit max-w-full" : "w-full",
           wrapperHeightClass
         )}
         data-card-interactive
@@ -1392,6 +1502,9 @@ export const MediaPreviews = ({
     if (first.type === "IMAGE" && first.mimeType !== "image/svg+xml") {
       return renderSingleImage(first, 0);
     }
+    if (first.type === "VIDEO" && attachments.length === 1) {
+      return renderSingleVideo(first, 0);
+    }
     if (interactive) {
       return renderGridTile(first, 0, "large");
     }
@@ -1605,6 +1718,11 @@ export const MediaPreviews = ({
                   m.mimeType !== "image/svg+xml";
                 if (isSingleImage) {
                   return renderSingleImage(m, index);
+                }
+                const isSingleVideo =
+                  visibleAttachments.length === 1 && m.type === "VIDEO";
+                if (isSingleVideo) {
+                  return renderSingleVideo(m, index);
                 }
                 const tileIndex = isMobile ? index + 1 : index;
                 if (interactive) {

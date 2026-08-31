@@ -26,7 +26,7 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const videoMedia = gust.attachments.find((m) => m.type === "VIDEO");
+  const videoMedia = gust.attachments?.find((m) => m.type === "VIDEO");
   const videoUrl = videoMedia ? `/api/media/${videoMedia.id}` : "";
 
   const handleMouseEnter = useCallback(() => {

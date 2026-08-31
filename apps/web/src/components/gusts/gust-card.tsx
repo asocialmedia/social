@@ -71,7 +71,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   shouldMountVideo = true,
 }) => {
   const { user } = useSession();
-  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+  const videoMedia = post.attachments?.find((m) => m.type === "VIDEO");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
@@ -90,7 +90,7 @@ export const GustCard: React.FC<GustCardProps> = ({
   // inline below the caption - the same reveal store the fleet card's
   // "Show alt" menu entry drives.
   const altRevealed = useAltRevealed(post.id);
-  const gustAltText = post.attachments.find((a) => a.altText)?.altText;
+  const gustAltText = post.attachments?.find((a) => a.altText)?.altText;
   const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
   const toggleGlobalCaptions = useVideoCaptionsStore(
     (state) => state.toggleCaptions
@@ -621,7 +621,8 @@ export const GustCard: React.FC<GustCardProps> = ({
           <div>
             <AiGeneratedBadge
               media={{
-                aiGenerated: post.attachments.some((a) => a.aiGenerated),
+                aiGenerated:
+                  post.attachments?.some((a) => a.aiGenerated) ?? false,
               }}
             />
           </div>

@@ -41,7 +41,7 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const videoMedia = post.attachments.find((m) => m.type === "VIDEO");
+  const videoMedia = post.attachments?.find((m) => m.type === "VIDEO");
   const videoUrl = videoMedia ? `/api/media/${videoMedia.id}` : "";
 
   const handleMouseEnter = useCallback(() => {

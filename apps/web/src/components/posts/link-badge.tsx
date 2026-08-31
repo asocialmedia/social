@@ -2,7 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType } from "react";
-import { FaGithub, FaReddit, FaXTwitter, FaYoutube } from "react-icons/fa6";
+import {
+  FaGithub,
+  FaReddit,
+  FaSpotify,
+  FaXTwitter,
+  FaYoutube,
+} from "react-icons/fa6";
 
 import kyInstance from "@/lib/ky";
 import { sanitizeEmbedUrl } from "@/lib/link-embeds/shared";
@@ -18,7 +24,7 @@ interface PlatformIcon {
   Icon: ComponentType<{ className?: string }>;
 }
 
-function platformFromUrl(url: string): PlatformIcon | null {
+export function platformFromUrl(url: string): PlatformIcon | null {
   let host = "";
   try {
     host = new URL(url).hostname.replace(/^www\./u, "").toLowerCase();
@@ -28,7 +34,9 @@ function platformFromUrl(url: string): PlatformIcon | null {
   if (
     host === "youtube.com" ||
     host === "m.youtube.com" ||
-    host === "youtu.be"
+    host === "music.youtube.com" ||
+    host === "youtu.be" ||
+    host === "youtube-nocookie.com"
   ) {
     return { Icon: FaYoutube, className: "text-[#ff0000]" };
   }
@@ -38,8 +46,11 @@ function platformFromUrl(url: string): PlatformIcon | null {
   if (host === "reddit.com" || host.endsWith(".reddit.com")) {
     return { Icon: FaReddit, className: "text-[#ff4500]" };
   }
-  if (host === "github.com") {
+  if (host === "github.com" || host.endsWith(".github.com")) {
     return { Icon: FaGithub, className: "" };
+  }
+  if (host === "spotify.com" || host.endsWith(".spotify.com")) {
+    return { Icon: FaSpotify, className: "text-[#1DB954]" };
   }
   return null;
 }

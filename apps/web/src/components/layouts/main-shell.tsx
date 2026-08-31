@@ -12,7 +12,7 @@ import { PostCacheRepair } from "@/components/posts/post-cache-repair";
 // the viewer — otherwise a direct visit flashes the post page layout first.
 // Detect those paths and render the page bare, full-viewport, instead.
 function isMediaRoute(pathname: string): boolean {
-  return /\/posts\/[^/]+\/media\/\d+$/.test(pathname);
+  return /^\/posts\/[^/]+\/media\/\d+\/?$/.test(pathname);
 }
 
 export function MainShell({
@@ -27,7 +27,7 @@ export function MainShell({
 
   if (bare) {
     return (
-      <div className="relative h-dvh w-full overflow-hidden bg-black">
+      <div className="fixed inset-0 z-0 h-dvh w-full overflow-hidden overscroll-none bg-black">
         {children}
       </div>
     );

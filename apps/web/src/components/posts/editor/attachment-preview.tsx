@@ -9,7 +9,6 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { formatFileName } from "@/lib/format-file-name";
@@ -256,8 +255,36 @@ const AttachmentPreviewInner = ({
     };
   }, [mimeType, objectUrl]);
 
-  // Gust clips are 9:16 portrait; regular video attachments follow the
-  // standard post aspect.
+  const [dimensions, setDimensions] = useState<{ h: number; w: number } | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!mimeType.startsWith("image") || !objectUrl) {
+      return;
+    }
+    const img = new window.Image();
+    const handleLoad = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setDimensions({ h: img.naturalHeight, w: img.naturalWidth });
+      }
+    };
+    img.addEventListener("load", handleLoad);
+    img.src = objectUrl;
+    return () => {
+      img.removeEventListener("load", handleLoad);
+    };
+  }, [mimeType, objectUrl]);
+
+  const isPortrait =
+    isGust || Boolean(dimensions && dimensions.h > dimensions.w);
+  let defaultAspect = "16 / 9";
+  if (isGust) {
+    defaultAspect = "9 / 16";
+  }
+  const aspect = dimensions
+    ? `${dimensions.w} / ${dimensions.h}`
+    : defaultAspect;
 
   const renderPreview = () => {
     if (!objectUrl || previewFailed) {
@@ -278,26 +305,58 @@ const AttachmentPreviewInner = ({
         );
       }
       return (
-        <div className="apple-panel relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-2xl">
-          <Image
+        <div
+          className="apple-panel relative flex max-h-[380px] w-full items-center justify-center overflow-hidden rounded-2xl sm:max-h-[480px]"
+          style={{ aspectRatio: aspect }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- fallback image for unavailable attachment */}
+          <img
             alt={fileName}
             className="h-full w-full object-cover opacity-50"
-            sizes="(max-width: 768px) 100vw, 512px"
-            src={noMediaImage}
+            src={
+              typeof noMediaImage === "string"
+                ? noMediaImage
+                : (noMediaImage as { src?: string }).src || ""
+            }
           />
         </div>
       );
     }
 
     if (mimeType.startsWith("image")) {
+      const isGif = mimeType === "image/gif";
+      let imageSizeClass = "max-h-[380px] w-full sm:max-h-[480px]";
+      if (isPortrait) {
+        imageSizeClass =
+          "h-[320px] max-h-[380px] w-auto max-w-full sm:h-[400px] sm:max-h-[480px]";
+      } else if (isGif) {
+        imageSizeClass = "max-h-[280px] w-auto max-w-full sm:max-h-[340px]";
+      } else if (!dimensions) {
+        imageSizeClass = "h-44 max-h-52 w-auto max-w-full sm:h-52";
+      }
+
       return (
-        <div className="apple-panel relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-2xl">
-          <Image
+        <div
+          className={cn(
+            "apple-panel relative flex items-center justify-center overflow-hidden rounded-2xl shadow-xs transition-shadow duration-300 hover:shadow-md",
+            imageSizeClass
+          )}
+          style={dimensions ? { aspectRatio: aspect } : undefined}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- blob/local object URL preview with natural aspect ratio */}
+          <img
             alt={fileName}
-            className="h-full w-full rounded-2xl object-cover"
-            fill
+            className={cn(
+              "h-full w-full rounded-2xl",
+              isGif ? "object-contain" : "object-cover"
+            )}
             onError={handlePreviewError}
-            sizes="(max-width: 768px) 100vw, 512px"
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                setDimensions({ h: img.naturalHeight, w: img.naturalWidth });
+              }
+            }}
             src={objectUrl}
           />
         </div>
@@ -309,23 +368,30 @@ const AttachmentPreviewInner = ({
       // overlay instead of the browser's default controls. The icon flips to a
       // pause mark while the clip is playing.
       //
-      // Width: single videos fill the composer column like images do; only
-      // portrait gust clips stay column-capped (a full-width 9:16 block would
-      // tower over the editor). The pipeline poster (?thumb=1) becomes the
-      // thumbnail as soon as the row is READY; the #t=0.1 fragment forces
-      // browsers to paint the first local frame immediately instead of black.
+      // Width: single videos preserve natural aspect ratio; portrait clips stay
+      // column-capped and left-aligned so they don't tower over the editor.
       const posterUrl =
         !file && mediaId ? `/api/media/${mediaId}?thumb=1` : undefined;
+
+      let videoContainerClass: string;
+      let videoContainerStyle: React.CSSProperties | undefined;
+
+      if (isGust) {
+        videoContainerClass =
+          "apple-panel group/video relative mx-auto aspect-9/16 w-full max-w-xs overflow-hidden rounded-2xl";
+        videoContainerStyle = { maxHeight: "70vh" };
+      } else if (isPortrait) {
+        videoContainerClass =
+          "apple-panel group/video relative overflow-hidden rounded-2xl shadow-xs transition-shadow duration-300 hover:shadow-md h-[380px] max-h-[380px] w-auto max-w-full sm:h-[480px] sm:max-h-[480px]";
+        videoContainerStyle = { aspectRatio: aspect };
+      } else {
+        videoContainerClass =
+          "apple-panel group/video relative w-full overflow-hidden rounded-2xl shadow-xs transition-shadow duration-300 hover:shadow-md max-h-[380px] sm:max-h-[480px]";
+        videoContainerStyle = { aspectRatio: aspect };
+      }
+
       return (
-        <div
-          className={cn(
-            "apple-panel group/video relative overflow-hidden rounded-2xl",
-            isGust
-              ? "mx-auto aspect-9/16 w-full max-w-xs"
-              : "aspect-video w-full"
-          )}
-          style={isGust ? { maxHeight: "70vh" } : undefined}
-        >
+        <div className={videoContainerClass} style={videoContainerStyle}>
           {/* Gust reels frame: a blurred, scaled copy of the clip fills the
               9:16 frame behind the contained video, so landscape sources
               never crop and never leave a void (Instagram-style fill). */}
@@ -363,7 +429,11 @@ const AttachmentPreviewInner = ({
             muted={isMuted}
             onLoadedData={() => setHasFirstFrame(true)}
             onLoadedMetadata={(event) => {
-              setDuration(event.currentTarget.duration || 0);
+              const v = event.currentTarget;
+              setDuration(v.duration || 0);
+              if (v.videoWidth > 0 && v.videoHeight > 0) {
+                setDimensions({ h: v.videoHeight, w: v.videoWidth });
+              }
             }}
             onPause={() => setIsPlaying(false)}
             onPlay={() => setIsPlaying(true)}
@@ -695,7 +765,14 @@ const AttachmentPreviewInner = ({
     (isGust ? Boolean(onChangeMediaClick) : Boolean(onEditAltClick));
 
   return (
-    <div className="relative w-full">
+    <div
+      className={cn(
+        "relative",
+        (isPortrait || mimeType === "image/gif") && !isGust
+          ? "w-fit max-w-full"
+          : "w-full"
+      )}
+    >
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- see above; a semantic button cannot wrap media controls */}
       <div
         aria-disabled={!tileActivatable}

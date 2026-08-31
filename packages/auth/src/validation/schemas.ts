@@ -18,7 +18,6 @@ const requiredPassword = z
   .string()
   .trim()
   .min(1, "Password is required, keep it safe!");
-const requiredString = z.string().trim().min(1, "This field is required!");
 
 // Display names end up in SEO/JSON-LD contexts and profile pages, so strip
 // angle brackets outright: they carry no typographic value and remove an
@@ -113,18 +112,21 @@ export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-// Gusts must carry exactly one video and a short caption.
+// Gusts must carry exactly one video and an optional short caption.
 export const createGustSchema = createPostShape
   .safeExtend({
-    content: requiredString
+    content: z
+      .string()
       .max(
         GUST_CAPTION_MAX_CHARS,
         `Gust caption must be at most ${GUST_CAPTION_MAX_CHARS} characters`
       )
       .refine(
-        (text) => countWords(text) <= GUST_CAPTION_MAX_WORDS,
+        (text) => !text || countWords(text) <= GUST_CAPTION_MAX_WORDS,
         `Gust caption must be at most ${GUST_CAPTION_MAX_WORDS} words`
-      ),
+      )
+      .optional()
+      .default(""),
   })
   .refine(
     (input) => input.mediaIds.length === 1,
@@ -173,22 +175,31 @@ export const updateUserProfileSchema = z.object({
 export const MAX_COMMENT_CHARS = 10_000;
 export const MAX_COMMENT_WORDS = 2000;
 
-export const createCommentSchema = z.object({
-  content: requiredString
-    .max(
-      MAX_COMMENT_CHARS,
-      `An eddie must be at most ${MAX_COMMENT_CHARS} characters`
-    )
-    .refine(
-      (text) => countWords(text) <= MAX_COMMENT_WORDS,
-      `An eddie must be at most ${MAX_COMMENT_WORDS} words`
-    ),
-  mediaIds: z
-    .array(z.string())
-    .max(1, "An eddie can have at most 1 attachment")
-    .default([]),
-  parentId: z.string().optional(),
-});
+export const createCommentSchema = z
+  .object({
+    content: z
+      .string()
+      .max(
+        MAX_COMMENT_CHARS,
+        `An eddie must be at most ${MAX_COMMENT_CHARS} characters`
+      )
+      .refine(
+        (text) => !text || countWords(text) <= MAX_COMMENT_WORDS,
+        `An eddie must be at most ${MAX_COMMENT_WORDS} words`
+      )
+      .optional()
+      .default(""),
+    mediaIds: z
+      .array(z.string())
+      .max(1, "An eddie can have at most 1 attachment")
+      .default([]),
+    parentId: z.string().optional(),
+  })
+  .refine(
+    (input) =>
+      input.mediaIds.length > 0 || (input.content ?? "").trim().length > 0,
+    "An eddie needs either text or an attachment"
+  );
 
 export type SignUpValues = z.infer<typeof signUpSchema>;
 export type LoginValues = z.infer<typeof loginSchema>;

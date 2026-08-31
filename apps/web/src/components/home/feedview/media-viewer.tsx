@@ -138,7 +138,7 @@ function getShareThumbnail(
     }
     return getMediaVariantUrl(currentMedia.id, "lg-webp.webp");
   }
-  if (post?.attachments[0]) {
+  if (post?.attachments?.[0]) {
     return getMediaProxyUrl(post.attachments[0]);
   }
   if (post) {
@@ -952,7 +952,7 @@ const MediaViewer = ({
             !uiVisible && "invisible opacity-0"
           )}
         >
-          <div className="bg-linear-to-t from-black/95 via-black/70 to-transparent px-3 pt-16 pb-3">
+          <div className="bg-linear-to-t from-black/95 via-black/70 to-transparent px-3 pt-16 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {post ? (
               <div className="pointer-events-auto flex items-center gap-3">
                 <Link
@@ -1628,7 +1628,7 @@ const MediaViewer = ({
 
   return standalone ? (
     <div
-      className="flex h-dvh w-full overflow-hidden bg-black"
+      className="flex h-full w-full overflow-hidden overscroll-none bg-black"
       style={{ viewTransitionName: "media-viewer" }}
     >
       {body}

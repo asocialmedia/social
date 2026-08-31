@@ -108,6 +108,18 @@ const mockTx = {
       });
     },
   },
+  media: {
+    findMany: (args: { where: { id: { in: string[] } } }) =>
+      Promise.resolve(
+        (args.where.id.in ?? []).map((id) => ({
+          id,
+          mimeType: "image/png",
+          status: "READY",
+          type: "IMAGE",
+          userId: COMMENTER_ID,
+        }))
+      ),
+  },
   notification: {
     create: (args: { data: Record<string, unknown> }) => {
       state.notifications.push(args.data);
@@ -234,6 +246,11 @@ mock.module("@asm/db", () => ({
   publishCommentDeleted: mockPublish,
 }));
 
+mock.module("next/cache", () => ({
+  revalidateTag: () => {},
+  updateTag: () => {},
+}));
+
 mock.module("@/lib/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
@@ -323,6 +340,19 @@ describe("submitComment", () => {
         type: "COMMENT",
       },
     ]);
+  });
+
+  test("allows sending an attachment without text", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
+
+    await submitComment({
+      content: "",
+      mediaIds: ["media1"],
+      post,
+    });
+
+    expect(state.commenterAura).toBe(1);
+    expect(state.authorAura).toBe(1);
   });
 
   test("commenting on your own post awards no aura to the author", async () => {

@@ -93,6 +93,8 @@ const PostContent: React.FC<PostContentProps> = ({
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  const attachments = post.attachments ?? [];
+  const [firstMedia] = attachments;
   // Validated stored embed payloads drive both the inline link badges and
   // the preview cards below the post.
   const postEmbeds = parseStoredEmbeds(post.embeds);
@@ -291,7 +293,7 @@ const PostContent: React.FC<PostContentProps> = ({
               </div>
             ) : null}
 
-            {!!post.attachments.length && (
+            {!!attachments.length && (
               <div
                 className={cn(
                   "max-w-full overflow-hidden",
@@ -301,7 +303,7 @@ const PostContent: React.FC<PostContentProps> = ({
                 {post.explicitContent ? (
                   <ExplicitContentGate revealKey={post.id}>
                     <MediaPreviews
-                      attachments={post.attachments}
+                      attachments={attachments}
                       autoPlayVideos={detail}
                       forceMobile={mobileLayout}
                       initialMediaIndex={initialMediaIndex}
@@ -311,7 +313,7 @@ const PostContent: React.FC<PostContentProps> = ({
                   </ExplicitContentGate>
                 ) : (
                   <MediaPreviews
-                    attachments={post.attachments}
+                    attachments={attachments}
                     autoPlayVideos={detail}
                     forceMobile={mobileLayout}
                     initialMediaIndex={initialMediaIndex}
@@ -328,10 +330,10 @@ const PostContent: React.FC<PostContentProps> = ({
 
             {post.tags?.length || post.mentions?.length ? (
               <PostMeta
-                mentions={post.mentions.map(
-                  (m) => m.user as unknown as UserData
-                )}
-                tags={post.tags as TagWithCount[]}
+                mentions={
+                  post.mentions?.map((m) => m.user as unknown as UserData) ?? []
+                }
+                tags={(post.tags ?? []) as TagWithCount[]}
               />
             ) : null}
           </>
@@ -365,9 +367,9 @@ const PostContent: React.FC<PostContentProps> = ({
               dialogTitle="Share Post"
               postId={post.id}
               thumbnail={
-                post.moderated || !post.attachments[0]
+                post.moderated || !firstMedia
                   ? `/posts/${post.id}/opengraph-image`
-                  : getMediaProxyUrl(post.attachments[0])
+                  : getMediaProxyUrl(firstMedia)
               }
               title={
                 post.moderated
@@ -416,9 +418,9 @@ const PostContent: React.FC<PostContentProps> = ({
               dialogTitle="Share Post"
               postId={post.id}
               thumbnail={
-                post.moderated || !post.attachments[0]
+                post.moderated || !firstMedia
                   ? `/posts/${post.id}/opengraph-image`
-                  : getMediaProxyUrl(post.attachments[0])
+                  : getMediaProxyUrl(firstMedia)
               }
               title={
                 post.moderated

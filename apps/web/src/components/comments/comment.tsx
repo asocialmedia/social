@@ -69,17 +69,41 @@ export default function CommentItem({
   const clampedDepth = Math.min(depth, MAX_COMMENT_DEPTH);
   const hasRail = clampedDepth > 0;
 
-  // Tell the page-level context when this reply composer is open so the mobile
-  // floating bar hides while the user is typing a reply inline.
+  const hasFloatingComposer = Boolean(shared?.hasFloatingComposer);
+
+  // When a floating mobile composer is present (on the post detail page), route
+  // mobile replies directly to it. Otherwise (home feed, explore, profile),
+  // open the inline reply composer on all devices including mobile.
   const handleReplyOpen = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
+    if (
+      hasFloatingComposer &&
+      typeof window !== "undefined" &&
+      window.innerWidth < 1024
+    ) {
+      shared?.setReplyingTo({
+        commentId: comment.id,
+        content: comment.content,
+        username,
+      });
+      return;
+    }
     const next = !showReply;
     setShowReply(next);
     shared?.setReplyOpen(next);
-  }, [goToLogin, isLoggedIn, shared, showReply]);
+  }, [
+    comment.content,
+    comment.id,
+    goToLogin,
+    hasFloatingComposer,
+    isLoggedIn,
+    shared,
+    showReply,
+    username,
+  ]);
 
   useEffect(
     () => () => {
@@ -265,20 +289,22 @@ export default function CommentItem({
             )}
 
             {showReply && !isDeleted && (
-              <CommentInput
-                applyCreated={applyCreated}
-                autoFocus
-                className="mt-1"
-                key={`reply-${comment.id}`}
-                onSubmitted={() => {
-                  setShowReply(false);
-                  shared?.setReplyOpen(false);
-                }}
-                parentId={comment.id}
-                placeholder={`Reply to @${username}...`}
-                post={post}
-                replyingTo={{ username }}
-              />
+              <div className={hasFloatingComposer ? "hidden lg:block" : ""}>
+                <CommentInput
+                  applyCreated={applyCreated}
+                  autoFocus
+                  className="mt-1"
+                  key={`reply-${comment.id}`}
+                  onSubmitted={() => {
+                    setShowReply(false);
+                    shared?.setReplyOpen(false);
+                  }}
+                  parentId={comment.id}
+                  placeholder={`Reply to @${username}...`}
+                  post={post}
+                  replyingTo={{ username }}
+                />
+              </div>
             )}
           </div>
         </div>

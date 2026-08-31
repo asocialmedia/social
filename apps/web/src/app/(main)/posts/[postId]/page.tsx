@@ -13,6 +13,7 @@ import {
   postDescription,
   postTitle,
 } from "@/lib/seo";
+import { getRecentPostsForCrawl } from "@/lib/server-feed";
 import { getSessionFromApi } from "@/lib/session";
 
 import ClientPost from "./client-post";
@@ -209,10 +210,73 @@ async function PostContent({ params }: PageProps) {
     ],
   };
 
+  // Crawlable related links for bots: the client "View more content" is JS-only.
+  const relatedForCrawl = await getRecentPostsForCrawl(10);
+  const filteredRelated = relatedForCrawl
+    .filter((p) => p.id !== post.id)
+    .slice(0, 8);
+
+  const relatedItemList =
+    filteredRelated.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          itemListElement: filteredRelated.map((p, i) => ({
+            "@type": "ListItem",
+            position: i + 1,
+            url: `${siteConfig.url}/posts/${p.id}`,
+          })),
+          name: "More eddies",
+        }
+      : null;
+
   return (
     <>
-      <JsonLd data={[postJsonLd, breadcrumbJsonLd]} />
+      <JsonLd
+        data={
+          relatedItemList
+            ? [postJsonLd, breadcrumbJsonLd, relatedItemList]
+            : [postJsonLd, breadcrumbJsonLd]
+        }
+      />
       <ClientPost post={post} userData={userData} />
+      {/* Hidden related links for bots - no visible block */}
+      {filteredRelated.length > 0 ? (
+        <div className="sr-only" aria-hidden={false}>
+          <nav aria-label="More eddies crawlable">
+            <ul>
+              {filteredRelated.map((p) => (
+                <li key={p.id}>
+                  <a href={`/posts/${p.id}`} tabIndex={-1}>
+                    {p.content || p.id}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </div>
+      ) : null}
+      {/* Tag-based internal links for fresh tags on this post */}
+      {post.tags.length > 0 ? (
+        <nav
+          aria-label="Related tags"
+          className="mx-auto w-full max-w-5xl px-4 py-3"
+        >
+          <p className="text-muted-foreground text-xs">Related tags: </p>
+          <ul className="flex flex-wrap gap-2">
+            {post.tags.map((tag) => (
+              <li key={tag.name}>
+                <a
+                  className="text-primary text-xs hover:underline"
+                  href={`/hashtag/${encodeURIComponent(tag.name)}`}
+                >
+                  #{tag.name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
     </>
   );
 }

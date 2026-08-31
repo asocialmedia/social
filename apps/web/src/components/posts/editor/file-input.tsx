@@ -116,9 +116,9 @@ const FileButton = ({
       >
         <span className="flex items-center gap-1.5">
           {videoOnly ? (
-            <Video className="size-5" size={20} />
+            <Video className="size-[18px]" size={18} />
           ) : (
-            <Icon className="size-5" size={20} />
+            <Icon className="size-[18px]" size={18} />
           )}
           <span
             className={cn(

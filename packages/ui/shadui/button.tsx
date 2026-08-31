@@ -29,7 +29,7 @@ const buttonVariants = cva(
         outline:
           "border-input bg-background hover:bg-accent hover:text-accent-foreground border shadow-xs",
         premium:
-          "btn-3d rounded-full px-8 py-3 text-base font-semibold tracking-tight transition-all",
+          "btn-3d rounded-full px-8 py-3 font-semibold tracking-tight transition-all",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-xs",
       },

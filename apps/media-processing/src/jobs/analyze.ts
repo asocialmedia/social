@@ -337,18 +337,18 @@ export function processMediaAnalyze(
             const postExplicitContent = verdict?.explicit ? true : undefined;
 
             // Aggregate all text and tags across the post and all its attachments
-            const allTranscripts = post.attachments
+            const allTranscripts = (post.attachments ?? [])
               .map((a) => a.transcript)
               .filter(Boolean)
               .join(" ");
-            const allOcr = post.attachments
+            const allOcr = (post.attachments ?? [])
               .map((a) => a.ocrText)
               .filter(Boolean)
               .join(" ");
             const allSemanticTags = [
               ...new Set([
                 ...post.tags.map((t) => t.name),
-                ...post.attachments.flatMap((a) => a.semanticTags),
+                ...(post.attachments ?? []).flatMap((a) => a.semanticTags),
                 ...semanticTags,
               ]),
             ];

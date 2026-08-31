@@ -60,7 +60,11 @@ export function useSubmitCommentMutation(
 
       toast({
         description: "Your eddie is live, nice one!",
-        icon: createElement(MessageCirclePlus),
+        icon: createElement(MessageCirclePlus, {
+          color: "#ff7a00",
+          fill: "#ff7a00",
+        } as never),
+        styles: { badge: "message-only" },
         title: "Eddie Created",
       });
     },

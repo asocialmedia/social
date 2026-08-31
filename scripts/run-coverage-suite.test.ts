@@ -105,6 +105,8 @@ describe("run-coverage-suite", () => {
       [
         "test",
         "--env-file=.env.test",
+        "--parallel",
+        "--timings=test-timings.json",
         "--coverage",
         "--coverage-reporter=text",
         "--coverage-reporter=lcov",

@@ -63,7 +63,7 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
 
   const href = data.isGust ? `/gusts?id=${postId}` : `/posts/${postId}`;
   // Images render directly; videos render their extracted thumbnail frame.
-  const previews = data.attachments.filter(
+  const previews = (data.attachments ?? []).filter(
     (attachment) =>
       attachment.type === "IMAGE" ||
       (attachment.type === "VIDEO" && attachment.thumbnailKey)

@@ -14,6 +14,7 @@ interface ToastMessage {
   description?: ReactNode;
   duration?: number;
   icon?: ReactNode;
+  styles?: ToastOptions["styles"];
   title?: string;
   variant?: ToastVariant;
 }
@@ -26,7 +27,8 @@ function buildGooeyOptions(
   title: string | undefined,
   resolvedDescription: string | number | Node | undefined,
   resolvedIcon: string | number | Node | undefined,
-  duration: number
+  duration: number,
+  styles?: ToastOptions["styles"]
 ): ToastOptions {
   return {
     description: resolvedDescription,
@@ -34,6 +36,7 @@ function buildGooeyOptions(
     fill: GOOEY_FILL,
     icon: resolvedIcon,
     roundness: 12,
+    styles,
     title,
   };
 }
@@ -59,6 +62,7 @@ export function toast({
   title,
   description,
   icon,
+  styles,
   variant,
   duration = 5000,
 }: ToastMessage) {
@@ -68,7 +72,8 @@ export function toast({
     title,
     resolved?.node,
     resolvedIcon?.node,
-    duration
+    duration,
+    styles
   );
 
   if (variant === "destructive") {
