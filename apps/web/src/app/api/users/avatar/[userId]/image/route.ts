@@ -3,12 +3,54 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
+import { getDefaultAvatar } from "@/lib/utils/image-url";
+
+const IMAGE_CONTENT_TYPES = new Set([
+  "image/avif",
+  "image/gif",
+  "image/heic",
+  "image/jpeg",
+  "image/png",
+  "image/svg+xml",
+  "image/webp",
+]);
+
+function inferMimeFromKey(key: string): string | null {
+  const ext = key.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "png": {
+      return "image/png";
+    }
+    case "jpg":
+    case "jpeg": {
+      return "image/jpeg";
+    }
+    case "webp": {
+      return "image/webp";
+    }
+    case "gif": {
+      return "image/gif";
+    }
+    case "svg": {
+      return "image/svg+xml";
+    }
+    case "avif": {
+      return "image/avif";
+    }
+    case "heic": {
+      return "image/heic";
+    }
+    default: {
+      return null;
+    }
+  }
+}
 
 // Avatars live in the private ASMOB bucket (key prefix `avatars/{userId}/...`)
 // and are streamed through this app route so content is only reachable via the
 // app, never directly from object storage.
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ userId: string }> }
 ) {
   const { userId } = await context.params;
@@ -27,7 +69,8 @@ export async function GET(
   }
 
   if (!avatarKey) {
-    return new NextResponse("Avatar not found", { status: 404 });
+    const fallbackPath = getDefaultAvatar(userId);
+    return NextResponse.redirect(new URL(fallbackPath, request.url), 307);
   }
 
   try {
@@ -39,23 +82,20 @@ export async function GET(
     );
 
     if (!response.Body) {
-      return new NextResponse("Avatar not found", { status: 404 });
+      const fallbackPath = getDefaultAvatar(userId);
+      return NextResponse.redirect(new URL(fallbackPath, request.url), 307);
     }
 
     const headers = new Headers();
     // Serve only a fixed image allowlist. A legacy or crafted object whose
-    // stored type is not an image falls back to octet-stream with an
-    // attachment disposition so the browser can never sniff it into HTML.
-    const IMAGE_CONTENT_TYPES = new Set([
-      "image/gif",
-      "image/heic",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ]);
+    // stored type is not an image falls back to inferred type from key or octet-stream.
     const storedType = response.ContentType || "";
-    if (IMAGE_CONTENT_TYPES.has(storedType)) {
-      headers.set("Content-Type", storedType);
+    const effectiveType = IMAGE_CONTENT_TYPES.has(storedType)
+      ? storedType
+      : inferMimeFromKey(avatarKey);
+
+    if (effectiveType && IMAGE_CONTENT_TYPES.has(effectiveType)) {
+      headers.set("Content-Type", effectiveType);
       headers.set("Content-Disposition", "inline");
     } else {
       headers.set("Content-Type", "application/octet-stream");
@@ -72,6 +112,7 @@ export async function GET(
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
     console.error("Avatar proxy error:", error);
-    return new NextResponse("Avatar not found", { status: 404 });
+    const fallbackPath = getDefaultAvatar(userId);
+    return NextResponse.redirect(new URL(fallbackPath, request.url), 307);
   }
 }

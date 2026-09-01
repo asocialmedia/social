@@ -49,4 +49,20 @@ Long stream chapter cue.
     expect(parseWebVttCues("WEBVTT\n\n")).toEqual([]);
     expect(parseWebVttCues("random junk text line")).toEqual([]);
   });
+
+  test("subdivides oversized single-chunk cues into line-by-line subtitle cues", () => {
+    const vtt = `WEBVTT
+
+1
+00:00:00.000 --> 00:00:15.000
+Well we finally fixed the media pipeline try it and let us know what you think about it because we spent hours getting this right.
+`;
+    const cues = parseWebVttCues(vtt);
+    expect(cues.length).toBeGreaterThan(1);
+    for (const cue of cues) {
+      expect(cue.text.split(/\s+/).length).toBeLessThanOrEqual(8);
+      expect(cue.start).toBeGreaterThanOrEqual(0);
+      expect(cue.end).toBeLessThanOrEqual(15);
+    }
+  });
 });

@@ -28,10 +28,29 @@ export async function inspectAssetProvenance(
       // generators must still yield their manifests for classification.
       { verify: { verify_after_reading: false, verify_trust: false } }
     );
-  } catch {
-    // No manifest (or unreadable container) - the overwhelmingly common case
-    // for camera photos. Debug level keeps scan logs quiet.
-    mediaLogger.debug({ filePath }, "asset carries no readable C2PA data");
+  } catch (error) {
+    // No manifest (or unsupported type) - the overwhelmingly common case
+    // for standard photos and assets without provenance. Debug level keeps scan logs quiet.
+    const message = error instanceof Error ? error.message : String(error);
+    const isBenignMissing =
+      message.includes("Manifest") ||
+      message.includes("not found") ||
+      message.includes("UnsupportedType") ||
+      message.includes("no readable C2PA") ||
+      message.includes("No claim") ||
+      message.includes("JumbfNotFound");
+
+    if (isBenignMissing) {
+      mediaLogger.debug(
+        { filePath, mime },
+        "asset carries no readable C2PA data"
+      );
+    } else {
+      mediaLogger.warn(
+        { error: message, filePath, mime },
+        "unexpected C2PA inspection failure"
+      );
+    }
     return null;
   }
   if (!reader) {

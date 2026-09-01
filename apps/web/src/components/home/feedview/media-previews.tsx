@@ -21,7 +21,10 @@ import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
-import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
+import {
+  parseWebVttCues,
+  splitTranscriptIntoTimedLines,
+} from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useAltRevealed } from "@/lib/alt-reveal-store";
 import { getPostMediaPath, getPostPath } from "@/lib/seo";
@@ -290,9 +293,11 @@ export const VideoPreview = ({
     [onDimensionsChange]
   );
 
+  // Squares treated as portrait (full height, left-aligned) to avoid
+  // cropping top/bottom when fitting full width with object-cover.
   const isPortrait = videoDims
-    ? videoDims.h > videoDims.w
-    : Boolean(storedW && storedH && storedH > storedW);
+    ? videoDims.h >= videoDims.w
+    : Boolean(storedW && storedH && storedH >= storedW);
 
   const aspect = videoDims
     ? `${videoDims.w} / ${videoDims.h}`
@@ -305,7 +310,7 @@ export const VideoPreview = ({
     if (media.transcript.includes("-->")) {
       return parseWebVttCues(media.transcript);
     }
-    return [];
+    return splitTranscriptIntoTimedLines(media.transcript);
   }, [media.transcript]);
 
   const cues = parsedDirectCues.length > 0 ? parsedDirectCues : fetchedCues;
@@ -327,18 +332,14 @@ export const VideoPreview = ({
               if (parsed.length > 0) {
                 setFetchedCues(parsed);
               } else if (media.transcript) {
-                const lines = media.transcript
-                  .split(/\r?\n/)
-                  .map((l) => l.trim())
-                  .filter(Boolean);
-                let t = 0;
-                const generated: TranscriptCue[] = lines.map((line) => {
-                  const dur = Math.max(3, line.split(/\s+/).length * 0.4);
-                  const cue = { end: t + dur, start: t, text: line };
-                  t += dur;
-                  return cue;
-                });
-                setFetchedCues(generated);
+                const videoDur =
+                  containerRef.current?.querySelector("video")?.duration;
+                setFetchedCues(
+                  splitTranscriptIntoTimedLines(
+                    media.transcript,
+                    videoDur || null
+                  )
+                );
               }
             }
           }
@@ -817,19 +818,20 @@ const SingleImagePreview = ({
     );
   }
 
-  // Sizes at the photo's natural ratio: landscape fills the column width,
-  // portrait is capped in height and pinned to the left (not centered) so it
-  // doesn't stretch the feed into a huge frame or float awkwardly.
-  const isPortrait = Boolean(dims && dims.h > dims.w);
+  // Single images always show full height without cropping (no object-cover
+  // + w-full). Height-capped and left-pinned with w-fit so the frame
+  // shrink-wraps to the image width - matches vertical post behaviour: full
+  // height visible, right gap is fine, wide images still expand to near-full
+  // width via w-auto max-w-full.
   const previewContent = (
     <div
       className={cn(
         "bg-muted/20 relative block overflow-hidden rounded-xl shadow-xs transition-shadow duration-300 hover:shadow-md",
-        // Portrait images are height-capped and left-pinned, so shrink-wrap
-        // the frame to the image width instead of forcing w-full. Otherwise the
-        // container's bg fills the gap to the right and clashes with the post
-        // card's background.
-        isPortrait ? "w-fit max-w-full" : "w-full"
+        // All single images are height-capped and left-pinned with w-fit so the
+        // frame shrink-wraps to the image width. This prevents top/bottom
+        // cropping (object-cover + w-full) and matches vertical post behaviour:
+        // show full height, left-aligned, right gap is fine.
+        "w-fit max-w-full"
       )}
     >
       {isLoading ? (
@@ -840,9 +842,7 @@ const SingleImagePreview = ({
         alt="Attachment"
         className={cn(
           "rounded-xl object-contain",
-          isPortrait
-            ? "h-auto max-h-95 w-auto max-w-full sm:max-h-120"
-            : "h-auto max-h-95 w-full object-cover sm:max-h-120",
+          "h-auto max-h-95 w-auto max-w-full sm:max-h-120",
           isLoading ? "opacity-0" : "asm-media-reveal"
         )}
         decoding="async"
@@ -877,10 +877,7 @@ const SingleImagePreview = ({
   return interactive ? (
     <button
       aria-label="View attachment"
-      className={cn(
-        "block cursor-pointer text-left",
-        isPortrait ? "w-fit max-w-full" : "w-full"
-      )}
+      className="block w-fit max-w-full cursor-pointer text-left"
       onClick={onSelect}
       type="button"
     >
@@ -910,9 +907,11 @@ const SingleVideoPreview = ({
     storedW && storedH ? { h: storedH, w: storedW } : null
   );
 
+  // Squares treated as portrait (full height, left-aligned) to avoid
+  // cropping top/bottom when fitting full width with object-cover.
   const isPortrait = videoDims
-    ? videoDims.h > videoDims.w
-    : Boolean(storedW && storedH && storedH > storedW);
+    ? videoDims.h >= videoDims.w
+    : Boolean(storedW && storedH && storedH >= storedW);
 
   const handleDimensionsChange = useCallback(
     (dims: { h: number; w: number }) => {
@@ -1215,7 +1214,7 @@ export const MediaPreviews = ({
       attachments.length === 1 &&
       typeof m.width === "number" &&
       typeof m.height === "number" &&
-      m.height > m.width;
+      m.height >= m.width;
 
     if (m.type === "AUDIO") {
       return (

@@ -1350,9 +1350,10 @@ export default function PostEditor({
                           <span
                             className={cn(
                               "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
+                              // Mobile: keep icon-only button, disable label expansion
                               gifPickerOpen
-                                ? "max-w-32"
-                                : "group-hover:max-w-32"
+                                ? "md:max-w-32"
+                                : "md:group-hover:max-w-32"
                             )}
                           >
                             GIFs

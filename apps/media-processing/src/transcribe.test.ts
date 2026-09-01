@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatVttTimestamp, generateWebVtt } from "./transcribe";
+import {
+  formatVttTimestamp,
+  generateWebVtt,
+  splitTranscriptToCues,
+} from "./transcribe";
 import type { CaptionSegment } from "./transcribe";
 
 describe("formatVttTimestamp", () => {
@@ -18,6 +22,24 @@ describe("formatVttTimestamp", () => {
 
   test("handles negative input safely", () => {
     expect(formatVttTimestamp(-5)).toBe("00:00:00.000");
+  });
+});
+
+describe("splitTranscriptToCues", () => {
+  test("splits long unstructured text into line-by-line cues", () => {
+    const text =
+      "Well we finally fixed the media pipeline try it and let us know what you think about it because we spent hours getting this right.";
+    const cues = splitTranscriptToCues(text, 15);
+    expect(cues.length).toBeGreaterThan(1);
+    for (const cue of cues) {
+      expect(cue.text.split(/\s+/).length).toBeLessThanOrEqual(8);
+      expect(cue.start).toBeGreaterThanOrEqual(0);
+      expect(cue.end).toBeLessThanOrEqual(15);
+    }
+  });
+
+  test("handles empty text gracefully", () => {
+    expect(splitTranscriptToCues("", 10)).toEqual([]);
   });
 });
 

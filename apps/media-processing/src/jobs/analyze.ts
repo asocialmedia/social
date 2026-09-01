@@ -29,6 +29,7 @@ interface AnalysisSource {
   avLocalPath: string | null;
   isRaster: boolean;
   rasterLocalPath: string | null;
+  techMetadata: unknown;
   type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 }
 
@@ -45,6 +46,7 @@ async function resolveAnalysisSource(
       originalKey: true,
       publishedKey: true,
       status: true,
+      techMetadata: true,
       type: true,
     },
     where: { id: mediaId },
@@ -107,6 +109,7 @@ async function resolveAnalysisSource(
     avLocalPath,
     isRaster: Boolean(preferredRaster) || media.type === "IMAGE",
     rasterLocalPath,
+    techMetadata: media.techMetadata,
     type: media.type,
   };
 }
@@ -181,6 +184,34 @@ export function processMediaAnalyze(
         }
 
         // Stage 5: Update Media database row
+        const existingTech =
+          source.techMetadata && typeof source.techMetadata === "object"
+            ? (structuredClone(source.techMetadata) as Record<string, unknown>)
+            : {};
+        const prevTranscription =
+          existingTech.transcription &&
+          typeof existingTech.transcription === "object"
+            ? (existingTech.transcription as Record<string, unknown>)
+            : {};
+        const prevAttempts =
+          typeof prevTranscription.attempts === "number"
+            ? prevTranscription.attempts
+            : 0;
+
+        const updatedTechMetadata = {
+          ...existingTech,
+          ...(transcription
+            ? {
+                transcription: {
+                  attemptedAt: new Date().toISOString(),
+                  attempts: prevAttempts + 1,
+                  error: transcription.error ?? null,
+                  status: transcription.status,
+                },
+              }
+            : {}),
+        };
+
         await prisma.media.update({
           data: {
             ...(transcription?.captionsKey
@@ -189,6 +220,7 @@ export function processMediaAnalyze(
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
             ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
             ...(semanticTags.length > 0 ? { semanticTags } : {}),
+            techMetadata: updatedTechMetadata,
             ...(transcription?.transcript
               ? { transcript: transcription.transcript }
               : {}),
