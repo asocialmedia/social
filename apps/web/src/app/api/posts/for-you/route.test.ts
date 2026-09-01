@@ -1,216 +1,151 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { GET } from "./route";
-
-const USER_ID = "user1";
-
-const mockGetSession = mock((): { user: { id: string } } | null => ({
-  user: { id: USER_ID },
-}));
-
 interface PostRow {
+  content: string;
+  createdAt: Date;
   id: string;
+  moderated?: boolean;
 }
 
-let lastFindManyArgs: {
+let mockSessionUser: { id: string } | null = { id: "user-123" };
+let mockPersonalizedPage: {
+  anchorCursor: string | null;
+  nextCursor?: string | null;
+  posts: PostRow[];
+} = {
+  anchorCursor: "p-anchor",
+  nextCursor: "fyp.20.1700000000",
+  posts: [],
+};
+
+let lastLegacyArgs: {
   cursor?: { id: string };
   orderBy?: unknown;
+  skip?: number;
   take?: number;
   where?: unknown;
 } | null = null;
-
-const chronologicalPosts = [
-  { createdAt: new Date("2026-08-20T00:00:00Z"), id: "chrono-2" },
-  { createdAt: new Date("2026-08-19T00:00:00Z"), id: "chrono-1" },
-];
+let pgPosts: PostRow[] = [];
 
 const mockPrisma = {
   post: {
     findMany: mock(
       (args?: {
         cursor?: { id: string };
+        include?: unknown;
         orderBy?: unknown;
+        skip?: number;
         take?: number;
         where?: unknown;
       }) => {
-        lastFindManyArgs = args ?? null;
-        return chronologicalPosts.slice(0, args?.take ?? 20);
+        lastLegacyArgs = args ?? null;
+        return [...pgPosts].slice(0, args?.take ?? 21);
       }
     ),
   },
 };
 
-const lastPersonalizedArgs: {
-  excludeModerated?: boolean;
-  pageSize?: number;
-  userId?: string;
-}[] = [];
-
-// Ranked page whose anchor cursor hands pagination back to recency.
-const personalizedPage = {
-  anchorCursor: "rec-3",
-  posts: [{ id: "rec-3" }, { id: "rec-1" }, { id: "rec-2" }],
-};
-
+const mockHydrate = mock((posts: unknown[]) => posts);
 const mockGetPersonalizedFeedPage = mock(
-  (args: { excludeModerated: boolean; pageSize: number; userId: string }) => {
-    lastPersonalizedArgs.push(args);
-    return personalizedPage;
-  }
+  (_args: unknown) => mockPersonalizedPage
 );
 
-const mockHydrate = mock((posts: unknown[]) => posts);
-
 mock.module("@asm/db", () => ({
+  encodeTrendingCursor: () => "tz1.mock",
+  fetchTrendingSnapshotPage: () => null,
   getPersonalizedFeedPage: mockGetPersonalizedFeedPage,
   getPostDataInclude: () => ({ user: true }),
   hydrateViewCounts: mockHydrate,
+  isTrendingSnapshotCursor: (raw: string | undefined | null) =>
+    Boolean(raw && raw.startsWith("tz1.")),
   prisma: mockPrisma,
 }));
 
 mock.module("@/lib/session", () => ({
-  getSessionFromApi: mockGetSession,
+  getSessionFromApi: () => (mockSessionUser ? { user: mockSessionUser } : null),
 }));
 
 describe("GET /api/posts/for-you", () => {
   beforeEach(() => {
-    mockGetSession.mockClear();
-    mockGetSession.mockImplementation(() => ({ user: { id: USER_ID } }));
-    mockPrisma.post.findMany.mockClear();
-    mockGetPersonalizedFeedPage.mockClear();
-    mockHydrate.mockClear();
-    lastFindManyArgs = null;
-    lastPersonalizedArgs.length = 0;
-  });
-
-  test("ranks the first page for signed-in users without touching recency", async () => {
-    const res = await GET(new Request("http://localhost/api/posts/for-you"));
-
-    expect(res.status).toBe(200);
-    expect(mockGetPersonalizedFeedPage).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.post.findMany).not.toHaveBeenCalled();
-
-    const body = await res.json();
-    // Rank order must be preserved exactly as the service returned it.
-    expect(body.posts.map((p: PostRow) => p.id)).toEqual([
-      "rec-3",
-      "rec-1",
-      "rec-2",
-    ]);
-    expect(body.nextCursor).toBe("rec-3");
-  });
-
-  test("serves guests plain recency without personalizing", async () => {
-    mockGetSession.mockResolvedValueOnce(null);
-
-    const res = await GET(new Request("http://localhost/api/posts/for-you"));
-
-    expect(res.status).toBe(200);
-    expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
-    expect(lastFindManyArgs?.orderBy).toEqual({ createdAt: "desc" });
-
-    const body = await res.json();
-    expect(body.posts.map((p: PostRow) => p.id)).toEqual([
-      "chrono-2",
-      "chrono-1",
-    ]);
-    expect(res.headers.get("cache-control")).toBe(
-      "public, s-maxage=10, stale-while-revalidate=30"
-    );
-  });
-
-  test("cursor pages fall back to strict recency anchored after the cursor", async () => {
-    const res = await GET(
-      new Request("http://localhost/api/posts/for-you?cursor=some-post")
-    );
-
-    expect(res.status).toBe(200);
-    expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
-    expect(lastFindManyArgs?.cursor).toEqual({ id: "some-post" });
-
-    const body = await res.json();
-    // Both fixtures fit under the page size, so the feed ends here.
-    expect(body.nextCursor).toBeNull();
-  });
-
-  test("recovers instead of 500ing when the cursor post was deleted", async () => {
-    // First attempt hits Prisma's P2025 (cursor row gone); the retry runs
-    // cursor-less and serves the top of the feed.
-    mockPrisma.post.findMany.mockImplementationOnce(() => {
-      throw Object.assign(new Error("Record not found"), { code: "P2025" });
-    });
-
-    const res = await GET(
-      new Request("http://localhost/api/posts/for-you?cursor=deleted-post")
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.posts.map((p: PostRow) => p.id)).toEqual([
-      "chrono-2",
-      "chrono-1",
-    ]);
-    expect(body.nextCursor).toBeNull();
-  });
-
-  test("still surfaces unexpected database errors", async () => {
-    mockPrisma.post.findMany.mockImplementationOnce(() => {
-      throw new Error("connection refused");
-    });
-    await expect(
-      GET(new Request("http://localhost/api/posts/for-you?cursor=whatever"))
-    ).rejects.toThrow("connection refused");
-  });
-
-  test("falls back to recency when the personalized pool is empty", async () => {
-    mockGetPersonalizedFeedPage.mockResolvedValueOnce({
-      anchorCursor: null,
+    mockSessionUser = { id: "user-123" };
+    mockPersonalizedPage = {
+      anchorCursor: "p-anchor",
+      nextCursor: "fyp.20.1700000000",
       posts: [],
-    });
+    };
+    pgPosts = [];
+    lastLegacyArgs = null;
+    mockGetPersonalizedFeedPage.mockClear();
+    mockPrisma.post.findMany.mockClear();
+  });
+
+  test("serves personalized feed for signed-in user without cursor", async () => {
+    const { GET } = await import("./route");
+    mockPersonalizedPage = {
+      anchorCursor: "p-anchor",
+      nextCursor: "fyp.20.1700000000",
+      posts: [{ content: "hi", createdAt: new Date(), id: "p1" }],
+    };
 
     const res = await GET(new Request("http://localhost/api/posts/for-you"));
+    expect(res.status).toBe(200);
 
+    const body = await res.json();
+    expect(body.posts).toHaveLength(1);
+    expect(body.posts[0].id).toBe("p1");
+    expect(body.nextCursor).toBe("fyp.20.1700000000");
     expect(mockGetPersonalizedFeedPage).toHaveBeenCalledTimes(1);
-    expect(lastFindManyArgs?.orderBy).toEqual({ createdAt: "desc" });
-    const body = await res.json();
-    expect(body.posts.map((p: PostRow) => p.id)).toEqual([
-      "chrono-2",
-      "chrono-1",
-    ]);
   });
 
-  test("passes excludeModerated through to personalization and recency", async () => {
-    await GET(
-      new Request("http://localhost/api/posts/for-you?excludeModerated=1")
-    );
-    expect(lastPersonalizedArgs[0]?.excludeModerated).toBe(true);
+  test("continues personalization with fyp. cursor", async () => {
+    const { GET } = await import("./route");
+    mockPersonalizedPage = {
+      anchorCursor: "p-anchor",
+      nextCursor: "exp.p-anchor",
+      posts: [{ content: "hi page 2", createdAt: new Date(), id: "p21" }],
+    };
 
-    mockGetSession.mockResolvedValueOnce(null);
-    await GET(
-      new Request("http://localhost/api/posts/for-you?excludeModerated=1")
-    );
-    expect(lastFindManyArgs?.where).toEqual({
-      isGust: false,
-      moderated: false,
-    });
-  });
-
-  test("caps take at 20 and forwards it to the personalized page", async () => {
     const res = await GET(
-      new Request("http://localhost/api/posts/for-you?take=99")
+      new Request("http://localhost/api/posts/for-you?cursor=fyp.20.1700000000")
     );
+    expect(res.status).toBe(200);
 
-    expect(lastPersonalizedArgs[0]?.pageSize).toBe(20);
     const body = await res.json();
-    expect(body.posts.length).toBeLessThanOrEqual(20);
-
-    // Malformed take values fall back to the default page size.
-    await GET(new Request("http://localhost/api/posts/for-you?take=-3x"));
-    expect(lastPersonalizedArgs[1]?.pageSize).toBe(20);
+    expect(body.posts).toHaveLength(1);
+    expect(body.posts[0].id).toBe("p21");
+    expect(body.nextCursor).toBe("exp.p-anchor");
   });
 
-  test("signed-in responses stay private and uncacheable", async () => {
+  test("falls back to chronological expired posts at bottom with exp. cursor", async () => {
+    const { GET } = await import("./route");
+    pgPosts = [
+      { content: "expired 1", createdAt: new Date(), id: "exp-1" },
+      { content: "expired 2", createdAt: new Date(), id: "exp-2" },
+    ];
+
+    const res = await GET(
+      new Request("http://localhost/api/posts/for-you?cursor=exp.p-anchor")
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.posts).toHaveLength(2);
+    expect(body.posts[0].id).toBe("exp-1");
+    expect(lastLegacyArgs?.cursor).toEqual({ id: "p-anchor" });
+    expect(lastLegacyArgs?.skip).toBe(1);
+  });
+
+  test("allows guests to browse chronological recency", async () => {
+    const { GET } = await import("./route");
+    mockSessionUser = null;
+    pgPosts = [{ content: "guest post", createdAt: new Date(), id: "g1" }];
+
     const res = await GET(new Request("http://localhost/api/posts/for-you"));
-    expect(res.headers.get("cache-control")).toBe("private, no-cache");
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.posts).toHaveLength(1);
+    expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
+    expect(lastLegacyArgs?.where).toEqual({ isGust: false });
   });
 });

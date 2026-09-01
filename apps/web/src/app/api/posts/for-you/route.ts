@@ -42,37 +42,46 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 20;
 
-  // Personalization only shapes the first page: signed-in users with no
-  // cursor get the ranked pool. The personalized page's anchor cursor hands
-  // control back to strict recency below; it points at the oldest candidate
-  // pool post, so page 2 resumes gap-free right where the pool ended.
+  // Personalization serves ranked candidate slices for signed-in users.
+  // When cursor is undefined or begins with "fyp.", we serve from the ranked pool.
+  // Once the ranked pool is exhausted, the cursor transitions to "exp." or post ID,
+  // continuing to stream older/expired posts at the bottom so NO posts are hidden.
   let data: PostsPage | null = null;
-  if (userId && !cursor) {
+  if (userId && (!cursor || cursor.startsWith("fyp."))) {
     const personalized = await getPersonalizedFeedPage({
+      cursor,
       excludeModerated,
+      includeVisited: true,
       pageSize,
       userId,
     });
     if (personalized.posts.length > 0) {
       data = {
-        nextCursor: personalized.anchorCursor,
+        nextCursor: personalized.nextCursor ?? personalized.anchorCursor,
         posts: await hydrateViewCounts(personalized.posts),
       };
     }
   }
 
   if (!data) {
-    // Guests, cursor pages, and cold-start fallbacks all use plain recency.
+    // Guests, cursor pages beyond the candidate pool, and cold-start fallbacks
+    // stream all remaining/expired posts chronologically at the bottom.
     const where: Prisma.PostWhereInput = excludeModerated
       ? { isGust: false, moderated: false }
       : { isGust: false };
 
+    const rawCursor =
+      cursor && cursor.startsWith("exp.")
+        ? cursor.slice(4) || undefined
+        : cursor;
+
     let posts;
     try {
       posts = await prisma.post.findMany({
-        cursor: cursor ? { id: cursor } : undefined,
+        cursor: rawCursor ? { id: rawCursor } : undefined,
         include: getPostDataInclude(userId),
         orderBy: { createdAt: "desc" },
+        skip: rawCursor ? 1 : 0,
         take: pageSize + 1,
         where,
       });

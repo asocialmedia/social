@@ -106,4 +106,72 @@ describe("buildUserProfile", () => {
     expect(profile.authorWeights).toEqual({});
     expect(profile.tagWeights).toEqual({});
   });
+
+  test("handles negative signals (downvote/hide) separately from positive signals", () => {
+    const profile = buildUserProfile([
+      signal({
+        authorId: "good-author",
+        kind: "bookmark",
+        tags: ["typescript"],
+      }),
+      signal({ authorId: "bad-author", kind: "downvote", tags: ["spam"] }),
+      signal({ authorId: "annoying-author", kind: "hide", tags: ["crypto"] }),
+    ]);
+
+    expect(profile.authorWeights["good-author"]).toBe(1);
+    expect(profile.negativeAuthorWeights?.["bad-author"]).toBeDefined();
+    expect(profile.negativeAuthorWeights?.["annoying-author"]).toBeDefined();
+    expect(profile.negativeTagWeights?.["spam"]).toBeDefined();
+    expect(profile.negativeTagWeights?.["crypto"]).toBeDefined();
+  });
+
+  test("detects topic categories such as tech, anime, and brainrot", () => {
+    const profile = buildUserProfile([
+      signal({ kind: "bookmark", tags: ["coding", "linux", "homelab"] }),
+      signal({ kind: "comment", tags: ["anime", "manga"] }),
+      signal({ kind: "upvote", tags: ["meme", "funny"] }),
+    ]);
+
+    expect(profile.topicAffinities?.tech).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.anime).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.brainrot).toBeGreaterThan(0);
+    expect(profile.summary?.topTags.length).toBeGreaterThan(0);
+  });
+
+  test("tracks format preferences for video, image, audio, and text", () => {
+    const profile = buildUserProfile([
+      signal({ hasVideo: true, kind: "bookmark", tags: ["clips"] }),
+      signal({ hasVideo: true, kind: "upvote", tags: ["clips"] }),
+      signal({ hasImage: true, kind: "bookmark", tags: ["art"] }),
+    ]);
+
+    expect(profile.formatAffinities?.video).toBeGreaterThan(
+      profile.formatAffinities?.image ?? 0
+    );
+    expect(profile.summary?.preferredFormat).toBe("video");
+  });
+
+  test("user's own posts and gusts shape topics, tags, and format preference without self-authoring", () => {
+    const profile = buildUserProfile([
+      signal({
+        authorId: "me",
+        hasVideo: true,
+        kind: "ownPost",
+        tags: ["homelab", "linux", "proxmox"],
+      }),
+      signal({
+        authorId: "me",
+        hasImage: true,
+        kind: "ownGust",
+        tags: ["anime", "cosplay"],
+      }),
+    ]);
+
+    expect(profile.authorWeights["me"]).toBeUndefined();
+    expect(profile.tagWeights["homelab"]).toBeGreaterThan(0);
+    expect(profile.tagWeights["anime"]).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.tech).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.anime).toBeGreaterThan(0);
+    expect(profile.formatAffinities?.video).toBeGreaterThan(0);
+  });
 });

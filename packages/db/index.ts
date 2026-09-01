@@ -21,6 +21,7 @@ export * from "./src/recommendation/feed-service";
 export * from "./src/recommendation/profile";
 export * from "./src/recommendation/rank-feed";
 export * from "./src/recommendation/score-candidate";
+export * from "./src/recommendation/vector";
 export * from "./src/reserved-usernames";
 export * from "./src/search";
 export * from "./src/storage";

@@ -1,9 +1,11 @@
-// Predicted-interest scoring for For-You feed candidates. Blends four 0..1
-// components into a 0..100 score: author affinity (40), topic overlap (30),
-// freshness with a 12h half-life (20), and log-scaled early traction (10).
+// Predicted-interest scoring for For-You feed candidates.
+// Blends author affinity (40), topic/semantic overlap (30), freshness (20),
+// and early traction (10) into a 0..100 base score, enhanced with vector
+// embedding similarity, media format fit, and soft visited cooldown.
 // Pure and deterministic: `now` is injected by callers (service, tests).
 
 import type { UserProfile } from "./profile";
+import { cosineSimilarity } from "./vector";
 
 export interface CandidatePost {
   aura: number;
@@ -14,6 +16,15 @@ export interface CandidatePost {
   id: string;
   semanticTags?: string[];
   tags: string[];
+  // Enhanced media & semantic features
+  embedding?: number[];
+  hasAiBadge?: boolean;
+  hasAudio?: boolean;
+  hasImage?: boolean;
+  hasOcr?: boolean;
+  hasTranscript?: boolean;
+  hasVideo?: boolean;
+  isVisited?: boolean;
 }
 
 export interface ScoreCandidateOptions {
@@ -31,8 +42,11 @@ export interface ScoreCandidateOptions {
 export interface CandidateScoreComponents {
   authorAffinity: number;
   freshness: number;
+  mediaFit: number;
+  semanticSimilarity: number;
   tagOverlap: number;
   traction: number;
+  visitedMultiplier: number;
 }
 
 // An author saturates affinity once they hold ~20% of the profile's
@@ -48,17 +62,16 @@ const TAG_OVERLAP_SATURATION = 0.3;
 const FRESHNESS_HALF_LIFE_HOURS = 12;
 // Early-traction weights mirror the trending score's signal weights
 // (comment = 3 aura, bookmark = 5 aura) so both rankers agree on how much
-// each engagement kind matters. Views are excluded: passive and gameable,
-// they would stretch the log band without adding signal.
+// each engagement kind matters.
 const TRACTION_COMMENT_WEIGHT = 3;
 const TRACTION_BOOKMARK_WEIGHT = 5;
 // Aura-equivalent traction at which the band saturates.
 const TRACTION_SATURATION_COUNT = 300;
 
-const AUTHOR_AFFINITY_POINTS = 40;
-const TAG_OVERLAP_POINTS = 30;
-const FRESHNESS_POINTS = 20;
-const TRACTION_POINTS = 10;
+export const AUTHOR_AFFINITY_POINTS = 40;
+export const TAG_OVERLAP_POINTS = 30;
+export const FRESHNESS_POINTS = 20;
+export const TRACTION_POINTS = 10;
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -72,32 +85,65 @@ export function scoreCandidateComponents(
   options: ScoreCandidateOptions = {}
 ): CandidateScoreComponents {
   const now = options.now ?? new Date();
-  // A cold-start user may have an entirely empty profile; treat any missing
-  // weight map as all-zero affinities rather than crashing.
   const authorWeights = profile.authorWeights ?? {};
   const tagWeights = profile.tagWeights ?? {};
+  const negativeAuthorWeights = profile.negativeAuthorWeights ?? {};
+  const negativeTagWeights = profile.negativeTagWeights ?? {};
 
+  // 1. Author Affinity (positive signals minus negative dismissals)
   const rawAffinity = authorWeights[post.authorId] ?? 0;
   let authorAffinity = Math.min(1, rawAffinity / AUTHOR_AFFINITY_SATURATION);
   if (options.followedAuthorIds?.has(post.authorId)) {
     authorAffinity = Math.max(authorAffinity, FOLLOWED_AUTHOR_BASELINE);
   }
+  const negativeAuthorPenalty = negativeAuthorWeights[post.authorId] ?? 0;
+  if (negativeAuthorPenalty > 0) {
+    authorAffinity = Math.max(0, authorAffinity - negativeAuthorPenalty * 2);
+  }
 
+  // 2. Tag Overlap & Negative Tag Demotion
   const distinctTags = [
     ...new Set([...post.tags, ...(post.semanticTags ?? [])]),
   ].filter(Boolean);
   let tagMass = 0;
+  let negativeTagMass = 0;
   for (const tag of distinctTags) {
     tagMass += tagWeights[tag] ?? 0;
+    negativeTagMass += negativeTagWeights[tag] ?? 0;
   }
-  const tagOverlap = Math.min(1, tagMass / TAG_OVERLAP_SATURATION);
+  let rawTagOverlap = Math.min(1, tagMass / TAG_OVERLAP_SATURATION);
+  if (negativeTagMass > 0) {
+    rawTagOverlap = Math.max(0, rawTagOverlap - negativeTagMass);
+  }
 
+  // 3. Semantic Vector Similarity (384-dimensional cosine similarity)
+  let semanticSimilarity = 0;
+  if (
+    post.embedding &&
+    post.embedding.length > 0 &&
+    profile.tasteVector &&
+    profile.tasteVector.length > 0
+  ) {
+    const cos = cosineSimilarity(post.embedding, profile.tasteVector);
+    semanticSimilarity = clamp01(cos);
+  }
+
+  // Blended topic score: exact tag overlap + semantic vector similarity
+  // If vector similarity is present, blend it so semantically matched posts rank high
+  // even without exact tag matches, while never lowering a pure tag match.
+  const tagOverlap =
+    semanticSimilarity > 0
+      ? Math.max(rawTagOverlap, rawTagOverlap * 0.4 + semanticSimilarity * 0.6)
+      : rawTagOverlap;
+
+  // 4. Freshness
   const ageHours = Math.max(
     0,
     (now.getTime() - post.createdAt.getTime()) / MS_PER_HOUR
   );
   const freshness = clamp01(0.5 ** (ageHours / FRESHNESS_HALF_LIFE_HOURS));
 
+  // 5. Early Traction
   const tractionRaw =
     Math.max(0, post.aura) +
     Math.max(0, post.commentCount) * TRACTION_COMMENT_WEIGHT +
@@ -106,11 +152,37 @@ export function scoreCandidateComponents(
     Math.log1p(tractionRaw) / Math.log1p(TRACTION_SATURATION_COUNT)
   );
 
-  return { authorAffinity, freshness, tagOverlap, traction };
+  // 6. Media Format Fit
+  let mediaFit = 1;
+  if (profile.formatAffinities) {
+    if (post.hasVideo && profile.formatAffinities.video > 0.35) {
+      mediaFit += 0.15;
+    } else if (post.hasImage && profile.formatAffinities.image > 0.35) {
+      mediaFit += 0.1;
+    } else if (post.hasAudio && profile.formatAffinities.audio > 0.3) {
+      mediaFit += 0.1;
+    }
+  }
+  if (post.hasTranscript || post.hasOcr) {
+    mediaFit += 0.05; // Quality bonus for rich verified media
+  }
+
+  // 7. Visited Soft Multiplier (instead of deleting/hiding visited posts)
+  const visitedMultiplier = post.isVisited ? 0.35 : 1;
+
+  return {
+    authorAffinity,
+    freshness,
+    mediaFit,
+    semanticSimilarity,
+    tagOverlap,
+    traction,
+    visitedMultiplier,
+  };
 }
 
 // Who you know beats what you know beats how new it beats early traction -
-// scaled by the author's reputation visibility weight when provided.
+// scaled by the author's reputation visibility weight and visited cooldown.
 export function scoreCandidate(
   post: CandidatePost,
   profile: UserProfile,
@@ -122,5 +194,8 @@ export function scoreCandidate(
     components.tagOverlap * TAG_OVERLAP_POINTS +
     components.freshness * FRESHNESS_POINTS +
     components.traction * TRACTION_POINTS;
-  return base * clamp01(options.authorVisibilityWeight ?? 1);
+
+  // Scale by format fit and reputation visibility, then apply soft visited cooldown
+  const mediaScaled = base * clamp01(options.authorVisibilityWeight ?? 1);
+  return mediaScaled * components.visitedMultiplier;
 }

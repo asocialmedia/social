@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { buildUserProfile } from "./profile";
-import type { ProfileSignal } from "./profile";
+import type { ProfileSignal, UserProfile } from "./profile";
 import { scoreCandidate, scoreCandidateComponents } from "./score-candidate";
 import type { CandidatePost } from "./score-candidate";
 
@@ -287,5 +287,64 @@ describe("scoreCandidate", () => {
     expect(scoreCandidate(candidate, profile, options)).toBe(
       scoreCandidate(candidate, profile, options)
     );
+  });
+
+  test("boosts candidate score when post embedding aligns with user taste vector", () => {
+    const v1 = Array.from({ length: 384 }).fill(0) as number[];
+    const v2 = Array.from({ length: 384 }).fill(0) as number[];
+    v1[0] = 1;
+    v2[0] = 1;
+
+    const vDifferent = Array.from({ length: 384 }).fill(0) as number[];
+    vDifferent[10] = 1;
+
+    const profile: UserProfile = {
+      authorWeights: {},
+      tagWeights: {},
+      tasteVector: v1,
+    };
+
+    const matchingPost = post({ embedding: v2 });
+    const differentPost = post({ embedding: vDifferent });
+
+    const scoreMatch = scoreCandidate(matchingPost, profile, { now: NOW });
+    const scoreDiff = scoreCandidate(differentPost, profile, { now: NOW });
+
+    expect(scoreMatch).toBeGreaterThan(scoreDiff);
+  });
+
+  test("visited posts receive a soft cooldown multiplier instead of being deleted or zeroed", () => {
+    const unvisited = post({ isVisited: false });
+    const visited = post({ isVisited: true });
+
+    const scoreUnvisited = scoreCandidate(unvisited, EMPTY_PROFILE, {
+      now: NOW,
+    });
+    const scoreVisited = scoreCandidate(visited, EMPTY_PROFILE, { now: NOW });
+
+    expect(scoreVisited).toBeGreaterThan(0);
+    expect(scoreVisited).toBeLessThan(scoreUnvisited);
+    expect(scoreVisited).toBeCloseTo(scoreUnvisited * 0.35, 8);
+  });
+
+  test("negative author weights penalize disliked creators", () => {
+    const neutralProfile: UserProfile = { authorWeights: {}, tagWeights: {} };
+    const dislikeProfile: UserProfile = {
+      authorWeights: {},
+      negativeAuthorWeights: { "annoying-author": 0.5 },
+      tagWeights: {},
+    };
+
+    const candidate = post({ authorId: "annoying-author" });
+    const neutralScore = scoreCandidate(candidate, neutralProfile, {
+      followedAuthorIds: new Set(["annoying-author"]),
+      now: NOW,
+    });
+    const penalizedScore = scoreCandidate(candidate, dislikeProfile, {
+      followedAuthorIds: new Set(["annoying-author"]),
+      now: NOW,
+    });
+
+    expect(penalizedScore).toBeLessThan(neutralScore);
   });
 });

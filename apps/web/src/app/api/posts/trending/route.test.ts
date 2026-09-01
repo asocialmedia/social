@@ -85,8 +85,11 @@ const mockEncodeCursor = mock(
 mock.module("@asm/db", () => ({
   encodeTrendingCursor: mockEncodeCursor,
   fetchTrendingSnapshotPage: mockFetchSnapshotPage,
+  getPersonalizedFeedPage: () => ({ anchorCursor: null, posts: [] }),
   getPostDataInclude: () => ({ user: true, vote: true }),
   hydrateViewCounts: mockHydrate,
+  isTrendingSnapshotCursor: (raw: string | undefined | null) =>
+    Boolean(raw && raw.startsWith("tz1.")),
   prisma: mockPrisma,
 }));
 
@@ -300,6 +303,14 @@ describe("GET /api/posts/trending", () => {
         isGust: false,
         moderated: false,
       });
+    });
+
+    test("handles expired exp. cursor and strips prefix for live Postgres query", async () => {
+      const req = new Request(
+        "http://localhost/api/posts/trending?cursor=exp.p-anchor"
+      );
+      await GET(req);
+      expect(lastLegacyArgs?.cursor).toEqual({ id: "p-anchor" });
     });
   });
 });

@@ -7,8 +7,10 @@ import {
   applyFlatAward,
   ATTACHMENT_BONUSES,
   cancelMediaCleanup,
+  enqueueMediaAnalyze,
   enqueueNotificationCreated,
   enqueueShitposterCheck,
+  generateLocalEmbedding,
   getPostDataInclude,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
@@ -231,10 +233,14 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // another transaction won the race and this post creation aborts (the
       // claim rolls back with the transaction).
       const postId = crypto.randomUUID();
+      const initialEmbedding = generateLocalEmbedding(
+        `${validatedInput.content} ${validatedInput.tags.join(" ")}`
+      );
       const post = await tx.post.create({
         data: {
           aura: 0,
           content: validatedInput.content,
+          embedding: initialEmbedding,
           // Resolved link previews; text-only posts keep the column null.
           embeds: embedsJson,
           id: postId,
@@ -247,6 +253,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   })),
                 }
               : undefined,
+          semanticTags: [
+            ...new Set(validatedInput.tags.map((t) => t.toLowerCase())),
+          ],
           tags: {
             connectOrCreate: validatedInput.tags.map((tagName) => ({
               create: { name: tagName.toLowerCase() },
@@ -304,11 +313,18 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         },
       });
 
-      // The media is now attached to a post, so the abandoned-upload cleanup      // jobs must not delete it.
+      // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
+      // Also enqueue media analyze so OCR, speech transcription, and post semantic enrichment run.
       for (const mediaId of validatedInput.mediaIds) {
         cancelMediaCleanup(mediaId).catch((error: unknown) => {
           console.error(
             `Failed to cancel media cleanup for ${mediaId}:`,
+            error
+          );
+        });
+        enqueueMediaAnalyze(mediaId).catch((error: unknown) => {
+          console.error(
+            `Failed to enqueue media analyze for ${mediaId}:`,
             error
           );
         });
