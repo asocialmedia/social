@@ -455,13 +455,13 @@ export default function EditProfileDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="apple-panel w-[calc(100%-1.5rem)] max-w-120 gap-4 overflow-hidden rounded-2xl border-0 p-0 [&>button:last-child]:hidden"
+        className="apple-panel flex max-h-[75dvh] w-[calc(100%-1.5rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl border-0 p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
         onClick={handleContentClick}
       >
         {/* Flush square avatar fills the header's left edge; title and
             description sit to its right, with a 3D close button centered
             against the header row. */}
-        <div className="border-border/60 flex items-center border-b py-2 pr-3 pl-3">
+        <div className="border-border/60 flex shrink-0 items-center border-b py-2 pr-3 pl-3">
           <div className="relative size-10 shrink-0">
             <Image
               alt=""
@@ -487,7 +487,7 @@ export default function EditProfileDialog({
           </DialogClose>
         </div>
 
-        <div className="max-h-[85vh] overflow-y-auto px-5 pb-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="space-y-1.5">
             <Label>Header image</Label>
             <BannerInput

@@ -34,7 +34,7 @@ export const MediaGalleryLocked: React.FC<{ bare?: boolean }> = ({
   bare = false,
 }) =>
   bare ? (
-    <div className="flex h-full flex-col items-center justify-center gap-2.5 p-4 text-center">
+    <div className="flex min-h-64 flex-col items-center justify-center gap-2.5 p-6 text-center">
       <Image
         alt=""
         className="h-28 w-auto object-contain"
@@ -629,7 +629,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
     // yet" message sits centered with the skeleton grid behind it. The mobile
     // media tab (bare) shows just the centered message, no background.
     body = bare ? (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <div className="flex min-h-64 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
         <Image
           alt=""
           className="h-28 w-auto object-contain opacity-90"
@@ -640,7 +640,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
         />
         <p className="text-sm font-medium">No media yet</p>
         <p className="text-muted-foreground max-w-44 text-xs">
-          Media from this profile's posts will show up here
+          Media from this profile&apos;s posts will show up here
         </p>
       </div>
     ) : (
@@ -657,7 +657,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
           />
           <p className="text-sm font-medium">No media yet</p>
           <p className="text-muted-foreground max-w-44 text-xs">
-            Media from this profile's posts will show up here
+            Media from this profile&apos;s posts will show up here
           </p>
         </div>
       </div>
@@ -686,7 +686,7 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
 
   return (
     <>
-      <div className="flex h-full flex-col p-3">{body}</div>
+      <div className={cn("flex flex-col p-3", !bare && "h-full")}>{body}</div>
       {selectedMedia ? (
         <MediaViewer
           initialIndex={selectedIndex}
