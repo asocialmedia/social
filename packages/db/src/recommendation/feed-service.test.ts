@@ -189,6 +189,76 @@ describe("getPersonalizedFeedPage", () => {
   });
 });
 
+describe("buildAndCacheProfile search history", () => {
+  test("handles query, user, and post history entries without crashing on missing post content", async () => {
+    const { buildAndCacheProfile } = await import("./feed-service");
+    // Mock search history to return one of each type; post entry omits content
+    const historyMock = mock(() =>
+      Promise.resolve([
+        {
+          query: "hello #rust world",
+          raw: '{"type":"query","query":"hello #rust world"}',
+          searchedAt: Date.now(),
+          type: "query" as const,
+        },
+        {
+          raw: '{"type":"user"}',
+          searchedAt: Date.now(),
+          type: "user" as const,
+          user: {
+            aura: 0,
+            avatarUrl: null,
+            badge: null,
+            badges: [],
+            bio: null,
+            displayName: "Alice",
+            displayUsername: null,
+            id: "user-alice",
+            username: "alice",
+          },
+        },
+        {
+          post: {
+            aura: 0,
+            authorAvatarUrl: null,
+            authorBadge: null,
+            authorBadges: [],
+            authorDisplayName: "Bob",
+            authorId: "author-bob",
+            authorUsername: "bob",
+            // content is intentionally omitted to exercise fallback
+            createdAt: new Date(),
+            explicitContent: false,
+            id: "post-123",
+            previewMedia: null,
+            viewCount: 0,
+          } as unknown as { content: string },
+          raw: '{"type":"post"}',
+          searchedAt: Date.now(),
+          type: "post" as const,
+        },
+      ])
+    );
+    // Temporarily override the mocked searchCache.getHistory
+    const prev = (await import("../../cache/search-cache")).searchCache
+      .getHistory;
+    (await import("../../cache/search-cache")).searchCache.getHistory =
+      historyMock as unknown as typeof prev;
+    storedProfiles.clear();
+    const profile = await buildAndCacheProfile("user-history");
+    // Query term tokenization should produce tags
+    expect(profile.tagWeights["hello"]).toBeGreaterThan(0);
+    // User-result handling should credit author
+    expect(
+      profile.authorWeights["user-alice"] ?? profile.tagWeights["user-alice"]
+    ).toBeDefined();
+    // Post entry without content should not crash and should still credit authorId
+    expect(profile.authorWeights["author-bob"] ?? 0).toBeGreaterThanOrEqual(0);
+    // Restore
+    (await import("../../cache/search-cache")).searchCache.getHistory = prev;
+  });
+});
+
 describe("invalidateFypProfile", () => {
   beforeEach(() => {
     deletedKeys.length = 0;

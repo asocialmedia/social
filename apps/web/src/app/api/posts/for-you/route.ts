@@ -80,7 +80,7 @@ export async function GET(request: Request) {
       posts = await prisma.post.findMany({
         cursor: rawCursor ? { id: rawCursor } : undefined,
         include: getPostDataInclude(userId),
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: rawCursor ? 1 : 0,
         take: pageSize + 1,
         where,
@@ -93,7 +93,7 @@ export async function GET(request: Request) {
       // rather than failing the request.
       posts = await prisma.post.findMany({
         include: getPostDataInclude(userId),
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: pageSize + 1,
         where,
       });
@@ -101,7 +101,7 @@ export async function GET(request: Request) {
 
     const hydrated = await hydrateViewCounts(posts.slice(0, pageSize));
     data = {
-      nextCursor: posts.length > pageSize ? posts[pageSize].id : null,
+      nextCursor: posts.length > pageSize ? posts[pageSize - 1].id : null,
       posts: hydrated,
     };
   }

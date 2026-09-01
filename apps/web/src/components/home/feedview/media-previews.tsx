@@ -307,19 +307,23 @@ export const VideoPreview = ({
     if (!media.transcript) {
       return [];
     }
-    if (media.transcript.includes("-->")) {
+    if (
+      /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
+        media.transcript
+      )
+    ) {
       return parseWebVttCues(media.transcript);
     }
     return splitTranscriptIntoTimedLines(media.transcript);
   }, [media.transcript]);
 
-  const cues = parsedDirectCues.length > 0 ? parsedDirectCues : fetchedCues;
+  const cues = fetchedCues.length > 0 ? fetchedCues : parsedDirectCues;
 
   useEffect(() => {
     if (
       showCaptions &&
       (isHovered || autoPlay || isVideoActive) &&
-      cues.length === 0
+      fetchedCues.length === 0
     ) {
       let cancelled = false;
       const loadCaptions = async () => {
@@ -359,7 +363,7 @@ export const VideoPreview = ({
     isVideoActive,
     media.id,
     media.transcript,
-    cues.length,
+    fetchedCues.length,
   ]);
 
   const activeCue = useMemo(() => {

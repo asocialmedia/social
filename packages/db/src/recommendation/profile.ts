@@ -94,6 +94,21 @@ function normalize(weights: Record<string, number>): Record<string, number> {
   return normalized;
 }
 
+// Saturating scale for negative weights: preserves intensity without zeroing scores (cap at 0.9)
+function saturateNegative(
+  weights: Record<string, number>
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const [key, weight] of Object.entries(weights)) {
+    // Map raw magnitude to [0, 0.9) via hyperbolic saturation
+    result[key] = weight / (weight + 5);
+    if (result[key] >= 0.9) {
+      result[key] = 0.89;
+    }
+  }
+  return result;
+}
+
 // Dynamically extracts entity frequencies from tags without static categories.
 export function classifyTopicCategories(
   tags: string[]
@@ -115,7 +130,7 @@ export function classifyTopicCategories(
 // Builds the rich user persona from engagement signals.
 export function buildUserProfile(
   signals: ProfileSignal[],
-  options?: { now?: Date }
+  options?: { knowledgeGraph?: typeof globalKnowledgeGraph; now?: Date }
 ): UserProfile {
   const now = options?.now ?? new Date();
   const authorWeights: Record<string, number> = {};
@@ -252,15 +267,15 @@ export function buildUserProfile(
     .map(([tag]) => tag);
 
   const normalizedTagWeights = normalize(tagWeights);
-  const expandedEntityWeights =
-    globalKnowledgeGraph.spreadingActivation(normalizedTagWeights);
+  const kg = options?.knowledgeGraph ?? globalKnowledgeGraph;
+  const expandedEntityWeights = kg.spreadingActivation(normalizedTagWeights);
 
   return {
     authorWeights: normalize(authorWeights),
     expandedEntityWeights,
     formatAffinities,
-    negativeAuthorWeights: normalize(negativeAuthorWeights),
-    negativeTagWeights: normalize(negativeTagWeights),
+    negativeAuthorWeights: saturateNegative(negativeAuthorWeights),
+    negativeTagWeights: saturateNegative(negativeTagWeights),
     signalCount: positiveSignalCount,
     summary: {
       dominantTopic,

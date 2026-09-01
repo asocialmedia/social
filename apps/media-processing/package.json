@@ -1,6 +1,6 @@
 {
   "name": "@asm/media-processing",
-  "version": "1.0.70",
+  "version": "1.0.71",
   "private": true,
   "description": "asocialmedia media pipeline worker: scan, validate, transcode, publish",
   "license": "AGPL-3.0",
@@ -22,6 +22,7 @@
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "onnxruntime-node": "^1.23.0",
+    "unzipper": "^0.12.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

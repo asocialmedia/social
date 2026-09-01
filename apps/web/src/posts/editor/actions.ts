@@ -313,23 +313,6 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         },
       });
 
-      // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
-      // Also enqueue media analyze so OCR, speech transcription, and post semantic enrichment run.
-      for (const mediaId of validatedInput.mediaIds) {
-        cancelMediaCleanup(mediaId).catch((error: unknown) => {
-          console.error(
-            `Failed to cancel media cleanup for ${mediaId}:`,
-            error
-          );
-        });
-        enqueueMediaAnalyze(mediaId).catch((error: unknown) => {
-          console.error(
-            `Failed to enqueue media analyze for ${mediaId}:`,
-            error
-          );
-        });
-      }
-
       // The media rows' postId just changed (draft uploads start unlinked), and
       // /api/media caches the row to drive its access decision. Drop that cache
       // so the now-public ownership is picked up immediately instead of serving
@@ -454,6 +437,17 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
       return completePost;
     });
+
+    // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
+    // Enqueue media analyze only AFTER the transaction commits so a rollback does not leave an orphan job.
+    for (const mediaId of validatedInput.mediaIds) {
+      cancelMediaCleanup(mediaId).catch((error: unknown) => {
+        console.error(`Failed to cancel media cleanup for ${mediaId}:`, error);
+      });
+      enqueueMediaAnalyze(mediaId).catch((error: unknown) => {
+        console.error(`Failed to enqueue media analyze for ${mediaId}:`, error);
+      });
+    }
 
     // Signal refresh after commit; failures only cost cache freshness.
     // Mentioned users earned aura too, so their signals refresh in the same

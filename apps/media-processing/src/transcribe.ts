@@ -108,14 +108,12 @@ export function splitTranscriptToCues(
     durationSec && durationSec > 0 ? durationSec : defaultDuration;
 
   let currentStart = 0;
-  return lines.map((lineText) => {
+  return lines.map((lineText, idx) => {
     const lineWords = lineText.split(/\s+/).filter(Boolean).length;
-    const lineDuration = Math.max(
-      1,
-      (lineWords / Math.max(1, totalWords)) * duration
-    );
+    const isLast = idx === lines.length - 1;
+    const lineDuration = (lineWords / Math.max(1, totalWords)) * duration;
     const start = currentStart;
-    const end = Math.min(duration, start + lineDuration);
+    const end = isLast ? duration : Math.min(duration, start + lineDuration);
     currentStart = end;
     return {
       end: Number(end.toFixed(3)),

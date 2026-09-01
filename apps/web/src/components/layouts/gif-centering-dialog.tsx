@@ -197,7 +197,7 @@ export default function GifCenteringDialog({
               "max-h-[40dvh] md:max-h-[45vh]",
               target === "banner"
                 ? "aspect-[3/1] w-full max-w-80"
-                : "size-64 rounded-full"
+                : "size-64 max-h-[40dvh] max-w-[40dvh] rounded-full md:max-h-[45vh] md:max-w-[45vh]"
             )}
             ref={containerRef}
           >

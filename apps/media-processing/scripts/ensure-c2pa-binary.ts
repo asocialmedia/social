@@ -5,6 +5,7 @@
 // This script checks the ELF machine header of index.node and replaces it with
 // the official prebuilt binary for the target architecture if needed.
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -16,6 +17,13 @@ const require = createRequire(import.meta.url);
 
 const C2PA_VERSION = "0.9.1";
 const GITHUB_RELEASE_BASE = `https://github.com/contentauth/c2pa-js/releases/download/%40contentauth%2Fc2pa-node%40${C2PA_VERSION}`;
+
+const C2PA_SHA256: Record<string, string> = {
+  "aarch64-unknown-linux-gnu":
+    "a73c401fdb1a1a9a1f4b811422cd1260e006aec2215bcf949caecf9c239caf3a",
+  "x86_64-unknown-linux-gnu":
+    "eb679c2f38575df622d105b7fac0c39e128473394b1e4475a1c1a9ecba11b2fd",
+};
 
 function resolveTargetPlatform(requested?: string): {
   archName: string;
@@ -32,11 +40,16 @@ function resolveTargetPlatform(requested?: string): {
       platformKey: "aarch64-unknown-linux-gnu",
     };
   }
-  return {
-    archName: "x64",
-    elfMachine: 0x00_3e, // EM_X86_64
-    platformKey: "x86_64-unknown-linux-gnu",
-  };
+  if (raw === "x64" || raw === "x86_64" || raw === "amd64") {
+    return {
+      archName: "x64",
+      elfMachine: 0x00_3e, // EM_X86_64
+      platformKey: "x86_64-unknown-linux-gnu",
+    };
+  }
+  throw new Error(
+    `Unsupported target architecture "${raw}": expected arm64/aarch64 or x64/x86_64/amd64`
+  );
 }
 
 function findC2paDistDirs(): string[] {
@@ -96,28 +109,13 @@ function readElfMachine(filePath: string): number | null {
 }
 
 function loadUnzipper(): { ParseOne: () => Transform } {
-  const unzipperCandidates = [
-    path.resolve(
-      import.meta.dir,
-      `../../../node_modules/.bun/@contentauth+c2pa-node@${C2PA_VERSION}/node_modules/unzipper`
-    ),
-    path.resolve(
-      import.meta.dir,
-      "../../node_modules/@contentauth/c2pa-node/node_modules/unzipper"
-    ),
-    "unzipper",
-  ];
-
-  for (const candidate of unzipperCandidates) {
-    try {
-      return require(candidate);
-    } catch {
-      // try next
-    }
+  try {
+    return require("unzipper");
+  } catch {
+    throw new Error(
+      "Could not load 'unzipper' dependency — ensure it is installed as a direct dependency"
+    );
   }
-  throw new Error(
-    "Could not load 'unzipper' dependency from @contentauth/c2pa-node"
-  );
 }
 
 async function main() {
@@ -128,10 +126,10 @@ async function main() {
 
   const distDirs = findC2paDistDirs();
   if (distDirs.length === 0) {
-    console.warn(
-      "[c2pa-binary] Warning: No c2pa-node dist directories found; skipping."
+    console.error(
+      "[c2pa-binary] Error: No c2pa-node dist directories found; failing build."
     );
-    return;
+    process.exit(1);
   }
 
   let needsDownload = false;
@@ -165,9 +163,28 @@ async function main() {
     );
   }
 
-  if (!resp.body) {
+  const arrayBuffer = await resp.arrayBuffer();
+  const downloadedBytes = Buffer.from(arrayBuffer);
+  if (downloadedBytes.length === 0) {
     throw new Error(`Response body is empty for ${zipUrl}`);
   }
+
+  const expectedSha256 = C2PA_SHA256[target.platformKey];
+  if (!expectedSha256) {
+    throw new Error(
+      `No pinned SHA-256 for platform ${target.platformKey} at C2PA_VERSION ${C2PA_VERSION}`
+    );
+  }
+  const actualSha256 = crypto
+    .createHash("sha256")
+    .update(downloadedBytes)
+    .digest("hex");
+  if (actualSha256 !== expectedSha256.toLowerCase()) {
+    throw new Error(
+      `SHA-256 mismatch for ${zipUrl}: expected ${expectedSha256}, got ${actualSha256}`
+    );
+  }
+  console.log(`[c2pa-binary] SHA-256 verified for ${target.platformKey}`);
 
   const tempOut = path.join(
     "/tmp",
@@ -175,9 +192,7 @@ async function main() {
   );
 
   const unzipper = loadUnzipper();
-  const nodeStream = Readable.fromWeb(
-    resp.body as unknown as Parameters<typeof Readable.fromWeb>[0]
-  );
+  const nodeStream = Readable.from(downloadedBytes);
 
   await pipeline(
     nodeStream,

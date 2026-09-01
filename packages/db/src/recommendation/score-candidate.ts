@@ -200,6 +200,7 @@ export function scoreCandidate(
     components.traction * TRACTION_POINTS;
 
   // Scale by format fit and reputation visibility, then apply soft visited cooldown
-  const mediaScaled = base * clamp01(options.authorVisibilityWeight ?? 1);
+  const mediaScaled =
+    base * components.mediaFit * clamp01(options.authorVisibilityWeight ?? 1);
   return mediaScaled * components.visitedMultiplier;
 }

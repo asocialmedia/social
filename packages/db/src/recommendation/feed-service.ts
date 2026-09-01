@@ -31,7 +31,8 @@ const PROFILE_CACHE_TTL_SECONDS = 900;
 const PROFILE_SIGNAL_WINDOW_DAYS = 30;
 const PROFILE_SIGNAL_WINDOW_MS =
   PROFILE_SIGNAL_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-const PROFILE_SIGNALS_TAKE = 500;
+
+const PROFILE_EMBEDDING_TAKE = 100;
 
 export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:";
 
@@ -95,7 +96,10 @@ function toSignal(
     hasImage: post.attachments?.some((a) => a.type === "IMAGE"),
     hasVideo: post.attachments?.some((a) => a.type === "VIDEO"),
     kind,
-    tags: [...post.tags.map((tag) => tag.name), ...(post.semanticTags ?? [])],
+    tags: [
+      ...post.tags.map((tag) => tag.name.toLowerCase()),
+      ...(post.semanticTags ?? []).map((t) => t.toLowerCase()),
+    ],
   };
 }
 
@@ -118,25 +122,25 @@ export async function buildAndCacheProfile(
     prisma.vote.findMany({
       orderBy: { createdAt: "desc" },
       select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_SIGNALS_TAKE,
+      take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId, value: { gt: 0 } },
     }),
     prisma.vote.findMany({
       orderBy: { createdAt: "desc" },
       select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_SIGNALS_TAKE,
+      take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId, value: { lt: 0 } },
     }),
     prisma.bookmark.findMany({
       orderBy: { createdAt: "desc" },
       select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_SIGNALS_TAKE,
+      take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
     prisma.comment.findMany({
       orderBy: { createdAt: "desc" },
       select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
-      take: PROFILE_SIGNALS_TAKE,
+      take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, deleted: false, userId },
     }),
     prisma.commentVote.findMany({
@@ -145,13 +149,13 @@ export async function buildAndCacheProfile(
         comment: { select: { post: AUTHOR_TAGS_SELECT } },
         createdAt: true,
       },
-      take: PROFILE_SIGNALS_TAKE,
+      take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
     prisma.post.findMany({
       orderBy: { createdAt: "desc" },
       select: { ...AUTHOR_TAGS_SELECT.select, createdAt: true },
-      take: PROFILE_SIGNALS_TAKE,
+      take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
     searchCache.getHistory(userId),
@@ -220,8 +224,10 @@ export async function buildAndCacheProfile(
         tags: [],
       });
     } else if (search.type === "post" && search.post) {
+      const rawContent =
+        typeof search.post.content === "string" ? search.post.content : "";
       const contentTags =
-        search.post.content
+        rawContent
           .match(/#(?<tag>[a-zA-Z0-9_-]+)/g)
           ?.map((t) => t.slice(1).toLowerCase()) ?? [];
       signals.push({
@@ -288,8 +294,14 @@ export async function getPersonalizedFeedPage(
 
   if (cursor && cursor.startsWith("fyp.")) {
     const parts = cursor.split(".");
-    offset = Math.trunc(Number(parts[1] ?? "0")) || 0;
-    timestamp = Math.trunc(Number(parts[2] ?? `${Date.now()}`)) || Date.now();
+    const rawOffset = Math.trunc(Number(parts[1] ?? "0")) || 0;
+    const rawTimestamp =
+      Math.trunc(Number(parts[2] ?? `${Date.now()}`)) || Date.now();
+    // Clamp offset to valid bounds and timestamp to supported range
+    offset = Math.max(0, Math.min(rawOffset, CANDIDATE_POOL_SIZE));
+    const maxTimestamp = Date.now() + 60_000;
+    const minTimestamp = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    timestamp = Math.min(Math.max(rawTimestamp, minTimestamp), maxTimestamp);
   }
 
   const now = new Date(timestamp);
@@ -297,8 +309,8 @@ export async function getPersonalizedFeedPage(
     timestamp - CANDIDATE_WINDOW_HOURS * 60 * 60 * 1000
   );
 
-  const whereClause: Record<string, unknown> = {
-    createdAt: { gte: windowStart },
+  const whereClause: import("../client").Prisma.PostWhereInput = {
+    createdAt: { gte: windowStart, lte: now },
     isGust: false,
     moderated: excludeModerated ? false : undefined,
   };
@@ -351,8 +363,8 @@ export async function getPersonalizedFeedPage(
       embedding: post.embedding ?? [],
       hasAudio: attachments.some((a) => a.type === "AUDIO"),
       hasImage: attachments.some((a) => a.type === "IMAGE"),
-      hasOcr: attachments.some((a) => Boolean(a.ocrText)),
-      hasTranscript: attachments.some((a) => Boolean(a.transcript)),
+      hasOcr: attachments.some((a) => Boolean(a.ocrText?.length)),
+      hasTranscript: attachments.some((a) => Boolean(a.transcript?.length)),
       hasVideo: attachments.some((a) => a.type === "VIDEO"),
       id: post.id,
       isVisited: Boolean(post.visits && post.visits.length > 0),
@@ -370,10 +382,18 @@ export async function getPersonalizedFeedPage(
     };
   });
 
-  const ranked = rankFeed(scored, { pageSize: pool.length });
+  const ranked = rankFeed(scored, { pageSize: offset + pageSize });
   const sliceStart = offset;
   const sliceEnd = offset + pageSize;
-  const pageRanked = ranked.slice(sliceStart, sliceEnd);
+  let pageRanked = ranked.slice(sliceStart, sliceEnd);
+  // Second diversity pass ensures each visible page respects author share cap based on pageSize
+  if (pageRanked.length > 1) {
+    const pageScored = pageRanked.map((post) => {
+      const found = scored.find((s) => s.post.id === post.id);
+      return found ?? { post, score: 0 };
+    });
+    pageRanked = rankFeed(pageScored, { pageSize });
+  }
 
   const rankedIds = pageRanked.map((post) => post.id);
   const fullPosts = await prisma.post.findMany({

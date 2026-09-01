@@ -186,11 +186,24 @@ export function processMediaAnalyze(
           );
         }
 
-        // Stage 5: Update Media database row
+        // Stage 5: Update Media database row — re-read fresh techMetadata to avoid clobbering concurrent updates
+        const freshMediaForTech = await prisma.media.findUnique({
+          select: { techMetadata: true },
+          where: { id: jobData.mediaId },
+        });
         const existingTech =
-          source.techMetadata && typeof source.techMetadata === "object"
-            ? (structuredClone(source.techMetadata) as Record<string, unknown>)
-            : {};
+          freshMediaForTech?.techMetadata &&
+          typeof freshMediaForTech.techMetadata === "object"
+            ? (structuredClone(freshMediaForTech.techMetadata) as Record<
+                string,
+                unknown
+              >)
+            : (source.techMetadata && typeof source.techMetadata === "object"
+              ? (structuredClone(source.techMetadata) as Record<
+                  string,
+                  unknown
+                >)
+              : {});
         const prevTranscription =
           existingTech.transcription &&
           typeof existingTech.transcription === "object"
@@ -201,18 +214,27 @@ export function processMediaAnalyze(
             ? prevTranscription.attempts
             : 0;
 
+        const isAudioVideo = source.type === "AUDIO" || source.type === "VIDEO";
+        let transcriptionMeta: Record<string, unknown> | null = null;
+        if (transcription) {
+          transcriptionMeta = {
+            attemptedAt: new Date().toISOString(),
+            attempts: prevAttempts + 1,
+            error: transcription.error ?? null,
+            status: transcription.status,
+          };
+        } else if (isAudioVideo) {
+          transcriptionMeta = {
+            attemptedAt: new Date().toISOString(),
+            attempts: prevAttempts + 1,
+            error: "transcription failed or unavailable",
+            status: "failed" as const,
+          };
+        }
+
         const updatedTechMetadata = {
           ...existingTech,
-          ...(transcription
-            ? {
-                transcription: {
-                  attemptedAt: new Date().toISOString(),
-                  attempts: prevAttempts + 1,
-                  error: transcription.error ?? null,
-                  status: transcription.status,
-                },
-              }
-            : {}),
+          ...(transcriptionMeta ? { transcription: transcriptionMeta } : {}),
         };
 
         await prisma.media.update({

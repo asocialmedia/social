@@ -53,11 +53,12 @@ describe("DynamicKnowledgeGraph", () => {
     // User only interacted with "gojo-satoru"
     const activated = kg.spreadingActivation({ "gojo-satoru": 1 });
 
-    // Activation must spread to Jujutsu Kaisen, MAPPA, and Chainsaw Man with distance decay
+    // Activation spreads to immediate neighbors with distance decay; with default maxDepth 2, Chainsaw Man is 3 hops away and should not be reached
     expect(activated["gojo-satoru"]).toBe(1);
     expect(activated["jujutsu-kaisen"]).toBeGreaterThan(0);
     expect(activated["mappa"]).toBeGreaterThan(0);
     expect(activated["jujutsu-kaisen"]).toBeGreaterThan(activated["mappa"]);
+    expect(activated["chainsaw-man"]).toBeUndefined();
   });
 
   test("isolates unrelated subgraphs cleanly", () => {

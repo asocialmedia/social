@@ -81,7 +81,7 @@ export async function GET(
       })
     );
 
-    if (!response.Body) {
+    if (!response.Body || response.ContentLength === 0) {
       const fallbackPath = getDefaultAvatar(userId);
       return NextResponse.redirect(new URL(fallbackPath, request.url), 307);
     }

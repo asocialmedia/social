@@ -29,6 +29,15 @@ export interface ActivationOptions {
   topK?: number; // Max total related entities to return (default: 20)
 }
 
+function normalizeEntityId(label: string): string {
+  return label
+    .toLowerCase()
+    .trim()
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/-+/g, "-")
+    .replaceAll(/^-|-$/g, "");
+}
+
 export class DynamicKnowledgeGraph {
   private nodes = new Map<string, DynamicEntity>();
   // Adjacency: source -> target -> { relation, weight }
@@ -41,10 +50,13 @@ export class DynamicKnowledgeGraph {
     string,
     Map<string, { relation: RelationType; weight: number }>
   >();
+  private static readonly MAX_NODES = 5000;
+  private static readonly MAX_EDGES_PER_NODE = 100;
 
   // Upserts an entity node in the graph.
   public upsertEntity(entity: DynamicEntity): DynamicEntity {
-    const existing = this.nodes.get(entity.id);
+    const normalizedId = normalizeEntityId(entity.id);
+    const existing = this.nodes.get(normalizedId);
     if (existing) {
       existing.weight = (existing.weight ?? 1) + 1;
       if (entity.metadata) {
@@ -56,11 +68,31 @@ export class DynamicKnowledgeGraph {
       return existing;
     }
 
+    if (this.nodes.size >= DynamicKnowledgeGraph.MAX_NODES) {
+      // Evict least-weight node to bound growth
+      let minId: string | null = null;
+      let minWeight = Infinity;
+      for (const [id, node] of this.nodes.entries()) {
+        const w = node.weight ?? 1;
+        if (w < minWeight) {
+          minWeight = w;
+          minId = id;
+        }
+      }
+      if (minId) {
+        this.nodes.delete(minId);
+        this.forward.delete(minId);
+        this.reverse.delete(minId);
+      }
+    }
+
     const created: DynamicEntity = {
       ...entity,
+      id: normalizedId,
+      name: entity.name,
       weight: entity.weight ?? 1,
     };
-    this.nodes.set(entity.id, created);
+    this.nodes.set(normalizedId, created);
     return created;
   }
 
@@ -76,42 +108,81 @@ export class DynamicKnowledgeGraph {
     relation: RelationType = "related_to",
     weight = 1
   ): void {
-    if (!source || !target || source === target) {
+    const normSource = normalizeEntityId(source);
+    const normTarget = normalizeEntityId(target);
+    if (!normSource || !normTarget || normSource === normTarget) {
       return;
     }
 
     // Ensure both nodes exist
-    if (!this.nodes.has(source)) {
-      this.upsertEntity({ id: source, name: source });
+    if (!this.nodes.has(normSource)) {
+      this.upsertEntity({ id: normSource, name: normSource });
     }
-    if (!this.nodes.has(target)) {
-      this.upsertEntity({ id: target, name: target });
+    if (!this.nodes.has(normTarget)) {
+      this.upsertEntity({ id: normTarget, name: normTarget });
     }
 
     // Forward edge
-    let sourceEdges = this.forward.get(source);
+    let sourceEdges = this.forward.get(normSource);
     if (!sourceEdges) {
       sourceEdges = new Map();
-      this.forward.set(source, sourceEdges);
+      this.forward.set(normSource, sourceEdges);
     }
-    const existingForward = sourceEdges.get(target);
+    const existingForward = sourceEdges.get(normTarget);
     const newWeight = (existingForward?.weight ?? 0) + weight;
-    sourceEdges.set(target, { relation, weight: newWeight });
+    // Bound edges per node
+    if (
+      !existingForward &&
+      sourceEdges.size >= DynamicKnowledgeGraph.MAX_EDGES_PER_NODE
+    ) {
+      let minKey: string | null = null;
+      let minW = Infinity;
+      for (const [k, v] of sourceEdges.entries()) {
+        if (v.weight < minW) {
+          minW = v.weight;
+          minKey = k;
+        }
+      }
+      if (minKey) {
+        sourceEdges.delete(minKey);
+      }
+    }
+    sourceEdges.set(normTarget, { relation, weight: newWeight });
 
     // Reverse edge
-    let targetReverse = this.reverse.get(target);
+    let targetReverse = this.reverse.get(normTarget);
     if (!targetReverse) {
       targetReverse = new Map();
-      this.reverse.set(target, targetReverse);
+      this.reverse.set(normTarget, targetReverse);
     }
-    targetReverse.set(source, { relation, weight: newWeight });
+    targetReverse.set(normSource, { relation, weight: newWeight });
+  }
+
+  public getIncomingNeighbors(
+    id: string,
+    options?: { limit?: number; minWeight?: number }
+  ): { id: string; relation: RelationType; weight: number }[] {
+    const normId = normalizeEntityId(id);
+    const edges = this.reverse.get(normId);
+    if (!edges || edges.size === 0) {
+      return [];
+    }
+    const minWeight = options?.minWeight ?? 0;
+    const limit = options?.limit ?? 20;
+    const list: { id: string; relation: RelationType; weight: number }[] = [];
+    for (const [source, edge] of edges.entries()) {
+      if (edge.weight >= minWeight) {
+        list.push({ id: source, relation: edge.relation, weight: edge.weight });
+      }
+    }
+    return list.toSorted((a, b) => b.weight - a.weight).slice(0, limit);
   }
 
   // Records co-occurrence of entities in the same post, media asset, or eddie.
   // Dynamically strengthens edges between all pairs of entities that appear together.
   public recordCoOccurrence(entities: string[], contextWeight = 1): void {
     const clean = [
-      ...new Set(entities.map((e) => e.trim().toLowerCase())),
+      ...new Set(entities.map((e) => normalizeEntityId(e))),
     ].filter(Boolean);
     if (clean.length < 2) {
       if (clean[0]) {

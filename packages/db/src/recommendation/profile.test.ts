@@ -119,10 +119,18 @@ describe("buildUserProfile", () => {
     ]);
 
     expect(profile.authorWeights["good-author"]).toBe(1);
-    expect(profile.negativeAuthorWeights?.["bad-author"]).toBeDefined();
-    expect(profile.negativeAuthorWeights?.["annoying-author"]).toBeDefined();
-    expect(profile.negativeTagWeights?.["spam"]).toBeDefined();
-    expect(profile.negativeTagWeights?.["crypto"]).toBeDefined();
+    const bad = profile.negativeAuthorWeights?.["bad-author"];
+    const annoying = profile.negativeAuthorWeights?.["annoying-author"];
+    const spam = profile.negativeTagWeights?.["spam"];
+    const crypto = profile.negativeTagWeights?.["crypto"];
+    for (const v of [bad, annoying, spam, crypto]) {
+      expect(typeof v).toBe("number");
+      expect(v).toBeGreaterThan(0);
+      expect(v).toBeLessThan(0.9);
+    }
+    // hide produces stronger penalty than downvote but neither reaches zeroing threshold
+    expect(annoying).toBeGreaterThan(bad ?? 0);
+    expect(crypto).toBeGreaterThan(spam ?? 0);
   });
 
   test("detects topic and entity affinities dynamically from engagement signals", () => {

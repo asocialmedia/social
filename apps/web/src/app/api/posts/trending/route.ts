@@ -126,6 +126,7 @@ export async function GET(request: Request) {
       // trendingScore is maintained by the worker's flush job; the id
       // tiebreak keeps equal scores deterministic.
       orderBy: [{ trendingScore: "desc" }, { id: "desc" }],
+      skip: liveCursor ? 1 : 0,
       take: pageSize + 1,
       where,
     });

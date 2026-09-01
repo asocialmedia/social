@@ -189,10 +189,14 @@ export async function GET(
             })
           );
           const rawVtt = await captionsObject.Body?.transformToString();
-          // If the S3 captions file actually contains subtitle cues, serve it.
+          // If the S3 captions file actually contains valid WebVTT cue timestamps, serve it.
           // If it was stored as an empty header without cues, fall through to
           // generate clean line-by-line subtitle cues from the transcript.
-          if (rawVtt && rawVtt.includes("-->")) {
+          const isValidWebVtt = (vtt: string): boolean =>
+            /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
+              vtt
+            );
+          if (rawVtt && isValidWebVtt(rawVtt)) {
             return new NextResponse(rawVtt, {
               headers: {
                 "Access-Control-Allow-Origin": "*",
@@ -211,7 +215,11 @@ export async function GET(
       }
       if (freshMedia?.transcript) {
         let vttContent = freshMedia.transcript;
-        if (!vttContent.includes("-->")) {
+        const isValidWebVttTranscript = (vtt: string): boolean =>
+          /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
+            vtt
+          );
+        if (!isValidWebVttTranscript(vttContent)) {
           const rawChunks = freshMedia.transcript
             .split(/(?<=[.?!])\s+|\r?\n+/)
             .map((l) => l.trim())
@@ -244,11 +252,14 @@ export async function GET(
               ? Math.max(5, Math.ceil(maxDurationMs / 1000))
               : Math.max(10, lines.length * 3);
 
-          const step = Math.max(1.5, totalSeconds / Math.max(1, lines.length));
+          const step = totalSeconds / Math.max(1, lines.length);
           let currentT = 0;
           const formattedCues = lines.map((line, idx) => {
+            const isLast = idx === lines.length - 1;
             const startSec = currentT;
-            const endSec = Math.min(totalSeconds, currentT + step);
+            const endSec = isLast
+              ? totalSeconds
+              : Math.min(totalSeconds, currentT + step);
             currentT = endSec;
 
             const sH = String(Math.floor(startSec / 3600)).padStart(2, "0");

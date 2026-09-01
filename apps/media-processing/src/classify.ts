@@ -291,7 +291,7 @@ async function classifyRasterWithVision(
 
     const model =
       workerEnv.GEMINI_TRANSCRIBE_MODEL || "gemini-flash-lite-latest";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     const prompt =
       "Analyze this social media image/frame and extract deep hierarchical taxonomy entities for an open-ended recommendation graph.\n" +
@@ -325,7 +325,10 @@ async function classifyRasterWithVision(
           temperature: 0.2,
         },
       }),
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       method: "POST",
       signal: AbortSignal.timeout(6000),
     });

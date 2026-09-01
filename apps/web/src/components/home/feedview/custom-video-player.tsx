@@ -272,6 +272,8 @@ export const CustomVideoPlayer = ({
   }, []);
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
+  const [hlsReady, setHlsReady] = useState(false);
+  const hlsPendingRef = useRef(false);
 
   useEffect(() => {
     const handleStopPlayback = () => {
@@ -350,12 +352,22 @@ export const CustomVideoPlayer = ({
       if (video.src !== hlsSrc) {
         video.src = hlsSrc;
       }
+      hlsPendingRef.current = false;
+      setHlsReady(true);
       return;
     }
     let cancelled = false;
+    hlsPendingRef.current = true;
     void (async () => {
       const HlsCtor = await getHlsConstructor();
       if (cancelled || !video || !HlsCtor || !HlsCtor.isSupported()) {
+        hlsPendingRef.current = false;
+        // HLS unavailable: ensure progressive src is used
+        if (!cancelled && video && !HlsCtor?.isSupported()) {
+          if (video.src !== src) {
+            video.src = src;
+          }
+        }
         return;
       }
       hlsInstanceRef.current?.destroy();
@@ -401,6 +413,8 @@ export const CustomVideoPlayer = ({
         }
       });
       hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {
+        hlsPendingRef.current = false;
+        setHlsReady(true);
         if (autoPlay) {
           void attemptPlay();
         }
@@ -415,7 +429,12 @@ export const CustomVideoPlayer = ({
       hlsInstanceRef.current?.destroy();
       hlsInstanceRef.current = null;
     };
-  }, [hlsSrc, autoPlay, attemptPlay]);
+  }, [
+	hlsSrc,
+	autoPlay,
+	attemptPlay,
+	src
+]);
 
   // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
   // block unmuted autoplay until the user interacts, so start muted (unless
@@ -426,12 +445,16 @@ export const CustomVideoPlayer = ({
     if (!autoPlay) {
       return;
     }
-    // If HLS is configured, MANIFEST_PARSED event triggers attemptPlay once ready
-    if (hlsSrc && hlsInstanceRef.current) {
+    // If HLS is configured and still pending, defer autoplay until MANIFEST_PARSED
+    if (
+      hlsSrc &&
+      (hlsPendingRef.current || !hlsReady) &&
+      !hlsInstanceRef.current
+    ) {
       return;
     }
     void attemptPlay();
-  }, [autoPlay, hlsSrc, attemptPlay]);
+  }, [autoPlay, hlsSrc, hlsReady, attemptPlay]);
 
   useEffect(() => {
     const video = videoRef.current;
