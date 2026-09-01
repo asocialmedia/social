@@ -111,7 +111,25 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
-    console.error("Avatar proxy error:", error);
+    // Expected when bucket was never created or disk full on rustfs
+    // (NoSuchBucket / NoSuchKey / InternalError: Storage resources are
+    // insufficient). Fall back to default avatar without noisy error logging.
+    const maybeS3 = error as {
+      Code?: string;
+      name?: string;
+      $metadata?: { httpStatusCode?: number };
+    };
+    const code = maybeS3?.Code ?? maybeS3?.name ?? "";
+    const status = maybeS3?.$metadata?.httpStatusCode;
+    const isExpected =
+      code === "NoSuchBucket" ||
+      code === "NoSuchKey" ||
+      code === "InternalError" ||
+      status === 404 ||
+      status === 500;
+    if (!isExpected) {
+      console.error("Avatar proxy error:", error);
+    }
     const fallbackPath = getDefaultAvatar(userId);
     return NextResponse.redirect(new URL(fallbackPath, request.url), 307);
   }
