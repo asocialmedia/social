@@ -1,0 +1,809 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  checks: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint and Typecheck
+    needs: detect-pr-merge
+    if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.quality-already-passed == 'true') }}
+    runs-on: ubuntu-latest
+    # The unit tests exercise the real Redis-backed caches (search history),
+    # so provision a throwaway instance matching the local dev default.
+    env:
+      REDIS_URL: redis://127.0.0.1:6379/0
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Get bun store path
+        id: bun-cache
+        shell: bash
+        run: |
+          echo "store_path=$(bun pm cache dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Bun cache
+        uses: actions/cache@v5
+        id: bun-cache-restore
+        with:
+          path: |
+            ${{ steps.bun-cache.outputs.store_path }}
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-store-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-store-
+
+      - name: Restore node_modules
+        uses: actions/cache@v5
+        id: node-modules-restore
+        with:
+          path: |
+            **/node_modules
+            !**/node_modules/.cache
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-node-modules-
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
+      - name: Restore Prisma cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/prisma
+          key: ${{ runner.os }}-prisma-${{ hashFiles('**/schema.prisma') }}
+          restore-keys: |
+            ${{ runner.os }}-prisma-
+
+      - name: Install dependencies
+        if: steps.node-modules-restore.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run --filter=@asm/db db:generate
+
+      - name: Check lint/format
+        run: bun run check
+
+      - name: Check types
+        run: bun run check-types
+
+      - name: Install ffmpeg
+        # The media-processing scrub tests drive the real ffmpeg/ffprobe
+        # binaries, which the hosted runners do not ship by default.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Run unit tests
+        run: bun run test
+
+  detect-pr-merge:
+    name: Detect merged PR push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.pr-check.outputs.should-build }}
+      merge-pr-number: ${{ steps.pr-check.outputs.pr-number }}
+      quality-already-passed: ${{ steps.pr-check.outputs.quality-already-passed }}
+    steps:
+      - name: Check whether commit came from merged PR
+        id: pr-check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const commit_sha = context.sha
+
+            let mergedPr = null
+
+            // 1. Try to extract PR number from commit message (e.g. "Merge pull request #117 from ...", "... (#117)")
+            const commitMsg = context.payload?.head_commit?.message || ""
+            const prMatch = commitMsg.match(/Merge pull request #(\d+)/i) || commitMsg.match(/\(#(\d+)\)/m)
+            if (prMatch && prMatch[1]) {
+              try {
+                const prRes = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: Number(prMatch[1]),
+                })
+                if (prRes.data && prRes.data.merged_at && prRes.data.base.ref === "main") {
+                  mergedPr = prRes.data
+                }
+              } catch (err) {
+                core.warning(`Could not fetch PR #${prMatch[1]} from commit message: ${err.message}`)
+              }
+            }
+
+            // 2. Fallback to listPullRequestsAssociatedWithCommit
+            if (!mergedPr) {
+              try {
+                const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner,
+                  repo,
+                  commit_sha
+                })
+                mergedPr = response.data.find((pr) => pr.merged_at && pr.base.ref === "main")
+              } catch (err) {
+                core.warning(`listPullRequestsAssociatedWithCommit failed: ${err.message}`)
+              }
+            }
+
+            // Always build on push to main
+            core.setOutput("should-build", "true")
+            core.setOutput("pr-number", mergedPr ? String(mergedPr.number) : "")
+            core.setOutput("quality-already-passed", "false")
+
+            if (mergedPr) {
+              core.info(`Detected merged PR #${mergedPr.number} for ${commit_sha}`)
+            } else {
+              core.info(`Push on main without PR association for ${commit_sha}; will build from push diff.`)
+            }
+
+            if (mergedPr) {
+              try {
+                const headSha = mergedPr.head?.sha || mergedPr.merge_commit_sha
+                const checks = await github.rest.checks.listForRef({
+                  check_name: "Lint and Typecheck",
+                  filter: "latest",
+                  owner,
+                  per_page: 1,
+                  ref: headSha,
+                  repo,
+                })
+
+                const qualityCheck = checks.data.check_runs[0]
+                const alreadyPassed = Boolean(
+                  qualityCheck && qualityCheck.conclusion === "success"
+                )
+                core.setOutput("quality-already-passed", alreadyPassed ? "true" : "false")
+                core.info(
+                  alreadyPassed
+                    ? `PR #${mergedPr.number} "Lint and Typecheck" already passed (status ${qualityCheck.status}, conclusion ${qualityCheck.conclusion}); skipping quality on merge.`
+                    : `PR #${mergedPr.number} "Lint and Typecheck" did not pass (${qualityCheck?.conclusion ?? "no check run"}); quality will re-run.`
+                )
+              } catch (error) {
+                core.warning(`Failed to check PR CI status: ${error.message}; quality will re-run.`)
+              }
+            }
+
+  determine-build-matrix:
+    name: Determine changed app images
+    needs: detect-pr-merge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.changed-apps.outputs.matrix }}
+      has-app-changes: ${{ steps.changed-apps.outputs.has-app-changes }}
+    steps:
+      - name: Resolve changed apps from merged PR
+        id: changed-apps
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
+
+            let changedFiles = []
+            if (prNumber) {
+              const files = await github.paginate(
+                github.rest.pulls.listFiles,
+                {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  per_page: 100,
+                },
+              )
+              changedFiles = files.map((file) => file.filename)
+              core.info(`Merged PR #${prNumber} changed ${changedFiles.length} files.`)
+            } else {
+              if (context.payload.before && context.payload.after && context.payload.before !== '0000000000000000000000000000000000000000') {
+                const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${context.payload.before}...${context.payload.after}`,
+                })
+                changedFiles = (comparison.data.files || []).map((file) => file.filename)
+              } else {
+                const commit = await github.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: context.sha,
+                })
+                changedFiles = (commit.data.files || []).map((file) => file.filename)
+              }
+              core.info(`Push changed ${changedFiles.length} files.`)
+            }
+
+            const appEntries = [
+              {
+                app: 'web',
+                dockerfile: './apps/web/Dockerfile',
+                image: 'asm-web',
+              },
+              {
+                app: 'auth',
+                dockerfile: './apps/auth/Dockerfile',
+                image: 'asm-auth',
+              },
+              {
+                app: 'media-processing',
+                dockerfile: './apps/media-processing/Dockerfile',
+                image: 'asm-media-processing',
+              },
+            ]
+
+            const triggerAllPrefixes = ['packages/', 'docker/']
+            const triggerAllFiles = new Set(['bun.lock', 'package.json', 'turbo.json', 'tsconfig.json'])
+
+            const shouldBuildAll = changedFiles.some((file) =>
+              triggerAllPrefixes.some((prefix) => file.startsWith(prefix)) || triggerAllFiles.has(file),
+            )
+
+            const selectedApps = shouldBuildAll
+              ? appEntries
+              : appEntries.filter(({ app }) => changedFiles.some((file) => file.startsWith(`apps/${app}/`)))
+
+            if (selectedApps.length === 0) {
+              core.setOutput('matrix', JSON.stringify({ include: [] }))
+              core.setOutput('has-app-changes', 'false')
+              core.info(`No app-specific changes detected; skipping Docker builds.`)
+              return
+            }
+
+            core.setOutput('matrix', JSON.stringify({ include: selectedApps }))
+            core.setOutput('has-app-changes', 'true')
+            core.info(`Selected Docker image builds: ${selectedApps.map(({ app }) => app).join(', ')}`)
+
+  build-and-push:
+    name: Build and Push (${{ matrix.app }})
+    needs:
+      - quality
+      - detect-pr-merge
+      - determine-build-matrix
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.determine-build-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Print merged PR context
+        run: |
+          echo "Building Docker images for merged PR #${{ needs.detect-pr-merge.outputs.merge-pr-number }}"
+          echo "Commit: ${{ github.sha }}"
+
+      - name: Read app version metadata
+        id: version
+        shell: bash
+        run: |
+          APP_VERSION=$(jq -r '.version' "apps/${{ matrix.app }}/package.json")
+          ROOT_VERSION=$(jq -r '.version' "package.json")
+
+          {
+            echo "app_version=${APP_VERSION}"
+            echo "root_version=${ROOT_VERSION}"
+            echo "tag_name=${{ matrix.app }}-v${APP_VERSION}"
+            echo "sha_short=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tag_name }}
+            type=sha,prefix=${{ matrix.app }}-sha-
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.version=${{ steps.version.outputs.app_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            io.asm.app=${{ matrix.app }}
+            io.asm.app-version=${{ steps.version.outputs.app_version }}
+            io.asm.root-version=${{ steps.version.outputs.root_version }}
+            io.asm.pr-number=${{ needs.detect-pr-merge.outputs.merge-pr-number }}
+
+      - name: Build and push Docker image (multi-arch)
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            ${{ matrix.app == 'web' && 'NEXT_PUBLIC_URL=https://asocialmedia.cc' || '' }}
+            ${{ matrix.app == 'web' && 'NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc' || '' }}
+
+      - name: Resolve deploy targets
+        id: deploy-targets
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_WEB_APP_ID: ${{ secrets.DOKPLOY_WEB_APP_ID }}
+          DOKPLOY_AUTH_APP_ID: ${{ secrets.DOKPLOY_AUTH_APP_ID }}
+          DOKPLOY_MEDIA_APP_ID: ${{ secrets.DOKPLOY_MEDIA_APP_ID }}
+          WEB_HEALTH_URL: ${{ secrets.WEB_HEALTH_URL }}
+          AUTH_HEALTH_URL: ${{ secrets.AUTH_HEALTH_URL }}
+          MEDIA_HEALTH_URL: ${{ secrets.MEDIA_HEALTH_URL }}
+        run: |
+          app_id=""
+          health_url=""
+          health_initial_delay="30"
+          health_retries="10"
+          health_retry_interval="10"
+          deploy_enabled="false"
+          health_enabled="false"
+
+          case "${{ matrix.app }}" in
+            web)
+              app_id="${DOKPLOY_WEB_APP_ID}"
+              health_url="${WEB_HEALTH_URL}"
+              ;;
+            auth)
+              app_id="${DOKPLOY_AUTH_APP_ID}"
+              health_url="${AUTH_HEALTH_URL}"
+              ;;
+            media-processing)
+              app_id="${DOKPLOY_MEDIA_APP_ID}"
+              health_url="${MEDIA_HEALTH_URL}"
+              ;;
+          esac
+
+          if [ -n "${DOKPLOY_API_URL}" ] && [ -n "${DOKPLOY_API_TOKEN}" ] && [ -n "${app_id}" ]; then
+            deploy_enabled="true"
+          fi
+
+          if [ -n "${health_url}" ]; then
+            health_enabled="true"
+          fi
+
+          echo "app_id=${app_id}" >> "$GITHUB_OUTPUT"
+          echo "health_url=${health_url}" >> "$GITHUB_OUTPUT"
+          echo "health_initial_delay=${health_initial_delay}" >> "$GITHUB_OUTPUT"
+          echo "health_retries=${health_retries}" >> "$GITHUB_OUTPUT"
+          echo "health_retry_interval=${health_retry_interval}" >> "$GITHUB_OUTPUT"
+          echo "deploy_enabled=${deploy_enabled}" >> "$GITHUB_OUTPUT"
+          echo "health_enabled=${health_enabled}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Dokploy deployment via API
+        if: success() && steps.deploy-targets.outputs.deploy_enabled == 'true'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_APP_ID: ${{ steps.deploy-targets.outputs.app_id }}
+        run: |
+          API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
+
+          curl -L -X 'POST' \
+            --retry 3 \
+            --retry-delay 5 \
+            --retry-connrefused \
+            "${API_URL}/api/application.deploy" \
+            -H 'accept: application/json' \
+            -H 'Content-Type: application/json' \
+            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+            -d "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}" \
+            --fail --silent --show-error
+
+      - name: Trigger worker deployment via API
+        if: success() && matrix.app == 'auth'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_WORKER_APP_ID: ${{ secrets.DOKPLOY_WORKER_APP_ID }}
+        run: |
+          API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
+
+          if [ -n "${DOKPLOY_WORKER_APP_ID}" ]; then
+            curl -L -X 'POST' \
+              --retry 3 \
+              --retry-delay 5 \
+              --retry-connrefused \
+              "${API_URL}/api/application.deploy" \
+              -H 'accept: application/json' \
+              -H 'Content-Type: application/json' \
+              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+              -d "{\"applicationId\":\"${DOKPLOY_WORKER_APP_ID}\"}" \
+              --fail --silent --show-error
+          else
+            echo "DOKPLOY_WORKER_APP_ID not configured; skipping worker deploy."
+          fi
+
+      # Fire-and-forget observability only. The edge blocks everything but
+      # app traffic, so GitHub runners can never reach the public health URL;
+      # Dokploy's own container healthcheck gates rollout. This probe must
+      # therefore never fail the workflow.
+      - name: Observe deployment health (non-blocking)
+        if: success() && steps.deploy-targets.outputs.health_enabled == 'true'
+        continue-on-error: true
+        env:
+          HEALTH_URL: ${{ steps.deploy-targets.outputs.health_url }}
+          HEALTH_INITIAL_DELAY: ${{ steps.deploy-targets.outputs.health_initial_delay }}
+          HEALTH_RETRIES: ${{ steps.deploy-targets.outputs.health_retries }}
+          HEALTH_RETRY_INTERVAL: ${{ steps.deploy-targets.outputs.health_retry_interval }}
+        run: |
+          echo "Waiting ${HEALTH_INITIAL_DELAY}s for container to start..."
+          sleep "${HEALTH_INITIAL_DELAY}"
+
+          echo "Checking health endpoint..."
+          for i in $(seq 1 "${HEALTH_RETRIES}"); do
+            if curl -sfL "${HEALTH_URL}" > /dev/null; then
+              echo "Health check passed!"
+              exit 0
+            fi
+
+            echo "Attempt ${i}/${HEALTH_RETRIES} failed, retrying in ${HEALTH_RETRY_INTERVAL}s..."
+            sleep "${HEALTH_RETRY_INTERVAL}"
+          done
+
+          echo "Health endpoint unreachable from the runner (expected when the edge blocks external traffic). Deployment continues via Dokploy's own healthcheck."
+
+  cleanup-old-images:
+    name: Cleanup old GHCR images
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - asm-web
+          - asm-auth
+    steps:
+      - name: Delete old package versions (keep last 10)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ matrix.image }}
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  prisma-sync:
+    name: Prisma schema sync
+    needs:
+      - quality
+      - detect-pr-merge
+      - determine-build-matrix
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve whether Prisma schema sync should run
+        id: resolve-prisma
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}')
+
+            let changedFiles = []
+            if (prNumber) {
+              const files = await github.paginate(
+                github.rest.pulls.listFiles,
+                {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  per_page: 100,
+                },
+              )
+              changedFiles = files.map((file) => file.filename)
+            } else {
+              if (context.payload.before && context.payload.after && context.payload.before !== '0000000000000000000000000000000000000000') {
+                const comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${context.payload.before}...${context.payload.after}`,
+                })
+                changedFiles = (comparison.data.files || []).map((file) => file.filename)
+              } else {
+                const commit = await github.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: context.sha,
+                })
+                changedFiles = (commit.data.files || []).map((file) => file.filename)
+              }
+            }
+
+            const prismaPaths = [
+              'packages/db/prisma/schema.prisma',
+              'packages/db/prisma.config.ts',
+              'packages/db/keys.ts',
+              'docker/prisma-package.json',
+              'docker/prisma-sync.dockerfile',
+              'docker/prisma-sync.sh',
+              'scripts/sync-trending-scores.ts',
+            ]
+            const prismaPrefixes = ['packages/db/']
+            const triggerFiles = new Set(['bun.lock', 'package.json', 'turbo.json', 'tsconfig.json'])
+
+            const relevant = changedFiles.filter((file) =>
+              prismaPaths.includes(file) ||
+              prismaPrefixes.some((prefix) => file.startsWith(prefix)) ||
+              triggerFiles.has(file),
+            )
+
+            core.setOutput('should-run', relevant.length > 0 ? 'true' : 'false')
+            core.setOutput('needed-files', relevant.join(', '))
+            core.info(`Prisma sync ${relevant.length > 0 ? 'needed' : 'skipped'}. Changed files: ${changedFiles.join(', ')}`)
+
+      - name: Print Prisma sync context
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        run: |
+          echo "Building Prisma sync image for merged PR #${{ needs.detect-pr-merge.outputs.merge-pr-number }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ steps.resolve-prisma.outputs.needed-files }}"
+
+      - name: Read version metadata
+        id: version
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        shell: bash
+        run: |
+          ROOT_VERSION=$(jq -r '.version' "package.json")
+          {
+            echo "root_version=${ROOT_VERSION}"
+            echo "tag_name=prisma-sync-v${ROOT_VERSION}"
+            echo "sha_short=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Setup Blacksmith Builder
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Log in to GitHub Container Registry
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/asm-prisma-sync
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tag_name }}
+            type=sha,prefix=prisma-sync-sha-
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=Asocialmedia Prisma Schema Sync
+            org.opencontainers.image.version=${{ steps.version.outputs.root_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            io.asm.app=prisma-sync
+            io.asm.root-version=${{ steps.version.outputs.root_version }}
+            io.asm.pr-number=${{ needs.detect-pr-merge.outputs.merge-pr-number }}
+
+      - name: Build and push Prisma sync image (multi-arch)
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: docker/prisma-sync.dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger Prisma sync container via Dokploy
+        id: trigger-deploy
+        if: steps.resolve-prisma.outputs.should-run == 'true'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+        run: |
+          set -eu
+
+          if [ -z "$DOKPLOY_API_URL" ] || [ -z "$DOKPLOY_API_TOKEN" ] || [ -z "$DOKPLOY_PRISMA_APP_ID" ]; then
+            echo "Missing Dokploy configuration. Set DOKPLOY_API_URL, DOKPLOY_API_TOKEN and DOKPLOY_PRISMA_APP_ID secrets."
+            exit 1
+          fi
+
+          API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
+
+          BASELINE=$(curl -sS -L \
+            --retry 3 \
+            --retry-delay 3 \
+            --retry-connrefused \
+            "${API_URL}/api/deployment.all?applicationId=${DOKPLOY_PRISMA_APP_ID}" \
+            -H 'accept: application/json' \
+            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+            | jq -r 'if type == "array" and length > 0 then .[0].deploymentId else "" end' 2>/dev/null || true)
+          echo "baseline_deployment_id=${BASELINE}" >> "$GITHUB_OUTPUT"
+          echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
+
+          curl -L -X 'POST' \
+            --retry 3 \
+            --retry-delay 5 \
+            --retry-connrefused \
+            "${API_URL}/api/application.deploy" \
+            -H 'accept: application/json' \
+            -H 'Content-Type: application/json' \
+            -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+            -d "{\"applicationId\":\"${DOKPLOY_PRISMA_APP_ID}\"}" \
+            --fail --silent --show-error
+
+          echo "Prisma sync container triggered for application ${DOKPLOY_PRISMA_APP_ID}."
+
+      - name: Wait for Prisma sync deployment
+        if: success() && steps.resolve-prisma.outputs.should-run == 'true'
+        env:
+          DOKPLOY_API_URL: ${{ secrets.DOKPLOY_API_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_PRISMA_APP_ID: ${{ secrets.DOKPLOY_PRISMA_APP_ID }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.trigger-deploy.outputs.baseline_deployment_id }}
+        run: |
+          set -eu
+
+          API_URL="${DOKPLOY_API_URL%/}"
+          case "$API_URL" in
+            http://*) API_URL="https://${API_URL#http://}" ;;
+          esac
+          APP_ID="${DOKPLOY_PRISMA_APP_ID}"
+          BASELINE="${BASELINE_DEPLOYMENT_ID:-}"
+
+          fetch_deployments() {
+            curl -sS -L \
+              --retry 2 \
+              --retry-delay 3 \
+              --retry-connrefused \
+              "${API_URL}/api/deployment.all?applicationId=${APP_ID}" \
+              -H 'accept: application/json' \
+              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+              || true
+          }
+
+          fetch_logs() {
+            curl -sS -L \
+              --retry 2 \
+              --retry-delay 3 \
+              --retry-connrefused \
+              "${API_URL}/api/deployment.readLogs?deploymentId=${1}&tail=300" \
+              -H 'accept: application/json' \
+              -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
+              || true
+          }
+
+          RETRIES=45
+          CONSECUTIVE_ERRORS=0
+          MAX_CONSECUTIVE_ERRORS=6
+          for i in $(seq 1 "${RETRIES}"); do
+            RESPONSE=$(fetch_deployments)
+            if ! printf '%s' "$RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+              CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+              echo "Attempt ${i}/${RETRIES}: deployment.all did not return an array (${CONSECUTIVE_ERRORS}/${MAX_CONSECUTIVE_ERRORS} consecutive transient errors). Response snippet:"
+              printf '%s\n' "$RESPONSE" | head -c 300
+              echo ""
+              if [ "$CONSECUTIVE_ERRORS" -ge "$MAX_CONSECUTIVE_ERRORS" ]; then
+                echo "Exceeded maximum consecutive API errors from Dokploy endpoint. Exiting."
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            CONSECUTIVE_ERRORS=0
+
+            DEPLOYMENT=$(printf '%s' "$RESPONSE" | jq -r 'if length > 0 then .[0] else empty end' 2>/dev/null || true)
+            DEPLOYMENT_ID=$(printf '%s' "$DEPLOYMENT" | jq -r '.deploymentId // empty' 2>/dev/null || true)
+            STATUS=$(printf '%s' "$DEPLOYMENT" | jq -r '.status // empty' 2>/dev/null || true)
+
+            if [ -z "$DEPLOYMENT_ID" ]; then
+              echo "Attempt ${i}/${RETRIES}: no deployment record yet, waiting..."
+              sleep 10
+              continue
+            fi
+
+            if [ "$DEPLOYMENT_ID" = "$BASELINE" ]; then
+              echo "Attempt ${i}/${RETRIES}: still on previous deployment (${DEPLOYMENT_ID}, ${STATUS}), waiting for new one..."
+              sleep 10
+              continue
+            fi
+
+            echo "Attempt ${i}/${RETRIES}: deployment ${DEPLOYMENT_ID} status: ${STATUS}"
+
+            case "$STATUS" in
+              done)
+                echo "Prisma sync deployment ${DEPLOYMENT_ID} completed successfully."
+                printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
+                exit 0
+                ;;
+              error|failed|cancelled)
+                echo "Prisma sync deployment ${DEPLOYMENT_ID} ended with status: ${STATUS}"
+                printf '%s\n' "$(fetch_logs "$DEPLOYMENT_ID")" | tail -n 50
+                exit 1
+                ;;
+              *)
+                sleep 10
+                continue
+                ;;
+            esac
+          done
+
+          echo "Timed out waiting for Prisma sync deployment to finish."
+          exit 1
