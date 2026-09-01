@@ -108,7 +108,11 @@ export function scoreCandidateComponents(
   let tagMass = 0;
   let negativeTagMass = 0;
   for (const tag of distinctTags) {
-    tagMass += tagWeights[tag] ?? 0;
+    const direct = tagWeights[tag] ?? 0;
+    const graph = profile.expandedEntityWeights?.[tag]
+      ? profile.expandedEntityWeights[tag] * 0.7
+      : 0;
+    tagMass += Math.max(direct, graph);
     negativeTagMass += negativeTagWeights[tag] ?? 0;
   }
   let rawTagOverlap = Math.min(1, tagMass / TAG_OVERLAP_SATURATION);

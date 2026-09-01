@@ -2,6 +2,7 @@
 // Turns a user's recent positive and negative engagement into normalized per-author,
 // per-topic affinities, format preferences, topic clusters, and a 384-dimensional taste vector.
 
+import { globalKnowledgeGraph } from "./knowledge-graph";
 import { computeCentroid, EMBEDDING_DIMENSION } from "./vector";
 
 export type ProfileSignalKind =
@@ -13,10 +14,12 @@ export type ProfileSignalKind =
   | "downvote"
   | "hide"
   | "ownPost"
-  | "ownGust";
+  | "ownGust"
+  | "search";
 
 export interface ProfileSignal {
   authorId: string;
+  createdAt?: Date;
   embedding?: number[];
   hasAudio?: boolean;
   hasImage?: boolean;
@@ -25,17 +28,11 @@ export interface ProfileSignal {
   tags: string[];
 }
 
-export type TopicCategory =
-  | "tech"
-  | "anime"
-  | "brainrot"
-  | "gaming"
-  | "ai"
-  | "media"
-  | "news_culture";
+// Dynamic topic category is completely open-ended without static enumerations.
+export type TopicCategory = string;
 
 export interface UserPersonaSummary {
-  dominantTopic: TopicCategory | "general";
+  dominantTopic: string;
   preferredFormat: "video" | "image" | "audio" | "text" | "balanced";
   topTags: string[];
 }
@@ -43,9 +40,10 @@ export interface UserPersonaSummary {
 export interface UserProfile {
   authorWeights: Record<string, number>;
   tagWeights: Record<string, number>;
+  expandedEntityWeights?: Record<string, number>;
   negativeAuthorWeights?: Record<string, number>;
   negativeTagWeights?: Record<string, number>;
-  topicAffinities?: Record<TopicCategory, number>;
+  topicAffinities?: Record<string, number>;
   formatAffinities?: {
     audio: number;
     image: number;
@@ -57,121 +55,8 @@ export interface UserProfile {
   summary?: UserPersonaSummary;
 }
 
-export const TOPIC_KEYWORDS: Record<TopicCategory, string[]> = {
-  ai: [
-    "ai",
-    "artificialintelligence",
-    "chatgpt",
-    "gemini",
-    "claude",
-    "llm",
-    "machinelearning",
-    "deeplearning",
-    "openai",
-    "c2pa",
-    "diffusion",
-    "model",
-  ],
-  anime: [
-    "anime",
-    "manga",
-    "weeb",
-    "otaku",
-    "cosplay",
-    "vtuber",
-    "waifu",
-    "jpop",
-    "art",
-    "drawing",
-    "illustration",
-    "japan",
-  ],
-  brainrot: [
-    "brainrot",
-    "meme",
-    "memes",
-    "shitpost",
-    "shitposting",
-    "skibidi",
-    "sigma",
-    "dank",
-    "humor",
-    "funny",
-    "cat",
-    "cats",
-    "copypasta",
-    "irony",
-    "comedy",
-  ],
-  gaming: [
-    "gaming",
-    "game",
-    "games",
-    "steam",
-    "playstation",
-    "xbox",
-    "nintendo",
-    "rpg",
-    "fps",
-    "esports",
-    "speedrun",
-    "minecraft",
-    "pcgaming",
-    "gameplay",
-  ],
-  media: [
-    "video",
-    "videos",
-    "film",
-    "cinema",
-    "photography",
-    "photo",
-    "music",
-    "audio",
-    "podcast",
-    "production",
-    "edit",
-    "vlog",
-    "aesthetic",
-  ],
-  news_culture: [
-    "news",
-    "politics",
-    "culture",
-    "world",
-    "crypto",
-    "bitcoin",
-    "economics",
-    "finance",
-    "science",
-    "space",
-    "history",
-    "philosophy",
-  ],
-  tech: [
-    "tech",
-    "technology",
-    "programming",
-    "coding",
-    "developer",
-    "dev",
-    "software",
-    "hardware",
-    "linux",
-    "homelab",
-    "rust",
-    "typescript",
-    "python",
-    "javascript",
-    "docker",
-    "server",
-    "open-source",
-    "github",
-  ],
-};
-
 // Signal weights: bookmarks are deliberate save actions, amplify is public endorsement,
-// comments are deep engagement, upvote is passive agreement, downvote/hide are negative.
+// comments are deep engagement, search is active discovery intent, downvote/hide are negative.
 export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   amplify: 2,
   bookmark: 3,
@@ -181,6 +66,7 @@ export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   hide: -3,
   ownGust: 3,
   ownPost: 3.5,
+  search: 2.5,
   upvote: 1.5,
 };
 
@@ -194,9 +80,9 @@ function addWeight(
 
 // Scales every weight so the map sums to 1.0, turning counts into distribution shares.
 function normalize(weights: Record<string, number>): Record<string, number> {
-  let total = 0;
-  for (const weight of Object.values(weights)) {
-    total += weight;
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+  if (total === 1) {
+    return { ...weights };
   }
   if (total <= 0) {
     return {};
@@ -208,56 +94,37 @@ function normalize(weights: Record<string, number>): Record<string, number> {
   return normalized;
 }
 
-// Classifies a set of tags into predefined topic categories.
+// Dynamically extracts entity frequencies from tags without static categories.
 export function classifyTopicCategories(
   tags: string[]
-): Record<TopicCategory, number> {
-  const result: Record<TopicCategory, number> = {
-    ai: 0,
-    anime: 0,
-    brainrot: 0,
-    gaming: 0,
-    media: 0,
-    news_culture: 0,
-    tech: 0,
-  };
+): Record<string, number> {
+  const result: Record<string, number> = {};
   if (!tags || tags.length === 0) {
     return result;
   }
 
-  const cleanTags = tags.map((t) =>
-    t.toLowerCase().replaceAll(/[#_\-\s]/g, "")
-  );
-  for (const [category, keywords] of Object.entries(TOPIC_KEYWORDS) as [
-    TopicCategory,
-    string[],
-  ][]) {
-    for (const tag of cleanTags) {
-      if (keywords.some((kw) => tag === kw || tag.includes(kw))) {
-        result[category] += 1;
-      }
+  for (const raw of tags) {
+    const clean = raw.toLowerCase().trim().replace(/^#+/, "");
+    if (clean.length >= 2) {
+      result[clean] = (result[clean] ?? 0) + 1;
     }
   }
   return result;
 }
 
 // Builds the rich user persona from engagement signals.
-export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
+export function buildUserProfile(
+  signals: ProfileSignal[],
+  options?: { now?: Date }
+): UserProfile {
+  const now = options?.now ?? new Date();
   const authorWeights: Record<string, number> = {};
   const tagWeights: Record<string, number> = {};
   const negativeAuthorWeights: Record<string, number> = {};
   const negativeTagWeights: Record<string, number> = {};
 
   const formatCounts = { audio: 0, image: 0, text: 0, video: 0 };
-  const topicCounts: Record<TopicCategory, number> = {
-    ai: 0,
-    anime: 0,
-    brainrot: 0,
-    gaming: 0,
-    media: 0,
-    news_culture: 0,
-    tech: 0,
-  };
+  const topicCounts: Record<string, number> = {};
 
   const tasteVectors: number[][] = [];
   const tasteWeights: number[] = [];
@@ -266,7 +133,17 @@ export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
   for (const signal of signals) {
     const rawWeight = SIGNAL_WEIGHTS[signal.kind] ?? 1;
     const isNegative = rawWeight < 0;
-    const magnitude = Math.abs(rawWeight);
+
+    // Exponential recency time-decay (7-day half-life for interest evolution)
+    let recencyFactor = 1;
+    if (signal.createdAt) {
+      const ageHours = Math.max(
+        0,
+        (now.getTime() - signal.createdAt.getTime()) / 3_600_000
+      );
+      recencyFactor = 0.5 ** (ageHours / (7 * 24));
+    }
+    const magnitude = Math.abs(rawWeight) * recencyFactor;
 
     if (isNegative) {
       if (signal.authorId) {
@@ -294,14 +171,11 @@ export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
       addWeight(tagWeights, tag, magnitude / distinctTags.length);
     }
 
-    // Accumulate topic category affinities
+    // Accumulate topic and entity affinities dynamically
     const categories = classifyTopicCategories(distinctTags);
-    for (const [cat, count] of Object.entries(categories) as [
-      TopicCategory,
-      number,
-    ][]) {
+    for (const [cat, count] of Object.entries(categories)) {
       if (count > 0) {
-        topicCounts[cat] += count * magnitude;
+        addWeight(topicCounts, cat, count * magnitude);
       }
     }
 
@@ -341,20 +215,9 @@ export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
 
   // Topic distribution
   const totalTopic = Object.values(topicCounts).reduce((a, b) => a + b, 0);
-  const topicAffinities: Record<TopicCategory, number> = {
-    ai: 0,
-    anime: 0,
-    brainrot: 0,
-    gaming: 0,
-    media: 0,
-    news_culture: 0,
-    tech: 0,
-  };
+  const topicAffinities: Record<string, number> = {};
   if (totalTopic > 0) {
-    for (const [cat, count] of Object.entries(topicCounts) as [
-      TopicCategory,
-      number,
-    ][]) {
+    for (const [cat, count] of Object.entries(topicCounts)) {
       topicAffinities[cat] = count / totalTopic;
     }
   }
@@ -363,13 +226,10 @@ export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
   const tasteVector = computeCentroid(tasteVectors, tasteWeights);
 
   // Dominant topic & preferred format summary
-  let dominantTopic: TopicCategory | "general" = "general";
+  let dominantTopic = "general";
   let maxTopicScore = 0;
-  for (const [cat, score] of Object.entries(topicAffinities) as [
-    TopicCategory,
-    number,
-  ][]) {
-    if (score > maxTopicScore && score >= 0.2) {
+  for (const [cat, score] of Object.entries(topicAffinities)) {
+    if (score > maxTopicScore && score >= 0.15) {
       maxTopicScore = score;
       dominantTopic = cat;
     }
@@ -391,8 +251,13 @@ export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
     .slice(0, 5)
     .map(([tag]) => tag);
 
+  const normalizedTagWeights = normalize(tagWeights);
+  const expandedEntityWeights =
+    globalKnowledgeGraph.spreadingActivation(normalizedTagWeights);
+
   return {
     authorWeights: normalize(authorWeights),
+    expandedEntityWeights,
     formatAffinities,
     negativeAuthorWeights: normalize(negativeAuthorWeights),
     negativeTagWeights: normalize(negativeTagWeights),
@@ -402,7 +267,7 @@ export function buildUserProfile(signals: ProfileSignal[]): UserProfile {
       preferredFormat,
       topTags,
     },
-    tagWeights: normalize(tagWeights),
+    tagWeights: normalizedTagWeights,
     tasteVector,
     topicAffinities,
   };

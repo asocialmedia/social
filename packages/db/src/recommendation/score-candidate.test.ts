@@ -347,4 +347,29 @@ describe("scoreCandidate", () => {
 
     expect(penalizedScore).toBeLessThan(neutralScore);
   });
+
+  test("boosts candidate score when tags match via Dynamic Knowledge Graph expanded entities", () => {
+    const profileWithoutGraph: UserProfile = {
+      authorWeights: {},
+      tagWeights: { "porsche-911": 1 },
+    };
+    const profileWithGraph: UserProfile = {
+      authorWeights: {},
+      expandedEntityWeights: { "track-day": 0.8 },
+      tagWeights: { "porsche-911": 1 },
+    };
+
+    const trackPost = post({
+      authorId: "stranger",
+      id: "track-post",
+      tags: ["track-day"],
+    });
+
+    const scoreWithout = scoreCandidate(trackPost, profileWithoutGraph, {
+      now: NOW,
+    });
+    const scoreWith = scoreCandidate(trackPost, profileWithGraph, { now: NOW });
+
+    expect(scoreWith).toBeGreaterThan(scoreWithout);
+  });
 });

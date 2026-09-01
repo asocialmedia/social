@@ -169,13 +169,16 @@ export function processMediaAnalyze(
 
         // Stage 4: Multi-label concept & topic classification
         let semanticTags: string[] = [];
+        let semantics: Record<string, unknown> | null = null;
         try {
-          semanticTags = await classifyMediaConcepts({
+          const classification = await classifyMediaConcepts({
             imagePath: rasterLocalPath,
             mediaId: jobData.mediaId,
             ocrText: ocr?.text,
             transcript: transcription?.transcript,
           });
+          semanticTags = classification.tags;
+          semantics = classification.semantics ?? null;
         } catch (error) {
           mediaLogger.warn(
             { error: String(error) },
@@ -220,6 +223,9 @@ export function processMediaAnalyze(
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
             ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
             ...(semanticTags.length > 0 ? { semanticTags } : {}),
+            ...(semantics
+              ? { semantics: structuredClone(semantics) as object }
+              : {}),
             techMetadata: updatedTechMetadata,
             ...(transcription?.transcript
               ? { transcript: transcription.transcript }

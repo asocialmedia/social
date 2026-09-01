@@ -258,6 +258,30 @@ describe("suggested-users-scoring", () => {
       });
       expect(ranked.reasons[0]).toContain("Followed by");
     });
+
+    test("generates topic-specific interest match reasons", () => {
+      const interests = buildViewerInterests([], [], []);
+      const candidate: SuggestionCandidate = {
+        aura: 50,
+        createdAt: new Date(),
+        followerCount: 10,
+        matchedTopic: "porsche-911",
+        mutualCount: 0,
+        mutualFollowers: [],
+        postCount: 5,
+        recentPostAt: new Date(),
+        tagOverlap: 2,
+      };
+      const [ranked] = rankCandidates([candidate], interests, {
+        activity: 0.8,
+        diversityJitter: 0,
+        mutual: 4,
+        popularity: 1.2,
+        recency: 1.8,
+        tagOverlap: 2.5,
+      });
+      expect(ranked.reasons).toContain("Shares your passion for Porsche 911");
+    });
   });
 
   describe("diversifyRanked", () => {

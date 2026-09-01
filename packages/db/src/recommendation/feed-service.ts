@@ -4,6 +4,7 @@
 
 import { createLogger } from "@asm/logger";
 
+import { searchCache } from "../../cache/search-cache";
 import { getAuraSignalsForUsers } from "../aura/signals";
 import type { PostData } from "../client";
 import { getPostDataInclude } from "../client";
@@ -83,10 +84,12 @@ function toSignal(
     tags: { name: string }[];
     userId: string;
   },
-  kind: ProfileSignal["kind"]
+  kind: ProfileSignal["kind"],
+  createdAt?: Date
 ): ProfileSignal {
   return {
     authorId: post.userId,
+    createdAt,
     embedding: post.embedding,
     hasAudio: post.attachments?.some((a) => a.type === "AUDIO"),
     hasImage: post.attachments?.some((a) => a.type === "IMAGE"),
@@ -96,7 +99,7 @@ function toSignal(
   };
 }
 
-// Joins recent engagement (votes, bookmarks, comments, comment votes) through to
+// Joins recent engagement (votes, bookmarks, comments, comment votes, searches) through to
 // posts, media types, and embeddings, constructing a comprehensive UserPersona.
 export async function buildAndCacheProfile(
   userId: string
@@ -109,75 +112,125 @@ export async function buildAndCacheProfile(
     comments,
     commentVotes,
     ownPosts,
+    searches,
     followedAuthorIds,
   ] = await Promise.all([
     prisma.vote.findMany({
       orderBy: { createdAt: "desc" },
-      select: { post: AUTHOR_TAGS_SELECT },
+      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
       take: PROFILE_SIGNALS_TAKE,
       where: { createdAt: { gte: since }, userId, value: { gt: 0 } },
     }),
     prisma.vote.findMany({
       orderBy: { createdAt: "desc" },
-      select: { post: AUTHOR_TAGS_SELECT },
+      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
       take: PROFILE_SIGNALS_TAKE,
       where: { createdAt: { gte: since }, userId, value: { lt: 0 } },
     }),
     prisma.bookmark.findMany({
       orderBy: { createdAt: "desc" },
-      select: { post: AUTHOR_TAGS_SELECT },
+      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
       take: PROFILE_SIGNALS_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
     prisma.comment.findMany({
       orderBy: { createdAt: "desc" },
-      select: { post: AUTHOR_TAGS_SELECT },
+      select: { createdAt: true, post: AUTHOR_TAGS_SELECT },
       take: PROFILE_SIGNALS_TAKE,
       where: { createdAt: { gte: since }, deleted: false, userId },
     }),
     prisma.commentVote.findMany({
       orderBy: { createdAt: "desc" },
-      select: { comment: { select: { post: AUTHOR_TAGS_SELECT } } },
+      select: {
+        comment: { select: { post: AUTHOR_TAGS_SELECT } },
+        createdAt: true,
+      },
       take: PROFILE_SIGNALS_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
     prisma.post.findMany({
       orderBy: { createdAt: "desc" },
-      select: AUTHOR_TAGS_SELECT.select,
+      select: { ...AUTHOR_TAGS_SELECT.select, createdAt: true },
       take: PROFILE_SIGNALS_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
+    searchCache.getHistory(userId),
     fetchFollowedAuthorIds(userId),
   ]);
 
   const signals: ProfileSignal[] = [];
   for (const vote of votes) {
     if (vote.post) {
-      signals.push(toSignal(vote.post, "amplify"));
+      signals.push(toSignal(vote.post, "amplify", vote.createdAt));
     }
   }
   for (const downvote of downvotes) {
     if (downvote.post) {
-      signals.push(toSignal(downvote.post, "downvote"));
+      signals.push(toSignal(downvote.post, "downvote", downvote.createdAt));
     }
   }
   for (const bookmark of bookmarks) {
     if (bookmark.post) {
-      signals.push(toSignal(bookmark.post, "bookmark"));
+      signals.push(toSignal(bookmark.post, "bookmark", bookmark.createdAt));
     }
   }
   for (const comment of comments) {
     if (comment.post) {
-      signals.push(toSignal(comment.post, "comment"));
+      signals.push(toSignal(comment.post, "comment", comment.createdAt));
     }
   }
   for (const commentVote of commentVotes) {
     if (commentVote.comment?.post) {
-      signals.push(toSignal(commentVote.comment.post, "commentVote"));
+      signals.push(
+        toSignal(commentVote.comment.post, "commentVote", commentVote.createdAt)
+      );
     }
   }
   for (const ownPost of ownPosts) {
-    signals.push(toSignal(ownPost, ownPost.isGust ? "ownGust" : "ownPost"));
+    signals.push(
+      toSignal(
+        ownPost,
+        ownPost.isGust ? "ownGust" : "ownPost",
+        ownPost.createdAt
+      )
+    );
+  }
+  for (const search of searches) {
+    const searchDate = search.searchedAt
+      ? new Date(search.searchedAt)
+      : undefined;
+    if (search.type === "query" && search.query) {
+      const terms = search.query
+        .toLowerCase()
+        .split(/[^a-z0-9_-]+/)
+        .filter((t) => t.length >= 2);
+      if (terms.length > 0) {
+        signals.push({
+          authorId: "",
+          createdAt: searchDate,
+          kind: "search",
+          tags: terms,
+        });
+      }
+    } else if (search.type === "user" && search.user) {
+      signals.push({
+        authorId: search.user.id,
+        createdAt: searchDate,
+        kind: "search",
+        tags: [],
+      });
+    } else if (search.type === "post" && search.post) {
+      const contentTags =
+        search.post.content
+          .match(/#(?<tag>[a-zA-Z0-9_-]+)/g)
+          ?.map((t) => t.slice(1).toLowerCase()) ?? [];
+      signals.push({
+        authorId: search.post.authorId,
+        createdAt: searchDate,
+        kind: "search",
+        tags: contentTags,
+      });
+    }
   }
 
   const profile: CachedProfile = {

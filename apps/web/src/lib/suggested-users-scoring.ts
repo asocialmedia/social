@@ -7,6 +7,7 @@ export interface SuggestionCandidate {
   aura: number;
   createdAt: Date;
   followerCount: number;
+  matchedTopic?: string;
   mutualCount: number;
   mutualFollowers: {
     username: string;
@@ -134,6 +135,12 @@ export function rankCandidates(
           ? `Followed by ${candidate.mutualFollowers[0]?.displayName ?? "someone you follow"}`
           : `Followed by ${candidate.mutualCount} people you follow`
       );
+    } else if (candidate.matchedTopic) {
+      const topicName = candidate.matchedTopic
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      reasons.push(`Shares your passion for ${topicName}`);
     } else if (candidate.tagOverlap > 0) {
       reasons.push("Shares your interests");
     } else if (candidate.recentPostAt) {

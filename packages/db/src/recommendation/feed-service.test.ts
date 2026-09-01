@@ -74,6 +74,11 @@ const mockRedis = {
 
 mock.module("../prisma", () => ({ default: mockPrisma }));
 mock.module("../redis", () => ({ redis: mockRedis }));
+mock.module("../../cache/search-cache", () => ({
+  searchCache: {
+    getHistory: mock(() => Promise.resolve([])),
+  },
+}));
 
 const CACHED_PROFILE = {
   authorWeights: { fav: 1 },

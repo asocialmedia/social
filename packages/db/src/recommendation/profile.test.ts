@@ -125,16 +125,16 @@ describe("buildUserProfile", () => {
     expect(profile.negativeTagWeights?.["crypto"]).toBeDefined();
   });
 
-  test("detects topic categories such as tech, anime, and brainrot", () => {
+  test("detects topic and entity affinities dynamically from engagement signals", () => {
     const profile = buildUserProfile([
       signal({ kind: "bookmark", tags: ["coding", "linux", "homelab"] }),
       signal({ kind: "comment", tags: ["anime", "manga"] }),
       signal({ kind: "upvote", tags: ["meme", "funny"] }),
     ]);
 
-    expect(profile.topicAffinities?.tech).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.linux).toBeGreaterThan(0);
     expect(profile.topicAffinities?.anime).toBeGreaterThan(0);
-    expect(profile.topicAffinities?.brainrot).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.meme).toBeGreaterThan(0);
     expect(profile.summary?.topTags.length).toBeGreaterThan(0);
   });
 
@@ -170,8 +170,47 @@ describe("buildUserProfile", () => {
     expect(profile.authorWeights["me"]).toBeUndefined();
     expect(profile.tagWeights["homelab"]).toBeGreaterThan(0);
     expect(profile.tagWeights["anime"]).toBeGreaterThan(0);
-    expect(profile.topicAffinities?.tech).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.homelab).toBeGreaterThan(0);
     expect(profile.topicAffinities?.anime).toBeGreaterThan(0);
     expect(profile.formatAffinities?.video).toBeGreaterThan(0);
+  });
+
+  test("incorporates user search history signals into persona", () => {
+    const profile = buildUserProfile([
+      signal({ kind: "search", tags: ["cyberpunk", "anime"] }),
+    ]);
+
+    expect(profile.tagWeights["cyberpunk"]).toBeGreaterThan(0);
+    expect(profile.tagWeights["anime"]).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.cyberpunk).toBeGreaterThan(0);
+  });
+
+  test("automatically evolves taste over time with recency decay (nature -> anime -> tech)", () => {
+    const now = new Date("2026-09-01T12:00:00Z");
+    const threeWeeksAgo = new Date(now.getTime() - 21 * 24 * 3600 * 1000);
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    const today = new Date(now.getTime() - 2 * 3600 * 1000);
+
+    const profile = buildUserProfile(
+      [
+        signal({
+          createdAt: threeWeeksAgo,
+          kind: "bookmark",
+          tags: ["nature"],
+        }),
+        signal({ createdAt: oneWeekAgo, kind: "bookmark", tags: ["anime"] }),
+        signal({ createdAt: today, kind: "bookmark", tags: ["tech"] }),
+      ],
+      { now }
+    );
+
+    // Today's tech has highest weight, 1-week-old anime is medium, 3-week-old nature has decayed to lowest
+    expect(profile.tagWeights["tech"]).toBeGreaterThan(
+      profile.tagWeights["anime"]
+    );
+    expect(profile.tagWeights["anime"]).toBeGreaterThan(
+      profile.tagWeights["nature"]
+    );
+    expect(profile.summary?.dominantTopic).toBe("tech");
   });
 });

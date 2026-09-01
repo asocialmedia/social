@@ -19,6 +19,7 @@ export * from "./src/redis";
 export * from "./src/profile-media";
 export * from "./src/recommendation/feed-service";
 export * from "./src/recommendation/profile";
+export * from "./src/recommendation/knowledge-graph";
 export * from "./src/recommendation/rank-feed";
 export * from "./src/recommendation/score-candidate";
 export * from "./src/recommendation/vector";
