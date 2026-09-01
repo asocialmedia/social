@@ -441,10 +441,12 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
     // Enqueue media analyze only AFTER the transaction commits so a rollback does not leave an orphan job.
     for (const mediaId of validatedInput.mediaIds) {
-      cancelMediaCleanup(mediaId).catch((error: unknown) => {
+      // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks
+      void cancelMediaCleanup(mediaId).catch((error: unknown) => {
         console.error(`Failed to cancel media cleanup for ${mediaId}:`, error);
       });
-      enqueueMediaAnalyze(mediaId).catch((error: unknown) => {
+      // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks
+      void enqueueMediaAnalyze(mediaId).catch((error: unknown) => {
         console.error(`Failed to enqueue media analyze for ${mediaId}:`, error);
       });
     }

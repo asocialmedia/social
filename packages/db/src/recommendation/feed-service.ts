@@ -6,7 +6,7 @@ import { createLogger } from "@asm/logger";
 
 import { searchCache } from "../../cache/search-cache";
 import { getAuraSignalsForUsers } from "../aura/signals";
-import type { PostData } from "../client";
+import type { PostData, Prisma } from "../client";
 import { getPostDataInclude } from "../client";
 import prisma from "../prisma";
 import { redis } from "../redis";
@@ -309,7 +309,7 @@ export async function getPersonalizedFeedPage(
     timestamp - CANDIDATE_WINDOW_HOURS * 60 * 60 * 1000
   );
 
-  const whereClause: import("../client").Prisma.PostWhereInput = {
+  const whereClause: Prisma.PostWhereInput = {
     createdAt: { gte: windowStart, lte: now },
     isGust: false,
     moderated: excludeModerated ? false : undefined,

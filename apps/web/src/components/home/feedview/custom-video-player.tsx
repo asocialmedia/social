@@ -363,10 +363,13 @@ export const CustomVideoPlayer = ({
       if (cancelled || !video || !HlsCtor || !HlsCtor.isSupported()) {
         hlsPendingRef.current = false;
         // HLS unavailable: ensure progressive src is used
-        if (!cancelled && video && !HlsCtor?.isSupported()) {
-          if (video.src !== src) {
-            video.src = src;
-          }
+        if (
+          !cancelled &&
+          video &&
+          !HlsCtor?.isSupported() &&
+          video.src !== src
+        ) {
+          video.src = src;
         }
         return;
       }
@@ -429,12 +432,7 @@ export const CustomVideoPlayer = ({
       hlsInstanceRef.current?.destroy();
       hlsInstanceRef.current = null;
     };
-  }, [
-	hlsSrc,
-	autoPlay,
-	attemptPlay,
-	src
-]);
+  }, [hlsSrc, autoPlay, attemptPlay, src]);
 
   // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
   // block unmuted autoplay until the user interacts, so start muted (unless

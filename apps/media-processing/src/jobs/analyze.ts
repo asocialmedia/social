@@ -10,6 +10,7 @@
 // All stages degrade independently with try/catch and timeout guards so a failure
 // in any one stage never cascades or impacts published post availability.
 
+import type { Prisma } from "@asm/db";
 import { prisma } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
 
@@ -191,19 +192,24 @@ export function processMediaAnalyze(
           select: { techMetadata: true },
           where: { id: jobData.mediaId },
         });
-        const existingTech =
+        let existingTech: Record<string, unknown>;
+        if (
           freshMediaForTech?.techMetadata &&
           typeof freshMediaForTech.techMetadata === "object"
-            ? (structuredClone(freshMediaForTech.techMetadata) as Record<
-                string,
-                unknown
-              >)
-            : (source.techMetadata && typeof source.techMetadata === "object"
-              ? (structuredClone(source.techMetadata) as Record<
-                  string,
-                  unknown
-                >)
-              : {});
+        ) {
+          existingTech = structuredClone(
+            freshMediaForTech.techMetadata as Record<string, unknown>
+          );
+        } else if (
+          source.techMetadata &&
+          typeof source.techMetadata === "object"
+        ) {
+          existingTech = structuredClone(
+            source.techMetadata as Record<string, unknown>
+          );
+        } else {
+          existingTech = {};
+        }
         const prevTranscription =
           existingTech.transcription &&
           typeof existingTech.transcription === "object"
@@ -248,7 +254,8 @@ export function processMediaAnalyze(
             ...(semantics
               ? { semantics: structuredClone(semantics) as object }
               : {}),
-            techMetadata: updatedTechMetadata,
+            techMetadata:
+              updatedTechMetadata as unknown as Prisma.InputJsonValue,
             ...(transcription?.transcript
               ? { transcript: transcription.transcript }
               : {}),

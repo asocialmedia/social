@@ -17,6 +17,12 @@ import {
   shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
 
+function isValidWebVtt(vtt: string): boolean {
+  return /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
+    vtt
+  );
+}
+
 // Object-serving fields are queried fresh to ensure pipeline status transitions
 // (UPLOADING -> SCANNING -> READY) and published keys are immediately visible
 // without stale cache misses.
@@ -192,10 +198,6 @@ export async function GET(
           // If the S3 captions file actually contains valid WebVTT cue timestamps, serve it.
           // If it was stored as an empty header without cues, fall through to
           // generate clean line-by-line subtitle cues from the transcript.
-          const isValidWebVtt = (vtt: string): boolean =>
-            /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
-              vtt
-            );
           if (rawVtt && isValidWebVtt(rawVtt)) {
             return new NextResponse(rawVtt, {
               headers: {
@@ -215,11 +217,7 @@ export async function GET(
       }
       if (freshMedia?.transcript) {
         let vttContent = freshMedia.transcript;
-        const isValidWebVttTranscript = (vtt: string): boolean =>
-          /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
-            vtt
-          );
-        if (!isValidWebVttTranscript(vttContent)) {
+        if (!isValidWebVtt(vttContent)) {
           const rawChunks = freshMedia.transcript
             .split(/(?<=[.?!])\s+|\r?\n+/)
             .map((l) => l.trim())

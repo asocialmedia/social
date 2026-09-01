@@ -240,9 +240,9 @@ describe("buildAndCacheProfile search history", () => {
       ])
     );
     // Temporarily override the mocked searchCache.getHistory
-    const prev = (await import("../../cache/search-cache")).searchCache
-      .getHistory;
-    (await import("../../cache/search-cache")).searchCache.getHistory =
+    const searchCacheModule = await import("../../cache/search-cache");
+    const prev = searchCacheModule.searchCache.getHistory;
+    searchCacheModule.searchCache.getHistory =
       historyMock as unknown as typeof prev;
     storedProfiles.clear();
     const profile = await buildAndCacheProfile("user-history");
@@ -255,7 +255,8 @@ describe("buildAndCacheProfile search history", () => {
     // Post entry without content should not crash and should still credit authorId
     expect(profile.authorWeights["author-bob"] ?? 0).toBeGreaterThanOrEqual(0);
     // Restore
-    (await import("../../cache/search-cache")).searchCache.getHistory = prev;
+    const restoreModule = await import("../../cache/search-cache");
+    restoreModule.searchCache.getHistory = prev;
   });
 });
 
