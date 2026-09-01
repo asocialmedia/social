@@ -2,16 +2,18 @@ import { clientLog } from "@asm/config/debug";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
+  DialogDescription,
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
+import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -26,6 +28,9 @@ import {
 import { LoadingButton } from "@/components/auth/loading-button";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
+
+const ORANGE_GRADIENT_CLASS =
+  "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
 
 interface GifCenteringDialogProps {
   currentValues: {
@@ -151,18 +156,48 @@ export default function GifCenteringDialog({
 
   return (
     <Dialog onOpenChange={onClose} open>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Center Your GIF</DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        className="apple-panel flex max-h-[75dvh] w-[calc(100%-1.5rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl border-0 p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header - matches Edit Profile */}
+        <div className="border-border/60 flex shrink-0 items-center border-b py-2 pr-3 pl-3">
+          <div className="relative size-10 shrink-0">
+            <Image
+              alt=""
+              className="object-cover"
+              fill
+              sizes="40px"
+              src={avatarPlaceholder}
+            />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col justify-center px-4 py-2">
+            <DialogTitle className="text-base font-semibold">
+              Center Your GIF
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground mt-0.5 text-xs">
+              {target === "banner"
+                ? "Position your header GIF"
+                : "Position your avatar GIF"}
+            </DialogDescription>
+          </div>
+          <DialogClose
+            aria-label="Close"
+            className="icon-btn-3d flex size-7 shrink-0 items-center justify-center rounded-full border-0"
+          >
+            <X className="size-4" />
+          </DialogClose>
+        </div>
 
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-4 overflow-y-auto px-5 pb-5">
           <div
             className={cn(
-              "border-border bg-secondary relative overflow-hidden border-2",
+              "border-border/60 relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-[hsl(var(--background))] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)]",
+              // Capped height so long GIFs never push dialog out of screen
+              "max-h-[40dvh] md:max-h-[45vh]",
               target === "banner"
                 ? "aspect-[3/1] w-full max-w-80"
-                : "size-64 rounded-full"
+                : "size-64 max-h-[40dvh] max-w-[40dvh] rounded-full md:max-h-[45vh] md:max-w-[45vh]"
             )}
             ref={containerRef}
           >
@@ -261,18 +296,28 @@ export default function GifCenteringDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        {/* Footer - fixed, matches Edit Profile Save button theme */}
+        <div className="border-border/60 flex shrink-0 items-center justify-end gap-2 border-t bg-[hsl(var(--background))] px-5 py-3">
           <Button
+            className="pill-3d-hover text-muted-foreground h-10 rounded-xl px-5"
             disabled={mutation.isPending}
             onClick={onClose}
-            variant="ghost"
+            variant="outline"
           >
             Cancel
           </Button>
-          <LoadingButton loading={mutation.isPending} onClick={handleComplete}>
+          <LoadingButton
+            className={cn(
+              "h-10 rounded-xl px-6",
+              ORANGE_GRADIENT_CLASS,
+              "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+            )}
+            loading={mutation.isPending}
+            onClick={handleComplete}
+          >
             Apply Changes
           </LoadingButton>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

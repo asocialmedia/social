@@ -322,10 +322,14 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   return { enqueued };
 }
 
+export const MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS = 3;
+export const TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 // Transcription backfill sweep: finds READY audio and video rows that do not
 // have captions or a transcript yet (e.g. uploaded before GEMINI_API_KEY was
 // set or when transcription was temporarily offline), and re-enqueues them for
-// semantic analysis & transcription.
+// semantic analysis & transcription. Bounded by max attempts and retry windows
+// so uncaptionable/failed rows do not loop endlessly.
 export async function transcriptionBackfillSweep(): Promise<{
   enqueued: number;
 }> {
@@ -334,7 +338,7 @@ export async function transcriptionBackfillSweep(): Promise<{
   }
   const candidates = await prisma.media.findMany({
     orderBy: { createdAt: "desc" },
-    select: { id: true },
+    select: { id: true, techMetadata: true },
     take: SWEEP_BATCH,
     where: {
       captionsKey: null,
@@ -344,7 +348,40 @@ export async function transcriptionBackfillSweep(): Promise<{
   });
 
   let enqueued = 0;
+  const now = Date.now();
   for (const candidate of candidates) {
+    const tech =
+      candidate.techMetadata && typeof candidate.techMetadata === "object"
+        ? (candidate.techMetadata as Record<string, unknown>)
+        : null;
+    const trans =
+      tech?.transcription && typeof tech.transcription === "object"
+        ? (tech.transcription as Record<string, unknown>)
+        : null;
+
+    if (trans) {
+      const status = typeof trans.status === "string" ? trans.status : "";
+      // Definitively uncaptionable media - never retry
+      if (
+        status === "no_audio" ||
+        status === "silent" ||
+        status === "completed"
+      ) {
+        continue;
+      }
+      const attempts = typeof trans.attempts === "number" ? trans.attempts : 1;
+      if (attempts >= MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS) {
+        continue;
+      }
+      const lastAttempt =
+        typeof trans.attemptedAt === "string"
+          ? new Date(trans.attemptedAt).getTime()
+          : 0;
+      if (now - lastAttempt < TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS) {
+        continue; // Respect exponential backoff window
+      }
+    }
+
     try {
       const { enqueueMediaAnalyze } = await import("@asm/db");
       await enqueueMediaAnalyze(candidate.id);

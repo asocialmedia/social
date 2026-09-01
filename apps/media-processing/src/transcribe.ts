@@ -17,9 +17,18 @@ export interface CaptionSegment {
   text: string;
 }
 
+export type TranscriptionStatus =
+  | "completed"
+  | "no_audio"
+  | "silent"
+  | "failed"
+  | "skipped";
+
 export interface TranscriptionResult {
   captionsKey: string | null;
+  error?: string;
   segments: CaptionSegment[];
+  status: TranscriptionStatus;
   transcript: string | null;
   webvtt: string | null;
 }
@@ -55,6 +64,63 @@ export function generateWebVtt(segments: CaptionSegment[]): string {
     .join("\n");
 
   return `${header}${cues}`;
+}
+
+export function splitTranscriptToCues(
+  transcript: string,
+  durationSec: number | null
+): CaptionSegment[] {
+  const text = transcript.trim();
+  if (!text) {
+    return [];
+  }
+
+  const rawChunks = text
+    .split(/(?<=[.?!])\s+|\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const lines: string[] = [];
+  for (const chunk of rawChunks) {
+    const words = chunk.split(/\s+/).filter(Boolean);
+    if (words.length <= 8) {
+      lines.push(words.join(" "));
+    } else {
+      for (let i = 0; i < words.length; i += 7) {
+        lines.push(words.slice(i, i + 7).join(" "));
+      }
+    }
+  }
+
+  if (lines.length === 0) {
+    const words = text.split(/\s+/).filter(Boolean);
+    for (let i = 0; i < words.length; i += 7) {
+      lines.push(words.slice(i, i + 7).join(" "));
+    }
+  }
+
+  const totalWords = lines.reduce(
+    (acc, l) => acc + l.split(/\s+/).filter(Boolean).length,
+    0
+  );
+  const defaultDuration = Math.max(3, totalWords * 0.38);
+  const duration =
+    durationSec && durationSec > 0 ? durationSec : defaultDuration;
+
+  let currentStart = 0;
+  return lines.map((lineText, idx) => {
+    const lineWords = lineText.split(/\s+/).filter(Boolean).length;
+    const isLast = idx === lines.length - 1;
+    const lineDuration = (lineWords / Math.max(1, totalWords)) * duration;
+    const start = currentStart;
+    const end = isLast ? duration : Math.min(duration, start + lineDuration);
+    currentStart = end;
+    return {
+      end: Number(end.toFixed(3)),
+      start: Number(start.toFixed(3)),
+      text: lineText,
+    };
+  });
 }
 
 // Extracts a 16kHz mono WAV audio track from any video or audio file using FFmpeg.
@@ -135,13 +201,25 @@ export async function detectAudioActivity(audioPath: string): Promise<boolean> {
   }
 }
 
+interface GeminiTranscriptionOutput {
+  error?: string;
+  segments: CaptionSegment[];
+  status: TranscriptionStatus;
+  transcript: string;
+}
+
 // Transcribes audio via Gemini Multimodal API if GEMINI_API_KEY is present.
 async function transcribeViaGemini(
   audioPath: string
-): Promise<{ segments: CaptionSegment[]; transcript: string } | null> {
+): Promise<GeminiTranscriptionOutput> {
   const apiKey = workerEnv.GEMINI_API_KEY;
   if (!apiKey) {
-    return null;
+    return {
+      error: "missing GEMINI_API_KEY",
+      segments: [],
+      status: "skipped",
+      transcript: "",
+    };
   }
   const tempMp3Path = `${audioPath}-gemini.mp3`;
   try {
@@ -168,7 +246,11 @@ async function transcribeViaGemini(
     const audioFile = Bun.file(tempMp3Path);
     const audioBytes = await audioFile.arrayBuffer();
     if (audioBytes.byteLength < 500) {
-      return null;
+      return {
+        segments: [],
+        status: "no_audio",
+        transcript: "",
+      };
     }
     // The inline (base64) generateContent path has a hard request ceiling;
     // audio past it must not be sent (the API would reject the whole call).
@@ -182,7 +264,12 @@ async function transcribeViaGemini(
         },
         "audio exceeds inline transcription limit; skipping transcription"
       );
-      return null;
+      return {
+        error: "audio exceeds inline transcription limit",
+        segments: [],
+        status: "skipped",
+        transcript: "",
+      };
     }
     const audioBase64 = Buffer.from(audioBytes).toString("base64");
     const audioDurationSeconds = await probeAudioDuration(audioPath);
@@ -197,12 +284,12 @@ async function transcribeViaGemini(
       audioDurationSeconds === null
         ? ""
         : ` The audio is ${audioDurationSeconds.toFixed(1)} seconds long: every cue must end at or before that.`;
-    const prompt = `Transcribe this audio verbatim. Also provide timestamped subtitle cues in seconds.${durationHint}
+    const prompt = `Transcribe this audio verbatim. Also provide timestamped line-by-line subtitle cues in seconds (each cue should be short, around 3 to 7 words, so it fits comfortably on screen as a subtitle line).${durationHint}
 Return JSON with this schema:
 {
   "transcript": "full speech text transcript here",
   "segments": [
-    { "start": 0.0, "end": 2.5, "text": "spoken words..." }
+    { "start": 0.0, "end": 2.5, "text": "short spoken phrase" }
   ]
 }
 If there is no speech or only background music/silence, return: { "transcript": "", "segments": [] }`;
@@ -259,7 +346,12 @@ If there is no speech or only background music/silence, return: { "transcript": 
         { err, status: response?.status },
         "Gemini transcription failed"
       );
-      return null;
+      return {
+        error: `HTTP ${response?.status ?? "unknown"}: ${err.slice(0, 200)}`,
+        segments: [],
+        status: "failed",
+        transcript: "",
+      };
     }
 
     const data = (await response.json()) as {
@@ -272,7 +364,11 @@ If there is no speech or only background music/silence, return: { "transcript": 
 
     const rawJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawJsonText) {
-      return null;
+      return {
+        segments: [],
+        status: "completed",
+        transcript: "",
+      };
     }
 
     const parsed = JSON.parse(rawJsonText) as {
@@ -282,38 +378,67 @@ If there is no speech or only background music/silence, return: { "transcript": 
 
     const transcript = (parsed.transcript ?? "").trim();
     if (!transcript) {
-      return null;
+      return {
+        segments: [],
+        status: "completed",
+        transcript: "",
+      };
     }
 
-    const segments: CaptionSegment[] = (parsed.segments ?? []).map((s) => ({
+    const rawSegments: CaptionSegment[] = (parsed.segments ?? []).map((s) => ({
       end: Number(s.end) || 0,
       start: Number(s.start) || 0,
       text: s.text || "",
     }));
 
-    // A transcript without usable segment timings still deserves a cue, but
-    // the end must track the real media length - a guessed 10s cue would
-    // expire almost immediately on longer recordings. Without a duration,
-    // keep the plain-text transcript and skip cue generation.
-    if (
-      segments.length === 0 &&
-      audioDurationSeconds !== null &&
-      audioDurationSeconds > 0
-    ) {
-      segments.push({
-        end: audioDurationSeconds,
-        start: 0,
-        text: transcript,
-      });
+    let segments: CaptionSegment[] = [];
+    if (rawSegments.length === 0) {
+      segments = splitTranscriptToCues(transcript, audioDurationSeconds);
+    } else {
+      for (const seg of rawSegments) {
+        const segText = seg.text.trim();
+        if (!segText) {
+          continue;
+        }
+        const words = segText.split(/\s+/).filter(Boolean);
+        if (words.length <= 8) {
+          segments.push(seg);
+        } else {
+          // Break oversized cues down into line-by-line subtitle cues
+          const subDuration = Math.max(0.5, seg.end - seg.start);
+          let curStart = seg.start;
+          for (let i = 0; i < words.length; i += 7) {
+            const chunkWords = words.slice(i, i + 7);
+            const chunkText = chunkWords.join(" ");
+            const chunkDur = (chunkWords.length / words.length) * subDuration;
+            const end = Math.min(seg.end, curStart + chunkDur);
+            segments.push({
+              end: Number(end.toFixed(3)),
+              start: Number(curStart.toFixed(3)),
+              text: chunkText,
+            });
+            curStart = end;
+          }
+        }
+      }
     }
 
-    return { segments, transcript };
+    if (segments.length === 0) {
+      segments = splitTranscriptToCues(transcript, audioDurationSeconds);
+    }
+
+    return { segments, status: "completed", transcript };
   } catch (error) {
     mediaLogger.warn(
       { error: String(error) },
       "Gemini audio transcription error"
     );
-    return null;
+    return {
+      error: String(error),
+      segments: [],
+      status: "failed",
+      transcript: "",
+    };
   } finally {
     await Bun.file(tempMp3Path)
       .delete()
@@ -358,6 +483,7 @@ export function transcribeMediaAudio(
         return {
           captionsKey: null,
           segments: [],
+          status: "skipped",
           transcript: null,
           webvtt: null,
         };
@@ -371,6 +497,7 @@ export function transcribeMediaAudio(
           return {
             captionsKey: null,
             segments: [],
+            status: "no_audio",
             transcript: null,
             webvtt: null,
           };
@@ -386,6 +513,7 @@ export function transcribeMediaAudio(
           return {
             captionsKey: null,
             segments: [],
+            status: "silent",
             transcript: null,
             webvtt: null,
           };
@@ -394,38 +522,68 @@ export function transcribeMediaAudio(
         // 3. Transcribe speech using Gemini Flash Lite API
         const result = await transcribeViaGemini(tempAudioPath);
 
-        if (!result || !result.transcript) {
+        if (result.status === "failed") {
           return {
             captionsKey: null,
+            error: result.error,
             segments: [],
+            status: "failed",
             transcript: null,
             webvtt: null,
           };
         }
 
-        const { segments, transcript } = result;
+        if (result.status === "skipped" || result.status === "no_audio") {
+          return {
+            captionsKey: null,
+            error: result.error,
+            segments: [],
+            status: result.status,
+            transcript: null,
+            webvtt: null,
+          };
+        }
+
+        if (!result.transcript) {
+          return {
+            captionsKey: null,
+            segments: [],
+            status: "completed",
+            transcript: null,
+            webvtt: null,
+          };
+        }
+
+        const { transcript } = result;
+        let { segments } = result;
+        if (segments.length === 0) {
+          segments = splitTranscriptToCues(transcript, null);
+        }
         const webvtt = generateWebVtt(segments);
         const captionsKey = `captions/${mediaId}.vtt`;
 
         // Upload WebVTT subtitles file to S3
-        try {
-          await getS3().file(captionsKey).write(webvtt, {
-            type: "text/vtt; charset=utf-8",
-          });
-          mediaLogger.info(
-            { captionsKey, chars: transcript.length, mediaId },
-            "transcription & captions generated"
-          );
-        } catch (uploadError) {
-          mediaLogger.error(
-            { error: String(uploadError), mediaId },
-            "failed to upload captions to S3"
-          );
+        if (webvtt.includes("-->")) {
+          try {
+            await getS3().file(captionsKey).write(webvtt, {
+              type: "text/vtt; charset=utf-8",
+            });
+            mediaLogger.info(
+              { captionsKey, chars: transcript.length, mediaId },
+              "transcription & captions generated"
+            );
+          } catch (uploadError) {
+            mediaLogger.error(
+              { error: String(uploadError), mediaId },
+              "failed to upload captions to S3"
+            );
+          }
         }
 
         return {
-          captionsKey,
+          captionsKey: webvtt.includes("-->") ? captionsKey : null,
           segments,
+          status: "completed",
           transcript,
           webvtt,
         };
@@ -436,7 +594,9 @@ export function transcribeMediaAudio(
         );
         return {
           captionsKey: null,
+          error: String(error),
           segments: [],
+          status: "failed",
           transcript: null,
           webvtt: null,
         };

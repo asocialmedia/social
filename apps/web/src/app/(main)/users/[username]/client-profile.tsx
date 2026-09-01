@@ -236,13 +236,11 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                 ) : null}
 
                 <TabsContent className="mt-0 pb-12 xl:hidden" value="media">
-                  <div className="hide-native-scrollbar h-72 overflow-y-auto">
-                    {isLoggedIn ? (
-                      <MediaGalleryContent bare userId={userData.id} />
-                    ) : (
-                      <MediaGalleryLocked bare />
-                    )}
-                  </div>
+                  {isLoggedIn ? (
+                    <MediaGalleryContent bare userId={userData.id} />
+                  ) : (
+                    <MediaGalleryLocked bare />
+                  )}
                 </TabsContent>
               </div>
               <FeedScrollbar containerRef={feedScrollRef} />

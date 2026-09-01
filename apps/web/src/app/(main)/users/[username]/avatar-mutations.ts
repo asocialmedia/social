@@ -4,6 +4,7 @@ import type { PrivateUserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { uploadMediaFile } from "@/lib/media-upload-client";
+import type { UploadStage } from "@/lib/media-upload-client";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UpdateProfilePayload {
@@ -13,11 +14,15 @@ interface UpdateProfilePayload {
 
 interface UpdateAvatarPayload {
   file: File;
+  onProgress?: (percent: number) => void;
+  onStage?: (stage: UploadStage) => void;
   userId: string;
 }
 
 interface UpdateBannerPayload {
   file: File;
+  onProgress?: (percent: number) => void;
+  onStage?: (stage: UploadStage) => void;
   userId: string;
 }
 
@@ -98,11 +103,15 @@ export function useUpdateAvatarMutation() {
     UpdateAvatarPayload,
     AvatarMutationContext
   >({
-    mutationFn: async ({ file }: UpdateAvatarPayload) => {
+    mutationFn: async ({ file, onProgress, onStage }: UpdateAvatarPayload) => {
       // Bytes go directly to object storage through the presigned PUT and are
       // quarantined, scanned, and processed by the pipeline before the row
       // reaches READY - this hook then links the finished Media row.
-      const upload = await uploadMediaFile(file, { purpose: "avatar" });
+      const upload = await uploadMediaFile(file, {
+        onProgress,
+        onStage,
+        purpose: "avatar",
+      });
       if (upload.status === "REJECTED") {
         throw new Error(
           upload.rejectedReason === "MALWARE"
@@ -181,7 +190,12 @@ export function useUpdateAvatarMutation() {
         url: secureUrl,
       });
 
+      // Ensure every surface that reads ["user", id] or ["avatar", id] or post authors re-renders with the fresh URL
+      queryClient.invalidateQueries({ queryKey: ["user", userId] });
+      queryClient.invalidateQueries({ queryKey: ["avatar", userId] });
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
+      // bust any stale server-prop that useUserDataQuery syncs from
+      queryClient.invalidateQueries({ queryKey: ["user"] });
     },
   });
 }
@@ -195,12 +209,16 @@ export function useUpdateBannerMutation() {
     UpdateBannerPayload,
     BannerMutationContext
   >({
-    mutationFn: async ({ file }: UpdateBannerPayload) => {
+    mutationFn: async ({ file, onProgress, onStage }: UpdateBannerPayload) => {
       // Bytes go directly to object storage through the presigned PUT and are
       // quarantined, scanned, and processed by the pipeline before the row
       // reaches READY - this hook then links the finished Media row, exactly
       // as for avatars.
-      const upload = await uploadMediaFile(file, { purpose: "banner" });
+      const upload = await uploadMediaFile(file, {
+        onProgress,
+        onStage,
+        purpose: "banner",
+      });
       if (upload.status === "REJECTED") {
         throw new Error(
           upload.rejectedReason === "MALWARE"
@@ -256,10 +274,18 @@ export function useUpdateBannerMutation() {
       const secureUrl = getSecureImageUrl(data.banner.url);
 
       queryClient.setQueryData<PrivateUserData>(["user", userId], (old) =>
-        old ? { ...old, bannerKey: data.banner.key, bannerUrl: secureUrl } : old
+        old
+          ? {
+              ...old,
+              bannerKey: data.banner.key,
+              bannerUrl: secureUrl,
+            }
+          : old
       );
 
+      queryClient.invalidateQueries({ queryKey: ["user", userId] });
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
     },
   });
 }
@@ -313,7 +339,9 @@ export function useDeleteBannerMutation() {
           ? { ...old, bannerKey: null, bannerMediaId: null, bannerUrl: null }
           : old
       );
+      queryClient.invalidateQueries({ queryKey: ["user", userId] });
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
     },
   });
 }
@@ -373,7 +401,10 @@ export function useDeleteAvatarMutation() {
           : old
       );
       queryClient.setQueryData(["avatar", userId], null);
+      queryClient.invalidateQueries({ queryKey: ["user", userId] });
+      queryClient.invalidateQueries({ queryKey: ["avatar", userId] });
       queryClient.invalidateQueries({ queryKey: ["post-feed"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
     },
   });
 }

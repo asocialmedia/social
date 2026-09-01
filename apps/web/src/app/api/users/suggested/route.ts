@@ -318,7 +318,11 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
       },
       posts: {
         orderBy: { createdAt: "desc" },
-        select: { createdAt: true, tags: { select: { name: true } } },
+        select: {
+          createdAt: true,
+          semanticTags: true,
+          tags: { select: { name: true } },
+        },
         take: 5,
         where: { moderated: false },
       },
@@ -347,7 +351,11 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
         },
         posts: {
           orderBy: { createdAt: "desc" },
-          select: { createdAt: true, tags: { select: { name: true } } },
+          select: {
+            createdAt: true,
+            semanticTags: true,
+            tags: { select: { name: true } },
+          },
           take: 5,
           where: { moderated: false },
         },
@@ -370,13 +378,21 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
 
   // Build scoring candidates
   const scoringCandidates: SuggestionCandidate[] = candidates.map((c) => {
-    const candidateTags = new Set(
-      c.posts.flatMap((p) => p.tags.map((t) => t.name))
-    );
+    const candidateTags = [
+      ...new Set([
+        ...c.posts.flatMap((p) => p.tags.map((t) => t.name)),
+        ...c.posts.flatMap((p) => p.semanticTags ?? []),
+      ]),
+    ].filter(Boolean);
+
     let overlap = 0;
+    let matchedTopic: string | undefined;
     for (const t of candidateTags) {
       if (interests.topTags.has(t)) {
         overlap += 1;
+        if (!matchedTopic) {
+          matchedTopic = t;
+        }
       }
     }
     // Also weight by frequency: if candidate shares a high-frequency viewer tag, boost more
@@ -384,6 +400,9 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
       const freq = interests.tagFrequency.get(t) ?? 0;
       if (freq > 2) {
         overlap += 0.5;
+        if (!matchedTopic) {
+          matchedTopic = t;
+        }
       }
     }
     const recentPostAt = c.posts[0]?.createdAt ?? null;
@@ -392,6 +411,7 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
       createdAt: c.createdAt,
       followerCount: c._count.followers,
       id: c.id,
+      matchedTopic,
       mutualCount: c.followers.length,
       mutualFollowers: c.followers.map((f) => f.follower),
       postCount: c._count.posts,

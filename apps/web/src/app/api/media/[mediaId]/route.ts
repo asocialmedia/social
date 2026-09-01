@@ -17,6 +17,12 @@ import {
   shouldForceAttachment,
 } from "@/lib/utils/mime-utils";
 
+function isValidWebVtt(vtt: string): boolean {
+  return /(?:\d{2}:)?\d{2}:\d{2}\.\d{3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(
+    vtt
+  );
+}
+
 // Object-serving fields are queried fresh to ensure pipeline status transitions
 // (UPLOADING -> SCANNING -> READY) and published keys are immediately visible
 // without stale cache misses.
@@ -188,31 +194,52 @@ export async function GET(
               Key: freshMedia.captionsKey,
             })
           );
-          return new NextResponse(captionsObject.Body as ReadableStream, {
-            headers: {
-              "Access-Control-Allow-Origin": "*",
-              // Attached captions are immutable per object version; drafts
-              // (no postId yet) can still be re-processed and must not be
-              // cached by shared caches or browsers.
-              "Cache-Control": ownership.postId
-                ? "public, max-age=31536000, immutable"
-                : "private, no-store",
-              "Content-Type": "text/vtt; charset=utf-8",
-              "X-Content-Type-Options": "nosniff",
-            },
-            status: 200,
-          });
+          const rawVtt = await captionsObject.Body?.transformToString();
+          // If the S3 captions file actually contains valid WebVTT cue timestamps, serve it.
+          // If it was stored as an empty header without cues, fall through to
+          // generate clean line-by-line subtitle cues from the transcript.
+          if (rawVtt && isValidWebVtt(rawVtt)) {
+            return new NextResponse(rawVtt, {
+              headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": ownership.postId
+                  ? "public, max-age=31536000, immutable"
+                  : "private, no-store",
+                "Content-Type": "text/vtt; charset=utf-8",
+                "X-Content-Type-Options": "nosniff",
+              },
+              status: 200,
+            });
+          }
         } catch {
           // Fall through to transcript fallback
         }
       }
       if (freshMedia?.transcript) {
         let vttContent = freshMedia.transcript;
-        if (!vttContent.includes("-->")) {
-          const lines = freshMedia.transcript
+        if (!isValidWebVtt(vttContent)) {
+          const rawChunks = freshMedia.transcript
             .split(/(?<=[.?!])\s+|\r?\n+/)
             .map((l) => l.trim())
             .filter(Boolean);
+
+          const lines: string[] = [];
+          for (const chunk of rawChunks) {
+            const words = chunk.split(/\s+/).filter(Boolean);
+            if (words.length <= 8) {
+              lines.push(words.join(" "));
+            } else {
+              for (let i = 0; i < words.length; i += 7) {
+                lines.push(words.slice(i, i + 7).join(" "));
+              }
+            }
+          }
+          if (lines.length === 0) {
+            const words = freshMedia.transcript.split(/\s+/).filter(Boolean);
+            for (let i = 0; i < words.length; i += 7) {
+              lines.push(words.slice(i, i + 7).join(" "));
+            }
+          }
 
           const maxDurationMs = Math.max(
             0,
@@ -221,13 +248,16 @@ export async function GET(
           const totalSeconds =
             maxDurationMs > 0
               ? Math.max(5, Math.ceil(maxDurationMs / 1000))
-              : Math.max(30, lines.length * 4);
+              : Math.max(10, lines.length * 3);
 
-          const step = Math.max(2, totalSeconds / Math.max(1, lines.length));
+          const step = totalSeconds / Math.max(1, lines.length);
           let currentT = 0;
           const formattedCues = lines.map((line, idx) => {
+            const isLast = idx === lines.length - 1;
             const startSec = currentT;
-            const endSec = Math.min(totalSeconds, currentT + step);
+            const endSec = isLast
+              ? totalSeconds
+              : Math.min(totalSeconds, currentT + step);
             currentT = endSec;
 
             const sH = String(Math.floor(startSec / 3600)).padStart(2, "0");
@@ -246,7 +276,7 @@ export async function GET(
 
             return `${idx + 1}\n${sH}:${sM}:${sS}.000 --> ${eH}:${eM}:${eS}.000\n${line}\n`;
           });
-          vttContent = `WEBVTT\n\n${formattedCues.join("\n")}`;
+          vttContent = `WEBVTT - AsocialMedia Video Captions\n\n${formattedCues.join("\n")}`;
         }
         return new NextResponse(vttContent, {
           headers: {

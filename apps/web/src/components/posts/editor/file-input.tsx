@@ -123,7 +123,8 @@ const FileButton = ({
           <span
             className={cn(
               "max-w-0 overflow-hidden text-xs font-medium whitespace-nowrap transition-all duration-200 ease-in-out",
-              isHovered && "max-w-32"
+              // On mobile, keep icon-only button - disable label expansion even on hover/focus
+              isHovered && "md:max-w-32"
             )}
           >
             {videoOnly ? "Video" : label}

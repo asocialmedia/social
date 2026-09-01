@@ -128,7 +128,6 @@ export default async function Image({
           display: "flex",
           justifyContent: "space-between",
           width: "100%",
-          zIndex: 1,
         }}
       >
         <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
@@ -152,6 +151,7 @@ export default async function Image({
           </div>
           <div
             style={{
+              display: "flex",
               fontSize: 20,
               fontWeight: 700,
               letterSpacing: 2.5,
@@ -185,7 +185,6 @@ export default async function Image({
           alignItems: "center",
           display: "flex",
           gap: 32,
-          zIndex: 1,
         }}
       >
         {avatarUrl ? (
@@ -234,7 +233,7 @@ export default async function Image({
           }}
         >
           <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
-            <div style={{ fontSize: 38, fontWeight: 700 }}>
+            <div style={{ display: "flex", fontSize: 38, fontWeight: 700 }}>
               {user.displayName}
             </div>
             {badges.length > 0 ? (
@@ -245,6 +244,7 @@ export default async function Image({
                       "linear-gradient(180deg, #ff9500 0%, #e65500 100%)",
                     borderRadius: 6,
                     color: "#ffffff",
+                    display: "flex",
                     fontSize: 14,
                     fontWeight: 700,
                     padding: "3px 10px",
@@ -260,6 +260,7 @@ export default async function Image({
                       border: "1px solid rgba(255,255,255,0.16)",
                       borderRadius: 6,
                       color: "#e4e4e7",
+                      display: "flex",
                       fontSize: 14,
                       fontWeight: 700,
                       padding: "3px 8px",
@@ -272,7 +273,14 @@ export default async function Image({
             ) : null}
           </div>
 
-          <div style={{ color: "#a1a1aa", fontSize: 22, fontWeight: 500 }}>
+          <div
+            style={{
+              color: "#a1a1aa",
+              display: "flex",
+              fontSize: 22,
+              fontWeight: 500,
+            }}
+          >
             @{user.username}
           </div>
 
@@ -280,6 +288,7 @@ export default async function Image({
             <div
               style={{
                 color: "#e4e4e7",
+                display: "flex",
                 fontSize: 22,
                 fontWeight: 400,
                 lineHeight: 1.4,
@@ -303,7 +312,6 @@ export default async function Image({
           fontWeight: 500,
           gap: 36,
           paddingTop: 22,
-          zIndex: 1,
         }}
       >
         <div style={{ alignItems: "center", display: "flex", gap: 8 }}>

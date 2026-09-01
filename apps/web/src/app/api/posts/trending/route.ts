@@ -28,6 +28,10 @@ export async function GET(request: Request) {
   // order-by-a-mutating-column pagination had. Anything that went missing
   // from Postgres (deleted/moderated since publish) is filtered here and its
   // slot simply advances the cursor.
+  const where: Prisma.PostWhereInput = excludeModerated
+    ? { isGust: false, moderated: false }
+    : { isGust: false };
+
   let data: PostsPage | null = null;
   try {
     const snapshot = await fetchTrendingSnapshotPage({
@@ -69,14 +73,30 @@ export async function GET(request: Request) {
       // snapshot (or its overfetch slice) may hold more, keep paginating.
       const mightContinue =
         consumedUpTo < snapshot.entries.length - 1 || snapshot.possiblyMore;
-      const nextCursor =
-        lastServed !== undefined && mightContinue
-          ? encodeTrendingCursor({
-              generation: snapshot.generation,
-              postId: lastServed.entry.id,
-              score: lastServed.entry.score,
-            })
-          : null;
+      let nextCursor: string | null = null;
+      if (lastServed !== undefined && mightContinue) {
+        nextCursor = encodeTrendingCursor({
+          generation: snapshot.generation,
+          postId: lastServed.entry.id,
+          score: lastServed.entry.score,
+        });
+      } else if (
+        lastServed !== undefined &&
+        typeof prisma.post.findFirst === "function"
+      ) {
+        // When active snapshot window ends, check if older/expired posts exist
+        // so they appear at the bottom of trending rather than being hidden.
+        const hasMoreExpired = await prisma.post.findFirst({
+          select: { id: true },
+          where: {
+            ...where,
+            id: { notIn: ids },
+          },
+        });
+        if (hasMoreExpired) {
+          nextCursor = `exp.${lastServed.entry.id}`;
+        }
+      }
 
       if (hydrated.length > 0 || nextCursor) {
         data = { nextCursor, posts: hydrated };
@@ -92,14 +112,13 @@ export async function GET(request: Request) {
   if (!data) {
     // No snapshot yet (fresh deploy), expired generation, Redis outage, or an
     // unservable slice: rank directly against the persisted scores.
-    const where: Prisma.PostWhereInput = excludeModerated
-      ? { isGust: false, moderated: false }
-      : { isGust: false };
-
     // A snapshot-scheme cursor (tz1...) is not a post id: when its pinned
     // generation expired mid-scroll, restart live ordering from the top
     // instead of handing Prisma a nonexistent cursor anchor and failing.
-    const liveCursor = isTrendingSnapshotCursor(cursor) ? undefined : cursor;
+    let liveCursor = isTrendingSnapshotCursor(cursor) ? undefined : cursor;
+    if (liveCursor && liveCursor.startsWith("exp.")) {
+      liveCursor = liveCursor.slice(4) || undefined;
+    }
 
     const posts = await prisma.post.findMany({
       cursor: liveCursor ? { id: liveCursor } : undefined,
@@ -107,6 +126,7 @@ export async function GET(request: Request) {
       // trendingScore is maintained by the worker's flush job; the id
       // tiebreak keeps equal scores deterministic.
       orderBy: [{ trendingScore: "desc" }, { id: "desc" }],
+      skip: liveCursor ? 1 : 0,
       take: pageSize + 1,
       where,
     });

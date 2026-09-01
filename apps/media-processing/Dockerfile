@@ -11,6 +11,8 @@ COPY packages/ ./packages/
 COPY apps/media-processing/ ./apps/media-processing/
 RUN bun install
 RUN cd packages/db && bunx prisma generate
+ARG TARGETARCH
+RUN bun run ./apps/media-processing/scripts/ensure-c2pa-binary.ts "$TARGETARCH"
 
 FROM debian:13-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -41,6 +41,7 @@ async function getPostForCard(postId: string) {
     tags: { select: { name: true } },
     user: {
       select: {
+        avatarKey: true,
         displayName: true,
         id: true,
         username: true,
@@ -158,7 +159,7 @@ export default async function Image({
   );
 
   // Avatar and media are served through the app proxy (buckets are private).
-  const avatarUrl = post.user.id
+  const avatarUrl = post.user.avatarKey
     ? toAbsoluteUrl(`/api/users/avatar/${post.user.id}/image`)
     : null;
   const tagText = post.tags
@@ -236,6 +237,7 @@ export default async function Image({
           </div>
           <div
             style={{
+              display: "flex",
               fontSize: 20,
               fontWeight: 700,
               letterSpacing: 2.5,
@@ -260,10 +262,17 @@ export default async function Image({
             />
           ) : null}
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>
+            <div style={{ display: "flex", fontSize: 24, fontWeight: 700 }}>
               {post.user?.displayName || post.user?.username || "Anonymous"}
             </div>
-            <div style={{ color: "#a1a1aa", fontSize: 17, fontWeight: 500 }}>
+            <div
+              style={{
+                color: "#a1a1aa",
+                display: "flex",
+                fontSize: 17,
+                fontWeight: 500,
+              }}
+            >
               @{post.user?.username || "unknown"}
             </div>
           </div>
@@ -283,11 +292,12 @@ export default async function Image({
             lineHeight: 1.35,
           }}
         >
-          <div style={{ overflow: "hidden" }}>{content}</div>
+          <div style={{ display: "flex", overflow: "hidden" }}>{content}</div>
           {tagText ? (
             <div
               style={{
                 color: "#ff9500",
+                display: "flex",
                 fontSize: 22,
                 fontWeight: 500,
                 overflow: "hidden",

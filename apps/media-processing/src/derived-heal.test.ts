@@ -56,6 +56,7 @@ const findManyArgs: FindManyArgs[] = [];
 
 mock.module("@asm/db", () => ({
   Prisma: { DbNull: Symbol.for("test.DbNull") },
+  enqueueMediaAnalyze: (_mediaId: string) => Promise.resolve(),
   enqueueMediaProcess: (mediaId: string) => {
     const g = globalThis as unknown as Record<string, unknown>;
     if (prismaDisabled || g.__qm_prismaDisabled) {

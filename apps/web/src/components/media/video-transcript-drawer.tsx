@@ -37,6 +37,116 @@ function formatSeconds(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function wordsInText(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function splitCueIntoLines(
+  cue: TranscriptCue,
+  maxWordsPerLine = 8
+): TranscriptCue[] {
+  const text = cue.text.trim();
+  if (!text) {
+    return [];
+  }
+
+  // Split by sentence boundaries first
+  const sentences = text
+    .split(/(?<=[.?!])\s+|\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const lines: string[] = [];
+  for (const sentence of sentences) {
+    const words = sentence.split(/\s+/).filter(Boolean);
+    if (words.length <= maxWordsPerLine) {
+      lines.push(words.join(" "));
+    } else {
+      for (let i = 0; i < words.length; i += maxWordsPerLine) {
+        lines.push(words.slice(i, i + maxWordsPerLine).join(" "));
+      }
+    }
+  }
+
+  if (lines.length <= 1) {
+    return [cue];
+  }
+
+  const duration = Math.max(0.5, cue.end - cue.start);
+  const totalWords = wordsInText(text);
+  let currentStart = cue.start;
+
+  return lines.map((lineText) => {
+    const lineWords = wordsInText(lineText);
+    const lineDuration = (lineWords / Math.max(1, totalWords)) * duration;
+    const start = currentStart;
+    const end = Math.min(cue.end, start + lineDuration);
+    currentStart = end;
+    return {
+      end: Number(end.toFixed(3)),
+      start: Number(start.toFixed(3)),
+      text: lineText,
+    };
+  });
+}
+
+export function splitTranscriptIntoTimedLines(
+  rawTranscript: string,
+  totalDurationSec?: number | null,
+  maxWordsPerLine = 7
+): TranscriptCue[] {
+  const text = rawTranscript.trim();
+  if (!text) {
+    return [];
+  }
+
+  const rawChunks = text
+    .split(/(?<=[.?!])\s+|\r?\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const lines: string[] = [];
+  for (const chunk of rawChunks) {
+    const words = chunk.split(/\s+/).filter(Boolean);
+    if (words.length <= maxWordsPerLine) {
+      lines.push(words.join(" "));
+    } else {
+      for (let i = 0; i < words.length; i += maxWordsPerLine) {
+        lines.push(words.slice(i, i + maxWordsPerLine).join(" "));
+      }
+    }
+  }
+
+  if (lines.length === 0) {
+    const words = text.split(/\s+/).filter(Boolean);
+    for (let i = 0; i < words.length; i += maxWordsPerLine) {
+      lines.push(words.slice(i, i + maxWordsPerLine).join(" "));
+    }
+  }
+
+  const totalWords = lines.reduce((acc, l) => acc + wordsInText(l), 0);
+  const defaultDuration = Math.max(3, totalWords * 0.38);
+  const duration =
+    totalDurationSec && totalDurationSec > 0
+      ? totalDurationSec
+      : defaultDuration;
+
+  let currentStart = 0;
+  return lines.map((lineText, idx) => {
+    const lineWords = wordsInText(lineText);
+    const isLast = idx === lines.length - 1;
+    const lineDuration = (lineWords / Math.max(1, totalWords)) * duration;
+    const start = currentStart;
+    const end = isLast ? duration : Math.min(duration, start + lineDuration);
+    currentStart = end;
+    return {
+      end: Number(end.toFixed(3)),
+      start: Number(start.toFixed(3)),
+      text: lineText,
+    };
+  });
+}
+
 export function parseWebVttCues(vttText: string): TranscriptCue[] {
   const cues: TranscriptCue[] = [];
   const lines = vttText.split(/\r?\n/);
@@ -48,31 +158,29 @@ export function parseWebVttCues(vttText: string): TranscriptCue[] {
   const timeRegex =
     /(?:(?<sH>\d{2}):)?(?<sM>\d{2}):(?<sS>\d{2})\.(?<sMs>\d{3})\s*-->\s*(?:(?<eH>\d{2}):)?(?<eM>\d{2}):(?<eS>\d{2})\.(?<eMs>\d{3})/;
 
+  const flushCue = () => {
+    if (hasActiveCue && textBuffer.length > 0) {
+      const subCues = splitCueIntoLines({
+        end: currentEnd,
+        start: currentStart,
+        text: textBuffer.join(" "),
+      });
+      cues.push(...subCues);
+      textBuffer = [];
+      hasActiveCue = false;
+    }
+  };
+
   for (const rawLine of lines) {
     const line = rawLine ? rawLine.trim() : "";
     if (!line) {
-      if (hasActiveCue && textBuffer.length > 0) {
-        cues.push({
-          end: currentEnd,
-          start: currentStart,
-          text: textBuffer.join(" "),
-        });
-        textBuffer = [];
-        hasActiveCue = false;
-      }
+      flushCue();
       continue;
     }
 
     const match = line.match(timeRegex);
     if (match) {
-      if (hasActiveCue && textBuffer.length > 0) {
-        cues.push({
-          end: currentEnd,
-          start: currentStart,
-          text: textBuffer.join(" "),
-        });
-        textBuffer = [];
-      }
+      flushCue();
       const groups = match.groups || {};
       const startH = Number(groups.sH || 0);
       const startM = Number(groups.sM || 0);
@@ -95,13 +203,7 @@ export function parseWebVttCues(vttText: string): TranscriptCue[] {
     }
   }
 
-  if (hasActiveCue && textBuffer.length > 0) {
-    cues.push({
-      end: currentEnd,
-      start: currentStart,
-      text: textBuffer.join(" "),
-    });
-  }
+  flushCue();
 
   return cues;
 }

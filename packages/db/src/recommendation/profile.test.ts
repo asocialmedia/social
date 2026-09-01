@@ -106,4 +106,119 @@ describe("buildUserProfile", () => {
     expect(profile.authorWeights).toEqual({});
     expect(profile.tagWeights).toEqual({});
   });
+
+  test("handles negative signals (downvote/hide) separately from positive signals", () => {
+    const profile = buildUserProfile([
+      signal({
+        authorId: "good-author",
+        kind: "bookmark",
+        tags: ["typescript"],
+      }),
+      signal({ authorId: "bad-author", kind: "downvote", tags: ["spam"] }),
+      signal({ authorId: "annoying-author", kind: "hide", tags: ["crypto"] }),
+    ]);
+
+    expect(profile.authorWeights["good-author"]).toBe(1);
+    const bad = profile.negativeAuthorWeights?.["bad-author"];
+    const annoying = profile.negativeAuthorWeights?.["annoying-author"];
+    const spam = profile.negativeTagWeights?.["spam"];
+    const crypto = profile.negativeTagWeights?.["crypto"];
+    for (const v of [bad, annoying, spam, crypto]) {
+      expect(typeof v).toBe("number");
+      expect(v).toBeGreaterThan(0);
+      expect(v).toBeLessThan(0.9);
+    }
+    // hide produces stronger penalty than downvote but neither reaches zeroing threshold
+    expect(annoying).toBeGreaterThan(bad ?? 0);
+    expect(crypto).toBeGreaterThan(spam ?? 0);
+  });
+
+  test("detects topic and entity affinities dynamically from engagement signals", () => {
+    const profile = buildUserProfile([
+      signal({ kind: "bookmark", tags: ["coding", "linux", "homelab"] }),
+      signal({ kind: "comment", tags: ["anime", "manga"] }),
+      signal({ kind: "upvote", tags: ["meme", "funny"] }),
+    ]);
+
+    expect(profile.topicAffinities?.linux).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.anime).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.meme).toBeGreaterThan(0);
+    expect(profile.summary?.topTags.length).toBeGreaterThan(0);
+  });
+
+  test("tracks format preferences for video, image, audio, and text", () => {
+    const profile = buildUserProfile([
+      signal({ hasVideo: true, kind: "bookmark", tags: ["clips"] }),
+      signal({ hasVideo: true, kind: "upvote", tags: ["clips"] }),
+      signal({ hasImage: true, kind: "bookmark", tags: ["art"] }),
+    ]);
+
+    expect(profile.formatAffinities?.video).toBeGreaterThan(
+      profile.formatAffinities?.image ?? 0
+    );
+    expect(profile.summary?.preferredFormat).toBe("video");
+  });
+
+  test("user's own posts and gusts shape topics, tags, and format preference without self-authoring", () => {
+    const profile = buildUserProfile([
+      signal({
+        authorId: "me",
+        hasVideo: true,
+        kind: "ownPost",
+        tags: ["homelab", "linux", "proxmox"],
+      }),
+      signal({
+        authorId: "me",
+        hasImage: true,
+        kind: "ownGust",
+        tags: ["anime", "cosplay"],
+      }),
+    ]);
+
+    expect(profile.authorWeights["me"]).toBeUndefined();
+    expect(profile.tagWeights["homelab"]).toBeGreaterThan(0);
+    expect(profile.tagWeights["anime"]).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.homelab).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.anime).toBeGreaterThan(0);
+    expect(profile.formatAffinities?.video).toBeGreaterThan(0);
+  });
+
+  test("incorporates user search history signals into persona", () => {
+    const profile = buildUserProfile([
+      signal({ kind: "search", tags: ["cyberpunk", "anime"] }),
+    ]);
+
+    expect(profile.tagWeights["cyberpunk"]).toBeGreaterThan(0);
+    expect(profile.tagWeights["anime"]).toBeGreaterThan(0);
+    expect(profile.topicAffinities?.cyberpunk).toBeGreaterThan(0);
+  });
+
+  test("automatically evolves taste over time with recency decay (nature -> anime -> tech)", () => {
+    const now = new Date("2026-09-01T12:00:00Z");
+    const threeWeeksAgo = new Date(now.getTime() - 21 * 24 * 3600 * 1000);
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    const today = new Date(now.getTime() - 2 * 3600 * 1000);
+
+    const profile = buildUserProfile(
+      [
+        signal({
+          createdAt: threeWeeksAgo,
+          kind: "bookmark",
+          tags: ["nature"],
+        }),
+        signal({ createdAt: oneWeekAgo, kind: "bookmark", tags: ["anime"] }),
+        signal({ createdAt: today, kind: "bookmark", tags: ["tech"] }),
+      ],
+      { now }
+    );
+
+    // Today's tech has highest weight, 1-week-old anime is medium, 3-week-old nature has decayed to lowest
+    expect(profile.tagWeights["tech"]).toBeGreaterThan(
+      profile.tagWeights["anime"]
+    );
+    expect(profile.tagWeights["anime"]).toBeGreaterThan(
+      profile.tagWeights["nature"]
+    );
+    expect(profile.summary?.dominantTopic).toBe("tech");
+  });
 });

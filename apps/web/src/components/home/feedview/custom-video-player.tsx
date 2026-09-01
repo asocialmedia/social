@@ -24,8 +24,10 @@ import { AnimatePresence, motion } from "motion/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import Spinner3D from "@/components/layouts/spinner-3d";
 import {
   parseWebVttCues,
+  splitTranscriptIntoTimedLines,
   VideoTranscriptDrawer,
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
@@ -204,11 +206,6 @@ export const CustomVideoPlayer = ({
     captions[0]?.src || (mediaId ? `/api/media/${mediaId}?captions=1` : null);
 
   useEffect(() => {
-    if (!captionUrl) {
-      // oxlint-disable-next-line react/set-state-in-effect
-      setCues([]);
-      return;
-    }
     // Drop stale cues immediately so the previous media's captions never
     // render while the new request is in flight or after it fails.
     // oxlint-disable-next-line react/set-state-in-effect
@@ -216,22 +213,38 @@ export const CustomVideoPlayer = ({
     let cancelled = false;
     async function loadCues() {
       try {
-        const res = await fetch(captionUrl as string);
-        if (res.ok) {
-          const vtt = await res.text();
-          if (!cancelled && vtt) {
-            setCues(parseWebVttCues(vtt));
+        let loadedCues: TranscriptCue[] = [];
+        if (captionUrl) {
+          const res = await fetch(captionUrl);
+          if (res.ok) {
+            const vtt = await res.text();
+            if (vtt) {
+              loadedCues = parseWebVttCues(vtt);
+            }
           }
         }
+        if (loadedCues.length === 0 && rawTranscript) {
+          loadedCues = splitTranscriptIntoTimedLines(
+            rawTranscript,
+            duration || null
+          );
+        }
+        if (!cancelled) {
+          setCues(loadedCues);
+        }
       } catch {
-        // Ignore fetch errors
+        if (!cancelled && rawTranscript) {
+          setCues(
+            splitTranscriptIntoTimedLines(rawTranscript, duration || null)
+          );
+        }
       }
     }
     void loadCues();
     return () => {
       cancelled = true;
     };
-  }, [captionUrl]);
+  }, [captionUrl, rawTranscript, duration]);
 
   // Keep native browser track hidden so unstyled cues don't collide with controls
   useEffect(() => {
@@ -259,6 +272,8 @@ export const CustomVideoPlayer = ({
   }, []);
 
   const hlsInstanceRef = useRef<InstanceType<typeof Hls> | null>(null);
+  const [hlsReady, setHlsReady] = useState(false);
+  const hlsPendingRef = useRef(false);
 
   useEffect(() => {
     const handleStopPlayback = () => {
@@ -296,6 +311,35 @@ export const CustomVideoPlayer = ({
     };
   }, []);
 
+  const attemptPlay = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    video.muted = useVideoMuteStore.getState().isMuted;
+    setIsMuted(video.muted);
+    try {
+      await video.play();
+      setIsPlaying(true);
+    } catch {
+      // If unmuted autoplay was rejected by browser policy (e.g. during page
+      // navigation / View Transition), fall back to muted autoplay so playback
+      // begins reliably rather than getting stuck in an infinite loading state.
+      if (video.muted) {
+        setIsPlaying(false);
+      } else {
+        try {
+          video.muted = true;
+          setIsMuted(true);
+          await video.play();
+          setIsPlaying(true);
+        } catch {
+          setIsPlaying(false);
+        }
+      }
+    }
+  }, []);
+
   // Prefer an adaptive HLS stream when the pipeline generated one.
   // Safari plays HLS natively; everywhere else a 40 kB hls.js bundle
   // covers it without touching the progressive MP4 fallback.
@@ -308,12 +352,25 @@ export const CustomVideoPlayer = ({
       if (video.src !== hlsSrc) {
         video.src = hlsSrc;
       }
+      hlsPendingRef.current = false;
+      setHlsReady(true);
       return;
     }
     let cancelled = false;
+    hlsPendingRef.current = true;
     void (async () => {
       const HlsCtor = await getHlsConstructor();
       if (cancelled || !video || !HlsCtor || !HlsCtor.isSupported()) {
+        hlsPendingRef.current = false;
+        // HLS unavailable: ensure progressive src is used
+        if (
+          !cancelled &&
+          video &&
+          !HlsCtor?.isSupported() &&
+          video.src !== src
+        ) {
+          video.src = src;
+        }
         return;
       }
       hlsInstanceRef.current?.destroy();
@@ -354,14 +411,15 @@ export const CustomVideoPlayer = ({
             hls.destroy();
             hlsInstanceRef.current = null;
             video.src = fallback;
-            void (async () => {
-              try {
-                await video.play();
-              } catch {
-                // Autoplay may be blocked; the poster frame is already up.
-              }
-            })();
+            void attemptPlay();
           }
+        }
+      });
+      hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {
+        hlsPendingRef.current = false;
+        setHlsReady(true);
+        if (autoPlay) {
+          void attemptPlay();
         }
       });
       hlsInstanceRef.current = hls;
@@ -374,7 +432,7 @@ export const CustomVideoPlayer = ({
       hlsInstanceRef.current?.destroy();
       hlsInstanceRef.current = null;
     };
-  }, [hlsSrc]);
+  }, [hlsSrc, autoPlay, attemptPlay, src]);
 
   // Autoplay when the viewer opens (e.g. from the post detail page). Browsers
   // block unmuted autoplay until the user interacts, so start muted (unless
@@ -385,23 +443,16 @@ export const CustomVideoPlayer = ({
     if (!autoPlay) {
       return;
     }
-    const video = videoRef.current;
-    if (!video) {
+    // If HLS is configured and still pending, defer autoplay until MANIFEST_PARSED
+    if (
+      hlsSrc &&
+      (hlsPendingRef.current || !hlsReady) &&
+      !hlsInstanceRef.current
+    ) {
       return;
     }
-    video.muted = useVideoMuteStore.getState().isMuted;
-    setIsMuted(video.muted);
-    const attemptPlay = async () => {
-      try {
-        await video.play();
-        setIsPlaying(true);
-      } catch {
-        setIsPlaying(false);
-      }
-    };
-
     void attemptPlay();
-  }, [autoPlay]);
+  }, [autoPlay, hlsSrc, hlsReady, attemptPlay]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -615,15 +666,31 @@ export const CustomVideoPlayer = ({
       return;
     }
 
-    const handleWaiting = () => setIsBuffering(true);
-    const handlePlaying = () => setIsBuffering(false);
+    const handleWaiting = () => {
+      if (!video.paused) {
+        setIsBuffering(true);
+      }
+    };
+    const handleClearBuffering = () => setIsBuffering(false);
 
     video.addEventListener("waiting", handleWaiting);
-    video.addEventListener("playing", handlePlaying);
+    video.addEventListener("playing", handleClearBuffering);
+    video.addEventListener("canplay", handleClearBuffering);
+    video.addEventListener("canplaythrough", handleClearBuffering);
+    video.addEventListener("loadeddata", handleClearBuffering);
+    video.addEventListener("pause", handleClearBuffering);
+    video.addEventListener("seeked", handleClearBuffering);
+    video.addEventListener("error", handleClearBuffering);
 
     return () => {
       video.removeEventListener("waiting", handleWaiting);
-      video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("playing", handleClearBuffering);
+      video.removeEventListener("canplay", handleClearBuffering);
+      video.removeEventListener("canplaythrough", handleClearBuffering);
+      video.removeEventListener("loadeddata", handleClearBuffering);
+      video.removeEventListener("pause", handleClearBuffering);
+      video.removeEventListener("seeked", handleClearBuffering);
+      video.removeEventListener("error", handleClearBuffering);
     };
   }, []);
 
@@ -757,6 +824,7 @@ export const CustomVideoPlayer = ({
         data-fallback-src={src}
         loop
         muted={isMuted}
+        onCanPlay={onLoadedData}
         onClick={handleVideoSurfaceClick}
         onDurationChange={handleDurationChange}
         onError={onError}
@@ -767,11 +835,14 @@ export const CustomVideoPlayer = ({
         onTimeUpdate={handleTimeUpdate}
         playsInline
         poster={poster}
-        preload="metadata"
+        preload={autoPlay ? "auto" : "metadata"}
         ref={(element) => {
           videoRef.current = element;
           if (element) {
             activeVideoRef.current = element;
+            if (element.readyState >= 2) {
+              onLoadedData();
+            }
           }
           if (externalVideoRef) {
             externalVideoRef.current = element;
@@ -837,12 +908,12 @@ export const CustomVideoPlayer = ({
         {isBuffering ? (
           <motion.div
             animate={{ opacity: 1 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+            className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-xs"
             exit={{ opacity: 0 }}
             initial={{ opacity: 0 }}
           >
-            <div className="rounded-full bg-black/50 p-4 backdrop-blur-sm">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+            <div className="flex items-center justify-center rounded-2xl bg-black/60 p-4 shadow-xl backdrop-blur-md">
+              <Spinner3D className="size-10" />
             </div>
           </motion.div>
         ) : null}

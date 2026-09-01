@@ -272,19 +272,16 @@ async function PostContent({ params }: PageProps) {
           </nav>
         </div>
       ) : null}
-      {/* Tag-based internal links for fresh tags on this post */}
+      {/* Tag-based internal links for SEO - hidden visually (was visible Related tags block) */}
       {post.tags.length > 0 ? (
-        <nav
-          aria-label="Related tags"
-          className="mx-auto w-full max-w-5xl px-4 py-3"
-        >
-          <p className="text-muted-foreground text-xs">Related tags: </p>
-          <ul className="flex flex-wrap gap-2">
+        <nav aria-label="Related tags" className="sr-only">
+          <p>Related tags: </p>
+          <ul>
             {post.tags.map((tag) => (
               <li key={tag.name}>
                 <a
-                  className="text-primary text-xs hover:underline"
                   href={`/hashtag/${encodeURIComponent(tag.name)}`}
+                  tabIndex={-1}
                 >
                   #{tag.name}
                 </a>

@@ -10,6 +10,7 @@
 // All stages degrade independently with try/catch and timeout guards so a failure
 // in any one stage never cascades or impacts published post availability.
 
+import type { Prisma } from "@asm/db";
 import { prisma } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
 
@@ -29,6 +30,7 @@ interface AnalysisSource {
   avLocalPath: string | null;
   isRaster: boolean;
   rasterLocalPath: string | null;
+  techMetadata: unknown;
   type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 }
 
@@ -45,6 +47,7 @@ async function resolveAnalysisSource(
       originalKey: true,
       publishedKey: true,
       status: true,
+      techMetadata: true,
       type: true,
     },
     where: { id: mediaId },
@@ -107,6 +110,7 @@ async function resolveAnalysisSource(
     avLocalPath,
     isRaster: Boolean(preferredRaster) || media.type === "IMAGE",
     rasterLocalPath,
+    techMetadata: media.techMetadata,
     type: media.type,
   };
 }
@@ -166,13 +170,16 @@ export function processMediaAnalyze(
 
         // Stage 4: Multi-label concept & topic classification
         let semanticTags: string[] = [];
+        let semantics: Record<string, unknown> | null = null;
         try {
-          semanticTags = await classifyMediaConcepts({
+          const classification = await classifyMediaConcepts({
             imagePath: rasterLocalPath,
             mediaId: jobData.mediaId,
             ocrText: ocr?.text,
             transcript: transcription?.transcript,
           });
+          semanticTags = classification.tags;
+          semantics = classification.semantics ?? null;
         } catch (error) {
           mediaLogger.warn(
             { error: String(error) },
@@ -180,7 +187,62 @@ export function processMediaAnalyze(
           );
         }
 
-        // Stage 5: Update Media database row
+        // Stage 5: Update Media database row — re-read fresh techMetadata to avoid clobbering concurrent updates
+        const freshMediaForTech = await prisma.media.findUnique({
+          select: { techMetadata: true },
+          where: { id: jobData.mediaId },
+        });
+        let existingTech: Record<string, unknown>;
+        if (
+          freshMediaForTech?.techMetadata &&
+          typeof freshMediaForTech.techMetadata === "object"
+        ) {
+          existingTech = structuredClone(
+            freshMediaForTech.techMetadata as Record<string, unknown>
+          );
+        } else if (
+          source.techMetadata &&
+          typeof source.techMetadata === "object"
+        ) {
+          existingTech = structuredClone(
+            source.techMetadata as Record<string, unknown>
+          );
+        } else {
+          existingTech = {};
+        }
+        const prevTranscription =
+          existingTech.transcription &&
+          typeof existingTech.transcription === "object"
+            ? (existingTech.transcription as Record<string, unknown>)
+            : {};
+        const prevAttempts =
+          typeof prevTranscription.attempts === "number"
+            ? prevTranscription.attempts
+            : 0;
+
+        const isAudioVideo = source.type === "AUDIO" || source.type === "VIDEO";
+        let transcriptionMeta: Record<string, unknown> | null = null;
+        if (transcription) {
+          transcriptionMeta = {
+            attemptedAt: new Date().toISOString(),
+            attempts: prevAttempts + 1,
+            error: transcription.error ?? null,
+            status: transcription.status,
+          };
+        } else if (isAudioVideo) {
+          transcriptionMeta = {
+            attemptedAt: new Date().toISOString(),
+            attempts: prevAttempts + 1,
+            error: "transcription failed or unavailable",
+            status: "failed" as const,
+          };
+        }
+
+        const updatedTechMetadata = {
+          ...existingTech,
+          ...(transcriptionMeta ? { transcription: transcriptionMeta } : {}),
+        };
+
         await prisma.media.update({
           data: {
             ...(transcription?.captionsKey
@@ -189,6 +251,11 @@ export function processMediaAnalyze(
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
             ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
             ...(semanticTags.length > 0 ? { semanticTags } : {}),
+            ...(semantics
+              ? { semantics: structuredClone(semantics) as object }
+              : {}),
+            techMetadata:
+              updatedTechMetadata as unknown as Prisma.InputJsonValue,
             ...(transcription?.transcript
               ? { transcript: transcription.transcript }
               : {}),

@@ -46,14 +46,43 @@ import {
 import { LoadingButton } from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { useToast } from "@/lib/gooey-toast";
+import type { UploadStage } from "@/lib/media-upload-client";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import CropImageDialog from "./crop-image-dialog";
 import GifCenteringDialog from "./gif-centering-dialog";
+import Spinner3D from "./spinner-3d";
 
 const ORANGE_GRADIENT_CLASS =
   "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+function pipelineStageLabel(
+  stage: UploadStage | null,
+  progress: number,
+  kind: "avatar" | "banner"
+): string {
+  if (!stage) {
+    return "Processing…";
+  }
+  switch (stage) {
+    case "uploading": {
+      return `Uploading ${progress}%`;
+    }
+    case "queued": {
+      return "Queued for processing";
+    }
+    case "scanning": {
+      return "Scanning for threats…";
+    }
+    case "processing": {
+      return kind === "banner" ? "Processing header…" : "Processing avatar…";
+    }
+    default: {
+      return "Processing…";
+    }
+  }
+}
 
 interface EditProfileDialogProps {
   onOpenChange: (open: boolean) => void;
@@ -68,6 +97,10 @@ const regex = /\s+/;
 interface AvatarPreviewRestore {
   avatar: { key: string | null; url: string } | undefined;
   avatarUrl: string | null;
+}
+
+interface BannerPreviewRestore {
+  bannerUrl: string | null;
 }
 
 type SocialFieldName =
@@ -137,6 +170,11 @@ export default function EditProfileDialog({
   const [bannerGif, setBannerGif] = useState<File | null>(null);
   const [bannerRemoved, setBannerRemoved] = useState(false);
   const [avatarDeleted, setAvatarDeleted] = useState(false);
+  // Pipeline feedback for 3D spinner: real stages from uploadMediaFile
+  const [avatarStage, setAvatarStage] = useState<UploadStage | null>(null);
+  const [avatarProgress, setAvatarProgress] = useState(0);
+  const [bannerStage, setBannerStage] = useState<UploadStage | null>(null);
+  const [bannerProgress, setBannerProgress] = useState(0);
   // Mirrors the last seen open/user pair so closing the dialog (or fresh
   // profile data arriving behind it) clears transient editor state during
   // render instead of from a cascading effect.
@@ -169,6 +207,10 @@ export default function EditProfileDialog({
       setBannerGif(null);
       setBannerRemoved(false);
       setAvatarDeleted(false);
+      setAvatarStage(null);
+      setAvatarProgress(0);
+      setBannerStage(null);
+      setBannerProgress(0);
     }
   }
 
@@ -243,6 +285,40 @@ export default function EditProfileDialog({
     }
   }, [croppedAvatarUrl, queryClient, user.avatarUrl, user.id]);
 
+  // Banner pick-time optimistic preview: same instant feedback as avatar,
+  // so header updates everywhere before Save, and cancel restores.
+  const bannerPreviewRestoreRef = useRef<BannerPreviewRestore | null>(null);
+  const bannerPreviewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (croppedBannerUrl) {
+      if (bannerPreviewRestoreRef.current === null) {
+        const cachedUser = queryClient.getQueryData<{
+          bannerUrl?: string | null;
+        }>(["user", user.id]);
+        bannerPreviewRestoreRef.current = {
+          bannerUrl: cachedUser?.bannerUrl ?? user.bannerUrl ?? null,
+        };
+      }
+      bannerPreviewUrlRef.current = croppedBannerUrl;
+      queryClient.setQueryData<PrivateUserData>(["user", user.id], (old) =>
+        old ? { ...old, bannerUrl: croppedBannerUrl } : old
+      );
+    } else if (bannerPreviewRestoreRef.current !== null) {
+      const cachedUser = queryClient.getQueryData<{
+        bannerUrl?: string | null;
+      }>(["user", user.id]);
+      if (cachedUser?.bannerUrl === bannerPreviewUrlRef.current) {
+        const restore = bannerPreviewRestoreRef.current;
+        queryClient.setQueryData<PrivateUserData>(["user", user.id], (old) =>
+          old ? { ...old, bannerUrl: restore.bannerUrl } : old
+        );
+      }
+      bannerPreviewRestoreRef.current = null;
+      bannerPreviewUrlRef.current = null;
+    }
+  }, [croppedBannerUrl, queryClient, user.bannerUrl, user.id]);
+
   // The form lives in react-hook-form's own store shared with the field
   // components below, so its reset must stay imperative (post-render) rather
   // than running during this component's render.
@@ -298,10 +374,22 @@ export default function EditProfileDialog({
       : gifToCenter;
 
     if (file) {
-      await avatarMutation.mutateAsync({
-        file,
-        userId: user.id,
-      });
+      setAvatarStage("uploading");
+      setAvatarProgress(0);
+      try {
+        await avatarMutation.mutateAsync({
+          file,
+          onProgress: setAvatarProgress,
+          onStage: setAvatarStage,
+          userId: user.id,
+        });
+        setAvatarStage(null);
+        setAvatarProgress(0);
+      } catch (error) {
+        setAvatarStage(null);
+        setAvatarProgress(0);
+        throw error;
+      }
     }
   };
 
@@ -309,20 +397,44 @@ export default function EditProfileDialog({
     // GIF banners skip cropping (resizing flattens animation); the centering
     // dialog normally uploads them, but a pending gif here still uploads.
     if (bannerGif) {
-      await bannerMutation.mutateAsync({
-        file: bannerGif,
-        userId: user.id,
-      });
+      setBannerStage("uploading");
+      setBannerProgress(0);
+      try {
+        await bannerMutation.mutateAsync({
+          file: bannerGif,
+          onProgress: setBannerProgress,
+          onStage: setBannerStage,
+          userId: user.id,
+        });
+        setBannerStage(null);
+        setBannerProgress(0);
+      } catch (error) {
+        setBannerStage(null);
+        setBannerProgress(0);
+        throw error;
+      }
       return;
     }
     if (croppedBanner) {
       const file = new File([croppedBanner], `banner_${user.id}.webp`, {
         type: "image/webp",
       });
-      await bannerMutation.mutateAsync({
-        file,
-        userId: user.id,
-      });
+      setBannerStage("uploading");
+      setBannerProgress(0);
+      try {
+        await bannerMutation.mutateAsync({
+          file,
+          onProgress: setBannerProgress,
+          onStage: setBannerStage,
+          userId: user.id,
+        });
+        setBannerStage(null);
+        setBannerProgress(0);
+      } catch (error) {
+        setBannerStage(null);
+        setBannerProgress(0);
+        throw error;
+      }
       return;
     }
     if (bannerRemoved && (user.bannerUrl || user.bannerKey)) {
@@ -455,13 +567,13 @@ export default function EditProfileDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="apple-panel w-[calc(100%-1.5rem)] max-w-120 gap-4 overflow-hidden rounded-2xl border-0 p-0 [&>button:last-child]:hidden"
+        className="apple-panel flex max-h-[75dvh] w-[calc(100%-1.5rem)] max-w-120 flex-col gap-4 overflow-hidden rounded-2xl border-0 p-0 md:max-h-[85vh] [&>button:last-child]:hidden"
         onClick={handleContentClick}
       >
         {/* Flush square avatar fills the header's left edge; title and
             description sit to its right, with a 3D close button centered
             against the header row. */}
-        <div className="border-border/60 flex items-center border-b py-2 pr-3 pl-3">
+        <div className="border-border/60 flex shrink-0 items-center border-b py-2 pr-3 pl-3">
           <div className="relative size-10 shrink-0">
             <Image
               alt=""
@@ -487,7 +599,7 @@ export default function EditProfileDialog({
           </DialogClose>
         </div>
 
-        <div className="max-h-[85vh] overflow-y-auto px-5 pb-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="space-y-1.5">
             <Label>Header image</Label>
             <BannerInput
@@ -497,6 +609,8 @@ export default function EditProfileDialog({
               onBannerCropped={setCroppedBanner}
               onGifSelected={setBannerGif}
               onRemove={handleRemoveBanner}
+              progress={bannerProgress}
+              stage={bannerStage}
               src={
                 croppedBannerUrl ??
                 (bannerRemoved ? "" : (user.bannerUrl ?? ""))
@@ -515,6 +629,8 @@ export default function EditProfileDialog({
               onDelete={handleDeleteAvatar}
               onGifSelected={setGifToCenter}
               onImageCropped={setCroppedAvatar}
+              progress={avatarProgress}
+              stage={avatarStage}
               src={
                 avatarDeleted
                   ? avatarPlaceholder.src
@@ -624,6 +740,8 @@ interface BannerInputProps {
   onBannerCropped: (blob: Blob | null) => void;
   onGifSelected: (file: File | null) => void;
   onRemove: () => void;
+  progress?: number;
+  stage?: UploadStage | null;
   src: string;
   user: PrivateUserData;
 }
@@ -636,6 +754,8 @@ const BannerInput = ({
   onGifSelected,
   onRemove,
   isUploading,
+  progress = 0,
+  stage = null,
   user,
 }: BannerInputProps) => {
   const { toast } = useToast();
@@ -787,13 +907,23 @@ const BannerInput = ({
               Add a header image
             </div>
           )}
-          <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            {isUploading ? (
-              <span className="size-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            ) : (
+          {isUploading ? (
+            <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 px-3 text-center backdrop-blur-[2px]">
+              <Spinner3D className="size-10" />
+              <span className="max-w-full truncate text-xs font-medium text-white">
+                {pipelineStageLabel(stage, progress, "banner")}
+              </span>
+              {stage === "uploading" ? (
+                <span className="text-[11px] font-medium text-white/80 tabular-nums">
+                  {progress}%
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
               <Camera className="h-6 w-6 text-white" />
-            )}
-          </span>
+            </span>
+          )}
         </button>
 
         {/* Trash sits on the image itself instead of a separate full-width
@@ -840,6 +970,8 @@ interface AvatarInputProps {
   onDelete: () => void;
   onGifSelected: (file: File | null) => void;
   onImageCropped: (blob: Blob | null) => void;
+  progress?: number;
+  stage?: UploadStage | null;
   src: string | StaticImageData;
   user: PrivateUserData;
 }
@@ -853,6 +985,8 @@ const AvatarInput = ({
   isDeleted,
   onDelete,
   isUploading,
+  progress = 0,
+  stage = null,
   user,
 }: AvatarInputProps) => {
   const { toast } = useToast();
@@ -1001,13 +1135,23 @@ const AvatarInput = ({
               unoptimized
               width={150}
             />
-            <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 text-white ring-2 ring-white/50 transition-colors duration-200 group-hover:bg-black/30">
-              {isUploading ? (
-                <span className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : (
+            {isUploading ? (
+              <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-black/55 px-2 text-center backdrop-blur-[2px]">
+                <Spinner3D className="size-8" />
+                <span className="max-w-full truncate px-1 text-[11px] leading-none font-medium text-white">
+                  {pipelineStageLabel(stage, progress, "avatar")}
+                </span>
+                {stage === "uploading" ? (
+                  <span className="text-[10px] font-medium text-white/80 tabular-nums">
+                    {progress}%
+                  </span>
+                ) : null}
+              </span>
+            ) : (
+              <span className="absolute inset-0 m-auto flex size-10 items-center justify-center rounded-full bg-black/40 text-white ring-2 ring-white/50 transition-colors duration-200 group-hover:bg-black/30">
                 <Camera size={20} />
-              )}
-            </span>
+              </span>
+            )}
           </button>
           {canDelete && !isDeleted ? (
             <button

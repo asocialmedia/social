@@ -1,3 +1,5 @@
+import { EMBEDDING_DIMENSION } from "@asm/db";
+
 // Shared @asm/db mock surface for the posts/editor test suites. Both suites
 // mock the barrel wholesale, so every export the modules under test (or any
 // sibling suite batched into the same bun test run) read must exist in one
@@ -28,9 +30,12 @@ export const asmDbMockBase = {
   SYSTEM_MODERATION_USER_ID: "sys-zeph",
   applyModerationPenalty: () => Promise.resolve(),
   cancelMediaCleanup: () => Promise.resolve(),
+  enqueueMediaAnalyze: () => Promise.resolve(),
   enqueueNotificationCreated: () => Promise.resolve(),
   enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
+  generateLocalEmbedding: (): number[] =>
+    Array.from({ length: EMBEDDING_DIMENSION ?? 384 }).fill(0) as number[],
   getPostDataInclude: () => ({ user: true }),
   grantBadge: () => Promise.resolve(true),
   invalidateAuraSignals: () => Promise.resolve(),
