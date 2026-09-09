@@ -45,6 +45,7 @@ interface AttachmentPreviewProps {
     altText?: string;
     error?: string;
     file?: File;
+    isProcessing?: boolean;
     isUploading: boolean;
     mediaId?: string;
     mediaUrl?: string;
@@ -81,6 +82,7 @@ const AttachmentPreviewInner = ({
     altText,
     error,
     file,
+    isProcessing,
     isUploading,
     mediaId,
     mediaUrl,
@@ -707,6 +709,22 @@ const AttachmentPreviewInner = ({
           type="button"
         >
           <X className="size-4" />
+        </button>
+      </div>
+    );
+  } else if (isProcessing) {
+    actionBar = (
+      <div className="bg-muted/70 mt-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs">
+        <span className="text-muted-foreground truncate">
+          Processing in background · you can publish now
+        </span>
+        <button
+          aria-label="Remove attachment"
+          className="icon-btn-3d flex h-7 w-7 shrink-0 items-center justify-center rounded-full p-0"
+          onClick={onRemoveClick}
+          type="button"
+        >
+          <X className="size-3.5" />
         </button>
       </div>
     );

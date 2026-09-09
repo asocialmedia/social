@@ -62,6 +62,7 @@ export async function POST(request: Request) {
       deduplicated: upload.deduplicated ?? false,
       extension: upload.extension,
       mediaId: upload.mediaId,
+      multipartUpload: upload.multipartUpload ?? null,
       status: upload.status ?? "UPLOADING",
       uploadUrl: upload.uploadUrl,
     });

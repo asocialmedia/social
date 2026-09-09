@@ -445,7 +445,10 @@ export default function PostEditor({
       // disable while it is in flight.
       setUploading(true);
       try {
-        const result = await uploadMediaFile(file, { purpose: "post" });
+        const result = await uploadMediaFile(file, {
+          purpose: "post",
+          waitForProcessing: true,
+        });
         if (result.status === "READY" && result.mediaId) {
           // The video row already exists (the sound button only appears once
           // a video is attached), so the overlay is attached after the fact.
@@ -534,7 +537,10 @@ export default function PostEditor({
       }
       setThumbnail({ file, mediaId: "", status: "uploading" });
       try {
-        const result = await uploadMediaFile(file, { purpose: "post" });
+        const result = await uploadMediaFile(file, {
+          purpose: "post",
+          waitForProcessing: true,
+        });
         if (result.status === "READY" && result.mediaId) {
           if (!(await patchThumbnail(gustVideoMediaId, result.mediaId))) {
             setThumbnail({ file, mediaId: "", status: "error" });

@@ -4,6 +4,23 @@ import type IoRedis from "ioredis";
 import type { AsyncRateLimitStore, RateLimitHit } from "./index";
 
 const logger = createLogger({ serviceName: "auth-security" });
+export const REDIS_RATE_LIMIT_TIMEOUT_MS = 250;
+
+function withRateLimitTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  // eslint-disable-next-line promise/avoid-new -- Promise.race needs a rejecting timeout branch
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("Redis rate-limit check timed out")),
+      REDIS_RATE_LIMIT_TIMEOUT_MS
+    );
+  });
+  return Promise.race([operation, deadline]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
+}
 
 // Redis-backed rate-limit counter for the auth service's security layer.
 //
@@ -36,7 +53,9 @@ export function createRedisRateLimitStore(
         const pipeline = getClient().pipeline();
         pipeline.incr(redisKey);
         pipeline.expire(redisKey, windowSeconds + 1);
-        const results = await pipeline.exec();
+        // Authentication must not inherit the Redis client's connection and
+        // retry budget. This limiter explicitly fails open during an outage.
+        const results = await withRateLimitTimeout(pipeline.exec());
         const count = Number(results?.[0]?.[1] ?? 0);
         if (count <= max) {
           return { hit: false, retryAfterSeconds: 0 };

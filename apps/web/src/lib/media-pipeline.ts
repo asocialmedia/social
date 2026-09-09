@@ -12,15 +12,23 @@ import {
   sanitizeExtension,
 } from "@asm/media";
 import {
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 import { env } from "../../env";
+import {
+  multipartPartCount,
+  MULTIPART_UPLOAD_PART_SIZE_BYTES,
+  shouldUseMultipartUpload,
+} from "./multipart-upload";
 import {
   mediaTypeFromMime,
   sanitizeDisplayName,
@@ -104,6 +112,10 @@ export interface InitiatedUpload {
   deduplicated?: boolean;
   extension: string;
   mediaId: string;
+  multipartUpload?: {
+    partSize: number;
+    uploadId: string;
+  };
   status?: string;
   uploadUrl: string | null;
 }
@@ -456,6 +468,28 @@ export async function createInitiatedUpload(input: {
     }
   }
 
+  if (shouldUseMultipartUpload(fileSize)) {
+    const multipart = await getInternalClient().send(
+      new CreateMultipartUploadCommand({
+        Bucket: env.ASMOB_BUCKET_NAME,
+        ContentType: declaredMime,
+        Key: originalKey,
+      })
+    );
+    if (!multipart.UploadId) {
+      throw new Error("Storage did not return a multipart upload id");
+    }
+    return {
+      extension: sanitizeExtension(extensionGuess),
+      mediaId: media.id,
+      multipartUpload: {
+        partSize: MULTIPART_UPLOAD_PART_SIZE_BYTES,
+        uploadId: multipart.UploadId,
+      },
+      uploadUrl: null,
+    };
+  }
+
   const uploadUrl = await getSignedUrl(
     getPresignClient(),
     new PutObjectCommand({
@@ -471,6 +505,47 @@ export async function createInitiatedUpload(input: {
     mediaId: media.id,
     uploadUrl,
   };
+}
+
+export function createMultipartPartUploadUrl(input: {
+  key: string;
+  partNumber: number;
+  uploadId: string;
+}): Promise<string> {
+  return getSignedUrl(
+    getPresignClient(),
+    new UploadPartCommand({
+      Bucket: env.ASMOB_BUCKET_NAME,
+      Key: input.key,
+      PartNumber: input.partNumber,
+      UploadId: input.uploadId,
+    }),
+    { expiresIn: 900 }
+  );
+}
+
+export async function completeMultipartStoredUpload(input: {
+  key: string;
+  parts: { eTag: string; partNumber: number }[];
+  uploadId: string;
+}): Promise<void> {
+  await getInternalClient().send(
+    new CompleteMultipartUploadCommand({
+      Bucket: env.ASMOB_BUCKET_NAME,
+      Key: input.key,
+      MultipartUpload: {
+        Parts: input.parts.map((part) => ({
+          ETag: part.eTag,
+          PartNumber: part.partNumber,
+        })),
+      },
+      UploadId: input.uploadId,
+    })
+  );
+}
+
+export function expectedMultipartPartCount(fileSize: number): number {
+  return multipartPartCount(fileSize);
 }
 
 async function scheduleMediaCleanup(mediaId: string): Promise<void> {

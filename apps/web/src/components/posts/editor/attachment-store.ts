@@ -40,6 +40,9 @@ export interface Attachment {
   mediaId?: string;
   mediaUrl?: string;
   name?: string;
+  // The post may be submitted while server-side scanning and transcoding
+  // continue. The media remains unavailable for serving until READY.
+  isProcessing?: boolean;
   progress: number;
   // Real pipeline phase from the status poll - drives the stage UI. Absent
   // on fully-settled drafts.
@@ -54,6 +57,7 @@ interface StoredAttachment {
   altText?: string;
   mediaId: string;
   name: string;
+  isProcessing?: boolean;
   resuming?: boolean;
   type: string;
 }
@@ -80,18 +84,37 @@ function loadStoredDraft(): {
     if (parsed.version !== STORAGE_VERSION) {
       return { attachments: [] };
     }
-    const attachments = (parsed.items ?? []).map((item) => ({
-      altText: item.altText,
-      ...(item.resuming
-        ? { isUploading: true, resuming: true, stage: "queued" as UploadStage }
-        : { isUploading: false }),
-      mediaId: item.mediaId,
-      // Restored drafts render straight from the serving URL.
-      mediaUrl: `/api/media/${item.mediaId}`,
-      name: item.name,
-      progress: 100,
-      type: item.type,
-    }));
+    const attachments = (parsed.items ?? []).map((item) => {
+      let uploadState: Pick<
+        Attachment,
+        "isProcessing" | "isUploading" | "resuming" | "stage"
+      >;
+      if (item.resuming) {
+        uploadState = {
+          isUploading: true,
+          resuming: true,
+          stage: "queued",
+        };
+      } else if (item.isProcessing) {
+        uploadState = {
+          isProcessing: true,
+          isUploading: false,
+          stage: "queued",
+        };
+      } else {
+        uploadState = { isUploading: false };
+      }
+      return {
+        altText: item.altText,
+        ...uploadState,
+        mediaId: item.mediaId,
+        // Restored drafts render straight from the serving URL.
+        mediaUrl: `/api/media/${item.mediaId}`,
+        name: item.name,
+        progress: 100,
+        type: item.type,
+      };
+    });
     return {
       attachments,
       // A mode is only meaningful alongside a real draft; an emptied draft
@@ -111,6 +134,7 @@ function persistAttachments(attachments: Attachment[]): void {
     .filter((attachment) => attachment.mediaId)
     .map((attachment) => ({
       altText: attachment.altText || undefined,
+      isProcessing: attachment.isProcessing || undefined,
       mediaId: attachment.mediaId as string,
       name: attachment.name ?? attachment.file?.name ?? "attachment",
       resuming: attachment.isUploading || undefined,
@@ -227,6 +251,11 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     mediaId: string,
     outcome: StatusWatchOutcome
   ): void {
+    if (
+      !get().attachments.some((attachment) => attachment.mediaId === mediaId)
+    ) {
+      return;
+    }
     if (outcome.status === "DETACHED") {
       // Keep the resuming marker; the next hydrate() re-attaches.
       return;
@@ -243,10 +272,38 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     commit(
       get().attachments.map((a) =>
         a.mediaId === mediaId
-          ? { ...a, isUploading: false, resuming: false, stage: undefined }
+          ? {
+              ...a,
+              isProcessing: false,
+              isUploading: false,
+              resuming: false,
+              stage: undefined,
+            }
           : a
       )
     );
+  }
+
+  function watchProcessingInBackground(mediaId: string): void {
+    void (async () => {
+      try {
+        const outcome = await watchMediaStatus(mediaId, {
+          onStage: (stage) => {
+            set({
+              attachments: get().attachments.map((attachment) =>
+                attachment.mediaId === mediaId
+                  ? { ...attachment, stage }
+                  : attachment
+              ),
+            });
+          },
+        });
+        applyWatchOutcome(mediaId, outcome);
+      } catch {
+        // The persisted processing marker re-attaches a watcher when the
+        // composer mounts again after a transient auth or network failure.
+      }
+    })();
   }
 
   return {
@@ -275,25 +332,10 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       // Deferred so the restored draft pops in right after the first paint.
       queueMicrotask(() => set({ attachments: stored.attachments }));
       for (const item of stored.attachments.filter(
-        (s) => s.resuming && s.mediaId
+        (attachment) =>
+          (attachment.resuming || attachment.isProcessing) && attachment.mediaId
       )) {
-        void (async () => {
-          try {
-            const outcome = await watchMediaStatus(item.mediaId as string, {
-              onStage: (stage) => {
-                set({
-                  attachments: get().attachments.map((a) =>
-                    a.mediaId === item.mediaId ? { ...a, stage } : a
-                  ),
-                });
-              },
-            });
-            applyWatchOutcome(item.mediaId as string, outcome);
-          } catch {
-            // Auth loss during watch: leave the resuming tile; the next
-            // hydrate retries once the user signs back in.
-          }
-        })();
+        watchProcessingInBackground(item.mediaId as string);
       }
     },
     isUploading: false,
@@ -455,6 +497,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
           },
           purpose: "post",
           signal: controller.signal,
+          waitForProcessing: false,
         });
         if (result.status === "REJECTED") {
           toast({
@@ -474,16 +517,20 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
                 ? {
                     ...a,
                     error: undefined,
+                    isProcessing: result.status === "QUEUED",
                     isUploading: false,
                     mediaId: result.mediaId,
                     mediaUrl: `/api/media/${result.mediaId}`,
-                    stage: undefined,
+                    stage: result.status === "QUEUED" ? "queued" : undefined,
                   }
                 : a
             )
           );
           persistAttachments(get().attachments);
           flushPendingAltText(fileName);
+          if (result.status === "QUEUED") {
+            watchProcessingInBackground(result.mediaId);
+          }
         }
       } catch (error: unknown) {
         controllers.delete(file.name);
@@ -610,6 +657,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
               },
               purpose: "post",
               signal: controller.signal,
+              waitForProcessing: false,
             });
             if (result.status === "REJECTED") {
               toast({
@@ -628,16 +676,21 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
                   a.file === file
                     ? {
                         ...a,
+                        isProcessing: result.status === "QUEUED",
                         isUploading: false,
                         mediaId: result.mediaId,
                         mediaUrl: `/api/media/${result.mediaId}`,
-                        stage: undefined,
+                        stage:
+                          result.status === "QUEUED" ? "queued" : undefined,
                       }
                     : a
                 ),
               });
               persistAttachments(get().attachments);
               flushPendingAltText(file.name);
+              if (result.status === "QUEUED") {
+                watchProcessingInBackground(result.mediaId);
+              }
             }
           } catch (error: unknown) {
             // React Compiler cannot lower try/finally; cleanup happens on

@@ -38,7 +38,10 @@ const fakeClient = {
   },
 };
 
+const realLogger = await import("@asm/logger");
+
 mock.module("@asm/logger", () => ({
+  ...realLogger,
   createLogger: () => ({
     error: () => {},
     info: () => {},
@@ -46,7 +49,8 @@ mock.module("@asm/logger", () => ({
   }),
 }));
 
-const { createRedisRateLimitStore } = await import("./redis-store");
+const { createRedisRateLimitStore, REDIS_RATE_LIMIT_TIMEOUT_MS } =
+  await import("./redis-store");
 
 describe("createRedisRateLimitStore", () => {
   beforeEach(() => {
@@ -94,5 +98,31 @@ describe("createRedisRateLimitStore", () => {
     const store = createRedisRateLimitStore(() => fakeClient as never);
     const result = await store.hit("anon:9.9.9.9", 60_000, 1, 1_000_000);
     expect(result.hit).toBe(false);
+  });
+
+  test("fails open quickly when redis never answers", async () => {
+    const unresponsiveClient = {
+      pipeline() {
+        return {
+          // eslint-disable-next-line promise/avoid-new -- deliberately never-settling Redis operation
+          exec: () => new Promise(() => {}),
+          expire() {
+            return this;
+          },
+          incr() {
+            return this;
+          },
+        };
+      },
+    };
+    const store = createRedisRateLimitStore(() => unresponsiveClient as never);
+    const startedAt = performance.now();
+
+    const result = await store.hit("strict:9.9.9.9:sign-in", 60_000, 1, 10_000);
+
+    expect(result).toEqual({ hit: false, retryAfterSeconds: 0 });
+    expect(performance.now() - startedAt).toBeLessThan(
+      REDIS_RATE_LIMIT_TIMEOUT_MS * 2
+    );
   });
 });
