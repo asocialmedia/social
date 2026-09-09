@@ -38,7 +38,9 @@ mock.module("better-auth", () => ({
 }));
 mock.module("better-auth/plugins", () => ({
   admin: () => ({}),
+  captcha: () => ({}),
   emailOTP: () => ({}),
+  haveIBeenPwned: () => ({}),
   jwt: () => ({}),
   username: () => ({}),
 }));
