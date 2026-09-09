@@ -263,6 +263,7 @@ export default function SignUpForm() {
   const ageVerifyId = useId();
   const termsId = useId();
   const [error, setError] = useState<string>();
+  const [showLoginLink, setShowLoginLink] = useState(false);
   const [password, setPassword] = useState("");
   const [isPending, startTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(false);
@@ -500,6 +501,7 @@ export default function SignUpForm() {
 
   const onSubmit = (values: SignUpValues) => {
     setError(undefined);
+    setShowLoginLink(false);
     if (!(isAgeVerified && acceptedTerms)) {
       toast({
         description:
@@ -604,9 +606,13 @@ export default function SignUpForm() {
         } else if (result.error) {
           const msg = String(result.error);
           setError(msg);
+          setShowLoginLink(result.errorCode === "user-exists");
           toast({
             description: msg,
-            title: "Signup Failed!",
+            title:
+              result.errorCode === "user-exists"
+                ? "Account Already Exists"
+                : "Signup Failed!",
             variant: "destructive",
           });
         }
@@ -894,6 +900,14 @@ export default function SignUpForm() {
                         <AlertCircle className="h-5 w-5 shrink-0 text-[#ff7b63]" />
                         {error}
                       </p>
+                      {showLoginLink ? (
+                        <Link
+                          className="text-primary mt-2 inline-flex font-medium underline-offset-4 hover:underline"
+                          href="/login"
+                        >
+                          Log in instead
+                        </Link>
+                      ) : null}
                     </div>
                   ) : null}
                   <FormField

@@ -13,7 +13,9 @@ const signupRequestSchema = z.object({
 // validates and forwards the same server-only operation, while Turnstile is
 // still verified before the auth service is contacted.
 export async function POST(request: Request): Promise<Response> {
-  const body: unknown = await request.json().catch(() => { /* empty */ });
+  const body: unknown = await request.json().catch(() => {
+    /* empty */
+  });
   const parsed = signupRequestSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(

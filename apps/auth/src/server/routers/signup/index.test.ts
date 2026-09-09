@@ -68,6 +68,12 @@ let liveCodes: {
   identifier: string;
   value: string;
 }[] = [];
+let existingSignupUser: {
+  email: string | null;
+  id: string;
+  passwordHash: string | null;
+  username: string;
+} | null = null;
 
 const prismaMock = {
   account: {
@@ -78,7 +84,7 @@ const prismaMock = {
   },
   user: {
     create: () => ({ id: "user-1" }),
-    findFirst: () => null,
+    findFirst: () => existingSignupUser,
   },
   verification: {
     deleteMany: (args: unknown) => {
@@ -121,6 +127,10 @@ mock.module("@asm/auth/core", () => ({
   assertPasswordNotPwned: () => Promise.resolve(),
   getSessionFromRequest: () => ({ session: null, user: null }),
   hashPasswordWithScrypt: () => "scrypt-hash",
+}));
+
+mock.module("@asm/auth", () => ({
+  validateEmailAdvanced: () => Promise.resolve({ isValid: true }),
 }));
 
 // Other test files delete BETTER_AUTH_SECRET from process.env mid-suite; the
@@ -178,6 +188,7 @@ describe("pendingSignupVerify OTP security contract", () => {
     redisStore.clear();
     redisCalls.length = 0;
     prismaCalls.length = 0;
+    existingSignupUser = null;
     liveCodes = [];
   });
 
@@ -385,6 +396,59 @@ describe("pendingSignupVerify OTP security contract", () => {
     expect(result).toMatchObject({
       email: EMAIL,
       password: "plaintext-password",
+    });
+  });
+});
+
+describe("pendingSignupStart existing account contract", () => {
+  beforeEach(() => {
+    existingSignupUser = null;
+    redisStore.clear();
+  });
+
+  test("directs an existing password account to login", async () => {
+    existingSignupUser = {
+      email: EMAIL,
+      id: "password-user",
+      passwordHash: "scrypt-hash",
+      username: "existing-password-user",
+    };
+
+    const result = await createCaller().pendingSignupStart({
+      displayName: "New Name",
+      email: EMAIL,
+      password: "SecurePassword#1",
+      username: "new-name",
+    });
+
+    expect(result).toEqual({
+      error: "user-exists",
+      message:
+        "An account with this email or username already exists. Try logging in or use Forgot Password.",
+      success: false,
+    });
+  });
+
+  test("directs an OAuth-only account with the same email to login", async () => {
+    existingSignupUser = {
+      email: EMAIL,
+      id: "oauth-user",
+      passwordHash: null,
+      username: "existing-oauth-user",
+    };
+
+    const result = await createCaller().pendingSignupStart({
+      displayName: "New Name",
+      email: EMAIL,
+      password: "SecurePassword#1",
+      username: "new-name",
+    });
+
+    expect(result).toEqual({
+      error: "user-exists",
+      message:
+        "An account with this email or username already exists. Try logging in or use Forgot Password.",
+      success: false,
     });
   });
 });

@@ -5,6 +5,7 @@ interface SignUpResult {
     email: string;
     isNewToken: boolean;
   };
+  errorCode?: "user-exists";
   error?: string;
   rateLimited?: boolean;
   rateLimitInfo?: {
@@ -36,7 +37,7 @@ export async function requestSignup(
       headers: { "content-type": "application/json" },
       method: "POST",
     });
-    const body: unknown = await response.json().catch(() => { /* empty */ });
+    const body: unknown = await response.json().catch(() => null);
     if (isSignUpResult(body)) {
       return body;
     }

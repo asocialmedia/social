@@ -67,6 +67,7 @@ interface SignUpResponse {
     email: string;
     isNewToken: boolean;
   };
+  errorCode?: "user-exists";
   error?: string;
   message?: string;
   rateLimited?: boolean;
@@ -150,6 +151,7 @@ export async function signUp(credentials: {
           error:
             userFacingMessage ||
             "An account with this email or username already exists. Try logging in or reset your password.",
+          errorCode: "user-exists",
           success: false,
         };
       }
