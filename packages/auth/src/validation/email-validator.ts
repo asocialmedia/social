@@ -14,6 +14,7 @@ export interface EmailValidationResult {
 }
 
 export interface EmailValidationOptions {
+  requireMxRecord?: boolean;
   skipMxCheck?: boolean;
   skipSmtpCheck?: boolean;
   smtpVerifier?: (
@@ -121,7 +122,7 @@ export async function validateEmailAdvanced(
   }
 
   if (skipMxCheck && skipSmtpCheck) {
-    result.isValid = result.score >= 40;
+    result.isValid = !result.disposable && result.score >= 40;
     result.confidence = getConfidence(result.score, 60, 40);
     return result;
   }
@@ -215,7 +216,14 @@ export async function validateEmailAdvanced(
     }
   }
 
-  result.isValid = result.score >= 50;
+  if (options.requireMxRecord && !result.mxRecords) {
+    result.reasons.push("Email domain cannot receive email");
+  }
+
+  result.isValid =
+    !result.disposable &&
+    (!options.requireMxRecord || result.mxRecords) &&
+    result.score >= 50;
   result.confidence = getConfidence(result.score, 80, 60);
   return result;
 }

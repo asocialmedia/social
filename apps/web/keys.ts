@@ -4,6 +4,7 @@ import { z } from "zod";
 export const keys = createEnv({
   client: {
     NEXT_PUBLIC_AUTH_URL: z.url().default("http://localhost:3001"),
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().min(1).optional(),
     NEXT_PUBLIC_URL: z.url().default("http://localhost:3000"),
   },
   runtimeEnv: {
@@ -20,6 +21,7 @@ export const keys = createEnv({
     KLIPY_APP_KEY: process.env.KLIPY_APP_KEY,
     LOG_LEVEL: process.env.LOG_LEVEL,
     NEXT_PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL,
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
     NEXT_TELEMETRY_DISABLED: process.env.NEXT_TELEMETRY_DISABLED,
     NODE_ENV: process.env.NODE_ENV,
@@ -34,6 +36,8 @@ export const keys = createEnv({
     REDIS_URL: process.env.REDIS_URL,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
+    TURNSTILE_HOSTNAMES: process.env.TURNSTILE_HOSTNAMES,
+    TURNSTILE_SECRET: process.env.TURNSTILE_SECRET,
   },
   server: {
     // Server-to-server auth calls should hit the auth service over the
@@ -76,6 +80,8 @@ export const keys = createEnv({
     REDIS_URL: z.url(),
     SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
     TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
+    TURNSTILE_HOSTNAMES: z.string().optional(),
+    TURNSTILE_SECRET: z.string().min(1).optional(),
   },
 
   skipValidation: process.env.NODE_ENV === "production",

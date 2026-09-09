@@ -89,9 +89,12 @@ describe("email-validator", () => {
 
     test("fails MX records gracefully for fake domain", async () => {
       const result = await validateEmailAdvanced("test@fake.fake.fake", {
+        requireMxRecord: true,
         skipSmtpCheck: true,
       });
       expect(result.mxRecords).toBe(false);
+      expect(result.isValid).toBe(false);
+      expect(result.reasons).toContain("Email domain cannot receive email");
     });
 
     test("SMTP verifier success", async () => {
@@ -219,6 +222,15 @@ describe("email-validator", () => {
       });
       // Should not be called
       expect(mockVerifier).not.toHaveBeenCalled();
+    });
+
+    test("never accepts a disposable email even when it has MX records", async () => {
+      const result = await validateEmailAdvanced("person@mailinator.com", {
+        skipSmtpCheck: true,
+      });
+
+      expect(result.disposable).toBe(true);
+      expect(result.isValid).toBe(false);
     });
   });
 });

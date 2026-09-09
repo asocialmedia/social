@@ -8,6 +8,32 @@ import {
   sendVerificationOTP,
 } from "../email/service";
 
+function getTurnstileConfig():
+  | { allowedHostnames: string[]; secretKey: string }
+  | undefined {
+  const secretKey = env.TURNSTILE_SECRET;
+  const allowedHostnames = (env.TURNSTILE_HOSTNAMES ?? "")
+    .split(",")
+    .map((hostname) => hostname.trim().toLowerCase())
+    .filter((hostname) => hostname.length > 0);
+
+  if (!secretKey) {
+    if (env.NODE_ENV === "production") {
+      throw new Error("TURNSTILE_SECRET must be set in production");
+    }
+    return undefined;
+  }
+
+  if (allowedHostnames.length === 0) {
+    if (env.NODE_ENV === "production") {
+      throw new Error("TURNSTILE_HOSTNAMES must list at least one hostname");
+    }
+    return undefined;
+  }
+
+  return { allowedHostnames, secretKey };
+}
+
 const emailService: EmailService = {
   sendPasswordResetEmail: async (email: string, token: string) => {
     const result = await sendPasswordResetEmail(email, token);
@@ -40,4 +66,5 @@ export const auth = createAuthConfig({
     }
     throw new Error(`Unsupported verification type: ${type}`);
   },
+  turnstile: getTurnstileConfig(),
 });

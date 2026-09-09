@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { hashPasswordWithScrypt } from "@asm/auth/core";
+import { validateEmailAdvanced } from "@asm/auth";
+import {
+  assertPasswordNotPwned,
+  hashPasswordWithScrypt,
+  PasswordSafetyError,
+} from "@asm/auth/core";
 import { debugLog } from "@asm/config/debug";
 import { isReservedUsername, prisma, redis } from "@asm/db";
 import { createLogger, getTelemetryApi } from "@asm/logger";
@@ -680,6 +685,22 @@ export const signupRouter = router({
           } as const;
         }
 
+        const [emailValidation] = await Promise.all([
+          validateEmailAdvanced(input.email, {
+            requireMxRecord: true,
+            skipSmtpCheck: true,
+          }),
+          assertPasswordNotPwned(input.password),
+        ]);
+        if (!emailValidation.isValid) {
+          return {
+            error: "invalid-email",
+            message:
+              "Use a non-disposable email address from a domain that can receive email.",
+            success: false,
+          } as const;
+        }
+
         const existingUser = await findExistingSignupUser(
           input.email,
           input.username
@@ -754,6 +775,26 @@ export const signupRouter = router({
         debugLog.api("pendingSignupStart:done");
         return { requiresEmailVerification: true, success: true } as const;
       } catch (error) {
+        if (
+          error instanceof PasswordSafetyError &&
+          error.reason === "compromised"
+        ) {
+          return {
+            error: "password-compromised",
+            message: error.message,
+            success: false,
+          } as const;
+        }
+        if (
+          error instanceof PasswordSafetyError &&
+          error.reason === "unavailable"
+        ) {
+          return {
+            error: "password-safety-check-unavailable",
+            message: error.message,
+            success: false,
+          } as const;
+        }
         const message = error instanceof Error ? error.message : String(error);
         debugLog.api("pendingSignupStart:error", { message });
         console.error("pendingSignupStart:error", message);

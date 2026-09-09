@@ -4,6 +4,7 @@ import { getClientIpFromHeaders } from "@asm/db";
 import { headers } from "next/headers";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
+import { verifySignupTurnstileToken } from "@/lib/turnstile";
 
 const RATE_LIMIT_ERROR = "rate-limited";
 
@@ -11,16 +12,22 @@ const RATE_LIMIT_ERROR = "rate-limited";
 // but the client IP must still be derived from trusted ingress metadata so
 // the auth service's per-IP signup limits are keyed on the real caller, not
 // a shared fallback value.
-async function clientIpHeaders(): Promise<Record<string, string>> {
+async function clientIpHeaders(): Promise<{
+  clientIp: string | undefined;
+  headers: Record<string, string>;
+}> {
   const headersList = await headers();
   const clientIp = getClientIpFromHeaders(headersList);
   if (clientIp === "unknown") {
-    return {};
+    return { clientIp: undefined, headers: {} };
   }
   return {
-    "cf-connecting-ip": clientIp,
-    "x-forwarded-for": clientIp,
-    "x-real-ip": clientIp,
+    clientIp,
+    headers: {
+      "cf-connecting-ip": clientIp,
+      "x-forwarded-for": clientIp,
+      "x-real-ip": clientIp,
+    },
   };
 }
 
@@ -71,14 +78,37 @@ interface SignUpResponse {
   success: boolean;
 }
 
+function turnstileErrorMessage(
+  reason: "configuration" | "invalid-token" | "unavailable"
+): string {
+  if (reason === "configuration") {
+    return "Account creation is temporarily unavailable. Please try again later.";
+  }
+  if (reason === "unavailable") {
+    return "The security check is temporarily unavailable. Please try again shortly.";
+  }
+  return "Complete the security check and try again.";
+}
+
 export async function signUp(credentials: {
   username: string;
   email: string;
   password: string;
+  turnstileToken: string;
 }): Promise<SignUpResponse> {
   try {
     const authBase = getAuthBaseUrl();
-    const ipHeaders = await clientIpHeaders();
+    const { clientIp, headers: ipHeaders } = await clientIpHeaders();
+    const turnstile = await verifySignupTurnstileToken(
+      credentials.turnstileToken,
+      clientIp
+    );
+    if (!turnstile.success) {
+      return {
+        error: turnstileErrorMessage(turnstile.reason),
+        success: false,
+      };
+    }
     const res = await fetch(`${authBase}/api/trpc/pendingSignupStart`, {
       body: JSON.stringify({
         id: 1,
@@ -131,7 +161,7 @@ export async function signUp(credentials: {
         );
       }
 
-      return { error: String(err), success: false };
+      return { error: userFacingMessage || String(err), success: false };
     }
 
     return {
@@ -151,13 +181,11 @@ export async function signUp(credentials: {
             },
           }),
     };
-  } catch (error) {
-    console.error("Signup error:", error);
+  } catch {
+    console.error("Signup service request failed");
     return {
       error:
-        error instanceof Error
-          ? error.message
-          : "Something went wrong. Please try again.",
+        "We couldn't reach the signup service. Check your connection and try again.",
       success: false,
     };
   }
@@ -174,7 +202,7 @@ export async function resendVerificationEmail(email: string): Promise<{
 }> {
   try {
     const authBase = getAuthBaseUrl();
-    const ipHeaders = await clientIpHeaders();
+    const { headers: ipHeaders } = await clientIpHeaders();
     const res = await fetch(`${authBase}/api/trpc/pendingSignupResend`, {
       body: JSON.stringify({ id: 1, json: { email } }),
       credentials: "include",
@@ -293,7 +321,7 @@ export async function sendVerificationLink(email: string): Promise<{
 }> {
   try {
     const authBase = getAuthBaseUrl();
-    const ipHeaders = await clientIpHeaders();
+    const { headers: ipHeaders } = await clientIpHeaders();
     const res = await fetch(`${authBase}/api/trpc/pendingSignupSendLink`, {
       body: JSON.stringify({ id: 1, json: { email } }),
       credentials: "include",

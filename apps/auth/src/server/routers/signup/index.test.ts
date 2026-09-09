@@ -112,6 +112,13 @@ mock.module("@/email/service", () => ({
 }));
 
 mock.module("@asm/auth/core", () => ({
+  PasswordSafetyError: class PasswordSafetyError extends Error {
+    constructor() {
+      super();
+      this.name = "PasswordSafetyError";
+    }
+  },
+  assertPasswordNotPwned: () => Promise.resolve(),
   getSessionFromRequest: () => ({ session: null, user: null }),
   hashPasswordWithScrypt: () => "scrypt-hash",
 }));
