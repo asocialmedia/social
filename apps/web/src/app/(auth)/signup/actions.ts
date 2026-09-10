@@ -3,8 +3,8 @@
 import { getClientIpFromHeaders } from "@asm/db";
 import { headers } from "next/headers";
 
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
-import { verifySignupTurnstileToken } from "@/lib/turnstile";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
+import { verifySignupTurnstileToken } from "@/lib/auth/turnstile";
 
 const RATE_LIMIT_ERROR = "rate-limited";
 

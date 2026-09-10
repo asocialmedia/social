@@ -8,7 +8,7 @@ import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import PostHistoryCard from "@/components/posts/post-history-card";
 import { getUserData } from "@/hooks/use-user-data";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 import Notifications from "./notifications";
 

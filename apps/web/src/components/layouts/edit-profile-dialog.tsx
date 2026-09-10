@@ -46,7 +46,7 @@ import {
 import { LoadingButton } from "@/components/auth/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { useToast } from "@/lib/gooey-toast";
-import type { UploadStage } from "@/lib/media-upload-client";
+import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 

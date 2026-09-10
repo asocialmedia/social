@@ -18,11 +18,11 @@ import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
-import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
-import { canModeratePost } from "@/lib/moderation";
+import { canModeratePost } from "@/lib/moderation/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
+import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
+import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn } from "@/lib/utils";
-import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import DeletePostDialog from "./delete-post-dialog";
 import PostModerationDialog from "./post-moderation-dialog";

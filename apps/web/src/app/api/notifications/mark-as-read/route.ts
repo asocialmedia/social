@@ -1,6 +1,6 @@
 import { prisma, unreadNotificationCache } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 async function markAllAsRead() {
   const session = await getSessionFromApi();

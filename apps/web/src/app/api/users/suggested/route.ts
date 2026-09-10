@@ -10,14 +10,14 @@ import {
 } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
-import { getSessionFromApi } from "@/lib/session";
-import { suggestedUsersCache } from "@/lib/suggested-users-cache";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 import {
   buildViewerInterests,
   diversifyRanked,
   rankCandidates,
-} from "@/lib/suggested-users-scoring";
-import type { SuggestionCandidate } from "@/lib/suggested-users-scoring";
+} from "@/lib/users/suggested-users-scoring";
+import type { SuggestionCandidate } from "@/lib/users/suggested-users-scoring";
 
 export type { UserData } from "@asm/db";
 

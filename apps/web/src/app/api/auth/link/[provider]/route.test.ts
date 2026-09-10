@@ -7,7 +7,7 @@ const mockUserFindUnique = mock();
 const mockAccountFindFirst = mock();
 const fetchMock = mock();
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

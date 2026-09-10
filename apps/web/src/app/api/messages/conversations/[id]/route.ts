@@ -1,7 +1,7 @@
 import { prisma } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { getConversationForUser } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 export async function GET(
   _request: Request,

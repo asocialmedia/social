@@ -1,9 +1,9 @@
 import { consumeRateLimit, getClientIpFromHeaders } from "@asm/db";
 import { NextResponse } from "next/server";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { resolveLinkEmbed } from "@/lib/link-embeds/server";
 import { sanitizeEmbedUrl } from "@/lib/link-embeds/shared";
-import { getSessionFromApi } from "@/lib/session";
 
 // Resolves one link into its embed payload for live previews and comment
 // link cards. Per-user or per-IP rate limited: resolution costs an outbound

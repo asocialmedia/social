@@ -1,7 +1,7 @@
 import { publishTypingStarted } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { getConversationForUser } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 // Best-effort typing indicator: the client heartbeats while the user is
 // typing and the peer's open SSE stream shows it. The event only carries the

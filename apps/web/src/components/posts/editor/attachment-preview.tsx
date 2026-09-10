@@ -12,7 +12,7 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { formatFileName } from "@/lib/format-file-name";
-import type { UploadStage } from "@/lib/media-upload-client";
+import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 
 import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";

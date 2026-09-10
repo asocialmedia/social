@@ -14,7 +14,7 @@ import { useSyncExternalStore } from "react";
 import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 
 import FollowButton from "./follow-button";

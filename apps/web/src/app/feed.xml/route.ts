@@ -1,7 +1,7 @@
 import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { excerpt, getPostUrl } from "@/lib/seo";
+import { excerpt, getPostUrl } from "@/lib/seo/seo";
 
 function escapeXml(value: string): string {
   return value

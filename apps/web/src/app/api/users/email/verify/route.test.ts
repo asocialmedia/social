@@ -34,11 +34,11 @@ const mockFetch = mock((url: string, init: RequestInit) => {
   });
 });
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
-mock.module("@/lib/auth-internal", () => ({
+mock.module("@/lib/auth/auth-internal", () => ({
   authInternalHeaders: (headers: Record<string, string>) => headers,
 }));
 

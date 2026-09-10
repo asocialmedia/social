@@ -9,8 +9,8 @@ import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import HashtagFeed from "@/components/posts/hashtag-feed";
 import JsonLd from "@/components/seo/json-ld";
-import { absoluteUrl } from "@/lib/seo";
-import { getHashtagPostsForCrawl } from "@/lib/server-feed";
+import { getHashtagPostsForCrawl } from "@/lib/posts/server-feed";
+import { absoluteUrl } from "@/lib/seo/seo";
 
 interface PageProps {
   params: Promise<{ tag: string }>;

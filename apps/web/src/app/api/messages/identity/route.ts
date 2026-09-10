@@ -1,7 +1,7 @@
 import { prisma } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { parseJsonBody } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 export interface MessageIdentityPayload {
   createdAt: string;

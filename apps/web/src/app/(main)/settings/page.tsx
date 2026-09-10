@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import type { SocialProvider } from "@/components/settings/linked-accounts";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 import ClientSettings from "./client-settings";
 

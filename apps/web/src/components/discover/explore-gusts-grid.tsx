@@ -28,7 +28,7 @@ import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-contai
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { useRequireAuth } from "@/hooks/use-require-auth";
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";

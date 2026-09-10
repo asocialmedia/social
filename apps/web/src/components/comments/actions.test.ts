@@ -251,7 +251,7 @@ mock.module("next/cache", () => ({
   updateTag: () => {},
 }));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

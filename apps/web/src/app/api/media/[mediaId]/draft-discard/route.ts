@@ -2,8 +2,8 @@ import { prisma, redis } from "@asm/db";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
-import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 
 // Immediate cleanup for draft uploads the author discarded before posting.
 // The abandoned-upload sweep in media-processing is the eventual backstop;

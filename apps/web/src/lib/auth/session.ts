@@ -5,7 +5,7 @@ import { headers as nextHeaders } from "next/headers";
 import { connection } from "next/server";
 import { cache } from "react";
 
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 
 export type SessionResponse = { session: Session; user: User } | null;
 

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { useVideoCaptionsStore } from "@/lib/video-captions-store";
+import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 
 // Rehydrates the persisted captions preference once on mount. The store uses
 // skipHydration so the SSR pass and first client render share the same

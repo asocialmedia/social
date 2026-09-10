@@ -7,7 +7,7 @@ import {
 import type { PostsPage } from "@asm/db";
 import type { NextRequest } from "next/server";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();

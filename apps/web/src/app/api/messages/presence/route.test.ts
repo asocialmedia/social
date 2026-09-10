@@ -10,7 +10,7 @@ const mockFollowFindMany = mock(() => []);
 const mockBlockFindMany = mock(() => []);
 const mockUserFindMany = mock(() => []);
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

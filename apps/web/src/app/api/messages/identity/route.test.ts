@@ -18,7 +18,7 @@ type IdentityRow = {
 const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
 const mockCreate = mock(() => ({}));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

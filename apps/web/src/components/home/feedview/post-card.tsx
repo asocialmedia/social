@@ -33,8 +33,11 @@ import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
-import { isBookmarkedByUser, normalizePostData } from "@/lib/post-normalize";
-import { getPostPath } from "@/lib/seo";
+import {
+  isBookmarkedByUser,
+  normalizePostData,
+} from "@/lib/posts/post-normalize";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";

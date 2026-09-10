@@ -6,7 +6,7 @@ import {
 } from "@asm/db";
 import type { Prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const TAKE_PATTERN = /^[1-9]\d*$/;
 

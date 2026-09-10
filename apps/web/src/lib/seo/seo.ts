@@ -13,7 +13,7 @@ export {
   getPostMediaUrl,
   getFullPostPath,
   getFullPostUrl,
-} from "./post-url";
+} from "../posts/post-url";
 
 export function absoluteUrl(path: string): string {
   if (/^https?:\/\//.test(path)) {

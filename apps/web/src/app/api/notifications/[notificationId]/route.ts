@@ -1,6 +1,6 @@
 import { prisma, unreadNotificationCache } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function DELETE(
   _req: Request,

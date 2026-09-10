@@ -1,8 +1,8 @@
 import type { MessageCountInfo } from "@asm/db";
 import { prisma, unreadMessageCache } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { unreadMessageWhere } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 export async function GET() {
   const session = await getSessionFromApi();

@@ -3,7 +3,7 @@ import { getClientIpFromRequest, hashViewerId, postViewsCache } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function POST(
   request: NextRequest,

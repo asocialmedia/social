@@ -41,7 +41,7 @@ async function runTransaction(
   return await operation(transactionClient);
 }
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

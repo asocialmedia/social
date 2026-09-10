@@ -4,7 +4,7 @@ import {
   buildSitemapIndexXml,
   getSitemapLastModified,
   SITEMAP_IDS,
-} from "@/lib/sitemap";
+} from "@/lib/seo/sitemap";
 
 // Sitemap index at the exact URL robots.txt advertises (/sitemap.xml). Next's
 // generateSitemaps convention does not emit an index file, which left crawlers

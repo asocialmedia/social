@@ -1,6 +1,6 @@
 import { consumeRateLimit } from "@asm/db";
 
-import { getWebLogger } from "./otel";
+import { getWebLogger } from "../otel";
 
 // Request-tier definitions for the edge-of-app guard running in proxy.ts.
 // Thresholds are tuned generously: a human scrolling a feed fires a handful

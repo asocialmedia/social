@@ -2,7 +2,7 @@ import { getCommentDataInclude, invalidateFypProfile, prisma } from "@asm/db";
 import type { CommentsPage } from "@asm/db";
 
 import { createComment } from "@/components/comments/comment-service";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function POST(
   request: Request,

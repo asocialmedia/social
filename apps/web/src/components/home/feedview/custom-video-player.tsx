@@ -31,9 +31,9 @@ import {
   VideoTranscriptDrawer,
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
+import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
+import { useVideoMuteStore } from "@/lib/stores/video-mute-store";
 import { cn } from "@/lib/utils";
-import { useVideoCaptionsStore } from "@/lib/video-captions-store";
-import { useVideoMuteStore } from "@/lib/video-mute-store";
 
 interface CustomVideoPlayerProps {
   autoPlay?: boolean;

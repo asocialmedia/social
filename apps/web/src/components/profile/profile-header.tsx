@@ -17,7 +17,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
 import { useRequireAuth } from "@/hooks/use-require-auth";
 import { useUserDataQuery } from "@/hooks/use-user-data-query";
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 

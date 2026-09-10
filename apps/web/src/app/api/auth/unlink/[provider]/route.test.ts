@@ -6,7 +6,7 @@ const mockGetSession = mock();
 const mockUserUpdate = mock();
 const fetchMock = mock();
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

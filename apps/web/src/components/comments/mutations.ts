@@ -7,8 +7,8 @@ import type { QueryKey } from "@tanstack/react-query";
 import { MessageCirclePlus, MessageCircleX } from "lucide-react";
 import { createElement } from "react";
 
-import { applyCommentCountDeltaToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
+import { applyCommentCountDeltaToCaches } from "@/lib/posts/cache-sync";
 
 import { deleteComment, submitComment } from "./actions";
 

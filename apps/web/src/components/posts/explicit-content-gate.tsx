@@ -9,7 +9,7 @@ import { useState } from "react";
 import {
   revealExplicit,
   useExplicitRevealed,
-} from "@/lib/explicit-reveal-store";
+} from "@/lib/stores/explicit-reveal-store";
 import { cn } from "@/lib/utils";
 
 // Blurs wrapped media behind a "this content has explicit media" gate with a

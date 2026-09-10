@@ -211,7 +211,7 @@ mock.module("@asm/db", () => ({
   userCache: {},
 }));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

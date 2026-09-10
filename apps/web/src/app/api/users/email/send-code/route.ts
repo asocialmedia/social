@@ -1,5 +1,5 @@
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
-import { getSessionFromApi } from "@/lib/session";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Sends a verification OTP to the user's current email address so they can
 // prove ownership before changing it. Only meaningful for accounts that

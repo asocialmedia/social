@@ -12,7 +12,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import ModeratedNotice from "@/components/posts/moderated-notice";
-import { getPostPath } from "@/lib/seo";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
 

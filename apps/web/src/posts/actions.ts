@@ -13,8 +13,8 @@ import {
 } from "@asm/db";
 import { updateTag } from "next/cache";
 
-import { getSessionFromApi } from "@/lib/session";
-import { getModerationSystemUserId } from "@/lib/system-moderation-user";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { getModerationSystemUserId } from "@/lib/moderation/system-moderation-user";
 
 export interface PostModerationChanges {
   explicitContent?: boolean;

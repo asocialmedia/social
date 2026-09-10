@@ -18,7 +18,7 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";
-import { getPostMediaPath, getPostPath } from "@/lib/seo";
+import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,

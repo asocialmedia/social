@@ -3,8 +3,8 @@ import { clientLog } from "@asm/config/debug";
 import type { PrivateUserData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { uploadMediaFile } from "@/lib/media-upload-client";
-import type { UploadStage } from "@/lib/media-upload-client";
+import { uploadMediaFile } from "@/lib/media/media-upload-client";
+import type { UploadStage } from "@/lib/media/media-upload-client";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 interface UpdateProfilePayload {

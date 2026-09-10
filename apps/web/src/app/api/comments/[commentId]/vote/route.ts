@@ -7,8 +7,8 @@ import {
 } from "@asm/db";
 import type { CommentVoteInfo } from "@asm/db";
 
-import { runSerializableTransaction } from "@/lib/db-transactions";
-import { getSessionFromApi } from "@/lib/session";
+import { runSerializableTransaction } from "@/lib/aura/db-transactions";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const VALID_VOTE_VALUES = new Set([-1, 0, 1]);
 

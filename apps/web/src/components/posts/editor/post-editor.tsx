@@ -56,7 +56,7 @@ import {
   patchAudioOverlay,
   patchThumbnail,
   uploadMediaFile,
-} from "@/lib/media-upload-client";
+} from "@/lib/media/media-upload-client";
 
 import "./styles.css";
 import { cn } from "@/lib/utils";

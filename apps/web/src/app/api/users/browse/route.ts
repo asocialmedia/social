@@ -1,6 +1,6 @@
 import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 type UserOrderBy =
   | { createdAt: "asc" }

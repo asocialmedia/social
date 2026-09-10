@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useState } from "react";
 
 import type { Attachment } from "@/components/posts/editor/attachment-store";
-import { ALT_TEXT_MAX_LENGTH } from "@/lib/media-upload-client";
+import { ALT_TEXT_MAX_LENGTH } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 
 interface AltTextPanelProps {

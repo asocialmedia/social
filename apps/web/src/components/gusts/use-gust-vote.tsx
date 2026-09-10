@@ -8,9 +8,9 @@ import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
-import { applyAuraToCaches } from "@/lib/cache-sync";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
+import { applyAuraToCaches } from "@/lib/posts/cache-sync";
 
 interface UseGustVoteOptions {
   authorName: string;

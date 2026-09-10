@@ -11,7 +11,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import ModeratedNotice from "@/components/posts/moderated-notice";
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";

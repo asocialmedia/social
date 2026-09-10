@@ -2,12 +2,12 @@ import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import {
   createMultipartPartUploadUrl,
   expectedMultipartPartCount,
-} from "@/lib/media-pipeline";
-import { isValidMultipartPartNumber } from "@/lib/multipart-upload";
-import { getSessionFromApi } from "@/lib/session";
+} from "@/lib/media/media-pipeline";
+import { isValidMultipartPartNumber } from "@/lib/media/multipart-upload";
 
 const partSchema = z.object({
   mediaId: z.string().min(1).max(64),

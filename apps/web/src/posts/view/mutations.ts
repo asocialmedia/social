@@ -2,7 +2,7 @@ import { debugLog } from "@asm/config/debug";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { applyViewCountToCaches } from "@/lib/cache-sync";
+import { applyViewCountToCaches } from "@/lib/posts/cache-sync";
 
 // Views are high-frequency and per-post, so firing one POST per post in the
 // feed produced a burst of requests on every page load. Instead accumulate

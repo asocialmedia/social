@@ -1,6 +1,6 @@
 import { getIdleUsers, getOnlineUsers, markUserOnline, prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export interface PresenceUser {
   avatarUrl: string | null;

@@ -9,7 +9,7 @@ import {
   getRecentGustsForCrawl,
   getRecentPostsForCrawl,
   getTrendingPostsForCrawl,
-} from "@/lib/server-feed";
+} from "@/lib/posts/server-feed";
 
 export const metadata: Metadata = {
   description: "Discover and connect with amazing people on asocialmedia",

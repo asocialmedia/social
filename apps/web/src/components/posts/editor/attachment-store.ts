@@ -10,11 +10,11 @@ import {
   rejectionCopy,
   uploadMediaFile,
   watchMediaStatus,
-} from "@/lib/media-upload-client";
+} from "@/lib/media/media-upload-client";
 import type {
   StatusWatchOutcome,
   UploadStage,
-} from "@/lib/media-upload-client";
+} from "@/lib/media/media-upload-client";
 import type { ComposerMode } from "@/store/composer-store";
 import { useComposerStore } from "@/store/composer-store";
 

@@ -44,7 +44,7 @@ import { MessageIdentityProvider } from "@/components/messages/message-identity-
 import { MessageSharePicker } from "@/components/messages/message-share-picker";
 import { toast } from "@/lib/gooey-toast";
 import { setPopupOpen } from "@/lib/popup-tracker";
-import { getShortPostPath } from "@/lib/seo";
+import { getShortPostPath } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_THUMBNAIL = "/fallback.png";

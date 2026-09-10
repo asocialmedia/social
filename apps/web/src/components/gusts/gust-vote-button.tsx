@@ -4,7 +4,7 @@ import type { VoteInfo } from "@asm/db";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 
 import { useGustVote } from "./use-gust-vote";

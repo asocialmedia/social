@@ -2,12 +2,12 @@ import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import {
   completeMultipartStoredUpload,
   expectedMultipartPartCount,
   headStoredObject,
-} from "@/lib/media-pipeline";
-import { getSessionFromApi } from "@/lib/session";
+} from "@/lib/media/media-pipeline";
 
 const completeSchema = z.object({
   mediaId: z.string().min(1).max(64),

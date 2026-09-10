@@ -11,7 +11,7 @@ const mockGetConversationForUser = mock((): Conversation => ({
 }));
 const mockPublishTyping = mock(async () => {});
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

@@ -6,10 +6,13 @@ import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
 import { useRequireAuth } from "@/hooks/use-require-auth";
-import { getAuraFlameClass } from "@/lib/aura";
-import { applyAuraToCaches, applyCommentAuraToCaches } from "@/lib/cache-sync";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
+import {
+  applyAuraToCaches,
+  applyCommentAuraToCaches,
+} from "@/lib/posts/cache-sync";
 import { cn, formatNumber } from "@/lib/utils";
 
 interface AuraVoteButtonProps {

@@ -1,7 +1,7 @@
 import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { excerpt, getPostUrl } from "@/lib/seo";
+import { excerpt, getPostUrl } from "@/lib/seo/seo";
 
 // Server-side feed helpers for SEO crawlable HTML.
 // These mirror the API route logic but run via Prisma directly so

@@ -26,8 +26,10 @@ import {
   splitTranscriptIntoTimedLines,
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
-import { useAltRevealed } from "@/lib/alt-reveal-store";
-import { getPostMediaPath, getPostPath } from "@/lib/seo";
+import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
+import { useAltRevealed } from "@/lib/stores/alt-reveal-store";
+import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
+import { useVideoMuteStore } from "@/lib/stores/video-mute-store";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,
@@ -35,8 +37,6 @@ import {
   getMediaProxyUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
-import { useVideoCaptionsStore } from "@/lib/video-captions-store";
-import { useVideoMuteStore } from "@/lib/video-mute-store";
 import { withViewTransition } from "@/lib/view-transition";
 
 import { AudioPreview } from "./audio-preview";

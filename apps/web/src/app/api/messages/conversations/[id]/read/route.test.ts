@@ -9,7 +9,7 @@ const mockDecrement = mock(() => 0);
 const mockUpdate = mock(() => ({}));
 const mockPublishRead = mock(() => Promise.resolve());
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

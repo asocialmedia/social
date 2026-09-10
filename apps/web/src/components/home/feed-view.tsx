@@ -10,8 +10,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
-} from "@/lib/cache-sync";
-import { normalizePostsData } from "@/lib/post-normalize";
+} from "@/lib/posts/cache-sync";
+import { normalizePostsData } from "@/lib/posts/post-normalize";
 
 import PostCard from "./feedview/post-card";
 

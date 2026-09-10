@@ -6,7 +6,7 @@ import {
 import { prisma } from "@asm/db";
 import { z } from "zod";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const passwordSchema = z
   .object({

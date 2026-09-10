@@ -4,7 +4,7 @@ import { clientLog } from "@asm/config/debug";
 import { useCallback, useState } from "react";
 
 import { useToast } from "@/lib/gooey-toast";
-import { uploadMediaFile } from "@/lib/media-upload-client";
+import { uploadMediaFile } from "@/lib/media/media-upload-client";
 
 const MAX_COMMENT_ATTACHMENTS = 1;
 

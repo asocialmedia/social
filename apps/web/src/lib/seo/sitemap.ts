@@ -1,7 +1,7 @@
 import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { getPostUrl } from "@/lib/seo";
+import { getPostUrl } from "@/lib/seo/seo";
 
 // Sitemap architecture
 // ────────────────────

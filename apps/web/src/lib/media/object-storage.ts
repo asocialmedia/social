@@ -3,7 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
-import { env } from "../../env";
+import { env } from "../../../env";
 
 const asmobEndpoint = env.ASMOB_ENDPOINT;
 

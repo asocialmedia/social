@@ -56,9 +56,9 @@ import { useSignupUrlState } from "@/hooks/use-signup-url-state";
 // Imported statically (it guards window access itself) so component bodies
 // never contain dynamic import() expressions, which React Compiler cannot
 // lower.
-import { authClient } from "@/lib/auth";
+import { authClient } from "@/lib/auth/auth";
+import { requestSignup } from "@/lib/auth/signup-client";
 import { useToast } from "@/lib/gooey-toast";
-import { requestSignup } from "@/lib/signup-client";
 
 import { PasswordStrengthChecker } from "./password-strength-checker";
 

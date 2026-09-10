@@ -6,7 +6,7 @@ import {
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Bumped when the cached shape changes (public projection); old entries may
 // contain sensitive fields and must not be served.

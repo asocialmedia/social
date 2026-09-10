@@ -196,7 +196,7 @@ const mockPrisma = {
 
 mock.module("@asm/db", () => mockDb());
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

@@ -1,8 +1,8 @@
 import { tagCache } from "@asm/db";
 import { NextResponse } from "next/server";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { getWebLogger } from "@/lib/otel";
-import { getSessionFromApi } from "@/lib/session";
 
 // Recomputes denormalized tag counts across every post. That is real
 // database work, so it is restricted to admins (the UI never calls this;

@@ -7,7 +7,7 @@ import { useEffect } from "react";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
-} from "@/lib/cache-sync";
+} from "@/lib/posts/cache-sync";
 
 // Mount once in the authenticated shell: heals any `post.bookmarks` that was
 // serialized without its viewer-scoped join (stale `use cache` SSR prop,

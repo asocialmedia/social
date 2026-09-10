@@ -1,6 +1,7 @@
 import { prisma } from "@asm/db";
 import type { ConversationListPage, MessageConversationData } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import {
   areBlocked,
   getConversationMembersInclude,
@@ -8,7 +9,6 @@ import {
   isUniqueConstraintViolation,
   parseJsonBody,
 } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 const PAGE_SIZE = 20;
 

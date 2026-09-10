@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
-import { getSessionFromApi } from "@/lib/session";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),

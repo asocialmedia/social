@@ -8,7 +8,7 @@ import { useCallback, useState } from "react";
 // the auth client is resolved through this plain module-scoped loader. The
 // load stays lazy: it only runs when a logout actually happens.
 function loadAuthClient() {
-  return import("@/lib/auth").then((module) => module.authClient);
+  return import("@/lib/auth/auth").then((module) => module.authClient);
 }
 
 export function useLogout() {

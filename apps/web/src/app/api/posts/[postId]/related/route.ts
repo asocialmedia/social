@@ -1,7 +1,7 @@
 import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Exported for test parity: related-ranking.test.ts asserts against this
 // exact scorer so the ranking contract cannot silently drift from the math

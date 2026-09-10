@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockSessionUser: { user: { id: string } } | null = {
   user: { id: "user-123" },
 };
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => mockSessionUser,
 }));
 

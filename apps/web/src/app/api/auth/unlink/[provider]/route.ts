@@ -1,7 +1,7 @@
 import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:3001";
 const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;

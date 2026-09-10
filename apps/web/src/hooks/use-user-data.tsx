@@ -1,7 +1,7 @@
 import { getPrivateUserSelect, prisma } from "@asm/db";
 import { cache } from "react";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // The logged-in user's own data: private fields (storage keys, provider ids,
 // email) are only ever returned for the session owner and never embedded in

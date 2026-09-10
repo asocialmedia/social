@@ -11,7 +11,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
 import Linkify from "@/helpers/global/linkify";
-import { getPostPath } from "@/lib/seo";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl, getSecureImageUrl } from "@/lib/utils/image-url";
 

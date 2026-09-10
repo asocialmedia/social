@@ -6,7 +6,7 @@ import { useCallback, useRef } from "react";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
-import { getPostMediaPath, getPostPath } from "@/lib/seo";
+import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 
 // Renders the media viewer as the media page itself (not an overlay on the post
 // page). Navigating here jumps straight to a fullscreen media screen; closing

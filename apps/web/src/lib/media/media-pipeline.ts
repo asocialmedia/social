@@ -23,7 +23,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
-import { env } from "../../env";
+import { env } from "../../../env";
 import {
   multipartPartCount,
   MULTIPART_UPLOAD_PART_SIZE_BYTES,

@@ -16,7 +16,7 @@ import FloatingPostEditor from "@/components/layouts/mobile/floating-post-editor
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
 import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
-import { normalizePostData } from "@/lib/post-normalize";
+import { normalizePostData } from "@/lib/posts/post-normalize";
 import { withViewTransition } from "@/lib/view-transition";
 
 interface ClientPostProps {

@@ -13,8 +13,8 @@ import {
 } from "@asm/db";
 import type { FollowerInfo } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
-import { suggestedUsersCache } from "@/lib/suggested-users-cache";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
 export async function POST(
   _req: Request,

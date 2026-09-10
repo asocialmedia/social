@@ -6,7 +6,7 @@ import {
 } from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // A valid take value is a positive integer only (no partial-prefix parsing).
 const TAKE_PATTERN = /^[1-9]\d*$/;
