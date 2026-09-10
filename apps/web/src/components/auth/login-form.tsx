@@ -16,7 +16,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, Mail, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import type { ControllerRenderProps } from "react-hook-form";
@@ -30,7 +29,6 @@ import { useToast } from "@/lib/gooey-toast";
 
 export default function LoginForm() {
   const { toast } = useToast();
-  const router = useRouter();
   const [error, setError] = useState<string>();
   const [unverifiedEmail, setUnverifiedEmail] = useState<string>();
   const [isVerificationEmailSent, setIsVerificationEmailSent] = useState(false);
@@ -119,8 +117,9 @@ export default function LoginForm() {
       title: `Welcome back, ${displayName}!`,
     });
 
-    router.refresh();
-    router.push("/");
+    // A hard navigation reads the session cookie that the sign-in response
+    // just set, rather than reusing the guest App Router layout cache.
+    window.location.assign("/");
   }
 
   const renderUsernameField = useCallback(

@@ -1,5 +1,12 @@
 import { DEFAULT_LIMITS, maxBytesForType } from "@asm/media";
 
+import {
+  multipartPartBounds,
+  multipartPartCount,
+  MULTIPART_UPLOAD_PART_SIZE_BYTES,
+  MULTIPART_UPLOAD_THRESHOLD_BYTES,
+} from "./multipart-upload";
+
 // Client-side direct-to-storage uploader: initiate -> presigned PUT (XHR for
 // byte-level progress) -> finalize -> poll lifecycle status. Web servers never
 // touch media bytes.
@@ -20,7 +27,9 @@ export type UploadStage = "uploading" | "queued" | "scanning" | "processing";
 export interface CompletedUpload {
   mediaId: string;
   rejectedReason?: string | null;
-  status: "READY" | "REJECTED";
+  // QUEUED means the object is durably in quarantine and the server-side
+  // scanner/processor now owns the remaining work.
+  status: "QUEUED" | "READY" | "REJECTED";
 }
 
 export class MediaUploadError extends Error {
@@ -155,6 +164,45 @@ async function parseErrorMessage(response: Response): Promise<string> {
   }
 }
 
+// Shared XHR settlement plumbing: wires the abort listener, guards the
+// pre-aborted case, and settles exactly once. Both single-PUT and multipart
+// part uploads build on it and differ only in the resolved payload.
+function createXhrSettlement<T>(
+  xhr: XMLHttpRequest,
+  signal: AbortSignal | undefined,
+  resolve: (value: T) => void,
+  reject: (reason: Error) => void
+): {
+  rejectUpload: (message: string) => void;
+  resolveUpload: (value?: T) => void;
+} {
+  const abortUpload = () => xhr.abort();
+  let settled = false;
+  const rejectUpload = (message: string) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    signal?.removeEventListener("abort", abortUpload);
+    reject(new MediaUploadError(message));
+  };
+  // Optional so the no-payload (void-style) call site reads as resolveUpload().
+  const resolveUpload = (value?: T) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    signal?.removeEventListener("abort", abortUpload);
+    resolve(value as T);
+  };
+  if (signal?.aborted) {
+    rejectUpload("Upload aborted");
+  } else {
+    signal?.addEventListener("abort", abortUpload, { once: true });
+  }
+  return { rejectUpload, resolveUpload };
+}
+
 // XHR is the only browser API with upload progress events, so a Promise
 // wrapper around it is required here.
 // eslint-disable-next-line promise/avoid-new -- XHR needs a Promise wrapper
@@ -162,7 +210,8 @@ function putToPresignedUrl(
   uploadUrl: string,
   file: File,
   contentType: string,
-  onProgress: (percent: number) => void
+  onProgress: (percent: number) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   // XHR is the only browser API with upload progress events; a Promise
   // wrapper around it is required.
@@ -171,6 +220,15 @@ function putToPresignedUrl(
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl);
     xhr.setRequestHeader("Content-Type", contentType);
+    const { rejectUpload, resolveUpload } = createXhrSettlement<undefined>(
+      xhr,
+      signal,
+      resolve,
+      reject
+    );
+    if (signal?.aborted) {
+      return;
+    }
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
         onProgress(Math.round((event.loaded / event.total) * 100));
@@ -179,21 +237,200 @@ function putToPresignedUrl(
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         onProgress(100);
-        resolve();
+        resolveUpload();
       } else {
-        reject(
-          new MediaUploadError(`Storage rejected the upload (${xhr.status})`)
-        );
+        rejectUpload(`Storage rejected the upload (${xhr.status})`);
       }
     });
-    xhr.addEventListener("error", () =>
-      reject(new MediaUploadError("Upload failed"))
-    );
-    xhr.addEventListener("abort", () =>
-      reject(new MediaUploadError("Upload aborted"))
-    );
+    xhr.addEventListener("error", () => rejectUpload("Upload failed"));
+    xhr.addEventListener("abort", () => rejectUpload("Upload aborted"));
     xhr.send(file);
   });
+}
+
+function uploadMultipartPart(
+  uploadUrl: string,
+  part: Blob,
+  onProgress: (uploadedBytes: number) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  // XHR exposes both reliable upload progress and the ETag returned by S3.
+  // The ETag is required by CompleteMultipartUpload, so fetch is not enough.
+  // eslint-disable-next-line promise/avoid-new -- XHR needs a Promise wrapper
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    const { rejectUpload, resolveUpload } = createXhrSettlement<string>(
+      xhr,
+      signal,
+      resolve,
+      reject
+    );
+    if (signal?.aborted) {
+      return;
+    }
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        onProgress(event.loaded);
+      }
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        rejectUpload(`Storage rejected the upload (${xhr.status})`);
+        return;
+      }
+      const eTag = xhr.getResponseHeader("ETag");
+      if (!eTag) {
+        rejectUpload("Storage did not return the upload part identifier");
+        return;
+      }
+      onProgress(part.size);
+      resolveUpload(eTag);
+    });
+    xhr.addEventListener("error", () => rejectUpload("Upload failed"));
+    xhr.addEventListener("abort", () => rejectUpload("Upload aborted"));
+    xhr.send(part);
+  });
+}
+
+async function putMultipartToPresignedUrls(
+  file: File,
+  multipartUpload: { partSize: number; uploadId: string },
+  mediaId: string,
+  onProgress: (percent: number) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  if (multipartUpload.partSize !== MULTIPART_UPLOAD_PART_SIZE_BYTES) {
+    throw new MediaUploadError("Unsupported multipart upload configuration");
+  }
+  const partCount = multipartPartCount(file.size);
+  const parts: ({ eTag: string; partNumber: number } | undefined)[] = [];
+  const uploadedPartBytes = new Map<number, number>();
+  const multipartAbortController = new AbortController();
+  const abortMultipartUpload = () => multipartAbortController.abort();
+  if (signal?.aborted) {
+    abortMultipartUpload();
+  }
+  signal?.addEventListener("abort", abortMultipartUpload, { once: true });
+  let nextPartNumber = 1;
+
+  // Running total updated by per-part deltas: O(1) per progress event instead
+  // of re-summing every part on every XHR callback.
+  let totalUploadedBytes = 0;
+  const reportPartProgress = (partNumber: number, uploadedBytes: number) => {
+    const previous = uploadedPartBytes.get(partNumber) ?? 0;
+    totalUploadedBytes += uploadedBytes - previous;
+    uploadedPartBytes.set(partNumber, uploadedBytes);
+    onProgress(Math.round((totalUploadedBytes / file.size) * 100));
+  };
+
+  const uploadNextPart = async (): Promise<void> => {
+    for (;;) {
+      const partNumber = nextPartNumber;
+      nextPartNumber += 1;
+      if (partNumber > partCount) {
+        return;
+      }
+      const bounds = multipartPartBounds(file.size, partNumber);
+      if (!bounds) {
+        throw new MediaUploadError("Unable to split upload into storage parts");
+      }
+      // URLs are still requested immediately before each PUT. Three concurrent
+      // parts hide edge/signature latency while capping memory and bandwidth.
+      // eslint-disable-next-line no-await-in-loop -- each worker gets a URL for its next fresh part
+      const partUrlResponse = await fetch("/api/upload/part", {
+        body: JSON.stringify({
+          mediaId,
+          partNumber,
+          uploadId: multipartUpload.uploadId,
+        }),
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        signal: multipartAbortController.signal,
+      });
+      if (!partUrlResponse.ok) {
+        // eslint-disable-next-line no-await-in-loop -- the error body belongs to this part request
+        throw new MediaUploadError(await parseErrorMessage(partUrlResponse));
+      }
+      // eslint-disable-next-line no-await-in-loop -- the response body belongs to this part request
+      const responseBody = (await partUrlResponse.json()) as {
+        uploadUrl?: unknown;
+      };
+      if (
+        typeof responseBody.uploadUrl !== "string" ||
+        !responseBody.uploadUrl
+      ) {
+        throw new MediaUploadError("Storage part URL was not provided");
+      }
+      // A transient part failure no longer fails the whole upload: each part
+      // gets a bounded retry with backoff. Aborts propagate immediately.
+      const MAX_PART_ATTEMPTS = 3;
+      let eTag = "";
+      for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt += 1) {
+        try {
+          // eslint-disable-next-line no-await-in-loop -- a worker must finish its current PUT before taking another part
+          eTag = await uploadMultipartPart(
+            responseBody.uploadUrl,
+            file.slice(bounds.start, bounds.end),
+            (uploadedBytes) => reportPartProgress(partNumber, uploadedBytes),
+            multipartAbortController.signal
+          );
+          break;
+        } catch (partError) {
+          if (
+            attempt === MAX_PART_ATTEMPTS ||
+            multipartAbortController.signal.aborted
+          ) {
+            throw partError;
+          }
+          reportPartProgress(partNumber, 0);
+          // eslint-disable-next-line no-await-in-loop, no-promise-executor-return, promise/avoid-new -- transient storage retry
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+      parts[partNumber - 1] = { eTag, partNumber };
+    }
+  };
+
+  const MAX_CONCURRENT_MULTIPART_PARTS = 3;
+  try {
+    await Promise.all(
+      Array.from(
+        { length: Math.min(MAX_CONCURRENT_MULTIPART_PARTS, partCount) },
+        () => uploadNextPart()
+      )
+    );
+  } catch (error) {
+    // Stop sibling XHRs as soon as one part fails. The uncompleted multipart
+    // session remains invisible and the storage lifecycle handles cleanup.
+    abortMultipartUpload();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abortMultipartUpload);
+  }
+  const completedParts = parts.filter(
+    (part): part is { eTag: string; partNumber: number } => Boolean(part)
+  );
+  if (completedParts.length !== partCount) {
+    throw new MediaUploadError("One or more upload parts did not complete");
+  }
+
+  const completeResponse = await fetch("/api/upload/complete", {
+    body: JSON.stringify({
+      mediaId,
+      parts: completedParts,
+      uploadId: multipartUpload.uploadId,
+    }),
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+    signal,
+  });
+  if (!completeResponse.ok) {
+    throw new MediaUploadError(await parseErrorMessage(completeResponse));
+  }
+  onProgress(100);
 }
 
 /**
@@ -238,6 +475,10 @@ export async function uploadMediaFile(
     signal?: AbortSignal;
     onProgress?: (percent: number) => void;
     onStage?: (stage: UploadStage) => void;
+    // Post attachments can become publishable after finalization: storage
+    // bytes are immutable in quarantine and serving remains blocked until
+    // the pipeline marks them READY. Other callers retain the old wait.
+    waitForProcessing?: boolean;
   } = {}
 ): Promise<CompletedUpload> {
   const report =
@@ -250,6 +491,7 @@ export async function uploadMediaFile(
     (() => {
       /* empty */
     });
+  const shouldWaitForProcessing = options.waitForProcessing ?? true;
   const contentType = file.type || "application/octet-stream";
   const category = categoryForMime(contentType);
   if (!category) {
@@ -263,11 +505,10 @@ export async function uploadMediaFile(
   }
 
   // Pre-compute content hash to check for server-side deduplication / reuse.
-  // file.arrayBuffer() materializes the whole upload in memory, so on large
-  // videos (the dominant bandwidth cost of hashing) dedup is skipped: a
-  // fresh upload pipeline run costs far less than buffering a 2GB file in a
-  // browser tab. Smaller files always hash and keep instant reuse.
-  const DEDUP_HASH_MAX_BYTES = 256 * 1024 * 1024;
+  // file.arrayBuffer() materializes the whole upload in memory. Multipart
+  // videos skip that preflight pass, so their bytes go straight to storage
+  // instead of being read and hashed once before the actual upload begins.
+  const DEDUP_HASH_MAX_BYTES = MULTIPART_UPLOAD_THRESHOLD_BYTES;
   const sha256 =
     file.size <= DEDUP_HASH_MAX_BYTES ? await computeFileSha256(file) : null;
 
@@ -290,10 +531,12 @@ export async function uploadMediaFile(
   }
   const {
     mediaId,
+    multipartUpload,
     status: initialStatus,
     uploadUrl,
   } = (await initiateResponse.json()) as {
     mediaId: string;
+    multipartUpload: { partSize: number; uploadId: string } | null;
     status: UploadStatus;
     uploadUrl: string | null;
   };
@@ -313,6 +556,9 @@ export async function uploadMediaFile(
   ) {
     report(100);
     reportStage(uploadStatusToStage(initialStatus));
+    if (!shouldWaitForProcessing) {
+      return { mediaId, status: "QUEUED" };
+    }
     const outcome = await watchMediaStatus(mediaId, {
       onStage: reportStage,
       signal: options.signal,
@@ -330,11 +576,27 @@ export async function uploadMediaFile(
     };
   }
 
-  if (!uploadUrl) {
+  if (!uploadUrl && !multipartUpload) {
     throw new MediaUploadError("Upload URL was not provided");
   }
 
-  await putToPresignedUrl(uploadUrl, file, contentType, report);
+  if (multipartUpload) {
+    await putMultipartToPresignedUrls(
+      file,
+      multipartUpload,
+      mediaId,
+      report,
+      options.signal
+    );
+  } else if (uploadUrl) {
+    await putToPresignedUrl(
+      uploadUrl,
+      file,
+      contentType,
+      report,
+      options.signal
+    );
+  }
 
   let finalizeResponse: Response | null = null;
   const maxFinalizeAttempts = 4;
@@ -373,6 +635,10 @@ export async function uploadMediaFile(
   }
   // Bytes are in quarantine; the pipeline owns the file from here.
   reportStage("queued");
+
+  if (!shouldWaitForProcessing) {
+    return { mediaId, status: "QUEUED" };
+  }
 
   // Poll until the pipeline reaches a terminal state.
   const outcome = await watchMediaStatus(mediaId, {

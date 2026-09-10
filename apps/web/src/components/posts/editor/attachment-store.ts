@@ -40,6 +40,9 @@ export interface Attachment {
   mediaId?: string;
   mediaUrl?: string;
   name?: string;
+  // The post may be submitted while server-side scanning and transcoding
+  // continue. The media remains unavailable for serving until READY.
+  isProcessing?: boolean;
   progress: number;
   // Real pipeline phase from the status poll - drives the stage UI. Absent
   // on fully-settled drafts.
@@ -54,6 +57,7 @@ interface StoredAttachment {
   altText?: string;
   mediaId: string;
   name: string;
+  isProcessing?: boolean;
   resuming?: boolean;
   type: string;
 }
@@ -80,18 +84,37 @@ function loadStoredDraft(): {
     if (parsed.version !== STORAGE_VERSION) {
       return { attachments: [] };
     }
-    const attachments = (parsed.items ?? []).map((item) => ({
-      altText: item.altText,
-      ...(item.resuming
-        ? { isUploading: true, resuming: true, stage: "queued" as UploadStage }
-        : { isUploading: false }),
-      mediaId: item.mediaId,
-      // Restored drafts render straight from the serving URL.
-      mediaUrl: `/api/media/${item.mediaId}`,
-      name: item.name,
-      progress: 100,
-      type: item.type,
-    }));
+    const attachments = (parsed.items ?? []).map((item) => {
+      let uploadState: Pick<
+        Attachment,
+        "isProcessing" | "isUploading" | "resuming" | "stage"
+      >;
+      if (item.resuming) {
+        uploadState = {
+          isUploading: true,
+          resuming: true,
+          stage: "queued",
+        };
+      } else if (item.isProcessing) {
+        uploadState = {
+          isProcessing: true,
+          isUploading: false,
+          stage: "queued",
+        };
+      } else {
+        uploadState = { isUploading: false };
+      }
+      return {
+        altText: item.altText,
+        ...uploadState,
+        mediaId: item.mediaId,
+        // Restored drafts render straight from the serving URL.
+        mediaUrl: `/api/media/${item.mediaId}`,
+        name: item.name,
+        progress: 100,
+        type: item.type,
+      };
+    });
     return {
       attachments,
       // A mode is only meaningful alongside a real draft; an emptied draft
@@ -111,9 +134,10 @@ function persistAttachments(attachments: Attachment[]): void {
     .filter((attachment) => attachment.mediaId)
     .map((attachment) => ({
       altText: attachment.altText || undefined,
+      isProcessing: attachment.isProcessing || undefined,
       mediaId: attachment.mediaId as string,
       name: attachment.name ?? attachment.file?.name ?? "attachment",
-      resuming: attachment.isUploading || undefined,
+      resuming: attachment.isUploading || attachment.resuming || undefined,
       type: attachment.type ?? attachment.file?.type ?? "",
     }));
   // The draft's composer mode is captured live at every persist so a refresh
@@ -147,6 +171,9 @@ function clearStoredAttachments(): void {
 
 // Non-serializable per-file abort controllers live outside the store.
 const controllers = new Map<string, AbortController>();
+// One background status watcher per media id. Aborted when the attachment is
+// removed or the composer resets so detached loops stop polling /status.
+const watchControllers = new Map<string, AbortController>();
 let hydrated = false;
 
 // Fire-and-forget server discard for an unclaimed draft upload. The
@@ -227,8 +254,27 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     mediaId: string,
     outcome: StatusWatchOutcome
   ): void {
+    if (
+      !get().attachments.some((attachment) => attachment.mediaId === mediaId)
+    ) {
+      return;
+    }
     if (outcome.status === "DETACHED") {
-      // Keep the resuming marker; the next hydrate() re-attaches.
+      // The watch deadline expired while the pipeline still runs. Leave a
+      // resumable marker so retryUpload can re-attach a watcher without the
+      // original bytes instead of stranding the tile in processing forever.
+      commit(
+        get().attachments.map((attachment) =>
+          attachment.mediaId === mediaId
+            ? {
+                ...attachment,
+                error: "Still processing - check back in a moment",
+                isProcessing: false,
+                resuming: true,
+              }
+            : attachment
+        )
+      );
       return;
     }
     if (outcome.status === "REJECTED") {
@@ -243,10 +289,52 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
     commit(
       get().attachments.map((a) =>
         a.mediaId === mediaId
-          ? { ...a, isUploading: false, resuming: false, stage: undefined }
+          ? {
+              ...a,
+              isProcessing: false,
+              isUploading: false,
+              resuming: false,
+              stage: undefined,
+            }
           : a
       )
     );
+  }
+
+  function watchProcessingInBackground(mediaId: string): void {
+    // A re-attached watcher supersedes the previous loop for the same media.
+    watchControllers.get(mediaId)?.abort();
+    const controller = new AbortController();
+    watchControllers.set(mediaId, controller);
+    void (async () => {
+      try {
+        const outcome = await watchMediaStatus(mediaId, {
+          onStage: (stage) => {
+            set({
+              attachments: get().attachments.map((attachment) =>
+                attachment.mediaId === mediaId
+                  ? { ...attachment, stage }
+                  : attachment
+              ),
+            });
+          },
+          signal: controller.signal,
+        });
+        // Aborted loops (removal, reset, superseded watcher) leave no outcome:
+        // the attachment is gone or a fresher loop owns it.
+        if (controller.signal.aborted) {
+          return;
+        }
+        applyWatchOutcome(mediaId, outcome);
+      } catch {
+        // The persisted processing marker re-attaches a watcher when the
+        // composer mounts again after a transient auth or network failure.
+      } finally {
+        if (watchControllers.get(mediaId) === controller) {
+          watchControllers.delete(mediaId);
+        }
+      }
+    })();
   }
 
   return {
@@ -275,25 +363,10 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       // Deferred so the restored draft pops in right after the first paint.
       queueMicrotask(() => set({ attachments: stored.attachments }));
       for (const item of stored.attachments.filter(
-        (s) => s.resuming && s.mediaId
+        (attachment) =>
+          (attachment.resuming || attachment.isProcessing) && attachment.mediaId
       )) {
-        void (async () => {
-          try {
-            const outcome = await watchMediaStatus(item.mediaId as string, {
-              onStage: (stage) => {
-                set({
-                  attachments: get().attachments.map((a) =>
-                    a.mediaId === item.mediaId ? { ...a, stage } : a
-                  ),
-                });
-              },
-            });
-            applyWatchOutcome(item.mediaId as string, outcome);
-          } catch {
-            // Auth loss during watch: leave the resuming tile; the next
-            // hydrate retries once the user signs back in.
-          }
-        })();
+        watchProcessingInBackground(item.mediaId as string);
       }
     },
     isUploading: false,
@@ -304,6 +377,12 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
         (a) => (a.file?.name ?? a.name) === fileName
       );
       if (removed) {
+        if (removed.mediaId) {
+          // Stop the background status loop so it doesn't keep polling
+          // /status for media the composer no longer tracks.
+          watchControllers.get(removed.mediaId)?.abort();
+          watchControllers.delete(removed.mediaId);
+        }
         discardServerDraft(removed.mediaId);
       }
       dropAttachment(fileName);
@@ -315,6 +394,10 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       // Successful submit: attachments are now owned by the post, so
       // nothing is discarded server-side - only draft state goes away.
       controllers.clear();
+      for (const watcher of watchControllers.values()) {
+        watcher.abort();
+      }
+      watchControllers.clear();
       clearStoredAttachments();
       set({ attachments: [], isUploading: false });
     },
@@ -455,6 +538,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
           },
           purpose: "post",
           signal: controller.signal,
+          waitForProcessing: false,
         });
         if (result.status === "REJECTED") {
           toast({
@@ -474,16 +558,20 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
                 ? {
                     ...a,
                     error: undefined,
+                    isProcessing: result.status === "QUEUED",
                     isUploading: false,
                     mediaId: result.mediaId,
                     mediaUrl: `/api/media/${result.mediaId}`,
-                    stage: undefined,
+                    stage: result.status === "QUEUED" ? "queued" : undefined,
                   }
                 : a
             )
           );
           persistAttachments(get().attachments);
           flushPendingAltText(fileName);
+          if (result.status === "QUEUED") {
+            watchProcessingInBackground(result.mediaId);
+          }
         }
       } catch (error: unknown) {
         controllers.delete(file.name);
@@ -610,6 +698,7 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
               },
               purpose: "post",
               signal: controller.signal,
+              waitForProcessing: false,
             });
             if (result.status === "REJECTED") {
               toast({
@@ -628,16 +717,21 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
                   a.file === file
                     ? {
                         ...a,
+                        isProcessing: result.status === "QUEUED",
                         isUploading: false,
                         mediaId: result.mediaId,
                         mediaUrl: `/api/media/${result.mediaId}`,
-                        stage: undefined,
+                        stage:
+                          result.status === "QUEUED" ? "queued" : undefined,
                       }
                     : a
                 ),
               });
               persistAttachments(get().attachments);
               flushPendingAltText(file.name);
+              if (result.status === "QUEUED") {
+                watchProcessingInBackground(result.mediaId);
+              }
             }
           } catch (error: unknown) {
             // React Compiler cannot lower try/finally; cleanup happens on
@@ -703,6 +797,10 @@ if (typeof window !== "undefined") {
 export function __resetComposerAttachmentStoreForTests(): void {
   hydrated = false;
   controllers.clear();
+  for (const watcher of watchControllers.values()) {
+    watcher.abort();
+  }
+  watchControllers.clear();
   useComposerAttachmentStore.setState({
     attachments: [],
     isUploading: false,

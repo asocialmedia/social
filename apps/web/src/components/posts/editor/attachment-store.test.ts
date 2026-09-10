@@ -104,6 +104,23 @@ describe("composer attachment draft persistence", () => {
     expect(readRawDraft().mode).toBeUndefined();
   });
 
+  test("persists a non-blocking processing marker for a restored draft", () => {
+    const processingAttachment = {
+      ...gustVideoAttachment,
+      isProcessing: true,
+      stage: "queued" as const,
+    };
+    useComposerAttachmentStore
+      .getState()
+      .reorderAttachments([processingAttachment]);
+
+    const [storedAttachment] = readRawDraft().items as Record<
+      string,
+      unknown
+    >[];
+    expect(storedAttachment?.isProcessing).toBe(true);
+  });
+
   test("hydrate restores the draft and puts the composer back into its mode", async () => {
     seedRawDraft({
       items: [

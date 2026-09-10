@@ -412,6 +412,21 @@ export async function GET(
         );
       }
 
+      // Object or bucket missing: rustfs returns 404 for absent keys/buckets
+      // (seen in prod as NoSuchBucket). Map to 404 so the client gets a clean
+      // missing-asset response instead of a 500 that floods logs.
+      if (upstream.status === 404) {
+        return new NextResponse("Media not found", { status: 404 });
+      }
+
+      // Storage overloaded (disk full on rustfs volume – "Storage resources are
+      // insufficient" -> 500). Return 503 so clients/CDN can retry, don't log as 500.
+      if (upstream.status === 500) {
+        return new NextResponse("Storage temporarily unavailable", {
+          status: 503,
+        });
+      }
+
       // A valid partial response must be 206 with a Content-Range. Reject a
       // 200 (storage ignored the range and returned the whole object) and any
       // 206 missing the Content-Range header, which would confuse the client.
@@ -513,12 +528,28 @@ export async function GET(
     }
     // A row whose stored object vanished from storage (crash between publish
     // flip and upload, corrupted duplicate rows) is a missing asset, not a
-    // server fault - respond like an unknown media id.
+    // server fault - respond like an unknown media id. Also handle missing
+    // bucket (rustfs "NoSuchBucket" when "uploads" was never created or was
+    // lost after a volume reset/disk-full).
     if (
       error instanceof S3ServiceException &&
-      (error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404)
+      (error.name === "NoSuchKey" ||
+        error.name === "NoSuchBucket" ||
+        error.$metadata.httpStatusCode === 404)
     ) {
       return new NextResponse("Media not found", { status: 404 });
+    }
+    if (
+      error instanceof S3ServiceException &&
+      (error.name === "InternalError" ||
+        error.$metadata.httpStatusCode === 500) &&
+      String((error as unknown as { message?: string }).message ?? "").includes(
+        "Storage resources are insufficient"
+      )
+    ) {
+      return new NextResponse("Storage temporarily unavailable", {
+        status: 503,
+      });
     }
     const logger = getWebLogger();
     const payload = { error, mediaId };

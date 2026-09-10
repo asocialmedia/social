@@ -48,16 +48,17 @@ import { useCountdown } from "usehooks-ts";
 import {
   resendVerificationEmail,
   sendVerificationLink,
-  signUp,
 } from "@/app/(auth)/signup/actions";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
+import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { useSignupUrlState } from "@/hooks/use-signup-url-state";
 // Imported statically (it guards window access itself) so component bodies
 // never contain dynamic import() expressions, which React Compiler cannot
 // lower.
 import { authClient } from "@/lib/auth";
 import { useToast } from "@/lib/gooey-toast";
+import { requestSignup } from "@/lib/signup-client";
 
 import { PasswordStrengthChecker } from "./password-strength-checker";
 
@@ -262,6 +263,7 @@ export default function SignUpForm() {
   const ageVerifyId = useId();
   const termsId = useId();
   const [error, setError] = useState<string>();
+  const [showLoginLink, setShowLoginLink] = useState(false);
   const [password, setPassword] = useState("");
   const [isPending, startTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(false);
@@ -270,6 +272,8 @@ export default function SignUpForm() {
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
   const [isAgeVerified, setIsAgeVerified] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
   // URL-based state for UI panels (persisted across refreshes)
   const {
@@ -416,6 +420,10 @@ export default function SignUpForm() {
     setAcceptedTerms(checked);
   }, []);
 
+  const handleTurnstileTokenChange = useCallback((token: string | null) => {
+    setTurnstileToken(token);
+  }, []);
+
   const handlePasswordChange = useCallback(
     (field: ControllerRenderProps<SignUpValues, "password">) =>
       (event: ChangeEvent<HTMLInputElement>) => {
@@ -493,6 +501,7 @@ export default function SignUpForm() {
 
   const onSubmit = (values: SignUpValues) => {
     setError(undefined);
+    setShowLoginLink(false);
     if (!(isAgeVerified && acceptedTerms)) {
       toast({
         description:
@@ -514,11 +523,24 @@ export default function SignUpForm() {
       return;
     }
 
+    if (!turnstileToken) {
+      toast({
+        description:
+          "Complete the security check before creating your account.",
+        duration: 3000,
+        title: "One more step",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setStarting(true);
     startTransition(async () => {
       try {
         setIsLoading(true);
-        const result = await signUp(values);
+        const result = await requestSignup(values, turnstileToken);
+        setTurnstileToken(null);
+        setTurnstileResetKey((key) => key + 1);
 
         if (result.success) {
           if (result.requiresEmailVerification === false) {
@@ -584,9 +606,13 @@ export default function SignUpForm() {
         } else if (result.error) {
           const msg = String(result.error);
           setError(msg);
+          setShowLoginLink(result.errorCode === "user-exists");
           toast({
             description: msg,
-            title: "Signup Failed!",
+            title:
+              result.errorCode === "user-exists"
+                ? "Account Already Exists"
+                : "Signup Failed!",
             variant: "destructive",
           });
         }
@@ -874,6 +900,14 @@ export default function SignUpForm() {
                         <AlertCircle className="h-5 w-5 shrink-0 text-[#ff7b63]" />
                         {error}
                       </p>
+                      {showLoginLink ? (
+                        <Link
+                          className="text-primary mt-2 inline-flex font-medium underline-offset-4 hover:underline"
+                          href="/login"
+                        >
+                          Log in instead
+                        </Link>
+                      ) : null}
                     </div>
                   ) : null}
                   <FormField
@@ -936,8 +970,15 @@ export default function SignUpForm() {
                       </label>
                     </div>
 
+                    <TurnstileWidget
+                      key={turnstileResetKey}
+                      onTokenChange={handleTurnstileTokenChange}
+                      siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+                    />
+
                     <LoadingButton
                       className="my-4 w-full"
+                      disabled={!turnstileToken}
                       loading={isPending || isLoading || isStarting}
                       type="submit"
                       variant="premium"

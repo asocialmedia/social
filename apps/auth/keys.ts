@@ -43,6 +43,8 @@ export const keys = createEnv({
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL,
     TURBO_TELEMETRY_DISABLED: process.env.TURBO_TELEMETRY_DISABLED,
+    TURNSTILE_HOSTNAMES: process.env.TURNSTILE_HOSTNAMES,
+    TURNSTILE_SECRET: process.env.TURNSTILE_SECRET,
   },
 
   server: {
@@ -91,6 +93,8 @@ export const keys = createEnv({
     ),
     SUPPORT_EMAIL: z.email().default("hello@asocialmedia.cc"),
     TURBO_TELEMETRY_DISABLED: z.enum(["0", "1"]).default("1"),
+    TURNSTILE_HOSTNAMES: z.string().optional(),
+    TURNSTILE_SECRET: z.string().min(1).optional(),
   },
 
   skipValidation: process.env.NODE_ENV === "production",

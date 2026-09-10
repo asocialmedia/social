@@ -5,7 +5,9 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import {
   admin as adminPlugin,
+  captcha,
   emailOTP,
+  haveIBeenPwned,
   jwt,
   username,
 } from "better-auth/plugins";
@@ -92,6 +94,10 @@ export interface AuthConfig {
     otp: string;
     type: string;
   }) => Promise<void>;
+  turnstile?: {
+    allowedHostnames: string[];
+    secretKey: string;
+  };
 }
 
 type SocialProviderName = "google" | "reddit";
@@ -365,6 +371,24 @@ export function createAuthConfig(config: AuthConfig = {}) {
       username(),
       jwt(),
       adminPlugin(),
+      // Covers Better Auth's built-in credential routes. The application uses
+      // a separate pending-signup endpoint too, which verifies Turnstile at
+      // its own server boundary before it can call the auth service.
+      ...(config.turnstile
+        ? [
+            captcha({
+              allowedHostnames: config.turnstile.allowedHostnames,
+              endpoints: ["/sign-up/email"],
+              expectedAction: "signup",
+              provider: "cloudflare-turnstile",
+              secretKey: config.turnstile.secretKey,
+            }),
+          ]
+        : []),
+      haveIBeenPwned({
+        customPasswordCompromisedMessage:
+          "This password has appeared in a data breach. Please choose a different password.",
+      }),
       ...(sendVerificationOTP
         ? [
             emailOTP({
