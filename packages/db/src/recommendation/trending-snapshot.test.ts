@@ -52,7 +52,7 @@ const mockRedis = {
   }),
 };
 
-mock.module("./redis", () => ({ redis: mockRedis }));
+mock.module("../redis", () => ({ redis: mockRedis }));
 
 beforeEach(async () => {
   snapshot = await import("./trending-snapshot");

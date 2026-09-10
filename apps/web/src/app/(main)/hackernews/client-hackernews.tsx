@@ -15,8 +15,8 @@ import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class"
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import useDebounce from "@/hooks/use-debounce";
-import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
 
 // Swipe order mirrors the rendered tab strip order.
 const TAB_ORDER: HNSortOption[] = ["score", "time", "comments"];

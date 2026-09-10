@@ -19,8 +19,8 @@ import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
 import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
-import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 
 interface ProfilePageProps {
   loggedInUserData: PrivateUserData | null;

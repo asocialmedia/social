@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
 import JsonLd from "@/components/seo/json-ld";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
 

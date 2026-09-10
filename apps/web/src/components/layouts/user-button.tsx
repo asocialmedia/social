@@ -32,7 +32,7 @@ import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { useLogout } from "@/hooks/use-logout";
+import { useLogout } from "@/hooks/auth/use-logout";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 

@@ -7,7 +7,7 @@ import { GuestAuthBar } from "@/components/layouts/guest-auth-bar";
 import { MainShell } from "@/components/layouts/main-shell";
 import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { SpotlightProvider } from "@/components/search/spotlight-provider";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import SessionProvider from "./session-provider";

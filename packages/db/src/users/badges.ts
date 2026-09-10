@@ -1,4 +1,4 @@
-import prisma from "./prisma";
+import prisma from "../prisma";
 
 // Badge values stored on User.badges. "author" is special: the app allows at
 // most one holder, enforced in grantBadge so no code path can create a second.

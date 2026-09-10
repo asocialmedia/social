@@ -7,7 +7,7 @@
 
 import { createLogger } from "@asm/logger";
 
-import { redis } from "./redis";
+import { redis } from "../redis";
 
 const logger = createLogger({ serviceName: "trending-snapshot" });
 

@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import JsonLd from "@/components/seo/json-ld";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getRecentGustsForCrawl } from "@/lib/posts/server-feed";
 import { absoluteUrl, excerpt, siteConfig } from "@/lib/seo/seo";

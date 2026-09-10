@@ -18,7 +18,7 @@ import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
-import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 
 import Notification from "./notification";

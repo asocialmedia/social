@@ -10,7 +10,7 @@ import { useCallback, useMemo } from "react";
 
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
-import { useHnBookmarkStates } from "@/hooks/use-hn-bookmark-states";
+import { useHnBookmarkStates } from "@/hooks/posts/use-hn-bookmark-states";
 import kyInstance from "@/lib/ky";
 
 import HnFeedSkeleton from "./hn-feed-skeleton";

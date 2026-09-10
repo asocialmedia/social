@@ -5,8 +5,8 @@ import type { QueryKey } from "@tanstack/react-query";
 import { Bookmark, BookmarkCheck, BookmarkX } from "lucide-react";
 import { useCallback } from "react";
 
-import { adjustBookmarkCount } from "@/hooks/use-bookmark-count";
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { adjustBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";

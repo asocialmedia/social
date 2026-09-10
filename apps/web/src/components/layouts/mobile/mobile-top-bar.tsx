@@ -13,7 +13,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserProfilePopover from "@/components/home/sidebars/left/user-profile-popover";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notification-count";
+import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 

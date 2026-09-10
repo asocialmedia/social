@@ -10,7 +10,7 @@ import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import Linkify from "@/helpers/global/linkify";
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 

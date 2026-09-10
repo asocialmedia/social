@@ -7,7 +7,7 @@ import { cache, Suspense } from "react";
 
 import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
 import JsonLd from "@/components/seo/json-ld";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getUserPostsForCrawl } from "@/lib/posts/server-feed";
 import { absoluteUrl, excerpt } from "@/lib/seo/seo";

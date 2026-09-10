@@ -15,7 +15,7 @@ import type React from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/spinner-3d";
 import { useSpotlight } from "@/components/search/spotlight-provider";
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { cn, formatNumber, isRouteActive } from "@/lib/utils";
 

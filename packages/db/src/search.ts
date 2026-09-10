@@ -1,5 +1,5 @@
 import prisma from "./prisma";
-import { SYSTEM_MODERATION_USER_ID } from "./reserved-usernames";
+import { SYSTEM_MODERATION_USER_ID } from "./users/reserved-usernames";
 
 let ensurePromise: Promise<void> | null = null;
 

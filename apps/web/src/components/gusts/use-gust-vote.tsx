@@ -7,7 +7,7 @@ import type { QueryKey } from "@tanstack/react-query";
 import { ArrowBigDown, ArrowBigUp, Flame } from "lucide-react";
 import { useCallback } from "react";
 
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { applyAuraToCaches } from "@/lib/posts/cache-sync";

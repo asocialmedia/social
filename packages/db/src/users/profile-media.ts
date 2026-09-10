@@ -16,8 +16,8 @@
 // Storage quota follows the single-refund invariant: media.size is refunded
 // exactly once, at purge/reap — never at promotion.
 
-import prisma from "./prisma";
-import { deleteObject } from "./storage";
+import prisma from "../prisma";
+import { deleteObject } from "../storage";
 
 // Profile proxy URLs (/api/users/{avatar|banner}/{userId}/image) are constant
 // per user while the object behind them changes on every upload and again at
@@ -119,7 +119,7 @@ export async function purgeSupersededProfileMedia(
   }
 
   try {
-    const { redis } = await import("./redis");
+    const { redis } = await import("../redis");
     if (
       media.userId &&
       media.size > 0 &&
@@ -215,7 +215,7 @@ export async function promoteProfileDerivative(
 
   if (kind === "avatar") {
     try {
-      const { avatarCache } = await import("../cache/avatar-cache");
+      const { avatarCache } = await import("../../cache/avatar-cache");
       await avatarCache.set(owner, {
         key: chosen.key,
         updatedAt: new Date().toISOString(),

@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import FollowersFollowingPage from "./followers-following-page";

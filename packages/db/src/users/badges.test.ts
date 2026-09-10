@@ -19,7 +19,7 @@ const prismaMock = {
   },
 };
 
-mock.module("./prisma", () => ({ default: prismaMock }));
+mock.module("../prisma", () => ({ default: prismaMock }));
 
 beforeEach(() => {
   for (const methods of Object.values(prismaMock)) {

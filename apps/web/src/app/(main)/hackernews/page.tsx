@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import HackerNewsPageSkeleton from "@/components/layouts/skeletons/hackernews-page-skeleton";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import ClientHackerNews from "./client-hackernews";

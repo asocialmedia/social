@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   absoluteUrl,

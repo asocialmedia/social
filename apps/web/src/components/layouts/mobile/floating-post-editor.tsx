@@ -32,7 +32,7 @@ import { useCommentsRealtime } from "@/components/comments/use-comments-realtime
 import type { LiveCommentStore } from "@/components/comments/use-comments-realtime";
 import UserAvatar from "@/components/layouts/user-avatar";
 import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";

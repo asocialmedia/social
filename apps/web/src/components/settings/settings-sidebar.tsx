@@ -8,7 +8,7 @@ import type React from "react";
 import { APPLE_CARD_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { FossBanner } from "@/components/misc/foss-banner";
-import { useUserDataQuery } from "@/hooks/use-user-data-query";
+import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 

@@ -52,7 +52,7 @@ import {
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
 import { TurnstileWidget } from "@/components/auth/turnstile-widget";
-import { useSignupUrlState } from "@/hooks/use-signup-url-state";
+import { useSignupUrlState } from "@/hooks/auth/use-signup-url-state";
 // Imported statically (it guards window access itself) so component bodies
 // never contain dynamic import() expressions, which React Compiler cannot
 // lower.
