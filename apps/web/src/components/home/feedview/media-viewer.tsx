@@ -46,11 +46,12 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostMoreButton from "@/components/posts/post-more-button";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
-import { useExplicitRevealed } from "@/lib/explicit-reveal-store";
 import { formatFileName } from "@/lib/format-file-name";
 import { useToast } from "@/lib/gooey-toast";
-import { isBookmarkedByUser } from "@/lib/post-normalize";
-import { getPostMediaPath, getPostPath } from "@/lib/seo";
+import { isBookmarkedByUser } from "@/lib/posts/post-normalize";
+import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
+import { useExplicitRevealed } from "@/lib/stores/explicit-reveal-store";
+import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   getMediaImageUrl,
@@ -58,7 +59,6 @@ import {
   getMediaVariantUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
-import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import { AudioPreview } from "./audio-preview";
 import {

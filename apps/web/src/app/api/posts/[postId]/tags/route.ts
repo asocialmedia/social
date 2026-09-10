@@ -2,7 +2,7 @@ import { prisma, tagCache } from "@asm/db";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function POST(
   req: NextRequest,

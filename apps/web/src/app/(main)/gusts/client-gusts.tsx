@@ -30,7 +30,7 @@ import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { useSpotlight } from "@/components/search/spotlight-provider";
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import kyInstance from "@/lib/ky";
 import { useComposerStore } from "@/store/composer-store";
 

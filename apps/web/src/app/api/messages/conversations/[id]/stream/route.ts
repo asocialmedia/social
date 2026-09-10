@@ -5,8 +5,8 @@ import {
   subscribeToChannel,
 } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { getConversationForUser } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 // Server-Sent Events fan-out for real-time DMs, mirroring the comments stack.
 // Every message write is published to the conversation's Redis channel; each

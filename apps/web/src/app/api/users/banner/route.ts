@@ -1,8 +1,8 @@
 import { getPrivateUserSelect, prisma, profileProxyUrl } from "@asm/db";
 import { NextResponse } from "next/server";
 
-import { deleteBanner } from "@/lib/object-storage";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { deleteBanner } from "@/lib/media/object-storage";
 
 // Banner uploads go through the media pipeline (presigned PUT -> quarantine ->
 // ClamAV scan -> publish) and arrive here as finished Media rows. Linking only

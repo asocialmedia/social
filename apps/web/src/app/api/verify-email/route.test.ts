@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 
 import { POST } from "./route";
 
-mock.module("@/lib/auth-internal", () => ({
+mock.module("@/lib/auth/auth-internal", () => ({
   authInternalHeaders: (headers: Record<string, string>) => headers,
   getAuthBaseUrl: () => "http://auth.test",
 }));

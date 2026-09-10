@@ -29,9 +29,9 @@ import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import Linkify from "@/helpers/global/linkify";
-import { useBookmarkCount } from "@/hooks/use-bookmark-count";
-import { useLogout } from "@/hooks/use-logout";
-import { getAuraFlameClass } from "@/lib/aura";
+import { useLogout } from "@/hooks/auth/use-logout";
+import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 

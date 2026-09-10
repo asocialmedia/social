@@ -1,4 +1,4 @@
-import { getIndexNowKey } from "@/lib/indexnow";
+import { getIndexNowKey } from "@/lib/seo/indexnow";
 
 // Serves the IndexNow key file at /{KEY}.txt
 // IndexNow verification requires https://asocialmedia.cc/{KEY}.txt to contain exactly the key.

@@ -24,8 +24,8 @@ import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
-import { useBookmarkCount } from "@/hooks/use-bookmark-count";
-import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import kyInstance from "@/lib/ky";
 
 import BookmarkedGusts from "./bookmarked-gusts";

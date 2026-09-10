@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import BookmarksSkeleton from "@/components/layouts/skeletons/bookmarks-skeleton";
-import { getUserData } from "@/hooks/use-user-data";
-import { getSessionFromApi } from "@/lib/session";
+import { getUserData } from "@/hooks/users/use-user-data";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 import Bookmarks from "./bookmarks";
 

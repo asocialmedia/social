@@ -2,14 +2,14 @@ import { prisma } from "@asm/db";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
-import { decideMediaAccess } from "@/lib/media-access";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { decideMediaAccess } from "@/lib/media/media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
   generatePresignedUrl,
-} from "@/lib/object-storage";
+} from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
-import { getSessionFromApi } from "@/lib/session";
 import {
   getContentDisposition,
   isBlockedMediaMime,

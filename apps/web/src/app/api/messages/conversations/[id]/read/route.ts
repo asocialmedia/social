@@ -1,10 +1,10 @@
 import { prisma, publishConversationRead, unreadMessageCache } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import {
   getConversationForUser,
   unreadMessageWhere,
 } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 export async function POST(
   _request: Request,

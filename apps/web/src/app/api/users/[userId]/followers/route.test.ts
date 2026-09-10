@@ -132,11 +132,11 @@ mock.module("@asm/db", () => ({
   prisma: mockPrisma,
 }));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
-mock.module("@/lib/suggested-users-cache", () => ({
+mock.module("@/lib/users/suggested-users-cache", () => ({
   suggestedUsersCache: {
     invalidate: () => Promise.resolve(),
     invalidateForUser: () => {},

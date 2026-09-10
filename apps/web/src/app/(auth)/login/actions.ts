@@ -2,7 +2,7 @@
 
 import type { LoginValues } from "@asm/auth/validation";
 
-import { authClient } from "@/lib/auth";
+import { authClient } from "@/lib/auth/auth";
 
 const EMAIL_REGEX = /@/;
 

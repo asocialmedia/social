@@ -27,8 +27,8 @@ import { updateTag } from "next/cache";
 
 import { resolvePostEmbeds } from "@/lib/link-embeds/server";
 import { MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
-import { getPostUrl } from "@/lib/seo";
-import { getModerationSystemUserId } from "@/lib/system-moderation-user";
+import { getModerationSystemUserId } from "@/lib/moderation/system-moderation-user";
+import { getPostUrl } from "@/lib/seo/seo";
 
 type ExtendedCreatePostInput = CreatePostInput & {
   hnStory?: {
@@ -105,7 +105,7 @@ async function calculateAuraReward(mediaIds: string[], hasHnStory: boolean) {
 export async function submitPost(input: ExtendedCreatePostInput) {
   try {
     console.log("Checking session for post submission...");
-    const { getSessionFromApi } = await import("@/lib/session");
+    const { getSessionFromApi } = await import("@/lib/auth/session");
     const sessionData = await getSessionFromApi();
     console.log("Session check:", {
       hasSession: !!sessionData,
@@ -471,7 +471,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       const authorUrl = `${siteConfig.url}/users/${sessionData.user.username ?? sessionData.user.id}`;
       void (async () => {
         try {
-          const { submitManyToIndexNow } = await import("@/lib/indexnow");
+          const { submitManyToIndexNow } = await import("@/lib/seo/indexnow");
           // Submit the post + author profile + first hashtag page if any
           const urls = [postUrl, authorUrl];
           const firstTag = (newPost as { tags?: { name: string }[] }).tags?.[0]
@@ -505,7 +505,7 @@ export async function incrementPostView(postId: string) {
     await Promise.all([
       import("@asm/db"),
       import("next/headers"),
-      import("@/lib/session"),
+      import("@/lib/auth/session"),
     ]);
   const sessionData = await sessionModule.getSessionFromApi();
   const userId = sessionData?.user?.id;
@@ -520,7 +520,7 @@ export async function getPostViews(postId: string) {
 }
 
 export async function updatePostTags(postId: string, tags: string[]) {
-  const { getSessionFromApi } = await import("@/lib/session");
+  const { getSessionFromApi } = await import("@/lib/auth/session");
   const sessionData = await getSessionFromApi();
   if (!sessionData?.user) {
     throw new Error("Unauthorized");
@@ -568,7 +568,7 @@ export async function updatePostTags(postId: string, tags: string[]) {
 
 export async function updatePostMentions(postId: string, mentions: string[]) {
   try {
-    const { getSessionFromApi } = await import("@/lib/session");
+    const { getSessionFromApi } = await import("@/lib/auth/session");
     const sessionData = await getSessionFromApi();
     if (!sessionData?.user) {
       throw new Error("Unauthorized");

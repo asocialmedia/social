@@ -24,7 +24,7 @@ import SearchField from "@/components/layouts/search-field";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import PostHistoryCard from "@/components/posts/post-history-card";
-import { useFollowStates } from "@/hooks/use-follow-states";
+import { useFollowStates } from "@/hooks/users/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";

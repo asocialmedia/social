@@ -20,8 +20,8 @@ import {
   useEmbedImageError,
 } from "@/components/posts/embed-utils";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import { useUserDataQuery } from "@/hooks/use-user-data-query";
-import { getAuraFlameClass } from "@/lib/aura";
+import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";

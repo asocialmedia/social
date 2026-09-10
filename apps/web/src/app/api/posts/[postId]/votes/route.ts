@@ -8,9 +8,9 @@ import {
 } from "@asm/db";
 import type { PostData } from "@asm/db";
 
-import { runSerializableTransaction } from "@/lib/db-transactions";
-import { getSessionFromApi } from "@/lib/session";
-import { suggestedUsersCache } from "@/lib/suggested-users-cache";
+import { runSerializableTransaction } from "@/lib/aura/db-transactions";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
 interface VoteInfo {
   aura: number;

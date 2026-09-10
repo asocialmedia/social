@@ -5,7 +5,7 @@ import {
   prisma,
 } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Batched view increment: the client accumulates visible post ids and posts
 // them here in one request instead of one request per post. Signed-in viewers

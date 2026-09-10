@@ -32,7 +32,7 @@ const mockHasMessageIdentity = mock(
   (userId: string) => userId !== "no-identity"
 );
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

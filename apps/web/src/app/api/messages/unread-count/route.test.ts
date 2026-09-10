@@ -14,7 +14,7 @@ const mockMemberships = mock(() => [
 ]);
 const mockCount = mock(() => 7);
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

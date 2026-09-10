@@ -1,6 +1,6 @@
 import { followerInfoCache } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET(req: Request) {
   try {

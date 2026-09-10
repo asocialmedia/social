@@ -55,7 +55,7 @@ mock.module("@asm/db", () => ({
   redis: mockRedis,
 }));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

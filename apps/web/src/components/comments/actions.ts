@@ -15,7 +15,7 @@ export async function submitComment({
   mediaIds?: string[];
   parentId?: string;
 }): Promise<CommentData> {
-  const { getSessionFromApi } = await import("@/lib/session");
+  const { getSessionFromApi } = await import("@/lib/auth/session");
   const sessionData = await getSessionFromApi();
 
   if (!sessionData?.user) {
@@ -32,7 +32,7 @@ export async function submitComment({
 }
 
 export async function deleteComment(id: string): Promise<CommentData> {
-  const { getSessionFromApi } = await import("@/lib/session");
+  const { getSessionFromApi } = await import("@/lib/auth/session");
   const sessionData = await getSessionFromApi();
 
   if (!sessionData?.user) {

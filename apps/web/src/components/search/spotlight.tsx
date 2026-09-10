@@ -18,8 +18,8 @@ import {
   normalizeHistoryItem,
   useSearchHistory,
 } from "@/components/search/use-search-history";
-import { getAuraFlameClass } from "@/lib/aura";
-import { getPostPath } from "@/lib/seo";
+import { getAuraFlameClass } from "@/lib/aura/aura";
+import { getPostPath } from "@/lib/seo/seo";
 import {
   cn,
   formatNumber,

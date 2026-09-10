@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import type * as React from "react";
 import { useCallback, useEffect } from "react";
 
-import { adjustBookmarkCount } from "@/hooks/use-bookmark-count";
+import { adjustBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { toast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 

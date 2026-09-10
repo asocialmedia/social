@@ -1,7 +1,7 @@
 import { Prisma, prisma } from "@asm/db";
 import { z } from "zod";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const usernameSchema = z.object({
   username: z

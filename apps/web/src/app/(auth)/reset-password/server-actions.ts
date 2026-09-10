@@ -6,7 +6,7 @@ import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 
 async function makePasswordResetRequest(
   identifier: string,

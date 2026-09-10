@@ -1,4 +1,8 @@
-import { buildSitemapXml, getSitemapEntries, isSitemapId } from "@/lib/sitemap";
+import {
+  buildSitemapXml,
+  getSitemapEntries,
+  isSitemapId,
+} from "@/lib/seo/sitemap";
 
 // Child sitemaps: /sitemaps/{core,posts,users,tags}.xml. The id comes from
 // the URL segment here (unlike the old generateSitemaps convention that

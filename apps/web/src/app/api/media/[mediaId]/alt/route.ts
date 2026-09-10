@@ -2,7 +2,7 @@ import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Owner-only alt-text authoring. Alt text describes visual content for
 // non-visual users; it must never be keyword-stuffed for SEO. Empty string

@@ -7,7 +7,7 @@ import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { applyCommentCountDeltaToCaches } from "@/lib/cache-sync";
+import { applyCommentCountDeltaToCaches } from "@/lib/posts/cache-sync";
 
 // Realtime comments never live inside a single fetched page (a page could be
 // refetched or the reply could target a thread that is still loading), so they

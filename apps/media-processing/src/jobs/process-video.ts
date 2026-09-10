@@ -13,6 +13,8 @@ import {
 } from "@asm/media";
 import type { MediaLimits } from "@asm/media";
 
+import { mediaLogger, withSpan } from "../log";
+import { getS3 } from "../s3";
 import {
   enforceDecoderLimits,
   extractGrayPixels,
@@ -20,10 +22,8 @@ import {
   withTimeout,
   FfmpegError,
   probeMedia,
-} from "../ffmpeg";
-import type { ProbeResult } from "../ffmpeg";
-import { mediaLogger, withSpan } from "../log";
-import { getS3 } from "../s3";
+} from "../transcode/ffmpeg";
+import type { ProbeResult } from "../transcode/ffmpeg";
 
 const PROGRESSIVE_MAX_HEIGHT = 1080;
 

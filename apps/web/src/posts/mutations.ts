@@ -5,7 +5,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useToast } from "@/lib/gooey-toast";
-import { getShortPostId } from "@/lib/seo";
+import { getShortPostId } from "@/lib/seo/seo";
 
 import { deletePost, updatePostModeration } from "./actions";
 import type { PostModerationChanges } from "./actions";

@@ -2,7 +2,7 @@ import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { guardApiRequest } from "@/lib/api-security";
+import { guardApiRequest } from "@/lib/security/api-security";
 
 const LOOPBACK_HOSTNAMES = new Set([
   "localhost",

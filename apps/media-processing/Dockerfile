@@ -21,9 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         libgomp1 \
         libstdc++6 \
-        # netcat: the ClamAV INSTREAM transport (Bun socket.write drops data
-        # under TCP backpressure; the nc subprocess pipe gets kernel-level
-        # flow control). See src/clamav.ts.
         netcat-openbsd \
         tini \
     && rm -rf /var/lib/apt/lists/* \
@@ -37,9 +34,6 @@ COPY --from=build --chown=media:media /app/apps/media-processing ./apps/media-pr
 WORKDIR /app/apps/media-processing
 USER media
 ENV NODE_ENV=production
-# Explicit here because t3-env skipValidation (NODE_ENV=production) does not
-# apply zod defaults - without this the OCR stage would silently read as
-# disabled. Override with MEDIA_OCR_ENABLED=0 at deploy to turn it off.
 ENV MEDIA_OCR_ENABLED=1
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3010/health || exit 1

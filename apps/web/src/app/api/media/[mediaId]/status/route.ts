@@ -1,8 +1,8 @@
 import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 
-import { decideMediaAccess } from "@/lib/media-access";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { decideMediaAccess } from "@/lib/media/media-access";
 
 // Lightweight lifecycle polling for the composer: the frontend uploads
 // asynchronously and needs to know when an attachment becomes READY (or was

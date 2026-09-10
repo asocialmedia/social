@@ -58,7 +58,7 @@ mock.module("@asm/db", () => ({
   prisma: mockPrisma,
 }));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => state.session,
 }));
 

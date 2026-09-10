@@ -8,7 +8,7 @@ import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
-import { useTags } from "@/hooks/use-tags";
+import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
 
 // Compact tag + mention pickers for the gust composer. Unlike the post

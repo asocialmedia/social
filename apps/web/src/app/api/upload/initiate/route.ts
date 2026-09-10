@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createInitiatedUpload, UploadPolicyError } from "@/lib/media-pipeline";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  createInitiatedUpload,
+  UploadPolicyError,
+} from "@/lib/media/media-pipeline";
 
 // Initiates a media upload. The browser uploads the bytes directly to object
 // storage through the returned presigned PUT URL; this endpoint only performs

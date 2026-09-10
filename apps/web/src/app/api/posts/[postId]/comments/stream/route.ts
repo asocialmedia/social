@@ -1,6 +1,6 @@
 import { commentChannel, parseCommentEvent, subscribeToChannel } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Server-Sent Events fan-out for real-time eddies. Every comment write is
 // published to the post's Redis channel; each open stream here subscribes to

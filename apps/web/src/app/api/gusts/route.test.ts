@@ -91,7 +91,7 @@ mock.module("@asm/db", () => ({
   },
 }));
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

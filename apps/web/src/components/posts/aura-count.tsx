@@ -8,7 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Flame } from "lucide-react";
 
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 

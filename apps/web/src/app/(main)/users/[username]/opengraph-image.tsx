@@ -3,8 +3,8 @@ import { getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { ImageResponse } from "next/og";
 
-import { getOgFontOptions } from "@/lib/og-fonts";
-import { excerpt, toAbsoluteUrl } from "@/lib/seo";
+import { getOgFontOptions } from "@/lib/seo/og-fonts";
+import { excerpt, toAbsoluteUrl } from "@/lib/seo/seo";
 
 export const alt = "asocialmedia user profile";
 export const size = {

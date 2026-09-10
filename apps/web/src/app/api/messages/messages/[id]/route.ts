@@ -1,7 +1,7 @@
 import { prisma, publishMessageDeleted } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import { areBlocked } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 export async function DELETE(
   _request: Request,

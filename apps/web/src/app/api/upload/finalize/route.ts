@@ -3,12 +3,12 @@ import { maxBytesForType } from "@asm/media";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import {
   headStoredObject,
   MEDIA_LIMITS,
   UploadPolicyError,
-} from "@/lib/media-pipeline";
-import { getSessionFromApi } from "@/lib/session";
+} from "@/lib/media/media-pipeline";
 
 // Completes a presigned direct upload. Verifies the object actually landed in
 // quarantine, enforces the declared size against reality, moves the row into

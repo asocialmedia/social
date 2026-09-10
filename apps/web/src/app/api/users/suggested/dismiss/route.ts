@@ -1,7 +1,7 @@
 import { prisma, redis } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const logger = createLogger({ serviceName: "api-suggested-dismiss" });
 

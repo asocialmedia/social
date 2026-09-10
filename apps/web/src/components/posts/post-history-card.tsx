@@ -22,10 +22,10 @@ import {
   useEmbedImageError,
 } from "@/components/posts/embed-utils";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import { getAuraFlameClass } from "@/lib/aura";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
-import { getPostPath } from "@/lib/seo";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 

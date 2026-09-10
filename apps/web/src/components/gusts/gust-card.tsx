@@ -43,10 +43,10 @@ import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
-import { toggleAltReveal, useAltRevealed } from "@/lib/alt-reveal-store";
+import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
+import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
-import { useVideoCaptionsStore } from "@/lib/video-captions-store";
 
 import GustVoteButton from "./gust-vote-button";
 import { useGustVote } from "./use-gust-vote";

@@ -1,6 +1,6 @@
 import { getUserDataSelect, prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET() {
   const session = await getSessionFromApi();

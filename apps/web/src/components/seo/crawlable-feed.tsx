@@ -1,8 +1,8 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import Link from "next/link";
 
-import { getPostPath, getPostUrl } from "@/lib/seo";
-import type { CrawlPost } from "@/lib/server-feed";
+import type { CrawlPost } from "@/lib/posts/server-feed";
+import { getPostPath, getPostUrl } from "@/lib/seo/seo";
 
 interface CrawlableFeedProps {
   posts: CrawlPost[];

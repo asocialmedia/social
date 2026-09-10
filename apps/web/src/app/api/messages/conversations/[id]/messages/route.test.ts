@@ -30,7 +30,7 @@ const txClient = {
   messageConversationKey: { updateMany: mockKeyUpdateMany },
 };
 
-mock.module("@/lib/session", () => ({
+mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 

@@ -5,8 +5,8 @@ import { Suspense } from "react";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import { MessageIdentityProvider } from "@/components/messages/message-identity-provider";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
-import { getUserData } from "@/hooks/use-user-data";
-import { getSessionFromApi } from "@/lib/session";
+import { getUserData } from "@/hooks/users/use-user-data";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 import ClientMessages from "./client-messages";
 

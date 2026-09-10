@@ -2,7 +2,7 @@ import { prisma } from "@asm/db";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
-import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
+import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 
 // Banners live in the private ASMOB bucket (key prefix `banners/{userId}/...`)
 // and are streamed through this app route so content is only reachable via the

@@ -2,7 +2,7 @@ import { avatarCache, prisma } from "@asm/db";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
-import { ASMOB_BUCKET, asmobClient } from "@/lib/object-storage";
+import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 import { getDefaultAvatar } from "@/lib/utils/image-url";
 
 const IMAGE_CONTENT_TYPES = new Set([

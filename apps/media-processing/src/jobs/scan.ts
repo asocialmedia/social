@@ -18,18 +18,18 @@ import {
 } from "@asm/media";
 import type { MediaScanJobData } from "@asm/media";
 
-import { stripAvContainerMetadata } from "../av-strip";
-import {
-  scanStream,
-  ClamAvSizeLimitError,
-  ClamAvUnavailableError,
-} from "../clamav";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
-import { withTimeout } from "../ffmpeg";
 import { mediaLogger, withSpan } from "../log";
 import { inspectAssetProvenance } from "../provenance/reader";
 import { stampAiGenerated } from "../provenance/stamp";
 import { getS3 } from "../s3";
+import { stripAvContainerMetadata } from "../scan/av-strip";
+import {
+  scanStream,
+  ClamAvSizeLimitError,
+  ClamAvUnavailableError,
+} from "../scan/clamav";
+import { withTimeout } from "../transcode/ffmpeg";
 
 const SCAN_LIMITS = resolveWorkerMediaLimits();
 

@@ -1,6 +1,7 @@
 import type { MessageData, MessagePage } from "@asm/db";
 import { prisma, publishMessageCreated, unreadMessageCache } from "@asm/db";
 
+import { getSessionFromApi } from "@/lib/auth/session";
 import {
   areBlocked,
   getConversationForUser,
@@ -9,7 +10,6 @@ import {
   nextRatchetIndex,
   parseJsonBody,
 } from "@/lib/messages/server";
-import { getSessionFromApi } from "@/lib/session";
 
 const PAGE_SIZE = 30;
 

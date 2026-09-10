@@ -25,7 +25,7 @@ import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
 import PostEditor from "@/components/posts/editor/post-editor";
-import { useFeedSwipeNavigation } from "@/hooks/use-feed-swipe-navigation";
+import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 
 interface ClientHomeProps {

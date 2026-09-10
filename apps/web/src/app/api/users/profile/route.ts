@@ -3,7 +3,7 @@ import { getPrivateUserSelect, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function POST(request: Request) {
   try {

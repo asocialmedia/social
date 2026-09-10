@@ -1,7 +1,7 @@
 import { getUserDataSelect, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET(
   _request: Request,

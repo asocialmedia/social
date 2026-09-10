@@ -3,18 +3,18 @@ import { hlsBaseFromMasterKey } from "@asm/media";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
-import { decideMediaAccess } from "@/lib/media-access";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { decideMediaAccess } from "@/lib/media/media-access";
 import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
-} from "@/lib/media-variants";
+} from "@/lib/media/media-variants";
 import {
   ASMOB_BUCKET,
   asmobClient,
   generatePresignedUrl,
-} from "@/lib/object-storage";
+} from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
-import { getSessionFromApi } from "@/lib/session";
 
 // Serves pipeline-generated derivatives: /api/media/{id}/v/{name}
 //   images    thumb-webp, thumb-jpg, sm-webp, md-webp, lg-webp, orig-img-webp

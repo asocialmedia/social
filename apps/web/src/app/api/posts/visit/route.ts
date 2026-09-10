@@ -1,6 +1,6 @@
 import { prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function POST(request: Request) {
   const session = await getSessionFromApi();

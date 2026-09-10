@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const emailSignIn = mock();
 const usernameSignIn = mock();
 
-mock.module("@/lib/auth", () => ({
+mock.module("@/lib/auth/auth", () => ({
   authClient: {
     signIn: {
       email: emailSignIn,

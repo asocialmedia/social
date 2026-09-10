@@ -8,11 +8,11 @@ import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
-import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import {
   useFollowUserMutation,
   useUnfollowUserMutation,
-} from "@/hooks/user-mutations";
+} from "@/hooks/users/user-mutations";
 import { cn } from "@/lib/utils";
 
 import { useFollowStateStore } from "./follow-state";

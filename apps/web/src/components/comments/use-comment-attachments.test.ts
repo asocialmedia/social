@@ -10,7 +10,7 @@ const mockUploadMediaFile = mock(() =>
 );
 const mockToast = mock(() => {});
 
-mock.module("@/lib/media-upload-client", () => ({
+mock.module("@/lib/media/media-upload-client", () => ({
   uploadMediaFile: mockUploadMediaFile,
 }));
 

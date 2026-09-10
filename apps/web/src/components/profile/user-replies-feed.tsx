@@ -17,7 +17,7 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import Linkify from "@/helpers/global/linkify";
 import kyInstance from "@/lib/ky";
-import { getPostPath } from "@/lib/seo";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 import EmptyFeedState from "./empty-feed-state";

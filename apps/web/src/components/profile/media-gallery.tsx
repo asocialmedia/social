@@ -15,10 +15,10 @@ import { useMediaQuery } from "usehooks-ts";
 import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import ModeratedNotice from "@/components/posts/moderated-notice";
-import { useUserMediaQuery } from "@/hooks/use-user-media-query";
-import type { UserMediaItem } from "@/hooks/use-user-media-query";
+import { useUserMediaQuery } from "@/hooks/users/use-user-media-query";
+import type { UserMediaItem } from "@/hooks/users/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";
-import { getPostMediaPath, getPostPath } from "@/lib/seo";
+import { getPostMediaPath, getPostPath } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 import {
   getMediaImageSrcSet,

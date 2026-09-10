@@ -447,6 +447,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
 
     account: {
       accountLinking: {
+        allowDifferentEmails: true,
         enabled: trustedProviders.length > 0,
         trustedProviders,
       },

@@ -9,7 +9,7 @@ import type { Variants } from "motion/react";
 import { useCallback, useState } from "react";
 import type { MouseEvent } from "react";
 
-import { useTags } from "@/hooks/use-tags";
+import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { UploadPolicyError, attachCustomThumbnail } from "@/lib/media-pipeline";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  UploadPolicyError,
+  attachCustomThumbnail,
+} from "@/lib/media/media-pipeline";
 
 // Owner-only gust thumbnail attachment. The uploaded IMAGE media row's
 // verified bytes are copied into the video's key space and preferred by the

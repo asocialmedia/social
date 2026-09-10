@@ -4,7 +4,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import type React from "react";
 
 import { GooeyToaster } from "@/components/auth/gooey-toaster";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 // Auth pages (login, signup, reset, verify) are not indexable content. The
 // only pages Google ever managed to crawl were these three; an explicit

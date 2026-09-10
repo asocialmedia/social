@@ -2,7 +2,7 @@ import { debugLog } from "@asm/config/debug";
 import { getClientIpFromHeaders } from "@asm/db";
 import type { NextRequest } from "next/server";
 
-import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth-internal";
+import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
 
 type PendingVerifyResult =
   | { ok: true; data?: { email: string; password: string } }

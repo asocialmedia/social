@@ -6,7 +6,9 @@ import { cache, Suspense } from "react";
 
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
 import JsonLd from "@/components/seo/json-ld";
-import { getUserData } from "@/hooks/use-user-data";
+import { getUserData } from "@/hooks/users/use-user-data";
+import { getSessionFromApi } from "@/lib/auth/session";
+import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
 import {
   absoluteUrl,
   getPostImage,
@@ -14,9 +16,7 @@ import {
   getPostUrl,
   postDescription,
   postTitle,
-} from "@/lib/seo";
-import { getRecentPostsForCrawl } from "@/lib/server-feed";
-import { getSessionFromApi } from "@/lib/session";
+} from "@/lib/seo/seo";
 
 import ClientPost from "./client-post";
 

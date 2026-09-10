@@ -6,7 +6,7 @@ import {
 } from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET(
   req: Request,

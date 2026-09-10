@@ -4,7 +4,7 @@ import type {
   MessagePage,
 } from "@asm/db";
 
-import { uploadMediaFile } from "@/lib/media-upload-client";
+import { uploadMediaFile } from "@/lib/media/media-upload-client";
 
 import {
   decryptMessage,

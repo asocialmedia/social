@@ -16,7 +16,8 @@ import {
   InputOTPSlot,
 } from "@asm/ui/shadui/input-otp";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AtSign, Mail } from "lucide-react";
+import { AtSign, KeyRound, Mail } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import type { ControllerRenderProps } from "react-hook-form";
@@ -26,6 +27,7 @@ import { LoadingButton } from "@/components/auth/loading-button";
 import AddEmailBanner from "@/components/settings/add-email-banner";
 import LinkAccountAlert from "@/components/settings/link-account-alert";
 import LinkedAccounts from "@/components/settings/linked-accounts";
+import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
 import {
   ORANGE_GRADIENT_CLASS,
   SettingsCard,
@@ -64,14 +66,28 @@ const emailVerifySchema = z.object({
   otp: z.string().min(4, "Please enter the verification code"),
 });
 
+const passwordSetupSchema = z
+  .object({
+    confirmPassword: z.string(),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(256, "Password must be at most 256 characters"),
+  })
+  .refine((values) => values.password === values.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
 type UsernameFormValues = z.infer<typeof usernameSchema>;
 type EmailFormValues = z.infer<typeof emailSchema>;
 type EmailVerifyFormValues = z.infer<typeof emailVerifySchema>;
+type PasswordSetupFormValues = z.infer<typeof passwordSetupSchema>;
 
 function handleSocialLink(provider: string) {
   // Navigate to the link route which starts the OAuth flow with the user's
   // session and redirects back to the provider's authorization page.
-  window.location.href = `/api/auth/link/${provider}`;
+  window.location.href = `/api/auth/link/${provider}?confirmed=1`;
 }
 
 const BUTTON_CLASS = cn(
@@ -156,17 +172,23 @@ const OtpFieldRenderer = ({
 );
 
 interface AccountSettingsProps {
+  accountLinkingReadiness: AccountLinkingReadiness;
   user: PrivateUserData;
 }
 
-export default function AccountSettings({ user }: AccountSettingsProps) {
+export default function AccountSettings({
+  accountLinkingReadiness,
+  user,
+}: AccountSettingsProps) {
   const { toast } = useToast();
+  const router = useRouter();
   // When true, the current-email verification code has been sent and the new
   // email + current code are ready to submit.
   const [currentEmailCodeSent, setCurrentEmailCodeSent] = useState(false);
   // When true, the OTP step for confirming the new email is shown.
   const [emailChangeRequested, setEmailChangeRequested] = useState(false);
   const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
+  const [isSettingPassword, setIsSettingPassword] = useState(false);
 
   const usernameForm = useForm<UsernameFormValues>({
     defaultValues: {
@@ -189,6 +211,11 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       otp: "",
     },
     resolver: zodResolver(emailVerifySchema),
+  });
+
+  const passwordSetupForm = useForm<PasswordSetupFormValues>({
+    defaultValues: { confirmPassword: "", password: "" },
+    resolver: zodResolver(passwordSetupSchema),
   });
 
   const usernameMutation = useUpdateUsername();
@@ -287,6 +314,7 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       onSuccess: () => {
         setEmailChangeRequested(false);
         setPendingNewEmail(null);
+        router.refresh();
         toast({
           description: "Your email is updated and verified!",
           title: "Email Updated",
@@ -299,6 +327,42 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
     setEmailChangeRequested(false);
     setPendingNewEmail(null);
     emailForm.setValue("email", user.email || "");
+  }
+
+  async function onPasswordSetupSubmit(values: PasswordSetupFormValues) {
+    setIsSettingPassword(true);
+    try {
+      const response = await fetch("/api/users/password", {
+        body: JSON.stringify({ password: values.password }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Couldn't add a password. Please try again."
+        );
+      }
+
+      passwordSetupForm.reset();
+      router.refresh();
+      toast({
+        description: "You can now connect another sign-in method.",
+        title: "Password Added",
+      });
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error
+            ? error.message
+            : "Couldn't add a password. Please try again.",
+        title: "Couldn't Add Password",
+        variant: "destructive",
+      });
+    }
+    setIsSettingPassword(false);
   }
 
   return (
@@ -473,8 +537,93 @@ export default function AccountSettings({ user }: AccountSettingsProps) {
       </SettingsCard>
 
       <SettingsCard className="scroll-mt-24" id="settings-linked-accounts">
-        <LinkedAccounts onLink={handleSocialLink} user={user} />
+        <LinkedAccounts
+          accountLinkingReadiness={accountLinkingReadiness}
+          onLink={handleSocialLink}
+          user={user}
+        />
       </SettingsCard>
+
+      {!accountLinkingReadiness.hasPassword && (
+        <SettingsCard className="scroll-mt-24" id="settings-add-password">
+          <div className="flex items-center gap-2">
+            <div
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-lg",
+                ORANGE_GRADIENT_CLASS
+              )}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+            </div>
+            <div>
+              <h3 className="font-medium">Add a Password</h3>
+              <p className="text-muted-foreground text-sm">
+                Add a backup way to sign in before connecting another provider
+              </p>
+            </div>
+          </div>
+
+          {accountLinkingReadiness.hasVerifiedEmail ? (
+            <Form {...passwordSetupForm}>
+              <form
+                className="mt-4 space-y-4"
+                onSubmit={passwordSetupForm.handleSubmit(onPasswordSetupSubmit)}
+              >
+                <FormField
+                  control={passwordSetupForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>New password</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="new-password"
+                          className="premium-input h-10 rounded-xl text-sm"
+                          type="password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={passwordSetupForm.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Confirm password</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="new-password"
+                          className="premium-input h-10 rounded-xl text-sm"
+                          type="password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end">
+                  <LoadingButton
+                    className={BUTTON_CLASS}
+                    loading={isSettingPassword}
+                    type="submit"
+                  >
+                    Add Password
+                  </LoadingButton>
+                </div>
+              </form>
+            </Form>
+          ) : (
+            <p className="text-muted-foreground mt-4 text-sm">
+              Add and verify an email address above first. This protects your
+              account if you lose access to a connected provider.
+            </p>
+          )}
+        </SettingsCard>
+      )}
     </div>
   );
 }

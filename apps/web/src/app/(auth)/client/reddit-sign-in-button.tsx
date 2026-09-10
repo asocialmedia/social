@@ -1,7 +1,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import { Loader2 } from "lucide-react";
 
-import { authClient } from "@/lib/auth";
+import { authClient } from "@/lib/auth/auth";
 
 interface Props {
   disabled?: boolean;

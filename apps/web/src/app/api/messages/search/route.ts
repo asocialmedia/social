@@ -1,6 +1,6 @@
 import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET(request: Request) {
   const session = await getSessionFromApi();

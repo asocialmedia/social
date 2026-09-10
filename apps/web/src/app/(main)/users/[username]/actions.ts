@@ -4,7 +4,7 @@ import { updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { getUserDataSelect, prisma } from "@asm/db";
 
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function updateUserProfile(values: UpdateUserProfileValues) {
   const validatedValues = updateUserProfileSchema.parse(values);

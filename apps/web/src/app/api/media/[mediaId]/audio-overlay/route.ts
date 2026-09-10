@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { attachAudioOverlay, UploadPolicyError } from "@/lib/media-pipeline";
-import { getSessionFromApi } from "@/lib/session";
+import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  attachAudioOverlay,
+  UploadPolicyError,
+} from "@/lib/media/media-pipeline";
 
 // Owner-only gust "sound" attachment. Attaches an uploaded AUDIO media row to
 // a VIDEO row as its audioOverlayId (the track that replaces the video's own
