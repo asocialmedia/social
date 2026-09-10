@@ -524,12 +524,41 @@ export function createMultipartPartUploadUrl(input: {
   );
 }
 
+// CompleteMultipartUpload assembles the object server-side and can sit idle
+// past the 10s socket timeout of the shared internal client on large uploads.
+// A dedicated client with a longer idle budget keeps storage-side assembly
+// from being aborted client-side.
+let completionClient: S3Client | null = null;
+
+function getCompletionClient(): S3Client {
+  if (!completionClient) {
+    const endpoint = env.ASMOB_ENDPOINT;
+    completionClient = new S3Client({
+      credentials: {
+        accessKeyId: env.ASMOB_ROOT_USER,
+        secretAccessKey: env.ASMOB_ROOT_PASSWORD,
+      },
+      endpoint: /^https?:\/\//i.test(endpoint)
+        ? endpoint
+        : `https://${endpoint}`,
+      forcePathStyle: true,
+      maxAttempts: 3,
+      region: "ap-south-1",
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: 5000,
+        socketTimeout: 120_000,
+      }),
+    });
+  }
+  return completionClient;
+}
+
 export async function completeMultipartStoredUpload(input: {
   key: string;
   parts: { eTag: string; partNumber: number }[];
   uploadId: string;
 }): Promise<void> {
-  await getInternalClient().send(
+  await getCompletionClient().send(
     new CompleteMultipartUploadCommand({
       Bucket: env.ASMOB_BUCKET_NAME,
       Key: input.key,

@@ -36,6 +36,7 @@ export async function requestSignup(
       body: JSON.stringify({ ...values, turnstileToken }),
       headers: { "content-type": "application/json" },
       method: "POST",
+      signal: AbortSignal.timeout(20_000),
     });
     const body: unknown = await response.json().catch(() => null);
     if (isSignUpResult(body)) {

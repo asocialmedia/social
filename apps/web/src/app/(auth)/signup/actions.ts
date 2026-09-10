@@ -183,8 +183,8 @@ export async function signUp(credentials: {
             },
           }),
     };
-  } catch {
-    console.error("Signup service request failed");
+  } catch (error) {
+    console.error("Signup service request failed", error);
     return {
       error:
         "We couldn't reach the signup service. Check your connection and try again.",

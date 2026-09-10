@@ -11,6 +11,10 @@ export interface EmailValidationResult {
   roleAccount?: boolean;
   score: number;
   smtpCheck?: boolean;
+  // True when the MX lookup failed transiently (DNS timeout / resolver
+  // unavailable) so callers can retry or surface a temporary error instead of
+  // rejecting a potentially valid address as permanently invalid.
+  transient?: boolean;
 }
 
 export interface EmailValidationOptions {
@@ -121,7 +125,10 @@ export async function validateEmailAdvanced(
     result.reasons.push("No suspicious keywords detected");
   }
 
-  if (skipMxCheck && skipSmtpCheck) {
+  // A caller that requires MX records must never take the scores-only fast
+  // path: with skipMxCheck the MX state stays false and the final gate below
+  // fails closed instead of marking the address valid on score alone.
+  if (skipMxCheck && skipSmtpCheck && !options.requireMxRecord) {
     result.isValid = !result.disposable && result.score >= 40;
     result.confidence = getConfidence(result.score, 60, 40);
     return result;
@@ -135,7 +142,17 @@ export async function validateEmailAdvanced(
     if (isNodeRuntime) {
       try {
         const dns = await import("node:dns").then((m) => m.promises);
-        const mxRecords = await dns.resolveMx(domain);
+        // resolveMx has no built-in deadline; bound it so a stalled resolver
+        // cannot hang signup past the caller's timeout.
+        const mxRecords = await Promise.race([
+          dns.resolveMx(domain),
+          // eslint-disable-next-line promise/avoid-new -- timeout branch for the MX race
+          new Promise<never>((_resolve, reject) => {
+            setTimeout(() => {
+              reject(new Error("MX lookup timed out"));
+            }, timeout);
+          }),
+        ]);
 
         if (mxRecords && mxRecords.length > 0) {
           result.mxRecords = true;
@@ -145,8 +162,30 @@ export async function validateEmailAdvanced(
           result.reasons.push("No MX records found");
           result.score = Math.max(0, result.score - 15);
         }
-      } catch {
-        result.reasons.push("MX record check failed");
+      } catch (error) {
+        // ENOTFOUND means the domain has no MX data (permanent). Timeouts and
+        // resolver errors (EAI_AGAIN, ECONNRESET, ETIMEDOUT, ...) are transient
+        // and must not permanently reject a valid address.
+        const code =
+          error instanceof Error && "code" in error
+            ? String((error as { code?: unknown }).code ?? "")
+            : "";
+        const message = error instanceof Error ? error.message : "";
+        const isTransient =
+          /timed out/i.test(message) ||
+          [
+            "EAI_AGAIN",
+            "ECONNRESET",
+            "ECONNREFUSED",
+            "ETIMEDOUT",
+            "ESERVFAIL",
+          ].includes(code);
+        if (isTransient) {
+          result.transient = true;
+          result.reasons.push("Mail server check timed out, try again");
+        } else {
+          result.reasons.push("MX record check failed");
+        }
         result.score = Math.max(0, result.score - 5);
       }
     } else {

@@ -164,6 +164,45 @@ async function parseErrorMessage(response: Response): Promise<string> {
   }
 }
 
+// Shared XHR settlement plumbing: wires the abort listener, guards the
+// pre-aborted case, and settles exactly once. Both single-PUT and multipart
+// part uploads build on it and differ only in the resolved payload.
+function createXhrSettlement<T>(
+  xhr: XMLHttpRequest,
+  signal: AbortSignal | undefined,
+  resolve: (value: T) => void,
+  reject: (reason: Error) => void
+): {
+  rejectUpload: (message: string) => void;
+  resolveUpload: (value?: T) => void;
+} {
+  const abortUpload = () => xhr.abort();
+  let settled = false;
+  const rejectUpload = (message: string) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    signal?.removeEventListener("abort", abortUpload);
+    reject(new MediaUploadError(message));
+  };
+  // Optional so the no-payload (void-style) call site reads as resolveUpload().
+  const resolveUpload = (value?: T) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    signal?.removeEventListener("abort", abortUpload);
+    resolve(value as T);
+  };
+  if (signal?.aborted) {
+    rejectUpload("Upload aborted");
+  } else {
+    signal?.addEventListener("abort", abortUpload, { once: true });
+  }
+  return { rejectUpload, resolveUpload };
+}
+
 // XHR is the only browser API with upload progress events, so a Promise
 // wrapper around it is required here.
 // eslint-disable-next-line promise/avoid-new -- XHR needs a Promise wrapper
@@ -181,29 +220,15 @@ function putToPresignedUrl(
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl);
     xhr.setRequestHeader("Content-Type", contentType);
-    const abortUpload = () => xhr.abort();
-    let settled = false;
-    const rejectUpload = (message: string) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      signal?.removeEventListener("abort", abortUpload);
-      reject(new MediaUploadError(message));
-    };
-    const resolveUpload = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      signal?.removeEventListener("abort", abortUpload);
-      resolve();
-    };
+    const { rejectUpload, resolveUpload } = createXhrSettlement<undefined>(
+      xhr,
+      signal,
+      resolve,
+      reject
+    );
     if (signal?.aborted) {
-      rejectUpload("Upload aborted");
       return;
     }
-    signal?.addEventListener("abort", abortUpload, { once: true });
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
         onProgress(Math.round((event.loaded / event.total) * 100));
@@ -235,29 +260,15 @@ function uploadMultipartPart(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl);
-    const abortUpload = () => xhr.abort();
-    let settled = false;
-    const rejectUpload = (message: string) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      signal?.removeEventListener("abort", abortUpload);
-      reject(new MediaUploadError(message));
-    };
-    const resolveUpload = (eTag: string) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      signal?.removeEventListener("abort", abortUpload);
-      resolve(eTag);
-    };
+    const { rejectUpload, resolveUpload } = createXhrSettlement<string>(
+      xhr,
+      signal,
+      resolve,
+      reject
+    );
     if (signal?.aborted) {
-      rejectUpload("Upload aborted");
       return;
     }
-    signal?.addEventListener("abort", abortUpload, { once: true });
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
         onProgress(event.loaded);
@@ -303,12 +314,13 @@ async function putMultipartToPresignedUrls(
   signal?.addEventListener("abort", abortMultipartUpload, { once: true });
   let nextPartNumber = 1;
 
+  // Running total updated by per-part deltas: O(1) per progress event instead
+  // of re-summing every part on every XHR callback.
+  let totalUploadedBytes = 0;
   const reportPartProgress = (partNumber: number, uploadedBytes: number) => {
+    const previous = uploadedPartBytes.get(partNumber) ?? 0;
+    totalUploadedBytes += uploadedBytes - previous;
     uploadedPartBytes.set(partNumber, uploadedBytes);
-    const totalUploadedBytes = [...uploadedPartBytes.values()].reduce(
-      (total, bytes) => total + bytes,
-      0
-    );
     onProgress(Math.round((totalUploadedBytes / file.size) * 100));
   };
 
@@ -351,13 +363,32 @@ async function putMultipartToPresignedUrls(
       ) {
         throw new MediaUploadError("Storage part URL was not provided");
       }
-      // eslint-disable-next-line no-await-in-loop -- a worker must finish its current PUT before taking another part
-      const eTag = await uploadMultipartPart(
-        responseBody.uploadUrl,
-        file.slice(bounds.start, bounds.end),
-        (uploadedBytes) => reportPartProgress(partNumber, uploadedBytes),
-        multipartAbortController.signal
-      );
+      // A transient part failure no longer fails the whole upload: each part
+      // gets a bounded retry with backoff. Aborts propagate immediately.
+      const MAX_PART_ATTEMPTS = 3;
+      let eTag = "";
+      for (let attempt = 1; attempt <= MAX_PART_ATTEMPTS; attempt += 1) {
+        try {
+          // eslint-disable-next-line no-await-in-loop -- a worker must finish its current PUT before taking another part
+          eTag = await uploadMultipartPart(
+            responseBody.uploadUrl,
+            file.slice(bounds.start, bounds.end),
+            (uploadedBytes) => reportPartProgress(partNumber, uploadedBytes),
+            multipartAbortController.signal
+          );
+          break;
+        } catch (partError) {
+          if (
+            attempt === MAX_PART_ATTEMPTS ||
+            multipartAbortController.signal.aborted
+          ) {
+            throw partError;
+          }
+          reportPartProgress(partNumber, 0);
+          // eslint-disable-next-line no-await-in-loop, no-promise-executor-return, promise/avoid-new -- transient storage retry
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
       parts[partNumber - 1] = { eTag, partNumber };
     }
   };

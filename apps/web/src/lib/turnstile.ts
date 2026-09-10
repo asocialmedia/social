@@ -1,3 +1,5 @@
+import { keys } from "@root/keys";
+
 const TURNSTILE_SITEVERIFY_URL =
   "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const TURNSTILE_TIMEOUT_MS = 10_000;
@@ -46,10 +48,13 @@ export function getSignupTurnstileConfig(values?: {
   environment?: string;
   secret?: string;
 }): SignupTurnstileConfig | undefined {
+  // Default branch reads through the validated keys accessor so the consumed
+  // names and validation rules cannot drift from apps/web/keys.ts. The
+  // injectable `values` parameter keeps precedence for tests.
   const configValues = values ?? {
-    allowedHostnames: process.env.TURNSTILE_HOSTNAMES,
-    environment: process.env.NODE_ENV,
-    secret: process.env.TURNSTILE_SECRET,
+    allowedHostnames: keys.TURNSTILE_HOSTNAMES,
+    environment: keys.NODE_ENV,
+    secret: keys.TURNSTILE_SECRET,
   };
   const secret = configValues.secret?.trim();
   const allowedHostnames = (configValues.allowedHostnames ?? "")

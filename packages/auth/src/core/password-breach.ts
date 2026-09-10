@@ -1,7 +1,27 @@
 import { createHash } from "node:crypto";
 
+import { getTelemetryApi } from "@asm/logger";
+
 const PWNED_PASSWORDS_API = "https://api.pwnedpasswords.com/range";
 const PASSWORD_CHECK_TIMEOUT_MS = 5000;
+
+let hibpUnavailableCounter: ReturnType<
+  ReturnType<typeof getTelemetryApi>["meter"]["createCounter"]
+> | null = null;
+
+function recordHibpUnavailable(): void {
+  try {
+    if (!hibpUnavailableCounter) {
+      hibpUnavailableCounter = getTelemetryApi().meter.createCounter(
+        "auth.password_breach_unavailable_total",
+        { description: "HIBP password-safety checks that failed to complete" }
+      );
+    }
+    hibpUnavailableCounter.add(1);
+  } catch {
+    // Telemetry must never break the signup flow.
+  }
+}
 
 export class PasswordSafetyError extends Error {
   readonly reason: "compromised" | "unavailable";
@@ -22,14 +42,20 @@ type PasswordRangeFetch = (
   init?: RequestInit
 ) => Promise<Response>;
 
+// SHA-1 here is not credential storage: the HIBP k-anonymity range API
+// requires the SHA-1 prefix to query breaches without revealing the password.
 function sha1(password: string): string {
   return createHash("sha1").update(password).digest("hex").toUpperCase();
 }
 
 function rangeContainsHash(range: string, suffix: string): boolean {
   return range.split("\n").some((line) => {
-    const [candidate] = line.trim().split(":", 1);
-    return candidate?.toUpperCase() === suffix;
+    const [candidate, rawCount] = line.trim().split(":");
+    if (candidate?.toUpperCase() !== suffix) {
+      return false;
+    }
+    // Padded responses include fabricated entries with a count of 0.
+    return Number(rawCount ?? 0) > 0;
   });
 }
 
@@ -53,10 +79,12 @@ export async function assertPasswordNotPwned(
       signal: AbortSignal.timeout(PASSWORD_CHECK_TIMEOUT_MS),
     });
   } catch {
+    recordHibpUnavailable();
     throw new PasswordSafetyError("unavailable");
   }
 
   if (!response.ok) {
+    recordHibpUnavailable();
     throw new PasswordSafetyError("unavailable");
   }
 

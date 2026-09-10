@@ -97,6 +97,16 @@ describe("email-validator", () => {
       expect(result.reasons).toContain("Email domain cannot receive email");
     });
 
+    test("does not bypass the MX requirement on the scores-only fast path", async () => {
+      const result = await validateEmailAdvanced("hello@example.com", {
+        requireMxRecord: true,
+        skipMxCheck: true,
+        skipSmtpCheck: true,
+      });
+      expect(result.mxRecords).toBe(false);
+      expect(result.isValid).toBe(false);
+    });
+
     test("SMTP verifier success", async () => {
       const mockVerifier = mock(
         (_email: string, _timeoutMs: number): Promise<SmtpVerifierResult> =>

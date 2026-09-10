@@ -137,7 +137,7 @@ function persistAttachments(attachments: Attachment[]): void {
       isProcessing: attachment.isProcessing || undefined,
       mediaId: attachment.mediaId as string,
       name: attachment.name ?? attachment.file?.name ?? "attachment",
-      resuming: attachment.isUploading || undefined,
+      resuming: attachment.isUploading || attachment.resuming || undefined,
       type: attachment.type ?? attachment.file?.type ?? "",
     }));
   // The draft's composer mode is captured live at every persist so a refresh
@@ -171,6 +171,9 @@ function clearStoredAttachments(): void {
 
 // Non-serializable per-file abort controllers live outside the store.
 const controllers = new Map<string, AbortController>();
+// One background status watcher per media id. Aborted when the attachment is
+// removed or the composer resets so detached loops stop polling /status.
+const watchControllers = new Map<string, AbortController>();
 let hydrated = false;
 
 // Fire-and-forget server discard for an unclaimed draft upload. The
@@ -257,7 +260,21 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       return;
     }
     if (outcome.status === "DETACHED") {
-      // Keep the resuming marker; the next hydrate() re-attaches.
+      // The watch deadline expired while the pipeline still runs. Leave a
+      // resumable marker so retryUpload can re-attach a watcher without the
+      // original bytes instead of stranding the tile in processing forever.
+      commit(
+        get().attachments.map((attachment) =>
+          attachment.mediaId === mediaId
+            ? {
+                ...attachment,
+                error: "Still processing - check back in a moment",
+                isProcessing: false,
+                resuming: true,
+              }
+            : attachment
+        )
+      );
       return;
     }
     if (outcome.status === "REJECTED") {
@@ -285,6 +302,10 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
   }
 
   function watchProcessingInBackground(mediaId: string): void {
+    // A re-attached watcher supersedes the previous loop for the same media.
+    watchControllers.get(mediaId)?.abort();
+    const controller = new AbortController();
+    watchControllers.set(mediaId, controller);
     void (async () => {
       try {
         const outcome = await watchMediaStatus(mediaId, {
@@ -297,11 +318,21 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
               ),
             });
           },
+          signal: controller.signal,
         });
+        // Aborted loops (removal, reset, superseded watcher) leave no outcome:
+        // the attachment is gone or a fresher loop owns it.
+        if (controller.signal.aborted) {
+          return;
+        }
         applyWatchOutcome(mediaId, outcome);
       } catch {
         // The persisted processing marker re-attaches a watcher when the
         // composer mounts again after a transient auth or network failure.
+      } finally {
+        if (watchControllers.get(mediaId) === controller) {
+          watchControllers.delete(mediaId);
+        }
       }
     })();
   }
@@ -346,6 +377,12 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
         (a) => (a.file?.name ?? a.name) === fileName
       );
       if (removed) {
+        if (removed.mediaId) {
+          // Stop the background status loop so it doesn't keep polling
+          // /status for media the composer no longer tracks.
+          watchControllers.get(removed.mediaId)?.abort();
+          watchControllers.delete(removed.mediaId);
+        }
         discardServerDraft(removed.mediaId);
       }
       dropAttachment(fileName);
@@ -357,6 +394,10 @@ export const useComposerAttachmentStore = create<ComposerAttachmentState>()((
       // Successful submit: attachments are now owned by the post, so
       // nothing is discarded server-side - only draft state goes away.
       controllers.clear();
+      for (const watcher of watchControllers.values()) {
+        watcher.abort();
+      }
+      watchControllers.clear();
       clearStoredAttachments();
       set({ attachments: [], isUploading: false });
     },
@@ -756,6 +797,10 @@ if (typeof window !== "undefined") {
 export function __resetComposerAttachmentStoreForTests(): void {
   hydrated = false;
   controllers.clear();
+  for (const watcher of watchControllers.values()) {
+    watcher.abort();
+  }
+  watchControllers.clear();
   useComposerAttachmentStore.setState({
     attachments: [],
     isUploading: false,

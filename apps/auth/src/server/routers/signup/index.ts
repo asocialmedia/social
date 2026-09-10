@@ -685,22 +685,8 @@ export const signupRouter = router({
           } as const;
         }
 
-        const [emailValidation] = await Promise.all([
-          validateEmailAdvanced(input.email, {
-            requireMxRecord: true,
-            skipSmtpCheck: true,
-          }),
-          assertPasswordNotPwned(input.password),
-        ]);
-        if (!emailValidation.isValid) {
-          return {
-            error: "invalid-email",
-            message:
-              "Use a non-disposable email address from a domain that can receive email.",
-            success: false,
-          } as const;
-        }
-
+        // Cheap local checks first: the "already exists" path must not pay for
+        // outbound MX/DNS and HIBP calls before answering.
         const existingUser = await findExistingSignupUser(
           input.email,
           input.username
@@ -719,6 +705,30 @@ export const signupRouter = router({
         // reservation.
         if (isReservedUsername(input.username)) {
           return userExistsResponse();
+        }
+
+        const [emailValidation] = await Promise.all([
+          validateEmailAdvanced(input.email, {
+            requireMxRecord: true,
+            skipSmtpCheck: true,
+          }),
+          assertPasswordNotPwned(input.password),
+        ]);
+        if (!emailValidation.isValid) {
+          if (emailValidation.transient) {
+            return {
+              error: "email-check-unavailable",
+              message:
+                "We couldn't verify your email domain right now. Please try again shortly.",
+              success: false,
+            } as const;
+          }
+          return {
+            error: "invalid-email",
+            message:
+              "Use a non-disposable email address from a domain that can receive email.",
+            success: false,
+          } as const;
         }
 
         const creationRateCheck = await checkAccountCreationRateLimit(

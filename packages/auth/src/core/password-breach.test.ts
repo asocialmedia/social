@@ -19,6 +19,13 @@ const safePasswordRange = (): Promise<Response> =>
 const unavailablePasswordRange = (): Promise<Response> =>
   Promise.resolve(new Response("service unavailable", { status: 503 }));
 
+const paddedOnlyRange = (): Promise<Response> =>
+  Promise.resolve(
+    new Response("1E4C9B93F3F0682250B6CF8331B7EE68FD8:0\r\n", {
+      status: 200,
+    })
+  );
+
 describe("assertPasswordNotPwned", () => {
   test("rejects a password present in the returned k-anonymity range", async () => {
     await expect(
@@ -29,6 +36,12 @@ describe("assertPasswordNotPwned", () => {
   test("allows a password missing from the returned range", async () => {
     await expect(
       assertPasswordNotPwned("a-unique-password", safePasswordRange)
+    ).resolves.toBeUndefined();
+  });
+
+  test("ignores padded entries with a zero breach count", async () => {
+    await expect(
+      assertPasswordNotPwned("password", paddedOnlyRange)
     ).resolves.toBeUndefined();
   });
 

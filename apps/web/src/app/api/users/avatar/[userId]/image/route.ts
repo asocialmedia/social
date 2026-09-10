@@ -111,23 +111,25 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
-    // Expected when bucket was never created or disk full on rustfs
-    // (NoSuchBucket / NoSuchKey / InternalError: Storage resources are
-    // insufficient). Fall back to default avatar without noisy error logging.
+    // Expected when the object or bucket is simply absent (NoSuchKey /
+    // NoSuchBucket / 404), or when rustfs reports disk exhaustion
+    // ("Storage resources are insufficient"). Any other 5xx stays loud so
+    // real storage outages keep their error log.
     const maybeS3 = error as {
       Code?: string;
+      message?: string;
       name?: string;
       $metadata?: { httpStatusCode?: number };
     };
     const code = maybeS3?.Code ?? maybeS3?.name ?? "";
     const status = maybeS3?.$metadata?.httpStatusCode;
-    const isExpected =
-      code === "NoSuchBucket" ||
-      code === "NoSuchKey" ||
-      code === "InternalError" ||
-      status === 404 ||
-      status === 500;
-    if (!isExpected) {
+    const message = String(maybeS3?.message ?? "");
+    const isMissing =
+      code === "NoSuchBucket" || code === "NoSuchKey" || status === 404;
+    const isDiskExhausted =
+      message.includes("Storage resources are insufficient") &&
+      (code === "InternalError" || status === 500);
+    if (!isMissing && !isDiskExhausted) {
       console.error("Avatar proxy error:", error);
     }
     const fallbackPath = getDefaultAvatar(userId);
