@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let backfillEnabled = true;
 
-mock.module("./env", () => ({
+mock.module("../env", () => ({
   keys: {},
   resolveWorkerMediaLimits: () => ({}),
   workerEnv: {
@@ -26,6 +26,11 @@ mock.module("@asm/db", () => ({
     enqueuedIds.push(id);
     return Promise.resolve();
   },
+  // Unused by this sweep; present so whichever test file evaluates the sweep
+  // module first binds a complete enqueue set for the other suites sharing
+  // this process-wide mock key.
+  enqueueMediaProcess: () => Promise.resolve(),
+  enqueueMediaScan: () => Promise.resolve(),
   prisma: {
     media: {
       findMany: () => Promise.resolve(candidateRows),
@@ -37,7 +42,7 @@ const {
   MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS,
   TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS,
   transcriptionBackfillSweep,
-} = await import("./sweeps");
+} = await import("./index");
 
 describe("transcriptionBackfillSweep loop prevention", () => {
   beforeEach(() => {

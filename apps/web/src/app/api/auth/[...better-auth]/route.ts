@@ -16,7 +16,11 @@ const FORWARDED_HEADER_BLOCKLIST = new Set([
 // a browser-originated request and defeat that gate entirely (e.g. an
 // anonymous visitor registering with role="admin" through /sign-up/email).
 // The web app's own server-to-server callers attach the secret explicitly.
-const BROWSER_BLOCKED_PATHS = ["/api/auth/sign-up/email"];
+const BROWSER_BLOCKED_PATHS = [
+  "/api/auth/sign-up/email",
+  "/api/auth/link-social",
+  "/api/auth/unlink-account",
+];
 
 function isBrowserBlockedPath(pathname: string): boolean {
   return BROWSER_BLOCKED_PATHS.some((prefix) => pathname.startsWith(prefix));
@@ -107,6 +111,10 @@ export function rewriteCookieDomain(cookieStr: string, host: string): string {
 }
 
 async function proxy(request: NextRequest) {
+  if (isBrowserBlockedPath(request.nextUrl.pathname)) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
   const url = new URL(request.url);
   const target = new URL(AUTH_BASE);
   target.pathname = url.pathname;

@@ -8,7 +8,7 @@ import type { MediaLimits } from "@asm/media";
 // file would freeze the value here too.
 let retentionDays = 30;
 
-mock.module("./env", () => ({
+mock.module("../env", () => ({
   resolveWorkerMediaLimits: () =>
     ({ originalRetentionDays: retentionDays }) as unknown as MediaLimits,
   workerEnv: {},
@@ -41,6 +41,10 @@ let failDeleteForKey: string | null = null;
 
 mock.module("@asm/db", () => ({
   Prisma: { DbNull: Symbol.for("test.DbNull") },
+  // Unused by this sweep; present so whichever test file evaluates the sweep
+  // module first binds a complete enqueue set for the other suites sharing
+  // this process-wide mock key.
+  enqueueMediaAnalyze: () => Promise.resolve(),
   enqueueMediaProcess: (_mediaId: string) => {
     const g = globalThis as unknown as Record<string, unknown>;
     if (g.__qm_failFirstEnqueue) {
@@ -83,7 +87,7 @@ mock.module("@asm/db", () => ({
   },
   redis: { decrby: () => Promise.resolve(0), incrby: () => Promise.resolve(0) },
 }));
-mock.module("./s3", () => ({
+mock.module("../s3", () => ({
   getS3: () => ({
     delete: (key: string) => {
       if (prismaDisabled) {
@@ -97,7 +101,7 @@ mock.module("./s3", () => ({
   }),
 }));
 
-const { quarantineGcSweep } = await import("./sweeps");
+const { quarantineGcSweep } = await import("./index");
 
 describe("quarantine retention sweep", () => {
   beforeEach(() => {

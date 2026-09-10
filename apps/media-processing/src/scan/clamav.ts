@@ -11,8 +11,8 @@
 // control: stdin write() blocks until consumed, so framing is guaranteed.
 // nc ships in the worker image (netcat-openbsd, see Dockerfile).
 
+import { workerEnv } from "../env";
 import { ClamAvSizeLimitError } from "./clamav-size-limit-error";
-import { workerEnv } from "./env";
 
 export {
   // Raised when clamd answers INSTREAM size limit exceeded: the file

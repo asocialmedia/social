@@ -14,14 +14,14 @@ import type { Prisma } from "@asm/db";
 import { prisma } from "@asm/db";
 import type { MediaAnalyzeJobData } from "@asm/media";
 
-import { classifyMediaConcepts } from "../classify";
-import { generateTextEmbedding } from "../embedding";
+import { classifyMediaConcepts } from "../analyze/classify";
+import { generateTextEmbedding } from "../analyze/embedding";
+import { extractImageText } from "../analyze/ocr";
+import { transcribeMediaAudio } from "../analyze/transcribe";
 import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
-import { extractImageText } from "../ocr";
 import { getS3 } from "../s3";
-import { classifyImageSafety } from "../safety";
-import { transcribeMediaAudio } from "../transcribe";
+import { classifyImageSafety } from "../scan/safety";
 
 // Only these types ever reach an analysis run
 const ANALYZABLE_TYPES = new Set(["AUDIO", "IMAGE", "VIDEO"]);

@@ -16,7 +16,7 @@
 
 import { avContainerExtension, needsFaststart } from "@asm/media";
 
-import { runFfmpeg } from "./ffmpeg";
+import { runFfmpeg } from "../transcode/ffmpeg";
 
 export interface AvStripPlan {
   extension: string;

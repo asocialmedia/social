@@ -262,7 +262,7 @@ const makeErrorClass = (label: string): new (message: string) => Error =>
 const FakeClamAvSizeLimitError = makeErrorClass("FakeClamAvSizeLimitError");
 const FakeClamAvUnavailableError = makeErrorClass("FakeClamAvUnavailableError");
 
-mock.module("../clamav", () => ({
+mock.module("../scan/clamav", () => ({
   ClamAvSizeLimitError: FakeClamAvSizeLimitError,
   ClamAvUnavailableError: FakeClamAvUnavailableError,
   scanStream: () => {
@@ -303,7 +303,7 @@ mock.module("../watermark/image", () => ({
 // A/V remux scrub spy. Success copies the input bytes to the output path so
 // the hash step reads a real file; the failure knob emulates an ffmpeg crash
 // to exercise the publish-scanned-bytes fallback.
-mock.module("../av-strip", () => ({
+mock.module("../scan/av-strip", () => ({
   stripAvContainerMetadata: async (input: {
     container: string;
     inputPath: string;

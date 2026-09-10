@@ -2,12 +2,14 @@
 
 import type { PrivateUserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
 import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";
 import SettingsSidebar from "@/components/settings/settings-sidebar";
@@ -17,12 +19,21 @@ import ProfileSettings from "./tabs/profile-settings";
 import SecuritySettings from "./tabs/security-settings";
 
 interface ClientSettingsProps {
+  accountLinkingReadiness: AccountLinkingReadiness;
   user: PrivateUserData;
 }
 
-export default function ClientSettings({ user }: ClientSettingsProps) {
+export default function ClientSettings({
+  accountLinkingReadiness,
+  user,
+}: ClientSettingsProps) {
   const feedScrollRef = useRef<HTMLDivElement>(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
+    searchParams.has("account_error") || searchParams.has("account_success")
+      ? "account"
+      : "profile"
+  );
 
   const handleTabChange = useCallback((value: string) => {
     setActiveTab(value as SettingsTab);
@@ -82,7 +93,10 @@ export default function ClientSettings({ user }: ClientSettingsProps) {
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="account">
-                <AccountSettings user={user} />
+                <AccountSettings
+                  accountLinkingReadiness={accountLinkingReadiness}
+                  user={user}
+                />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="security">

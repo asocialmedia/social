@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { rewriteCookieDomain } from "./route";
+import { NextRequest } from "next/server";
+
+import { POST, rewriteCookieDomain } from "./route";
 
 const HOST = "social.asocialmedia.cc";
 
@@ -67,5 +69,17 @@ describe("rewriteCookieDomain", () => {
     expect(rewriteCookieDomain(cookie, HOST)).toBe(
       "a=b; Path=/; HttpOnly; Secure; Domain=social.asocialmedia.cc"
     );
+  });
+});
+
+describe("account-linking proxy boundary", () => {
+  test("does not expose Better Auth's direct unlink endpoint to browsers", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/auth/unlink-account", {
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(404);
   });
 });

@@ -7,9 +7,9 @@
 // 1. Google Gemini Flash Lite Multimodal API for speech-to-text and timed WebVTT cues.
 // 2. Local FFmpeg Voice Activity & volume analysis running on CPU to reject silence.
 
-import { workerEnv } from "./env";
-import { mediaLogger, withSpan } from "./log";
-import { getS3 } from "./s3";
+import { workerEnv } from "../env";
+import { mediaLogger, withSpan } from "../log";
+import { getS3 } from "../s3";
 
 export interface CaptionSegment {
   end: number;

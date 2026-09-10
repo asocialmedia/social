@@ -1,4 +1,7 @@
+import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
+
+import { getSessionFromApi } from "@/lib/session";
 
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:3001";
 const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;
@@ -15,6 +18,11 @@ export async function POST(
   const { provider } = await context.params;
   if (provider !== "google" && provider !== "reddit") {
     return Response.json({ error: "Unknown provider" }, { status: 400 });
+  }
+
+  const session = await getSessionFromApi();
+  if (!session?.user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const cookie = request.headers.get("cookie") || "";
@@ -61,6 +69,12 @@ export async function POST(
       { status: response.status }
     );
   }
+
+  const providerField = provider === "google" ? "googleId" : "redditId";
+  await prisma.user.update({
+    data: { [providerField]: null },
+    where: { id: session.user.id },
+  });
 
   return Response.json({ success: true });
 }

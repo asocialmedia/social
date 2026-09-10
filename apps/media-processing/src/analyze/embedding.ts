@@ -8,8 +8,8 @@
 // 2. High-speed local hash-vector embedding engine (zero dependencies, 0ms latency,
 //    deterministic 384-dimensional unit vector).
 
-import { workerEnv } from "./env";
-import { mediaLogger } from "./log";
+import { workerEnv } from "../env";
+import { mediaLogger } from "../log";
 
 export const EMBEDDING_DIMENSION = 384;
 

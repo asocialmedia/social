@@ -5,8 +5,8 @@
 
 import { globalKnowledgeGraph } from "@asm/db";
 
-import { workerEnv } from "./env";
-import { mediaLogger, withSpan } from "./log";
+import { workerEnv } from "../env";
+import { mediaLogger, withSpan } from "../log";
 
 // Common English functional and grammatical stop words to ignore when extracting salient keywords.
 const STOP_WORDS = new Set([

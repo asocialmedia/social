@@ -3,7 +3,7 @@
 // legacy raw objects once derivatives fully supersede them.
 //
 // Two entry points:
-//  - CLI: bun run src/sweeps.ts [--limit N] [--dry-run] — one-shot conversion
+//  - CLI: bun run src/sweeps [--limit N] [--dry-run] — one-shot conversion
 //  - scheduled sweeps registered on the media queue so crashed/partial runs
 //    self-heal forever
 //
@@ -11,18 +11,22 @@
 // derivatives; the row flips atomically at READY. Nothing is deleted unless a
 // derivative supersedes it and the retention window has passed.
 
-import { prisma } from "@asm/db";
+import {
+  enqueueMediaAnalyze,
+  enqueueMediaProcess,
+  enqueueMediaScan,
+  prisma,
+} from "@asm/db";
 import { Worker } from "bullmq";
 
-import { resolveWorkerMediaLimits, workerEnv } from "./env";
-import { mediaLogger } from "./log";
-import { getS3 } from "./s3";
+import { resolveWorkerMediaLimits, workerEnv } from "../env";
+import { mediaLogger } from "../log";
+import { getS3 } from "../s3";
 
 const SWEEP_BATCH = Number(process.env.MEDIA_BACKFILL_BATCH ?? 50);
 const GC_BATCH = Number(process.env.MEDIA_LEGACY_GC_BATCH ?? 200);
 
 async function enqueueScanForLegacyRow(mediaId: string): Promise<void> {
-  const { enqueueMediaScan } = await import("@asm/db");
   await enqueueMediaScan(mediaId, { backfill: true });
 }
 
@@ -271,7 +275,6 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
       continue;
     }
     try {
-      const { enqueueMediaProcess } = await import("@asm/db");
       await enqueueMediaProcess(row.id);
       enqueued += 1;
       mediaLogger.info({ mediaId: row.id }, "derived-heal swept stranded row");
@@ -300,7 +303,6 @@ export async function derivedHealSweep(): Promise<{ enqueued: number }> {
   });
   for (const row of unscanned) {
     try {
-      const { enqueueMediaScan } = await import("@asm/db");
       // Suffix busts any dead jobId occupying the dedupe slot.
       await enqueueMediaScan(row.id, { jobIdSuffix: `heal-${Date.now()}` });
       enqueued += 1;
@@ -383,7 +385,6 @@ export async function transcriptionBackfillSweep(): Promise<{
     }
 
     try {
-      const { enqueueMediaAnalyze } = await import("@asm/db");
       await enqueueMediaAnalyze(candidate.id);
       enqueued += 1;
       mediaLogger.info(

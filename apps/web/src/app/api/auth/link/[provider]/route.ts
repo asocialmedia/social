@@ -1,4 +1,7 @@
+import { prisma } from "@asm/db";
 import type { NextRequest } from "next/server";
+
+import { getSessionFromApi } from "@/lib/session";
 
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:3001";
 const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;
@@ -36,6 +39,38 @@ async function handleLink(request: NextRequest, provider: string) {
     return Response.json({ error: "Unknown provider" }, { status: 400 });
   }
 
+  const settingsUrl = new URL("/settings", request.nextUrl.origin);
+  const redirectToSettingsError = (error: string): Response => {
+    settingsUrl.searchParams.set("account_error", error);
+    return Response.redirect(settingsUrl, 303);
+  };
+
+  if (request.nextUrl.searchParams.get("confirmed") !== "1") {
+    return redirectToSettingsError("link_confirmation_required");
+  }
+
+  const session = await getSessionFromApi();
+  if (!session?.user) {
+    return redirectToSettingsError("unauthorized");
+  }
+
+  const [user, credentialAccount] = await Promise.all([
+    prisma.user.findUnique({
+      select: { email: true, emailVerified: true },
+      where: { id: session.user.id },
+    }),
+    prisma.account.findFirst({
+      select: { password: true },
+      where: { providerId: "credential", userId: session.user.id },
+    }),
+  ]);
+  if (!user?.email || !user.emailVerified) {
+    return redirectToSettingsError("link_requires_verified_email");
+  }
+  if (!credentialAccount?.password) {
+    return redirectToSettingsError("link_requires_password");
+  }
+
   const cookie = request.headers.get("cookie") || "";
   const headers = new Headers({ "Content-Type": "application/json" });
   if (cookie) {
@@ -49,8 +84,8 @@ async function handleLink(request: NextRequest, provider: string) {
 
   const response = await fetch(`${AUTH_BASE}/api/auth/link-social`, {
     body: JSON.stringify({
-      callbackURL: `${webOrigin}/settings`,
-      errorCallbackURL: `${webOrigin}/settings?link_error=1`,
+      callbackURL: `${webOrigin}/settings?account_success=${provider}`,
+      errorCallbackURL: `${webOrigin}/settings?account_error=provider_flow_failed`,
       provider,
     }),
     headers,

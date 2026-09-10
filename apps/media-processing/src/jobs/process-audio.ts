@@ -12,14 +12,14 @@ import {
 } from "@asm/media";
 import type { MediaLimits } from "@asm/media";
 
+import { mediaLogger, withSpan } from "../log";
+import { getS3 } from "../s3";
 import {
   enforceDecoderLimits,
   runFfmpeg,
   withTimeout,
   probeMedia,
-} from "../ffmpeg";
-import { mediaLogger, withSpan } from "../log";
-import { getS3 } from "../s3";
+} from "../transcode/ffmpeg";
 
 const WAVEFORM_POINTS = 200;
 
@@ -212,7 +212,7 @@ export async function processMediaAudio(input: {
 
       const hasCoverArt = derivatives.some((d) => d.kind === "cover");
       const audioFprint =
-        (await import("../ffmpeg")
+        (await import("../transcode/ffmpeg")
           .then((mod) =>
             mod.computeAudioFingerprint(
               input.sourcePath,

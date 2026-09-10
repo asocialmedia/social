@@ -5,7 +5,7 @@
 // environments with OCR disabled skip cleanly, and every runtime failure
 // degrades to null - analysis never blocks on OCR.
 
-import { workerEnv } from "./env";
+import { workerEnv } from "../env";
 
 export const OCR_MODEL_VERSION = "ppocrv4-onnx-v1";
 

@@ -12,9 +12,9 @@ import {
 } from "@asm/media";
 import type { MediaLimits, PlannedImageDerivative } from "@asm/media";
 
-import { computePerceptualHash, withTimeout } from "../ffmpeg";
 import { mediaLogger, withSpan } from "../log";
 import { getS3 } from "../s3";
+import { computePerceptualHash, withTimeout } from "../transcode/ffmpeg";
 
 interface DecodedInfo {
   width: number;

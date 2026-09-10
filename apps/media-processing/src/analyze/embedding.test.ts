@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 // mid-run cannot disable the Gemini branch. Mock the env module instead: the
 // default suite below always exercises the local hash embedder, offline and
 // deterministically. The opt-in API test lives in embedding.api.test.ts.
-mock.module("./env", () => ({
+mock.module("../env", () => ({
   workerEnv: {
     EMBEDDING_ENABLED: true,
     EMBEDDING_TIMEOUT_MS: 15_000,

@@ -15,7 +15,7 @@ const defaultLimits = {
 
 let backfillEnabled = true;
 
-mock.module("./env", () => ({
+mock.module("../env", () => ({
   resolveWorkerMediaLimits: () => defaultLimits,
   workerEnv: {
     get BACKFILL_ENABLED() {
@@ -120,7 +120,7 @@ mock.module("@asm/db", () => ({
   redis: { decrby: () => Promise.resolve(0), incrby: () => Promise.resolve(0) },
 }));
 
-mock.module("./s3", () => ({
+mock.module("../s3", () => ({
   // Never invoked by the sweep (no object IO); providing the key keeps the
   // transitive import graph below intact.
   getS3: () => {
@@ -129,7 +129,7 @@ mock.module("./s3", () => ({
   objectExists: () => Promise.resolve(false),
 }));
 
-const { derivedHealSweep, DERIVED_HEAL_GRACE_MS } = await import("./sweeps");
+const { derivedHealSweep, DERIVED_HEAL_GRACE_MS } = await import("./index");
 
 beforeEach(() => {
   backfillEnabled = true;
