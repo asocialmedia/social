@@ -1,6 +1,7 @@
 import { prisma, redis } from "@asm/db";
 
 export interface HybridSession {
+  country?: string | null;
   createdAt: Date;
   expiresAt: Date;
   id: string;
@@ -19,6 +20,7 @@ const REDIS_USER_SESSIONS_PREFIX = "user:sessions:";
 const SESSION_TTL = 60 * 60 * 24 * 7;
 
 interface DbSessionShape {
+  country?: string | null;
   createdAt: Date;
   expiresAt: Date;
   id: string;
@@ -31,6 +33,7 @@ interface DbSessionShape {
 
 function mapDbSessionToHybridSession(dbSession: DbSessionShape): HybridSession {
   return {
+    country: dbSession.country,
     createdAt: dbSession.createdAt,
     expiresAt: dbSession.expiresAt,
     id: dbSession.id,
@@ -49,6 +52,7 @@ async function storeInPostgreSQL(
 ): Promise<HybridSession> {
   const dbSession = await prisma.session.create({
     data: {
+      country: session.country,
       expiresAt: session.expiresAt,
       id: session.id,
       ipAddress: session.ipAddress,
@@ -68,6 +72,7 @@ async function updateInPostgreSQL(
   try {
     const dbSession = await prisma.session.update({
       data: {
+        ...(updates.country !== undefined && { country: updates.country }),
         ...(updates.token && { token: updates.token }),
         ...(updates.expiresAt && { expiresAt: updates.expiresAt }),
         ...(updates.ipAddress !== undefined && {

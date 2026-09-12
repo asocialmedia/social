@@ -1,5 +1,6 @@
 "use client";
 
+import { newPasswordSchema } from "@asm/auth/validation";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Form,
@@ -21,6 +22,7 @@ import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
 import { resetPassword } from "@/app/(auth)/reset-password/server-actions";
+import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
 import { useToast } from "@/lib/gooey-toast";
 
 import { LoadingButton } from "./loading-button";
@@ -30,13 +32,7 @@ import { PasswordStrengthChecker } from "./password-strength-checker";
 const schema = z
   .object({
     confirmPassword: z.string(),
-    password: z
-      .string()
-      .min(8, "Password must be at least 8 characters long")
-      .regex(
-        /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
-        "Password must include: uppercase & lowercase letters, number, and special character"
-      ),
+    password: newPasswordSchema,
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",
@@ -191,34 +187,7 @@ export default function ConfirmResetForm() {
   if (isValidating) {
     return (
       <div className="container flex min-h-screen items-center justify-center">
-        <motion.div
-          animate={{ opacity: 1 }}
-          className="text-center"
-          initial={{ opacity: 0 }}
-        >
-          <div className="relative mx-auto mb-4 h-12 w-12">
-            <motion.div
-              animate={{ rotate: 360 }}
-              className="absolute inset-0 rounded-full border-2 border-blue-400/20"
-              transition={{
-                duration: 2,
-                ease: "linear",
-                repeat: Number.POSITIVE_INFINITY,
-              }}
-            />
-            <motion.div
-              animate={{ rotate: 360 }}
-              className="absolute inset-2 rounded-full border-2 border-blue-400"
-              style={{ borderRightColor: "transparent" }}
-              transition={{
-                duration: 1,
-                ease: "linear",
-                repeat: Number.POSITIVE_INFINITY,
-              }}
-            />
-          </div>
-          <p className="text-muted-foreground">Validating reset link...</p>
-        </motion.div>
+        <CenteredLogoLoader size={72} />
       </div>
     );
   }
@@ -261,7 +230,7 @@ export default function ConfirmResetForm() {
         className="bg-background relative flex min-h-screen overflow-hidden"
         initial={{ opacity: 0 }}
       >
-        <div className="from-primary/5 via-background to-background/95 absolute inset-0 z-0 bg-linear-to-bl" />
+        <div className="via-background to-background/95 absolute inset-0 z-0 bg-linear-to-bl from-blue-500/8" />
         <motion.div
           animate={{ opacity: 1, x: 0 }}
           className="absolute left-20 hidden h-full items-center md:flex"
@@ -284,7 +253,7 @@ export default function ConfirmResetForm() {
           >
             <motion.div
               animate={{ opacity: 1, x: 0 }}
-              className="bg-primary/80 relative hidden w-full lg:flex lg:h-full lg:w-1/2"
+              className="relative hidden w-full bg-blue-500/80 lg:flex lg:h-full lg:w-1/2"
               initial={{ opacity: 0, x: -50 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
             >
@@ -313,7 +282,7 @@ export default function ConfirmResetForm() {
               >
                 <motion.h2
                   animate={{ opacity: 1 }}
-                  className="mb-6 text-center text-3xl font-bold text-[#ff9500]"
+                  className="mb-6 text-center text-3xl font-bold text-blue-500 dark:text-blue-400"
                   initial={{ opacity: 0 }}
                   transition={{ delay: 0.5 }}
                 >
@@ -338,10 +307,10 @@ export default function ConfirmResetForm() {
                     />
 
                     <LoadingButton
-                      className="w-full"
+                      className="w-full bg-linear-to-b from-blue-500 to-blue-700 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_3px_6px_rgba(30,64,175,0.3)] hover:from-blue-400 hover:to-blue-600"
                       loading={isPending}
                       type="submit"
-                      variant="premium"
+                      variant="default"
                     >
                       Reset Password
                     </LoadingButton>

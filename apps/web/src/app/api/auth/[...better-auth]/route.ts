@@ -1,5 +1,7 @@
-import { getClientIpFromHeaders } from "@asm/db";
+import { getClientIpFromHeaders, publishSessionRevocation } from "@asm/db";
 import type { NextRequest } from "next/server";
+
+import { getSessionFromApi } from "@/lib/auth/session";
 
 const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:3001";
 const INTERNAL_SECRET = process.env.BETTER_AUTH_SECRET;
@@ -24,6 +26,37 @@ const BROWSER_BLOCKED_PATHS = [
 
 function isBrowserBlockedPath(pathname: string): boolean {
   return BROWSER_BLOCKED_PATHS.some((prefix) => pathname.startsWith(prefix));
+}
+
+type SessionRevocationPath =
+  | "/api/auth/revoke-other-sessions"
+  | "/api/auth/revoke-session"
+  | "/api/auth/revoke-sessions";
+
+function isSessionRevocationPath(
+  pathname: string
+): pathname is SessionRevocationPath {
+  return (
+    pathname === "/api/auth/revoke-other-sessions" ||
+    pathname === "/api/auth/revoke-session" ||
+    pathname === "/api/auth/revoke-sessions"
+  );
+}
+
+function getRevokedSessionId(body: string | undefined): string | null {
+  if (!body) {
+    return null;
+  }
+  try {
+    const value: unknown = JSON.parse(body);
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+    const { sessionId } = value as Record<string, unknown>;
+    return typeof sessionId === "string" && sessionId ? sessionId : null;
+  } catch {
+    return null;
+  }
 }
 
 function buildUpstreamHeaders(request: NextRequest) {
@@ -115,6 +148,13 @@ async function proxy(request: NextRequest) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
+  const revocationPath = isSessionRevocationPath(request.nextUrl.pathname)
+    ? request.nextUrl.pathname
+    : null;
+  // Resolve the actor before the upstream delete. It lets the proxy notify
+  // only that account's open security streams after Better Auth confirms it.
+  const revocationActor = revocationPath ? await getSessionFromApi() : null;
+
   const url = new URL(request.url);
   const target = new URL(AUTH_BASE);
   target.pathname = url.pathname;
@@ -129,13 +169,30 @@ async function proxy(request: NextRequest) {
     redirect: "manual",
   };
 
+  let requestBody: string | undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
-    const body = await request.text();
-    init.body = body;
+    requestBody = await request.text();
+    init.body = requestBody;
   }
 
   try {
     const upstream = await fetch(target.toString(), init);
+    if (upstream.ok && revocationPath && revocationActor?.user) {
+      if (revocationPath === "/api/auth/revoke-sessions") {
+        await publishSessionRevocation(revocationActor.user.id, {});
+      } else if (revocationPath === "/api/auth/revoke-other-sessions") {
+        await publishSessionRevocation(revocationActor.user.id, {
+          retainedSessionId: revocationActor.session.id,
+        });
+      } else {
+        const revokedSessionId = getRevokedSessionId(requestBody);
+        if (revokedSessionId) {
+          await publishSessionRevocation(revocationActor.user.id, {
+            revokedSessionId,
+          });
+        }
+      }
+    }
     const body = await upstream.arrayBuffer();
     const responseHeaders = new Headers();
     for (const [key, value] of upstream.headers) {

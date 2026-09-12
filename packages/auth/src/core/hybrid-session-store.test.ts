@@ -13,6 +13,7 @@ import type { Session } from "@asm/db";
 import { HybridSessionStore } from "./hybrid-session-store";
 
 interface HybridSessionData {
+  country?: string | null;
   createdAt: Date;
   expiresAt: Date;
   id: string;
@@ -35,6 +36,7 @@ const mockSessionCreate = mock(
   ({ data }: { data: HybridSessionData }): Promise<Session> =>
     Promise.resolve({
       ...data,
+      country: data.country ?? null,
       impersonatedBy: null,
       ipAddress: data.ipAddress ?? null,
       userAgent: data.userAgent ?? null,
@@ -54,6 +56,7 @@ const mockSessionUpdate = mock(
     where: { id: string };
   }): Promise<Session> =>
     Promise.resolve({
+      country: data.country ?? null,
       createdAt: new Date(),
       expiresAt: data.expiresAt ?? new Date(Date.now() + 10_000),
       id: where.id,
@@ -197,6 +200,7 @@ describe("HybridSessionStore", () => {
   test("findByToken fallback to postgres if not in redis", async () => {
     mockRedisGet.mockResolvedValueOnce(null);
     mockSessionFindUnique.mockResolvedValueOnce({
+      country: null,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 10_000),
       id: "s1",
@@ -229,6 +233,7 @@ describe("HybridSessionStore", () => {
 
     mockSessionFindMany.mockResolvedValueOnce([
       {
+        country: null,
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 10_000),
         id: "s2",
@@ -267,6 +272,7 @@ describe("HybridSessionStore", () => {
   test("update fallback to postgres if not in redis", async () => {
     mockRedisKeys.mockResolvedValueOnce([]);
     mockSessionUpdate.mockResolvedValueOnce({
+      country: null,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 10_000),
       id: "s1",

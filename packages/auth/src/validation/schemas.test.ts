@@ -7,6 +7,7 @@ import {
   GUST_CAPTION_MAX_CHARS,
   GUST_CAPTION_MAX_WORDS,
   loginSchema,
+  newPasswordSchema,
   signUpSchema,
   updateUserProfileSchema,
 } from "./schemas";
@@ -102,6 +103,18 @@ describe("schemas", () => {
       expect(
         loginSchema.safeParse({ password: "", username: "" }).success
       ).toBe(false);
+    });
+  });
+
+  describe("newPasswordSchema", () => {
+    test("applies the signup password protections to password resets", () => {
+      expect(newPasswordSchema.safeParse("SecureL0ck#99x").success).toBe(true);
+      expect(newPasswordSchema.safeParse("SecureL0ck#99xaaa").success).toBe(
+        false
+      );
+      expect(newPasswordSchema.safeParse("SecureL0ck#99x123").success).toBe(
+        false
+      );
     });
   });
 

@@ -37,6 +37,8 @@ model User {
   customDomain          String?
   emailVerified         Boolean                     @default(false)
   emailVerifiedAt       DateTime?
+  twoFactorEnabled      Boolean                     @default(false)
+  lastLoginMethod       String?
   image                 String?
   name                  String?
   role                  String                      @default("user")
@@ -47,6 +49,8 @@ model User {
   banExpires            DateTime?
   sessions              Session[]
   accounts              Account[]
+  twoFactor             TwoFactor?
+  passkeys              Passkey[]
   verifications         Verification[]
   passwordResetTokens   PasswordResetToken[]
   mentions              Mention[]
@@ -271,6 +275,7 @@ model Session {
   userId         String
   token          String   @unique
   expiresAt      DateTime
+  country        String?
   ipAddress      String?
   userAgent      String?
   impersonatedBy String?
@@ -315,6 +320,40 @@ model Verification {
   updatedAt  DateTime @updatedAt
 
   @@map("verification")
+}
+
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  userId                  String    @unique
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([secret])
+  @@map("twoFactor")
+}
+
+model Passkey {
+  id           String   @id @default(cuid())
+  name         String?
+  publicKey    String
+  userId       String
+  credentialID String   @unique
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime @default(now())
+  aaguid       String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkey")
 }
 
 model Follow {

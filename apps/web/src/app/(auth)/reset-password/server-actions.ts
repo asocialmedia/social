@@ -1,12 +1,18 @@
 "use server";
 
-import { EMAIL_REGEX, USERNAME_REGEX } from "@asm/auth/validation";
+import { assertPasswordNotPwned, PasswordSafetyError } from "@asm/auth/core";
+import {
+  EMAIL_REGEX,
+  newPasswordSchema,
+  USERNAME_REGEX,
+} from "@asm/auth/validation";
 import { debugLog } from "@asm/config/debug";
 import { prisma } from "@asm/db";
 import { headers } from "next/headers";
 import { z } from "zod";
 
 import { authInternalHeaders, getAuthBaseUrl } from "@/lib/auth/auth-internal";
+import { getResetPasswordErrorMessage } from "@/lib/auth/reset-password-errors";
 
 async function makePasswordResetRequest(
   identifier: string,
@@ -79,13 +85,7 @@ const requestResetSchema = z.object({
 });
 
 const resetPasswordSchema = z.object({
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters long")
-    .regex(
-      /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
-      "Password must include: uppercase & lowercase letters, number, and special character"
-    ),
+  password: newPasswordSchema,
   token: z.string(),
 });
 
@@ -182,34 +182,48 @@ export async function requestPasswordReset(
 export async function resetPassword(
   data: z.infer<typeof resetPasswordSchema>
 ): Promise<{ success?: boolean; error?: string }> {
+  let token: string;
+  let password: string;
+
   try {
-    const { token, password } = resetPasswordSchema.parse(data);
-
-    const authBase = getAuthBaseUrl();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10_000);
-
-    try {
-      const response = await fetch(`${authBase}/api/auth/reset-password`, {
-        body: JSON.stringify({ newPassword: password, token }),
-        headers: authInternalHeaders({ "Content-Type": "application/json" }),
-        method: "POST",
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        debugLog.api("Password reset error", { status: response.status });
-        throw new Error("Failed to reset password");
-      }
-    } finally {
-      clearTimeout(timeoutId);
+    ({ token, password } = resetPasswordSchema.parse(data));
+    // Better Auth consumes the reset token before its HIBP plugin hashes the
+    // password. Preflight here avoids burning a valid link when the selected
+    // password is compromised or the password-safety service is unavailable.
+    await assertPasswordNotPwned(password);
+  } catch (error) {
+    if (error instanceof PasswordSafetyError) {
+      return { error: error.message };
     }
+    return { error: "Couldn't reset your password. Please try again." };
+  }
 
+  const authBase = getAuthBaseUrl();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(`${authBase}/api/auth/reset-password`, {
+      body: JSON.stringify({ newPassword: password, token }),
+      headers: authInternalHeaders({ "Content-Type": "application/json" }),
+      method: "POST",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => {
+        /* empty */
+      });
+      debugLog.api("Password reset error", { status: response.status });
+      return { error: getResetPasswordErrorMessage(payload) };
+    }
     return { success: true };
   } catch (error) {
     debugLog.api("Password reset error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return { error: "Failed to reset password" };
+    return { error: "Couldn't reset your password. Please try again." };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

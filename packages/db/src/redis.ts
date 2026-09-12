@@ -574,6 +574,68 @@ export async function publishTypingStarted(
   });
 }
 
+// Security events use a per-user channel. They carry no credential material:
+// a browser receives only enough information to know whether its own session
+// must close after a server-confirmed revocation.
+export const SESSION_EVENT_CHANNEL_PREFIX = "session-events:";
+
+export const sessionEventChannel = (userId: string): string =>
+  `${SESSION_EVENT_CHANNEL_PREFIX}${userId}`;
+
+export interface SessionRevocationEvent {
+  kind: "session.revoked";
+  retainedSessionId?: string;
+  revokedSessionId?: string;
+}
+
+export function serializeSessionRevocationEvent(
+  event: SessionRevocationEvent
+): string {
+  return JSON.stringify(event);
+}
+
+export function parseSessionRevocationEvent(
+  raw: string
+): SessionRevocationEvent | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<SessionRevocationEvent>;
+    if (parsed.kind !== "session.revoked") {
+      return null;
+    }
+    if (
+      (parsed.retainedSessionId !== undefined &&
+        typeof parsed.retainedSessionId !== "string") ||
+      (parsed.revokedSessionId !== undefined &&
+        typeof parsed.revokedSessionId !== "string") ||
+      (parsed.retainedSessionId !== undefined &&
+        parsed.revokedSessionId !== undefined)
+    ) {
+      return null;
+    }
+    return {
+      kind: "session.revoked",
+      retainedSessionId: parsed.retainedSessionId,
+      revokedSessionId: parsed.revokedSessionId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function publishSessionRevocation(
+  userId: string,
+  event: Omit<SessionRevocationEvent, "kind">
+): Promise<void> {
+  try {
+    await redis.publish(
+      sessionEventChannel(userId),
+      serializeSessionRevocationEvent({ kind: "session.revoked", ...event })
+    );
+  } catch (error) {
+    console.error("Error publishing session revocation event:", error);
+  }
+}
+
 // ---- presence ---------------------------------------------------------------
 // Users on the Messages page heartbeat their online status every 30s. The
 // per-user key carries the TTL so a stale heartbeat expires on its own, and

@@ -56,6 +56,7 @@ describe("server trpc", () => {
       image: null,
       name: "User One",
       role: "user",
+      twoFactorEnabled: false,
       updatedAt: new Date("2030-01-01T00:00:00.000Z"),
       username: "u1",
     };

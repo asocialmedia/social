@@ -40,26 +40,28 @@ const postTagSchema = z
   .max(50, "Tags must be at most 50 characters")
   .regex(/^[^<>{}"']+$/, "Tags cannot contain brackets or quotes");
 
+export const newPasswordSchema = requiredPassword
+  .min(8, "Password needs at least 8 characters, keep it 100")
+  .regex(/[A-Z]/, "Need at least one uppercase letter (be fancy!)")
+  .regex(/[a-z]/, "Need at least one lowercase letter (keep it real!)")
+  .regex(/[0-9]/, "Need at least one number (math time!)")
+  .regex(/[@$!%*?&#]/, "Need at least one special character (be spicy!)")
+  .refine(
+    (password) => !threerepeatRegex.test(password),
+    "No spamming the same letter 3+ times (that's not cute anymore)"
+  )
+  .refine(
+    (password) => !commonsequencesRegex.test(password),
+    "ABC or 123? Nah, be more creative than that!"
+  )
+  .refine((password) => {
+    const commonWords = ["password", "admin", "user", "login"];
+    return !commonWords.some((word) => password.toLowerCase().includes(word));
+  }, "'password123' is so last season, pick something better!");
+
 export const signUpSchema = z.object({
   email: requiredEmail.email("Please enter a valid email address"),
-  password: requiredPassword
-    .min(8, "Password needs at least 8 characters, keep it 100")
-    .regex(/[A-Z]/, "Need at least one uppercase letter (be fancy!)")
-    .regex(/[a-z]/, "Need at least one lowercase letter (keep it real!)")
-    .regex(/[0-9]/, "Need at least one number (math time!)")
-    .regex(/[@$!%*?&#]/, "Need at least one special character (be spicy!)")
-    .refine(
-      (password) => !threerepeatRegex.test(password),
-      "No spamming the same letter 3+ times (that's not cute anymore)"
-    )
-    .refine(
-      (password) => !commonsequencesRegex.test(password),
-      "ABC or 123? Nah, be more creative than that!"
-    )
-    .refine((password) => {
-      const commonWords = ["password", "admin", "user", "login"];
-      return !commonWords.some((word) => password.toLowerCase().includes(word));
-    }, "'password123' is so last season, pick something better!"),
+  password: newPasswordSchema,
   username: requiredUsername
     .regex(
       /^[a-zA-Z0-9_]+$/,

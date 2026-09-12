@@ -20,6 +20,9 @@ type VerificationOtpResult =
 const mockSendVerificationOTP = mock((): Promise<VerificationOtpResult> =>
   Promise.resolve({ success: true })
 );
+const mockSendTwoFactorOTP = mock((): Promise<VerificationOtpResult> =>
+  Promise.resolve({ success: true })
+);
 const mockSendVerificationEmail = mock(() => ({
   success: true,
   verificationUrl: "url",
@@ -31,6 +34,7 @@ const mockSendPasswordResetEmail = mock(() => ({
 
 mock.module("../email/service", () => ({
   sendPasswordResetEmail: mockSendPasswordResetEmail,
+  sendTwoFactorOTP: mockSendTwoFactorOTP,
   sendVerificationEmail: mockSendVerificationEmail,
   sendVerificationOTP: mockSendVerificationOTP,
 }));
@@ -71,6 +75,7 @@ describe("auth config wrappers", () => {
   beforeEach(() => {
     mockCreateAuthConfig.mockClear();
     mockSendVerificationOTP.mockClear();
+    mockSendTwoFactorOTP.mockClear();
     mockSendVerificationEmail.mockClear();
     mockSendPasswordResetEmail.mockClear();
   });
@@ -157,5 +162,19 @@ describe("auth config wrappers", () => {
         type: "other",
       })
     ).rejects.toThrow("Unsupported verification type: other");
+  });
+
+  test("sendTwoFactorOTP wrapper forwards security codes", async () => {
+    const { sendTwoFactorOTP } = authConfig;
+
+    if (!sendTwoFactorOTP) {
+      throw new Error("Expected sendTwoFactorOTP to be configured");
+    }
+
+    await sendTwoFactorOTP({ email: "test@example.com", otp: "123456" });
+    expect(mockSendTwoFactorOTP).toHaveBeenCalledWith(
+      "test@example.com",
+      "123456"
+    );
   });
 });

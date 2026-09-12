@@ -5,14 +5,17 @@ import loginImage from "@assets/auth/login-image.jpg";
 import signupImage from "@assets/auth/signup-image.jpg";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 import GoogleSignInButton from "@/app/(auth)/client/google-sign-in-button";
+import PasskeySignInButton from "@/app/(auth)/client/passkey-sign-in-button";
 import RedditSignInButton from "@/app/(auth)/client/reddit-sign-in-button";
 import AnimatedAuthLink from "@/components/auth/animated-auth-link";
 import AuthButtonWrapper from "@/components/auth/auth-button-wrapper";
 import LoginForm from "@/components/auth/login-form";
 import SignUpForm from "@/components/auth/sign-up-form";
+import { authClient } from "@/lib/auth/auth";
+import { useToast } from "@/lib/gooey-toast";
 
 type AuthMode = "login" | "signup";
 
@@ -21,6 +24,19 @@ const switchTransition = {
   ease: [0.22, 1, 0.36, 1] as const,
 };
 
+const emptySubscribe = () => () => {
+  // The cookie value is read when this screen mounts; authentication navigates
+  // away, so it does not need a live subscription while this card is open.
+};
+
+function useLastLoginMethod(): string | null {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => authClient.getLastUsedLoginMethod(),
+    () => null
+  );
+}
+
 export default function AuthCard({
   mode,
   onSwitch,
@@ -28,9 +44,11 @@ export default function AuthCard({
   mode: AuthMode;
   onSwitch: (mode: AuthMode) => void;
 }) {
+  const { toast } = useToast();
   const [activeProvider, setActiveProvider] = useState<
-    "google" | "reddit" | null
+    "google" | "passkey" | "reddit" | null
   >(null);
+  const lastLoginMethod = useLastLoginMethod();
 
   const isLogin = mode === "login";
   const isLoading = activeProvider !== null;
@@ -38,7 +56,22 @@ export default function AuthCard({
   const isImageLeft = isLogin;
 
   const handleGoogleStart = useCallback(() => setActiveProvider("google"), []);
+  const handlePasskeyStart = useCallback(
+    () => setActiveProvider("passkey"),
+    []
+  );
   const handleRedditStart = useCallback(() => setActiveProvider("reddit"), []);
+  const handlePasskeyError = useCallback(
+    (message: string) => {
+      toast({
+        description: message,
+        duration: 5000,
+        title: "Passkey sign-in failed",
+        variant: "destructive",
+      });
+    },
+    [toast]
+  );
 
   const switchMode = useCallback(() => {
     const next = mode === "login" ? "signup" : "login";
@@ -101,7 +134,10 @@ export default function AuthCard({
                     activeProvider={activeProvider}
                     end={end}
                     isLoading={isLoading}
+                    lastLoginMethod={lastLoginMethod}
                     onGoogleStart={handleGoogleStart}
+                    onPasskeyError={handlePasskeyError}
+                    onPasskeyStart={handlePasskeyStart}
                     onRedditStart={handleRedditStart}
                     onSwitch={switchMode}
                   />
@@ -142,49 +178,74 @@ const LoginContent = ({
   activeProvider,
   end,
   isLoading,
+  lastLoginMethod,
   onGoogleStart,
+  onPasskeyError,
+  onPasskeyStart,
   onRedditStart,
   onSwitch,
 }: {
-  activeProvider: "google" | "reddit" | null;
+  activeProvider: "google" | "passkey" | "reddit" | null;
   end: () => void;
   isLoading: boolean;
+  lastLoginMethod: string | null;
   onGoogleStart: () => void;
+  onPasskeyError: (message: string) => void;
+  onPasskeyStart: () => void;
   onRedditStart: () => void;
   onSwitch: () => void;
 }) => (
   <>
     <AuthHeading text="Welcome Back" />
 
-    <div className="mb-3 grid grid-cols-1 gap-0 sm:grid-cols-2 md:gap-2">
-      <AuthButtonWrapper className="w-full">
-        {/* Disable BOTH buttons while any social flow is in flight: a second
+    <div className="mb-1 grid grid-cols-1 gap-0 sm:grid-cols-2 md:gap-2">
+      <div>
+        <AuthButtonWrapper className="w-full">
+          {/* Disable BOTH buttons while any social flow is in flight: a second
             sign-in/social call overwrites the OAuth state cookie, so the
             first authorize URL's callback fails with state_mismatch. */}
-        <GoogleSignInButton
-          disabled={isLoading}
-          loading={activeProvider === "google"}
-          onEnd={end}
-          onStart={onGoogleStart}
-        />
-      </AuthButtonWrapper>
-      <AuthButtonWrapper className="w-full">
-        <RedditSignInButton
-          disabled={isLoading}
-          loading={activeProvider === "reddit"}
-          onEnd={end}
-          onStart={onRedditStart}
-        />
-      </AuthButtonWrapper>
+          <GoogleSignInButton
+            disabled={isLoading}
+            loading={activeProvider === "google"}
+            onEnd={end}
+            onStart={onGoogleStart}
+          />
+        </AuthButtonWrapper>
+        {lastLoginMethod === "google" ? <LastUsedSubline /> : null}
+      </div>
+      <div>
+        <AuthButtonWrapper className="w-full">
+          <RedditSignInButton
+            disabled={isLoading}
+            loading={activeProvider === "reddit"}
+            onEnd={end}
+            onStart={onRedditStart}
+          />
+        </AuthButtonWrapper>
+        {lastLoginMethod === "reddit" ? <LastUsedSubline /> : null}
+      </div>
     </div>
-
     <div className="my-4 flex items-center gap-3">
       <div className="bg-muted h-px flex-1" />
       <span className="text-muted-foreground px-2 text-sm">OR</span>
       <div className="bg-muted h-px flex-1" />
     </div>
 
-    <LoginForm />
+    <LoginForm
+      actionAccessory={
+        <div className="flex flex-col items-center gap-0.5">
+          <PasskeySignInButton
+            disabled={isLoading}
+            loading={activeProvider === "passkey"}
+            onEnd={end}
+            onError={onPasskeyError}
+            onStart={onPasskeyStart}
+          />
+          {lastLoginMethod === "passkey" ? <LastUsedSubline /> : null}
+        </div>
+      }
+      lastLoginMethod={lastLoginMethod}
+    />
 
     <div className="mt-6 text-center">
       <AnimatedAuthLink
@@ -195,6 +256,14 @@ const LoginContent = ({
     </div>
   </>
 );
+
+function LastUsedSubline() {
+  return (
+    <p className="text-muted-foreground mt-0.5 text-center text-[10px] leading-none">
+      Last used recently
+    </p>
+  );
+}
 
 const SignupContent = ({ onSwitch }: { onSwitch: () => void }) => (
   <>

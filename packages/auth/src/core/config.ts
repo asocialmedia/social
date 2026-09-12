@@ -1,5 +1,6 @@
 import { isReservedUsername, prisma } from "@asm/db";
 import { createLogger } from "@asm/logger";
+import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
@@ -9,6 +10,8 @@ import {
   emailOTP,
   haveIBeenPwned,
   jwt,
+  lastLoginMethod,
+  twoFactor,
   username,
 } from "better-auth/plugins";
 import type {
@@ -94,6 +97,7 @@ export interface AuthConfig {
     otp: string;
     type: string;
   }) => Promise<void>;
+  sendTwoFactorOTP?: (params: { email: string; otp: string }) => Promise<void>;
   turnstile?: {
     allowedHostnames: string[];
     secretKey: string;
@@ -101,6 +105,18 @@ export interface AuthConfig {
 }
 
 type SocialProviderName = "google" | "reddit";
+
+export function resolveApplicationLoginMethod(path: string | undefined) {
+  if (
+    path === "/sign-in/username" ||
+    path === "/two-factor/verify-backup-code" ||
+    path === "/two-factor/verify-otp" ||
+    path === "/two-factor/verify-totp"
+  ) {
+    return "email";
+  }
+  return null;
+}
 
 // Fields better-auth accepts from mapProfileToUser when creating/linking a
 // user via a social provider. username is required; the rest shape the new
@@ -186,9 +202,19 @@ export function createAuthConfig(config: AuthConfig = {}) {
     emailService,
     environment = env.NODE_ENV || "development",
     sendVerificationOTP,
+    sendTwoFactorOTP,
   } = config;
 
   const authBaseUrl = baseURL || process.env.BETTER_AUTH_URL || env.AUTH_URL;
+  // The web app imports auth helpers while collecting route data at build time.
+  // Env validation is intentionally skipped there, so retain a valid relying
+  // party origin even though the production runtime still supplies APP_URL.
+  const defaultPasskeyAppUrl =
+    environment === "production"
+      ? "https://asocialmedia.cc"
+      : "http://localhost:3000";
+  const passkeyOrigin = new URL(env.APP_URL || defaultPasskeyAppUrl).origin;
+  const passkeyRpId = new URL(passkeyOrigin).hostname;
   const { socialProviders, trustedProviders } =
     buildSocialProviderConfig(authBaseUrl);
 
@@ -371,6 +397,42 @@ export function createAuthConfig(config: AuthConfig = {}) {
       username(),
       jwt(),
       adminPlugin(),
+      twoFactor({
+        accountLockout: {
+          durationSeconds: 15 * 60,
+          maxFailedAttempts: 10,
+        },
+        backupCodeOptions: {
+          storeBackupCodes: "encrypted",
+        },
+        issuer: "asocialmedia",
+        otpOptions: sendTwoFactorOTP
+          ? {
+              allowedAttempts: 3,
+              period: 5,
+              sendOTP: async ({ otp, user }) => {
+                if (!user.email || !user.emailVerified) {
+                  throw new APIError("BAD_REQUEST", {
+                    message:
+                      "A verified email address is required for email two-factor authentication.",
+                  });
+                }
+                await sendTwoFactorOTP({ email: user.email, otp });
+              },
+              storeOTP: "encrypted",
+            }
+          : undefined,
+      }),
+      passkey({
+        origin: passkeyOrigin,
+        rpID: passkeyRpId,
+        rpName: "asocialmedia",
+      }),
+      lastLoginMethod({
+        customResolveMethod: (context) =>
+          resolveApplicationLoginMethod(context.path),
+        storeInDatabase: true,
+      }),
       // Covers Better Auth's built-in credential routes. The application uses
       // a separate pending-signup endpoint too, which verifies Turnstile at
       // its own server boundary before it can call the auth service.
@@ -461,6 +523,13 @@ export function createAuthConfig(config: AuthConfig = {}) {
     },
 
     session: {
+      additionalFields: {
+        country: {
+          input: false,
+          required: false,
+          type: "string",
+        },
+      },
       cookieCache: {
         enabled: false,
       },
@@ -570,7 +639,7 @@ export function createAuthConfig(config: AuthConfig = {}) {
       },
       session: {
         create: {
-          before: async (session) => {
+          before: async (session, context) => {
             const user = await prisma.user.findUnique({
               select: { banExpires: true, banReason: true, banned: true },
               where: { id: session.userId },
@@ -594,6 +663,14 @@ export function createAuthConfig(config: AuthConfig = {}) {
                   })
                 );
               }
+            }
+
+            const country = context?.request?.headers
+              .get("cf-ipcountry")
+              ?.trim()
+              .toUpperCase();
+            if (country && /^[A-Z]{2}$/.test(country)) {
+              return { data: { country } };
             }
           },
         },

@@ -6,6 +6,8 @@ import { authClient } from "@/lib/auth/auth";
 
 const EMAIL_REGEX = /@/;
 
+export type TwoFactorLoginMethod = "otp" | "totp";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -48,6 +50,23 @@ function banResult(error: unknown) {
   }
 }
 
+function getTwoFactorMethods(
+  data: unknown
+): readonly TwoFactorLoginMethod[] | null {
+  if (!isRecord(data) || data.twoFactorRedirect !== true) {
+    return null;
+  }
+
+  if (!Array.isArray(data.twoFactorMethods)) {
+    return [];
+  }
+
+  return data.twoFactorMethods.filter(
+    (method): method is TwoFactorLoginMethod =>
+      method === "otp" || method === "totp"
+  );
+}
+
 export async function login(values: LoginValues) {
   const isEmail = EMAIL_REGEX.test(values.username);
   try {
@@ -70,6 +89,26 @@ export async function login(values: LoginValues) {
         }
       );
     }
+
+    // A 2FA-required response is intentionally successful at the HTTP level,
+    // but no session has been issued yet. Do not allow the form to treat it as
+    // a completed sign-in and overwrite Better Auth's challenge redirect.
+    const twoFactorMethods = getTwoFactorMethods(result.data);
+    if (twoFactorMethods) {
+      if (twoFactorMethods.length === 0) {
+        return {
+          error:
+            "No verification method is configured for this account. Contact support to recover access.",
+          success: false,
+        } as const;
+      }
+      return {
+        requiresTwoFactor: true,
+        success: false,
+        twoFactorMethods,
+      } as const;
+    }
+
     return { success: true } as const;
   } catch (error) {
     return (

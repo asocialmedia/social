@@ -48,7 +48,9 @@ export function getPrivateUserSelect(loggedInUserId: string) {
     email: true,
     emailVerified: true,
     googleId: true,
+    lastLoginMethod: true,
     redditId: true,
+    twoFactorEnabled: true,
   } satisfies Prisma.UserSelect;
 }
 

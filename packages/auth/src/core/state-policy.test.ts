@@ -20,6 +20,9 @@ mock.module("@asm/db", () => ({
 mock.module("better-auth/adapters/prisma", () => ({
   prismaAdapter: () => ({}),
 }));
+mock.module("@better-auth/passkey", () => ({
+  passkey: () => ({}),
+}));
 mock.module("better-auth/api", () => ({
   APIError: class APIError extends Error {
     override name = "APIError";
@@ -42,6 +45,8 @@ mock.module("better-auth/plugins", () => ({
   emailOTP: () => ({}),
   haveIBeenPwned: () => ({}),
   jwt: () => ({}),
+  lastLoginMethod: () => ({}),
+  twoFactor: () => ({}),
   username: () => ({}),
 }));
 
