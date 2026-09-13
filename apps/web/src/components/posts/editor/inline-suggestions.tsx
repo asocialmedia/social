@@ -11,6 +11,9 @@ import { collectInlineRelations, mergeUniqueIds } from "./inline-nodes";
 
 interface InlineSuggestionsProps {
   editor: Editor | null;
+  // Which way the popover opens from the caret. The post composer opens
+  // down; bottom-anchored composers (eddie replies) open up.
+  placement?: "above" | "below";
   selectedMentionIds?: string[];
   selectedTagNames?: string[];
 }
@@ -138,6 +141,7 @@ function createSuggestionSearchers(handlers: {
 
 export const InlineSuggestions = ({
   editor,
+  placement = "below",
   selectedMentionIds = EMPTY_IDS,
   selectedTagNames = EMPTY_IDS,
 }: InlineSuggestionsProps) => {
@@ -269,22 +273,29 @@ export const InlineSuggestions = ({
         containerRect.width - DROPDOWN_WIDTH - DROPDOWN_GUTTER
       );
       const left = Math.min(Math.max(DROPDOWN_GUTTER, rawLeft), maxLeft);
-      // Flip above the caret when there is no room below (near viewport
-      // bottom or the composer's scroll end) so the popup never covers the
-      // line being typed.
-      const spaceBelow =
-        typeof window === "undefined"
-          ? Number.POSITIVE_INFINITY
-          : window.innerHeight - coords.bottom;
-      const spaceAbove = coords.top;
-      const shouldFlip =
-        spaceBelow < DROPDOWN_MAX_HEIGHT + 40 && spaceAbove > spaceBelow;
-      const top = shouldFlip
-        ? Math.max(
-            DROPDOWN_GUTTER,
-            coords.top - containerRect.top - DROPDOWN_MAX_HEIGHT - 6
-          )
-        : belowTop;
+      let top: number;
+      if (placement === "above") {
+        // Bottom-anchored composer: the popup sits directly over the caret
+        // line (a translateY(-100%) on render pulls it fully above).
+        top = coords.top - containerRect.top - 6;
+      } else {
+        // Flip above the caret when there is no room below (near viewport
+        // bottom or the composer's scroll end) so the popup never covers the
+        // line being typed.
+        const spaceBelow =
+          typeof window === "undefined"
+            ? Number.POSITIVE_INFINITY
+            : window.innerHeight - coords.bottom;
+        const spaceAbove = coords.top;
+        const shouldFlip =
+          spaceBelow < DROPDOWN_MAX_HEIGHT + 40 && spaceAbove > spaceBelow;
+        top = shouldFlip
+          ? Math.max(
+              DROPDOWN_GUTTER,
+              coords.top - containerRect.top - DROPDOWN_MAX_HEIGHT - 6
+            )
+          : belowTop;
+      }
 
       setSuggestion({
         left,
@@ -295,26 +306,29 @@ export const InlineSuggestions = ({
       setActiveIndex(0);
       setLoading(true);
       // Keep the caret line visible inside the scrollable editor while the
-      // popup is open, so the end of the text never slides under it.
-      requestAnimationFrame(() => {
-        try {
-          const scrollable = dom.closest(
-            ".overflow-y-auto"
-          ) as HTMLElement | null;
-          if (!scrollable) {
-            return;
+      // popup is open (post composer only; bottom-anchored composers have
+      // nothing to scroll under).
+      if (placement === "below") {
+        requestAnimationFrame(() => {
+          try {
+            const scrollable = dom.closest(
+              ".overflow-y-auto"
+            ) as HTMLElement | null;
+            if (!scrollable) {
+              return;
+            }
+            const viewRect = scrollable.getBoundingClientRect();
+            const caret = view.coordsAtPos(editor.state.selection.from);
+            if (caret.bottom > viewRect.bottom - 12) {
+              scrollable.scrollTop += caret.bottom - viewRect.bottom + 20;
+            } else if (caret.top < viewRect.top + 12) {
+              scrollable.scrollTop -= viewRect.top - caret.top + 20;
+            }
+          } catch {
+            // Positioning already applied; a scroll miss is non-fatal.
           }
-          const viewRect = scrollable.getBoundingClientRect();
-          const caret = view.coordsAtPos(editor.state.selection.from);
-          if (caret.bottom > viewRect.bottom - 12) {
-            scrollable.scrollTop += caret.bottom - viewRect.bottom + 20;
-          } else if (caret.top < viewRect.top + 12) {
-            scrollable.scrollTop -= viewRect.top - caret.top + 20;
-          }
-        } catch {
-          // Positioning already applied; a scroll miss is non-fatal.
-        }
-      });
+        });
+      }
       const inline = collectInlineRelations(editor.getJSON());
       if (triggerType === "tag") {
         // Pills already in the doc count as selected so the same tag is
@@ -340,7 +354,14 @@ export const InlineSuggestions = ({
       editor.off("update", handler);
       editor.off("selectionUpdate", handler);
     };
-  }, [editor, fetchTags, fetchUsers, selectedMentionIds, selectedTagNames]);
+  }, [
+    editor,
+    fetchTags,
+    fetchUsers,
+    placement,
+    selectedMentionIds,
+    selectedTagNames,
+  ]);
 
   const handleItemSelect = useCallback(
     (item: SuggestionItem) => {
@@ -375,6 +396,12 @@ export const InlineSuggestions = ({
         if (activeItem) {
           e.preventDefault();
           handleItemSelect(activeItem);
+          return;
+        }
+        // Swallow Enter while results are still loading so a bottom-anchored
+        // composer (eddies) does not publish mid-search.
+        if (loading) {
+          e.preventDefault();
         }
         return;
       }
@@ -382,7 +409,7 @@ export const InlineSuggestions = ({
         close();
       }
     },
-    [activeIndex, close, handleItemSelect, suggestion, tags, users]
+    [activeIndex, close, handleItemSelect, loading, suggestion, tags, users]
   );
 
   useEffect(() => {
@@ -542,6 +569,7 @@ export const InlineSuggestions = ({
       style={{
         left: suggestion.left,
         top: suggestion.top,
+        transform: placement === "above" ? "translateY(-100%)" : undefined,
       }}
     >
       <div className="max-h-64 overflow-y-auto">{renderBody()}</div>

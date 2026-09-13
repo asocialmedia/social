@@ -355,13 +355,17 @@ export async function enqueueMediaDeleteCascade(
 
 // Schedules the repeatable maintenance jobs (HN cache refresh every 15 min,
 // the trending-score recompute + snapshot publish every 5 min, the weekly
-// expired-token sweep, and the daily unverified-user sweep). Idempotent:
+// expired-token and username-alias sweeps, and the daily unverified-user sweep).
+// Idempotent:
 // re-running replaces the scheduler definition.
 export async function registerMaintenanceSchedulers(): Promise<void> {
   const queue = getQueue(MAINTENANCE_QUEUE);
   await queue.upsertJobScheduler("hn-refresh", { every: 15 * 60 * 1000 });
   await queue.upsertJobScheduler("expired-tokens", {
     every: 7 * 24 * 60 * 60 * 1000,
+  });
+  await queue.upsertJobScheduler("expired-username-aliases", {
+    every: 60 * 60 * 1000,
   });
   await queue.upsertJobScheduler("inactive-users", {
     every: 24 * 60 * 60 * 1000,

@@ -39,10 +39,10 @@ import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
-import Linkify from "@/helpers/global/linkify";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn, formatNumber } from "@/lib/utils";
@@ -669,14 +669,13 @@ export const GustCard: React.FC<GustCardProps> = ({
 
           {post.content ? (
             <div className="max-w-[78%]">
-              <p
+              <PostLinkedContent
                 className={cn(
                   "text-xs leading-relaxed text-white/95 drop-shadow-md",
                   !captionExpanded && "line-clamp-3"
                 )}
-              >
-                <Linkify>{post.content}</Linkify>
-              </p>
+                content={post.content}
+              />
               {post.content.length > 80 ? (
                 <button
                   className="mt-0.5 text-xs font-semibold text-white/80 drop-shadow-md hover:text-white"
@@ -689,9 +688,11 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           ) : null}
 
-          {/* Tags + mentions, mirrored from the fleet post card. */}
+          {/* Tags + mentions, mirrored from the fleet post card; inline
+              entries already render in the caption above. */}
           {post.tags?.length || post.mentions?.length ? (
             <PostMeta
+              content={post.content}
               mentions={post.mentions.map((m) => m.user as unknown as UserData)}
               tags={post.tags as TagWithCount[]}
             />

@@ -8,6 +8,7 @@ import {
 import type { CommentData, PostData, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
+import type { Editor } from "@tiptap/core";
 import {
   Clapperboard,
   ImagePlus,
@@ -33,8 +34,7 @@ import {
   getCommentDraft,
   saveCommentDraft,
 } from "./comment-draft-store";
-import { CommentSuggestions } from "./comment-suggestions";
-import type { CommentSuggestionsHandle } from "./comment-suggestions";
+import { CommentRichEditor } from "./comment-rich-editor";
 import KlipyGifPicker from "./klipy-gif-picker";
 import type { KlipyGif } from "./klipy-gif-picker";
 import { useSubmitCommentMutation } from "./mutations";
@@ -85,29 +85,9 @@ export default function CommentInput({
     }
     return "";
   });
-  const [suggestions, setSuggestions] = useState<{
-    query: string;
-    type: "tag" | "mention";
-  } | null>(null);
   const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
-  const suggestionsRef = useRef<CommentSuggestionsHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-    textarea.style.height = "auto";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 24), 160);
-    textarea.style.height = `${nextHeight}px`;
-  }, []);
-
-  useEffect(() => {
-    adjustTextareaHeight();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- input intentionally triggers a height re-measure on every keystroke
-  }, [input, adjustTextareaHeight]);
+  const editorRef = useRef<Editor | null>(null);
 
   const { toast } = useToast();
 
@@ -151,8 +131,8 @@ export default function CommentInput({
     });
   }, [input, parentId, post.id, replyingTo]);
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function onSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
 
     if (!user) {
       goToLogin();
@@ -175,78 +155,13 @@ export default function CommentInput({
           clearCommentDraft(post.id, parentId);
           setInput("");
           setDismissedEmbedUrls([]);
-          setSuggestions(null);
+          editorRef.current?.commands.clearContent();
           reset();
           onSubmitted?.();
         },
       }
     );
   }
-
-  const checkSuggestions = useCallback((text: string, cursorPos?: number) => {
-    const cursor =
-      cursorPos ?? textareaRef.current?.selectionStart ?? text.length;
-    const textBefore = text.slice(Math.max(0, cursor - 50), cursor);
-    const match = textBefore.match(/(?:^|\s)(?<trigger>[#@])(?<query>[\w-]*)$/);
-    if (match?.groups) {
-      setSuggestions({
-        query: match.groups.query || "",
-        type: match.groups.trigger === "#" ? "tag" : "mention",
-      });
-    } else {
-      setSuggestions(null);
-    }
-  }, []);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const nextVal = e.target.value;
-    setInput(nextVal);
-    checkSuggestions(nextVal, e.target.selectionStart ?? nextVal.length);
-  };
-
-  const handleSelectTag = useCallback(
-    (tag: string) => {
-      const textarea = textareaRef.current;
-      const cursor = textarea?.selectionStart ?? input.length;
-      const textBefore = input.slice(0, cursor);
-      const textAfter = input.slice(cursor);
-      const match = textBefore.match(/(?:^|\s)#(?<tag>[\w-]*)$/);
-      if (match?.groups) {
-        const triggerStart = cursor - match.groups.tag.length - 1;
-        const next = `${input.slice(0, triggerStart)}#${tag} ${textAfter}`;
-        setInput(next);
-        setTimeout(() => {
-          textarea?.focus();
-          const newPos = triggerStart + tag.length + 2;
-          textarea?.setSelectionRange(newPos, newPos);
-        }, 0);
-      }
-      setSuggestions(null);
-    },
-    [input]
-  );
-
-  const handleSelectMention = useCallback(
-    (userToMention: UserData) => {
-      const textarea = textareaRef.current;
-      const cursor = textarea?.selectionStart ?? input.length;
-      const textBefore = input.slice(0, cursor);
-      const textAfter = input.slice(cursor);
-      const match = textBefore.match(/(?:^|\s)@(?<username>[\w-]*)$/);
-      if (match?.groups) {
-        const triggerStart = cursor - match.groups.username.length - 1;
-        const next = `${input.slice(0, triggerStart)}@${userToMention.username} ${textAfter}`;
-        setInput(next);
-        setTimeout(() => {
-          textarea?.focus();
-          const newPos = triggerStart + userToMention.username.length + 2;
-          textarea?.setSelectionRange(newPos, newPos);
-        }, 0);
-      }
-      setSuggestions(null);
-    },
-    [input]
-  );
 
   const handleFilesSelected = useCallback(
     (files: FileList | null) => {
@@ -310,40 +225,6 @@ export default function CommentInput({
     );
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (suggestions) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        suggestionsRef.current?.moveDown();
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        suggestionsRef.current?.moveUp();
-        return;
-      }
-      if (
-        (e.key === "Enter" || e.key === "Tab") &&
-        suggestionsRef.current?.selectActive()
-      ) {
-        e.preventDefault();
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setSuggestions(null);
-        return;
-      }
-    }
-
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (canSubmit && !mutation.isPending && !isUploading) {
-        onSubmit(e);
-      }
-    }
-  };
-
   return (
     <form
       className={cn(
@@ -367,16 +248,6 @@ export default function CommentInput({
           className="mt-0.5 h-10 w-10 shrink-0"
         />
         <div className="relative min-w-0 flex-1">
-          {suggestions ? (
-            <CommentSuggestions
-              onClose={() => setSuggestions(null)}
-              onSelectMention={handleSelectMention}
-              onSelectTag={handleSelectTag}
-              query={suggestions.query}
-              ref={suggestionsRef}
-              type={suggestions.type}
-            />
-          ) : null}
           <div
             className={cn(
               "flex min-w-0 flex-col transition-all",
@@ -386,15 +257,14 @@ export default function CommentInput({
               attachments.length > 0 && "gap-2"
             )}
           >
-            <textarea
+            <CommentRichEditor
               autoFocus={autoFocus}
-              className="placeholder:text-muted-foreground/70 max-h-40 min-h-6 w-full resize-none bg-transparent py-2 text-sm leading-none outline-none"
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
+              editorClassName="max-h-40 min-h-6 w-full overflow-y-auto py-2 text-sm leading-relaxed"
+              editorRef={editorRef}
+              initialContent={input}
+              onChange={setInput}
+              onSubmit={onSubmit}
               placeholder={placeholder}
-              ref={textareaRef}
-              rows={1}
-              value={input}
             />
             <input
               accept="image/*,.png,.jpg,.jpeg,.gif,.webp"

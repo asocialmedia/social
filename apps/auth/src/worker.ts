@@ -22,6 +22,7 @@ if (import.meta.main) {
     processNotificationCreated,
     processNotificationDeleted,
     processInactiveUsersSweep,
+    processExpiredUsernameAliases,
     processHnRefresh,
     processExpiredTokens,
     processShitposterCheck,
@@ -144,6 +145,9 @@ if (import.meta.main) {
           }
           case "expired-tokens": {
             return processExpiredTokens(logger);
+          }
+          case "expired-username-aliases": {
+            return processExpiredUsernameAliases(logger);
           }
           case "inactive-users": {
             return processInactiveUsersSweep(logger);

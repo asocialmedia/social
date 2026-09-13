@@ -3,6 +3,7 @@
 import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
 import type { PostData, UserData } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
+import type { Editor } from "@tiptap/core";
 import {
   Clapperboard,
   ImageIcon,
@@ -21,8 +22,7 @@ import {
   getCommentDraft,
   saveCommentDraft,
 } from "@/components/comments/comment-draft-store";
-import { CommentSuggestions } from "@/components/comments/comment-suggestions";
-import type { CommentSuggestionsHandle } from "@/components/comments/comment-suggestions";
+import { CommentRichEditor } from "@/components/comments/comment-rich-editor";
 import { useCommentsRealtimeValue } from "@/components/comments/comments-realtime-context";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
@@ -70,15 +70,11 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
   const [input, setInput] = useState(
     () => getCommentDraft(post.id)?.content ?? ""
   );
-  const [suggestions, setSuggestions] = useState<{
-    query: string;
-    type: "tag" | "mention";
-  } | null>(null);
   const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
-  const suggestionsRef = useRef<CommentSuggestionsHandle>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<Editor | null>(null);
 
   const {
     attachments,
@@ -96,8 +92,6 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     staleTime: 1000 * 60 * 5,
   });
 
-  const inputRef = useRef<HTMLInputElement>(null);
-
   // Persist draft to storage whenever input or replying target changes
   useEffect(() => {
     saveCommentDraft(post.id, {
@@ -107,10 +101,10 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     });
   }, [input, post.id, replyingTo]);
 
-  // Focus input whenever a reply target is chosen
+  // Focus the editor whenever a reply target is chosen
   useEffect(() => {
     if (replyingTo) {
-      inputRef.current?.focus();
+      editorRef.current?.commands.focus("end");
     }
   }, [replyingTo]);
 
@@ -174,11 +168,11 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
           clearCommentDraft(post.id, replyingTo?.commentId);
           setInput("");
           setDismissedEmbedUrls([]);
-          setSuggestions(null);
+          editorRef.current?.commands.clearContent();
+          editorRef.current?.commands.blur();
           reset();
           setGifPickerOpen(false);
           setIsExpanded(false);
-          inputRef.current?.blur();
           shared?.setReplyingTo(null);
         },
       }
@@ -197,73 +191,6 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
     user,
   ]);
 
-  const checkSuggestions = useCallback((text: string, cursorPos?: number) => {
-    const cursor = cursorPos ?? inputRef.current?.selectionStart ?? text.length;
-    const textBefore = text.slice(Math.max(0, cursor - 50), cursor);
-    const match = textBefore.match(/(?:^|\s)(?<trigger>[#@])(?<query>[\w-]*)$/);
-    if (match?.groups) {
-      setSuggestions({
-        query: match.groups.query || "",
-        type: match.groups.trigger === "#" ? "tag" : "mention",
-      });
-    } else {
-      setSuggestions(null);
-    }
-  }, []);
-
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const nextVal = e.target.value;
-      setInput(nextVal);
-      checkSuggestions(nextVal, e.target.selectionStart ?? nextVal.length);
-    },
-    [checkSuggestions]
-  );
-
-  const handleSelectTag = useCallback(
-    (tag: string) => {
-      const inputEl = inputRef.current;
-      const cursor = inputEl?.selectionStart ?? input.length;
-      const textBefore = input.slice(0, cursor);
-      const textAfter = input.slice(cursor);
-      const match = textBefore.match(/(?:^|\s)#(?<tag>[\w-]*)$/);
-      if (match?.groups) {
-        const triggerStart = cursor - match.groups.tag.length - 1;
-        const next = `${input.slice(0, triggerStart)}#${tag} ${textAfter}`;
-        setInput(next);
-        setTimeout(() => {
-          inputEl?.focus();
-          const newPos = triggerStart + tag.length + 2;
-          inputEl?.setSelectionRange(newPos, newPos);
-        }, 0);
-      }
-      setSuggestions(null);
-    },
-    [input]
-  );
-
-  const handleSelectMention = useCallback(
-    (userToMention: UserData) => {
-      const inputEl = inputRef.current;
-      const cursor = inputEl?.selectionStart ?? input.length;
-      const textBefore = input.slice(0, cursor);
-      const textAfter = input.slice(cursor);
-      const match = textBefore.match(/(?:^|\s)@(?<username>[\w-]*)$/);
-      if (match?.groups) {
-        const triggerStart = cursor - match.groups.username.length - 1;
-        const next = `${input.slice(0, triggerStart)}@${userToMention.username} ${textAfter}`;
-        setInput(next);
-        setTimeout(() => {
-          inputEl?.focus();
-          const newPos = triggerStart + userToMention.username.length + 2;
-          inputEl?.setSelectionRange(newPos, newPos);
-        }, 0);
-      }
-      setSuggestions(null);
-    },
-    [input]
-  );
-
   const handleFocus = useCallback(() => {
     setIsExpanded(true);
   }, []);
@@ -275,41 +202,6 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
       setIsExpanded(false);
     }
   }, []);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (suggestions) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          suggestionsRef.current?.moveDown();
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          suggestionsRef.current?.moveUp();
-          return;
-        }
-        if (
-          (e.key === "Enter" || e.key === "Tab") &&
-          suggestionsRef.current?.selectActive()
-        ) {
-          e.preventDefault();
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setSuggestions(null);
-          return;
-        }
-      }
-
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleSubmit();
-      }
-    },
-    [handleSubmit, suggestions]
-  );
 
   const handleFilesSelected = useCallback(
     (files: FileList | null) => {
@@ -392,34 +284,25 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
           </div>
         ) : null}
 
-        {suggestions ? (
-          <CommentSuggestions
-            onClose={() => setSuggestions(null)}
-            onSelectMention={handleSelectMention}
-            onSelectTag={handleSelectTag}
-            query={suggestions.query}
-            ref={suggestionsRef}
-            type={suggestions.type}
-          />
-        ) : null}
-
         <div className="flex items-center gap-2">
           <UserAvatar
             avatarUrl={userData?.avatarUrl || user?.image}
             className="h-9 w-9 shrink-0"
           />
-          <input
-            className="premium-input h-10 min-w-0 flex-1 rounded-xl px-3 text-sm focus:outline-none"
-            onChange={handleInputChange}
+          <CommentRichEditor
+            autoFocus={false}
+            className="premium-input min-h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
+            editorClassName="max-h-28 min-h-6 overflow-y-auto py-2 leading-relaxed"
+            editorRef={editorRef}
+            initialContent={input}
+            onChange={setInput}
             onFocus={handleFocus}
-            onKeyDown={handleKeyDown}
+            onSubmit={handleSubmit}
             placeholder={
               replyingTo
                 ? `Reply to @${replyingTo.username}...`
                 : "Add your Eddie to the flow..."
             }
-            ref={inputRef}
-            value={input}
           />
           <AnimatePresence initial={false}>
             {!isExpanded && (

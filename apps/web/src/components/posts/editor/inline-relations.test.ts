@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { collectInlineRelations, mergeUniqueIds } from "./inline-nodes";
+import { collectInlineRelations, mergeUniqueIds } from "./inline-relations";
 
 describe("collectInlineRelations", () => {
   test("returns empty relations for an empty doc", () => {

@@ -233,16 +233,21 @@ export default function AccountSettings({
     }
 
     usernameMutation.mutate(values, {
-      onError: () => {
+      onError: (error) => {
         toast({
-          description: "That username didn't work, try another?",
+          description:
+            error.message || "That username didn't work, try another?",
           title: "Couldn't Update",
           variant: "destructive",
         });
       },
-      onSuccess: () => {
+      onSuccess: (result) => {
+        usernameForm.reset({ username: result.username });
+        router.refresh();
         toast({
-          description: "Your new username is live!",
+          description: result.changed
+            ? "Your previous username will redirect here for the next 30 days."
+            : "Your username is already up to date.",
           title: "Username Updated",
         });
       },
@@ -407,6 +412,11 @@ export default function AccountSettings({
               name="username"
               render={UsernameFieldRenderer}
             />
+
+            <p className="text-muted-foreground -mt-1 text-xs leading-relaxed">
+              Your previous username stays reserved and redirects here for 30
+              days. You can make up to 5 username changes every 30 days.
+            </p>
 
             <div className="flex justify-end">
               <LoadingButton

@@ -62,6 +62,9 @@ describe("worker job processors", () => {
       deleteMany: mock(() => ({ count: 1 })),
       findMany: mock(() => [{ id: "user-1" }]),
     },
+    usernameAlias: {
+      deleteMany: mock(() => ({ count: 2 })),
+    },
   };
 
   mock.module("@asm/db", () => ({
@@ -90,6 +93,7 @@ describe("worker job processors", () => {
     mockPrisma.user.findMany.mockClear();
     mockPrisma.user.deleteMany.mockClear();
     mockPrisma.passwordResetToken.deleteMany.mockClear();
+    mockPrisma.usernameAlias.deleteMany.mockClear();
   });
 
   test("processPostDeleted deletes media objects and rows and clears view keys", async () => {
@@ -199,6 +203,16 @@ describe("worker job processors", () => {
     await processExpiredTokens();
 
     expect(mockPrisma.passwordResetToken.deleteMany).toHaveBeenCalled();
+  });
+
+  test("processExpiredUsernameAliases releases expired usernames", async () => {
+    const { processExpiredUsernameAliases } = await import("./jobs");
+
+    await processExpiredUsernameAliases();
+
+    expect(mockPrisma.usernameAlias.deleteMany).toHaveBeenCalledWith({
+      where: { expiresAt: { lte: expect.any(Date) } },
+    });
   });
 
   test("processNotificationCreated and Deleted adjust the unread counter", async () => {

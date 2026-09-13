@@ -205,6 +205,19 @@ export async function processExpiredTokens(
   });
 }
 
+export async function processExpiredUsernameAliases(
+  logger?: WorkerLogger
+): Promise<{ count: number }> {
+  const log = resolveLogger(logger);
+  return await withSpan("job.expired-username-aliases", async () => {
+    const result = await prisma.usernameAlias.deleteMany({
+      where: { expiresAt: { lte: new Date() } },
+    });
+    log.info({ deleted: result.count }, "expired username aliases swept");
+    return result;
+  });
+}
+
 export async function processInactiveUsersSweep(
   logger?: WorkerLogger
 ): Promise<number> {

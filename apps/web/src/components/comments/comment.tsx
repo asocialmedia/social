@@ -9,7 +9,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserBadge from "@/components/layouts/user-badge";
 import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
-import Linkify from "@/helpers/global/linkify";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -249,9 +249,7 @@ export default function CommentItem({
               </p>
             ) : (
               <>
-                <p className="text-foreground max-w-full text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-                  <Linkify>{comment.content}</Linkify>
-                </p>
+                <PostLinkedContent content={comment.content} />
                 <CommentAttachments attachments={comment.attachments} />
                 <CommentLinkEmbeds content={comment.content} />
               </>

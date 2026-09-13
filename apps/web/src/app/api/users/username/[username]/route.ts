@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataSelect, prisma, resolveUsername } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -18,14 +18,14 @@ export async function GET(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await prisma.user.findFirst({
+    const resolvedUsername = await resolveUsername(username);
+    if (!resolvedUsername) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const user = await prisma.user.findUnique({
       select: getUserDataSelect(loggedInUser.id),
-      where: {
-        username: {
-          equals: username,
-          mode: "insensitive",
-        },
-      },
+      where: { id: resolvedUsername.id },
     });
 
     if (!user) {

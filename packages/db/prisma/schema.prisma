@@ -51,6 +51,7 @@ model User {
   accounts              Account[]
   twoFactor             TwoFactor?
   passkeys              Passkey[]
+  usernameAliases       UsernameAlias[]
   verifications         Verification[]
   passwordResetTokens   PasswordResetToken[]
   mentions              Mention[]
@@ -82,6 +83,21 @@ model User {
   @@index([banned])
   @@index([banExpires])
   @@map("users")
+}
+
+// A username remains owned by its previous account for a short time after a
+// rename. This preserves old profile links and prevents immediate impersonation.
+model UsernameAlias {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([userId, createdAt])
+  @@map("username_aliases")
 }
 
 // E2EE messages. The server only ever stores ciphertext plus routing metadata;

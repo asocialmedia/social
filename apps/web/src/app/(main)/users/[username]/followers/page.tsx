@@ -1,4 +1,4 @@
-import { getUserDataSelect, prisma } from "@asm/db";
+import { getUserDataSelect, prisma, resolveUsername } from "@asm/db";
 import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
@@ -13,21 +13,21 @@ interface PageProps {
 }
 
 const getUser = cache(async (username: string, loggedInUserId: string) => {
-  const user = await prisma.user.findFirst({
+  const resolvedUsername = await resolveUsername(username);
+  if (!resolvedUsername) {
+    notFound();
+  }
+
+  const user = await prisma.user.findUnique({
     select: getUserDataSelect(loggedInUserId),
-    where: {
-      username: {
-        equals: username,
-        mode: "insensitive",
-      },
-    },
+    where: { id: resolvedUsername.id },
   });
 
   if (!user) {
     notFound();
   }
 
-  return user;
+  return { redirectToCurrentUsername: resolvedUsername.isAlias, user };
 });
 
 export default function Page(props: PageProps) {
@@ -46,10 +46,17 @@ async function FollowersContent({ params }: PageProps) {
     redirect(`/login?next=/users/${encodeURIComponent(username)}/followers`);
   }
 
-  const [userData, loggedInUserData] = await Promise.all([
+  const [resolvedUser, loggedInUserData] = await Promise.all([
     getUser(username, session.user.id),
     getUserData(session.user.id),
   ]);
+
+  if (resolvedUser.redirectToCurrentUsername) {
+    redirect(
+      `/users/${encodeURIComponent(resolvedUser.user.username)}/followers`
+    );
+  }
+  const userData = resolvedUser.user;
 
   if (!loggedInUserData) {
     redirect(`/login?next=/users/${encodeURIComponent(username)}/followers`);

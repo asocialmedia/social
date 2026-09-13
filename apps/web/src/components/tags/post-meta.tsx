@@ -5,6 +5,7 @@ import { Hash } from "lucide-react";
 import Link from "next/link";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import { extractInlineMeta } from "@/lib/posts/inline-meta";
 
 // Accept the payload shapes produced by getPostDataInclude (post.mentions[*].
 // user and post.tags) directly, so callers don't need unchecked casts.
@@ -16,11 +17,26 @@ interface PostMetaProps {
     username: string;
   }[];
   tags: TagWithCount[];
+  // When provided, mentions/tags that already appear inline in the content
+  // are dropped: they render in the post text itself, so showing them again
+  // as chips would duplicate the row. Chips remain for relations added
+  // explicitly through the edit dialogs.
+  content?: string;
 }
 
-export const PostMeta = ({ mentions, tags }: PostMetaProps) => {
-  const hasTags = tags.length > 0;
-  const hasMentions = mentions.length > 0;
+export const PostMeta = ({ mentions, tags, content }: PostMetaProps) => {
+  const inline = content ? extractInlineMeta(content) : null;
+  const visibleMentions = inline
+    ? mentions.filter(
+        (user) => !inline.usernames.has((user.username ?? "").toLowerCase())
+      )
+    : mentions;
+  const visibleTags = inline
+    ? tags.filter((tag) => !inline.tags.has(tag.name.toLowerCase()))
+    : tags;
+
+  const hasTags = visibleTags.length > 0;
+  const hasMentions = visibleMentions.length > 0;
 
   if (!(hasTags || hasMentions)) {
     return null;
@@ -29,7 +45,7 @@ export const PostMeta = ({ mentions, tags }: PostMetaProps) => {
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
       {hasTags
-        ? tags.map((tag) => (
+        ? visibleTags.map((tag) => (
             <Link
               className="meta-chip meta-chip-tag"
               href={`/hashtag/${tag.name}`}
@@ -42,7 +58,7 @@ export const PostMeta = ({ mentions, tags }: PostMetaProps) => {
         : null}
 
       {hasMentions
-        ? mentions.map((user) => (
+        ? visibleMentions.map((user) => (
             <Link
               className="meta-chip meta-chip-mention"
               href={`/users/${user.username}`}

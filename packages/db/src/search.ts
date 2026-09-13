@@ -97,6 +97,14 @@ export async function searchUsers(
             { username: { contains: q, mode: "insensitive" } },
             { displayName: { contains: q, mode: "insensitive" } },
             { displayUsername: { contains: q, mode: "insensitive" } },
+            {
+              usernameAliases: {
+                some: {
+                  expiresAt: { gt: new Date() },
+                  username: { contains: q, mode: "insensitive" },
+                },
+              },
+            },
           ],
         },
       ],
