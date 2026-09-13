@@ -1,3 +1,10 @@
+// MUST stay the first import. The passkey stack (@simplewebauthn/server ->
+// @peculiar/x509) pulls in tsyringe, which throws at module-eval time unless
+// Reflect.getMetadata already exists. `bun build --compile` initializes the
+// bundled graph before the entry body, so a bare side-effect import here is
+// what guarantees the polyfill lands first in the compiled binary. Removing or
+// reordering it breaks the production auth-server at startup.
+import "reflect-metadata";
 import { loadRootEnv } from "./env";
 
 if (import.meta.main) {
