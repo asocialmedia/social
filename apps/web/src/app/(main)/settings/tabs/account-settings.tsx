@@ -1,6 +1,7 @@
 "use client";
 
 import type { PrivateUserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Form,
   FormControl,
@@ -16,7 +17,6 @@ import {
   InputOTPSlot,
 } from "@asm/ui/shadui/input-otp";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { LucideIcon } from "lucide-react";
 import { AtSign, KeyRound, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -32,6 +32,7 @@ import type { AccountLinkingReadiness } from "@/components/settings/linked-accou
 import {
   ORANGE_GRADIENT_CLASS,
   SettingsCard,
+  SettingsCardHeading,
   SettingsSectionHeader,
 } from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
@@ -119,33 +120,6 @@ const BUTTON_CLASS = cn(
   "h-9 rounded-xl px-5",
   ORANGE_GRADIENT_CLASS,
   "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
-);
-
-// Card sub-heading: a titled block shared by every account section so the
-// merged card reads as one surface with clear parts.
-const CardHeading = ({
-  description,
-  icon: Icon,
-  title,
-}: {
-  description: string;
-  icon: LucideIcon;
-  title: string;
-}) => (
-  <div className="flex items-center gap-2">
-    <div
-      className={cn(
-        "flex h-7 w-7 items-center justify-center rounded-lg",
-        ORANGE_GRADIENT_CLASS
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </div>
-    <div>
-      <h3 className="font-medium">{title}</h3>
-      <p className="text-muted-foreground text-sm">{description}</p>
-    </div>
-  </div>
 );
 
 const UsernameFieldRenderer = ({
@@ -490,7 +464,7 @@ export default function AccountSettings({
           the account, so they read better as one surface with two parts. */}
       <SettingsCard>
         <div className="scroll-mt-24" id="settings-username">
-          <CardHeading
+          <SettingsCardHeading
             description="How people find you on asocialmedia"
             icon={AtSign}
             title="Username"
@@ -528,7 +502,7 @@ export default function AccountSettings({
         <div className="border-border/60 my-6 border-t" />
 
         <div className="scroll-mt-24" id="settings-email">
-          <CardHeading
+          <SettingsCardHeading
             description="Where we send login and reset links"
             icon={Mail}
             title="Email Address"
@@ -582,21 +556,23 @@ export default function AccountSettings({
                   render={OtpFieldRenderer}
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <button
-                    className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                  <Button
+                    className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                     onClick={onResendCurrentCode}
                     type="button"
+                    variant="ghost"
                   >
                     Resend code
-                  </button>
+                  </Button>
                   <div className="flex items-center gap-2">
-                    <button
-                      className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                    <Button
+                      className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                       onClick={onCancelEmailChange}
                       type="button"
+                      variant="ghost"
                     >
                       Cancel
-                    </button>
+                    </Button>
                     <LoadingButton
                       className={BUTTON_CLASS}
                       loading={emailMutation.isPending}
@@ -633,13 +609,14 @@ export default function AccountSettings({
                   render={OtpFieldRenderer}
                 />
                 <div className="flex justify-end gap-2">
-                  <button
-                    className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                  <Button
+                    className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                     onClick={onCancelEmailChange}
                     type="button"
+                    variant="ghost"
                   >
                     Cancel
-                  </button>
+                  </Button>
                   <LoadingButton
                     className={BUTTON_CLASS}
                     loading={emailVerifyMutation.isPending}
@@ -655,7 +632,7 @@ export default function AccountSettings({
       </SettingsCard>
 
       <section className="scroll-mt-24 space-y-3" id="settings-linked-accounts">
-        <CardHeading
+        <SettingsCardHeading
           description="Add another way to sign in"
           icon={KeyRound}
           title="Sign-in methods"
@@ -669,7 +646,7 @@ export default function AccountSettings({
 
       {!accountLinkingReadiness.hasPassword && (
         <SettingsCard className="scroll-mt-24" id="settings-add-password">
-          <CardHeading
+          <SettingsCardHeading
             description="Add a backup way to sign in before connecting another provider"
             icon={KeyRound}
             title="Add a Password"

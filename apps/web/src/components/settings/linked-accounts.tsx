@@ -14,7 +14,10 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import { LoadingButton } from "@/components/auth/loading-button";
-import { SettingsCard } from "@/components/settings/settings-section-card";
+import {
+  SettingsCard,
+  SettingsStatusChip,
+} from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -79,16 +82,9 @@ const ProviderCard = ({
       />
       <div className="min-w-0">
         <p className="truncate font-semibold">{providerLabel(provider)}</p>
-        <p
-          className={cn(
-            "truncate text-xs",
-            isConnected
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-muted-foreground"
-          )}
-        >
+        <SettingsStatusChip on={isConnected}>
           {isConnected ? "Connected" : "Not connected"}
-        </p>
+        </SettingsStatusChip>
       </div>
     </div>
 

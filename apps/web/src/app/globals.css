@@ -610,6 +610,83 @@
     0 3px 5px rgba(0, 0, 0, 0.2);
 }
 
+/* ── 3D Danger Button (destructive text action) ──────────────────────
+   The text counterpart of btn-3d-gray: a real raised surface instead of a
+   bare label, tinted to the app's danger pair (deep red on a soft red fill in
+   light mode, reversed in dark). State changes shift the fill and shadow only -
+   no hover lift. */
+.btn-3d-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #b91c1c;
+  background: linear-gradient(to bottom, #ffe3e3, #ffcaca);
+  border-radius: 9999px;
+  /* Fixed-height pill: the box owns the height and `align-items` centres the
+     label, so no vertical padding or line-height is allowed to offset it. */
+  padding-block: 0;
+  line-height: 1;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.9),
+    0 0 0 1px rgba(185, 28, 28, 0.28),
+    0 1px 1px rgba(0, 0, 0, 0.05),
+    0 2px 4px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease-out;
+}
+
+.btn-3d-danger:hover {
+  color: #991b1b;
+  background: linear-gradient(to bottom, #ffd5d5, #ffb3b3);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.75),
+    inset 0 2px 3px rgba(255, 255, 255, 0.95),
+    0 0 0 1px rgba(185, 28, 28, 0.4),
+    0 2px 3px rgba(0, 0, 0, 0.06),
+    0 4px 8px -2px rgba(185, 28, 28, 0.16);
+}
+
+.btn-3d-danger:active {
+  color: #7f1d1d;
+  background: linear-gradient(to bottom, #ffbfbf, #ffa8a8);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+    inset 0 1px 3px rgba(127, 29, 29, 0.25),
+    0 0 0 1px rgba(185, 28, 28, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.dark .btn-3d-danger {
+  color: #ff9d92;
+  background: linear-gradient(to bottom, #5c2626, #3f1a1a);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 1px 1px rgba(255, 255, 255, 0.06),
+    0 3px 5px rgba(0, 0, 0, 0.25);
+}
+
+.dark .btn-3d-danger:hover {
+  color: #ffb4ab;
+  background: linear-gradient(to bottom, #6f2e2e, #4d2020);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 2px 3px rgba(255, 255, 255, 0.16),
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 2px 3px rgba(255, 255, 255, 0.06),
+    0 5px 10px -2px rgba(0, 0, 0, 0.35);
+}
+
+.dark .btn-3d-danger:active {
+  color: #ff8a80;
+  background: linear-gradient(to bottom, #3f1a1a, #331414);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 3px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
 /* ── Reels rail buttons: glassy apple 3D sitting over the video ──── */
 .rail-3d-btn {
   color: rgba(255, 255, 255, 0.95);

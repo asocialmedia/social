@@ -19,8 +19,14 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { LoadingButton } from "@/components/auth/loading-button";
-import { SettingsCard } from "@/components/settings/settings-section-card";
+import {
+  SETTINGS_SUBCARD_CLASS,
+  SettingsCard,
+  SettingsCardHeading,
+  SettingsStatusChip,
+} from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
+import { cn } from "@/lib/utils";
 
 import {
   getSessionDevice,
@@ -167,6 +173,8 @@ export default function SecuritySessionsCard({
   }, [toast]);
 
   useEffect(() => {
+    // Deferred a tick so the initial fetch isn't a synchronous setState in the
+    // effect body (hydration-safe under React Compiler).
     const refreshTimer = window.setTimeout(() => {
       void refreshSessions();
     }, 0);
@@ -224,21 +232,18 @@ export default function SecuritySessionsCard({
   const revokeCopy = getRevokeCopy(revokeAction);
 
   return (
-    <SettingsCard className="scroll-mt-24" id="settings-sessions">
+    <SettingsCard
+      className="flex h-full scroll-mt-24 flex-col"
+      id="settings-sessions"
+    >
       <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
-            <MonitorSmartphone className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <h3 className="font-medium">Active sessions</h3>
-            <p className="text-muted-foreground text-sm">
-              Devices currently signed in to your account
-            </p>
-          </div>
-        </div>
+        <SettingsCardHeading
+          description="Devices currently signed in to your account"
+          icon={MonitorSmartphone}
+          title="Active sessions"
+        />
         <Button
-          className="btn-3d-gray h-9 rounded-full px-3 text-sm!"
+          className="btn-3d-gray h-9 shrink-0 rounded-full px-3 text-sm!"
           onClick={() => {
             if (isLoading) {
               return;
@@ -270,49 +275,46 @@ export default function SecuritySessionsCard({
             const isCurrentSession = session.id === currentSessionId;
             return (
               <div
-                className="border-border/60 rounded-xl border bg-[hsl(var(--background))] p-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]"
+                className={cn(
+                  SETTINGS_SUBCARD_CLASS,
+                  "flex items-start gap-3 p-3"
+                )}
                 key={session.id}
               >
-                <div className="flex items-start gap-3">
-                  <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl">
-                    <MonitorSmartphone className="size-4" />
+                <MonitorSmartphone className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">
+                      {device.browser} on {device.device}
+                    </p>
+                    {isCurrentSession ? (
+                      <SettingsStatusChip on>Current device</SettingsStatusChip>
+                    ) : null}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">
-                        {device.browser} on {device.device}
-                      </p>
-                      {isCurrentSession ? (
-                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                          Current device
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="text-muted-foreground mt-1 space-y-0.5 text-xs">
-                      <p className="flex items-center gap-1.5">
-                        <Globe2 className="size-3" />
-                        {getSessionLocation(session.country, session.ipAddress)}
-                      </p>
-                      <p>Signed in {formatSessionDate(session.createdAt)}</p>
-                      <p>Last active {formatSessionDate(session.updatedAt)}</p>
-                    </div>
+                  <div className="text-muted-foreground mt-1 space-y-0.5 text-xs">
+                    <p className="flex items-center gap-1.5">
+                      <Globe2 className="size-3" />
+                      {getSessionLocation(session.country, session.ipAddress)}
+                    </p>
+                    <p>Signed in {formatSessionDate(session.createdAt)}</p>
+                    <p>Last active {formatSessionDate(session.updatedAt)}</p>
                   </div>
-                  <Button
-                    className="text-destructive pill-3d-hover h-8 shrink-0 rounded-full px-2.5 text-xs"
-                    onClick={() => openRevokeDialog("single", session)}
-                    variant="ghost"
-                  >
-                    <LogOut className="size-3.5" />
-                    {isCurrentSession ? "Sign out" : "End"}
-                  </Button>
                 </div>
+                <Button
+                  className="btn-3d-danger h-8 shrink-0 rounded-full px-2.5 text-xs"
+                  onClick={() => openRevokeDialog("single", session)}
+                  variant="ghost"
+                >
+                  <LogOut className="size-3.5" />
+                  {isCurrentSession ? "Sign out" : "End"}
+                </Button>
               </div>
             );
           })}
         </div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap justify-end gap-2">
+      <div className="mt-auto flex flex-wrap justify-end gap-2 pt-4">
         <Button
           className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
           onClick={() => openRevokeDialog("other-sessions")}
@@ -321,7 +323,7 @@ export default function SecuritySessionsCard({
           Sign out other devices
         </Button>
         <Button
-          className="text-destructive pill-3d-hover h-9 rounded-full px-4 text-sm"
+          className="btn-3d-danger h-9 rounded-full px-4 text-sm"
           onClick={() => openRevokeDialog("all")}
           variant="ghost"
         >

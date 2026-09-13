@@ -24,6 +24,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Fingerprint, KeyRound, Mail, ShieldCheck, Trash2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useState, useTransition } from "react";
+import type { ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
@@ -33,8 +34,11 @@ import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
 import {
   ORANGE_GRADIENT_CLASS,
+  SETTINGS_SUBCARD_CLASS,
   SettingsCard,
+  SettingsCardHeading,
   SettingsSectionHeader,
+  SettingsStatusChip,
 } from "@/components/settings/settings-section-card";
 import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
@@ -110,17 +114,33 @@ function getResponseErrorMessage(responseBody: unknown): string | undefined {
   return undefined;
 }
 
-function twoFactorDialogTitle(
-  action: "disable" | "email" | "totp" | null
-): string {
+function twoFactorDialogTitle(action: TwoFactorAction | null): string {
   if (action === "disable") {
     return "Turn off two-factor authentication?";
+  }
+  if (action === "remove-authenticator") {
+    return "Remove your authenticator app?";
   }
   if (action === "totp") {
     return "Add authenticator app";
   }
   return "Enable email two-factor authentication";
 }
+
+function twoFactorDescription(action: TwoFactorAction | null): string {
+  if (action === "disable") {
+    return "Enter your password to remove every second-factor method from this account.";
+  }
+  if (action === "remove-authenticator") {
+    return "Enter your password to remove your authenticator app. If email codes are on, they stay as your second factor.";
+  }
+  return "Confirm your password before changing this security setting.";
+}
+
+// The methods the security card exposes. `email` and `totp` enable a method;
+// `disable` turns 2FA off entirely; `remove-authenticator` drops only the TOTP
+// credential while keeping email codes on.
+type TwoFactorAction = "disable" | "email" | "remove-authenticator" | "totp";
 
 function isPasskeyRecord(value: unknown): value is SecurityPasskey {
   if (!value || typeof value !== "object") {
@@ -203,9 +223,8 @@ export default function SecuritySettings({
     securityState.hasAuthenticatorApp
   );
   const [passkeys, setPasskeys] = useState(initialPasskeys);
-  const [twoFactorAction, setTwoFactorAction] = useState<
-    "disable" | "email" | "totp" | null
-  >(null);
+  const [twoFactorAction, setTwoFactorAction] =
+    useState<TwoFactorAction | null>(null);
   const [totpSetup, setTotpSetup] = useState<TotpSetup | null>(null);
   const [totpCode, setTotpCode] = useState("");
   const [isTotpVerificationPending, setIsTotpVerificationPending] =
@@ -308,6 +327,55 @@ export default function SecuritySettings({
       toast({
         description: "Your account no longer requires a second factor.",
         title: "Two-factor authentication disabled",
+      });
+      return;
+    }
+
+    if (twoFactorAction === "remove-authenticator") {
+      // Better Auth models 2FA as one gate plus the TOTP credential, so
+      // dropping just the authenticator is disable-then-re-enable-email. Only
+      // do the second step when email codes were already on; otherwise the
+      // user asked to remove their only method, which is a full disable.
+      const wasEmailEnabled = isTwoFactorEnabled && Boolean(user.emailVerified);
+      const disabled = await authClient.twoFactor.disable({
+        password: values.password,
+      });
+      if (disabled.error) {
+        toast({
+          description: getErrorMessage(disabled.error),
+          title: "Couldn’t remove your authenticator app",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (wasEmailEnabled) {
+        const reEnabled = await authClient.twoFactor.enable({
+          method: "otp",
+          password: values.password,
+        });
+        if (reEnabled.error) {
+          toast({
+            description:
+              "Your authenticator was removed, but we couldn’t re-enable email codes. Turn them back on below.",
+            title: "Email codes need re-enabling",
+            variant: "destructive",
+          });
+          setHasAuthenticatorApp(false);
+          setIsTwoFactorEnabled(false);
+          setTwoFactorAction(null);
+          passwordForm.reset();
+          return;
+        }
+      }
+      setHasAuthenticatorApp(false);
+      setIsTwoFactorEnabled(wasEmailEnabled);
+      setTwoFactorAction(null);
+      passwordForm.reset();
+      toast({
+        description: wasEmailEnabled
+          ? "Email codes stay on as your second factor."
+          : "Your account no longer requires a second factor.",
+        title: "Authenticator app removed",
       });
       return;
     }
@@ -517,10 +585,53 @@ export default function SecuritySettings({
     }
   }
 
-  const twoFactorMethod = hasAuthenticatorApp
-    ? "Email code and authenticator app"
-    : "Email code";
+  // Email codes are usable whenever 2FA is on and the address is verified;
+  // the authenticator is the TOTP credential layered on top.
+  const emailCodesOn = isTwoFactorEnabled && Boolean(user.emailVerified);
   const hasRecoveryCodesToSave = hasAuthenticatorApp;
+
+  let emailMethodDescription: string;
+  if (!user.email) {
+    emailMethodDescription = "Add an email address to use this";
+  } else if (emailCodesOn) {
+    emailMethodDescription = `Sent to ${user.email}`;
+  } else if (user.emailVerified) {
+    emailMethodDescription = "Available once 2FA is on";
+  } else {
+    emailMethodDescription = "Verify your email to use this";
+  }
+
+  // The email row's action, chosen by state. Text is intentionally plain:
+  // removing email while the authenticator stays on is not a state the auth
+  // plugin supports (email is the built-in fallback), so that case says so
+  // rather than offering an action that cannot work.
+  let emailMethodAction: ReactNode;
+  if (emailCodesOn && hasAuthenticatorApp) {
+    emailMethodAction = (
+      <span className="text-muted-foreground text-xs">Kept as fallback</span>
+    );
+  } else if (emailCodesOn) {
+    emailMethodAction = (
+      <Button
+        className="btn-3d-danger h-8 rounded-full px-3 text-xs"
+        onClick={() => setTwoFactorAction("disable")}
+        variant="ghost"
+      >
+        Turn off
+      </Button>
+    );
+  } else {
+    emailMethodAction = (
+      <Button
+        className="h-8 rounded-full px-3 text-xs"
+        disabled={!user.email || !user.emailVerified}
+        onClick={() => setTwoFactorAction("email")}
+        variant="premium"
+      >
+        Turn on
+      </Button>
+    );
+  }
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6">
@@ -530,184 +641,197 @@ export default function SecuritySettings({
         title="Security"
       />
 
-      <SettingsCard className="scroll-mt-24" id="settings-two-factor">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-2">
+      {/* Bento: tiles alternate wide/narrow so related protections read as one
+          dashboard instead of a stack of identical cards. */}
+      <div className="grid items-stretch gap-4 md:grid-cols-2 lg:grid-cols-6">
+        <SettingsCard
+          className="flex scroll-mt-24 flex-col md:col-span-2 lg:col-span-4"
+          id="settings-two-factor"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <SettingsCardHeading
+              description="Require a second step when signing in"
+              icon={ShieldCheck}
+              title="Two-factor authentication"
+            />
+            <SettingsStatusChip on={isTwoFactorEnabled}>
+              {isTwoFactorEnabled ? "Protected" : "Off"}
+            </SettingsStatusChip>
+          </div>
+
+          {/* Two methods, each with its own state and controls. */}
+          <div className="mt-4 flex flex-1 flex-col gap-3">
             <div
               className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-lg",
-                ORANGE_GRADIENT_CLASS
+                SETTINGS_SUBCARD_CLASS,
+                "flex flex-wrap items-center justify-between gap-3 p-3.5"
               )}
             >
-              <ShieldCheck className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="font-medium">Two-factor authentication</h3>
-              <p className="text-muted-foreground text-sm">
-                {isTwoFactorEnabled ? twoFactorMethod : "Not enabled"}
-              </p>
-            </div>
-          </div>
-          <span
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-semibold",
-              isTwoFactorEnabled
-                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                : "bg-muted text-muted-foreground"
-            )}
-          >
-            {isTwoFactorEnabled ? "Protected" : "Off"}
-          </span>
-        </div>
-
-        <p className="text-muted-foreground mt-4 text-sm">
-          Use your verified email for security codes, then add an authenticator
-          app for an additional recovery option.
-        </p>
-
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
-          {!isTwoFactorEnabled && (
-            <Button
-              className="h-9 rounded-full px-4 text-sm"
-              onClick={() => setTwoFactorAction("email")}
-              variant="premium"
-            >
-              Enable email 2FA
-            </Button>
-          )}
-          {isTwoFactorEnabled && !hasAuthenticatorApp && (
-            <Button
-              className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
-              onClick={() => setTwoFactorAction("totp")}
-              variant="ghost"
-            >
-              Add authenticator app
-            </Button>
-          )}
-          {isTwoFactorEnabled && (
-            <Button
-              className="text-destructive pill-3d-hover h-9 rounded-full px-4 text-sm"
-              onClick={() => setTwoFactorAction("disable")}
-              variant="ghost"
-            >
-              Turn off 2FA
-            </Button>
-          )}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard className="scroll-mt-24" id="settings-passkeys">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-lg",
-                ORANGE_GRADIENT_CLASS
-              )}
-            >
-              <Fingerprint className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="font-medium">Passkeys</h3>
-              <p className="text-muted-foreground text-sm">
-                Sign in with your device instead of a password
-              </p>
-            </div>
-          </div>
-          <Button
-            className="h-9 rounded-full px-4 text-sm"
-            onClick={() => setIsPasskeyDialogOpen(true)}
-            variant="premium"
-          >
-            Add passkey
-          </Button>
-        </div>
-
-        {passkeys.length === 0 ? (
-          <p className="text-muted-foreground mt-4 text-sm">
-            No passkeys added yet. Add a passkey on a device you use regularly.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-2">
-            {passkeys.map((passkey) => (
-              <div
-                className="border-border/60 flex items-center justify-between gap-3 rounded-xl border bg-[hsl(var(--background))] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]"
-                key={passkey.id}
-              >
+              <div className="flex min-w-0 items-center gap-3">
+                <Mail className="text-muted-foreground size-4 shrink-0" />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {passkey.name || "Passkey"}
-                  </p>
+                  <p className="text-sm font-medium">Email codes</p>
                   <p className="text-muted-foreground text-xs">
-                    Added {new Date(passkey.createdAt).toLocaleDateString()} ·{" "}
-                    {passkey.backedUp ? "Synced" : "Device-bound"}
+                    {emailMethodDescription}
                   </p>
                 </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SettingsStatusChip on={emailCodesOn}>
+                  {emailCodesOn ? "On" : "Off"}
+                </SettingsStatusChip>
+                {emailMethodAction}
+              </div>
+            </div>
+
+            <div
+              className={cn(
+                SETTINGS_SUBCARD_CLASS,
+                "flex flex-wrap items-center justify-between gap-3 p-3.5"
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <Fingerprint className="text-muted-foreground size-4 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Authenticator app</p>
+                  <p className="text-muted-foreground text-xs">
+                    {hasAuthenticatorApp
+                      ? "A rotating code from your app"
+                      : "Use a code from any TOTP app"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SettingsStatusChip on={hasAuthenticatorApp}>
+                  {hasAuthenticatorApp ? "On" : "Off"}
+                </SettingsStatusChip>
+                {hasAuthenticatorApp ? (
+                  <Button
+                    className="btn-3d-danger h-8 rounded-full px-3 text-xs"
+                    onClick={() => setTwoFactorAction("remove-authenticator")}
+                    variant="ghost"
+                  >
+                    Remove
+                  </Button>
+                ) : (
+                  <Button
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => setTwoFactorAction("totp")}
+                    variant="premium"
+                  >
+                    Set up
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard
+          className="flex scroll-mt-24 flex-col md:col-span-1 lg:col-span-2"
+          id="settings-password"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <SettingsCardHeading
+              description="Reset with an emailed link"
+              icon={Mail}
+              title="Change Password"
+            />
+          </div>
+
+          <Form {...form}>
+            <form
+              className="mt-4 flex flex-1 flex-col gap-4"
+              onSubmit={form.handleSubmit(onPasswordResetSubmit)}
+            >
+              <FormField
+                control={form.control}
+                name="identifier"
+                render={renderIdentifierField}
+              />
+              <div className="flex justify-end">
                 <LoadingButton
-                  className="icon-btn-3d flex size-8 rounded-full p-0"
-                  loading={removingPasskeyId === passkey.id}
-                  onClick={async () => {
-                    await deletePasskey(passkey.id);
-                  }}
-                  title="Remove passkey"
-                  variant="ghost"
+                  className={cn(
+                    "h-9 rounded-xl px-5",
+                    ORANGE_GRADIENT_CLASS,
+                    "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
+                  )}
+                  disabled={isEmailSent}
+                  loading={isPending}
+                  type="submit"
                 >
-                  <Trash2 className="size-3.5" />
-                  <span className="sr-only">Remove passkey</span>
+                  {isEmailSent ? "Email Sent" : "Send Reset Link"}
                 </LoadingButton>
               </div>
-            ))}
-          </div>
-        )}
-      </SettingsCard>
+            </form>
+          </Form>
+        </SettingsCard>
 
-      <SecuritySessionsCard currentSessionId={currentSessionId} />
-
-      <SettingsCard className="scroll-mt-24" id="settings-password">
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-lg",
-              ORANGE_GRADIENT_CLASS
-            )}
-          >
-            <Mail className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <h3 className="font-medium">Change Password</h3>
-            <p className="text-muted-foreground text-sm">
-              We&apos;ll email you a secure reset link
-            </p>
-          </div>
-        </div>
-
-        <Form {...form}>
-          <form
-            className="mt-4 space-y-4"
-            onSubmit={form.handleSubmit(onPasswordResetSubmit)}
-          >
-            <FormField
-              control={form.control}
-              name="identifier"
-              render={renderIdentifierField}
+        <SettingsCard
+          className="scroll-mt-24 md:col-span-1 lg:col-span-2"
+          id="settings-passkeys"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <SettingsCardHeading
+              description="Sign in with your device"
+              icon={Fingerprint}
+              title="Passkeys"
             />
-            <div className="flex justify-end">
-              <LoadingButton
-                className={cn(
-                  "h-9 rounded-xl px-5",
-                  ORANGE_GRADIENT_CLASS,
-                  "hover:from-[#ffa629] hover:to-[#f56a14] active:translate-y-px"
-                )}
-                disabled={isEmailSent}
-                loading={isPending}
-                type="submit"
-              >
-                {isEmailSent ? "Email Sent" : "Send Reset Link"}
-              </LoadingButton>
+            <Button
+              className="h-9 shrink-0 rounded-full px-4 text-sm"
+              onClick={() => setIsPasskeyDialogOpen(true)}
+              variant="premium"
+            >
+              Add
+            </Button>
+          </div>
+
+          {passkeys.length === 0 ? (
+            <p className="text-muted-foreground mt-4 text-sm">
+              No passkeys added yet. Add a passkey on a device you use
+              regularly.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {passkeys.map((passkey) => (
+                <div
+                  className={cn(
+                    SETTINGS_SUBCARD_CLASS,
+                    "flex items-center justify-between gap-3 px-3 py-2.5"
+                  )}
+                  key={passkey.id}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {passkey.name || "Passkey"}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Added {new Date(passkey.createdAt).toLocaleDateString()} ·{" "}
+                      {passkey.backedUp ? "Synced" : "Device-bound"}
+                    </p>
+                  </div>
+                  <LoadingButton
+                    className="icon-btn-3d flex size-8 shrink-0 rounded-full p-0"
+                    loading={removingPasskeyId === passkey.id}
+                    onClick={async () => {
+                      await deletePasskey(passkey.id);
+                    }}
+                    title="Remove passkey"
+                    variant="ghost"
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span className="sr-only">Remove passkey</span>
+                  </LoadingButton>
+                </div>
+              ))}
             </div>
-          </form>
-        </Form>
-      </SettingsCard>
+          )}
+        </SettingsCard>
+
+        <div className="md:col-span-2 lg:col-span-4">
+          <SecuritySessionsCard currentSessionId={currentSessionId} />
+        </div>
+      </div>
 
       <Dialog
         onOpenChange={(open) => {
@@ -727,9 +851,7 @@ export default function SecuritySettings({
               {twoFactorDialogTitle(twoFactorAction)}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground mt-2 text-sm leading-relaxed">
-              {twoFactorAction === "disable"
-                ? "Enter your password to remove every second-factor method from this account."
-                : "Confirm your password before changing this security setting."}
+              {twoFactorDescription(twoFactorAction)}
             </DialogDescription>
           </DialogHeader>
           <Form {...passwordForm}>
@@ -804,7 +926,12 @@ export default function SecuritySettings({
                     These are the only copies of your recovery codes. Store them
                     in a password manager before closing this window.
                   </p>
-                  <div className="border-border/60 grid grid-cols-2 gap-2 rounded-xl border bg-[hsl(var(--background))] p-3 font-mono text-sm shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15)]">
+                  <div
+                    className={cn(
+                      SETTINGS_SUBCARD_CLASS,
+                      "grid grid-cols-2 gap-2 p-3 font-mono text-sm"
+                    )}
+                  >
                     {totpSetup.backupCodes.map((backupCode) => (
                       <code key={backupCode}>{backupCode}</code>
                     ))}
