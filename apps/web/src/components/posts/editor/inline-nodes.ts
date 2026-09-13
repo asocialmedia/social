@@ -1,6 +1,9 @@
 "use client";
 
 import { mergeAttributes, Node } from "@tiptap/core";
+import { ReactNodeViewRenderer } from "@tiptap/react";
+
+import { MentionPill } from "./mention-pill";
 
 // Inline pills for the post composer. Picking a user/tag from the
 // autocomplete inserts one of these atom nodes (avatar pill for mentions,
@@ -32,6 +35,13 @@ export const MentionNode = Node.create({
       id: { default: "" },
       username: { default: "" },
     };
+  },
+  addNodeView() {
+    // React view so the pill can resolve a missing avatar by username (a
+    // rehydrated mention has no avatar stored). Atoms have no content, so the
+    // view renders the whole pill; serialization still flows through
+    // renderText/renderHTML.
+    return ReactNodeViewRenderer(MentionPill);
   },
   atom: true,
   group: "inline",

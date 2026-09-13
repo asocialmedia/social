@@ -12,12 +12,17 @@
 
 /* Inline mention/hashtag pills inside the composer: the same meta-chip
    treatment as the feed, sized down to sit on a text line. */
+/* Mention/hashtag pills and autolinked URL chips all share one 22px box and
+   `vertical-align: middle`. Baseline alignment is wrong here: an inline-flex
+   chip aligns by its first item's baseline while the inline-block link aligns
+   by its box edge, so the three drift apart. Middle aligns every box on the
+   same axis regardless of display type. */
 .ProseMirror .editor-inline-pill {
   height: 22px;
   padding: 0 8px;
   margin: 0 1px;
   font-size: 12px;
-  vertical-align: baseline;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
@@ -27,6 +32,27 @@
   flex-shrink: 0;
   border-radius: 9999px;
   object-fit: cover;
+}
+
+/* Autolinked URLs carried inside the editor render with the chip look they
+   get once published (platform logo + URL). `inline-block` (not the chip's
+   flex) lets a long URL ellipsize instead of hard-clipping. */
+.inline-rich-editor .inline-link-badge {
+  display: inline-flex;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  margin: 0 1px;
+  font-size: 12px;
+  vertical-align: middle;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.inline-rich-editor .inline-link-badge > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ProseMirror .editor-inline-pill-fallback {

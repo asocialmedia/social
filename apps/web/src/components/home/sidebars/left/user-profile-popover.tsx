@@ -28,7 +28,7 @@ import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 import { LogoutDialog } from "@/components/layouts/logout-dialog";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
-import Linkify from "@/helpers/global/linkify";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import { useLogout } from "@/hooks/auth/use-logout";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { getAuraFlameClass } from "@/lib/aura/aura";
@@ -251,11 +251,11 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             </div>
 
             {userData.bio ? (
-              <Linkify>
-                <p className="text-muted-foreground mt-2.5 line-clamp-3 text-sm whitespace-pre-line">
-                  {userData.bio}
-                </p>
-              </Linkify>
+              <PostLinkedContent
+                className="text-muted-foreground mt-2.5 line-clamp-3 text-sm"
+                content={userData.bio}
+                linkBadge="chip"
+              />
             ) : null}
 
             {socialLinks.length > 0 ? (

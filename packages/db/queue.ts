@@ -245,6 +245,22 @@ export async function cancelMediaCleanup(mediaId: string): Promise<void> {
   await getQueue(MEDIA_SCAN_QUEUE).remove(`media-cleanup-${mediaId}`);
 }
 
+export async function schedulePublishedNotificationCleanup(
+  notificationId: string
+): Promise<void> {
+  // Zeph's publish confirmation is scheduled for deletion 15 minutes after post creation.
+  await getQueue(MAINTENANCE_QUEUE).add(
+    "cleanup-published-notification",
+    { notificationId },
+    {
+      delay: 15 * 60 * 1000,
+      jobId: `cleanup-published-notif-${notificationId}`,
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    }
+  );
+}
+
 // ── Media pipeline jobs ────────────────────────────────────────────────────
 // Each stage enqueues the next on success; stable jobIds per (media, stage)
 // make duplicate enqueues and worker-crash retries idempotent.
@@ -282,7 +298,7 @@ async function addWithFreshId(
     const state = await existing.getState();
     if (state === "completed" || state === "failed") {
       await existing.remove().catch(() => {
-        /* empty */
+        // empty
       });
     }
   }
@@ -373,6 +389,12 @@ export async function registerMaintenanceSchedulers(): Promise<void> {
   // Five minutes keeps snapshot staleness bounded (view deltas flush on their
   // own cadence, so longer intervals compound ranking lag).
   await queue.upsertJobScheduler("trending-scores", {
+    every: 5 * 60 * 1000,
+  });
+  // Sweeps and deletes Zeph's publish confirmation notifications older than
+  // 15 minutes in safe batches. Runs every 5 minutes to clear out historical
+  // prod backlog and any missed delayed jobs under high traffic.
+  await queue.upsertJobScheduler("cleanup-published-notifications", {
     every: 5 * 60 * 1000,
   });
 }

@@ -21,11 +21,13 @@ const requiredPassword = z
 
 // Display names end up in SEO/JSON-LD contexts and profile pages, so strip
 // angle brackets outright: they carry no typographic value and remove an
-// entire class of injection sinks.
+// entire class of injection sinks. The length cap keeps the name readable in
+// every surface (feed, tooltip, OG image) and bounds what the DB stores.
 const safeDisplayString = z
   .string()
   .trim()
   .min(1, "This field is required!")
+  .max(50, "Display name must be at most 50 characters")
   .refine(
     (value) => !/[<>]/.test(value),
     "Angle brackets are not allowed here"

@@ -26,6 +26,8 @@ if (import.meta.main) {
     processHnRefresh,
     processExpiredTokens,
     processShitposterCheck,
+    processPublishedNotificationCleanup,
+    processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
 
   const workers: QueueWorkerType[] = [];
@@ -151,6 +153,12 @@ if (import.meta.main) {
           }
           case "inactive-users": {
             return processInactiveUsersSweep(logger);
+          }
+          case "cleanup-published-notification": {
+            return processPublishedNotificationCleanup(job.data, logger);
+          }
+          case "cleanup-published-notifications": {
+            return processPublishedNotificationsSweep(logger);
           }
           case "trending-scores": {
             const startedAtMs = Date.now();

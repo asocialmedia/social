@@ -14,7 +14,7 @@ import EditProfileButton from "@/components/layouts/edit-profile-button";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
-import Linkify from "@/helpers/global/linkify";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
@@ -209,11 +209,11 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
         </div>
 
         {liveUserData.bio ? (
-          <Linkify>
-            <p className="mt-3 overflow-hidden text-[15px] wrap-break-word whitespace-pre-line">
-              {liveUserData.bio}
-            </p>
-          </Linkify>
+          <PostLinkedContent
+            className="mt-3 overflow-hidden"
+            content={liveUserData.bio}
+            linkBadge="chip"
+          />
         ) : null}
 
         {/* Meta */}

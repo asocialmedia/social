@@ -127,7 +127,12 @@ export default function ClientSettings({
               ref={feedScrollRef}
             >
               <TabsContent className="mt-0 pb-12" value="profile">
-                <ProfileSettings user={user} />
+                <ProfileSettings
+                  onNavigateToAccount={() =>
+                    handleNavigate("account", "settings-username")
+                  }
+                  user={user}
+                />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="account">

@@ -1,5 +1,7 @@
 import { hackerNewsAPI } from "@asm/aggregator/hackernews";
 import {
+  cleanupExpiredPublishedNotifications,
+  cleanupSinglePublishedNotification,
   deleteObject,
   grantShitposterBadgeIfQualified,
   POST_VIEWS_KEY_PREFIX,
@@ -252,5 +254,44 @@ export async function processInactiveUsersSweep(
 
     log.info({ deleted: totalDeleted }, "inactive user sweep finished");
     return totalDeleted;
+  });
+}
+
+export interface PublishedNotificationCleanupJobData {
+  notificationId: string;
+}
+
+export async function processPublishedNotificationCleanup(
+  { notificationId }: PublishedNotificationCleanupJobData,
+  logger?: WorkerLogger
+): Promise<boolean> {
+  const log = resolveLogger(logger);
+  return await withSpan(
+    "job.cleanup-published-notification",
+    async () => {
+      const deleted = await cleanupSinglePublishedNotification(notificationId);
+      if (deleted) {
+        log.info({ notificationId }, "published notification cleaned up");
+      }
+      return deleted;
+    },
+    { "notification.id": notificationId }
+  );
+}
+
+export async function processPublishedNotificationsSweep(
+  logger?: WorkerLogger
+): Promise<{ batchesProcessed: number; deletedCount: number }> {
+  const log = resolveLogger(logger);
+  return await withSpan("job.cleanup-published-notifications", async () => {
+    const result = await cleanupExpiredPublishedNotifications();
+    log.info(
+      {
+        batches: result.batchesProcessed,
+        deleted: result.deletedCount,
+      },
+      "published notifications sweep finished"
+    );
+    return result;
   });
 }

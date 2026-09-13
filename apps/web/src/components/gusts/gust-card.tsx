@@ -466,7 +466,7 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   return (
     <div className="relative flex h-full w-full items-center justify-center">
-      <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-[9/16] sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
+      <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-9/16 sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
         {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
         {(() => {
           if (post.moderated) {
@@ -710,7 +710,7 @@ export const GustCard: React.FC<GustCardProps> = ({
               </button>
               {altRevealed ? (
                 <div className="mt-1.5 rounded-lg bg-white/10 px-3 py-2 backdrop-blur-sm">
-                  <p className="text-xs leading-snug break-words text-white/90">
+                  <p className="text-xs leading-snug wrap-break-word text-white/90">
                     {gustAltText}
                   </p>
                 </div>

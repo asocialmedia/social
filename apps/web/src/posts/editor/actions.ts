@@ -19,6 +19,7 @@ import {
   POST_CREATION_MAX_AURA,
   postViewsCache,
   prisma,
+  schedulePublishedNotificationCleanup,
   tagCache,
 } from "@asm/db";
 import { CLAIMABLE_STATUSES, MAX_POST_ATTACHMENTS } from "@asm/media";
@@ -153,6 +154,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       validatedInput.mediaIds,
       !!input.hnStory
     );
+
+    let publishedNotificationId: string | undefined;
 
     const newPost = await prisma.$transaction(async (tx) => {
       // Server-side hard stop matching the composer's client cap: a crafted
@@ -304,7 +307,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // transaction as the post row so a confirmed post always has its
       // receipt.
       const zephUserId = await getModerationSystemUserId();
-      await tx.notification.create({
+      const publishedNotification = await tx.notification.create({
         data: {
           issuerId: zephUserId,
           postId: post.id,
@@ -312,6 +315,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           type: "PUBLISHED",
         },
       });
+      publishedNotificationId = publishedNotification.id;
 
       // The media rows' postId just changed (draft uploads start unlinked), and
       // /api/media caches the row to drive its access decision. Drop that cache
@@ -449,6 +453,20 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       void enqueueMediaAnalyze(mediaId).catch((error: unknown) => {
         console.error(`Failed to enqueue media analyze for ${mediaId}:`, error);
       });
+    }
+
+    // Schedule cleanup of Zeph's publish confirmation notification after 15 minutes.
+    if (publishedNotificationId) {
+      void (async () => {
+        try {
+          await schedulePublishedNotificationCleanup(publishedNotificationId);
+        } catch (error: unknown) {
+          console.error(
+            "Failed to schedule published notification cleanup:",
+            error
+          );
+        }
+      })();
     }
 
     // Signal refresh after commit; failures only cost cache freshness.

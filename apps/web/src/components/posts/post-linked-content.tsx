@@ -16,7 +16,7 @@ import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { INLINE_TOKEN_PATTERN } from "@/lib/posts/inline-meta";
 import { cn } from "@/lib/utils";
 
-import { LinkBadge, findEmbedForUrl } from "./link-badge";
+import { LinkBadge, findEmbedForUrl, hostLabel } from "./link-badge";
 
 // Post content renderer that turns URLs into inline badges: a YouTube link
 // shows the YouTube logo + resolved video title instead of the raw URL.
@@ -54,10 +54,14 @@ export default function PostLinkedContent({
   className,
   content,
   embeds,
+  linkBadge = "preview",
 }: {
   className?: string;
   content: string;
   embeds?: LinkEmbed[];
+  // "preview" resolves the embed title (post cards); "chip" renders the badge
+  // with just the host label and never fetches (profile bios).
+  linkBadge?: "chip" | "preview";
 }) {
   const segments = segmentContent(content);
   if (segments.length === 0) {
@@ -76,7 +80,11 @@ export default function PostLinkedContent({
         ) : (
           <LinkBadge
             key={`${segment.url}-${index}`}
-            title={findEmbedForUrl(segment.url, embeds)?.title}
+            title={
+              linkBadge === "chip"
+                ? hostLabel(segment.url)
+                : findEmbedForUrl(segment.url, embeds)?.title
+            }
             url={segment.url}
           />
         )

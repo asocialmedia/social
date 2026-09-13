@@ -24,7 +24,12 @@ export function useUserDataQuery(userData: UserData) {
 
   return useQuery({
     initialData: userData,
-    queryFn: () => userData,
+    // Mutations update this key directly (setQueryData) and then invalidate it.
+    // The refetch must NOT clobber that fresher value with the captured server
+    // prop, or the sidebars only update after a manual refresh - prefer the
+    // live cache, falling back to the prop only when the cache is empty.
+    queryFn: () =>
+      queryClient.getQueryData<UserData>(["user", userId]) ?? userData,
     queryKey: ["user", userId],
     staleTime: Number.POSITIVE_INFINITY,
   });

@@ -170,7 +170,9 @@ export const InlineSuggestions = ({
 
   const insertInlineNodes = useCallback(
     (nodes: Record<string, unknown>[]) => {
-      if (!editor) {
+      // A destroyed editor (mid-teardown during a route/tab change) has a null
+      // command manager, so inserting would throw.
+      if (!editor || editor.isDestroyed) {
         return;
       }
       const { from } = editor.state.selection;
@@ -232,6 +234,11 @@ export const InlineSuggestions = ({
     }
 
     const handler = () => {
+      // Events can still fire while the editor is tearing down; `state` reads
+      // through the (now null) view, so bail before touching it.
+      if (editor.isDestroyed) {
+        return;
+      }
       const { from, empty } = editor.state.selection;
       if (!empty) {
         setSuggestion(null);

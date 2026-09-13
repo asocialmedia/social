@@ -29,3 +29,4 @@ export * from "./src/search";
 export * from "./src/storage";
 export * from "./src/recommendation/trending-snapshot";
 export * from "./src/recommendation/trending-score";
+export * from "./src/notifications";

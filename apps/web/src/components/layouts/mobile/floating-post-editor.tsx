@@ -22,7 +22,6 @@ import {
   getCommentDraft,
   saveCommentDraft,
 } from "@/components/comments/comment-draft-store";
-import { CommentRichEditor } from "@/components/comments/comment-rich-editor";
 import { useCommentsRealtimeValue } from "@/components/comments/comments-realtime-context";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
@@ -31,6 +30,7 @@ import { useCommentAttachments } from "@/components/comments/use-comment-attachm
 import { useCommentsRealtime } from "@/components/comments/use-comments-realtime";
 import type { LiveCommentStore } from "@/components/comments/use-comments-realtime";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
@@ -289,7 +289,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
             avatarUrl={userData?.avatarUrl || user?.image}
             className="h-9 w-9 shrink-0"
           />
-          <CommentRichEditor
+          <InlineRichEditor
             autoFocus={false}
             className="premium-input min-h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
             editorClassName="max-h-28 min-h-6 overflow-y-auto py-2 leading-relaxed"

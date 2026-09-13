@@ -1,11 +1,11 @@
 "use client";
 
-import type { Editor, JSONContent } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import type { RefObject } from "react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import {
   HashtagNode,
@@ -14,55 +14,57 @@ import {
 import { InlineSuggestions } from "@/components/posts/editor/inline-suggestions";
 import { cn } from "@/lib/utils";
 
-import "../posts/editor/styles.css";
+import { textToDoc } from "./inline-doc";
+import { BioLink } from "./link-badge-mark";
 
-// TipTap-backed eddie composer shared by the inline comment form and the
-// mobile floating bar. Autocomplete picks become inline mention/hashtag
-// pills (same nodes as the post composer), while the plain-text value the
-// parent stores is unchanged: getText serializes `@user` / `#tag` back out,
-// so drafts, limits, link embeds and the publish payload all keep working.
+import "./styles.css";
 
-interface CommentRichEditorProps {
+// TipTap-backed inline editor shared by the eddie composers and the settings
+// bio field. Autocomplete picks become inline mention/hashtag pills while
+// `getText` still serializes `@user` / `#tag` back to plain text, so every
+// consumer keeps storing a plain string. With `enableLinks` on, typed/pasted
+// URLs are autolinked and carry the badge treatment so the author can see the
+// chip they are making.
+
+interface InlineRichEditorProps {
   autoFocus?: boolean;
   className?: string;
   editorClassName?: string;
   editorRef?: RefObject<Editor | null>;
+  // Links are opt-in: the bio wants visible link chips, the eddie composers
+  // keep bare text while typing and badge only on display.
+  enableLinks?: boolean;
   initialContent?: string;
+  // Fired on every edit with the serialized plain text.
   onChange: (text: string) => void;
   onFocus?: () => void;
-  onSubmit: () => void;
+  // When provided, plain Enter commits (Shift+Enter inserts a line break).
+  // Omit it for multi-line fields like the bio, where Enter is a newline.
+  onSubmit?: () => void;
   placeholder: string;
+  // Which way the mention/tag popover opens from the caret.
   placement?: "above" | "below";
 }
 
-// Restores a stored plain-text draft into paragraph nodes. Inline pills are
-// collapsed to their `@user` / `#tag` text on save, so a restored draft is
-// plain text - the published renderer still badges it.
-function textToDoc(text: string): JSONContent {
-  const lines = text.split("\n");
-  return {
-    content: lines.map((line) => ({
-      content: line ? [{ text: line, type: "text" }] : undefined,
-      type: "paragraph",
-    })),
-    type: "doc",
-  };
-}
-
-export function CommentRichEditor({
+export function InlineRichEditor({
   autoFocus = false,
   className,
   editorClassName,
   editorRef,
+  enableLinks = false,
   initialContent = "",
   onChange,
   onFocus,
   onSubmit,
   placeholder,
-  placement = "above",
-}: CommentRichEditorProps) {
+  placement = "below",
+}: InlineRichEditorProps) {
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
+  // The placeholder reads through a ref so the extension can resolve it lazily
+  // instead of us poking at the (possibly destroyed) extension manager.
+  const placeholderRef = useRef(placeholder);
+  const resolvePlaceholder = useCallback(() => placeholderRef.current, []);
   // The editor instance outlives renders; mirroring the latest callbacks
   // into refs keeps its handlers from closing over stale props.
   useEffect(() => {
@@ -76,17 +78,17 @@ export function CommentRichEditor({
   // through onUpdate, not back into the editor (useEditor only builds the doc
   // on instance creation - setOptions never re-applies `content`).
   const editor = useEditor({
-    content: textToDoc(initialContent),
+    content: textToDoc(initialContent, enableLinks),
     editorProps: {
       attributes: {
-        class: cn("focus:outline-none", editorClassName),
+        class: cn("inline-rich-editor focus:outline-none", editorClassName),
       },
       handleDOMEvents: {
         keydown: (_view, event) => {
-          // Enter publishes; Shift+Enter keeps a line break. When the
-          // mention/tag popup is open it consumes Enter first (capture-phase
-          // preventDefault), so the suggestion wins over submit.
-          if (event.key !== "Enter" || event.shiftKey) {
+          // Only commit on Enter when the caller asked for submit-on-enter.
+          // The mention/tag popover consumes Enter first via capture-phase
+          // preventDefault, so a suggestion always wins over submit.
+          if (event.key !== "Enter" || event.shiftKey || !onSubmitRef.current) {
             return false;
           }
           if (event.defaultPrevented) {
@@ -108,6 +110,8 @@ export function CommentRichEditor({
         heading: false,
         horizontalRule: false,
         italic: false,
+        // StarterKit's own link stays off; where links are wanted we register
+        // BioLink below, which renders the URL as a badge.
         link: false,
         listItem: false,
         listKeymap: false,
@@ -116,9 +120,19 @@ export function CommentRichEditor({
         trailingNode: false,
         underline: false,
       }),
-      Placeholder.configure({ placeholder }),
+      // oxlint-disable-next-line react/refs -- Placeholder resolves this lazily at decoration time, never during render
+      Placeholder.configure({ placeholder: resolvePlaceholder }),
       MentionNode,
       HashtagNode,
+      ...(enableLinks
+        ? [
+            BioLink.configure({
+              autolink: true,
+              linkOnPaste: true,
+              openOnClick: false,
+            }),
+          ]
+        : []),
     ],
     immediatelyRender: false,
     onUpdate: ({ editor: currentEditor }) => {
@@ -139,24 +153,19 @@ export function CommentRichEditor({
     };
   }, [editor, editorRef]);
 
-  // The placeholder changes with reply context (floating bar). The extension
-  // was created with the initial string, so update its option and nudge a
-  // transaction to re-render the decoration.
+  // Track the latest placeholder (the extension reads it lazily from the ref)
+  // and nudge a transaction so the decoration re-measures when reply context
+  // changes. Guard the view: the editor can be mid-teardown (StrictMode) and
+  // touching a destroyed instance throws.
   useEffect(() => {
-    if (!editor) {
-      return;
-    }
-    const extension = editor.extensionManager.extensions.find(
-      (item) => item.name === "placeholder"
-    );
-    if (extension) {
-      extension.options.placeholder = placeholder;
+    placeholderRef.current = placeholder;
+    if (editor && !editor.isDestroyed && editor.view) {
       editor.view.dispatch(editor.state.tr);
     }
   }, [editor, placeholder]);
 
   useEffect(() => {
-    if (autoFocus && editor) {
+    if (autoFocus && editor && !editor.isDestroyed) {
       editor.commands.focus("end");
     }
   }, [autoFocus, editor]);

@@ -1,4 +1,4 @@
-import { EMBEDDING_DIMENSION } from "@asm/db";
+export const EMBEDDING_DIMENSION = 384;
 
 // Shared @asm/db mock surface for the posts/editor test suites. Both suites
 // mock the barrel wholesale, so every export the modules under test (or any
@@ -21,6 +21,7 @@ export const asmDbMockBase = {
   },
   BADGES: ["author", "dev", "early", "shitposter"],
   BadgeLimitError,
+  EMBEDDING_DIMENSION,
   HN_SHARE_BONUS_AURA: 15,
   MENTION_RECEIVED_AURA: 10,
   POST_CREATION_AURA: 10,
@@ -41,6 +42,7 @@ export const asmDbMockBase = {
   invalidateAuraSignals: () => Promise.resolve(),
   postViewsCache: {},
   revokeBadge: () => Promise.resolve(true),
+  schedulePublishedNotificationCleanup: () => Promise.resolve(),
   tagCache: {},
   userCache: {},
 };

@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
@@ -34,7 +35,6 @@ import {
   getCommentDraft,
   saveCommentDraft,
 } from "./comment-draft-store";
-import { CommentRichEditor } from "./comment-rich-editor";
 import KlipyGifPicker from "./klipy-gif-picker";
 import type { KlipyGif } from "./klipy-gif-picker";
 import { useSubmitCommentMutation } from "./mutations";
@@ -257,7 +257,7 @@ export default function CommentInput({
               attachments.length > 0 && "gap-2"
             )}
           >
-            <CommentRichEditor
+            <InlineRichEditor
               autoFocus={autoFocus}
               editorClassName="max-h-40 min-h-6 w-full overflow-y-auto py-2 text-sm leading-relaxed"
               editorRef={editorRef}

@@ -790,6 +790,7 @@ model Notification {
   @@index([commentId])
   @@index([recipientId, read])
   @@index([recipientId, createdAt])
+  @@index([issuerId, type, createdAt])
   @@map("notifications")
 }
 
