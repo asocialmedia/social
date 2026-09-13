@@ -22,9 +22,12 @@ if (import.meta.main) {
     processNotificationCreated,
     processNotificationDeleted,
     processInactiveUsersSweep,
+    processExpiredUsernameAliases,
     processHnRefresh,
     processExpiredTokens,
     processShitposterCheck,
+    processPublishedNotificationCleanup,
+    processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
 
   const workers: QueueWorkerType[] = [];
@@ -145,8 +148,17 @@ if (import.meta.main) {
           case "expired-tokens": {
             return processExpiredTokens(logger);
           }
+          case "expired-username-aliases": {
+            return processExpiredUsernameAliases(logger);
+          }
           case "inactive-users": {
             return processInactiveUsersSweep(logger);
+          }
+          case "cleanup-published-notification": {
+            return processPublishedNotificationCleanup(job.data, logger);
+          }
+          case "cleanup-published-notifications": {
+            return processPublishedNotificationsSweep(logger);
           }
           case "trending-scores": {
             const startedAtMs = Date.now();

@@ -11,6 +11,7 @@ import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import SessionProvider from "./session-provider";
+import SessionRevocationGuard from "./session-revocation-guard";
 
 // The session lookup reads request-bound data (await connection()), so it must
 // live inside a Suspense boundary for the segment to keep a streaming static
@@ -34,6 +35,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   const session = await getSessionFromApi();
   const isLoggedIn = Boolean(session?.user);
+  const currentSessionId = session?.session.id;
   // Resolve the user once here and share it with the persistent left nav so
   // the nav doesn't re-fetch on every route change. Pages receive their own
   // full userData from their data layer, unrelated to this cached lookup.
@@ -41,6 +43,9 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider value={session}>
+      {currentSessionId ? (
+        <SessionRevocationGuard currentSessionId={currentSessionId} />
+      ) : null}
       <SpotlightProvider>
         {/* Persistent app chrome. The left nav and the full-height shell live
             here (not inside each page), so App Router keeps them mounted across

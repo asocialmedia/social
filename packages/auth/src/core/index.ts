@@ -10,5 +10,9 @@ export * from "./hybrid-session-store";
 export * from "./jwt";
 export * from "./middleware";
 export { assertPasswordNotPwned, PasswordSafetyError } from "./password-breach";
-export { hashPasswordWithScrypt, verifyPasswordWithScrypt } from "./password";
+export {
+  hashPasswordWithScrypt,
+  verifyPasswordHash,
+  verifyPasswordWithScrypt,
+} from "./password";
 export * from "./types";

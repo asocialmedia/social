@@ -4,6 +4,7 @@ import type { EmailService } from "@asm/auth/core";
 import { env } from "../../env";
 import {
   sendPasswordResetEmail,
+  sendTwoFactorOTP,
   sendVerificationEmail,
   sendVerificationOTP,
 } from "../email/service";
@@ -56,6 +57,12 @@ const emailService: EmailService = {
 export const auth = createAuthConfig({
   emailService,
   environment: env.NODE_ENV === "test" ? "development" : env.NODE_ENV,
+  sendTwoFactorOTP: async ({ email, otp }) => {
+    const result = await sendTwoFactorOTP(email, otp);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to send security code");
+    }
+  },
   sendVerificationOTP: async ({ email, otp, type }) => {
     if (type === "email-verification" || type === "change-email") {
       const result = await sendVerificationOTP(email, otp);

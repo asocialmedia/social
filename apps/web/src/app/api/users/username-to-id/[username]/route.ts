@@ -1,3 +1,5 @@
+import { resolveUsername } from "@asm/db";
+
 import { getSessionFromApi } from "@/lib/auth/session";
 
 export async function GET(
@@ -9,5 +11,12 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { username } = await ctx.params;
-  return Response.json({ id: session.user.id, username });
+  const resolvedUsername = await resolveUsername(username);
+  if (!resolvedUsername) {
+    return Response.json({ error: "User not found" }, { status: 404 });
+  }
+  return Response.json({
+    id: resolvedUsername.id,
+    username: resolvedUsername.username,
+  });
 }

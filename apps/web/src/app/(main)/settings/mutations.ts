@@ -14,12 +14,29 @@ const usernameSchema = z.object({
 
 const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
+  // Code sent to the CURRENT email, required to prove ownership before the
+  // change starts (accounts without an email skip it).
+  otp: z.string().optional(),
 });
 
 const verifyEmailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   otp: z.string().min(4, "Please enter the verification code"),
 });
+
+interface UsernameChangeResponse {
+  aliasExpiresAt: string | null;
+  changed: boolean;
+  success: true;
+  username: string;
+}
+
+function getApiErrorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== "object" || !("error" in data)) {
+    return fallback;
+  }
+  return typeof data.error === "string" ? data.error : fallback;
+}
 
 export function useUpdateUsername() {
   const queryClient = useQueryClient();
@@ -35,11 +52,13 @@ export function useUpdateUsername() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to update username");
+        const errorBody: unknown = await response.json().catch(() => null);
+        throw new Error(
+          getApiErrorMessage(errorBody, "Failed to update username")
+        );
       }
 
-      return response.json() as Promise<{ success: true }>;
+      return response.json() as Promise<UsernameChangeResponse>;
     },
     onSuccess: () => {
       // The session and profile caches key on ["user", id]; invalidating the

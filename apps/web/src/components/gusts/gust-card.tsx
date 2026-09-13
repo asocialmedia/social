@@ -39,10 +39,10 @@ import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
-import Linkify from "@/helpers/global/linkify";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn, formatNumber } from "@/lib/utils";
@@ -466,7 +466,7 @@ export const GustCard: React.FC<GustCardProps> = ({
 
   return (
     <div className="relative flex h-full w-full items-center justify-center">
-      <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-[9/16] sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
+      <div className="group relative h-full w-full overflow-hidden bg-black select-none sm:aspect-9/16 sm:h-full sm:max-h-[calc(100dvh-2.5rem)] sm:w-auto sm:max-w-full sm:rounded-2xl sm:shadow-[0_0_0_1px_rgba(0,0,0,0.15),0_1px_2px_rgba(0,0,0,0.12),0_8px_20px_-8px_rgba(0,0,0,0.3)] lg:rounded-3xl">
         {/* oxlint-disable jsx-a11y/media-has-caption -- short-form user clips don't carry captions yet */}
         {(() => {
           if (post.moderated) {
@@ -669,14 +669,13 @@ export const GustCard: React.FC<GustCardProps> = ({
 
           {post.content ? (
             <div className="max-w-[78%]">
-              <p
+              <PostLinkedContent
                 className={cn(
                   "text-xs leading-relaxed text-white/95 drop-shadow-md",
                   !captionExpanded && "line-clamp-3"
                 )}
-              >
-                <Linkify>{post.content}</Linkify>
-              </p>
+                content={post.content}
+              />
               {post.content.length > 80 ? (
                 <button
                   className="mt-0.5 text-xs font-semibold text-white/80 drop-shadow-md hover:text-white"
@@ -689,9 +688,11 @@ export const GustCard: React.FC<GustCardProps> = ({
             </div>
           ) : null}
 
-          {/* Tags + mentions, mirrored from the fleet post card. */}
+          {/* Tags + mentions, mirrored from the fleet post card; inline
+              entries already render in the caption above. */}
           {post.tags?.length || post.mentions?.length ? (
             <PostMeta
+              content={post.content}
               mentions={post.mentions.map((m) => m.user as unknown as UserData)}
               tags={post.tags as TagWithCount[]}
             />
@@ -709,7 +710,7 @@ export const GustCard: React.FC<GustCardProps> = ({
               </button>
               {altRevealed ? (
                 <div className="mt-1.5 rounded-lg bg-white/10 px-3 py-2 backdrop-blur-sm">
-                  <p className="text-xs leading-snug break-words text-white/90">
+                  <p className="text-xs leading-snug wrap-break-word text-white/90">
                     {gustAltText}
                   </p>
                 </div>

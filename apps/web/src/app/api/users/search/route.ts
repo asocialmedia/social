@@ -29,6 +29,14 @@ export async function GET(request: Request) {
         OR: [
           { username: { contains: query, mode: "insensitive" } },
           { displayName: { contains: query, mode: "insensitive" } },
+          {
+            usernameAliases: {
+              some: {
+                expiresAt: { gt: new Date() },
+                username: { contains: query, mode: "insensitive" },
+              },
+            },
+          },
         ],
       },
     });

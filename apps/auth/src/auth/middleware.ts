@@ -25,6 +25,7 @@ function selectUserData() {
     emailVerified: true,
     name: true,
     role: true,
+    twoFactorEnabled: true,
     updatedAt: true,
     username: true,
   } as const;
@@ -109,6 +110,7 @@ export async function getSessionFromRequest(
               id: cachedSession.userId,
               name: userData.name || userData.displayName,
               role: userData.role,
+              twoFactorEnabled: userData.twoFactorEnabled,
               updatedAt: userData.updatedAt,
               username: userData.username,
             },
@@ -169,6 +171,7 @@ export async function getSessionFromRequest(
               id: hybridSession.userId,
               name: userData.name || userData.displayName,
               role: userData.role,
+              twoFactorEnabled: userData.twoFactorEnabled,
               updatedAt: userData.updatedAt,
               username: userData.username,
             },

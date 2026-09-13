@@ -1,6 +1,7 @@
 "use client";
 
 import type { PrivateUserData } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import {
   Form,
   FormControl,
@@ -31,6 +32,7 @@ import type { AccountLinkingReadiness } from "@/components/settings/linked-accou
 import {
   ORANGE_GRADIENT_CLASS,
   SettingsCard,
+  SettingsCardHeading,
   SettingsSectionHeader,
 } from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
@@ -84,10 +86,34 @@ type EmailFormValues = z.infer<typeof emailSchema>;
 type EmailVerifyFormValues = z.infer<typeof emailVerifySchema>;
 type PasswordSetupFormValues = z.infer<typeof passwordSetupSchema>;
 
+// The email change runs as one staged flow inside the card:
+//   idle    -> type the new address, press Update Email
+//   current -> confirm the code sent to the CURRENT address (skipped when the
+//              account has none, e.g. Reddit-only sign-ups)
+//   new     -> confirm the code sent to the NEW address
+type EmailStep = "idle" | "current" | "new";
+
 function handleSocialLink(provider: string) {
   // Navigate to the link route which starts the OAuth flow with the user's
   // session and redirects back to the provider's authorization page.
   window.location.href = `/api/auth/link/${provider}?confirmed=1`;
+}
+
+// React Compiler cannot lower `throw` statements inside component try blocks,
+// so the password request and its status check live in this module-scoped
+// helper.
+async function requestSetPassword(password: string): Promise<void> {
+  const response = await fetch("/api/users/password", {
+    body: JSON.stringify({ password }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(data.error || "Couldn't add a password. Please try again.");
+  }
 }
 
 const BUTTON_CLASS = cn(
@@ -182,11 +208,7 @@ export default function AccountSettings({
 }: AccountSettingsProps) {
   const { toast } = useToast();
   const router = useRouter();
-  // When true, the current-email verification code has been sent and the new
-  // email + current code are ready to submit.
-  const [currentEmailCodeSent, setCurrentEmailCodeSent] = useState(false);
-  // When true, the OTP step for confirming the new email is shown.
-  const [emailChangeRequested, setEmailChangeRequested] = useState(false);
+  const [emailStep, setEmailStep] = useState<EmailStep>("idle");
   const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
   const [isSettingPassword, setIsSettingPassword] = useState(false);
 
@@ -222,6 +244,10 @@ export default function AccountSettings({
   const emailMutation = useUpdateEmail();
   const emailVerifyMutation = useVerifyEmailChange();
   const sendCurrentEmailCodeMutation = useSendCurrentEmailCode();
+  const isEmailBusy =
+    emailMutation.isPending ||
+    emailVerifyMutation.isPending ||
+    sendCurrentEmailCodeMutation.isPending;
 
   function onUsernameSubmit(values: UsernameFormValues) {
     if (values.username === user.username) {
@@ -233,23 +259,66 @@ export default function AccountSettings({
     }
 
     usernameMutation.mutate(values, {
-      onError: () => {
+      onError: (error) => {
         toast({
-          description: "That username didn't work, try another?",
+          description:
+            error.message || "That username didn't work, try another?",
           title: "Couldn't Update",
           variant: "destructive",
         });
       },
-      onSuccess: () => {
+      onSuccess: (result) => {
+        usernameForm.reset({ username: result.username });
+        router.refresh();
         toast({
-          description: "Your new username is live!",
+          description: result.changed
+            ? "Your previous username will redirect here for the next 30 days."
+            : "Your username is already up to date.",
           title: "Username Updated",
         });
       },
     });
   }
 
-  function handleSendCurrentEmailCode() {
+  // Stage 1 - type the new address. When the account already has an email we
+  // first mail a code to the CURRENT address; accounts without one (Reddit)
+  // start the change immediately and move straight to the new-email code.
+  function onStartEmailChange(values: EmailFormValues) {
+    if (values.email === user.email) {
+      toast({
+        description: "That's already your email, try a new one",
+        title: "No Changes",
+      });
+      return;
+    }
+
+    setPendingNewEmail(values.email);
+    emailVerifyForm.setValue("email", values.email);
+    emailVerifyForm.setValue("otp", "");
+
+    if (!user.email) {
+      emailMutation.mutate(
+        { email: values.email },
+        {
+          onError: () => {
+            toast({
+              description: "That email didn't work, try another?",
+              title: "Couldn't Update",
+              variant: "destructive",
+            });
+          },
+          onSuccess: () => {
+            setEmailStep("new");
+            toast({
+              description: `We sent a code to ${values.email} - enter it to confirm`,
+              title: "Check Your Inbox",
+            });
+          },
+        }
+      );
+      return;
+    }
+
     sendCurrentEmailCodeMutation.mutate(undefined, {
       onError: (error) => {
         toast({
@@ -259,50 +328,63 @@ export default function AccountSettings({
         });
       },
       onSuccess: () => {
-        setCurrentEmailCodeSent(true);
+        setEmailStep("current");
         toast({
-          description: "Check your current email for the verification code",
+          description: `We emailed a code to ${user.email}`,
           title: "Code Sent",
         });
       },
     });
   }
 
-  function onEmailSubmit(values: EmailFormValues) {
-    if (values.email === user.email) {
-      toast({
-        description: "That's already your email, try a new one",
-        title: "No Changes",
-      });
-      return;
-    }
-
-    // Accounts with an existing email must include the code that was sent to
-    // it before the change can start.
-    const payload = { email: values.email, otp: values.otp };
-
-    emailMutation.mutate(payload, {
-      onError: () => {
+  function onResendCurrentCode() {
+    sendCurrentEmailCodeMutation.mutate(undefined, {
+      onError: (error) => {
         toast({
-          description: "That email didn't work, try another?",
-          title: "Couldn't Update",
+          description: error.message || "Couldn't send the code, try again?",
+          title: "Couldn't Send Code",
           variant: "destructive",
         });
       },
       onSuccess: () => {
-        setEmailChangeRequested(true);
-        setPendingNewEmail(values.email);
-        emailVerifyForm.setValue("email", values.email);
         toast({
-          description:
-            "We sent a code to your new email - enter it to confirm the change",
-          title: "Check Your Inbox",
+          description: `We emailed a new code to ${user.email}`,
+          title: "Code Resent",
         });
       },
     });
   }
 
-  function onEmailVerifySubmit(values: EmailVerifyFormValues) {
+  // Stage 2 - confirm the code sent to the current email. This both proves the
+  // owner and triggers the code to the new address.
+  function onConfirmCurrentEmail(values: EmailFormValues) {
+    if (!pendingNewEmail) {
+      return;
+    }
+    emailMutation.mutate(
+      { email: pendingNewEmail, otp: values.otp },
+      {
+        onError: (error) => {
+          toast({
+            description: error.message || "That code didn't work, try again?",
+            title: "Couldn't Verify",
+            variant: "destructive",
+          });
+        },
+        onSuccess: () => {
+          emailForm.setValue("otp", "");
+          setEmailStep("new");
+          toast({
+            description: `We sent a code to ${pendingNewEmail} - enter it to confirm`,
+            title: "Check Your Inbox",
+          });
+        },
+      }
+    );
+  }
+
+  // Stage 3 - confirm the code sent to the new email address.
+  function onVerifyNewEmail(values: EmailVerifyFormValues) {
     emailVerifyMutation.mutate(values, {
       onError: (error) => {
         toast({
@@ -312,8 +394,10 @@ export default function AccountSettings({
         });
       },
       onSuccess: () => {
-        setEmailChangeRequested(false);
+        setEmailStep("idle");
         setPendingNewEmail(null);
+        emailForm.reset({ email: pendingNewEmail ?? "", otp: "" });
+        emailVerifyForm.reset({ email: pendingNewEmail ?? "", otp: "" });
         router.refresh();
         toast({
           description: "Your email is updated and verified!",
@@ -324,28 +408,17 @@ export default function AccountSettings({
   }
 
   function onCancelEmailChange() {
-    setEmailChangeRequested(false);
+    setEmailStep("idle");
     setPendingNewEmail(null);
     emailForm.setValue("email", user.email || "");
+    emailForm.setValue("otp", "");
+    emailVerifyForm.setValue("otp", "");
   }
 
   async function onPasswordSetupSubmit(values: PasswordSetupFormValues) {
     setIsSettingPassword(true);
     try {
-      const response = await fetch("/api/users/password", {
-        body: JSON.stringify({ password: values.password }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const data = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Couldn't add a password. Please try again."
-        );
-      }
-
+      await requestSetPassword(values.password);
       passwordSetupForm.reset();
       router.refresh();
       toast({
@@ -365,10 +438,18 @@ export default function AccountSettings({
     setIsSettingPassword(false);
   }
 
+  // A short, plain-language cue for which stage of the email change is active.
+  let emailStepHint: string | null = null;
+  if (emailStep === "current") {
+    emailStepHint = `Step 1 of 2 - confirm the code sent to ${user.email}`;
+  } else if (emailStep === "new") {
+    emailStepHint = `Step 2 of 2 - confirm the code sent to ${pendingNewEmail}`;
+  }
+
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6">
       <SettingsSectionHeader
-        description="Your username, email and linked accounts"
+        description="Your username, email and sign-in methods"
         icon={AtSign}
         title="Account"
       />
@@ -379,189 +460,197 @@ export default function AccountSettings({
           recovery address, so prompt them to add one. */}
       {user.redditId && !user.email ? <AddEmailBanner /> : null}
 
-      <SettingsCard className="scroll-mt-24" id="settings-username">
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-lg",
-              ORANGE_GRADIENT_CLASS
-            )}
-          >
-            <AtSign className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <h3 className="font-medium">Username</h3>
-            <p className="text-muted-foreground text-sm">
-              How people find you on asocialmedia
-            </p>
-          </div>
+      {/* One card for identity: username and email are both how people reach
+          the account, so they read better as one surface with two parts. */}
+      <SettingsCard>
+        <div className="scroll-mt-24" id="settings-username">
+          <SettingsCardHeading
+            description="How people find you on asocialmedia"
+            icon={AtSign}
+            title="Username"
+          />
+
+          <Form {...usernameForm}>
+            <form
+              className="mt-4 space-y-4"
+              onSubmit={usernameForm.handleSubmit(onUsernameSubmit)}
+            >
+              <FormField
+                control={usernameForm.control}
+                name="username"
+                render={UsernameFieldRenderer}
+              />
+
+              <p className="text-muted-foreground -mt-1 text-xs leading-relaxed">
+                Your previous username stays reserved and redirects here for 30
+                days. You can make up to 5 username changes every 30 days.
+              </p>
+
+              <div className="flex justify-end">
+                <LoadingButton
+                  className={BUTTON_CLASS}
+                  loading={usernameMutation.isPending}
+                  type="submit"
+                >
+                  Update Username
+                </LoadingButton>
+              </div>
+            </form>
+          </Form>
         </div>
 
-        <Form {...usernameForm}>
-          <form
-            className="mt-4 space-y-4"
-            onSubmit={usernameForm.handleSubmit(onUsernameSubmit)}
-          >
-            <FormField
-              control={usernameForm.control}
-              name="username"
-              render={UsernameFieldRenderer}
-            />
+        <div className="border-border/60 my-6 border-t" />
 
-            <div className="flex justify-end">
-              <LoadingButton
-                className={BUTTON_CLASS}
-                loading={usernameMutation.isPending}
-                type="submit"
+        <div className="scroll-mt-24" id="settings-email">
+          <SettingsCardHeading
+            description="Where we send login and reset links"
+            icon={Mail}
+            title="Email Address"
+          />
+
+          {emailStepHint ? (
+            <p className="text-muted-foreground mt-4 text-xs font-medium">
+              {emailStepHint}
+            </p>
+          ) : null}
+
+          {emailStep === "idle" ? (
+            <Form {...emailForm}>
+              <form
+                className="mt-4 space-y-4"
+                onSubmit={emailForm.handleSubmit(onStartEmailChange)}
               >
-                Update Username
-              </LoadingButton>
-            </div>
-          </form>
-        </Form>
-      </SettingsCard>
-
-      <SettingsCard className="scroll-mt-24" id="settings-email">
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-lg",
-              ORANGE_GRADIENT_CLASS
-            )}
-          >
-            <Mail className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <h3 className="font-medium">Email Address</h3>
-            <p className="text-muted-foreground text-sm">
-              Where we send login and reset links
-            </p>
-          </div>
-        </div>
-
-        <Form {...emailForm}>
-          <form
-            className="mt-4 space-y-4"
-            onSubmit={emailForm.handleSubmit(onEmailSubmit)}
-          >
-            <FormField
-              control={emailForm.control}
-              disabled={emailChangeRequested}
-              name="email"
-              render={EmailFieldRenderer}
-            />
-
-            {user.email && !emailChangeRequested ? (
-              <div className="space-y-3">
-                {/* The code input only appears once the mail has been sent. */}
-                {currentEmailCodeSent ? (
-                  <FormField
-                    control={emailForm.control}
-                    disabled={emailChangeRequested}
-                    name="otp"
-                    render={OtpFieldRenderer}
-                  />
-                ) : null}
-                <div className="flex justify-start">
+                <FormField
+                  control={emailForm.control}
+                  name="email"
+                  render={EmailFieldRenderer}
+                />
+                <div className="flex justify-end">
                   <LoadingButton
-                    className="h-10 shrink-0 rounded-xl px-4 text-xs"
-                    loading={sendCurrentEmailCodeMutation.isPending}
-                    onClick={handleSendCurrentEmailCode}
-                    type="button"
-                    variant="outline"
+                    className={BUTTON_CLASS}
+                    loading={isEmailBusy}
+                    type="submit"
                   >
-                    {currentEmailCodeSent
-                      ? "Resend code"
-                      : "Send code to current email"}
+                    Update Email
                   </LoadingButton>
                 </div>
-              </div>
-            ) : null}
+              </form>
+            </Form>
+          ) : null}
 
-            <div className="flex justify-end">
-              <LoadingButton
-                className={BUTTON_CLASS}
-                disabled={
-                  emailChangeRequested ||
-                  (Boolean(user.email) &&
-                    (!currentEmailCodeSent ||
-                      // oxlint-disable-next-line react/incompatible-library -- react-hook-form watch handle is unmemoizable by design; compiler skips this component
-                      (emailForm.watch("otp")?.length ?? 0) < 6))
-                }
-                loading={emailMutation.isPending}
-                type="submit"
+          {emailStep === "current" ? (
+            <Form {...emailForm}>
+              <form
+                className="mt-4 space-y-4"
+                onSubmit={emailForm.handleSubmit(onConfirmCurrentEmail)}
               >
-                {emailChangeRequested ? "Code Sent" : "Update Email"}
-              </LoadingButton>
-            </div>
-          </form>
-        </Form>
+                <FormField
+                  control={emailForm.control}
+                  disabled
+                  name="email"
+                  render={EmailFieldRenderer}
+                />
+                <FormField
+                  control={emailForm.control}
+                  name="otp"
+                  render={OtpFieldRenderer}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
+                    onClick={onResendCurrentCode}
+                    type="button"
+                    variant="ghost"
+                  >
+                    Resend code
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
+                      onClick={onCancelEmailChange}
+                      type="button"
+                      variant="ghost"
+                    >
+                      Cancel
+                    </Button>
+                    <LoadingButton
+                      className={BUTTON_CLASS}
+                      loading={emailMutation.isPending}
+                      type="submit"
+                    >
+                      Continue
+                    </LoadingButton>
+                  </div>
+                </div>
+              </form>
+            </Form>
+          ) : null}
 
-        {emailChangeRequested && (
-          <div className="border-border/60 mt-4 rounded-xl border p-4">
-            <p className="mb-3 text-sm">
-              Enter the verification code we sent to{" "}
-              <span className="font-medium">{pendingNewEmail}</span> to confirm
-              the change.
-            </p>
+          {emailStep === "new" ? (
             <Form {...emailVerifyForm}>
               <form
-                className="space-y-3"
-                onSubmit={emailVerifyForm.handleSubmit(onEmailVerifySubmit)}
+                className="mt-4 space-y-4"
+                onSubmit={emailVerifyForm.handleSubmit(onVerifyNewEmail)}
               >
+                <FormItem>
+                  <FormLabel>New email</FormLabel>
+                  <FormControl>
+                    <Input
+                      className="premium-input h-10 rounded-xl text-sm"
+                      disabled
+                      value={pendingNewEmail ?? ""}
+                      readOnly
+                    />
+                  </FormControl>
+                </FormItem>
                 <FormField
                   control={emailVerifyForm.control}
                   name="otp"
                   render={OtpFieldRenderer}
                 />
                 <div className="flex justify-end gap-2">
-                  <button
-                    className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                  <Button
+                    className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
                     onClick={onCancelEmailChange}
                     type="button"
+                    variant="ghost"
                   >
                     Cancel
-                  </button>
+                  </Button>
                   <LoadingButton
                     className={BUTTON_CLASS}
                     loading={emailVerifyMutation.isPending}
                     type="submit"
                   >
-                    Verify & Change
+                    Verify &amp; Change
                   </LoadingButton>
                 </div>
               </form>
             </Form>
-          </div>
-        )}
+          ) : null}
+        </div>
       </SettingsCard>
 
-      <SettingsCard className="scroll-mt-24" id="settings-linked-accounts">
+      <section className="scroll-mt-24 space-y-3" id="settings-linked-accounts">
+        <SettingsCardHeading
+          description="Add another way to sign in"
+          icon={KeyRound}
+          title="Sign-in methods"
+        />
         <LinkedAccounts
           accountLinkingReadiness={accountLinkingReadiness}
           onLink={handleSocialLink}
           user={user}
         />
-      </SettingsCard>
+      </section>
 
       {!accountLinkingReadiness.hasPassword && (
         <SettingsCard className="scroll-mt-24" id="settings-add-password">
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-lg",
-                ORANGE_GRADIENT_CLASS
-              )}
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-            </div>
-            <div>
-              <h3 className="font-medium">Add a Password</h3>
-              <p className="text-muted-foreground text-sm">
-                Add a backup way to sign in before connecting another provider
-              </p>
-            </div>
-          </div>
+          <SettingsCardHeading
+            description="Add a backup way to sign in before connecting another provider"
+            icon={KeyRound}
+            title="Add a Password"
+          />
 
           {accountLinkingReadiness.hasVerifiedEmail ? (
             <Form {...passwordSetupForm}>

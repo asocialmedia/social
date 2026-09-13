@@ -16,6 +16,7 @@ const state = {
   mentionCreates: [] as { userId: string }[],
   notifications: [] as { recipientId: string; type: string }[],
   ownedMediaIds: [] as string[],
+  scheduledCleanups: [] as string[],
 };
 
 function resetState() {
@@ -25,6 +26,7 @@ function resetState() {
   state.mentionCreates = [];
   state.notifications = [];
   state.ownedMediaIds = [];
+  state.scheduledCleanups = [];
 }
 
 const mockTx = {
@@ -64,7 +66,7 @@ const mockTx = {
   notification: {
     create: (args: { data: { recipientId: string; type: string } }) => {
       state.notifications.push(args.data);
-      return Promise.resolve({});
+      return Promise.resolve({ id: "notif-published-1", ...args.data });
     },
   },
   post: {
@@ -131,6 +133,10 @@ mock.module("@asm/db", () => ({
     get: () => Promise.resolve(null),
     set: () => Promise.resolve("OK"),
   },
+  schedulePublishedNotificationCleanup: (notificationId: string) => {
+    state.scheduledCleanups.push(notificationId);
+    return Promise.resolve();
+  },
 }));
 
 mock.module("next/cache", () => ({
@@ -175,6 +181,7 @@ describe("submitPost mention validation", () => {
     expect(state.auraAwards).toEqual([
       { recipientId: AUTHOR_ID, type: "POST_CREATION" },
     ]);
+    expect(state.scheduledCleanups).toEqual(["notif-published-1"]);
   });
 
   test("mentions of other users are kept and awarded normally", async () => {

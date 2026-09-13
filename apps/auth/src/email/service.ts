@@ -7,6 +7,7 @@ import { emailConfig } from "./config";
 import { getPasswordResetEmailHtml } from "./templates/password-reset-email";
 import {
   getOTPVerificationEmailHtml,
+  getTwoFactorOTPEmailHtml,
   getVerificationEmailHtml,
 } from "./templates/verification-email";
 
@@ -281,6 +282,61 @@ export async function sendVerificationOTP(
       error: errorMessage,
       success: false,
     });
+  }
+}
+
+export async function sendTwoFactorOTP(
+  email: string,
+  otp: string
+): Promise<EmailResult> {
+  const initResult = initializeEmailService();
+  if (initResult) {
+    logger.error(
+      { email: redactEmail(email) },
+      "email service initialization failed (two-factor otp)"
+    );
+    return initResult;
+  }
+
+  if (!resend) {
+    return getVerificationResult({
+      error: "Email service not initialized",
+      success: false,
+    });
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      html: await getTwoFactorOTPEmailHtml(otp),
+      subject: "Your Security Code - asocialmedia",
+      to: email,
+    });
+
+    if (error) {
+      logger.error(
+        { email: redactEmail(email), error: error.message },
+        "two-factor otp send failed"
+      );
+      return getVerificationResult({
+        error: error.message || "Failed to send security code",
+        success: false,
+      });
+    }
+
+    logger.info({ email: redactEmail(email) }, "two-factor otp sent");
+    return getVerificationResult({ success: true });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Unknown error occurred while sending security code";
+
+    logger.error(
+      { email: redactEmail(email), error: errorMessage },
+      "two-factor otp threw"
+    );
+    return getVerificationResult({ error: errorMessage, success: false });
   }
 }
 

@@ -43,6 +43,7 @@ import AuraVoteButton from "@/components/posts/aura-vote-button";
 import BookmarkButton from "@/components/posts/bookmark-button";
 import ExplicitContentGate from "@/components/posts/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/moderated-notice";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import PostMoreButton from "@/components/posts/post-more-button";
 import { PostMeta } from "@/components/tags/post-meta";
 import Linkify from "@/helpers/global/linkify";
@@ -1475,14 +1476,11 @@ const MediaViewer = ({
               </div>
 
               <div className="mt-2.5">
-                <Linkify>
-                  <p className="text-foreground text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">
-                    {post.content}
-                  </p>
-                </Linkify>
+                <PostLinkedContent content={post.content} />
                 {post.tags?.length || post.mentions?.length ? (
                   <div className="mt-3">
                     <PostMeta
+                      content={post.content}
                       mentions={post.mentions.map((m) => m.user)}
                       tags={post.tags}
                     />

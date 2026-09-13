@@ -13,9 +13,16 @@ export async function DELETE(
   }
 
   const { notificationId } = await ctx.params;
+  // Support both single notification ID and comma-separated IDs for grouped dismissals
+  const ids = notificationId.includes(",")
+    ? notificationId
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : [notificationId];
 
   const deleted = await prisma.notification.deleteMany({
-    where: { id: notificationId, recipientId: user.id },
+    where: { id: { in: ids }, recipientId: user.id },
   });
 
   if (deleted.count === 0) {

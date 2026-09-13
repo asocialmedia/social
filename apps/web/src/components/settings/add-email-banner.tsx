@@ -20,7 +20,7 @@ const AddEmailBanner: React.FC = () => (
       </p>
       <Link
         className="text-primary mt-2 inline-flex items-center gap-1 text-sm font-semibold hover:underline"
-        href="/settings#settings-email"
+        href="/settings?tab=account#settings-email"
       >
         Add email
       </Link>

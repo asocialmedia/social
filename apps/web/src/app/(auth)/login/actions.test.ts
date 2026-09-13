@@ -35,6 +35,24 @@ describe("login", () => {
     });
   });
 
+  test("requires verification instead of treating a 2FA handoff as a session", async () => {
+    usernameSignIn.mockResolvedValue({
+      data: {
+        twoFactorMethods: ["otp"],
+        twoFactorRedirect: true,
+      },
+      error: null,
+    });
+
+    await expect(
+      login({ password: "not-a-real-password", username: "creator" })
+    ).resolves.toEqual({
+      requiresTwoFactor: true,
+      success: false,
+      twoFactorMethods: ["otp"],
+    });
+  });
+
   test("returns an invalid-credentials result when Better Auth resolves an error", async () => {
     emailSignIn.mockResolvedValue({
       data: null,

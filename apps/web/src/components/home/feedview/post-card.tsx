@@ -334,6 +334,7 @@ const PostContent: React.FC<PostContentProps> = ({
 
             {post.tags?.length || post.mentions?.length ? (
               <PostMeta
+                content={post.content}
                 mentions={
                   post.mentions?.map((m) => m.user as unknown as UserData) ?? []
                 }

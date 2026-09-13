@@ -15,6 +15,7 @@ import type {
   isDevelopmentMode,
   isEmailServiceConfigured,
   sendPasswordResetEmail,
+  sendTwoFactorOTP,
   sendVerificationEmail,
   sendVerificationOTP,
   validateEmailServiceConfig,
@@ -29,6 +30,7 @@ interface ServiceModule {
   isDevelopmentMode: typeof isDevelopmentMode;
   isEmailServiceConfigured: typeof isEmailServiceConfigured;
   sendPasswordResetEmail: typeof sendPasswordResetEmail;
+  sendTwoFactorOTP: typeof sendTwoFactorOTP;
   sendVerificationEmail: typeof sendVerificationEmail;
   sendVerificationOTP: typeof sendVerificationOTP;
   validateEmailServiceConfig: typeof validateEmailServiceConfig;
@@ -306,6 +308,32 @@ describe("email service", () => {
     expect(result.error).toContain("Send exception");
   });
 
+  test("sendTwoFactorOTP sends a security code", async () => {
+    Object.defineProperty(envModule.env, "RESEND_API_KEY", {
+      value: "test_key",
+      writable: true,
+    });
+    const result = await serviceModule.sendTwoFactorOTP(
+      "test@example.com",
+      "123456"
+    );
+    expect(result.success).toBe(true);
+  });
+
+  test("sendTwoFactorOTP returns a safe delivery failure", async () => {
+    Object.defineProperty(envModule.env, "RESEND_API_KEY", {
+      value: "test_key",
+      writable: true,
+    });
+    returnErrorOnSend = true;
+    const result = await serviceModule.sendTwoFactorOTP(
+      "test@example.com",
+      "123456"
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Send error");
+  });
+
   test("sendPasswordResetEmail sends successfully", async () => {
     Object.defineProperty(envModule.env, "RESEND_API_KEY", {
       value: "test_key",
@@ -374,12 +402,13 @@ describe("email service", () => {
 
     await serviceModule.sendVerificationEmail("user@example.com", "tok");
     await serviceModule.sendVerificationOTP("user@example.com", "123456");
+    await serviceModule.sendTwoFactorOTP("user@example.com", "123456");
     await serviceModule.sendPasswordResetEmail("user@example.com", "tok");
 
     const sendCalls = mockResendSend.mock.calls as unknown as {
       from?: string;
     }[][];
-    expect(sendCalls.length).toBeGreaterThanOrEqual(3);
+    expect(sendCalls.length).toBeGreaterThanOrEqual(4);
 
     for (const call of sendCalls) {
       expect(call[0].from).toBe("Zeph <noreply@asocialmedia.cc>");

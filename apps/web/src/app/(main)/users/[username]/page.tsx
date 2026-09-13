@@ -1,8 +1,13 @@
-import { getUserDataSelect, prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
+import {
+  getUserDataSelect,
+  prisma,
+  resolveUsername,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
 import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
@@ -19,14 +24,14 @@ interface PageProps {
 }
 
 const getUser = cache(async (username: string, loggedInUserId: string) => {
-  const user = await prisma.user.findFirst({
+  const resolvedUsername = await resolveUsername(username);
+  if (!resolvedUsername) {
+    notFound();
+  }
+
+  const user = await prisma.user.findUnique({
     select: getUserDataSelect(loggedInUserId),
-    where: {
-      username: {
-        equals: username,
-        mode: "insensitive",
-      },
-    },
+    where: { id: resolvedUsername.id },
   });
 
   if (!user) {
@@ -38,7 +43,7 @@ const getUser = cache(async (username: string, loggedInUserId: string) => {
     notFound();
   }
 
-  return user;
+  return { redirectToCurrentUsername: resolvedUsername.isAlias, user };
 });
 
 // Metadata never varies by viewer, so it reads through a cached scope instead
@@ -48,14 +53,14 @@ async function getMetadataUser(username: string) {
   "use cache";
   cacheLife("hours");
 
-  const user = await prisma.user.findFirst({
+  const resolvedUsername = await resolveUsername(username);
+  if (!resolvedUsername) {
+    return null;
+  }
+
+  const user = await prisma.user.findUnique({
     select: getUserDataSelect(""),
-    where: {
-      username: {
-        equals: username,
-        mode: "insensitive",
-      },
-    },
+    where: { id: resolvedUsername.id },
   });
 
   if (!user || user.id === SYSTEM_MODERATION_USER_ID) {
@@ -131,10 +136,15 @@ async function ProfileContent({ params }: PageProps) {
   const { username } = await params;
   const session = await getSessionFromApi();
 
-  const [userData, loggedInUserData] = await Promise.all([
+  const [resolvedUser, loggedInUserData] = await Promise.all([
     getUser(username, session?.user?.id ?? ""),
     session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
+
+  if (resolvedUser.redirectToCurrentUsername) {
+    redirect(`/users/${encodeURIComponent(resolvedUser.user.username)}`);
+  }
+  const userData = resolvedUser.user;
 
   if (session?.user && !loggedInUserData) {
     notFound();

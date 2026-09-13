@@ -3,7 +3,7 @@
 import type { PrivateUserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -13,42 +13,80 @@ import type { AccountLinkingReadiness } from "@/components/settings/linked-accou
 import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";
 import SettingsSidebar from "@/components/settings/settings-sidebar";
+import {
+  getSettingsTab,
+  isSettingsTab,
+} from "@/components/settings/settings-tab-state";
 
 import AccountSettings from "./tabs/account-settings";
 import ProfileSettings from "./tabs/profile-settings";
 import SecuritySettings from "./tabs/security-settings";
+import type { SecurityPasskey, SecurityState } from "./tabs/security-settings";
 
 interface ClientSettingsProps {
   accountLinkingReadiness: AccountLinkingReadiness;
+  currentSessionId: string;
+  initialPasskeys: SecurityPasskey[];
+  securityState: SecurityState;
   user: PrivateUserData;
 }
 
 export default function ClientSettings({
   accountLinkingReadiness,
+  currentSessionId,
+  initialPasskeys,
+  securityState,
   user,
 }: ClientSettingsProps) {
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
-    searchParams.has("account_error") || searchParams.has("account_success")
-      ? "account"
-      : "profile"
+    getSettingsTab(searchParams)
   );
 
-  const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value as SettingsTab);
+  useEffect(() => {
+    const restoreTabFromHistory = () => {
+      setActiveTab(getSettingsTab(new URLSearchParams(window.location.search)));
+    };
+    window.addEventListener("popstate", restoreTabFromHistory);
+    return () => window.removeEventListener("popstate", restoreTabFromHistory);
   }, []);
 
-  const handleNavigate = useCallback((tab: SettingsTab, sectionId?: string) => {
+  const setPersistedTab = useCallback((tab: SettingsTab) => {
     setActiveTab(tab);
-    if (sectionId) {
-      window.setTimeout(() => {
-        document
-          .querySelector(`#${sectionId}`)
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 60);
-    }
+
+    const nextSearchParams = new URLSearchParams(window.location.search);
+    nextSearchParams.set("tab", tab);
+    const query = nextSearchParams.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}`
+    );
   }, []);
+
+  const handleTabChange = useCallback(
+    (value: string) => {
+      if (isSettingsTab(value)) {
+        setPersistedTab(value);
+      }
+    },
+    [setPersistedTab]
+  );
+
+  const handleNavigate = useCallback(
+    (tab: SettingsTab, sectionId?: string) => {
+      setPersistedTab(tab);
+      if (sectionId) {
+        window.setTimeout(() => {
+          document
+            .querySelector(`#${sectionId}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 60);
+      }
+    },
+    [setPersistedTab]
+  );
 
   return (
     <>
@@ -89,7 +127,12 @@ export default function ClientSettings({
               ref={feedScrollRef}
             >
               <TabsContent className="mt-0 pb-12" value="profile">
-                <ProfileSettings user={user} />
+                <ProfileSettings
+                  onNavigateToAccount={() =>
+                    handleNavigate("account", "settings-username")
+                  }
+                  user={user}
+                />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="account">
@@ -100,7 +143,12 @@ export default function ClientSettings({
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="security">
-                <SecuritySettings user={user} />
+                <SecuritySettings
+                  currentSessionId={currentSessionId}
+                  initialPasskeys={initialPasskeys}
+                  securityState={securityState}
+                  user={user}
+                />
               </TabsContent>
             </div>
             <FeedScrollbar containerRef={feedScrollRef} />

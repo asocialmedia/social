@@ -6,6 +6,7 @@ import {
 } from "./password-reset-email";
 import {
   getOTPVerificationEmailHtml,
+  getTwoFactorOTPEmailHtml,
   getVerificationEmailHtml,
   OTPVerificationEmail,
   VerificationEmail,
@@ -40,6 +41,14 @@ describe("email templates", () => {
     const element = OTPVerificationEmail({ otp: "654321" });
 
     expect(element).toBeDefined();
+  });
+
+  test("renders two-factor security code html", async () => {
+    const html = await getTwoFactorOTPEmailHtml("123456");
+
+    expect(html).toContain("Your security code");
+    expect(html).toContain("123456");
+    expect(html).toContain("complete your sign-in");
   });
 
   test("renders password reset email html", async () => {

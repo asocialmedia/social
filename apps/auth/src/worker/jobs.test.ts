@@ -62,11 +62,20 @@ describe("worker job processors", () => {
       deleteMany: mock(() => ({ count: 1 })),
       findMany: mock(() => [{ id: "user-1" }]),
     },
+    usernameAlias: {
+      deleteMany: mock(() => ({ count: 2 })),
+    },
   };
 
   mock.module("@asm/db", () => ({
     POST_VIEWS_KEY_PREFIX: "post:views:",
     POST_VIEWS_SET: "posts:with:views",
+    cleanupExpiredPublishedNotifications: mock(() =>
+      Promise.resolve({ batchesProcessed: 2, deletedCount: 15 })
+    ),
+    cleanupSinglePublishedNotification: mock((id: string) =>
+      Promise.resolve(id === "notif-valid")
+    ),
     deleteObject: mockDeleteObject,
     grantShitposterBadgeIfQualified: mockGrantShitposter,
     prisma: mockPrisma,
@@ -90,6 +99,7 @@ describe("worker job processors", () => {
     mockPrisma.user.findMany.mockClear();
     mockPrisma.user.deleteMany.mockClear();
     mockPrisma.passwordResetToken.deleteMany.mockClear();
+    mockPrisma.usernameAlias.deleteMany.mockClear();
   });
 
   test("processPostDeleted deletes media objects and rows and clears view keys", async () => {
@@ -201,6 +211,16 @@ describe("worker job processors", () => {
     expect(mockPrisma.passwordResetToken.deleteMany).toHaveBeenCalled();
   });
 
+  test("processExpiredUsernameAliases releases expired usernames", async () => {
+    const { processExpiredUsernameAliases } = await import("./jobs");
+
+    await processExpiredUsernameAliases();
+
+    expect(mockPrisma.usernameAlias.deleteMany).toHaveBeenCalledWith({
+      where: { expiresAt: { lte: expect.any(Date) } },
+    });
+  });
+
   test("processNotificationCreated and Deleted adjust the unread counter", async () => {
     const { processNotificationCreated, processNotificationDeleted } =
       await import("./jobs");
@@ -233,5 +253,29 @@ describe("worker job processors", () => {
 
     expect(mockGrantShitposter).toHaveBeenCalledWith("user-1");
     expect(granted).toBe(false);
+  });
+
+  test("processPublishedNotificationCleanup delegates to cleanupSinglePublishedNotification", async () => {
+    const { processPublishedNotificationCleanup } = await import("./jobs");
+    const { cleanupSinglePublishedNotification } = await import("@asm/db");
+
+    const deleted = await processPublishedNotificationCleanup({
+      notificationId: "notif-valid",
+    });
+
+    expect(cleanupSinglePublishedNotification).toHaveBeenCalledWith(
+      "notif-valid"
+    );
+    expect(deleted).toBe(true);
+  });
+
+  test("processPublishedNotificationsSweep delegates to cleanupExpiredPublishedNotifications", async () => {
+    const { processPublishedNotificationsSweep } = await import("./jobs");
+    const { cleanupExpiredPublishedNotifications } = await import("@asm/db");
+
+    const result = await processPublishedNotificationsSweep();
+
+    expect(cleanupExpiredPublishedNotifications).toHaveBeenCalled();
+    expect(result).toEqual({ batchesProcessed: 2, deletedCount: 15 });
   });
 });

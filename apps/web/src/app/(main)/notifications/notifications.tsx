@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-query";
 import Image from "next/image";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigger";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
@@ -20,6 +20,7 @@ import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
+import { groupNotifications } from "@/lib/notifications/grouping";
 
 import Notification from "./notification";
 
@@ -85,7 +86,13 @@ export default function Notifications() {
     mutate();
   }, [mutate]);
 
-  const notifications = data?.pages.flatMap((page) => page.notifications) || [];
+  const notifications = useMemo(
+    () =>
+      groupNotifications(
+        data?.pages.flatMap((page) => page.notifications) || []
+      ),
+    [data]
+  );
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {

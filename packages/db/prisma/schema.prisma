@@ -37,6 +37,8 @@ model User {
   customDomain          String?
   emailVerified         Boolean                     @default(false)
   emailVerifiedAt       DateTime?
+  twoFactorEnabled      Boolean                     @default(false)
+  lastLoginMethod       String?
   image                 String?
   name                  String?
   role                  String                      @default("user")
@@ -47,6 +49,9 @@ model User {
   banExpires            DateTime?
   sessions              Session[]
   accounts              Account[]
+  twoFactor             TwoFactor?
+  passkeys              Passkey[]
+  usernameAliases       UsernameAlias[]
   verifications         Verification[]
   passwordResetTokens   PasswordResetToken[]
   mentions              Mention[]
@@ -78,6 +83,21 @@ model User {
   @@index([banned])
   @@index([banExpires])
   @@map("users")
+}
+
+// A username remains owned by its previous account for a short time after a
+// rename. This preserves old profile links and prevents immediate impersonation.
+model UsernameAlias {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([userId, createdAt])
+  @@map("username_aliases")
 }
 
 // E2EE messages. The server only ever stores ciphertext plus routing metadata;
@@ -271,6 +291,7 @@ model Session {
   userId         String
   token          String   @unique
   expiresAt      DateTime
+  country        String?
   ipAddress      String?
   userAgent      String?
   impersonatedBy String?
@@ -315,6 +336,40 @@ model Verification {
   updatedAt  DateTime @updatedAt
 
   @@map("verification")
+}
+
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  userId                  String    @unique
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([secret])
+  @@map("twoFactor")
+}
+
+model Passkey {
+  id           String   @id @default(cuid())
+  name         String?
+  publicKey    String
+  userId       String
+  credentialID String   @unique
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime @default(now())
+  aaguid       String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("passkey")
 }
 
 model Follow {
@@ -735,6 +790,7 @@ model Notification {
   @@index([commentId])
   @@index([recipientId, read])
   @@index([recipientId, createdAt])
+  @@index([issuerId, type, createdAt])
   @@map("notifications")
 }
 

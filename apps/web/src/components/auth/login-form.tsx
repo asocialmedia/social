@@ -3,6 +3,13 @@
 import { loginSchema } from "@asm/auth/validation";
 import type { LoginValues } from "@asm/auth/validation";
 import { clientLog } from "@asm/config/debug";
+import { Checkbox } from "@asm/ui/shadui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@asm/ui/shadui/dropdown-menu";
 import {
   Form,
   FormControl,
@@ -12,26 +19,388 @@ import {
   FormMessage,
 } from "@asm/ui/shadui/form";
 import { Input } from "@asm/ui/shadui/input";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@asm/ui/shadui/input-otp";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Mail, XCircle } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  ChevronDown,
+  KeyRound,
+  Mail,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useState, useTransition } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import type { ControllerRenderProps } from "react-hook-form";
 
 import { login } from "@/app/(auth)/login/actions";
+import type { TwoFactorLoginMethod } from "@/app/(auth)/login/actions";
 import { resendVerificationEmail } from "@/app/(auth)/signup/actions";
 import ForgotPasswordLink from "@/components/auth/forgot-password-link";
 import { LoadingButton } from "@/components/auth/loading-button";
 import { PasswordInput } from "@/components/auth/password-input";
+import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
 
-export default function LoginForm() {
+interface LoginFormProps {
+  actionAccessory?: ReactNode;
+  lastLoginMethod?: string | null;
+}
+
+type VerificationMethod = "backup" | "email" | "totp";
+
+const OTP_SLOT_IDS = [
+  "slot-0",
+  "slot-1",
+  "slot-2",
+  "slot-3",
+  "slot-4",
+  "slot-5",
+];
+
+const verificationMethodCopy: Record<VerificationMethod, string> = {
+  backup:
+    "Enter one of the recovery codes you saved when setting up your authenticator.",
+  email: "We’ll send a six-digit code to your verified email address.",
+  totp: "Enter the six-digit code from your authenticator app.",
+};
+
+export function getAvailableVerificationMethods(
+  methods: readonly TwoFactorLoginMethod[]
+): readonly VerificationMethod[] {
+  const availableMethods: VerificationMethod[] = [];
+  if (methods.includes("totp")) {
+    availableMethods.push("totp", "backup");
+  }
+  if (methods.includes("otp")) {
+    availableMethods.push("email");
+  }
+  return availableMethods;
+}
+
+export function getResendCountdown(
+  resendAvailableAt: number,
+  currentTime: number
+): number {
+  return Math.max(0, Math.ceil((resendAvailableAt - currentTime) / 1000));
+}
+
+function getEmailCodeStatus(sent: boolean, resendCountdown: number): string {
+  if (!sent) {
+    return "Send a security code to your verified email when you’re ready.";
+  }
+  if (resendCountdown > 0) {
+    return `Code sent. You can request another in ${resendCountdown}s.`;
+  }
+  return "Didn’t receive the code? Request another one.";
+}
+
+function InlineTwoFactorForm({
+  methods,
+  onBack,
+}: {
+  methods: readonly TwoFactorLoginMethod[];
+  onBack: () => void;
+}) {
+  const { toast } = useToast();
+  const availableMethods = getAvailableVerificationMethods(methods);
+  const [method, setMethod] = useState<VerificationMethod>(
+    availableMethods[0] ?? "email"
+  );
+  const [code, setCode] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [trustDevice, setTrustDevice] = useState(false);
+  const [emailDeliveryError, setEmailDeliveryError] = useState<string>();
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const trustDeviceId = useId();
+  const resendCountdown = getResendCountdown(resendAvailableAt, currentTime);
+
+  const methodLabels: Record<VerificationMethod, string> = {
+    backup: "Recovery code",
+    email: "Email code",
+    totp: "Authenticator",
+  };
+  const methodIcons: Record<
+    VerificationMethod,
+    typeof Mail | typeof KeyRound | typeof ShieldCheck
+  > = {
+    backup: ShieldCheck,
+    email: Mail,
+    totp: KeyRound,
+  };
+
+  const sendEmailCode = useCallback(async () => {
+    setIsPending(true);
+    setEmailDeliveryError(undefined);
+    try {
+      const result = await authClient.twoFactor.sendOtp({ trustDevice });
+      if (result.error) {
+        setEmailDeliveryError(
+          result.error.message || "We couldn’t send a security code. Try again."
+        );
+      } else {
+        setSent(true);
+        setCurrentTime(Date.now());
+        setResendAvailableAt(Date.now() + 30_000);
+        toast({
+          description: "Check your inbox for your six-digit security code.",
+          title: "Security code sent",
+        });
+      }
+    } catch (sendError) {
+      clientLog.error("Two-factor email send error:", sendError);
+      setEmailDeliveryError("We couldn’t send a security code. Try again.");
+    }
+    setIsPending(false);
+  }, [toast, trustDevice]);
+
+  useEffect(() => {
+    if (resendCountdown === 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendCountdown]);
+
+  async function verifyCodeValue(normalizedCode: string) {
+    if (!normalizedCode) {
+      return;
+    }
+
+    setIsPending(true);
+    try {
+      let result;
+      if (method === "email") {
+        result = await authClient.twoFactor.verifyOtp({
+          code: normalizedCode,
+          trustDevice,
+        });
+      } else if (method === "totp") {
+        result = await authClient.twoFactor.verifyTotp({
+          code: normalizedCode,
+          trustDevice,
+        });
+      } else {
+        result = await authClient.twoFactor.verifyBackupCode({
+          code: normalizedCode,
+          trustDevice,
+        });
+      }
+
+      if (result.error) {
+        toast({
+          description:
+            result.error.message ||
+            "That code could not be verified. Try again.",
+          title: "Couldn’t verify code",
+          variant: "destructive",
+        });
+      } else {
+        window.location.assign("/");
+      }
+    } catch (verificationError) {
+      clientLog.error("Two-factor verification error:", verificationError);
+      toast({
+        description: "We couldn’t verify that code. Try again.",
+        title: "Couldn’t verify code",
+        variant: "destructive",
+      });
+    }
+    setIsPending(false);
+  }
+
+  function verifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void verifyCodeValue(code.trim());
+  }
+
+  function handleOtpChange(value: string) {
+    setCode(value);
+    if (value.length === 6 && !isPending) {
+      void verifyCodeValue(value);
+    }
+  }
+
+  return (
+    <motion.div
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-5"
+      initial={{ opacity: 0, y: 12 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="icon-btn-3d bg-primary text-primary-foreground flex size-10 shrink-0 items-center justify-center rounded-xl">
+          <ShieldCheck className="size-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-semibold">One more step</p>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            Verify it’s you to finish signing in.
+          </p>
+        </div>
+        <button
+          className="text-muted-foreground hover:text-foreground inline-flex min-h-10 items-center gap-1 rounded-lg px-1 text-xs transition-colors"
+          onClick={onBack}
+          type="button"
+        >
+          <ArrowLeft className="size-3.5" />
+          Back
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          {(() => {
+            const MethodIcon = methodIcons[method];
+            return <MethodIcon className="text-primary size-4 shrink-0" />;
+          })()}
+          <span>{methodLabels[method]}</span>
+        </div>
+        {availableMethods.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="text-muted-foreground hover:text-foreground inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-medium transition-colors"
+                type="button"
+              >
+                More options
+                <ChevronDown className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44 rounded-xl">
+              {availableMethods.map((availableMethod) => {
+                const MethodIcon = methodIcons[availableMethod];
+                return (
+                  <DropdownMenuItem
+                    className="gap-2"
+                    disabled={availableMethod === method}
+                    key={availableMethod}
+                    onSelect={() => {
+                      setCode("");
+                      setMethod(availableMethod);
+                    }}
+                  >
+                    <MethodIcon className="size-4" />
+                    {methodLabels[availableMethod]}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+
+      <form className="space-y-3" onSubmit={verifyCode}>
+        <p className="text-muted-foreground text-sm">
+          {verificationMethodCopy[method]}
+        </p>
+
+        {method === "email" ? (
+          <div className="space-y-2">
+            {emailDeliveryError ? (
+              <div className="border-destructive/25 bg-destructive/8 text-destructive rounded-xl border px-3 py-2 text-sm">
+                {emailDeliveryError}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                {getEmailCodeStatus(sent, resendCountdown)}
+              </p>
+            )}
+
+            {(!sent || emailDeliveryError || resendCountdown === 0) && (
+              <button
+                className="btn-3d-gray flex h-10 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isPending}
+                onClick={sendEmailCode}
+                type="button"
+              >
+                <Mail className="size-4" />
+                {emailDeliveryError
+                  ? "Try sending the code again"
+                  : "Send another code"}
+              </button>
+            )}
+          </div>
+        ) : null}
+
+        {method === "backup" ? (
+          <Input
+            autoComplete="one-time-code"
+            maxLength={64}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder="Recovery code"
+            required
+            value={code}
+          />
+        ) : (
+          <div className="flex justify-center">
+            <InputOTP
+              containerClassName="w-full"
+              disabled={isPending || (method === "email" && !sent)}
+              maxLength={6}
+              onChange={handleOtpChange}
+              pattern="[0-9]*"
+              value={code}
+            >
+              <InputOTPGroup className="w-full justify-between">
+                {OTP_SLOT_IDS.map((slotId, index) => (
+                  <InputOTPSlot className="w-full" index={index} key={slotId} />
+                ))}
+              </InputOTPGroup>
+            </InputOTP>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2.5">
+          <Checkbox
+            checked={trustDevice}
+            id={trustDeviceId}
+            onCheckedChange={(checked) => setTrustDevice(checked === true)}
+          />
+          <label
+            className="text-muted-foreground cursor-pointer text-sm"
+            htmlFor={trustDeviceId}
+          >
+            Trust this device for 30 days
+          </label>
+        </div>
+
+        <LoadingButton
+          className="w-full"
+          disabled={method === "email" && !sent}
+          loading={isPending}
+          type="submit"
+          variant="premium"
+        >
+          Verify and sign in
+        </LoadingButton>
+      </form>
+    </motion.div>
+  );
+}
+
+export default function LoginForm({
+  actionAccessory,
+  lastLoginMethod,
+}: LoginFormProps) {
   const { toast } = useToast();
   const [error, setError] = useState<string>();
   const [unverifiedEmail, setUnverifiedEmail] = useState<string>();
   const [isVerificationEmailSent, setIsVerificationEmailSent] = useState(false);
+  const [twoFactorMethods, setTwoFactorMethods] = useState<
+    readonly TwoFactorLoginMethod[] | null
+  >(null);
   const [isPending, startTransition] = useTransition();
   const [shake, setShake] = useState(false);
   const [errorFields, setErrorFields] = useState<{
@@ -78,6 +447,8 @@ export default function LoginForm() {
 
       if (result.error) {
         handleLoginError(result.error);
+      } else if (result.requiresTwoFactor) {
+        setTwoFactorMethods(result.twoFactorMethods);
       } else if (result.success) {
         handleLoginSuccess(values.username);
       }
@@ -214,6 +585,15 @@ export default function LoginForm() {
     }
   };
 
+  if (twoFactorMethods) {
+    return (
+      <InlineTwoFactorForm
+        methods={twoFactorMethods}
+        onBack={() => setTwoFactorMethods(null)}
+      />
+    );
+  }
+
   return (
     <Form {...form}>
       <motion.div
@@ -297,6 +677,11 @@ export default function LoginForm() {
             name="username"
             render={renderUsernameField}
           />
+          {lastLoginMethod === "email" ? (
+            <p className="text-muted-foreground -mt-2 ml-0.5 text-[10px] leading-none">
+              Last used recently
+            </p>
+          ) : null}
 
           <FormField
             control={form.control}
@@ -315,14 +700,17 @@ export default function LoginForm() {
             </Link>
           </div>
 
-          <LoadingButton
-            className="w-full"
-            loading={isPending}
-            type="submit"
-            variant="premium"
-          >
-            Log in
-          </LoadingButton>
+          <div className="flex items-center gap-2">
+            <LoadingButton
+              className="flex-1"
+              loading={isPending}
+              type="submit"
+              variant="premium"
+            >
+              Log in
+            </LoadingButton>
+            {actionAccessory}
+          </div>
         </form>
       </motion.div>
     </Form>

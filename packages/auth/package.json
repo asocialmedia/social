@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth",
-  "version": "1.1.37",
+  "version": "1.1.41",
   "private": true,
   "description": "asocialmedia authentication & email service package",
   "license": "AGPL-3.0",
@@ -26,9 +26,11 @@
   "dependencies": {
     "@asm/db": "workspace:*",
     "@asm/logger": "workspace:*",
+    "@better-auth/passkey": "^1.7.3",
     "@prisma/client": "7.9.1",
+    "@simplewebauthn/server": "^13.3.1",
     "@t3-oss/env-core": "^0.13.11",
-    "better-auth": "^1.7.1",
+    "better-auth": "^1.7.3",
     "disposable-email-domains": "^1.0.62",
     "email-validator": "^2.0.4",
     "jose": "^6.2.8",

@@ -7,10 +7,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
 
+import { collectInlineRelations, mergeUniqueIds } from "./inline-nodes";
+
 interface InlineSuggestionsProps {
   editor: Editor | null;
-  onSelectMention: (user: UserData) => void;
-  onSelectTag: (tag: string) => void;
+  // Which way the popover opens from the caret. The post composer opens
+  // down; bottom-anchored composers (eddie replies) open up.
+  placement?: "above" | "below";
   selectedMentionIds?: string[];
   selectedTagNames?: string[];
 }
@@ -26,6 +29,11 @@ const MAX_SUGGESTIONS = 6;
 const TRIGGER_PATTERN = /(?:^|\s)(?<trigger>[#@])(?<query>[\w-]*)$/;
 const MAX_TEXT_BEFORE = 50;
 const EMPTY_IDS: string[] = [];
+// w-64 dropdown; keep it inside the composer so a caret near the right edge
+// never pushes the popup over the typed text or outside the editor.
+const DROPDOWN_WIDTH = 256;
+const DROPDOWN_GUTTER = 8;
+const DROPDOWN_MAX_HEIGHT = 256;
 
 type SuggestionItem = string | UserData;
 
@@ -133,8 +141,7 @@ function createSuggestionSearchers(handlers: {
 
 export const InlineSuggestions = ({
   editor,
-  onSelectTag,
-  onSelectMention,
+  placement = "below",
   selectedMentionIds = EMPTY_IDS,
   selectedTagNames = EMPTY_IDS,
 }: InlineSuggestionsProps) => {
@@ -161,9 +168,11 @@ export const InlineSuggestions = ({
     discardPendingResponses();
   }, [discardPendingResponses]);
 
-  const replaceTrigger = useCallback(
-    (insertText: string) => {
-      if (!editor) {
+  const insertInlineNodes = useCallback(
+    (nodes: Record<string, unknown>[]) => {
+      // A destroyed editor (mid-teardown during a route/tab change) has a null
+      // command manager, so inserting would throw.
+      if (!editor || editor.isDestroyed) {
         return;
       }
       const { from } = editor.state.selection;
@@ -179,7 +188,7 @@ export const InlineSuggestions = ({
       editor
         .chain()
         .focus()
-        .insertContentAt({ from: triggerStart, to: from }, insertText)
+        .insertContentAt({ from: triggerStart, to: from }, nodes)
         .run();
     },
     [editor]
@@ -187,20 +196,36 @@ export const InlineSuggestions = ({
 
   const selectTag = useCallback(
     (tag: string) => {
-      replaceTrigger("");
-      onSelectTag(tag);
+      // Inline pill only - the tag relation is collected from the doc at
+      // publish, so nothing is added to the top chips (no duplicates).
+      insertInlineNodes([
+        { attrs: { tag }, type: "hashtag" },
+        { text: " ", type: "text" },
+      ]);
       close();
     },
-    [close, onSelectTag, replaceTrigger]
+    [close, insertInlineNodes]
   );
 
   const selectMention = useCallback(
     (user: UserData) => {
-      replaceTrigger("");
-      onSelectMention(user);
+      // Inline pill only - the mention relation is collected from the doc
+      // at publish, so nothing is added to the top chips (no duplicates).
+      insertInlineNodes([
+        {
+          attrs: {
+            avatarUrl: user.avatarUrl ?? "",
+            displayName: user.displayName ?? user.username,
+            id: user.id,
+            username: user.username,
+          },
+          type: "mention",
+        },
+        { text: " ", type: "text" },
+      ]);
       close();
     },
-    [close, onSelectMention, replaceTrigger]
+    [close, insertInlineNodes]
   );
 
   useEffect(() => {
@@ -209,6 +234,11 @@ export const InlineSuggestions = ({
     }
 
     const handler = () => {
+      // Events can still fire while the editor is tearing down; `state` reads
+      // through the (now null) view, so bail before touching it.
+      if (editor.isDestroyed) {
+        return;
+      }
       const { from, empty } = editor.state.selection;
       if (!empty) {
         setSuggestion(null);
@@ -232,20 +262,96 @@ export const InlineSuggestions = ({
       const { view } = editor;
       const { dom } = view;
       const coords = view.coordsAtPos(from);
-      const editorEl = dom.getBoundingClientRect();
+      // Position relative to the composer wrapper (the dropdown's
+      // offsetParent), not the inner ProseMirror node, so padding does not
+      // shift the popup over the caret. Fall back to the editor rect.
+      const container =
+        (dom.closest("div.relative") as HTMLElement | null) ??
+        dom.parentElement;
+      const containerRect =
+        container?.getBoundingClientRect() ?? dom.getBoundingClientRect();
+      const rawLeft = coords.left - containerRect.left;
+      const belowTop = coords.bottom - containerRect.top + 6;
+      // Clamp horizontally so a mention typed at the end of a long line
+      // (caret near the right edge) keeps the whole popup inside the
+      // composer instead of overlapping the typed text or spilling out.
+      const maxLeft = Math.max(
+        DROPDOWN_GUTTER,
+        containerRect.width - DROPDOWN_WIDTH - DROPDOWN_GUTTER
+      );
+      const left = Math.min(Math.max(DROPDOWN_GUTTER, rawLeft), maxLeft);
+      let top: number;
+      if (placement === "above") {
+        // Bottom-anchored composer: the popup sits directly over the caret
+        // line (a translateY(-100%) on render pulls it fully above).
+        top = coords.top - containerRect.top - 6;
+      } else {
+        // Flip above the caret when there is no room below (near viewport
+        // bottom or the composer's scroll end) so the popup never covers the
+        // line being typed.
+        const spaceBelow =
+          typeof window === "undefined"
+            ? Number.POSITIVE_INFINITY
+            : window.innerHeight - coords.bottom;
+        const spaceAbove = coords.top;
+        const shouldFlip =
+          spaceBelow < DROPDOWN_MAX_HEIGHT + 40 && spaceAbove > spaceBelow;
+        top = shouldFlip
+          ? Math.max(
+              DROPDOWN_GUTTER,
+              coords.top - containerRect.top - DROPDOWN_MAX_HEIGHT - 6
+            )
+          : belowTop;
+      }
 
       setSuggestion({
-        left: coords.left - editorEl.left,
+        left,
         query,
-        top: coords.top - editorEl.top + 28,
+        top,
         type: triggerType,
       });
       setActiveIndex(0);
       setLoading(true);
+      // Keep the caret line visible inside the scrollable editor while the
+      // popup is open (post composer only; bottom-anchored composers have
+      // nothing to scroll under).
+      if (placement === "below") {
+        requestAnimationFrame(() => {
+          try {
+            const scrollable = dom.closest(
+              ".overflow-y-auto"
+            ) as HTMLElement | null;
+            if (!scrollable) {
+              return;
+            }
+            const viewRect = scrollable.getBoundingClientRect();
+            const caret = view.coordsAtPos(editor.state.selection.from);
+            if (caret.bottom > viewRect.bottom - 12) {
+              scrollable.scrollTop += caret.bottom - viewRect.bottom + 20;
+            } else if (caret.top < viewRect.top + 12) {
+              scrollable.scrollTop -= viewRect.top - caret.top + 20;
+            }
+          } catch {
+            // Positioning already applied; a scroll miss is non-fatal.
+          }
+        });
+      }
+      const inline = collectInlineRelations(editor.getJSON());
       if (triggerType === "tag") {
-        fetchTags(query, selectedTagNames);
+        // Pills already in the doc count as selected so the same tag is
+        // never offered twice.
+        const excluded = [
+          ...new Set([
+            ...selectedTagNames.map((name) => name.toLowerCase()),
+            ...inline.tags,
+          ]),
+        ];
+        fetchTags(query, excluded);
       } else {
-        fetchUsers(query, selectedMentionIds);
+        fetchUsers(
+          query,
+          mergeUniqueIds(selectedMentionIds, inline.mentionIds)
+        );
       }
     };
 
@@ -255,7 +361,14 @@ export const InlineSuggestions = ({
       editor.off("update", handler);
       editor.off("selectionUpdate", handler);
     };
-  }, [editor, fetchTags, fetchUsers, selectedMentionIds, selectedTagNames]);
+  }, [
+    editor,
+    fetchTags,
+    fetchUsers,
+    placement,
+    selectedMentionIds,
+    selectedTagNames,
+  ]);
 
   const handleItemSelect = useCallback(
     (item: SuggestionItem) => {
@@ -290,6 +403,12 @@ export const InlineSuggestions = ({
         if (activeItem) {
           e.preventDefault();
           handleItemSelect(activeItem);
+          return;
+        }
+        // Swallow Enter while results are still loading so a bottom-anchored
+        // composer (eddies) does not publish mid-search.
+        if (loading) {
+          e.preventDefault();
         }
         return;
       }
@@ -297,7 +416,7 @@ export const InlineSuggestions = ({
         close();
       }
     },
-    [activeIndex, close, handleItemSelect, suggestion, tags, users]
+    [activeIndex, close, handleItemSelect, loading, suggestion, tags, users]
   );
 
   useEffect(() => {
@@ -453,10 +572,11 @@ export const InlineSuggestions = ({
 
   return (
     <div
-      className="border-border bg-card absolute z-30 w-64 overflow-hidden rounded-xl border shadow-[0_0_0_1.5px_rgba(255,255,255,0.25),0_0_0_3.5px_hsl(var(--border)),0_8px_20px_rgba(0,0,0,0.25)]"
+      className="border-border bg-card absolute z-30 w-64 max-w-[calc(100%-16px)] overflow-hidden rounded-xl border shadow-[0_0_0_1.5px_rgba(255,255,255,0.25),0_0_0_3.5px_hsl(var(--border)),0_8px_20px_rgba(0,0,0,0.25)]"
       style={{
         left: suggestion.left,
         top: suggestion.top,
+        transform: placement === "above" ? "translateY(-100%)" : undefined,
       }}
     >
       <div className="max-h-64 overflow-y-auto">{renderBody()}</div>
