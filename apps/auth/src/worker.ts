@@ -1,3 +1,7 @@
+// MUST stay the first import. See the note in server.ts: tsyringe (reached via
+// the passkey stack) throws at module-eval time without Reflect.getMetadata,
+// and the compiled binary evaluates the bundle graph before the entry body.
+import "reflect-metadata";
 import { loadRootEnv } from "./env";
 
 if (import.meta.main) {
