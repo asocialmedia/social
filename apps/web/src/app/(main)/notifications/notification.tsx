@@ -1,6 +1,10 @@
 "use client";
 
-import type { NotificationData, NotificationType } from "@asm/db";
+import type {
+  GroupedNotificationData,
+  NotificationData,
+  NotificationType,
+} from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
@@ -20,7 +24,7 @@ import kyInstance from "@/lib/ky";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 interface NotificationProps {
-  notification: NotificationData & {
+  notification: (NotificationData | GroupedNotificationData) & {
     type: NotificationType;
   };
 }
@@ -113,6 +117,138 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   },
 };
 
+function NotificationAvatars({
+  badgeClass,
+  icon: Icon,
+  issuers,
+  type,
+}: {
+  badgeClass: string;
+  icon: React.ComponentType<{ className?: string }>;
+  issuers: NotificationData["issuer"][];
+  type: NotificationType;
+}) {
+  if (type !== "AMPLIFY" || issuers.length <= 1) {
+    const [singleIssuer] = issuers;
+    return (
+      <div className="relative shrink-0">
+        <UserAvatar avatarUrl={singleIssuer?.avatarUrl} className="h-10 w-10" />
+        <span
+          className={cn(
+            "absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.4),0_1px_2px_rgba(0,0,0,0.15)]",
+            badgeClass
+          )}
+        >
+          <Icon className="h-3 w-3" />
+        </span>
+      </div>
+    );
+  }
+
+  // Multi-avatar display: show up to 3 avatars directly; if > 3, show 2 avatars plus "+ N" pill
+  const visibleIssuers = issuers.length <= 3 ? issuers : issuers.slice(0, 2);
+  const remainingCount = issuers.length - visibleIssuers.length;
+
+  return (
+    <div className="relative flex shrink-0 items-center pr-1">
+      <div className="flex items-center -space-x-4">
+        {visibleIssuers.map((issuer, idx) => (
+          <div
+            className="ring-background relative rounded-full ring-2"
+            key={issuer.id}
+            style={{ zIndex: visibleIssuers.length - idx + 1 }}
+          >
+            <UserAvatar avatarUrl={issuer.avatarUrl} className="h-9 w-9" />
+          </div>
+        ))}
+        {remainingCount > 0 ? (
+          <div
+            className="border-border/80 bg-muted/90 text-foreground ring-background relative z-0 flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold shadow-sm ring-2"
+            title={`+${remainingCount} others`}
+          >
+            +{remainingCount}
+          </div>
+        ) : null}
+      </div>
+      <span
+        className={cn(
+          "absolute -right-1 -bottom-1 z-20 flex h-5 w-5 items-center justify-center rounded-full text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.4),0_1px_2px_rgba(0,0,0,0.15)]",
+          badgeClass
+        )}
+      >
+        <Icon className="h-3 w-3" />
+      </span>
+    </div>
+  );
+}
+
+function NotificationHeadline({
+  action,
+  isEddie,
+  issuers,
+  type,
+}: {
+  action: string;
+  isEddie: boolean;
+  issuers: NotificationData["issuer"][];
+  type: NotificationType;
+}) {
+  if (type !== "AMPLIFY" || issuers.length <= 1) {
+    const [singleIssuer] = issuers;
+    return (
+      <p className="text-sm leading-snug">
+        <span className="font-semibold">{singleIssuer?.displayName}</span>{" "}
+        <span className="text-muted-foreground">{action}</span>
+      </p>
+    );
+  }
+
+  const targetNoun = isEddie ? "eddie" : "post";
+
+  if (issuers.length === 2) {
+    const [firstIssuer, secondIssuer] = issuers;
+    return (
+      <p className="text-sm leading-snug">
+        <span className="font-semibold">{firstIssuer?.displayName}</span>{" "}
+        <span className="text-muted-foreground">and</span>{" "}
+        <span className="font-semibold">{secondIssuer?.displayName}</span>{" "}
+        <span className="text-muted-foreground">
+          amplified your {targetNoun}
+        </span>
+      </p>
+    );
+  }
+
+  if (issuers.length === 3) {
+    const [firstIssuer, secondIssuer, thirdIssuer] = issuers;
+    return (
+      <p className="text-sm leading-snug">
+        <span className="font-semibold">{firstIssuer?.displayName}</span>
+        <span className="text-muted-foreground">, </span>
+        <span className="font-semibold">{secondIssuer?.displayName}</span>{" "}
+        <span className="text-muted-foreground">and</span>{" "}
+        <span className="font-semibold">{thirdIssuer?.displayName}</span>{" "}
+        <span className="text-muted-foreground">
+          amplified your {targetNoun}
+        </span>
+      </p>
+    );
+  }
+
+  const [firstIssuer, secondIssuer] = issuers;
+  const othersCount = issuers.length - 2;
+  return (
+    <p className="text-sm leading-snug">
+      <span className="font-semibold">{firstIssuer?.displayName}</span>
+      <span className="text-muted-foreground">, </span>
+      <span className="font-semibold">{secondIssuer?.displayName}</span>{" "}
+      <span className="text-muted-foreground">and</span>{" "}
+      <span className="font-semibold">+{othersCount} others</span>{" "}
+      <span className="text-muted-foreground">amplified your {targetNoun}</span>
+    </p>
+  );
+}
+
 export default function Notification({ notification }: NotificationProps) {
   const config = TYPE_CONFIG[notification.type];
   const Icon = config.icon;
@@ -120,9 +256,19 @@ export default function Notification({ notification }: NotificationProps) {
   const action = config.action(notification);
   const queryClient = useQueryClient();
 
+  const issuers =
+    "issuers" in notification && notification.issuers?.length
+      ? notification.issuers
+      : [notification.issuer];
+  const allIds =
+    "allNotificationIds" in notification &&
+    notification.allNotificationIds?.length
+      ? notification.allNotificationIds
+      : [notification.id];
+
   const { mutate: dismiss } = useMutation({
     mutationFn: () =>
-      kyInstance.delete(`/api/notifications/${notification.id}`),
+      kyInstance.delete(`/api/notifications/${allIds.join(",")}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({
@@ -147,28 +293,20 @@ export default function Notification({ notification }: NotificationProps) {
       )}
     >
       <Link className="flex min-w-0 flex-1 items-start gap-3" href={href}>
-        <div className="relative shrink-0">
-          <UserAvatar
-            avatarUrl={notification.issuer.avatarUrl}
-            className="h-10 w-10"
-          />
-          <span
-            className={cn(
-              "absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.4),0_1px_2px_rgba(0,0,0,0.15)]",
-              config.badgeClass
-            )}
-          >
-            <Icon className="h-3 w-3" />
-          </span>
-        </div>
+        <NotificationAvatars
+          badgeClass={config.badgeClass}
+          icon={Icon}
+          issuers={issuers}
+          type={notification.type}
+        />
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm leading-snug">
-            <span className="font-semibold">
-              {notification.issuer.displayName}
-            </span>{" "}
-            <span className="text-muted-foreground">{action}</span>
-          </p>
+          <NotificationHeadline
+            action={action}
+            isEddie={Boolean(notification.comment)}
+            issuers={issuers}
+            type={notification.type}
+          />
 
           {notification.post ? (
             <p className="text-muted-foreground mt-1 line-clamp-2 text-sm">

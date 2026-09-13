@@ -37,9 +37,6 @@ mock.module("bullmq", () => ({
   Queue: MockQueue,
 }));
 
-mock.module("./src/redis", () => ({
-  redis: {},
-}));
 
 describe("queue notification cleanup jobs and schedulers", () => {
   beforeEach(() => {

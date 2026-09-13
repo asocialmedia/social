@@ -14,6 +14,9 @@ const usernameSchema = z.object({
 
 const emailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
+  // Code sent to the CURRENT email, required to prove ownership before the
+  // change starts (accounts without an email skip it).
+  otp: z.string().optional(),
 });
 
 const verifyEmailSchema = z.object({

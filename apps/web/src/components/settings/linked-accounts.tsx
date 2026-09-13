@@ -14,6 +14,7 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import { LoadingButton } from "@/components/auth/loading-button";
+import { SettingsCard } from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
@@ -35,92 +36,6 @@ function providerLabel(provider: SocialProvider): string {
   return provider === "google" ? "Google" : "Reddit";
 }
 
-const getStatusText = (isComingSoon: boolean, isConnected?: boolean) => {
-  if (isComingSoon) {
-    return "Coming Soon";
-  }
-  return isConnected ? "Connected" : "Not connected";
-};
-
-const getButtonText = (isComingSoon: boolean, isConnected?: boolean) => {
-  if (isComingSoon) {
-    return "Coming Soon";
-  }
-  return isConnected ? "Disconnect" : "Connect";
-};
-
-const CARD_SHADOW_CLASS =
-  "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1px_2px_rgba(255,255,255,0.9),inset_0_-2px_4px_rgba(0,0,0,0.03),0_1px_3px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_2px_rgba(255,255,255,0.04),inset_0_-2px_4px_rgba(0,0,0,0.15),0_1px_3px_rgba(0,0,0,0.2)]";
-
-interface AccountCardProps {
-  icon: string;
-  isLinkingReady: boolean;
-  isComingSoon?: boolean;
-  isConnected?: boolean;
-  isLoading?: boolean;
-  onConnect: (provider: string) => void;
-  onDisconnect: (provider: string) => void;
-  provider: SocialProvider;
-}
-
-const AccountCard = ({
-  provider,
-  icon,
-  isConnected,
-  isLinkingReady,
-  isComingSoon = false,
-  isLoading = false,
-  onConnect,
-  onDisconnect,
-}: AccountCardProps) => {
-  const handleClick = useCallback(() => {
-    if (isConnected) {
-      onDisconnect(provider);
-    } else {
-      onConnect(provider);
-    }
-  }, [isConnected, onDisconnect, onConnect, provider]);
-
-  return (
-    <div
-      className={cn(
-        "border-border/60 flex items-center justify-between gap-4 rounded-xl border bg-[hsl(var(--background))] p-4",
-        CARD_SHADOW_CLASS,
-        isComingSoon && "opacity-50"
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="border-border/60 flex size-9 shrink-0 items-center justify-center rounded-lg border bg-[hsl(var(--background-alt))]">
-          <Image
-            alt={provider}
-            className="size-5"
-            height={20}
-            src={`/socials/${icon}.svg`}
-            width={20}
-          />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate font-medium">{providerLabel(provider)}</p>
-          <p className="text-muted-foreground truncate text-xs">
-            {getStatusText(isComingSoon, isConnected)}
-          </p>
-        </div>
-      </div>
-      <LoadingButton
-        className={cn(
-          "h-8 shrink-0 rounded-full px-3 text-xs",
-          isConnected ? "icon-btn-3d" : "follow-btn-3d"
-        )}
-        disabled={isComingSoon || (!isConnected && !isLinkingReady)}
-        loading={isLoading}
-        onClick={handleClick}
-      >
-        {getButtonText(isComingSoon, isConnected)}
-      </LoadingButton>
-    </div>
-  );
-};
-
 // React Compiler cannot lower `throw` statements inside component try blocks,
 // so the unlink request and its status check live in this module-scoped
 // helper.
@@ -134,6 +49,64 @@ async function unlinkAccount(provider: string): Promise<void> {
     throw new Error(data.error || "Failed to unlink account");
   }
 }
+
+interface ProviderCardProps {
+  isConnected: boolean;
+  isLinkingReady: boolean;
+  isLoading: boolean;
+  onClick: () => void;
+  provider: SocialProvider;
+}
+
+// One sign-in provider as its own square card. The logo sits bare on the card
+// surface (no tile behind it), and the action lives on the last line so the two
+// cards stay aligned.
+const ProviderCard = ({
+  isConnected,
+  isLinkingReady,
+  isLoading,
+  onClick,
+  provider,
+}: ProviderCardProps) => (
+  <SettingsCard className="flex h-full flex-col gap-4">
+    <div className="flex items-center gap-3">
+      <Image
+        alt=""
+        className="size-7 shrink-0"
+        height={28}
+        src={`/socials/${provider}.svg`}
+        width={28}
+      />
+      <div className="min-w-0">
+        <p className="truncate font-semibold">{providerLabel(provider)}</p>
+        <p
+          className={cn(
+            "truncate text-xs",
+            isConnected
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-muted-foreground"
+          )}
+        >
+          {isConnected ? "Connected" : "Not connected"}
+        </p>
+      </div>
+    </div>
+
+    <div className="mt-auto">
+      <LoadingButton
+        className={cn(
+          "h-9 w-full rounded-xl text-sm",
+          isConnected ? "icon-btn-3d" : "follow-btn-3d"
+        )}
+        disabled={!isConnected && !isLinkingReady}
+        loading={isLoading}
+        onClick={onClick}
+      >
+        {isConnected ? "Disconnect" : "Connect"}
+      </LoadingButton>
+    </div>
+  </SettingsCard>
+);
 
 export default function LinkedAccounts({
   accountLinkingReadiness,
@@ -190,43 +163,41 @@ export default function LinkedAccounts({
     [toast]
   );
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
-          <Link2 className="h-3.5 w-3.5" />
-        </div>
-        <h3 className="font-medium">Linked Accounts</h3>
-      </div>
+  const googleConnected =
+    accountLinkingReadiness.linkedProviders.includes("google");
+  const redditConnected =
+    accountLinkingReadiness.linkedProviders.includes("reddit");
 
-      {!isLinkingReady && (
+  return (
+    <div className="space-y-3">
+      {isLinkingReady ? null : (
         <p className="text-muted-foreground text-sm">
           Verify an email address and add a password before connecting another
           sign-in method.
         </p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <AccountCard
-          icon="google"
-          isConnected={accountLinkingReadiness.linkedProviders.includes(
-            "google"
-          )}
-          isLinkingReady={isLinkingReady}
+      <div className="grid grid-cols-2 gap-4">
+        <ProviderCard
+          isConnected={googleConnected}
           isLoading={loadingProvider === "google"}
-          onConnect={handleLinkRequest}
-          onDisconnect={handleUnlink}
+          isLinkingReady={isLinkingReady}
+          onClick={() =>
+            googleConnected
+              ? handleUnlink("google")
+              : handleLinkRequest("google")
+          }
           provider="google"
         />
-        <AccountCard
-          icon="reddit"
-          isConnected={accountLinkingReadiness.linkedProviders.includes(
-            "reddit"
-          )}
-          isLinkingReady={isLinkingReady}
+        <ProviderCard
+          isConnected={redditConnected}
           isLoading={loadingProvider === "reddit"}
-          onConnect={handleLinkRequest}
-          onDisconnect={handleUnlink}
+          isLinkingReady={isLinkingReady}
+          onClick={() =>
+            redditConnected
+              ? handleUnlink("reddit")
+              : handleLinkRequest("reddit")
+          }
           provider="reddit"
         />
       </div>
@@ -255,23 +226,16 @@ export default function LinkedAccounts({
           </DialogHeader>
 
           <div className="space-y-3 px-5 py-4">
-            <div
-              className={cn(
-                "border-border/60 flex items-center gap-3 rounded-xl border bg-[hsl(var(--background))] p-3",
-                CARD_SHADOW_CLASS
+            <div className="border-border/60 flex items-center gap-3 rounded-xl border p-3">
+              {providerToConfirm && (
+                <Image
+                  alt=""
+                  className="size-6 shrink-0"
+                  height={24}
+                  src={`/socials/${providerToConfirm}.svg`}
+                  width={24}
+                />
               )}
-            >
-              <div className="border-border/60 flex size-10 shrink-0 items-center justify-center rounded-lg border bg-[hsl(var(--background-alt))]">
-                {providerToConfirm && (
-                  <Image
-                    alt=""
-                    className="size-5"
-                    height={20}
-                    src={`/socials/${providerToConfirm}.svg`}
-                    width={20}
-                  />
-                )}
-              </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold">
                   {providerToConfirm
