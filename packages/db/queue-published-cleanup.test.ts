@@ -37,7 +37,6 @@ mock.module("bullmq", () => ({
   Queue: MockQueue,
 }));
 
-
 describe("queue notification cleanup jobs and schedulers", () => {
   beforeEach(() => {
     mockJobs.clear();
