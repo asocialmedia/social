@@ -40,6 +40,7 @@ import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
+import { requiresFreshSession } from "./security-passkey-utils";
 import SecuritySessionsCard from "./security-sessions-card";
 
 const identifierSchema = z.object({
@@ -96,6 +97,19 @@ function getErrorMessage(error: { message?: string } | null | undefined) {
   return error?.message || "Please try again.";
 }
 
+function getResponseErrorMessage(responseBody: unknown): string | undefined {
+  if (!responseBody || typeof responseBody !== "object") {
+    return undefined;
+  }
+  if ("message" in responseBody && typeof responseBody.message === "string") {
+    return responseBody.message;
+  }
+  if ("error" in responseBody && typeof responseBody.error === "string") {
+    return responseBody.error;
+  }
+  return undefined;
+}
+
 function twoFactorDialogTitle(
   action: "disable" | "email" | "totp" | null
 ): string {
@@ -138,7 +152,12 @@ async function fetchPasskeys(): Promise<SecurityPasskey[]> {
   return data.filter(isPasskeyRecord);
 }
 
-async function removePasskey(id: string): Promise<string | null> {
+interface PasskeyRemovalResult {
+  error?: string;
+  requiresReauthentication: boolean;
+}
+
+async function removePasskey(id: string): Promise<PasskeyRemovalResult> {
   try {
     const response = await fetch("/api/auth/passkey/delete-passkey", {
       body: JSON.stringify({ id }),
@@ -146,13 +165,28 @@ async function removePasskey(id: string): Promise<string | null> {
       headers: { "content-type": "application/json" },
       method: "POST",
     });
-    return response.ok
-      ? null
-      : "Couldn’t remove this passkey. Re-authenticate and try again.";
+    if (response.ok) {
+      return { requiresReauthentication: false };
+    }
+    const responseBody: unknown = await response.json().catch(() => null);
+    return {
+      error: "Couldn’t remove this passkey. Re-authenticate and try again.",
+      requiresReauthentication: requiresFreshSession({
+        message: getResponseErrorMessage(responseBody),
+        status: response.status,
+      }),
+    };
   } catch {
-    return "Couldn’t remove this passkey. Please try again.";
+    return {
+      error: "Couldn’t remove this passkey. Please try again.",
+      requiresReauthentication: false,
+    };
   }
 }
+
+type PendingPasskeyAction =
+  | { id: string; type: "remove" }
+  | { name: string; type: "add" };
 
 export default function SecuritySettings({
   currentSessionId,
@@ -181,6 +215,14 @@ export default function SecuritySettings({
   const [removingPasskeyId, setRemovingPasskeyId] = useState<string | null>(
     null
   );
+  const [pendingPasskeyAction, setPendingPasskeyAction] =
+    useState<PendingPasskeyAction | null>(null);
+  const [isPasskeyReauthenticationOpen, setIsPasskeyReauthenticationOpen] =
+    useState(false);
+  const [
+    isPasskeyReauthenticationPending,
+    setIsPasskeyReauthenticationPending,
+  ] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<FormValues>({
@@ -190,6 +232,10 @@ export default function SecuritySettings({
     resolver: zodResolver(identifierSchema),
   });
   const passwordForm = useForm<PasswordValues>({
+    defaultValues: { password: "" },
+    resolver: zodResolver(passwordSchema),
+  });
+  const passkeyReauthenticationForm = useForm<PasswordValues>({
     defaultValues: { password: "" },
     resolver: zodResolver(passwordSchema),
   });
@@ -356,6 +402,12 @@ export default function SecuritySettings({
     }
   }
 
+  function requestPasskeyReauthentication(action: PendingPasskeyAction) {
+    setPendingPasskeyAction(action);
+    setIsPasskeyDialogOpen(false);
+    setIsPasskeyReauthenticationOpen(true);
+  }
+
   async function addPasskey(values: PasskeyNameValues) {
     if (!("PublicKeyCredential" in window)) {
       toast({
@@ -371,6 +423,13 @@ export default function SecuritySettings({
     });
     setIsPasskeyPending(false);
     if (result.error) {
+      if (requiresFreshSession(result.error)) {
+        requestPasskeyReauthentication({
+          name: values.name.trim(),
+          type: "add",
+        });
+        return;
+      }
       toast({
         description: getErrorMessage(result.error),
         title: "Couldn’t add passkey",
@@ -389,10 +448,15 @@ export default function SecuritySettings({
 
   async function deletePasskey(id: string) {
     setRemovingPasskeyId(id);
-    const errorMessage = await removePasskey(id);
-    if (errorMessage) {
+    const result = await removePasskey(id);
+    if (result.requiresReauthentication) {
+      setRemovingPasskeyId(null);
+      requestPasskeyReauthentication({ id, type: "remove" });
+      return;
+    }
+    if (result.error) {
       toast({
-        description: errorMessage,
+        description: result.error,
         title: "Couldn’t remove passkey",
         variant: "destructive",
       });
@@ -401,6 +465,56 @@ export default function SecuritySettings({
       toast({ title: "Passkey removed" });
     }
     setRemovingPasskeyId(null);
+  }
+
+  function resumePendingPasskeyAction() {
+    const action = pendingPasskeyAction;
+    if (!action) {
+      return;
+    }
+
+    setIsPasskeyReauthenticationOpen(false);
+    setPendingPasskeyAction(null);
+    if (action.type === "add") {
+      void addPasskey({ name: action.name });
+      return;
+    }
+    void deletePasskey(action.id);
+  }
+
+  async function confirmPasskeyReauthentication(values: PasswordValues) {
+    if (!pendingPasskeyAction) {
+      return;
+    }
+
+    setIsPasskeyReauthenticationPending(true);
+    let isReauthenticated = false;
+    try {
+      const response = await fetch("/api/security/reauthenticate", {
+        body: JSON.stringify(values),
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      if (response.ok) {
+        passkeyReauthenticationForm.reset();
+        isReauthenticated = true;
+      } else {
+        const responseBody: unknown = await response.json().catch(() => null);
+        const message =
+          getResponseErrorMessage(responseBody) ||
+          "We couldn’t confirm your password. Please try again.";
+        passkeyReauthenticationForm.setError("password", { message });
+      }
+    } catch {
+      passkeyReauthenticationForm.setError("password", {
+        message: "We couldn’t confirm your password. Please try again.",
+      });
+    }
+    setIsPasskeyReauthenticationPending(false);
+    if (isReauthenticated) {
+      resumePendingPasskeyAction();
+    }
   }
 
   const twoFactorMethod = hasAuthenticatorApp
@@ -787,6 +901,81 @@ export default function SecuritySettings({
                   variant="premium"
                 >
                   Add passkey
+                </LoadingButton>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          setIsPasskeyReauthenticationOpen(open);
+          if (!open) {
+            setPendingPasskeyAction(null);
+            passkeyReauthenticationForm.reset();
+          }
+        }}
+        open={isPasskeyReauthenticationOpen}
+      >
+        <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
+          <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+                <ShieldCheck className="size-4" />
+              </div>
+              Confirm it&apos;s you
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground mt-2 text-sm leading-relaxed">
+              Enter your password to{" "}
+              {pendingPasskeyAction?.type === "add"
+                ? "add a passkey"
+                : "remove this passkey"}
+              . This refreshes your current session in place; it does not create
+              another signed-in device.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...passkeyReauthenticationForm}>
+            <form
+              onSubmit={passkeyReauthenticationForm.handleSubmit(
+                confirmPasskeyReauthentication
+              )}
+            >
+              <div className="px-5 py-4">
+                <FormField
+                  control={passkeyReauthenticationForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Current password</FormLabel>
+                      <FormControl>
+                        <PasswordInput
+                          autoComplete="current-password"
+                          placeholder="Your current password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <DialogFooter className="border-border/60 flex-row justify-end gap-2 border-t px-5 py-3 sm:space-x-0">
+                <Button
+                  className="btn-3d-gray h-9 rounded-full px-4 text-sm!"
+                  onClick={() => setIsPasskeyReauthenticationOpen(false)}
+                  type="button"
+                  variant="ghost"
+                >
+                  Cancel
+                </Button>
+                <LoadingButton
+                  className="h-9 rounded-full px-4 text-sm"
+                  loading={isPasskeyReauthenticationPending}
+                  type="submit"
+                  variant="premium"
+                >
+                  Confirm and continue
                 </LoadingButton>
               </DialogFooter>
             </form>

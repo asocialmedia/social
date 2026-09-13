@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import type { SecurityPasskey } from "@/app/(main)/settings/tabs/security-settings";
-import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
+import SettingsPageSkeleton from "@/components/layouts/skeletons/settings-page-skeleton";
 import type { SocialProvider } from "@/components/settings/linked-accounts";
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -21,7 +21,7 @@ function isSocialProvider(providerId: string): providerId is SocialProvider {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<FeedViewSkeleton />}>
+    <Suspense fallback={<SettingsPageSkeleton />}>
       <SettingsContent />
     </Suspense>
   );

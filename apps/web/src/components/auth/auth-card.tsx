@@ -241,7 +241,6 @@ const LoginContent = ({
             onError={onPasskeyError}
             onStart={onPasskeyStart}
           />
-          {lastLoginMethod === "passkey" ? <LastUsedSubline /> : null}
         </div>
       }
       lastLoginMethod={lastLoginMethod}

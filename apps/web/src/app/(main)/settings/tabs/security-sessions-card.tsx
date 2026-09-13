@@ -48,7 +48,7 @@ function normalizeSession(value: unknown): SecuritySession | null {
 async function listSecuritySessions(): Promise<SecuritySession[]> {
   let response: Response;
   try {
-    response = await fetch("/api/auth/list-sessions", {
+    response = await fetch("/api/security/sessions", {
       credentials: "include",
       signal: AbortSignal.timeout(SESSION_REQUEST_TIMEOUT_MS),
     });
@@ -80,21 +80,16 @@ async function listSecuritySessions(): Promise<SecuritySession[]> {
 
 async function revokeAuthSessions(
   action: RevokeAction,
-  session?: Pick<SecuritySession, "id" | "token">
+  session?: Pick<SecuritySession, "id">
 ): Promise<void> {
-  let endpoint = "/api/auth/revoke-session";
-  if (action === "all") {
-    endpoint = "/api/auth/revoke-sessions";
-  } else if (action === "other-sessions") {
-    endpoint = "/api/auth/revoke-other-sessions";
-  }
-  const response = await fetch(endpoint, {
-    body: session
-      ? JSON.stringify({ sessionId: session.id, token: session.token })
-      : undefined,
+  const response = await fetch("/api/security/sessions", {
+    body: JSON.stringify({
+      action,
+      ...(session ? { sessionId: session.id } : {}),
+    }),
     credentials: "include",
-    headers: session ? { "content-type": "application/json" } : undefined,
-    method: "POST",
+    headers: { "content-type": "application/json" },
+    method: "DELETE",
   });
   if (!response.ok) {
     throw new Error(

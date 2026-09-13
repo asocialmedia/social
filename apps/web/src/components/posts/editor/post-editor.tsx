@@ -70,6 +70,12 @@ import type { FileButtonType } from "./file-input";
 import { FileInput } from "./file-input";
 import { GustMentionPicker, GustTagPicker } from "./gust-meta-pickers";
 import { HNStoryPreview } from "./hn-story-preview";
+import {
+  HashtagNode,
+  MentionNode,
+  collectInlineRelations,
+  mergeUniqueIds,
+} from "./inline-nodes";
 import { InlineSuggestions } from "./inline-suggestions";
 import LinkEmbedComposer from "./link-embed-composer";
 import useMediaUpload from "./use-media-upload";
@@ -605,6 +611,8 @@ export default function PostEditor({
         bold: false,
         italic: false,
       }),
+      MentionNode,
+      HashtagNode,
       Placeholder.configure({
         placeholder: isGust
           ? "Add a caption for your gust..."
@@ -702,13 +710,26 @@ export default function PostEditor({
       return;
     }
 
+    // Inline pills are the source of truth for autocomplete picks: their
+    // relations are collected from the doc and merged with explicitly added
+    // chips (gust pickers), so notifications and post chips work while the
+    // composer never shows the same entry twice.
+    const inlineRelations = editor
+      ? collectInlineRelations(editor.getJSON())
+      : { mentionIds: [], tags: [] };
     const payload = {
       content: input.trim(),
       dismissedEmbedUrls,
       isGust,
       mediaIds: gustMediaIds,
-      mentions: selectedMentions.map((mentionedUser) => mentionedUser.id),
-      tags: selectedTags.map((tag) => tag.toLowerCase()),
+      mentions: mergeUniqueIds(
+        selectedMentions.map((mentionedUser) => mentionedUser.id),
+        inlineRelations.mentionIds
+      ),
+      tags: mergeUniqueIds(
+        selectedTags.map((tag) => tag.toLowerCase()),
+        inlineRelations.tags
+      ),
       ...(isHnSharing && sharedHnStory
         ? {
             hnStory: {
@@ -986,8 +1007,9 @@ export default function PostEditor({
               isGust && hasVideoAttachment && "max-sm:[display:contents]"
             )}
           >
-            {/* Fleet mode renders selected tags/mentions above the editor;
-                gust mode carries them inside its picker sections instead. */}
+            {/* Fleet mode renders explicitly added tags/mentions above the
+                editor; autocomplete picks live as pills inside the text
+                instead, so the same entry never shows twice. */}
             {!isGust &&
               (selectedTags.length > 0 || selectedMentions.length > 0) && (
                 <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -1061,8 +1083,6 @@ export default function PostEditor({
                 )}
                 <InlineSuggestions
                   editor={editor}
-                  onSelectMention={addMention}
-                  onSelectTag={addTag}
                   selectedMentionIds={selectedMentions.map((m) => m.id)}
                   selectedTagNames={selectedTags}
                 />

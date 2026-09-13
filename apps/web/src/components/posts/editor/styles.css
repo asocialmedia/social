@@ -10,6 +10,35 @@
   outline: none;
 }
 
+/* Inline mention/hashtag pills inside the composer: the same meta-chip
+   treatment as the feed, sized down to sit on a text line. */
+.ProseMirror .editor-inline-pill {
+  height: 22px;
+  padding: 0 8px;
+  margin: 0 1px;
+  font-size: 12px;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.ProseMirror .editor-inline-pill-avatar {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+
+.ProseMirror .editor-inline-pill-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
 @keyframes asm-progress-shine {
   from {
     transform: translateX(-120%);

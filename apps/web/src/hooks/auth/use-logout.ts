@@ -4,6 +4,8 @@ import { clientLog } from "@asm/config/debug";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
+import { useToast } from "@/lib/gooey-toast";
+
 // React Compiler cannot lower dynamic `import()` expressions inside hooks, so
 // the auth client is resolved through this plain module-scoped loader. The
 // load stays lazy: it only runs when a logout actually happens.
@@ -13,6 +15,7 @@ function loadAuthClient() {
 
 export function useLogout() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
 
   const openLogoutDialog = useCallback(() => setLogoutDialogOpen(true), []);
@@ -22,25 +25,40 @@ export function useLogout() {
   const handleLogout = useCallback(async () => {
     setLogoutDialogOpen(false);
 
-    queryClient.clear();
-
-    try {
-      localStorage.clear();
-      sessionStorage.clear();
-    } catch (error) {
-      clientLog.log("Failed to clear storage:", error);
-    }
-
     try {
       const authClient = await loadAuthClient();
-      await authClient.signOut({
+      const result = await authClient.signOut({
         fetchOptions: { credentials: "include" },
       });
-    } catch {
-      // Ignore; fall back to server redirect regardless
+      if (result.error) {
+        clientLog.error("Sign-out error:", result.error);
+        toast({
+          description: "Your session is still active. Please try again.",
+          title: "Couldn’t sign out",
+          variant: "destructive",
+        });
+        setLogoutDialogOpen(true);
+        return;
+      }
+
+      queryClient.clear();
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch (storageError) {
+        clientLog.log("Failed to clear storage:", storageError);
+      }
+      window.location.assign("/login");
+    } catch (error) {
+      clientLog.error("Sign-out error:", error);
+      toast({
+        description: "Your session is still active. Please try again.",
+        title: "Couldn’t sign out",
+        variant: "destructive",
+      });
+      setLogoutDialogOpen(true);
     }
-    window.location.href = "/login";
-  }, [queryClient]);
+  }, [queryClient, toast]);
 
   return {
     closeLogoutDialog,

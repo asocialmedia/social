@@ -7,14 +7,13 @@ import {
 } from "./security-session-utils";
 
 describe("security session helpers", () => {
-  test("identifies an active Better Auth session without exposing it in UI", () => {
+  test("identifies an active session summary without requiring its secret token", () => {
     expect(
       isSecuritySession({
         createdAt: "2026-09-10T00:00:00.000Z",
         expiresAt: "2026-09-17T00:00:00.000Z",
         id: "session-id",
         ipAddress: "203.0.113.10",
-        token: "private-session-token",
         updatedAt: "2026-09-10T00:00:00.000Z",
         userAgent: "Mozilla/5.0 Chrome/140.0",
       })

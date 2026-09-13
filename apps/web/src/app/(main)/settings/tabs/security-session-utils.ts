@@ -4,7 +4,6 @@ export interface SecuritySession {
   expiresAt: string;
   id: string;
   ipAddress: string | null;
-  token: string;
   updatedAt: string;
   userAgent: string | null;
 }
@@ -16,7 +15,6 @@ export function isSecuritySession(value: unknown): value is SecuritySession {
   const session = value as Record<string, unknown>;
   return (
     typeof session.id === "string" &&
-    typeof session.token === "string" &&
     typeof session.createdAt === "string" &&
     typeof session.updatedAt === "string" &&
     typeof session.expiresAt === "string" &&
