@@ -20,6 +20,16 @@ interface HomeFeedProps {
   variant?: "latest" | "personalized" | "trending" | "global";
 }
 
+export const HOME_FEED_QUERY_BEHAVIOR = {
+  // Radix unmounts inactive tabs. A response or post published while a tab is
+  // unmounted can invalidate its cached page, so remounting must fetch that
+  // stale page instead of replaying the old snapshot.
+  refetchOnMount: true,
+  refetchOnReconnect: false,
+  refetchOnWindowFocus: false,
+  staleTime: 30 * 1000,
+} as const;
+
 export default function HomeFeed({
   variant = "personalized",
   excludePostId,
@@ -56,10 +66,7 @@ export default function HomeFeed({
       return result;
     },
     queryKey,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-    staleTime: 30 * 1000, // 30 seconds,
+    ...HOME_FEED_QUERY_BEHAVIOR,
   });
 
   const posts = useMemo(() => {
