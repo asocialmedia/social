@@ -1,7 +1,7 @@
 "use client";
 
 import type { PostData, TagWithCount, UserData } from "@asm/db";
-import { CornerDownRight } from "lucide-react";
+import { CornerDownRight, ImageOff } from "lucide-react";
 import Link from "next/link";
 
 // eslint-disable-next-line import/no-cycle -- response rows render media-previews, whose viewer surfaces related posts via post-card, which renders responses
@@ -19,7 +19,6 @@ import { normalizePostData } from "@/lib/posts/post-normalize";
 import { getPostPath } from "@/lib/seo/seo";
 import { formatRelativeDate } from "@/lib/utils";
 
-import ResponseParentCard from "./response-parent-card";
 import type { ResponseNode } from "./response-tree";
 
 // Twitter-style thread geometry: every reply is one column with a single
@@ -28,21 +27,82 @@ import type { ResponseNode } from "./response-tree";
 // stray second spine or a compounding offset.
 const AVATAR_SIZE = 40;
 const LINE_WIDTH = 2;
-// 2px line centred under the avatar (avatar centre = 20px).
-const LINE_LEFT = AVATAR_SIZE / 2 - LINE_WIDTH / 2;
-// A little breathing room between the avatar and the top of the line.
-const LINE_TOP = AVATAR_SIZE + 6;
+// In ResponseItem with px-4 (16px) horizontal padding:
+// Avatar center is at 16 + AVATAR_SIZE / 2 = 36px.
+// 2px line centered under the avatar has left = 36 - 1 = 35px.
+const LINE_LEFT = 16 + AVATAR_SIZE / 2 - LINE_WIDTH / 2;
+// Avatar top is at 10px (py-2.5); avatar center Y is 10 + AVATAR_SIZE / 2 = 30px.
+const LINE_CENTER_Y = 10 + AVATAR_SIZE / 2;
+
+interface ResponseConnectorRailProps {
+  hasConnectingChild: boolean;
+  hasConnectingParent: boolean;
+}
+
+function ResponseConnectorRail({
+  hasConnectingChild,
+  hasConnectingParent,
+}: ResponseConnectorRailProps) {
+  if (hasConnectingParent && hasConnectingChild) {
+    return (
+      <span
+        aria-hidden="true"
+        className="bg-border pointer-events-none absolute"
+        style={{
+          bottom: 0,
+          left: LINE_LEFT,
+          top: -1,
+          width: LINE_WIDTH,
+        }}
+      />
+    );
+  }
+
+  if (hasConnectingParent) {
+    return (
+      <span
+        aria-hidden="true"
+        className="bg-border pointer-events-none absolute"
+        style={{
+          height: LINE_CENTER_Y + 1,
+          left: LINE_LEFT,
+          top: -1,
+          width: LINE_WIDTH,
+        }}
+      />
+    );
+  }
+
+  if (hasConnectingChild) {
+    return (
+      <span
+        aria-hidden="true"
+        className="bg-border pointer-events-none absolute"
+        style={{
+          bottom: 0,
+          left: LINE_LEFT,
+          top: LINE_CENTER_Y,
+          width: LINE_WIDTH,
+        }}
+      />
+    );
+  }
+
+  return null;
+}
 
 interface ResponseItemProps {
-  // True for the last row of the whole thread, so the line terminates instead
-  // of running past the end.
-  isLast?: boolean;
+  // True when this response has a child response connected directly below it
+  hasConnectingChild?: boolean;
+  // True when this response has a parent response connected directly above it
+  hasConnectingParent?: boolean;
   node: ResponseNode;
   onRespond: (response: PostData) => void;
 }
 
 export default function ResponseItem({
-  isLast = false,
+  hasConnectingChild = false,
+  hasConnectingParent = false,
   node,
   onRespond,
 }: ResponseItemProps) {
@@ -57,19 +117,14 @@ export default function ResponseItem({
   const post = normalizePostData(response) as PostData;
 
   return (
-    <div className="relative scroll-mt-4 pb-2.5" id={`response-${response.id}`}>
-      {!isLast && (
-        <span
-          aria-hidden="true"
-          className="bg-border pointer-events-none absolute rounded-full"
-          style={{
-            bottom: 0,
-            left: LINE_LEFT,
-            top: LINE_TOP,
-            width: LINE_WIDTH,
-          }}
-        />
-      )}
+    <div
+      className="relative scroll-mt-4 px-4 py-2.5"
+      id={`response-${response.id}`}
+    >
+      <ResponseConnectorRail
+        hasConnectingChild={hasConnectingChild}
+        hasConnectingParent={hasConnectingParent}
+      />
 
       <div className="flex gap-2.5 pr-1">
         {author ? (
@@ -125,15 +180,12 @@ export default function ResponseItem({
             </Link>
           </div>
 
-          {/* The post this response replies to, embedded compactly (or a
-              tombstone when it has been deleted). This is what conveys the
-              nesting now that the thread is a single column. */}
-          {response.parentPostId ? (
-            <ResponseParentCard
-              className="mt-1.5"
-              parent={response.parentPost}
-              parentPostId={response.parentPostId}
-            />
+          {/* A tombstone parent notice when the parent was deleted */}
+          {response.parentPostId && !response.parentPost ? (
+            <div className="border-border/60 bg-muted/40 text-muted-foreground mt-1.5 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs">
+              <ImageOff className="size-3.5 shrink-0" />
+              <span>This post is unavailable</span>
+            </div>
           ) : null}
 
           {post.moderated ? (

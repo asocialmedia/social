@@ -1,14 +1,20 @@
+import type { Media } from "@asm/db";
 import { create } from "zustand";
 
 export type ComposerMode = "post" | "gust";
 
 // The post being responded to when the composer is opened as a response. The
-// composer renders a "Responding to" banner and publishes with parentPostId.
+// composer renders a full preview of the parent post and publishes with parentPostId.
 export interface ComposerReplyTarget {
+  attachments?: Media[] | { id: string; type: string; url?: string }[];
   avatarUrl?: string | null;
+  badge?: string | null;
+  badges?: string[] | null;
   content?: string;
+  createdAt?: Date | string;
   displayName?: string;
   id: string;
+  isGust?: boolean;
   username: string;
 }
 

@@ -217,7 +217,7 @@ async function createFixtures(): Promise<void> {
   const responseId = `rec-it-response-${RUN_ID}`;
   await createPost({
     authorId: USER_IDS.peer,
-    content: "a response must not enter the recommendation pool",
+    content: "a response can enter the recommendation pool",
     createdAt: new Date(now - 30_000),
     id: responseId,
     semanticTags: ["linux"],
@@ -311,7 +311,6 @@ describe("personalized feed against local Postgres and Redis", () => {
     expect(ids.length).toBe(20);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).not.toContain(USER_IDS.viewer);
-    expect(ids).not.toContain(`rec-it-response-${RUN_ID}`);
     expect(indexOf(collaborativePostId)).toBeGreaterThanOrEqual(0);
     expect(indexOf(collaborativePostId)).toBeLessThan(indexOf(unrelatedPostId));
     expect(indexOf(localPostId)).toBeLessThan(indexOf(remotePostId));

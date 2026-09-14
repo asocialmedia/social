@@ -327,7 +327,7 @@ export async function buildAndCacheProfile(
       orderBy: { createdAt: "desc" },
       select: { ...AUTHOR_TAGS_SELECT.select, createdAt: true },
       take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, rootPostId: null, userId },
+      where: { createdAt: { gte: since }, userId },
     }),
     prisma.recommendationEvent.findMany({
       orderBy: { createdAt: "desc" },
@@ -521,7 +521,6 @@ export async function getPersonalizedFeedPage(
     createdAt: { lte: now },
     isGust: contentKind === "gust",
     moderated: excludeModerated ? false : undefined,
-    rootPostId: null,
     userId: { not: userId },
   };
   if (contentKind === "gust") {

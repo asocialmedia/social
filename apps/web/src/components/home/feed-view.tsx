@@ -14,6 +14,7 @@ import {
 } from "@/lib/posts/cache-sync";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
 
+import { groupPostsIntoThreads } from "./feed-thread-group";
 import PostCard from "./feedview/post-card";
 
 const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
@@ -179,15 +180,36 @@ export const FeedView: React.FC<FeedViewProps> = ({
       );
   }, [posts, sortBy]);
 
+  const threadGroups = useMemo(
+    () => groupPostsIntoThreads(sortedPosts),
+    [sortedPosts]
+  );
+
   return (
     <div className="flex flex-col">
-      {sortedPosts.map((post) => (
-        <RecommendationTracker key={post.id} postId={post.id}>
-          <MemoizedPostCard isJoined={true} post={post} />
+      {threadGroups.map((group) => (
+        <div className="flex flex-col" key={group.id}>
+          {group.posts.map((post, index) => {
+            const isFirst = index === 0;
+            const isLast = index === group.posts.length - 1;
+            const hasThreadParent = !isFirst;
+            const hasThreadChild = !isLast;
+
+            return (
+              <RecommendationTracker key={post.id} postId={post.id}>
+                <MemoizedPostCard
+                  hasThreadChild={hasThreadChild}
+                  hasThreadParent={hasThreadParent}
+                  isJoined={true}
+                  post={post}
+                />
+              </RecommendationTracker>
+            );
+          })}
           <Separator className="bg-border/60" />
-        </RecommendationTracker>
+        </div>
       ))}
-      {sortedPosts.length === 0 && (
+      {threadGroups.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">
           <p className="text-muted-foreground text-center text-sm sm:text-base">
             No posts to show here. Follow someone or create your first post.

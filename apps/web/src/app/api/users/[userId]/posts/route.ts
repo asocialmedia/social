@@ -28,7 +28,7 @@ export async function GET(
 
   let where: Prisma.PostWhereInput;
   if (filter === "gusts") {
-    where = { isGust: true, rootPostId: null, userId };
+    where = { isGust: true, userId };
   } else if (filter === "media") {
     where = {
       attachments: {
@@ -38,11 +38,10 @@ export async function GET(
           },
         },
       },
-      rootPostId: null,
       userId,
     };
   } else {
-    where = { isGust: false, rootPostId: null, userId };
+    where = { isGust: false, userId };
   }
 
   if (excludeModerated) {

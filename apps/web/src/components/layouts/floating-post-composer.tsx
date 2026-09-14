@@ -32,7 +32,7 @@ const FloatingPostComposer: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-6 sm:pt-[8vh]">
       <div
         aria-hidden="true"
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -40,7 +40,7 @@ const FloatingPostComposer: React.FC = () => {
       />
 
       <div className="apple-panel relative w-full max-w-2xl overflow-hidden rounded-2xl shadow-none">
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[85vh] overflow-y-auto">
           <PostEditor variant="modal" />
         </div>
       </div>

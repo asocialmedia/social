@@ -128,3 +128,46 @@ describe("mergeResponsesWithLive", () => {
     expect(merged).toHaveLength(2);
   });
 });
+
+describe("thread connection continuity", () => {
+  test("correctly identifies connecting parent and connecting child for a linear thread", () => {
+    const tree = buildResponseTree([
+      makeResponse("parent", t(5000)),
+      makeResponse("child", t(4000), "parent"),
+      makeResponse("grandchild", t(3000), "child"),
+    ]);
+
+    const rows = flattenResponseTree(tree);
+    expect(rows.map((r) => r.response.id)).toEqual([
+      "parent",
+      "child",
+      "grandchild",
+    ]);
+
+    const connections = rows.map((node, index) => {
+      const prevNode = rows[index - 1];
+      const nextNode = rows[index + 1];
+      const hasConnectingParent = Boolean(
+        prevNode && node.response.parentPostId === prevNode.response.id
+      );
+      const hasConnectingChild = Boolean(
+        nextNode && nextNode.response.parentPostId === node.response.id
+      );
+      return {
+        hasConnectingChild,
+        hasConnectingParent,
+        id: node.response.id,
+      };
+    });
+
+    expect(connections).toEqual([
+      { hasConnectingChild: true, hasConnectingParent: false, id: "parent" },
+      { hasConnectingChild: true, hasConnectingParent: true, id: "child" },
+      {
+        hasConnectingChild: false,
+        hasConnectingParent: true,
+        id: "grandchild",
+      },
+    ]);
+  });
+});

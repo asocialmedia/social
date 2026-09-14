@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -14,6 +15,116 @@ interface ResponseParentCardProps {
   // tombstone so the thread stays readable.
   parent: PostParentData | null;
   parentPostId: string;
+}
+
+// The parent post rendered as the top node of a mini-thread: a full-width row
+// whose avatar column carries a connector rail down to the reply below. Used
+// when a response appears in a feed (profile Responses, home timeline), where
+// there is no surrounding thread to convey the relationship.
+export function ResponseParentRow({
+  parent,
+  parentPostId,
+}: ResponseParentCardProps) {
+  const href = parent
+    ? getPostPath({
+        content: parent.content,
+        id: parentPostId,
+        isGust: parent.isGust,
+      })
+    : `/posts/${parentPostId}`;
+
+  if (!parent) {
+    return (
+      <div className="flex min-h-[2.5rem] items-stretch gap-3 sm:min-h-[2.75rem]">
+        <div className="flex w-9 shrink-0 flex-col items-center sm:w-10">
+          <span className="bg-muted text-muted-foreground relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10">
+            <ImageOff className="size-4" />
+          </span>
+          <span
+            aria-hidden="true"
+            className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
+          />
+        </div>
+        <div className="text-muted-foreground flex min-w-0 flex-1 items-center pb-1.5 text-xs italic sm:pb-2 sm:text-sm">
+          This post is unavailable
+        </div>
+      </div>
+    );
+  }
+
+  const username = parent.user?.username ?? "unknown";
+  const displayName = parent.user?.displayName || username;
+  const media = parent.attachments?.[0];
+
+  return (
+    <div className="flex min-h-[2.75rem] items-stretch gap-3 sm:min-h-[3rem]">
+      <div className="flex w-9 shrink-0 flex-col items-center sm:w-10">
+        <Link
+          aria-label={`View @${username}'s profile`}
+          className="relative z-10 shrink-0"
+          href={`/users/${username}`}
+        >
+          <UserAvatar
+            className="h-9 w-9 sm:h-10 sm:w-10"
+            size={36}
+            user={parent.user}
+          />
+        </Link>
+        {/* Connector rail: continues the thread seamlessly from behind the parent avatar down to
+            behind the reply avatar below. */}
+        <span
+          aria-hidden="true"
+          className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
+        />
+      </div>
+
+      <Link className="group/parent min-w-0 flex-1 pb-1.5 sm:pb-2" href={href}>
+        <div className="flex min-w-0 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
+          <span className="text-foreground truncate font-semibold group-hover/parent:underline">
+            {displayName}
+          </span>
+          <span className="text-muted-foreground truncate">@{username}</span>
+          {parent.isGust ? (
+            <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] font-semibold">
+              Gust
+            </span>
+          ) : null}
+          <span className="text-muted-foreground shrink-0">·</span>
+          <span
+            className="text-muted-foreground shrink-0"
+            suppressHydrationWarning
+          >
+            {formatRelativeDate(parent.createdAt)}
+          </span>
+        </div>
+        {parent.content ? (
+          <div className="mt-1 line-clamp-6">
+            <PostLinkedContent content={parent.content} />
+          </div>
+        ) : null}
+        {media ? (
+          <div className="border-border/60 bg-muted/20 relative mt-2.5 block aspect-[16/10] max-h-72 w-full max-w-md overflow-hidden rounded-xl border sm:max-h-80 sm:max-w-lg">
+            <Image
+              alt=""
+              className="object-cover transition-transform duration-300 group-hover/parent:scale-[1.01]"
+              fill
+              sizes="(max-width: 640px) 100vw, 512px"
+              src={getMediaProxyUrl({
+                id: media.id,
+                type: media.type as string,
+              })}
+              unoptimized
+            />
+          </div>
+        ) : null}
+        {!parent.content && !media ? (
+          <p className="text-muted-foreground mt-1 min-w-0 text-xs italic sm:text-sm">
+            Post
+          </p>
+        ) : null}
+      </Link>
+    </div>
+  );
 }
 
 // A compact embed of the post a response replies to, sitting above the reply.

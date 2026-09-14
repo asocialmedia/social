@@ -37,7 +37,7 @@ describe("GET /api/posts/latest", () => {
     mockHydrateViewCounts.mockClear();
   });
 
-  test("scopes the latest feed to top-level posts", async () => {
+  test("includes responses in the latest feed", async () => {
     const { GET } = await import("./route");
 
     const response = await GET(
@@ -45,9 +45,10 @@ describe("GET /api/posts/latest", () => {
     );
 
     expect(response.status).toBe(200);
+    // Responses are first-class posts in the timeline, so the latest feed does
+    // not exclude them.
     expect(lastFindManyArgs?.where).toEqual({
       isGust: false,
-      rootPostId: null,
     });
     expect(lastFindManyArgs?.take).toBe(21);
     expect(lastFindManyArgs?.skip).toBe(0);
@@ -63,7 +64,6 @@ describe("GET /api/posts/latest", () => {
     expect(lastFindManyArgs?.where).toEqual({
       isGust: false,
       moderated: false,
-      rootPostId: null,
     });
   });
 });

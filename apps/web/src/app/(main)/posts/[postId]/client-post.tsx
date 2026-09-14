@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { CommentsRealtimeProvider } from "@/components/comments/comments-realtime-context";
@@ -19,34 +19,56 @@ import { normalizePostData } from "@/lib/posts/post-normalize";
 import { withViewTransition } from "@/lib/view-transition";
 
 interface ClientPostProps {
+  ancestors?: PostData[];
   initialMediaIndex?: number;
   post: PostData;
   userData: UserData | null;
 }
 
+const EMPTY_ANCESTORS: PostData[] = [];
+
 const ClientPost: React.FC<ClientPostProps> = ({
   post: initialPost,
+  ancestors: initialAncestors = EMPTY_ANCESTORS,
   // userData was only consumed by LeftSidebar, which now lives in the shared
   // layout; it is kept on the props contract so page parents can keep passing
   // it and reuse it for auth guards.
   userData: _userData,
   initialMediaIndex,
 }) => {
-  const { data: rawPost = initialPost } = useQuery<PostData>({
-    initialData: initialPost,
+  const [isAncestorsExpanded, setIsAncestorsExpanded] = useState(false);
+
+  const { data: postResult } = useQuery<{
+    ancestors: PostData[];
+    post: PostData;
+  }>({
+    initialData: {
+      ancestors: initialAncestors,
+      post: initialPost,
+    },
     queryFn: async () => {
       const json = await kyInstance
         .get(`/api/posts/${initialPost.id}`)
-        .json<{ post: PostData } | PostData>();
-      const unwrapped =
-        "post" in json && json.post ? json.post : (json as PostData);
-      return normalizePostData(unwrapped);
+        .json<{ ancestors?: PostData[]; post: PostData } | PostData>();
+      if ("post" in json && json.post) {
+        return {
+          ancestors: (json.ancestors ?? []).map(normalizePostData),
+          post: normalizePostData(json.post),
+        };
+      }
+      return {
+        ancestors: initialAncestors.map(normalizePostData),
+        post: normalizePostData(json as PostData),
+      };
     },
     queryKey: ["post", initialPost.id],
     staleTime: 30_000,
   });
 
-  const post = normalizePostData(rawPost);
+  const post = normalizePostData(postResult?.post ?? initialPost);
+  const ancestors = (postResult?.ancestors ?? initialAncestors).map(
+    normalizePostData
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -111,9 +133,6 @@ const ClientPost: React.FC<ClientPostProps> = ({
   }, [router]);
 
   const authorUsername = post.user?.username;
-  // On a response permalink the detail thread focuses that response; the
-  // thread itself is always fetched from its root (handled inside Responses).
-  const focusResponseId = post.parentPostId ? post.id : undefined;
   // Mobile swipes: a right-to-left slide opens the author's profile. The
   // fullscreen media viewer is a Radix dialog portaled outside this scroll
   // container, so swiping inside an open viewer never reaches this handler.
@@ -148,13 +167,93 @@ const ClientPost: React.FC<ClientPostProps> = ({
               </button>
               <h1 className="text-lg font-semibold">Post</h1>
             </div>
-            <div>
-              <PostCard
-                detail
-                focusResponseId={focusResponseId}
-                initialMediaIndex={initialMediaIndex}
-                post={post}
-              />
+            <div className="flex flex-col">
+              {(() => {
+                if (ancestors.length === 0) {
+                  return (
+                    <PostCard
+                      detail
+                      initialMediaIndex={initialMediaIndex}
+                      post={post}
+                    />
+                  );
+                }
+
+                // If more than 3 ancestors, collapse the middle until expanded
+                const shouldCollapse =
+                  ancestors.length > 3 && !isAncestorsExpanded;
+                const hiddenCount = ancestors.length - 2;
+
+                if (shouldCollapse) {
+                  const [rootAncestor] = ancestors;
+                  const directParent = ancestors.at(-1);
+
+                  if (!rootAncestor || !directParent) {
+                    return null;
+                  }
+
+                  return (
+                    <>
+                      <PostCard
+                        hasThreadChild={true}
+                        hasThreadParent={false}
+                        isJoined={true}
+                        post={rootAncestor}
+                      />
+                      <div className="hover:bg-muted/30 relative flex cursor-pointer items-center gap-3 px-4 py-2 transition-colors">
+                        <div className="relative flex w-9 shrink-0 flex-col items-center self-stretch sm:w-10">
+                          <span
+                            aria-hidden="true"
+                            className="border-border pointer-events-none absolute -top-3 -bottom-3 left-1/2 w-0.5 -translate-x-1/2 border-l-2 border-dashed"
+                          />
+                        </div>
+                        <button
+                          className="text-primary hover:text-primary/80 relative z-10 flex items-center gap-1.5 py-1 text-xs font-medium hover:underline sm:text-sm"
+                          onClick={() => setIsAncestorsExpanded(true)}
+                          type="button"
+                        >
+                          Show {hiddenCount} earlier{" "}
+                          {hiddenCount === 1 ? "reply" : "replies"}
+                        </button>
+                      </div>
+                      <PostCard
+                        hasThreadChild={true}
+                        hasThreadParent={true}
+                        isJoined={true}
+                        post={directParent}
+                      />
+                      <PostCard
+                        detail
+                        hasThreadParent={true}
+                        initialMediaIndex={initialMediaIndex}
+                        isJoined={true}
+                        post={post}
+                      />
+                    </>
+                  );
+                }
+
+                return (
+                  <>
+                    {ancestors.map((ancestor, index) => (
+                      <PostCard
+                        hasThreadChild={true}
+                        hasThreadParent={index > 0}
+                        isJoined={true}
+                        key={ancestor.id}
+                        post={ancestor}
+                      />
+                    ))}
+                    <PostCard
+                      detail
+                      hasThreadParent={true}
+                      initialMediaIndex={initialMediaIndex}
+                      isJoined={true}
+                      post={post}
+                    />
+                  </>
+                );
+              })()}
             </div>
             <div>
               <div className="flex items-center justify-between px-4 py-2">

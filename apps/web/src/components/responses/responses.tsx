@@ -2,8 +2,8 @@
 
 import type { PostData, ResponsesPage } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
+import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { CornerDownRight } from "lucide-react";
 import { useCallback, useRef } from "react";
 
 import kyInstance from "@/lib/ky";
@@ -66,16 +66,22 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
   const focused = focusResponseId
     ? findResponseNode(tree, focusResponseId)
     : null;
-  // A single Twitter-style column: depth-first order, parent before child.
-  const rows = flattenResponseTree(focused ? [focused] : tree);
+  // When focusResponseId is set, the anchor post itself is already rendered by
+  // PostCard; its responses are its children. Otherwise render the root tree.
+  const rows = flattenResponseTree(focused ? focused.children : tree);
 
   const openRespond = useCallback(
     (target: PostData) => {
       openComposer("post", {
+        attachments: target.attachments,
         avatarUrl: target.user?.avatarUrl ?? null,
+        badge: target.user?.badge,
+        badges: target.user?.badges,
         content: target.content,
+        createdAt: target.createdAt,
         displayName: target.user?.displayName ?? undefined,
         id: target.id,
+        isGust: target.isGust,
         username: target.user?.username ?? "unknown",
       });
     },
@@ -101,27 +107,18 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
   }
 
   return (
-    <div className="space-y-4">
-      {focusResponseId ? null : (
-        <button
-          className="border-border/60 bg-muted/30 hover:bg-muted/50 text-muted-foreground flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors active:translate-y-px"
-          onClick={() => openRespond(post)}
-          type="button"
-        >
-          <CornerDownRight className="size-4 shrink-0" />
-          <span>Respond to this post…</span>
-        </button>
-      )}
-
+    <div className="space-y-2">
       {hasNextPage ? (
-        <Button
-          className="mx-auto block"
-          disabled={isFetching}
-          onClick={handleLoadPrevious}
-          variant="link"
-        >
-          Load previous responses
-        </Button>
+        <div className="pt-2">
+          <Button
+            className="mx-auto block"
+            disabled={isFetching}
+            onClick={handleLoadPrevious}
+            variant="link"
+          >
+            Load previous responses
+          </Button>
+        </div>
       ) : null}
 
       {status === "success" && rows.length === 0 ? (
@@ -136,17 +133,32 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
         </p>
       ) : null}
 
-      {/* pl-1 nudges the thread so its line sits under the anchor post's
-          avatar centre, keeping the connector unbroken from post to reply. */}
-      <div className="pl-1">
-        {rows.map((node, index) => (
-          <ResponseItem
-            isLast={index === rows.length - 1}
-            key={node.response.id}
-            node={node}
-            onRespond={openRespond}
-          />
-        ))}
+      <div className="flex flex-col">
+        {rows.map((node, index) => {
+          const prevNode = rows[index - 1];
+          const nextNode = rows[index + 1];
+          const hasConnectingParent = Boolean(
+            prevNode && node.response.parentPostId === prevNode.response.id
+          );
+          const hasConnectingChild = Boolean(
+            nextNode && nextNode.response.parentPostId === node.response.id
+          );
+          const isBranchEnd = !nextNode || nextNode.depth === 0;
+
+          return (
+            <div key={node.response.id}>
+              <ResponseItem
+                hasConnectingChild={hasConnectingChild}
+                hasConnectingParent={hasConnectingParent}
+                node={node}
+                onRespond={openRespond}
+              />
+              {isBranchEnd && nextNode ? (
+                <Separator className="bg-border/60 my-2" />
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -172,7 +172,6 @@ describe("GET /api/posts/for-you", () => {
     expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
     expect(lastLegacyArgs?.where).toEqual({
       isGust: false,
-      rootPostId: null,
     });
   });
 
@@ -189,7 +188,6 @@ describe("GET /api/posts/for-you", () => {
     expect(lastLegacyArgs?.where).toEqual({
       isGust: false,
       moderated: undefined,
-      rootPostId: null,
       userId: { not: "user-123" },
     });
   });
