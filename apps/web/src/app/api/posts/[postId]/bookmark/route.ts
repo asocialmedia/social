@@ -11,6 +11,7 @@ import {
 import type { BookmarkInfo } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { recordRecommendationInteraction } from "@/lib/recommendations/record-event";
 
 export async function GET(
   _req: Request,
@@ -144,6 +145,11 @@ export async function POST(
   }
 
   void invalidateFypProfile(user.id);
+  void recordRecommendationInteraction({
+    eventType: "BOOKMARK",
+    postId,
+    userId: user.id,
+  });
 
   return Response.json({ success: true });
 }
