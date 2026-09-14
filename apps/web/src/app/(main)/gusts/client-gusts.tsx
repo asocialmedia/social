@@ -30,7 +30,6 @@ import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
-import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigger";
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
@@ -40,10 +39,57 @@ import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
 } from "@/lib/posts/feed-cache";
+import { cn } from "@/lib/utils";
 import { useComposerStore } from "@/store/composer-store";
 
 interface ClientGustsProps {
   loggedInUserData: UserData | null;
+}
+
+// The exact 3D metallic hover the Home tab strip uses (see
+// AnimatedTabTrigger). Copied verbatim so the gust tabs respond identically;
+// the active tab opts out, just like Home, since its orange underline is
+// already the state cue.
+const GUST_TAB_HOVER_CLASS =
+  "hover:bg-gradient-to-b hover:from-[#e4e7ec] hover:to-[#c6ccd5] hover:text-[#1c1f26] hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7),inset_0_1.5px_2px_rgba(255,255,255,0.9),0_0_0_1px_rgba(0,0,0,0.08),0_1px_1px_rgba(0,0,0,0.05),0_2px_4px_rgba(0,0,0,0.06)] dark:hover:from-[#8f96a3] dark:hover:to-[#5c6370] dark:hover:text-white dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(45,50,60,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+// Shared tab: plain text centred over the clip (Instagram Reels style), with a
+// thin orange sliding underline for the active label. Used at every breakpoint
+// so the reel owns the full screen instead of sitting under a header bar.
+function GustTab({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "relative rounded-none px-3 pt-1.5 pb-2 text-sm transition-all duration-200 ease-out",
+        // Resting tabs sit on video, so legibility leans on a text shadow;
+        // the hover surface supplies its own contrast, so the shadow drops.
+        "[text-shadow:0_1px_4px_rgba(0,0,0,0.6)] hover:[text-shadow:none]",
+        active
+          ? "font-semibold text-white"
+          : cn("font-medium text-white/70", GUST_TAB_HOVER_CLASS)
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+      {active ? (
+        <motion.span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0.5 mx-auto h-1 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]"
+          layoutId="gust-tab-underline"
+          transition={{ damping: 34, stiffness: 420, type: "spring" }}
+        />
+      ) : null}
+    </button>
+  );
 }
 
 export const ClientGusts: React.FC<ClientGustsProps> = () => {
@@ -546,7 +592,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                   itemRefs.current[idx] = el;
                 }}
               >
-                <RecommendationTracker postId={post.id}>
+                <RecommendationTracker
+                  className="h-full w-full"
+                  postId={post.id}
+                >
                   <GustCard
                     interactive
                     isActive={isCurrentActive}
@@ -590,24 +639,23 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     <>
       {/* Main Gusts Container */}
       <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden bg-[hsl(var(--background-alt))]">
-        <div className="pointer-events-none absolute top-0 right-0 left-0 z-30 flex justify-center pt-1.5">
-          <div className="border-border/60 pointer-events-auto flex items-center rounded-b-xl border bg-[hsl(var(--background-alt))]/85 px-1 backdrop-blur-md">
-            <AnimatedTabButton
+        {/* Text-only tabs, centred over the clip at every breakpoint. Nudged
+            further down on desktop where there is no floating back button. */}
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex h-10 items-center justify-center md:top-8">
+          <div className="pointer-events-auto flex items-center gap-2">
+            <GustTab
               active={gustTab === "latest"}
-              layoutId="gust-tab-indicator"
+              label="Latest"
               onClick={() => handleTabChange("latest")}
-            >
-              Latest
-            </AnimatedTabButton>
-            <AnimatedTabButton
+            />
+            <GustTab
               active={gustTab === "personalized"}
-              layoutId="gust-tab-indicator"
+              label="For you"
               onClick={() => handleTabChange("personalized")}
-            >
-              For you
-            </AnimatedTabButton>
+            />
           </div>
         </div>
+
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"
@@ -618,14 +666,16 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           <ChevronLeft className="size-5" />
         </button>
 
-        {/* Floating back button (desktop, outside the gust container) */}
+        {/* Floating back button (desktop, top-left corner). Matches the left
+            sidebar's collapse button (size-9, size-4.5 chevron) so the two sit
+            on the same level. */}
         <button
           aria-label="Go back"
-          className="icon-btn-3d absolute top-4 left-4 z-30 hidden h-10 w-10 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95 md:flex"
+          className="icon-btn-3d absolute top-3.5 left-4 z-30 hidden size-9 items-center justify-center rounded-full md:flex"
           onClick={() => router.back()}
           type="button"
         >
-          <ChevronLeft className="size-5" />
+          <ChevronLeft className="size-4.5" />
         </button>
 
         {/* Floating search button (mobile) */}
@@ -646,7 +696,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
             height: pullDistance > 0 || isRefreshing ? pullDistance : 0,
             opacity: pullDistance > 0 || isRefreshing ? 1 : 0,
           }}
-          className="absolute top-2 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
+          className="absolute top-14 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
           style={{ height: pullDistance || 0 }}
         >
           <div className="rail-3d-btn mt-1 flex h-10 w-10 items-center justify-center rounded-full">
@@ -666,7 +716,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
           {newGusts.length > 0 ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
-              className="absolute top-4 left-1/2 z-30 -translate-x-1/2"
+              className="absolute top-16 left-1/2 z-30 -translate-x-1/2"
               exit={{ opacity: 0, y: -12 }}
               initial={{ opacity: 0, y: -12 }}
             >

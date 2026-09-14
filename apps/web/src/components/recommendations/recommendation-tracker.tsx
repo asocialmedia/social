@@ -89,11 +89,16 @@ if (typeof window !== "undefined") {
 
 interface RecommendationTrackerProps {
   children: React.ReactNode;
+  // Layout pass-through. Full-height media (the gust reel) needs this wrapper to
+  // forward the parent's height so the card is sized from the available space
+  // instead of its own video's intrinsic dimensions.
+  className?: string;
   postId: string;
 }
 
 export function RecommendationTracker({
   children,
+  className,
   postId,
 }: RecommendationTrackerProps) {
   const { user } = useSession();
@@ -147,5 +152,9 @@ export function RecommendationTracker({
     };
   }, [postId, user]);
 
-  return <div ref={containerRef}>{children}</div>;
+  return (
+    <div className={className} ref={containerRef}>
+      {children}
+    </div>
+  );
 }
