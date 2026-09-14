@@ -4,6 +4,7 @@ import {
   FYP_PROFILE_KEY_PREFIX,
   buildAndCacheProfile,
   generateLocalEmbedding,
+  getSocialProofPostWeights,
   getPersonalizedFeedPage,
   invalidateFypProfile,
   prisma,
@@ -35,6 +36,8 @@ const MEDIA_IDS: string[] = [];
 
 let sourcePostId = "";
 let collaborativePostId = "";
+let socialProofPostId = "";
+let commentProofPostId = "";
 let localPostId = "";
 let remotePostId = "";
 let unrelatedPostId = "";
@@ -131,6 +134,8 @@ async function createFixtures(): Promise<void> {
   const interestVectorText = "linux homelab server networking";
   sourcePostId = `rec-it-source-${RUN_ID}`;
   collaborativePostId = `rec-it-collaborative-${RUN_ID}`;
+  socialProofPostId = `rec-it-zz-social-proof-${RUN_ID}`;
+  commentProofPostId = `rec-it-yy-comment-proof-${RUN_ID}`;
   localPostId = `rec-it-local-post-${RUN_ID}`;
   remotePostId = `rec-it-remote-post-${RUN_ID}`;
   unrelatedPostId = `rec-it-unrelated-${RUN_ID}`;
@@ -181,6 +186,22 @@ async function createFixtures(): Promise<void> {
     vectorText: "cooking recipes sourdough",
   });
   await createPost({
+    authorId: USER_IDS.explorer,
+    content: "a cooking post amplified by someone the viewer follows",
+    createdAt: new Date(now - 240_000),
+    id: socialProofPostId,
+    semanticTags: ["cooking", "recipes"],
+    vectorText: "cooking recipes sourdough",
+  });
+  await createPost({
+    authorId: USER_IDS.explorer,
+    content: "a cooking post discussed by someone the viewer follows",
+    createdAt: new Date(now - 10 * 24 * 60 * 60 * 1000),
+    id: commentProofPostId,
+    semanticTags: ["cooking", "recipes"],
+    vectorText: "cooking recipes sourdough",
+  });
+  await createPost({
     authorId: USER_IDS.peer,
     content: "a video gust about Linux networking",
     createdAt: new Date(now - 300_000),
@@ -190,6 +211,13 @@ async function createFixtures(): Promise<void> {
     vectorText: interestVectorText,
   });
   await createVideoAttachment(gustPostId, USER_IDS.peer);
+
+  await prisma.follow.create({
+    data: {
+      followerId: USER_IDS.viewer,
+      followingId: USER_IDS.favorite,
+    },
+  });
 
   // Exercise the bounded 500-row retrieval pool with a larger local corpus.
   // These rows are intentionally older than the signal-bearing posts but still
@@ -226,6 +254,33 @@ async function createFixtures(): Promise<void> {
   await prisma.post.update({
     data: { parentPostId: sourcePostId, rootPostId: sourcePostId },
     where: { id: responseId },
+  });
+
+  await prisma.vote.create({
+    data: {
+      createdAt: new Date(now - 30_000),
+      postId: socialProofPostId,
+      userId: USER_IDS.favorite,
+      value: 1,
+    },
+  });
+  await prisma.comment.create({
+    data: {
+      content: "favorite found this useful",
+      createdAt: new Date(now - 20_000),
+      id: `rec-it-social-proof-comment-${RUN_ID}`,
+      postId: socialProofPostId,
+      userId: USER_IDS.favorite,
+    },
+  });
+  await prisma.comment.create({
+    data: {
+      content: "favorite discussed this one",
+      createdAt: new Date(now - 20_000),
+      id: `rec-it-comment-proof-${RUN_ID}`,
+      postId: commentProofPostId,
+      userId: USER_IDS.favorite,
+    },
   });
 
   await prisma.recommendationEvent.createMany({
@@ -299,7 +354,7 @@ describe("personalized feed against local Postgres and Redis", () => {
     await cleanupFixtures();
   });
 
-  test("personalizes by behavior, semantic affinity, geography, and diversity", async () => {
+  test("personalizes by behavior, social proof, geography, and diversity", async () => {
     const page = await getPersonalizedFeedPage({
       includeVisited: true,
       pageSize: 20,
@@ -313,6 +368,8 @@ describe("personalized feed against local Postgres and Redis", () => {
     expect(ids).not.toContain(USER_IDS.viewer);
     expect(indexOf(collaborativePostId)).toBeGreaterThanOrEqual(0);
     expect(indexOf(collaborativePostId)).toBeLessThan(indexOf(unrelatedPostId));
+    expect(indexOf(socialProofPostId)).toBeGreaterThanOrEqual(0);
+    expect(indexOf(socialProofPostId)).toBeLessThan(indexOf(unrelatedPostId));
     expect(indexOf(localPostId)).toBeLessThan(indexOf(remotePostId));
     expect(new Set(page.posts.map((post) => post.userId)).size).toBeGreaterThan(
       2
@@ -323,6 +380,7 @@ describe("personalized feed against local Postgres and Redis", () => {
         collaborativePosition: indexOf(collaborativePostId),
         geographicLocalPosition: indexOf(localPostId),
         geographicRemotePosition: indexOf(remotePostId),
+        socialProofPosition: indexOf(socialProofPostId),
         topPosts: page.posts.slice(0, 10).map((post) => post.id),
         uniqueAuthors: new Set(page.posts.map((post) => post.userId)).size,
       },
@@ -370,6 +428,37 @@ describe("personalized feed against local Postgres and Redis", () => {
         viewerBTop: viewerBPage.posts.slice(0, 5).map((post) => post.id),
       },
       "multi-viewer personalization assertions passed"
+    );
+  });
+
+  test("only applies social proof from people the viewer follows", async () => {
+    const candidateIds = [
+      socialProofPostId,
+      commentProofPostId,
+      unrelatedPostId,
+    ];
+    const viewerWeights = await getSocialProofPostWeights(
+      USER_IDS.viewer,
+      candidateIds,
+      new Date()
+    );
+    const nonFollowingViewerWeights = await getSocialProofPostWeights(
+      USER_IDS.viewerB,
+      candidateIds,
+      new Date()
+    );
+
+    expect(viewerWeights.get(socialProofPostId)).toBeGreaterThan(0);
+    expect(viewerWeights.get(commentProofPostId)).toBeGreaterThan(0);
+    expect(nonFollowingViewerWeights.get(socialProofPostId) ?? 0).toBe(0);
+    expect(nonFollowingViewerWeights.get(commentProofPostId) ?? 0).toBe(0);
+    logger.info(
+      {
+        followedViewerWeight: viewerWeights.get(socialProofPostId),
+        nonFollowingViewerWeight:
+          nonFollowingViewerWeights.get(socialProofPostId) ?? 0,
+      },
+      "social proof follow-scope assertions passed"
     );
   });
 

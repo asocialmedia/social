@@ -394,4 +394,23 @@ describe("scoreCandidate", () => {
       })
     ).toBeLessThanOrEqual(100);
   });
+
+  test("boosts posts with social proof from followed people", () => {
+    const candidate = post({ id: "social-proof" });
+    const withoutSocialProof = scoreCandidate(candidate, EMPTY_PROFILE, {
+      now: NOW,
+    });
+    const withSocialProof = scoreCandidate(candidate, EMPTY_PROFILE, {
+      now: NOW,
+      socialProofAffinity: 1,
+    });
+
+    expect(withSocialProof).toBeGreaterThan(withoutSocialProof);
+    expect(
+      scoreCandidate(candidate, EMPTY_PROFILE, {
+        now: NOW,
+        socialProofAffinity: 99,
+      })
+    ).toBeLessThanOrEqual(100);
+  });
 });

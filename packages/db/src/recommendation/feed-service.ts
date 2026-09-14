@@ -38,6 +38,9 @@ const RECOMMENDATION_EVENT_TAKE = 200;
 const COLLABORATIVE_SOURCE_TAKE = 100;
 const COLLABORATIVE_PEER_EVENT_TAKE = 2000;
 const COLLABORATIVE_CANDIDATE_EVENT_TAKE = 5000;
+const SOCIAL_PROOF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SOCIAL_PROOF_EVENT_TAKE = 2000;
+const SOCIAL_PROOF_SATURATION = 3;
 const POSITIVE_RECOMMENDATION_EVENTS = [
   "VIEW_COMPLETE",
   "DWELL",
@@ -166,6 +169,84 @@ async function getCollaborativePostWeights(
   }
   for (const [postId, weight] of weights) {
     weights.set(postId, Math.min(1, weight / maximum));
+  }
+  return weights;
+}
+
+function socialProofRecencyWeight(createdAt: Date, now: Date): number {
+  const ageHours = Math.max(
+    0,
+    (now.getTime() - createdAt.getTime()) / 3_600_000
+  );
+  return 0.5 ** (ageHours / (7 * 24));
+}
+
+export async function getSocialProofPostWeights(
+  viewerId: string,
+  candidatePostIds: string[],
+  now: Date
+): Promise<Map<string, number>> {
+  if (candidatePostIds.length === 0) {
+    return new Map();
+  }
+
+  const since = new Date(now.getTime() - SOCIAL_PROOF_WINDOW_MS);
+  const [amplifications, comments] = await Promise.all([
+    prisma.vote.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, postId: true, userId: true },
+      take: SOCIAL_PROOF_EVENT_TAKE,
+      where: {
+        createdAt: { gte: since },
+        postId: { in: candidatePostIds },
+        user: { followers: { some: { followerId: viewerId } } },
+        value: 1,
+      },
+    }),
+    prisma.comment.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, postId: true, userId: true },
+      take: SOCIAL_PROOF_EVENT_TAKE,
+      where: {
+        createdAt: { gte: since },
+        deleted: false,
+        postId: { in: candidatePostIds },
+        user: { followers: { some: { followerId: viewerId } } },
+      },
+    }),
+  ]);
+
+  // Count at most one action per followed person per post so a single active
+  // account cannot dominate the feed by commenting repeatedly.
+  const contributionByPost = new Map<string, Map<string, number>>();
+  const addContribution = (
+    postId: string,
+    userId: string,
+    baseWeight: number,
+    createdAt: Date
+  ): void => {
+    const byUser = contributionByPost.get(postId) ?? new Map<string, number>();
+    const contribution = baseWeight * socialProofRecencyWeight(createdAt, now);
+    byUser.set(userId, Math.max(byUser.get(userId) ?? 0, contribution));
+    contributionByPost.set(postId, byUser);
+  };
+
+  for (const amplification of amplifications) {
+    addContribution(
+      amplification.postId,
+      amplification.userId,
+      1,
+      amplification.createdAt
+    );
+  }
+  for (const comment of comments) {
+    addContribution(comment.postId, comment.userId, 0.8, comment.createdAt);
+  }
+
+  const weights = new Map<string, number>();
+  for (const [postId, byUser] of contributionByPost) {
+    const total = [...byUser.values()].reduce((sum, value) => sum + value, 0);
+    weights.set(postId, Math.min(1, total / SOCIAL_PROOF_SATURATION));
   }
   return weights;
 }
@@ -574,13 +655,19 @@ export async function getPersonalizedFeedPage(
   }
 
   const followedAuthorIds = new Set(profile.followedAuthorIds);
-  const [authorSignals, collaborativeWeights] = await Promise.all([
-    getAuraSignalsForUsers([...new Set(pool.map((post) => post.userId))]),
-    getCollaborativePostWeights(
-      userId,
-      pool.map((post) => post.id)
-    ),
-  ]);
+  const [authorSignals, collaborativeWeights, socialProofWeights] =
+    await Promise.all([
+      getAuraSignalsForUsers([...new Set(pool.map((post) => post.userId))]),
+      getCollaborativePostWeights(
+        userId,
+        pool.map((post) => post.id)
+      ),
+      getSocialProofPostWeights(
+        userId,
+        pool.map((post) => post.id),
+        now
+      ),
+    ]);
   const explorationAffinities = buildExplorationAffinities(pool, profile);
 
   const scored: ScoredCandidate<CandidatePost>[] = pool.map((post) => {
@@ -620,6 +707,7 @@ export async function getPersonalizedFeedPage(
         followedAuthorIds,
         geographicAffinity,
         now,
+        socialProofAffinity: socialProofWeights.get(post.id),
       }),
     };
   });
@@ -653,6 +741,7 @@ export async function getPersonalizedFeedPage(
       contentKind,
       profileSignalCount: profile.signalCount ?? 0,
       returnedCount: orderedPosts.length,
+      socialProofPostCount: socialProofWeights.size,
       topPostIds: orderedPosts.slice(0, 5).map((post) => post.id),
       userId,
     },

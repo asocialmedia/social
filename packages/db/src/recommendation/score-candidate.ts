@@ -38,6 +38,7 @@ export interface ScoreCandidateOptions {
   collaborativeAffinity?: number;
   geographicAffinity?: number;
   explorationAffinity?: number;
+  socialProofAffinity?: number;
   now?: Date;
 }
 
@@ -53,6 +54,7 @@ export interface CandidateScoreComponents {
   collaborativeAffinity: number;
   geographicAffinity: number;
   explorationAffinity: number;
+  socialProofAffinity: number;
   visitedMultiplier: number;
 }
 
@@ -82,6 +84,7 @@ export const TRACTION_POINTS = 10;
 export const COLLABORATIVE_POINTS = 12;
 export const GEOGRAPHIC_POINTS = 4;
 export const EXPLORATION_POINTS = 8;
+export const SOCIAL_PROOF_POINTS = 14;
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -191,6 +194,7 @@ export function scoreCandidateComponents(
   const collaborativeAffinity = clamp01(options.collaborativeAffinity ?? 0);
   const geographicAffinity = clamp01(options.geographicAffinity ?? 0);
   const explorationAffinity = clamp01(options.explorationAffinity ?? 0);
+  const socialProofAffinity = clamp01(options.socialProofAffinity ?? 0);
 
   return {
     authorAffinity,
@@ -200,6 +204,7 @@ export function scoreCandidateComponents(
     geographicAffinity,
     mediaFit,
     semanticSimilarity,
+    socialProofAffinity,
     tagOverlap,
     traction,
     visitedMultiplier,
@@ -221,7 +226,8 @@ export function scoreCandidate(
     components.traction * TRACTION_POINTS +
     components.collaborativeAffinity * COLLABORATIVE_POINTS +
     components.geographicAffinity * GEOGRAPHIC_POINTS +
-    components.explorationAffinity * EXPLORATION_POINTS;
+    components.explorationAffinity * EXPLORATION_POINTS +
+    components.socialProofAffinity * SOCIAL_PROOF_POINTS;
 
   // Scale by format fit and reputation visibility, then apply soft visited cooldown
   const mediaScaled =
