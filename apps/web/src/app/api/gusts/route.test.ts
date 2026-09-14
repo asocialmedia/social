@@ -30,9 +30,13 @@ let lastFindManyArgs: unknown = null;
 
 const mockFindMany = mock(
   (args: {
+    attachments?: { some: { type: string } };
     cursor?: { id: string };
     take?: number;
-    where?: { id?: { not?: string } };
+    where?: {
+      id?: { not?: string };
+      rootPostId?: null;
+    };
   }) => {
     lastFindManyArgs = args;
     const take = args?.take ?? 11;
@@ -121,9 +125,11 @@ describe("GET /api/gusts", () => {
     const callArgs = lastFindManyArgs as {
       where?: {
         isGust?: boolean;
+        rootPostId?: null;
       };
     };
     expect(callArgs?.where?.isGust).toBe(true);
+    expect(callArgs?.where?.rootPostId).toBeNull();
   });
 
   test("allows guests to browse gusts without authentication", async () => {

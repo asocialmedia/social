@@ -62,6 +62,7 @@ export async function GET(request: Request) {
         attachments: { some: { type: "VIDEO" } },
         id: initialId,
         isGust: true,
+        rootPostId: null,
         // When the caller opted out of moderated gusts (explore rail), the
         // initial post is held to the same contract: a moderated gust is not
         // prepended.
@@ -77,6 +78,7 @@ export async function GET(request: Request) {
         attachments: { some: { type: "VIDEO" } },
         id: { not: initialId },
         isGust: true,
+        rootPostId: null,
         ...(excludeModerated ? { moderated: false } : {}),
       },
     });
@@ -105,8 +107,13 @@ export async function GET(request: Request) {
         attachments: { some: { type: "VIDEO" } },
         isGust: true,
         moderated: false,
+        rootPostId: null,
       }
-    : { attachments: { some: { type: "VIDEO" } }, isGust: true };
+    : {
+        attachments: { some: { type: "VIDEO" } },
+        isGust: true,
+        rootPostId: null,
+      };
   const chronologicalCursor = cursor?.startsWith("exp.")
     ? cursor.slice(4) || undefined
     : cursor;
