@@ -22,6 +22,7 @@ export async function GET(request: Request) {
     where: {
       NOT: { userId },
       isGust: false,
+      rootPostId: null,
       user: { followers: { some: { followerId: userId } } },
     },
   });

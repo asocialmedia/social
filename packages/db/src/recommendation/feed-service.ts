@@ -1,6 +1,6 @@
 // For-You feed service: fetches a fresh candidate pool, builds (and caches)
 // the user's taste persona, ranks candidates using semantic embeddings and
-// media features, and returns diverse, unskippable pages with continuous pagination.
+// media features, and returns diverse pages with continuous pagination.
 
 import { createLogger } from "@asm/logger";
 
@@ -19,9 +19,10 @@ import type { CandidatePost } from "./score-candidate";
 
 const logger = createLogger({ serviceName: "fyp-feed" });
 
-// Candidate pool window: 72 hours of recent posts.
+// A week gives personalization enough room to find relevant content while the
+// latest tab remains available for users who want a strict chronological view.
 const CANDIDATE_POOL_SIZE = 500;
-const CANDIDATE_WINDOW_HOURS = 72;
+const CANDIDATE_WINDOW_HOURS = 7 * 24;
 const CANDIDATE_POOL_TAKE = { take: CANDIDATE_POOL_SIZE };
 
 // 15 minutes cache TTL for user taste profiles.
@@ -58,6 +59,7 @@ export interface PersonalizedFeedPage {
 }
 
 export interface GetPersonalizedFeedOptions {
+  contentKind?: "post" | "gust";
   cursor?: string;
   excludeModerated?: boolean;
   includeVisited?: boolean;
@@ -148,6 +150,7 @@ export async function buildAndCacheProfile(
       select: {
         comment: { select: { post: AUTHOR_TAGS_SELECT } },
         createdAt: true,
+        value: true,
       },
       take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId },
@@ -156,7 +159,7 @@ export async function buildAndCacheProfile(
       orderBy: { createdAt: "desc" },
       select: { ...AUTHOR_TAGS_SELECT.select, createdAt: true },
       take: PROFILE_EMBEDDING_TAKE,
-      where: { createdAt: { gte: since }, userId },
+      where: { createdAt: { gte: since }, rootPostId: null, userId },
     }),
     searchCache.getHistory(userId),
     fetchFollowedAuthorIds(userId),
@@ -186,7 +189,11 @@ export async function buildAndCacheProfile(
   for (const commentVote of commentVotes) {
     if (commentVote.comment?.post) {
       signals.push(
-        toSignal(commentVote.comment.post, "commentVote", commentVote.createdAt)
+        toSignal(
+          commentVote.comment.post,
+          commentVote.value > 0 ? "commentVote" : "downvote",
+          commentVote.createdAt
+        )
       );
     }
   }
@@ -294,9 +301,14 @@ export async function getPersonalizedFeedPage(
 
   if (cursor && cursor.startsWith("fyp.")) {
     const parts = cursor.split(".");
-    const rawOffset = Math.trunc(Number(parts[1] ?? "0")) || 0;
+    // New cursors include the content kind (`fyp.gust.20.timestamp`), while
+    // the two-part form remains readable for existing post-feed cursors.
+    const cursorOffsetIndex =
+      parts[1] === "post" || parts[1] === "gust" ? 2 : 1;
+    const rawOffset = Math.trunc(Number(parts[cursorOffsetIndex] ?? "0")) || 0;
     const rawTimestamp =
-      Math.trunc(Number(parts[2] ?? `${Date.now()}`)) || Date.now();
+      Math.trunc(Number(parts[cursorOffsetIndex + 1] ?? `${Date.now()}`)) ||
+      Date.now();
     // Clamp offset to valid bounds and timestamp to supported range
     offset = Math.max(0, Math.min(rawOffset, CANDIDATE_POOL_SIZE));
     const maxTimestamp = Date.now() + 60_000;
@@ -309,11 +321,17 @@ export async function getPersonalizedFeedPage(
     timestamp - CANDIDATE_WINDOW_HOURS * 60 * 60 * 1000
   );
 
+  const contentKind = options.contentKind ?? "post";
   const whereClause: Prisma.PostWhereInput = {
     createdAt: { gte: windowStart, lte: now },
-    isGust: false,
+    isGust: contentKind === "gust",
     moderated: excludeModerated ? false : undefined,
+    rootPostId: null,
+    userId: { not: userId },
   };
+  if (contentKind === "gust") {
+    whereClause.attachments = { some: { type: "VIDEO" } };
+  }
 
   if (!includeVisited) {
     whereClause.visits = { none: { userId } };
@@ -407,7 +425,7 @@ export async function getPersonalizedFeedPage(
 
   let nextCursor: string | null = null;
   if (sliceEnd < ranked.length) {
-    nextCursor = `fyp.${sliceEnd}.${timestamp}`;
+    nextCursor = `fyp.${contentKind}.${sliceEnd}.${timestamp}`;
   } else if (pool.length > 0) {
     // Candidates exhausted: transition smoothly to expired posts at bottom
     nextCursor = `exp.${pool.at(-1)?.id ?? ""}`;

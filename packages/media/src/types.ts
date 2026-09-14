@@ -75,6 +75,7 @@ export interface MediaProcessJobData {
 }
 export interface MediaAnalyzeJobData {
   mediaId: string;
+  semanticRefresh?: boolean;
 }
 export interface MediaDeleteCascadeJobData {
   mediaId: string;

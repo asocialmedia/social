@@ -167,6 +167,7 @@ describe("getPersonalizedFeedPage", () => {
       createdAt: { gte: expect.any(Date) },
       isGust: false,
       moderated: false,
+      userId: { not: "user-1" },
       visits: { none: { userId: "user-1" } },
     });
   });
@@ -178,6 +179,16 @@ describe("getPersonalizedFeedPage", () => {
     expect(
       (lastPoolArgs?.where as { moderated?: boolean } | null)?.moderated
     ).toBeUndefined();
+  });
+
+  test("can build a personalized Gusts pool without mixing in fleets", async () => {
+    const { getPersonalizedFeedPage } = await import("./feed-service");
+    await getPersonalizedFeedPage({
+      contentKind: "gust",
+      pageSize: 20,
+      userId: "user-1",
+    });
+    expect(lastPoolArgs?.where).toMatchObject({ isGust: true });
   });
 
   test("serves stale-taste-free cached profiles without rebuilding", async () => {

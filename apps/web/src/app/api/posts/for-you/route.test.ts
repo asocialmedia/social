@@ -146,6 +146,27 @@ describe("GET /api/posts/for-you", () => {
     const body = await res.json();
     expect(body.posts).toHaveLength(1);
     expect(mockGetPersonalizedFeedPage).not.toHaveBeenCalled();
-    expect(lastLegacyArgs?.where).toEqual({ isGust: false });
+    expect(lastLegacyArgs?.where).toEqual({
+      isGust: false,
+      rootPostId: null,
+    });
+  });
+
+  test("excludes the signed-in user's own posts from the chronological fallback", async () => {
+    const { GET } = await import("./route");
+    mockPersonalizedPage = {
+      anchorCursor: "p-anchor",
+      nextCursor: "fyp.20.1700000000",
+      posts: [],
+    };
+
+    await GET(new Request("http://localhost/api/posts/for-you"));
+
+    expect(lastLegacyArgs?.where).toEqual({
+      isGust: false,
+      moderated: undefined,
+      rootPostId: null,
+      userId: { not: "user-123" },
+    });
   });
 });

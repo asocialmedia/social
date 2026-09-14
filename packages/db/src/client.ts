@@ -6,7 +6,14 @@ export function getPublicUserSelect(loggedInUserId: string) {
       select: {
         followers: true,
         following: true,
-        posts: true,
+        // Top-level posts only: responses (posts that reply to a post) are
+        // surfaced in the profile Responses tab, not counted as posts. Keyed
+        // on rootPostId so responses survive their parent's deletion.
+        posts: {
+          where: {
+            rootPostId: null,
+          },
+        },
       },
     },
     aura: true,
@@ -68,6 +75,8 @@ export function getPostDataInclude(loggedInUserId: string) {
           },
         },
         mentions: true,
+        // Direct responses only (one level), matching the action-bar count.
+        responses: true,
         vote: true,
       },
     },
@@ -91,6 +100,34 @@ export function getPostDataInclude(loggedInUserId: string) {
             username: true,
           },
         },
+      },
+    },
+    // Compact embedded parent for responses: enough to render the quoted card
+    // (or a tombstone when `parentPost` is null but `parentPostId` is set)
+    // without dragging the parent's full include into every feed row.
+    parentPost: {
+      select: {
+        attachments: {
+          select: {
+            id: true,
+            type: true,
+          },
+          take: 1,
+        },
+        content: true,
+        createdAt: true,
+        id: true,
+        isGust: true,
+        moderated: true,
+        user: {
+          select: {
+            avatarUrl: true,
+            displayName: true,
+            id: true,
+            username: true,
+          },
+        },
+        userId: true,
       },
     },
     tags: true,
@@ -180,6 +217,7 @@ export const notificationsInclude = {
       content: true,
       id: true,
       isGust: true,
+      parentPostId: true,
     },
   },
 } satisfies Prisma.NotificationInclude;
@@ -198,54 +236,21 @@ export interface FollowerInfo {
   isFollowedByUser: boolean;
 }
 
+// Derived from the single source of truth (getPostDataInclude) so new relation
+// projections stay in sync automatically.
 export type PostData = Prisma.PostGetPayload<{
-  include: {
-    user: {
-      select: ReturnType<typeof getUserDataSelect>;
-    };
-    attachments: true;
-    tags: true;
-    mentions: {
-      include: {
-        user: {
-          select: {
-            id: true;
-            username: true;
-            displayName: true;
-            avatarUrl: true;
-          };
-        };
-      };
-    };
-    bookmarks: {
-      where: {
-        userId: string;
-      };
-      select: {
-        userId: true;
-      };
-    };
-    vote: {
-      where: {
-        userId: string;
-      };
-      select: {
-        userId: true;
-        value: true;
-      };
-    };
-    hnStoryShare: true;
-    _count: {
-      select: {
-        vote: true;
-        comments: true;
-        mentions: true;
-      };
-    };
-  };
+  include: ReturnType<typeof getPostDataInclude>;
 }> & {
   aura: number;
 };
+
+// The compact embedded parent carried on a response row.
+export type PostParentData = NonNullable<PostData["parentPost"]>;
+
+export interface ResponsesPage {
+  previousCursor: string | null;
+  responses: PostData[];
+}
 
 export interface TagWithCount {
   _count?: {

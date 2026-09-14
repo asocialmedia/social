@@ -40,8 +40,10 @@ describe("resolveApiTier", () => {
     for (const path of [
       "/api/search?q=a",
       "/api/posts/for-you",
+      "/api/posts/latest",
       "/api/posts/trending",
       "/api/posts/following",
+      "/api/gusts",
     ]) {
       expect(resolveApiTier(path)?.bucket).toBe("heavy-read");
     }

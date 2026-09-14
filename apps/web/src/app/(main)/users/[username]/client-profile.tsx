@@ -19,6 +19,7 @@ import UserAmplifiedFeed from "@/components/profile/user-amplified-feed";
 import UserGustsFeed from "@/components/profile/user-gusts-feed";
 import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
+import UserResponsesFeed from "@/components/profile/user-responses-feed";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 
@@ -27,13 +28,20 @@ interface ProfilePageProps {
   userData: UserData;
 }
 
-type ProfileTab = "posts" | "gusts" | "replies" | "amplified" | "media";
+type ProfileTab =
+  | "posts"
+  | "gusts"
+  | "responses"
+  | "replies"
+  | "amplified"
+  | "media";
 
 // Mobile swipe order mirrors the rendered tab strip. Guests never get
-// Replies/Amplified, so swipes skip them instead of bouncing to login.
+// Responses/Eddies/Amplified, so swipes skip them instead of bouncing to login.
 const LOGGED_IN_TAB_ORDER: ProfileTab[] = [
   "posts",
   "gusts",
+  "responses",
   "replies",
   "amplified",
   "media",
@@ -185,11 +193,18 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
                       Gusts
                     </AnimatedTabTrigger>
                     <AnimatedTabTrigger
+                      active={activeTab === "responses"}
+                      layoutId="profile-tab-indicator"
+                      value="responses"
+                    >
+                      Responses
+                    </AnimatedTabTrigger>
+                    <AnimatedTabTrigger
                       active={activeTab === "replies"}
                       layoutId="profile-tab-indicator"
                       value="replies"
                     >
-                      Replies
+                      Eddies
                     </AnimatedTabTrigger>
                     <AnimatedTabTrigger
                       active={activeTab === "amplified"}
@@ -225,6 +240,13 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
 
                 {isLoggedIn ? (
                   <>
+                    <TabsContent className="mt-0 pb-12" value="responses">
+                      <UserResponsesFeed
+                        isOwnProfile={isOwnProfile}
+                        userId={userData.id}
+                      />
+                    </TabsContent>
+
                     <TabsContent className="mt-0 pb-12" value="replies">
                       <UserRepliesFeed userId={userData.id} />
                     </TabsContent>

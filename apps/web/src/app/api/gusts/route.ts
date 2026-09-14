@@ -1,4 +1,9 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  getPersonalizedFeedPage,
+  getPostDataInclude,
+  hydrateViewCounts,
+  prisma,
+} from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -12,6 +17,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
   const initialId = url.searchParams.get("initialId") || undefined;
+  const mode = url.searchParams.get("mode") === "personalized";
   // Explore's trending-gusts rail opts out of moderated gusts; the reels feed
   // keeps showing them.
   const excludeModerated = url.searchParams.get("excludeModerated") === "1";
@@ -22,11 +28,38 @@ export async function GET(request: Request) {
       : 0;
   const pageSize = requestedTake > 0 ? Math.min(requestedTake, 20) : 10;
 
+  // Personalized Gusts use the same user persona as fleet recommendations,
+  // but the candidate set is constrained to video Gusts. Deep links with an
+  // initial id stay chronological so the requested Gust remains first.
+  if (mode && userId && !initialId && (!cursor || cursor.startsWith("fyp."))) {
+    const personalized = await getPersonalizedFeedPage({
+      contentKind: "gust",
+      cursor,
+      excludeModerated,
+      includeVisited: true,
+      pageSize,
+      userId,
+    });
+    if (personalized.posts.length > 0) {
+      const data: PostsPage = {
+        nextCursor: personalized.nextCursor ?? personalized.anchorCursor,
+        posts: await hydrateViewCounts(personalized.posts),
+      };
+      return Response.json(data, {
+        headers: {
+          "cache-control": "private, no-cache",
+          vary: "Cookie",
+        },
+      });
+    }
+  }
+
   // When initialId is requested on the first page, ensure that gust is returned at the top
   if (initialId && !cursor) {
     const initialPost = await prisma.post.findUnique({
       include: getPostDataInclude(userId),
       where: {
+        attachments: { some: { type: "VIDEO" } },
         id: initialId,
         isGust: true,
         // When the caller opted out of moderated gusts (explore rail), the
@@ -41,6 +74,7 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
       take: pageSize + 1,
       where: {
+        attachments: { some: { type: "VIDEO" } },
         id: { not: initialId },
         isGust: true,
         ...(excludeModerated ? { moderated: false } : {}),
@@ -67,13 +101,21 @@ export async function GET(request: Request) {
   }
 
   const where: Prisma.PostWhereInput = excludeModerated
-    ? { isGust: true, moderated: false }
-    : { isGust: true };
+    ? {
+        attachments: { some: { type: "VIDEO" } },
+        isGust: true,
+        moderated: false,
+      }
+    : { attachments: { some: { type: "VIDEO" } }, isGust: true };
+  const chronologicalCursor = cursor?.startsWith("exp.")
+    ? cursor.slice(4) || undefined
+    : cursor;
 
   const posts = await prisma.post.findMany({
-    cursor: cursor ? { id: cursor } : undefined,
+    cursor: chronologicalCursor ? { id: chronologicalCursor } : undefined,
     include: getPostDataInclude(userId),
     orderBy: { createdAt: "desc" },
+    skip: chronologicalCursor ? 1 : 0,
     take: pageSize + 1,
     where,
   });

@@ -291,7 +291,10 @@ describe("GET /api/posts/trending", () => {
 
     test("includes moderated posts by default", async () => {
       await GET(new Request("http://localhost/api/posts/trending"));
-      expect(lastLegacyArgs?.where).toEqual({ isGust: false });
+      expect(lastLegacyArgs?.where).toEqual({
+        isGust: false,
+        rootPostId: null,
+      });
     });
 
     test("excludes moderated posts only when excludeModerated=1", async () => {
@@ -302,6 +305,7 @@ describe("GET /api/posts/trending", () => {
       expect(lastLegacyArgs?.where).toEqual({
         isGust: false,
         moderated: false,
+        rootPostId: null,
       });
     });
 

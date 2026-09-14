@@ -4,6 +4,7 @@ import {
   BOOKMARK_GIVEN_AURA,
   BOOKMARK_RECEIVED_AURA,
   invalidateAuraSignals,
+  invalidateFypProfile,
   prisma,
   reverseExactAura,
 } from "@asm/db";
@@ -142,6 +143,8 @@ export async function POST(
     }
   }
 
+  void invalidateFypProfile(user.id);
+
   return Response.json({ success: true });
 }
 
@@ -218,6 +221,8 @@ export async function DELETE(
   } catch (error) {
     console.error("Failed to invalidate aura signals:", error);
   }
+
+  void invalidateFypProfile(user.id);
 
   return Response.json({ success: true });
 }

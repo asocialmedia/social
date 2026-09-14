@@ -96,6 +96,10 @@ const createPostShape = z.object({
   // validation package stays dependency-free).
   mediaIds: z.array(z.string()).max(10, "Cannot have more than 10 attachments"),
   mentions: z.array(z.string()).default([]),
+  // Set when this post is a response to another post. Responses are always
+  // fleets (a gust carries one vertical video, which has no thread meaning),
+  // so the publish path forces isGust off whenever this is present.
+  parentPostId: z.string().optional(),
   tags: z.array(postTagSchema).max(10, "Cannot have more than 10 tags"),
 });
 

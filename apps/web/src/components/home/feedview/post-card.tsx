@@ -3,7 +3,7 @@
 import type { PostData, TagWithCount, UserData } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Card, CardContent } from "@asm/ui/shadui/card";
-import { Eye, MessageSquare } from "lucide-react";
+import { CornerDownRight, Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,6 +30,9 @@ import ModeratedNotice from "@/components/posts/moderated-notice";
 import PostLinkedContent from "@/components/posts/post-linked-content";
 import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
+import ResponseParentCard from "@/components/responses/response-parent-card";
+// eslint-disable-next-line import/no-cycle -- post-card renders the response thread, whose rows render media-previews back through post-card
+import Responses from "@/components/responses/responses";
 import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
@@ -41,6 +44,7 @@ import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 import { withViewTransition } from "@/lib/view-transition";
+import { useComposerStore } from "@/store/composer-store";
 
 import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
@@ -61,9 +65,8 @@ type ExtendedPostData = PostData & {
 
 interface PostCardProps {
   detail?: boolean;
-  // Hides the below-post composer on mobile for detail views that already
-  // surface a floating mobile editor (post page).
-  hideComposerOnMobile?: boolean;
+  // On a response permalink: the response to focus within the thread.
+  focusResponseId?: string;
   initialMediaIndex?: number;
   isJoined?: boolean;
   // Renders the media with the mobile layout even in a wide viewport, for
@@ -269,6 +272,14 @@ const PostContent: React.FC<PostContentProps> = ({
           </div>
         )}
 
+        {post.parentPostId ? (
+          <ResponseParentCard
+            className="mt-2"
+            parent={post.parentPost}
+            parentPostId={post.parentPostId}
+          />
+        ) : null}
+
         {post.moderated ? (
           <ModeratedNotice className="mt-2.5" kind="post" />
         ) : (
@@ -355,6 +366,7 @@ const PostContent: React.FC<PostContentProps> = ({
             postId={post.id}
           />
           <CommentButton onClick={onToggleComments} post={post} />
+          <RespondButton post={post} />
           <span
             className="text-muted-foreground flex h-7 cursor-default items-center gap-1 rounded-full px-1"
             title="Views"
@@ -404,6 +416,7 @@ const PostContent: React.FC<PostContentProps> = ({
               postId={post.id}
             />
             <CommentButton onClick={onToggleComments} post={post} />
+            <RespondButton post={post} />
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -529,6 +542,41 @@ const CommentButton = ({ post, onClick }: CommentButtonProps) => {
   );
 };
 
+interface RespondButtonProps {
+  post: PostData;
+}
+
+// Opens the composer preloaded to respond to this post. Counts direct
+// responses (threaded post-to-post replies), separate from eddies.
+const RespondButton = ({ post }: RespondButtonProps) => {
+  const openComposer = useComposerStore((state) => state.openComposer);
+  const responseCount = post._count?.responses ?? 0;
+  const hasResponses = responseCount > 0;
+  return (
+    <button
+      aria-label="Respond to this post"
+      className="pill-3d-hover group text-muted-foreground inline-flex h-7 items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs font-medium active:translate-y-px sm:h-7.5 sm:px-2 sm:text-[13px]"
+      onClick={() =>
+        openComposer("post", {
+          avatarUrl: post.user?.avatarUrl ?? null,
+          content: post.content,
+          displayName: post.user?.displayName ?? undefined,
+          id: post.id,
+          username: post.user?.username ?? "unknown",
+        })
+      }
+      type="button"
+    >
+      <CornerDownRight
+        className={cn("size-4 sm:size-4.5", hasResponses && "fill-current")}
+      />
+      <span className="text-xs font-medium tabular-nums sm:text-[13px]">
+        {responseCount}
+      </span>
+    </button>
+  );
+};
+
 const INTERACTIVE_TARGET_SELECTOR =
   "a, button, input, textarea, select, option, video, audio, [role='button'], [role='checkbox'], [role='menuitem'], [role='option'], [role='tab'], [role='combobox'], [data-card-interactive], [contenteditable='true']";
 
@@ -550,7 +598,7 @@ const PostCard: React.FC<PostCardProps> = ({
   post: initialPost,
   isJoined = false,
   detail = false,
-  hideComposerOnMobile = false,
+  focusResponseId,
   initialMediaIndex,
   mobileLayout = false,
 }) => {
@@ -634,8 +682,10 @@ const PostCard: React.FC<PostCardProps> = ({
   let commentsSection: React.ReactNode = null;
   if (showComments) {
     commentsSection = detail ? (
+      // On a post's detail page the threaded responses are the reply surface;
+      // eddies remain available from the feed cards and the media viewer.
       <div className="border-border/60 border-t px-4 pt-3.5 pb-4">
-        <Comments hideComposerOnMobile={hideComposerOnMobile} post={post} />
+        <Responses focusResponseId={focusResponseId} post={post} />
       </div>
     ) : (
       <FeedComments post={post} />

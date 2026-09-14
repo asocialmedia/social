@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React, {
   useCallback,
   useEffect,
@@ -29,6 +29,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
+import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigger";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import kyInstance from "@/lib/ky";
@@ -40,6 +41,7 @@ interface ClientGustsProps {
 
 export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
   const initialPostId = searchParams.get("id");
   const { user } = useSession();
@@ -48,6 +50,28 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const { openSpotlight } = useSpotlight();
   const autoOpenCreate = searchParams.get("create") === "true";
   const queryClient = useQueryClient();
+  const isLoggedIn = Boolean(user);
+  const requestedTab = searchParams.get("tab");
+  const defaultTab = isLoggedIn ? "personalized" : "latest";
+  const gustTab =
+    requestedTab === "latest" || requestedTab === "personalized"
+      ? requestedTab
+      : defaultTab;
+  const isPersonalized = gustTab === "personalized" && !initialPostId;
+
+  const handleTabChange = useCallback(
+    (value: "latest" | "personalized") => {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      if (value === defaultTab) {
+        nextParams.delete("tab");
+      } else {
+        nextParams.set("tab", value);
+      }
+      const query = nextParams.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
+    },
+    [defaultTab, pathname, router, searchParams]
+  );
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -94,6 +118,9 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       const queryParams: Record<string, string> = {
         excludeModerated: "1",
       };
+      if (isPersonalized) {
+        queryParams.mode = "personalized";
+      }
       if (pageParam) {
         queryParams.cursor = pageParam;
       } else if (initialPostId) {
@@ -103,9 +130,20 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         .get("/api/gusts", { searchParams: queryParams })
         .json<PostsPage>();
     },
-    queryKey: ["gusts-feed", initialPostId],
+    queryKey: ["gusts-feed", initialPostId, gustTab],
     staleTime: 1000 * 60,
   });
+
+  // Reset the reel position after switching between Latest and For you. The
+  // microtask keeps the state update out of the effect's synchronous phase.
+  useEffect(() => {
+    queueMicrotask(() => {
+      setActiveIndex(0);
+      setNewGustCount(0);
+    });
+    containerRef.current?.scrollTo({ top: 0 });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- gustTab is intentionally a change signal for the new query
+  }, [gustTab]);
 
   const posts = useMemo(
     () =>
@@ -363,7 +401,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
   // Record a visit for the active gust so the recents card surfaces it and
   // keeps the "recently viewed" order fresh. Guests don't have history.
-  const isLoggedIn = Boolean(user);
   const activePost = posts[activeIndex];
   useEffect(() => {
     if (!isLoggedIn || !activePost) {
@@ -505,6 +542,24 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     <>
       {/* Main Gusts Container */}
       <div className="relative flex min-w-0 flex-1 justify-center overflow-hidden bg-[hsl(var(--background-alt))]">
+        <div className="pointer-events-none absolute top-0 right-0 left-0 z-30 flex justify-center pt-1.5">
+          <div className="border-border/60 pointer-events-auto flex items-center rounded-b-xl border bg-[hsl(var(--background-alt))]/85 px-1 backdrop-blur-md">
+            <AnimatedTabButton
+              active={gustTab === "latest"}
+              layoutId="gust-tab-indicator"
+              onClick={() => handleTabChange("latest")}
+            >
+              Latest
+            </AnimatedTabButton>
+            <AnimatedTabButton
+              active={gustTab === "personalized"}
+              layoutId="gust-tab-indicator"
+              onClick={() => handleTabChange("personalized")}
+            >
+              For you
+            </AnimatedTabButton>
+          </div>
+        </div>
         {/* Floating back button (mobile, over the video) */}
         <button
           aria-label="Go back"

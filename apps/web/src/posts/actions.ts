@@ -8,6 +8,7 @@ import {
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
+  publishResponseDeleted,
   redis,
   unreadNotificationCache,
 } from "@asm/db";
@@ -261,6 +262,17 @@ export async function deletePost(id: string) {
   // share card and media URLs stop being served (read-your-own-writes).
   updateTag("og-post-card");
   updateTag("media-object");
+
+  // If the deleted post was a response, drop it from open threads live (keyed
+  // on the thread root so every viewer of the post gets it) and refund the
+  // parent's response count on every connected client.
+  if (deletedPost.rootPostId) {
+    try {
+      await publishResponseDeleted(deletedPost.rootPostId, deletedPost);
+    } catch (error) {
+      console.error("Failed to publish response-deleted event:", error);
+    }
+  }
 
   return deletedPost;
 }

@@ -14,11 +14,13 @@ import {
   getPostDataInclude,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
+  invalidateFypProfile,
   MENTION_RECEIVED_AURA,
   POST_CREATION_AURA,
   POST_CREATION_MAX_AURA,
   postViewsCache,
   prisma,
+  publishResponseCreated,
   schedulePublishedNotificationCleanup,
   tagCache,
 } from "@asm/db";
@@ -121,12 +123,19 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     }
     console.log("Session validated, proceeding with post submission");
 
-    const parsed = (input.isGust ? createGustSchema : createPostSchema).parse({
+    const isResponse = Boolean(input.parentPostId);
+    // Responses are always fleets: a gust carries a single vertical video,
+    // which has no thread meaning. A crafted isGust+parentPostId payload is
+    // coerced to a fleet rather than trusted.
+    const parsed = (
+      input.isGust && !isResponse ? createGustSchema : createPostSchema
+    ).parse({
       content: input.content,
       dismissedEmbedUrls: input.dismissedEmbedUrls ?? [],
-      isGust: input.isGust ?? false,
+      isGust: isResponse ? false : (input.isGust ?? false),
       mediaIds: input.mediaIds || [],
       mentions: input.mentions || [],
+      parentPostId: input.parentPostId,
       tags: input.tags || [],
     });
     const validatedInput: CreatePostInput = parsed;
@@ -225,6 +234,60 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         );
       }
 
+      // Resolve the response target inside the transaction so the parent
+      // cannot be deleted between validation and the insert. rootPostId is the
+      // thread's top-level POST (set for every response, so it marks a post as
+      // a response even after its parent is gone); threadTopId is the thread's
+      // top-level RESPONSE (null for a direct response) and is the pagination
+      // anchor the responses API groups on.
+      let parentPost: {
+        id: string;
+        moderated: boolean;
+        parentPostId: string | null;
+        rootPostId: string | null;
+        threadTopId: string | null;
+        userId: string;
+      } | null = null;
+      let rootPostId: string | null = null;
+      let threadTopId: string | null = null;
+      let threadRootAuthorId: string | null = null;
+      if (validatedInput.parentPostId) {
+        parentPost = await tx.post.findUnique({
+          select: {
+            id: true,
+            moderated: true,
+            parentPostId: true,
+            rootPostId: true,
+            threadTopId: true,
+            userId: true,
+          },
+          where: { id: validatedInput.parentPostId },
+        });
+        if (!parentPost) {
+          throw new Error("The post you're responding to no longer exists");
+        }
+        if (parentPost.moderated) {
+          throw new Error("That post is no longer available to respond to");
+        }
+        if (parentPost.parentPostId === null) {
+          // Direct response to a top-level post: this node is the thread's
+          // first level, so there is no higher response to group under.
+          rootPostId = parentPost.id;
+          threadTopId = null;
+          threadRootAuthorId = parentPost.userId;
+        } else {
+          rootPostId = parentPost.rootPostId ?? parentPost.parentPostId;
+          threadTopId = parentPost.threadTopId ?? parentPost.id;
+          const threadRoot = rootPostId
+            ? await tx.post.findUnique({
+                select: { userId: true },
+                where: { id: rootPostId },
+              })
+            : null;
+          threadRootAuthorId = threadRoot?.userId ?? null;
+        }
+      }
+
       // Atomically claim the attachments for THIS post: the ownership
       // pre-check above is a read that two concurrent post creations could
       // both pass, and a plain connect would then let the second write
@@ -256,6 +319,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   })),
                 }
               : undefined,
+          parentPostId: parentPost?.id ?? null,
+          rootPostId,
           semanticTags: [
             ...new Set(validatedInput.tags.map((t) => t.toLowerCase())),
           ],
@@ -265,6 +330,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
               where: { name: tagName.toLowerCase() },
             })),
           },
+          threadTopId,
           userId: sessionData.user.id,
         },
         include: {
@@ -316,6 +382,41 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         },
       });
       publishedNotificationId = publishedNotification.id;
+
+      // Notify the author of the post being responded to, plus the author of
+      // the thread's root post (when different), deduped and never self. The
+      // postId points at the RESPONSE so the notification deep-links to it.
+      if (parentPost) {
+        const replyRecipients = new Set<string>();
+        if (parentPost.userId !== sessionData.user.id) {
+          replyRecipients.add(parentPost.userId);
+        }
+        if (
+          threadRootAuthorId &&
+          threadRootAuthorId !== sessionData.user.id &&
+          threadRootAuthorId !== parentPost.userId
+        ) {
+          replyRecipients.add(threadRootAuthorId);
+        }
+        const replyRecipientIds = [...replyRecipients];
+        await Promise.all(
+          replyRecipientIds.map((recipientId) =>
+            tx.notification.create({
+              data: {
+                issuerId: sessionData.user.id,
+                postId: post.id,
+                recipientId,
+                type: "REPLY",
+              },
+            })
+          )
+        );
+        for (const recipientId of replyRecipientIds) {
+          enqueueNotificationCreated(recipientId).catch((error: unknown) => {
+            console.error("Failed to enqueue reply notification event:", error);
+          });
+        }
+      }
 
       // The media rows' postId just changed (draft uploads start unlinked), and
       // /api/media caches the row to drive its access decision. Drop that cache
@@ -480,6 +581,19 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       await invalidateAuraSignals([...signalUserIds]);
     } catch (error) {
       console.error("Failed to invalidate aura signals:", error);
+    }
+
+    // A new response fans out to everyone viewing the thread. The channel is
+    // keyed on the thread ROOT (not the immediate parent) so nested responses
+    // reach every viewer of the post, and the responder's own engagement
+    // should shape their next For-You load.
+    if (newPost?.parentPostId && newPost.rootPostId) {
+      try {
+        await publishResponseCreated(newPost.rootPostId, newPost);
+      } catch (error) {
+        console.error("Failed to publish response event:", error);
+      }
+      void invalidateFypProfile(sessionData.user.id);
     }
 
     // IndexNow: fire-and-forget so Bing/Yandex discover the URL same-day.

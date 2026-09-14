@@ -32,7 +32,7 @@ interface ClientHomeProps {
   userData: UserData | null;
 }
 
-type FeedTab = "for-you" | "global" | "following";
+type FeedTab = "following" | "latest" | "personalized" | "trending";
 
 const ClientHome: React.FC<ClientHomeProps> = () => {
   const pathname = usePathname();
@@ -42,17 +42,26 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
   const isLoggedIn = Boolean(user);
 
   const tabParam = searchParams.get("tab");
-  let tab: FeedTab = "global";
-  if (tabParam === "for-you") {
-    tab = "for-you";
-  } else if (tabParam === "following") {
-    tab = "following";
-  }
+  const defaultTab: FeedTab = isLoggedIn ? "personalized" : "latest";
+  const tab: FeedTab =
+    tabParam === "following" ||
+    tabParam === "latest" ||
+    tabParam === "personalized" ||
+    tabParam === "trending"
+      ? tabParam
+      : defaultTab;
 
   const handleTabChange = useCallback(
     (value: string) => {
       const nextParams = new URLSearchParams(searchParams.toString());
-      if (value === "for-you" || value === "following") {
+      if (value === defaultTab) {
+        nextParams.delete("tab");
+      } else if (
+        value === "following" ||
+        value === "latest" ||
+        value === "personalized" ||
+        value === "trending"
+      ) {
         nextParams.set("tab", value);
       } else {
         nextParams.delete("tab");
@@ -60,18 +69,22 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
       const query = nextParams.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
     },
-    [pathname, router, searchParams]
+    [defaultTab, pathname, router, searchParams]
   );
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const hideTopBar = useHideOnScroll(feedScrollRef);
 
-  // Mobile swipes drag the tab strip like a carousel: a left-to-right swipe
-  // pulls in the tab on the left (Trending), right-to-left the one on the
-  // right (Following).
+  // Mobile swipes drag the tab strip like a carousel from personalized to
+  // latest, trending, and finally following.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      const order: FeedTab[] = ["for-you", "global", "following"];
+      const order: FeedTab[] = [
+        "personalized",
+        "latest",
+        "trending",
+        "following",
+      ];
       const nextIndex = order.indexOf(tab) + direction;
       if (nextIndex >= 0 && nextIndex < order.length) {
         handleTabChange(order[nextIndex]);
@@ -96,18 +109,25 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <AnimatedTabTrigger
-                  active={tab === "for-you"}
+                  active={tab === "personalized"}
                   layoutId="home-tab-indicator"
-                  value="for-you"
+                  value="personalized"
                 >
-                  Trending
+                  For you
                 </AnimatedTabTrigger>
                 <AnimatedTabTrigger
-                  active={tab === "global"}
+                  active={tab === "latest"}
                   layoutId="home-tab-indicator"
-                  value="global"
+                  value="latest"
                 >
-                  Global
+                  Latest
+                </AnimatedTabTrigger>
+                <AnimatedTabTrigger
+                  active={tab === "trending"}
+                  layoutId="home-tab-indicator"
+                  value="trending"
+                >
+                  Trending
                 </AnimatedTabTrigger>
                 <AnimatedTabTrigger
                   active={tab === "following"}
@@ -166,12 +186,16 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
               ref={feedScrollRef}
             >
               {isLoggedIn ? <PostEditor /> : null}
-              <TabsContent className="mt-0 pb-12" value="for-you">
-                <HomeFeed variant="trending" />
+              <TabsContent className="mt-0 pb-12" value="personalized">
+                <HomeFeed variant="personalized" />
               </TabsContent>
 
-              <TabsContent className="mt-0 pb-12" value="global">
-                <HomeFeed variant="global" />
+              <TabsContent className="mt-0 pb-12" value="latest">
+                <HomeFeed variant="latest" />
+              </TabsContent>
+
+              <TabsContent className="mt-0 pb-12" value="trending">
+                <HomeFeed variant="trending" />
               </TabsContent>
 
               <TabsContent className="mt-0 pb-12" value="following">

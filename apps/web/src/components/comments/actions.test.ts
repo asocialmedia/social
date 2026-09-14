@@ -241,9 +241,12 @@ mock.module("@asm/db", () => ({
   enqueueNotificationDeleted: mockPublish,
   getCommentDataInclude: () => ({ user: true }),
   invalidateAuraSignals: () => Promise.resolve(),
+  invalidateFypProfile: () => Promise.resolve(),
   prisma: mockPrisma,
   publishCommentCreated: mockPublish,
   publishCommentDeleted: mockPublish,
+  publishResponseCreated: mockPublish,
+  publishResponseDeleted: mockPublish,
 }));
 
 mock.module("next/cache", () => ({

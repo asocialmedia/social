@@ -77,6 +77,7 @@ export async function GET(
     where: {
       id: { not: postId },
       moderated: false,
+      rootPostId: null,
       ...(tagList.length > 0
         ? {
             OR: [
@@ -105,6 +106,7 @@ export async function GET(
           notIn: [postId, ...candidates.map((c) => c.id)],
         },
         moderated: false,
+        rootPostId: null,
       },
     });
     candidates = [...candidates, ...fallbackPosts];

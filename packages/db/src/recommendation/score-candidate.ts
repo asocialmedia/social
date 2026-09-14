@@ -103,8 +103,12 @@ export function scoreCandidateComponents(
 
   // 2. Tag Overlap & Negative Tag Demotion
   const distinctTags = [
-    ...new Set([...post.tags, ...(post.semanticTags ?? [])]),
-  ].filter(Boolean);
+    ...new Set(
+      [...post.tags, ...(post.semanticTags ?? [])]
+        .map((tag) => tag.toLowerCase().trim())
+        .filter(Boolean)
+    ),
+  ];
   let tagMass = 0;
   let negativeTagMass = 0;
   for (const tag of distinctTags) {

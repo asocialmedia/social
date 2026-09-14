@@ -30,6 +30,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import {
   Clapperboard,
+  CornerDownRight,
   FileAudioIcon,
   GripVertical,
   Hash,
@@ -221,7 +222,13 @@ export default function PostEditor({
   const isHnSharing = hnShareStore.isSharing;
 
   const composerMode = useComposerStore((state) => state.mode);
-  const isGust = composerMode === "gust";
+  const replyTo = useComposerStore((state) => state.replyTo);
+  const clearReplyTo = useComposerStore((state) => state.clearReplyTo);
+  const closeComposer = useComposerStore((state) => state.closeComposer);
+  // Responses are always fleets: the reply target forces gust mode off even if
+  // a previous draft left the composer in gust mode.
+  const isResponse = Boolean(replyTo);
+  const isGust = composerMode === "gust" && !isResponse;
 
   const { data: userData } = useQuery({
     enabled: Boolean(user),
@@ -730,6 +737,7 @@ export default function PostEditor({
         selectedTags.map((tag) => tag.toLowerCase()),
         inlineRelations.tags
       ),
+      ...(replyTo ? { parentPostId: replyTo.id } : {}),
       ...(isHnSharing && sharedHnStory
         ? {
             hnStory: {
@@ -793,6 +801,12 @@ export default function PostEditor({
         if (newPost?.isGust) {
           router.push(`/gusts?id=${newPost.id}`);
         }
+        // A response is published into the thread the user is already viewing;
+        // close the composer (which also clears the reply target) so the new
+        // response is visible in place.
+        if (newPost?.parentPostId) {
+          closeComposer();
+        }
       },
     });
   }, [
@@ -818,6 +832,8 @@ export default function PostEditor({
     setGifPickerOpen,
     setSelectedMentions,
     toast,
+    replyTo,
+    closeComposer,
   ]);
   // oxlint-enable react/preserve-manual-memoization
 
@@ -943,6 +959,28 @@ export default function PostEditor({
           : "rounded-none border-0 bg-transparent"
       )}
     >
+      {/* Response banner: names the post being replied to and clears the reply
+          target (returning the composer to a normal post). */}
+      {replyTo ? (
+        <div className="border-border/60 bg-muted/30 flex items-center gap-2 rounded-xl border px-3 py-2 text-sm">
+          <CornerDownRight className="text-muted-foreground size-4 shrink-0" />
+          <span className="text-muted-foreground">Responding to</span>
+          <span className="truncate font-semibold">@{replyTo.username}</span>
+          {replyTo.content ? (
+            <span className="text-muted-foreground hidden truncate sm:inline">
+              · {replyTo.content}
+            </span>
+          ) : null}
+          <button
+            aria-label="Cancel response"
+            className="text-muted-foreground hover:text-foreground ml-auto flex size-6 shrink-0 items-center justify-center rounded-full transition-colors"
+            onClick={clearReplyTo}
+            type="button"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
       {/* The avatar leads the composer on every breakpoint: the input bar
           sits beside it on mobile too. Gust mode with a clip keeps its
           stacked mobile grid instead - there the avatar leads the rail
@@ -1393,8 +1431,12 @@ export default function PostEditor({
                 {isGust ? null : (
                   <div className="flex items-center gap-2">
                     <ModeToggle
-                      disabled={modeSwitchLocked}
-                      disabledReason={modeSwitchReason}
+                      disabled={modeSwitchLocked || isResponse}
+                      disabledReason={
+                        isResponse
+                          ? "Responses are fleet posts"
+                          : modeSwitchReason
+                      }
                       isGust={isGust}
                     />
                     {publishButton}

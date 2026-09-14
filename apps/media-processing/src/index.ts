@@ -8,7 +8,11 @@
 // All app modules are imported dynamically AFTER loadRootEnv(): src/env.ts
 // validates at import time and must observe the final environment.
 
-import type { MediaCleanupJobData, MediaScanJobData } from "@asm/media";
+import type {
+  MediaAnalyzeJobData,
+  MediaCleanupJobData,
+  MediaScanJobData,
+} from "@asm/media";
 
 import { loadRootEnv } from "./load-env";
 
@@ -78,7 +82,7 @@ if (import.meta.main) {
           return await processMedia(job.data as { mediaId: string });
         }
         case MEDIA_JOB_NAMES.analyze: {
-          return await processMediaAnalyze(job.data as { mediaId: string });
+          return await processMediaAnalyze(job.data as MediaAnalyzeJobData);
         }
         default: {
           throw new Error(`Unknown media job: ${job.name}`);

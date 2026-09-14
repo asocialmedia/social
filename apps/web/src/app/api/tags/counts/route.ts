@@ -11,7 +11,8 @@ export async function GET() {
           select: {
             _count: {
               select: {
-                posts: true,
+                // Count top-level posts only so responses do not inflate tags.
+                posts: { where: { rootPostId: null } },
               },
             },
             id: true,
@@ -19,6 +20,7 @@ export async function GET() {
           },
         },
       },
+      where: { rootPostId: null },
     });
 
     return NextResponse.json({ posts: postsWithTags });

@@ -405,6 +405,19 @@ model Post {
   isGust                Boolean        @default(false)
   moderated             Boolean        @default(false)
   explicitContent       Boolean        @default(false)
+  // Responses are posts that reply to another post. `parentPostId` is the
+  // immediate parent (relation, nulled if the parent is hard-deleted so the
+  // response survives as a tombstone). `rootPostId` is the id of the thread's
+  // top-level POST and is set for every response, which is what marks a post as
+  // a response even after its parent is gone. `threadTopId` is the id of the
+  // thread's top-level response (null for a direct response), giving the
+  // responses API the same one-level pagination anchor comments use via
+  // `rootId`.
+  parentPostId          String?
+  parentPost            Post?          @relation("PostResponses", fields: [parentPostId], references: [id], onDelete: SetNull)
+  responses             Post[]         @relation("PostResponses")
+  rootPostId            String?
+  threadTopId           String?
   attachments           Media[]
   bookmarks             Bookmark[]
   comments              Comment[]
@@ -431,6 +444,9 @@ model Post {
   @@index([isGust, aura, id])
   @@index([isGust, trendingScore, id])
   @@index([userId, isGust, createdAt])
+  @@index([parentPostId, createdAt])
+  @@index([rootPostId, createdAt])
+  @@index([threadTopId, createdAt])
   @@map("posts")
 }
 
@@ -801,6 +817,7 @@ enum NotificationType {
   MENTION
   MODERATION
   PUBLISHED
+  REPLY
   TRANSCRIPTION
 }
 

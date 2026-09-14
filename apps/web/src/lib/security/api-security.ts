@@ -37,9 +37,10 @@ const TIER_RULES: TierRule[] = [
   { pattern: /^\/api\/upload/, tier: UPLOAD_TIER },
   { pattern: /^\/api\/search/, tier: HEAVY_READ_TIER },
   {
-    pattern: /^\/api\/posts\/(?:for-you|trending|following)/,
+    pattern: /^\/api\/posts\/(?:for-you|latest|trending|following)/,
     tier: HEAVY_READ_TIER,
   },
+  { pattern: /^\/api\/gusts/, tier: HEAVY_READ_TIER },
 ];
 
 // Paths that never count against any tier.

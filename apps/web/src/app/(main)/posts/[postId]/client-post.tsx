@@ -12,7 +12,6 @@ import { CommentsRealtimeProvider } from "@/components/comments/comments-realtim
 import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import FloatingPostEditor from "@/components/layouts/mobile/floating-post-editor";
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
@@ -112,6 +111,9 @@ const ClientPost: React.FC<ClientPostProps> = ({
   }, [router]);
 
   const authorUsername = post.user?.username;
+  // On a response permalink the detail thread focuses that response; the
+  // thread itself is always fetched from its root (handled inside Responses).
+  const focusResponseId = post.parentPostId ? post.id : undefined;
   // Mobile swipes: a right-to-left slide opens the author's profile. The
   // fullscreen media viewer is a Radix dialog portaled outside this scroll
   // container, so swiping inside an open viewer never reaches this handler.
@@ -149,7 +151,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
             <div>
               <PostCard
                 detail
-                hideComposerOnMobile
+                focusResponseId={focusResponseId}
                 initialMediaIndex={initialMediaIndex}
                 post={post}
               />
@@ -174,7 +176,6 @@ const ClientPost: React.FC<ClientPostProps> = ({
       </div>
 
       <PostAuthorSidebar post={post} />
-      {isLoggedIn ? <FloatingPostEditor post={post} /> : null}
     </CommentsRealtimeProvider>
   );
 };

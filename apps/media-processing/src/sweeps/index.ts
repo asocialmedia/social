@@ -19,6 +19,7 @@ import {
 } from "@asm/db";
 import { Worker } from "bullmq";
 
+import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { resolveWorkerMediaLimits, workerEnv } from "../env";
 import { mediaLogger } from "../log";
 import { getS3 } from "../s3";
@@ -408,6 +409,64 @@ export async function transcriptionBackfillSweep(): Promise<{
   return { enqueued };
 }
 
+// Semantic classification backfill: re-runs only the recommendation metadata
+// stage for READY media produced by an older classifier. The analyze job keeps
+// existing OCR/transcripts and skips safety/transcription during this refresh.
+// The version marker makes this bounded and safe to run on every deployment.
+export async function semanticClassificationBackfillSweep(): Promise<{
+  enqueued: number;
+}> {
+  if (!workerEnv.BACKFILL_ENABLED) {
+    return { enqueued: 0 };
+  }
+
+  const candidates = await prisma.media.findMany({
+    orderBy: { createdAt: "asc" },
+    select: { id: true, techMetadata: true },
+    take: SWEEP_BATCH,
+    where: {
+      status: "READY",
+      techMetadata: {
+        not: SEMANTIC_CLASSIFICATION_VERSION,
+        path: ["semanticClassificationVersion"],
+      },
+      type: { in: ["AUDIO", "IMAGE", "VIDEO"] },
+    },
+  });
+
+  let enqueued = 0;
+  for (const candidate of candidates) {
+    const metadata =
+      candidate.techMetadata && typeof candidate.techMetadata === "object"
+        ? (candidate.techMetadata as Record<string, unknown>)
+        : null;
+    if (
+      metadata?.semanticClassificationVersion ===
+      SEMANTIC_CLASSIFICATION_VERSION
+    ) {
+      continue;
+    }
+
+    try {
+      await enqueueMediaAnalyze(candidate.id, { semanticRefresh: true });
+      enqueued += 1;
+    } catch (error) {
+      mediaLogger.warn(
+        { error: String(error), mediaId: candidate.id },
+        "semantic classification backfill enqueue failed"
+      );
+    }
+  }
+
+  if (enqueued > 0) {
+    mediaLogger.info(
+      { count: enqueued, version: SEMANTIC_CLASSIFICATION_VERSION },
+      "semantic classification backfill enqueued media"
+    );
+  }
+  return { enqueued };
+}
+
 // Registers self-healing schedules on the media queue. Idempotent via
 // upsertJobScheduler.
 export async function registerSweepSchedulers(connectionOptions: {
@@ -423,6 +482,9 @@ export async function registerSweepSchedulers(connectionOptions: {
   await queue.upsertJobScheduler("media-quarantine-gc", { every: daily });
   await queue.upsertJobScheduler("media-derived-heal", { every: daily });
   await queue.upsertJobScheduler("media-transcription-backfill", {
+    every: thirtyMinutes,
+  });
+  await queue.upsertJobScheduler("media-semantic-classification-backfill", {
     every: thirtyMinutes,
   });
   const sweepWorker = new Worker(
@@ -445,6 +507,9 @@ export async function registerSweepSchedulers(connectionOptions: {
         case "media-transcription-backfill": {
           return await transcriptionBackfillSweep();
         }
+        case "media-semantic-classification-backfill": {
+          return await semanticClassificationBackfillSweep();
+        }
         default: {
           throw new Error(`Unknown sweep job: ${job.name}`);
         }
@@ -463,6 +528,7 @@ export async function registerSweepSchedulers(connectionOptions: {
   void (async () => {
     try {
       await transcriptionBackfillSweep();
+      await semanticClassificationBackfillSweep();
     } catch (error) {
       mediaLogger.warn(
         { error: String(error) },

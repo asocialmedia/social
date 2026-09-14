@@ -17,16 +17,26 @@ import FeedEnd from "./feedview/feed-end";
 
 interface HomeFeedProps {
   excludePostId?: string;
-  variant?: "trending" | "global";
+  variant?: "latest" | "personalized" | "trending" | "global";
 }
 
 export default function HomeFeed({
-  variant = "global",
+  variant = "personalized",
   excludePostId,
 }: HomeFeedProps) {
   const isTrending = variant === "trending";
-  const queryKey = ["post-feed", isTrending ? "trending" : "for-you"];
-  const endpoint = isTrending ? "/api/posts/trending" : "/api/posts/for-you";
+  const isLatest = variant === "latest";
+  const isPersonalized = variant === "personalized" || variant === "global";
+  let feedKey = "for-you";
+  let endpoint = "/api/posts/for-you";
+  if (isTrending) {
+    feedKey = "trending";
+    endpoint = "/api/posts/trending";
+  } else if (isLatest) {
+    feedKey = "latest";
+    endpoint = "/api/posts/latest";
+  }
+  const queryKey = ["post-feed", feedKey];
 
   const {
     data,
@@ -139,6 +149,17 @@ export default function HomeFeed({
     return <FeedViewSkeleton />;
   }
 
+  let emptyTitle = "No personalized Fleets to show here.";
+  let emptyDescription =
+    "Your feed will learn from what you read, amplify, bookmark, and discuss.";
+  if (isTrending) {
+    emptyTitle = "No trending fleets yet.";
+    emptyDescription = "Posts with the most aura will surface here.";
+  } else if (isLatest) {
+    emptyTitle = "No Fleets yet.";
+    emptyDescription = "The latest Fleets will appear here.";
+  }
+
   if (status === "success" && !posts.length && !hasNextPage) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
@@ -151,12 +172,10 @@ export default function HomeFeed({
           width={1536}
         />
         <p className="text-muted-foreground text-sm sm:text-base">
-          {isTrending ? "No trending fleets yet." : "No Fleets to show here."}
+          {emptyTitle}
         </p>
         <p className="text-muted-foreground/70 text-xs sm:text-sm">
-          {isTrending
-            ? "Posts with the most aura will surface here."
-            : "Follow more users to see their fleets in your feed."}
+          {emptyDescription}
         </p>
       </div>
     );
@@ -195,7 +214,7 @@ export default function HomeFeed({
             cacheKey={queryKey}
             excludePostId={excludePostId}
             posts={posts}
-            sortBy={isTrending ? "server" : "newest"}
+            sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         )}
         {isFetchingNextPage ? <LoadMoreSkeleton /> : null}

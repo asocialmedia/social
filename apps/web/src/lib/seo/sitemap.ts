@@ -124,6 +124,7 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
     where: {
       isGust: false,
       moderated: false,
+      rootPostId: null,
       user: { banned: false },
     },
   });

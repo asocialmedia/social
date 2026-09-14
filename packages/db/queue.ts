@@ -348,14 +348,19 @@ export async function enqueueMediaProcess(
   );
 }
 
-export async function enqueueMediaAnalyze(mediaId: string): Promise<void> {
+export async function enqueueMediaAnalyze(
+  mediaId: string,
+  options?: { semanticRefresh?: boolean }
+): Promise<void> {
   const queue = getQueue(MEDIA_PROCESS_QUEUE);
+  const suffix = options?.semanticRefresh ? "semantic-refresh-v2" : undefined;
+  const jobKey = suffix ? `${mediaId}-${suffix}` : mediaId;
   await addWithFreshId(
     queue,
     "media-analyze",
-    `analyze-${mediaId}`,
-    { mediaId },
-    mediaJobOptions("analyze", mediaId)
+    `analyze-${jobKey}`,
+    { mediaId, semanticRefresh: options?.semanticRefresh ?? false },
+    mediaJobOptions("analyze", jobKey)
   );
 }
 

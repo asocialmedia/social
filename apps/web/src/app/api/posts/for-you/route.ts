@@ -66,9 +66,12 @@ export async function GET(request: Request) {
   if (!data) {
     // Guests, cursor pages beyond the candidate pool, and cold-start fallbacks
     // stream all remaining/expired posts chronologically at the bottom.
-    const where: Prisma.PostWhereInput = excludeModerated
-      ? { isGust: false, moderated: false }
-      : { isGust: false };
+    const where: Prisma.PostWhereInput = {
+      isGust: false,
+      moderated: excludeModerated ? false : undefined,
+      rootPostId: null,
+      userId: userId ? { not: userId } : undefined,
+    };
 
     const rawCursor =
       cursor && cursor.startsWith("exp.")

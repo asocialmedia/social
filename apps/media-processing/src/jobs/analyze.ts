@@ -17,6 +17,7 @@ import type { MediaAnalyzeJobData } from "@asm/media";
 import { classifyMediaConcepts } from "../analyze/classify";
 import { generateTextEmbedding } from "../analyze/embedding";
 import { extractImageText } from "../analyze/ocr";
+import { SEMANTIC_CLASSIFICATION_VERSION } from "../analyze/semantic-version";
 import { transcribeMediaAudio } from "../analyze/transcribe";
 import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
@@ -29,13 +30,17 @@ const ANALYZABLE_TYPES = new Set(["AUDIO", "IMAGE", "VIDEO"]);
 interface AnalysisSource {
   avLocalPath: string | null;
   isRaster: boolean;
+  ocrText: string | null;
   rasterLocalPath: string | null;
+  semanticTags: string[];
   techMetadata: unknown;
+  transcript: string | null;
   type: "AUDIO" | "DOCUMENT" | "IMAGE" | "VIDEO";
 }
 
 async function resolveAnalysisSource(
-  mediaId: string
+  mediaId: string,
+  semanticRefresh: boolean
 ): Promise<AnalysisSource | null> {
   const media = await prisma.media.findUnique({
     select: {
@@ -44,10 +49,13 @@ async function resolveAnalysisSource(
         select: { key: true, kind: true },
       },
       key: true,
+      ocrText: true,
       originalKey: true,
       publishedKey: true,
+      semanticTags: true,
       status: true,
       techMetadata: true,
+      transcript: true,
       type: true,
     },
     where: { id: mediaId },
@@ -86,6 +94,7 @@ async function resolveAnalysisSource(
   // Download AV bytes only when transcription can actually run: with
   // Whisper disabled the multi-hundred-MB fetch would be pure waste.
   if (
+    !semanticRefresh &&
     workerEnv.WHISPER_ENABLED &&
     (media.type === "VIDEO" || media.type === "AUDIO")
   ) {
@@ -109,8 +118,11 @@ async function resolveAnalysisSource(
   return {
     avLocalPath,
     isRaster: Boolean(preferredRaster) || media.type === "IMAGE",
+    ocrText: media.ocrText,
     rasterLocalPath,
+    semanticTags: media.semanticTags,
     techMetadata: media.techMetadata,
+    transcript: media.transcript,
     type: media.type,
   };
 }
@@ -121,7 +133,11 @@ export function processMediaAnalyze(
   return withSpan(
     "job.media-analyze",
     async () => {
-      const source = await resolveAnalysisSource(jobData.mediaId);
+      const semanticRefresh = jobData.semanticRefresh === true;
+      const source = await resolveAnalysisSource(
+        jobData.mediaId,
+        semanticRefresh
+      );
       if (!source) {
         return { outcome: "skipped" as const };
       }
@@ -130,7 +146,7 @@ export function processMediaAnalyze(
       try {
         // Stage 1: NSFW Safety classification
         let verdict = null;
-        if (source.isRaster && rasterLocalPath) {
+        if (!semanticRefresh && source.isRaster && rasterLocalPath) {
           try {
             verdict = await classifyImageSafety(rasterLocalPath);
           } catch (error) {
@@ -144,7 +160,12 @@ export function processMediaAnalyze(
         // Stage 2: Scene-text OCR
         let ocr = null;
         const wantsOcr = source.type === "IMAGE" || source.type === "VIDEO";
-        if (wantsOcr && source.isRaster && rasterLocalPath) {
+        if (
+          !semanticRefresh &&
+          wantsOcr &&
+          source.isRaster &&
+          rasterLocalPath
+        ) {
           try {
             ocr = await extractImageText(rasterLocalPath);
           } catch (error) {
@@ -155,6 +176,7 @@ export function processMediaAnalyze(
         // Stage 3: Speech-to-text Whisper transcription & WebVTT generation
         let transcription = null;
         if (
+          !semanticRefresh &&
           avLocalPath &&
           (source.type === "VIDEO" || source.type === "AUDIO")
         ) {
@@ -168,18 +190,27 @@ export function processMediaAnalyze(
           }
         }
 
+        const ocrTextForClassification = semanticRefresh
+          ? source.ocrText
+          : ocr?.text;
+        const transcriptForClassification = semanticRefresh
+          ? source.transcript
+          : transcription?.transcript;
+
         // Stage 4: Multi-label concept & topic classification
         let semanticTags: string[] = [];
         let semantics: Record<string, unknown> | null = null;
+        let classificationSucceeded = false;
         try {
           const classification = await classifyMediaConcepts({
             imagePath: rasterLocalPath,
             mediaId: jobData.mediaId,
-            ocrText: ocr?.text,
-            transcript: transcription?.transcript,
+            ocrText: ocrTextForClassification,
+            transcript: transcriptForClassification,
           });
           semanticTags = classification.tags;
           semantics = classification.semantics ?? null;
+          classificationSucceeded = true;
         } catch (error) {
           mediaLogger.warn(
             { error: String(error) },
@@ -229,7 +260,7 @@ export function processMediaAnalyze(
             error: transcription.error ?? null,
             status: transcription.status,
           };
-        } else if (isAudioVideo) {
+        } else if (isAudioVideo && !semanticRefresh) {
           transcriptionMeta = {
             attemptedAt: new Date().toISOString(),
             attempts: prevAttempts + 1,
@@ -241,7 +272,16 @@ export function processMediaAnalyze(
         const updatedTechMetadata = {
           ...existingTech,
           ...(transcriptionMeta ? { transcription: transcriptionMeta } : {}),
+          ...(classificationSucceeded
+            ? {
+                semanticClassificationVersion: SEMANTIC_CLASSIFICATION_VERSION,
+              }
+            : {}),
         };
+        const effectiveSemanticTags =
+          semanticRefresh && semanticTags.length === 0
+            ? source.semanticTags
+            : semanticTags;
 
         await prisma.media.update({
           data: {
@@ -250,7 +290,9 @@ export function processMediaAnalyze(
               : {}),
             ...(ocr ? { ocrText: ocr.text.length > 0 ? ocr.text : null } : {}),
             ...(verdict ? { safety: structuredClone(verdict) as object } : {}),
-            ...(semanticTags.length > 0 ? { semanticTags } : {}),
+            ...(effectiveSemanticTags.length > 0
+              ? { semanticTags: effectiveSemanticTags }
+              : {}),
             ...(semantics
               ? { semantics: structuredClone(semantics) as object }
               : {}),
@@ -388,6 +430,7 @@ export function processMediaAnalyze(
               include: {
                 attachments: {
                   select: {
+                    id: true,
                     ocrText: true,
                     semanticTags: true,
                     transcript: true,
@@ -415,8 +458,10 @@ export function processMediaAnalyze(
             const allSemanticTags = [
               ...new Set([
                 ...post.tags.map((t) => t.name),
-                ...(post.attachments ?? []).flatMap((a) => a.semanticTags),
-                ...semanticTags,
+                ...(post.attachments ?? [])
+                  .filter((a) => a.id !== jobData.mediaId)
+                  .flatMap((a) => a.semanticTags),
+                ...effectiveSemanticTags,
               ]),
             ];
 
