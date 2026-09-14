@@ -30,6 +30,7 @@ import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigger";
+import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import kyInstance from "@/lib/ky";
@@ -76,6 +77,29 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [hiddenPostIds, setHiddenPostIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  useEffect(() => {
+    const handleNotInterested = (event: Event) => {
+      const postId = (event as CustomEvent<{ postId?: string }>).detail?.postId;
+      if (!postId) {
+        return;
+      }
+      setHiddenPostIds((current) => new Set([...current, postId]));
+    };
+    window.addEventListener(
+      "recommendation:not-interested",
+      handleNotInterested
+    );
+    return () => {
+      window.removeEventListener(
+        "recommendation:not-interested",
+        handleNotInterested
+      );
+    };
+  }, []);
 
   // Restore the saved video mute preference after hydration so a gust the user
   // muted stays muted (or unmuted) across page loads. The lazy default stays
@@ -151,8 +175,9 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         // Drop moderated stragglers from stale cached pages so a gust that
         // gets moderated mid-session disappears instead of lingering.
         .filter((post) => !post.moderated)
+        .filter((post) => !hiddenPostIds.has(post.id))
         .filter((post) => post.attachments.some((m) => m.type === "VIDEO")),
-    [data?.pages]
+    [data?.pages, hiddenPostIds]
   );
 
   // Refetch the feed and surface a pill when brand-new gusts (not already in
@@ -500,15 +525,17 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
                   itemRefs.current[idx] = el;
                 }}
               >
-                <GustCard
-                  interactive
-                  isActive={isCurrentActive}
-                  isMuted={isMuted}
-                  onOpenComments={() => setIsCommentsOpen(true)}
-                  onToggleMute={handleToggleMute}
-                  post={post}
-                  shouldMountVideo={shouldMount}
-                />
+                <RecommendationTracker postId={post.id}>
+                  <GustCard
+                    interactive
+                    isActive={isCurrentActive}
+                    isMuted={isMuted}
+                    onOpenComments={() => setIsCommentsOpen(true)}
+                    onToggleMute={handleToggleMute}
+                    post={post}
+                    shouldMountVideo={shouldMount}
+                  />
+                </RecommendationTracker>
               </div>
             );
           })}

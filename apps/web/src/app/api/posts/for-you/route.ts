@@ -69,7 +69,6 @@ export async function GET(request: Request) {
     const where: Prisma.PostWhereInput = {
       isGust: false,
       moderated: excludeModerated ? false : undefined,
-      rootPostId: null,
       userId: userId ? { not: userId } : undefined,
     };
 

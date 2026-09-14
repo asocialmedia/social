@@ -7,6 +7,7 @@ import {
 } from "@asm/ui/shadui/dropdown-menu";
 import {
   Captions,
+  EyeOff,
   Hash,
   MoreHorizontal,
   ShieldCheck,
@@ -17,6 +18,7 @@ import type * as React from "react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { markRecommendationNotInterested } from "@/components/recommendations/recommendation-tracker";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
 import { canModeratePost } from "@/lib/moderation/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
@@ -131,6 +133,16 @@ export default function PostMoreButton({
     []
   );
 
+  const handleNotInterested = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      markRecommendationNotInterested(post.id);
+      setIsOpen(false);
+      setPopupOpen(false);
+    },
+    [post.id]
+  );
+
   return (
     <>
       <DropdownMenu onOpenChange={handleOpenChange}>
@@ -155,6 +167,17 @@ export default function PostMoreButton({
           className="apple-panel p-1.5 shadow-none"
         >
           {extraItems}
+          {user && !isOwner ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleNotInterested}
+            >
+              <span className="flex items-center gap-3">
+                <EyeOff className="size-4" />
+                Not interested
+              </span>
+            </DropdownMenuItem>
+          ) : null}
           {canModerate ? (
             <DropdownMenuItem
               className="pill-3d-hover rounded-md px-2 py-2"

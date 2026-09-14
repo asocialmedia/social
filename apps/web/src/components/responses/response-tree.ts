@@ -6,11 +6,6 @@ export interface ResponseNode {
   response: PostData;
 }
 
-// Nesting deeper than this renders flat (no further indentation) so deep
-// threads never push content into a thin sliver on mobile. Mirrors the eddies
-// renderer.
-export const MAX_RESPONSE_DEPTH = 6;
-
 // Builds a thread from a flat list of response posts linked by parentPostId.
 // Direct responses (parent is the anchor post, not in the set) are the roots
 // and sort newest-first, matching the responses API pagination; replies within
@@ -72,6 +67,23 @@ export function findResponseNode(
     }
   }
   return null;
+}
+
+// Depth-first flatten: a parent is emitted before its children so the thread
+// reads top-to-bottom as one column (Twitter-style), while the tree structure
+// is preserved on each node for the embedded parent card.
+export function flattenResponseTree(nodes: ResponseNode[]): ResponseNode[] {
+  const flat: ResponseNode[] = [];
+  const visit = (node: ResponseNode) => {
+    flat.push(node);
+    for (const child of node.children) {
+      visit(child);
+    }
+  };
+  for (const node of nodes) {
+    visit(node);
+  }
+  return flat;
 }
 
 // Folds the realtime/optimistic live store over the server-fetched pages,

@@ -20,23 +20,22 @@ import { getPostPath } from "@/lib/seo/seo";
 import { formatRelativeDate } from "@/lib/utils";
 
 import ResponseParentCard from "./response-parent-card";
-import { MAX_RESPONSE_DEPTH } from "./response-tree";
 import type { ResponseNode } from "./response-tree";
 
-// Twitter-style thread geometry: a straight vertical line drops from the
-// centre of each avatar down to the next reply's avatar. No curves, no
-// horizontal rules between replies: the line is the thread.
+// Twitter-style thread geometry: every reply is one column with a single
+// straight vertical line dropping from the centre of each avatar to the next.
+// No curves and no per-level indent, so nested replies can never produce a
+// stray second spine or a compounding offset.
 const AVATAR_SIZE = 40;
-// flex gap-2.5 between avatar and content
-const INDENT = 32; // horizontal offset per nesting level
-// 2px line centred under the avatar (avatar centre = 20px).
 const LINE_WIDTH = 2;
+// 2px line centred under the avatar (avatar centre = 20px).
 const LINE_LEFT = AVATAR_SIZE / 2 - LINE_WIDTH / 2;
-// Small breathing room between the avatar and the top of the line.
+// A little breathing room between the avatar and the top of the line.
 const LINE_TOP = AVATAR_SIZE + 6;
 
 interface ResponseItemProps {
-  // Marks the last sibling so its connector line stops instead of running on.
+  // True for the last row of the whole thread, so the line terminates instead
+  // of running past the end.
   isLast?: boolean;
   node: ResponseNode;
   onRespond: (response: PostData) => void;
@@ -47,15 +46,10 @@ export default function ResponseItem({
   node,
   onRespond,
 }: ResponseItemProps) {
-  const { children, depth, response } = node;
+  const { response } = node;
   const author = response.user;
   const username = author?.username ?? "unknown";
   const displayName = author?.displayName || username;
-  const clampedDepth = Math.min(depth, MAX_RESPONSE_DEPTH);
-  const indent = clampedDepth * INDENT;
-  // The line continues while there is anything below this reply: a nested
-  // child and/or a following sibling.
-  const continues = children.length > 0 || !isLast;
   const embeds = parseStoredEmbeds(response.embeds);
   const attachments = response.attachments ?? [];
   // normalizePostData heals viewer-scoped joins that can be lost in transit; it
@@ -63,18 +57,14 @@ export default function ResponseItem({
   const post = normalizePostData(response) as PostData;
 
   return (
-    <div
-      className="relative scroll-mt-4 pb-2.5"
-      id={`response-${response.id}`}
-      style={{ paddingLeft: indent }}
-    >
-      {continues && (
+    <div className="relative scroll-mt-4 pb-2.5" id={`response-${response.id}`}>
+      {!isLast && (
         <span
           aria-hidden="true"
           className="bg-border pointer-events-none absolute rounded-full"
           style={{
             bottom: 0,
-            left: indent + LINE_LEFT,
+            left: LINE_LEFT,
             top: LINE_TOP,
             width: LINE_WIDTH,
           }}
@@ -136,7 +126,8 @@ export default function ResponseItem({
           </div>
 
           {/* The post this response replies to, embedded compactly (or a
-              tombstone when it has been deleted). */}
+              tombstone when it has been deleted). This is what conveys the
+              nesting now that the thread is a single column. */}
           {response.parentPostId ? (
             <ResponseParentCard
               className="mt-1.5"
@@ -212,15 +203,6 @@ export default function ResponseItem({
           </div>
         </div>
       </div>
-
-      {children.map((child, index) => (
-        <ResponseItem
-          isLast={index === children.length - 1}
-          key={child.response.id}
-          node={child}
-          onRespond={onRespond}
-        />
-      ))}
     </div>
   );
 }

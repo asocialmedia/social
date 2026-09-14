@@ -7,6 +7,7 @@ import type { QueryKey } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useMemo, useState } from "react";
 
+import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
@@ -91,6 +92,42 @@ export const FeedView: React.FC<FeedViewProps> = ({
     };
   }, [cacheKey, excludePostId, queryClient]);
 
+  useEffect(() => {
+    const handleNotInterested = (event: Event) => {
+      const { detail } = event as CustomEvent<{ postId?: string }>;
+      const postId = detail?.postId;
+      if (!postId) {
+        return;
+      }
+      setPosts((current) => current.filter((post) => post.id !== postId));
+      queryClient.setQueriesData<{
+        pageParams: unknown[];
+        pages: { posts: PostData[] }[];
+      }>({ queryKey: cacheKey }, (data) => {
+        if (!data) {
+          return data;
+        }
+        return {
+          ...data,
+          pages: data.pages.map((page) => ({
+            ...page,
+            posts: page.posts.filter((post) => post.id !== postId),
+          })),
+        };
+      });
+    };
+    window.addEventListener(
+      "recommendation:not-interested",
+      handleNotInterested
+    );
+    return () => {
+      window.removeEventListener(
+        "recommendation:not-interested",
+        handleNotInterested
+      );
+    };
+  }, [cacheKey, queryClient]);
+
   // Mirrors the last inputs seen by the prop-sync check below so fresh server
   // posts are adopted during render (the documented adjust-state pattern)
   // instead of from a cascading effect.
@@ -145,10 +182,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
   return (
     <div className="flex flex-col">
       {sortedPosts.map((post) => (
-        <React.Fragment key={post.id}>
+        <RecommendationTracker key={post.id} postId={post.id}>
           <MemoizedPostCard isJoined={true} post={post} />
           <Separator className="bg-border/60" />
-        </React.Fragment>
+        </RecommendationTracker>
       ))}
       {sortedPosts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-6 sm:py-8">

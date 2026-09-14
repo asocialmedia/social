@@ -372,4 +372,26 @@ describe("scoreCandidate", () => {
 
     expect(scoreWith).toBeGreaterThan(scoreWithout);
   });
+
+  test("adds bounded collaborative, geographic, and exploration signals", () => {
+    const candidate = post({});
+    const baseline = scoreCandidate(candidate, EMPTY_PROFILE, { now: NOW });
+    const enriched = scoreCandidate(candidate, EMPTY_PROFILE, {
+      collaborativeAffinity: 1,
+      explorationAffinity: 1,
+      geographicAffinity: 1,
+      now: NOW,
+    });
+
+    expect(enriched).toBeGreaterThan(baseline);
+    expect(enriched).toBeLessThanOrEqual(100);
+    expect(
+      scoreCandidate(candidate, EMPTY_PROFILE, {
+        collaborativeAffinity: 99,
+        explorationAffinity: 99,
+        geographicAffinity: 99,
+        now: NOW,
+      })
+    ).toBeLessThanOrEqual(100);
+  });
 });

@@ -53,6 +53,8 @@ const mockPrisma = {
       return [...poolRows];
     }),
   },
+  recommendationEvent: { findMany: mock(() => []) },
+  session: { findFirst: mock(() => null) },
   vote: { findMany: mock(() => []) },
 };
 
@@ -164,7 +166,7 @@ describe("getPersonalizedFeedPage", () => {
       userId: "user-1",
     });
     expect(lastPoolArgs?.where).toMatchObject({
-      createdAt: { gte: expect.any(Date) },
+      createdAt: { lte: expect.any(Date) },
       isGust: false,
       moderated: false,
       userId: { not: "user-1" },

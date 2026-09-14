@@ -5,7 +5,7 @@ import type { PostData } from "@asm/db";
 import {
   buildResponseTree,
   findResponseNode,
-  MAX_RESPONSE_DEPTH,
+  flattenResponseTree,
   mergeResponsesWithLive,
 } from "./response-tree";
 
@@ -75,10 +75,20 @@ describe("buildResponseTree", () => {
     expect(depths).toEqual([0, 1, 2]);
   });
 
-  test("exposes the render depth cap", () => {
-    // The renderer clamps indentation past this depth; the constant must stay
-    // in lockstep with the eddies renderer.
-    expect(MAX_RESPONSE_DEPTH).toBe(6);
+  test("flattens depth-first so parents precede children", () => {
+    const tree = buildResponseTree([
+      makeResponse("root-a", t(9000)),
+      makeResponse("child-a1", t(8000), "root-a"),
+      makeResponse("grandchild-a1", t(7000), "child-a1"),
+      makeResponse("root-b", t(6000)),
+    ]);
+
+    expect(flattenResponseTree(tree).map((node) => node.response.id)).toEqual([
+      "root-b",
+      "root-a",
+      "child-a1",
+      "grandchild-a1",
+    ]);
   });
 });
 

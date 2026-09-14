@@ -14,6 +14,7 @@ import ResponseItem from "./response-item";
 import {
   buildResponseTree,
   findResponseNode,
+  flattenResponseTree,
   mergeResponsesWithLive,
 } from "./response-tree";
 import type { LiveResponseStore } from "./use-responses-realtime";
@@ -65,7 +66,8 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
   const focused = focusResponseId
     ? findResponseNode(tree, focusResponseId)
     : null;
-  const visibleTree = focused ? [focused] : tree;
+  // A single Twitter-style column: depth-first order, parent before child.
+  const rows = flattenResponseTree(focused ? [focused] : tree);
 
   const openRespond = useCallback(
     (target: PostData) => {
@@ -122,7 +124,7 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
         </Button>
       ) : null}
 
-      {status === "success" && visibleTree.length === 0 ? (
+      {status === "success" && rows.length === 0 ? (
         <p className="text-muted-foreground py-6 text-center text-sm">
           No responses yet.
         </p>
@@ -137,9 +139,9 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
       {/* pl-1 nudges the thread so its line sits under the anchor post's
           avatar centre, keeping the connector unbroken from post to reply. */}
       <div className="pl-1">
-        {visibleTree.map((node, index) => (
+        {rows.map((node, index) => (
           <ResponseItem
-            isLast={index === visibleTree.length - 1}
+            isLast={index === rows.length - 1}
             key={node.response.id}
             node={node}
             onRespond={openRespond}

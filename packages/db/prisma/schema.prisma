@@ -75,6 +75,7 @@ model User {
   messagesSent          Message[]
   blocksIssued          Block[]                     @relation("BlocksIssued")
   blocksReceived        Block[]                     @relation("BlocksReceived")
+  recommendationEvents  RecommendationEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -429,6 +430,7 @@ model Post {
   mentions              Mention[]
   hnStoryShare          HNStoryShare?
   visits                PostVisit[]
+  recommendationEvents  RecommendationEvent[]
   // Resolved link previews (max 5, LinkEmbed payloads from
   // apps/web/src/lib/link-embeds): fetched server-side at publish with SSRF
   // validation and stored so feed rendering never performs outbound fetches.
@@ -462,6 +464,28 @@ model PostVisit {
   @@index([userId, visitedAt])
   @@index([postId])
   @@map("post_visits")
+}
+
+// Behavioral signals used for recommendation learning. These are deliberately
+// append-only and separate from votes/bookmarks so passive attention can be
+// measured without changing the social/aura ledger.
+model RecommendationEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  postId     String
+  eventType  String
+  durationMs Int?
+  dedupeKey  String?  @unique
+  value      Float?
+  sessionId  String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType, createdAt])
+  @@index([postId, eventType, createdAt])
+  @@index([userId, postId, createdAt])
+  @@map("recommendation_events")
 }
 
 // Ops bookkeeping for one-shot data backfills (guarded runs that must happen
