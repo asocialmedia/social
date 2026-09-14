@@ -21,8 +21,8 @@ export async function GET(request: Request) {
     requestedTake > 0 ? Math.min(requestedTake, PAGE_SIZE) : PAGE_SIZE;
 
   const where: Prisma.PostWhereInput = excludeModerated
-    ? { isGust: false, moderated: false }
-    : { isGust: false };
+    ? { isGust: false, moderated: false, rootPostId: null }
+    : { isGust: false, rootPostId: null };
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),
