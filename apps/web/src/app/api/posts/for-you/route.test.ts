@@ -113,7 +113,31 @@ describe("GET /api/posts/for-you", () => {
     const body = await res.json();
     expect(body.posts).toHaveLength(1);
     expect(body.posts[0].id).toBe("p21");
-    expect(body.nextCursor).toBe("exp.p-anchor");
+    expect(body.nextCursor).toBeNull();
+  });
+
+  test("fills a short ranked page from the chronological archive", async () => {
+    const { GET } = await import("./route");
+    mockPersonalizedPage = {
+      anchorCursor: "p-anchor",
+      nextCursor: "exp.p-anchor",
+      posts: [{ content: "ranked", createdAt: new Date(), id: "ranked-1" }],
+    };
+    pgPosts = [
+      { content: "archive 1", createdAt: new Date(), id: "archive-1" },
+      { content: "archive 2", createdAt: new Date(), id: "archive-2" },
+    ];
+
+    const res = await GET(new Request("http://localhost/api/posts/for-you"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.posts.map((post: PostRow) => post.id)).toEqual([
+      "ranked-1",
+      "archive-1",
+      "archive-2",
+    ]);
+    expect(body.nextCursor).toBeNull();
   });
 
   test("falls back to chronological expired posts at bottom with exp. cursor", async () => {

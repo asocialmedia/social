@@ -56,9 +56,46 @@ export async function GET(request: Request) {
       userId,
     });
     if (personalized.posts.length > 0) {
+      let { posts } = personalized;
+      let nextCursor = personalized.nextCursor ?? personalized.anchorCursor;
+
+      // If the ranked pool is smaller than a full page, continue directly
+      // into the chronological archive so Explore and Home do not render a
+      // sparse page when older eligible posts still exist.
+      if (
+        posts.length < pageSize &&
+        personalized.nextCursor?.startsWith("exp.")
+      ) {
+        const chronologicalCursor =
+          personalized.nextCursor.slice(4) || undefined;
+        const fallbackWhere: Prisma.PostWhereInput = {
+          isGust: false,
+          moderated: excludeModerated ? false : undefined,
+          rootPostId: null,
+          userId: { not: userId },
+        };
+        const fallbackPosts = await prisma.post.findMany({
+          cursor: chronologicalCursor ? { id: chronologicalCursor } : undefined,
+          include: getPostDataInclude(userId),
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          skip: chronologicalCursor ? 1 : 0,
+          take: pageSize - posts.length + 1,
+          where: fallbackWhere,
+        });
+        const seenPostIds = new Set(posts.map((post) => post.id));
+        const fillPosts = fallbackPosts.filter(
+          (post) => !seenPostIds.has(post.id)
+        );
+        posts = [...posts, ...fillPosts.slice(0, pageSize - posts.length)];
+        nextCursor =
+          fillPosts.length > pageSize - personalized.posts.length
+            ? (fillPosts[pageSize - personalized.posts.length - 1]?.id ?? null)
+            : null;
+      }
+
       data = {
-        nextCursor: personalized.nextCursor ?? personalized.anchorCursor,
-        posts: await hydrateViewCounts(personalized.posts),
+        nextCursor,
+        posts: await hydrateViewCounts(posts),
       };
     }
   }
