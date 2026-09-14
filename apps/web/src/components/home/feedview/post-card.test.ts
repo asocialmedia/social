@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isInteractiveTarget } from "./post-card";
+import { getPostCardBorderAndPadding, isInteractiveTarget } from "./post-card";
 
 interface MockNode {
   attributes: Record<string, string>;
@@ -130,5 +130,67 @@ describe("isInteractiveTarget", () => {
   test("returns true for contenteditable elements", () => {
     const editableDiv = createNode("div", {}, null, true);
     expect(isInteractiveTarget(editableDiv)).toBe(true);
+  });
+});
+
+describe("getPostCardBorderAndPadding", () => {
+  test("HN post always receives the signature orange indicator and standard px-4 padding", () => {
+    const standalone = getPostCardBorderAndPadding({
+      hasHnStoryShare: true,
+      hasThreadChild: false,
+      hasThreadParent: false,
+    });
+    expect(standalone.hasHnIndicator).toBe(true);
+    expect(standalone.threadPaddingClass).toContain("px-4");
+
+    const threadRoot = getPostCardBorderAndPadding({
+      hasHnStoryShare: true,
+      hasThreadChild: true,
+      hasThreadParent: false,
+    });
+    expect(threadRoot.hasHnIndicator).toBe(true);
+    expect(threadRoot.threadPaddingClass).toContain("px-4");
+
+    const reply = getPostCardBorderAndPadding({
+      hasHnStoryShare: true,
+      hasThreadChild: false,
+      hasThreadParent: true,
+    });
+    expect(reply.hasHnIndicator).toBe(true);
+    expect(reply.threadPaddingClass).toContain("px-4");
+  });
+
+  test("non-HN posts do not receive the orange indicator and use standard px-4 padding", () => {
+    const regularPost = getPostCardBorderAndPadding({
+      hasHnStoryShare: false,
+      hasThreadChild: false,
+      hasThreadParent: false,
+    });
+    expect(regularPost.hasHnIndicator).toBe(false);
+    expect(regularPost.threadPaddingClass).toContain("px-4");
+
+    const threadResponse = getPostCardBorderAndPadding({
+      hasHnStoryShare: false,
+      hasThreadChild: false,
+      hasThreadParent: true,
+    });
+    expect(threadResponse.hasHnIndicator).toBe(false);
+    expect(threadResponse.threadPaddingClass).toContain("px-4");
+  });
+
+  test("thread parent and child padding classes preserve vertical spacing without altering px-4", () => {
+    const threadRoot = getPostCardBorderAndPadding({
+      hasHnStoryShare: true,
+      hasThreadChild: true,
+      hasThreadParent: false,
+    });
+    expect(threadRoot.threadPaddingClass).toBe("pt-4 pb-2 sm:pb-2.5 px-4");
+
+    const threadChild = getPostCardBorderAndPadding({
+      hasHnStoryShare: false,
+      hasThreadChild: false,
+      hasThreadParent: true,
+    });
+    expect(threadChild.threadPaddingClass).toBe("pt-2 sm:pt-2.5 pb-4 px-4");
   });
 });

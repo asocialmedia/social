@@ -80,6 +80,7 @@ export default function Responses({ post, focusResponseId }: ResponsesProps) {
         content: target.content,
         createdAt: target.createdAt,
         displayName: target.user?.displayName ?? undefined,
+        embeds: target.embeds,
         id: target.id,
         isGust: target.isGust,
         username: target.user?.username ?? "unknown",

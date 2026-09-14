@@ -10,6 +10,7 @@ import {
   prisma,
   publishResponseDeleted,
   redis,
+  RESPONSE_RECEIVED_POST_AURA,
   unreadNotificationCache,
 } from "@asm/db";
 import { updateTag } from "next/cache";
@@ -271,6 +272,24 @@ export async function deletePost(id: string) {
       await publishResponseDeleted(deletedPost.rootPostId, deletedPost);
     } catch (error) {
       console.error("Failed to publish response-deleted event:", error);
+    }
+  }
+
+  if (
+    deletedPost.parentPostId &&
+    deletedPost.parentPost &&
+    deletedPost.parentPost.userId !== session.user.id
+  ) {
+    try {
+      await prisma.post.update({
+        data: { aura: { decrement: RESPONSE_RECEIVED_POST_AURA } },
+        where: { id: deletedPost.parentPostId },
+      });
+    } catch (error) {
+      console.error(
+        "Failed to decrement parent post aura on response deletion:",
+        error
+      );
     }
   }
 

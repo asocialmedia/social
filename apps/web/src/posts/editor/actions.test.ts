@@ -17,6 +17,7 @@ const state = {
   mentionCreates: [] as { userId: string }[],
   notifications: [] as { recipientId: string; type: string }[],
   ownedMediaIds: [] as string[],
+  postUpdates: [] as { data: Record<string, unknown>; id: string }[],
   postsById: {} as Record<string, Record<string, unknown>>,
   scheduledCleanups: [] as string[],
 };
@@ -29,6 +30,7 @@ function resetState() {
   state.mentionCreates = [];
   state.notifications = [];
   state.ownedMediaIds = [];
+  state.postUpdates = [];
   state.postsById = {};
   state.scheduledCleanups = [];
 }
@@ -102,6 +104,19 @@ const mockTx = {
       // The final include-fetch: null-safe in assertions via result?.id.
       return Promise.resolve(null);
     },
+    update: (args: {
+      data: Record<string, unknown>;
+      where: { id: string };
+    }) => {
+      state.postUpdates.push(args);
+      if (args.where.id && state.postsById[args.where.id]) {
+        state.postsById[args.where.id] = {
+          ...state.postsById[args.where.id],
+          ...args.data,
+        };
+      }
+      return Promise.resolve(state.postsById[args.where.id] ?? null);
+    },
   },
   user: {
     // Both ids exist in the database, so ONLY the self-exclusion rule can
@@ -145,6 +160,7 @@ mock.module("@asm/db", () => ({
     },
   },
   redis: {
+    ...asmDbMockBase.redis,
     get: () => Promise.resolve(null),
     set: () => Promise.resolve("OK"),
   },
@@ -341,6 +357,43 @@ describe("submitPost responses", () => {
       .filter((notification) => notification.type === "REPLY")
       .map((notification) => notification.recipientId);
     expect(replyRecipients).toEqual(["parent-author"]);
+
+    // Parent post's aura is incremented and author is awarded response aura.
+    expect(state.postUpdates).toContainEqual({
+      data: { aura: { increment: 1 } },
+      where: { id: "post-root" },
+    });
+    expect(state.auraAwards).toContainEqual({
+      recipientId: "parent-author",
+      type: "COMMENT_RECEIVED",
+    });
+  });
+
+  test("responding to one's own post does not increment parent post aura or award aura", async () => {
+    const { submitPost } = await import("./actions");
+    state.postsById["self-post"] = {
+      id: "self-post",
+      moderated: false,
+      parentPostId: null,
+      rootPostId: null,
+      threadTopId: null,
+      userId: AUTHOR_ID,
+    };
+
+    await submitPost({
+      content: "my own follow-up",
+      mediaIds: [],
+      mentions: [],
+      parentPostId: "self-post",
+      tags: [],
+    } as Parameters<typeof submitPost>[0]);
+
+    expect(state.createdPostData?.parentPostId).toBe("self-post");
+    expect(state.postUpdates).toEqual([]);
+    const commentReceivedAwards = state.auraAwards.filter(
+      (award) => award.type === "COMMENT_RECEIVED"
+    );
+    expect(commentReceivedAwards).toEqual([]);
   });
 
   test("a nested response carries the thread root and both threadTopId and rootPostId", async () => {

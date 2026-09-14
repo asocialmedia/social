@@ -111,12 +111,15 @@ export function getPostDataInclude(loggedInUserId: string) {
         },
         content: true,
         createdAt: true,
+        embeds: true,
         id: true,
         isGust: true,
         moderated: true,
         user: {
           select: {
             avatarUrl: true,
+            badge: true,
+            badges: true,
             displayName: true,
             id: true,
             username: true,

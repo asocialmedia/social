@@ -94,6 +94,39 @@ export function applyAuraToCaches(
   );
 }
 
+// Mirrors a post's aura delta into every cached shape carrying that post,
+// and updates the live ["vote-info", postId] query cache if present.
+export function applyPostAuraDeltaToCaches(
+  queryClient: QueryClient,
+  postId: string,
+  delta: number
+): void {
+  updateCacheByPredicate(
+    queryClient,
+    (record) => record.id === postId && typeof record.aura === "number",
+    (record) => {
+      const currentAura = record.aura as number;
+      return {
+        ...record,
+        aura: currentAura + delta,
+      };
+    }
+  );
+
+  queryClient.setQueriesData<{ aura: number; userVote: number }>(
+    { queryKey: ["vote-info", postId] },
+    (old) => {
+      if (!old) {
+        return old;
+      }
+      return {
+        ...old,
+        aura: old.aura + delta,
+      };
+    }
+  );
+}
+
 // Mirrors a comment's aura into every cached shape that carries a comment
 // object (the ["comments", postId] list). Voting on an eddie updates the aura
 // shown in the thread immediately.

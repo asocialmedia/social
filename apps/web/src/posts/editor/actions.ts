@@ -7,6 +7,7 @@ import {
   applyFlatAward,
   ATTACHMENT_BONUSES,
   cancelMediaCleanup,
+  COMMENT_RECEIVED_AURA,
   enqueueMediaAnalyze,
   enqueueNotificationCreated,
   enqueueShitposterCheck,
@@ -21,6 +22,8 @@ import {
   postViewsCache,
   prisma,
   publishResponseCreated,
+  RESPONSE_RECEIVED_AURA,
+  RESPONSE_RECEIVED_POST_AURA,
   schedulePublishedNotificationCleanup,
   tagCache,
 } from "@asm/db";
@@ -387,6 +390,41 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       // the thread's root post (when different), deduped and never self. The
       // postId points at the RESPONSE so the notification deep-links to it.
       if (parentPost) {
+        // Responses are high-signal engagement: award aura to the parent post and its author
+        // when responded to by another user (self-responses never award aura).
+        if (parentPost.userId !== sessionData.user.id) {
+          await tx.post.update({
+            data: { aura: { increment: RESPONSE_RECEIVED_POST_AURA } },
+            where: { id: parentPost.id },
+          });
+
+          await applyFlatAward(tx, {
+            actorId: sessionData.user.id,
+            baseAmount: RESPONSE_RECEIVED_AURA,
+            now: new Date(),
+            postId: parentPost.id,
+            recipientId: parentPost.userId,
+            subjectToDailyCap: true,
+            type: "COMMENT_RECEIVED",
+          });
+        }
+
+        if (
+          threadRootAuthorId &&
+          threadRootAuthorId !== sessionData.user.id &&
+          threadRootAuthorId !== parentPost.userId
+        ) {
+          await applyFlatAward(tx, {
+            actorId: sessionData.user.id,
+            baseAmount: COMMENT_RECEIVED_AURA,
+            now: new Date(),
+            postId: rootPostId,
+            recipientId: threadRootAuthorId,
+            subjectToDailyCap: true,
+            type: "COMMENT_RECEIVED",
+          });
+        }
+
         const replyRecipients = new Set<string>();
         if (parentPost.userId !== sessionData.user.id) {
           replyRecipients.add(parentPost.userId);
@@ -576,6 +614,9 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     const signalUserIds = new Set([sessionData.user.id]);
     for (const userId of validatedInput.mentions) {
       signalUserIds.add(userId);
+    }
+    if (newPost?.parentPost?.userId) {
+      signalUserIds.add(newPost.parentPost.userId);
     }
     try {
       await invalidateAuraSignals([...signalUserIds]);

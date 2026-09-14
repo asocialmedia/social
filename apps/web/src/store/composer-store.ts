@@ -13,6 +13,7 @@ export interface ComposerReplyTarget {
   content?: string;
   createdAt?: Date | string;
   displayName?: string;
+  embeds?: unknown;
   id: string;
   isGust?: boolean;
   username: string;

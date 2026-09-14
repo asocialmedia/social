@@ -5,6 +5,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 
 import { useToast } from "@/lib/gooey-toast";
 import {
+  applyPostAuraDeltaToCaches,
   applyResponseCountDeltaToCaches,
   forceInvalidatePostFeeds,
 } from "@/lib/posts/cache-sync";
@@ -93,6 +94,8 @@ export function useSubmitPostMutation() {
         // The count shown on a card is its DIRECT responses, so a nested
         // response bumps its immediate parent, not the thread root.
         applyResponseCountDeltaToCaches(queryClient, parentId, 1);
+        applyPostAuraDeltaToCaches(queryClient, parentId, 1);
+        queryClient.invalidateQueries({ queryKey: ["vote-info", parentId] });
         queryClient.invalidateQueries({ queryKey: ["post", threadRootId] });
         // Responses appear in Following / For You / Latest and the author's
         // Posts tab, so refresh those feeds too.

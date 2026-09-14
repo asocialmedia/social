@@ -1,17 +1,23 @@
 "use client";
 
-import type { PostData, PostsPage } from "@asm/db";
+import type { PostsPage } from "@asm/db";
 import noFeedImage from "@assets/general/nofeed.png";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import kyInstance from "@/lib/ky";
+import {
+  FEED_QUERY_BEHAVIOR,
+  prependPostsToFeedCache,
+  scrollFeedToTop,
+} from "@/lib/posts/feed-cache";
 
 import { FeedView } from "./feed-view";
 import FeedEnd from "./feedview/feed-end";
@@ -21,15 +27,9 @@ interface HomeFeedProps {
   variant?: "latest" | "personalized" | "trending" | "global";
 }
 
-export const HOME_FEED_QUERY_BEHAVIOR = {
-  // Radix unmounts inactive tabs. A response or post published while a tab is
-  // unmounted can invalidate its cached page, so remounting must fetch that
-  // stale page instead of replaying the old snapshot.
-  refetchOnMount: true,
-  refetchOnReconnect: false,
-  refetchOnWindowFocus: false,
-  staleTime: 30 * 1000,
-} as const;
+// Named export kept for the feed-behavior test; the values live in the shared
+// feed-cache module so Following and Gusts cannot drift from it.
+export const HOME_FEED_QUERY_BEHAVIOR = FEED_QUERY_BEHAVIOR;
 
 export default function HomeFeed({
   variant = "personalized",
@@ -48,7 +48,10 @@ export default function HomeFeed({
     feedKey = "latest";
     endpoint = "/api/posts/latest";
   }
-  const queryKey = ["post-feed", feedKey, user?.id ?? "guest"];
+  const queryKey = useMemo(
+    () => ["post-feed", feedKey, user?.id ?? "guest"],
+    [feedKey, user?.id]
+  );
 
   const {
     data,
@@ -56,7 +59,6 @@ export default function HomeFeed({
     hasNextPage,
     isFetching,
     isFetchingNextPage,
-    refetch,
     status,
   } = useInfiniteQuery({
     getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -80,58 +82,20 @@ export default function HomeFeed({
     return [...new Map(list.map((post) => [post.id, post])).values()];
   }, [data?.pages, excludePostId]);
 
-  // Track the newest id seen so far so a background poll can surface a "new
-  // posts" pill without touching the feed's data (or the user's scroll
-  // position) until they tap it.
-  const newestIdRef = useRef<string | null>(null);
-  const [newPosts, setNewPosts] = useState<PostData[]>([]);
+  const queryClient = useQueryClient();
   const feedRootRef = useRef<HTMLDivElement>(null);
 
-  // Baseline to the newest post currently showing. Re-running whenever posts
-  // change (tab switches, refetches, re-orders) keeps the ref aligned with
-  // what the user is actually seeing, so a re-ordered or refetched feed never
-  // false-triggers the "new posts" pill.
-  useEffect(() => {
-    if (posts.length > 0) {
-      newestIdRef.current = posts[0].id;
-    }
-  }, [posts]);
-
-  // Poll quietly every 45s for the newest post id only. When a brand-new post
-  // appears, reveal the pill; the feed itself is left alone so the user's
-  // scroll position never jumps out from under them. Only the main home feed
-  // polls - the related-posts feed on a post page (excludePostId) shouldn't
-  // surface a pill over content it is not the active view for.
-  useEffect(() => {
-    if (excludePostId) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const fresh = await kyInstance.get(endpoint).json<PostsPage>();
-          const newest = fresh.posts[0]?.id;
-          if (newest && newest !== newestIdRef.current) {
-            newestIdRef.current = newest;
-            const knownIds = new Set(posts.map((p) => p.id));
-            const unseenPosts: PostData[] = [];
-            for (const post of fresh.posts) {
-              if (knownIds.has(post.id)) {
-                break;
-              }
-              unseenPosts.push(post);
-            }
-            if (unseenPosts.length > 0) {
-              setNewPosts(unseenPosts);
-            }
-          }
-        } catch {
-          // Best-effort polling; ignore transient failures
-        }
-      })();
-    }, 45 * 1000);
-    return () => window.clearInterval(interval);
-  }, [endpoint, posts, excludePostId]);
+  // Head-only probe: new posts from other people collect in `newPosts` and are
+  // surfaced as an avatar badge. The rendered feed and its scroll position stay
+  // exactly where they are until the viewer taps the badge.
+  const { clearNewItems, newItems: newPosts } = useNewContentProbe({
+    enabled: !excludePostId,
+    fetchHead: async () => {
+      const fresh = await kyInstance.get(endpoint).json<PostsPage>();
+      return fresh.posts;
+    },
+    visible: posts,
+  });
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
@@ -139,20 +103,14 @@ export default function HomeFeed({
     }
   }, [fetchNextPage, hasNextPage, isFetching]);
 
-  // Pull the freshly polled posts into the feed: refetch so they land at the
-  // top, then scroll the nearest scrollable ancestor back up to meet them.
-  const showNewPosts = useCallback(async () => {
-    setNewPosts([]);
-    await refetch();
-    let node: HTMLElement | null = feedRootRef.current;
-    while (node) {
-      if (node.scrollHeight > node.clientHeight) {
-        node.scrollTo({ behavior: "smooth", top: 0 });
-        break;
-      }
-      node = node.parentElement;
-    }
-  }, [refetch]);
+  // Merge the probed posts straight into the head of the cached feed, then
+  // bring the viewer up to meet them. No refetch and no skeleton: the feed is
+  // already on screen, we only reveal what the probe found.
+  const showNewPosts = useCallback(() => {
+    clearNewItems();
+    prependPostsToFeedCache(queryClient, queryKey, newPosts);
+    scrollFeedToTop(feedRootRef.current);
+  }, [clearNewItems, newPosts, queryClient, queryKey]);
 
   if (status === "pending") {
     return <FeedViewSkeleton />;

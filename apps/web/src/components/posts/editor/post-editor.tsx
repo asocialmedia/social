@@ -52,9 +52,11 @@ import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
 import { MediaPreviews } from "@/components/home/feedview/media-previews";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
+import PostLinkEmbeds from "@/components/posts/link-embeds";
 import PostLinkedContent from "@/components/posts/post-linked-content";
 import { toast as showToast, useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import {
   ALT_TEXT_MAX_LENGTH,
   patchAudioOverlay,
@@ -247,6 +249,7 @@ const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
   const attachments = (parent?.attachments ??
     replyTo.attachments ??
     []) as Media[];
+  const embeds = parseStoredEmbeds(parent?.embeds ?? replyTo.embeds);
 
   return (
     <div className="border-border/60 bg-muted/20 relative rounded-2xl border p-3.5 transition-colors sm:p-4">
@@ -299,7 +302,7 @@ const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
 
           {content ? (
             <div className="text-foreground mt-1.5 max-h-52 overflow-y-auto text-sm leading-relaxed break-words whitespace-pre-wrap sm:text-[15px]">
-              <PostLinkedContent content={content} />
+              <PostLinkedContent content={content} embeds={embeds} />
             </div>
           ) : null}
 
@@ -311,6 +314,12 @@ const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
                 interactive={false}
                 post={parent ?? undefined}
               />
+            </div>
+          ) : null}
+
+          {embeds.length > 0 ? (
+            <div className="mt-2.5 max-w-full overflow-hidden rounded-xl">
+              <PostLinkEmbeds embeds={embeds} />
             </div>
           ) : null}
         </div>

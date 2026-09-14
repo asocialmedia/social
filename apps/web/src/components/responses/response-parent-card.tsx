@@ -1,10 +1,18 @@
+// oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+
 import type { PostParentData } from "@asm/db";
 import { ImageOff } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
+import PostLinkEmbeds from "@/components/posts/link-embeds";
 import PostLinkedContent from "@/components/posts/post-linked-content";
+import { isInteractiveTarget } from "@/lib/interactive-target";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -25,6 +33,7 @@ export function ResponseParentRow({
   parent,
   parentPostId,
 }: ResponseParentCardProps) {
+  const router = useRouter();
   const href = parent
     ? getPostPath({
         content: parent.content,
@@ -32,6 +41,26 @@ export function ResponseParentRow({
         isGust: parent.isGust,
       })
     : `/posts/${parentPostId}`;
+
+  const handleRowClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isInteractiveTarget(e.target)) {
+        return;
+      }
+      router.push(href);
+    },
+    [href, router]
+  );
+
+  const handleRowKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" && !isInteractiveTarget(e.target)) {
+        e.preventDefault();
+        router.push(href);
+      }
+    },
+    [href, router]
+  );
 
   if (!parent) {
     return (
@@ -55,6 +84,7 @@ export function ResponseParentRow({
   const username = parent.user?.username ?? "unknown";
   const displayName = parent.user?.displayName || username;
   const media = parent.attachments?.[0];
+  const embeds = parseStoredEmbeds(parent.embeds);
 
   return (
     <div className="flex min-h-[2.75rem] items-stretch gap-3 sm:min-h-[3rem]">
@@ -70,36 +100,52 @@ export function ResponseParentRow({
             user={parent.user}
           />
         </Link>
-        {/* Connector rail: continues the thread seamlessly from behind the parent avatar down to
-            behind the reply avatar below. */}
+        {
+          // Connector rail: continues the thread seamlessly from behind the parent avatar down to
+          // behind the reply avatar below.
+        }
         <span
           aria-hidden="true"
           className="bg-border -mt-1 -mb-3 w-0.5 flex-1"
         />
       </div>
 
-      <Link className="group/parent min-w-0 flex-1 pb-1.5 sm:pb-2" href={href}>
+      <div
+        className="group/parent min-w-0 flex-1 cursor-pointer pb-1.5 sm:pb-2"
+        onClick={handleRowClick}
+        onKeyDown={handleRowKeyDown}
+      >
         <div className="flex min-w-0 items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
-          <span className="text-foreground truncate font-semibold group-hover/parent:underline">
+          <Link
+            className="text-foreground truncate font-semibold hover:underline"
+            href={href}
+          >
             {displayName}
-          </span>
-          <span className="text-muted-foreground truncate">@{username}</span>
+          </Link>
+          <UserBadge badge={parent.user?.badge} badges={parent.user?.badges} />
+          <Link
+            className="text-muted-foreground truncate hover:underline"
+            href={`/users/${username}`}
+          >
+            @{username}
+          </Link>
           {parent.isGust ? (
             <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] font-semibold">
               Gust
             </span>
           ) : null}
           <span className="text-muted-foreground shrink-0">·</span>
-          <span
-            className="text-muted-foreground shrink-0"
+          <Link
+            className="text-muted-foreground shrink-0 hover:underline"
+            href={href}
             suppressHydrationWarning
           >
             {formatRelativeDate(parent.createdAt)}
-          </span>
+          </Link>
         </div>
         {parent.content ? (
           <div className="mt-1 line-clamp-6">
-            <PostLinkedContent content={parent.content} />
+            <PostLinkedContent content={parent.content} embeds={embeds} />
           </div>
         ) : null}
         {media ? (
@@ -117,12 +163,17 @@ export function ResponseParentRow({
             />
           </div>
         ) : null}
-        {!parent.content && !media ? (
+        {embeds.length > 0 ? (
+          <div className="max-w-md sm:max-w-lg">
+            <PostLinkEmbeds embeds={embeds} />
+          </div>
+        ) : null}
+        {!parent.content && !media && embeds.length === 0 ? (
           <p className="text-muted-foreground mt-1 min-w-0 text-xs italic sm:text-sm">
             Post
           </p>
         ) : null}
-      </Link>
+      </div>
     </div>
   );
 }

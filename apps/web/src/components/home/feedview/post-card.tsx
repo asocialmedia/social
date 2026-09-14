@@ -32,6 +32,7 @@ import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
+import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
 import {
@@ -48,6 +49,8 @@ import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
 import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
+
+export { isInteractiveTarget } from "@/lib/interactive-target";
 
 type ExtendedPostData = PostData & {
   hnStoryShare?: {
@@ -673,6 +676,7 @@ const RespondButton = ({ post }: RespondButtonProps) => {
           content: post.content,
           createdAt: post.createdAt,
           displayName: post.user?.displayName ?? undefined,
+          embeds: post.embeds,
           id: post.id,
           isGust: post.isGust,
           username: post.user?.username ?? "unknown",
@@ -693,31 +697,41 @@ const RespondButton = ({ post }: RespondButtonProps) => {
   );
 };
 
-const INTERACTIVE_TARGET_SELECTOR =
-  "a, button, input, textarea, select, option, video, audio, [role='button'], [role='checkbox'], [role='menuitem'], [role='option'], [role='tab'], [role='combobox'], [data-card-interactive], [contenteditable='true']";
+// Hacker News signature accent: HN reshared posts receive an absolute orange
+// left indicator line. Because the indicator is absolutely positioned (taking 0px
+// in layout), every post card maintains standard padding (px-4) so avatars and
+// the vertical thread connector rail stay 100% vertically aligned with responses.
+export function getPostCardBorderAndPadding({
+  hasHnStoryShare = false,
+  hasThreadChild = false,
+  hasThreadParent = false,
+}: {
+  hasHnStoryShare?: boolean;
+  hasThreadChild?: boolean;
+  hasThreadParent?: boolean;
+}) {
+  const hasHnIndicator = Boolean(hasHnStoryShare);
 
-export function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!target || typeof target !== "object") {
-    return false;
-  }
-  const el = target as Element;
-  if (typeof el.closest !== "function") {
-    return false;
-  }
-  const isContentEditable =
-    "isContentEditable" in target &&
-    Boolean((target as HTMLElement).isContentEditable);
-  return Boolean(el.closest(INTERACTIVE_TARGET_SELECTOR) || isContentEditable);
+  const threadPaddingClass = cn(
+    hasThreadParent ? "pt-2 sm:pt-2.5" : "pt-4",
+    hasThreadChild ? "pb-2 sm:pb-2.5" : "pb-4",
+    "px-4"
+  );
+
+  return {
+    hasHnIndicator,
+    threadPaddingClass,
+  };
 }
 
 const PostCard: React.FC<PostCardProps> = ({
-  post: initialPost,
-  isJoined = false,
   detail = false,
   hasThreadChild = false,
   hasThreadParent = false,
   initialMediaIndex,
+  isJoined = false,
   mobileLayout = false,
+  post: initialPost,
 }) => {
   const { user } = useSession();
   const router = useRouter();
@@ -812,11 +826,11 @@ const PostCard: React.FC<PostCardProps> = ({
     );
   }
 
-  const threadPaddingClass = cn(
-    hasThreadParent ? "pt-2 sm:pt-2.5" : "pt-4",
-    hasThreadChild ? "pb-2 sm:pb-2.5" : "pb-4",
-    "px-4"
-  );
+  const { hasHnIndicator, threadPaddingClass } = getPostCardBorderAndPadding({
+    hasHnStoryShare: Boolean(post.hnStoryShare),
+    hasThreadChild,
+    hasThreadParent,
+  });
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure
@@ -835,14 +849,17 @@ const PostCard: React.FC<PostCardProps> = ({
     >
       <ViewTracker postId={post.id} />
       {isJoined ? (
-        <div
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
-        >
+        <div className="group/post relative rounded-none bg-[hsl(var(--background-alt))]">
+          {hasHnIndicator ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5 bg-orange-500"
+            />
+          ) : null}
           <div
             className={cn(
               "transition-colors duration-150 hover:bg-[hsl(var(--muted))]",
-              threadPaddingClass,
-              post.hnStoryShare && "pl-5"
+              threadPaddingClass
             )}
           >
             {body}
@@ -851,8 +868,17 @@ const PostCard: React.FC<PostCardProps> = ({
         </div>
       ) : (
         <Card
-          className={`group/post rounded-none bg-[hsl(var(--background-alt))] shadow-none ${detail ? "border-x-0 border-b-0" : ""} ${post.hnStoryShare ? "border-l-2 border-l-orange-500" : ""}`}
+          className={cn(
+            "group/post relative rounded-none bg-[hsl(var(--background-alt))] shadow-none",
+            detail ? "border-x-0 border-b-0" : ""
+          )}
         >
+          {hasHnIndicator ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5 bg-orange-500"
+            />
+          ) : null}
           <CardContent
             className={cn(
               "transition-colors duration-150 hover:bg-[hsl(var(--muted))]",

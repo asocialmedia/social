@@ -34,7 +34,12 @@ import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigg
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import kyInstance from "@/lib/ky";
+import {
+  FEED_QUERY_BEHAVIOR,
+  prependPostsToFeedCache,
+} from "@/lib/posts/feed-cache";
 import { useComposerStore } from "@/store/composer-store";
 
 interface ClientGustsProps {
@@ -115,7 +120,6 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [newGusts, setNewGusts] = useState<PostsPage["posts"]>([]);
   const touchStartYRef = useRef<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -126,6 +130,11 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   const { inView: isEndVisible, ref: endSentinelRef } = useInView({
     rootMargin: "200px",
   });
+
+  const queryKey = useMemo(
+    () => ["gusts-feed", initialPostId, gustTab, user?.id ?? "guest"],
+    [gustTab, initialPostId, user?.id]
+  );
 
   // Infinite query for gusts
   const {
@@ -155,19 +164,16 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         .get("/api/gusts", { searchParams: queryParams })
         .json<PostsPage>();
     },
-    queryKey: ["gusts-feed", initialPostId, gustTab, user?.id ?? "guest"],
-    refetchOnMount: true,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-    staleTime: 1000 * 60,
+    queryKey,
+    ...FEED_QUERY_BEHAVIOR,
   });
 
   // Reset the reel position after switching between Latest and For you. The
   // microtask keeps the state update out of the effect's synchronous phase.
+  // The new-content badge resets through the probe's resetKey.
   useEffect(() => {
     queueMicrotask(() => {
       setActiveIndex(0);
-      setNewGusts([]);
     });
     containerRef.current?.scrollTo({ top: 0 });
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- gustTab is intentionally a change signal for the new query
@@ -184,35 +190,40 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     [data?.pages, hiddenPostIds]
   );
 
-  const findUnseenGusts = useCallback(
-    (fresh: PostsPage["posts"]): PostsPage["posts"] => {
-      const knownIds = new Set(posts.map((post) => post.id));
-      const unseen: PostsPage["posts"] = [];
-      for (const post of fresh) {
-        if (!post.attachments.some((media) => media.type === "VIDEO")) {
-          continue;
-        }
-        if (knownIds.has(post.id)) {
-          break;
-        }
-        unseen.push(post);
+  // Head-only probe: new clips collect in `newGusts` and surface as an avatar
+  // badge without replacing the reel or moving the viewer. Only the badge tap
+  // merges them in. The video filter matches what the reel actually renders.
+  const { clearNewItems, newItems: newGusts } = useNewContentProbe({
+    enabled: !initialPostId,
+    fetchHead: async () => {
+      const queryParams: Record<string, string> = {
+        excludeModerated: "1",
+      };
+      if (isPersonalized) {
+        queryParams.mode = "personalized";
       }
-      return unseen;
+      const fresh = await kyInstance
+        .get("/api/gusts", { searchParams: queryParams })
+        .json<PostsPage>();
+      return fresh.posts;
     },
-    [posts]
-  );
+    filter: (post) => post.attachments.some((media) => media.type === "VIDEO"),
+    resetKey: `${gustTab}:${initialPostId ?? ""}`,
+    visible: posts,
+  });
 
-  // Pull-to-refresh updates the visible reel immediately. Background polling
-  // below only probes the head so scrolling never jumps unexpectedly.
+  // Pull-to-refresh deliberately updates the visible reel: it is the explicit
+  // "show me now" gesture. New clips that arrive on their own wait behind the
+  // badge instead so scrolling never jumps unexpectedly.
   const refreshFeed = useCallback(async () => {
     if (isRefreshing) {
       return;
     }
     setIsRefreshing(true);
     try {
-      const result = await refetch();
-      const fresh = result.data?.pages.flatMap((page) => page.posts) ?? [];
-      setNewGusts(findUnseenGusts(fresh));
+      await refetch();
+      setPullDistance(0);
+      setIsRefreshing(false);
     } catch (error) {
       // Reset before rethrowing so the refresh UI clears on the failure path
       // too (replaces the previous `finally` clause).
@@ -220,46 +231,16 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       setPullDistance(0);
       throw error;
     }
-    setIsRefreshing(false);
-    setPullDistance(0);
     // oxlint-disable-next-line react/memo-dependencies -- refetch is lexically captured; React Query guarantees it has a stable identity
-  }, [findUnseenGusts, isRefreshing, refetch]);
+  }, [isRefreshing, refetch]);
 
-  // Probe only the first page. Keeping this outside the main infinite query
-  // means React Query retains the visible cached reel while this request runs.
-  useEffect(() => {
-    if (initialPostId) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      void (async () => {
-        try {
-          const queryParams: Record<string, string> = {
-            excludeModerated: "1",
-          };
-          if (isPersonalized) {
-            queryParams.mode = "personalized";
-          }
-          const fresh = await kyInstance
-            .get("/api/gusts", { searchParams: queryParams })
-            .json<PostsPage>();
-          const unseen = findUnseenGusts(fresh.posts);
-          if (unseen.length > 0) {
-            setNewGusts(unseen);
-          }
-        } catch {
-          // Best-effort polling; keep the current reel on transient failures.
-        }
-      })();
-    }, 45 * 1000);
-    return () => window.clearInterval(interval);
-  }, [findUnseenGusts, initialPostId, isPersonalized]);
-
-  // Jump to the very first gust and clear the new-gust pill.
+  // Jump to the very first gust and merge the probed clips into the reel.
   const showNewGusts = useCallback(() => {
+    prependPostsToFeedCache(queryClient, queryKey, newGusts);
+    clearNewItems();
+    setActiveIndex(0);
     containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
-    setNewGusts([]);
-  }, []);
+  }, [clearNewItems, newGusts, queryClient, queryKey]);
 
   // Kept in sync so the wheel/touch listeners (attached once) can consult the
   // current value without re-binding on every fetch state change.

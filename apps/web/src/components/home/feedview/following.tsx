@@ -2,20 +2,34 @@
 
 import type { PostsPage } from "@asm/db";
 import noFeedImage from "@assets/general/nofeed.png";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { NewContentPill } from "@/components/feeds/new-content-pill";
 import { FeedView } from "@/components/home/feed-view";
 import FeedEnd from "@/components/home/feedview/feed-end";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
 import kyInstance from "@/lib/ky";
+import {
+  FEED_QUERY_BEHAVIOR,
+  prependPostsToFeedCache,
+  scrollFeedToTop,
+} from "@/lib/posts/feed-cache";
 
 export default function FollowingFeed() {
   const { user } = useSession();
+  const queryClient = useQueryClient();
+  const feedRootRef = useRef<HTMLDivElement>(null);
+  const queryKey = useMemo(
+    () => ["post-feed", "following", user?.id ?? "guest"],
+    [user?.id]
+  );
+
   const {
     data,
     fetchNextPage,
@@ -33,20 +47,38 @@ export default function FollowingFeed() {
           pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
         .json<PostsPage>(),
-    queryKey: ["post-feed", "following", user?.id ?? "guest"],
-    refetchOnMount: true,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-    staleTime: 30 * 1000,
+    queryKey,
+    ...FEED_QUERY_BEHAVIOR,
   });
 
-  const posts = data?.pages.flatMap((page) => page.posts) || [];
+  const posts = useMemo(
+    () => data?.pages.flatMap((page) => page.posts) || [],
+    [data?.pages]
+  );
+
+  // Head-only probe so cached pages stay visible while new follows arrive as an
+  // avatar badge. Nothing moves until the badge is tapped.
+  const { clearNewItems, newItems } = useNewContentProbe({
+    fetchHead: async () => {
+      const fresh = await kyInstance
+        .get("/api/posts/following")
+        .json<PostsPage>();
+      return fresh.posts;
+    },
+    visible: posts,
+  });
 
   const handleBottomReached = useCallback(() => {
     if (hasNextPage && !isFetching) {
       fetchNextPage();
     }
   }, [fetchNextPage, hasNextPage, isFetching]);
+
+  const showNewPosts = useCallback(() => {
+    clearNewItems();
+    prependPostsToFeedCache(queryClient, queryKey, newItems);
+    scrollFeedToTop(feedRootRef.current);
+  }, [clearNewItems, newItems, queryClient, queryKey]);
 
   if (status === "pending") {
     return <FeedViewSkeleton />;
@@ -79,13 +111,33 @@ export default function FollowingFeed() {
   }
 
   return (
-    <InfiniteScrollContainer onBottomReached={handleBottomReached}>
-      <FeedView
-        cacheKey={["post-feed", "following", user?.id ?? "guest"]}
-        posts={posts}
-      />
-      {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
-      {posts.length > 0 && !hasNextPage ? <FeedEnd /> : null}
-    </InfiniteScrollContainer>
+    <div className="relative" ref={feedRootRef}>
+      {newItems.length > 0 ? (
+        <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
+          <NewContentPill
+            authors={[
+              ...new Map(
+                newItems.map((post) => [
+                  post.userId,
+                  {
+                    avatarUrl: post.user?.avatarUrl,
+                    id: post.userId,
+                    username: post.user?.username,
+                  },
+                ])
+              ).values(),
+            ]}
+            count={newItems.length}
+            noun="post"
+            onClick={showNewPosts}
+          />
+        </div>
+      ) : null}
+      <InfiniteScrollContainer onBottomReached={handleBottomReached}>
+        <FeedView cacheKey={queryKey} posts={posts} />
+        {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
+        {posts.length > 0 && !hasNextPage ? <FeedEnd /> : null}
+      </InfiniteScrollContainer>
+    </div>
   );
 }
