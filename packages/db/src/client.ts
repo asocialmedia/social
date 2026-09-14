@@ -6,14 +6,9 @@ export function getPublicUserSelect(loggedInUserId: string) {
       select: {
         followers: true,
         following: true,
-        // Top-level posts only: responses (posts that reply to a post) are
-        // surfaced in the profile Responses tab, not counted as posts. Keyed
-        // on rootPostId so responses survive their parent's deletion.
-        posts: {
-          where: {
-            rootPostId: null,
-          },
-        },
+        // Posts, including responses: the profile Posts tab lists both, so the
+        // count matches what the tab actually shows.
+        posts: true,
       },
     },
     aura: true,
