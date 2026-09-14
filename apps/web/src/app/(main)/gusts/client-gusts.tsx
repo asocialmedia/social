@@ -11,7 +11,6 @@ import {
   Loader2,
   Plus,
   Search,
-  Sparkles,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -26,6 +25,8 @@ import React, {
 import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { NewContentPill } from "@/components/feeds/new-content-pill";
+import type { NewContentAuthor } from "@/components/feeds/new-content-pill";
 import { GustCard } from "@/components/gusts/gust-card";
 import { GustCardSkeleton } from "@/components/gusts/gust-card-skeleton";
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
@@ -114,7 +115,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [newGustCount, setNewGustCount] = useState(0);
+  const [newGusts, setNewGusts] = useState<PostsPage["posts"]>([]);
   const touchStartYRef = useRef<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -154,7 +155,10 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
         .get("/api/gusts", { searchParams: queryParams })
         .json<PostsPage>();
     },
-    queryKey: ["gusts-feed", initialPostId, gustTab],
+    queryKey: ["gusts-feed", initialPostId, gustTab, user?.id ?? "guest"],
+    refetchOnMount: true,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
     staleTime: 1000 * 60,
   });
 
@@ -163,7 +167,7 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
   useEffect(() => {
     queueMicrotask(() => {
       setActiveIndex(0);
-      setNewGustCount(0);
+      setNewGusts([]);
     });
     containerRef.current?.scrollTo({ top: 0 });
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- gustTab is intentionally a change signal for the new query
@@ -180,29 +184,35 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     [data?.pages, hiddenPostIds]
   );
 
-  // Refetch the feed and surface a pill when brand-new gusts (not already in
-  // the current list) appeared at the top since the last load.
+  const findUnseenGusts = useCallback(
+    (fresh: PostsPage["posts"]): PostsPage["posts"] => {
+      const knownIds = new Set(posts.map((post) => post.id));
+      const unseen: PostsPage["posts"] = [];
+      for (const post of fresh) {
+        if (!post.attachments.some((media) => media.type === "VIDEO")) {
+          continue;
+        }
+        if (knownIds.has(post.id)) {
+          break;
+        }
+        unseen.push(post);
+      }
+      return unseen;
+    },
+    [posts]
+  );
+
+  // Pull-to-refresh updates the visible reel immediately. Background polling
+  // below only probes the head so scrolling never jumps unexpectedly.
   const refreshFeed = useCallback(async () => {
     if (isRefreshing) {
       return;
     }
     setIsRefreshing(true);
-    const knownIds = new Set(posts.map((post) => post.id));
     try {
       const result = await refetch();
       const fresh = result.data?.pages.flatMap((page) => page.posts) ?? [];
-      let count = 0;
-      for (const post of fresh) {
-        if (
-          post.attachments.some((m) => m.type === "VIDEO") &&
-          !knownIds.has(post.id)
-        ) {
-          count += 1;
-        } else {
-          break;
-        }
-      }
-      setNewGustCount((previous) => Math.max(previous, count));
+      setNewGusts(findUnseenGusts(fresh));
     } catch (error) {
       // Reset before rethrowing so the refresh UI clears on the failure path
       // too (replaces the previous `finally` clause).
@@ -213,12 +223,42 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
     setIsRefreshing(false);
     setPullDistance(0);
     // oxlint-disable-next-line react/memo-dependencies -- refetch is lexically captured; React Query guarantees it has a stable identity
-  }, [isRefreshing, posts, refetch]);
+  }, [findUnseenGusts, isRefreshing, refetch]);
+
+  // Probe only the first page. Keeping this outside the main infinite query
+  // means React Query retains the visible cached reel while this request runs.
+  useEffect(() => {
+    if (initialPostId) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void (async () => {
+        try {
+          const queryParams: Record<string, string> = {
+            excludeModerated: "1",
+          };
+          if (isPersonalized) {
+            queryParams.mode = "personalized";
+          }
+          const fresh = await kyInstance
+            .get("/api/gusts", { searchParams: queryParams })
+            .json<PostsPage>();
+          const unseen = findUnseenGusts(fresh.posts);
+          if (unseen.length > 0) {
+            setNewGusts(unseen);
+          }
+        } catch {
+          // Best-effort polling; keep the current reel on transient failures.
+        }
+      })();
+    }, 45 * 1000);
+    return () => window.clearInterval(interval);
+  }, [findUnseenGusts, initialPostId, isPersonalized]);
 
   // Jump to the very first gust and clear the new-gust pill.
   const showNewGusts = useCallback(() => {
     containerRef.current?.scrollTo({ behavior: "smooth", top: 0 });
-    setNewGustCount(0);
+    setNewGusts([]);
   }, []);
 
   // Kept in sync so the wheel/touch listeners (attached once) can consult the
@@ -642,21 +682,30 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
 
         {/* New gust pill */}
         <AnimatePresence>
-          {newGustCount > 0 ? (
+          {newGusts.length > 0 ? (
             <motion.div
               animate={{ opacity: 1, y: 0 }}
               className="absolute top-4 left-1/2 z-30 -translate-x-1/2"
               exit={{ opacity: 0, y: -12 }}
               initial={{ opacity: 0, y: -12 }}
             >
-              <button
-                className="rail-3d-btn flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"
+              <NewContentPill
+                authors={[
+                  ...new Map<string, NewContentAuthor>(
+                    newGusts.map((post) => [
+                      post.userId,
+                      {
+                        avatarUrl: post.user?.avatarUrl,
+                        id: post.userId,
+                        username: post.user?.username,
+                      },
+                    ])
+                  ).values(),
+                ]}
+                count={newGusts.length}
+                noun="gust"
                 onClick={showNewGusts}
-                type="button"
-              >
-                <Sparkles className="size-4" />
-                {newGustCount} new gust{newGustCount === 1 ? "" : "s"}
-              </button>
+              />
             </motion.div>
           ) : null}
         </AnimatePresence>

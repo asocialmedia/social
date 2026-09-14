@@ -1,12 +1,13 @@
 "use client";
 
-import type { PostsPage } from "@asm/db";
+import type { PostData, PostsPage } from "@asm/db";
 import noFeedImage from "@assets/general/nofeed.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
+import { NewContentPill } from "@/components/feeds/new-content-pill";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
@@ -34,6 +35,7 @@ export default function HomeFeed({
   variant = "personalized",
   excludePostId,
 }: HomeFeedProps) {
+  const { user } = useSession();
   const isTrending = variant === "trending";
   const isLatest = variant === "latest";
   const isPersonalized = variant === "personalized" || variant === "global";
@@ -46,7 +48,7 @@ export default function HomeFeed({
     feedKey = "latest";
     endpoint = "/api/posts/latest";
   }
-  const queryKey = ["post-feed", feedKey];
+  const queryKey = ["post-feed", feedKey, user?.id ?? "guest"];
 
   const {
     data,
@@ -82,7 +84,7 @@ export default function HomeFeed({
   // posts" pill without touching the feed's data (or the user's scroll
   // position) until they tap it.
   const newestIdRef = useRef<string | null>(null);
-  const [newPostsCount, setNewPostsCount] = useState(0);
+  const [newPosts, setNewPosts] = useState<PostData[]>([]);
   const feedRootRef = useRef<HTMLDivElement>(null);
 
   // Baseline to the newest post currently showing. Re-running whenever posts
@@ -112,15 +114,15 @@ export default function HomeFeed({
           if (newest && newest !== newestIdRef.current) {
             newestIdRef.current = newest;
             const knownIds = new Set(posts.map((p) => p.id));
-            let count = 0;
+            const unseenPosts: PostData[] = [];
             for (const post of fresh.posts) {
               if (knownIds.has(post.id)) {
                 break;
               }
-              count += 1;
+              unseenPosts.push(post);
             }
-            if (count > 0) {
-              setNewPostsCount(count);
+            if (unseenPosts.length > 0) {
+              setNewPosts(unseenPosts);
             }
           }
         } catch {
@@ -140,7 +142,7 @@ export default function HomeFeed({
   // Pull the freshly polled posts into the feed: refetch so they land at the
   // top, then scroll the nearest scrollable ancestor back up to meet them.
   const showNewPosts = useCallback(async () => {
-    setNewPostsCount(0);
+    setNewPosts([]);
     await refetch();
     let node: HTMLElement | null = feedRootRef.current;
     while (node) {
@@ -203,16 +205,25 @@ export default function HomeFeed({
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {!excludePostId && newPostsCount > 0 ? (
+      {!excludePostId && newPosts.length > 0 ? (
         <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
-          <button
-            className="rail-3d-btn pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium"
+          <NewContentPill
+            authors={[
+              ...new Map(
+                newPosts.map((post) => [
+                  post.userId,
+                  {
+                    avatarUrl: post.user?.avatarUrl,
+                    id: post.userId,
+                    username: post.user?.username,
+                  },
+                ])
+              ).values(),
+            ]}
+            count={newPosts.length}
+            noun="post"
             onClick={showNewPosts}
-            type="button"
-          >
-            <RefreshCw className="size-4" />
-            {newPostsCount} new post{newPostsCount === 1 ? "" : "s"}
-          </button>
+          />
         </div>
       ) : null}
       <InfiniteScrollContainer onBottomReached={handleBottomReached}>

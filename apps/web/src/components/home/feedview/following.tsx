@@ -6,6 +6,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import { FeedView } from "@/components/home/feed-view";
 import FeedEnd from "@/components/home/feedview/feed-end";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
@@ -14,6 +15,7 @@ import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton"
 import kyInstance from "@/lib/ky";
 
 export default function FollowingFeed() {
+  const { user } = useSession();
   const {
     data,
     fetchNextPage,
@@ -31,7 +33,11 @@ export default function FollowingFeed() {
           pageParam ? { searchParams: { cursor: pageParam } } : {}
         )
         .json<PostsPage>(),
-    queryKey: ["post-feed", "following"],
+    queryKey: ["post-feed", "following", user?.id ?? "guest"],
+    refetchOnMount: true,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000,
   });
 
   const posts = data?.pages.flatMap((page) => page.posts) || [];
@@ -74,7 +80,10 @@ export default function FollowingFeed() {
 
   return (
     <InfiniteScrollContainer onBottomReached={handleBottomReached}>
-      <FeedView posts={posts} />
+      <FeedView
+        cacheKey={["post-feed", "following", user?.id ?? "guest"]}
+        posts={posts}
+      />
       {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
       {posts.length > 0 && !hasNextPage ? <FeedEnd /> : null}
     </InfiniteScrollContainer>
