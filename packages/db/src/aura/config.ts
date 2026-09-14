@@ -61,6 +61,12 @@ export const COMMENT_CREATION_AURA = 1;
 // threads keep paying the author.
 export const COMMENT_RECEIVED_AURA = 1;
 
+// Post author award per response to their post from another user.
+export const RESPONSE_RECEIVED_AURA = 2;
+
+// Raw post aura increment when receiving a response from another user.
+export const RESPONSE_RECEIVED_POST_AURA = 1;
+
 // Followed user award when gaining a follower.
 export const FOLLOW_GAINED_AURA = 10;
 

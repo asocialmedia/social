@@ -3,6 +3,7 @@ import {
   enqueueNotificationDeleted,
   getPostDataInclude,
   invalidateAuraSignals,
+  invalidateFypProfile,
   prisma,
   settleVoteTransition,
 } from "@asm/db";
@@ -10,6 +11,7 @@ import type { PostData } from "@asm/db";
 
 import { runSerializableTransaction } from "@/lib/aura/db-transactions";
 import { getSessionFromApi } from "@/lib/auth/session";
+import { recordRecommendationInteraction } from "@/lib/recommendations/record-event";
 import { suggestedUsersCache } from "@/lib/users/suggested-users-cache";
 
 interface VoteInfo {
@@ -202,6 +204,17 @@ export async function POST(
       return Response.json({ error: "Post not found" }, { status: 404 });
     }
 
+    // The vote is one of the strongest personalized-feed signals. Expire the
+    // actor's persona immediately so the next feed request reflects it.
+    void invalidateFypProfile(user.id);
+    if (value === 1) {
+      void recordRecommendationInteraction({
+        eventType: "VOTE",
+        postId,
+        userId: user.id,
+      });
+    }
+
     if (auraChanged) {
       await suggestedUsersCache.invalidateForUser(result.userId);
       // Fire-and-forget: signals serve ranking heuristics and fall back to a
@@ -323,6 +336,8 @@ export async function DELETE(
     if (!result) {
       return Response.json({ error: "Post not found" }, { status: 404 });
     }
+
+    void invalidateFypProfile(user.id);
 
     if (auraChanged) {
       await suggestedUsersCache.invalidateForUser(result.userId);

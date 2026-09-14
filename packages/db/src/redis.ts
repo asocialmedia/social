@@ -449,6 +449,72 @@ export async function publishCommentDeleted(
   await publishCommentEvent({ comment, kind: "comment.deleted", postId });
 }
 
+// Real-time responses: post-to-post replies are published to a per-post Redis
+// channel (keyed by the post whose DIRECT responses changed) and fanned out to
+// open SSE streams, mirroring the eddies stack above.
+export const RESPONSE_CHANNEL_PREFIX = "responses:";
+export const responseChannel = (postId: string): string =>
+  `${RESPONSE_CHANNEL_PREFIX}${postId}`;
+
+export interface ResponseStreamEvent {
+  kind: "response.created" | "response.deleted";
+  postId: string;
+  response: unknown;
+}
+
+export function serializeResponseEvent(event: ResponseStreamEvent): string {
+  return JSON.stringify(event);
+}
+
+export function parseResponseEvent(raw: string): ResponseStreamEvent | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<ResponseStreamEvent>;
+    if (
+      parsed.kind !== "response.created" &&
+      parsed.kind !== "response.deleted"
+    ) {
+      return null;
+    }
+    if (typeof parsed.postId !== "string" || parsed.response === undefined) {
+      return null;
+    }
+    return {
+      kind: parsed.kind,
+      postId: parsed.postId,
+      response: parsed.response,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function publishResponseEvent(
+  event: ResponseStreamEvent
+): Promise<void> {
+  try {
+    await redis.publish(
+      responseChannel(event.postId),
+      serializeResponseEvent(event)
+    );
+  } catch (error) {
+    console.error("Error publishing response event:", error);
+  }
+}
+
+export async function publishResponseCreated(
+  postId: string,
+  response: unknown
+): Promise<void> {
+  await publishResponseEvent({ kind: "response.created", postId, response });
+}
+
+export async function publishResponseDeleted(
+  postId: string,
+  response: unknown
+): Promise<void> {
+  await publishResponseEvent({ kind: "response.deleted", postId, response });
+}
+
 // ---- E2EE messages ---------------------------------------------------------
 // Real-time DMs: message writes are published to a per-conversation Redis
 // channel and fanned out to open SSE streams, mirroring the comments stack.

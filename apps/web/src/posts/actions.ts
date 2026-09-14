@@ -8,7 +8,9 @@ import {
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
+  publishResponseDeleted,
   redis,
+  RESPONSE_RECEIVED_POST_AURA,
   unreadNotificationCache,
 } from "@asm/db";
 import { updateTag } from "next/cache";
@@ -261,6 +263,35 @@ export async function deletePost(id: string) {
   // share card and media URLs stop being served (read-your-own-writes).
   updateTag("og-post-card");
   updateTag("media-object");
+
+  // If the deleted post was a response, drop it from open threads live (keyed
+  // on the thread root so every viewer of the post gets it) and refund the
+  // parent's response count on every connected client.
+  if (deletedPost.rootPostId) {
+    try {
+      await publishResponseDeleted(deletedPost.rootPostId, deletedPost);
+    } catch (error) {
+      console.error("Failed to publish response-deleted event:", error);
+    }
+  }
+
+  if (
+    deletedPost.parentPostId &&
+    deletedPost.parentPost &&
+    deletedPost.parentPost.userId !== session.user.id
+  ) {
+    try {
+      await prisma.post.update({
+        data: { aura: { decrement: RESPONSE_RECEIVED_POST_AURA } },
+        where: { id: deletedPost.parentPostId },
+      });
+    } catch (error) {
+      console.error(
+        "Failed to decrement parent post aura on response deletion:",
+        error
+      );
+    }
+  }
 
   return deletedPost;
 }

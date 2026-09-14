@@ -27,7 +27,12 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
       user: { select: { displayName: true, username: true } },
     },
     take: limit,
-    where: { isGust: false, moderated: false, user: { banned: false } },
+    where: {
+      isGust: false,
+      moderated: false,
+      rootPostId: null,
+      user: { banned: false },
+    },
   });
 
   return posts.map((p) => ({
@@ -78,7 +83,12 @@ export async function getTrendingPostsForCrawl(
       user: { select: { displayName: true, username: true } },
     },
     take: limit,
-    where: { isGust: false, moderated: false, user: { banned: false } },
+    where: {
+      isGust: false,
+      moderated: false,
+      rootPostId: null,
+      user: { banned: false },
+    },
   });
 
   return posts.map((p) => ({
@@ -108,6 +118,7 @@ export async function getHashtagPostsForCrawl(
     where: {
       isGust: false,
       moderated: false,
+      rootPostId: null,
       tags: { some: { name: tag } },
       user: { banned: false },
     },
@@ -140,6 +151,7 @@ export async function getUserPostsForCrawl(
     where: {
       isGust: false,
       moderated: false,
+      rootPostId: null,
       user: { banned: false },
       userId,
     },
@@ -163,7 +175,12 @@ export async function getRecentPostDataForCrawl(limit = 20) {
     include: getPostDataInclude(""),
     orderBy: { createdAt: "desc" },
     take: limit,
-    where: { isGust: false, moderated: false, user: { banned: false } },
+    where: {
+      isGust: false,
+      moderated: false,
+      rootPostId: null,
+      user: { banned: false },
+    },
   });
   return hydrateViewCounts(rows);
 }

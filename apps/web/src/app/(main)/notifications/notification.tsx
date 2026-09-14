@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
   Captions,
+  CornerDownRight,
   Heart,
   MessageCircle,
   ShieldAlert,
@@ -103,6 +104,14 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     badgeClass: "bg-gradient-to-b from-emerald-400 to-teal-600",
     href: (notification) => `/posts/${notification.postId}`,
     icon: Sparkles,
+  },
+  // A post-to-post reply: the postId points at the response itself, so the
+  // link opens the response's permalink (with its parent card).
+  REPLY: {
+    action: () => "responded to your post",
+    badgeClass: "bg-gradient-to-b from-sky-400 to-blue-600",
+    href: (notification) => `/posts/${notification.postId}`,
+    icon: CornerDownRight,
   },
   // Platform-persona notice: closed captions and transcript were generated.
   TRANSCRIPTION: {

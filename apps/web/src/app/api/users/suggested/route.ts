@@ -271,7 +271,7 @@ async function computePersonalizedSuggestions(userId: string, limit: number) {
       orderBy: { createdAt: "desc" },
       select: { tags: { select: { name: true } } },
       take: 20,
-      where: { moderated: false, userId },
+      where: { moderated: false, rootPostId: null, userId },
     }),
     prisma.vote.findMany({
       orderBy: { createdAt: "desc" },

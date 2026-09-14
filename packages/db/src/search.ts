@@ -154,6 +154,7 @@ export async function searchPosts(
     where: {
       AND: [
         { moderated: false },
+        { rootPostId: null },
         { content: { contains: q, mode: "insensitive" } },
       ],
     },

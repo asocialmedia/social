@@ -19,11 +19,18 @@ interface CandidateRow {
 
 let candidateRows: CandidateRow[] = [];
 const enqueuedIds: string[] = [];
+const semanticRefreshIds: string[] = [];
 
 mock.module("@asm/db", () => ({
   Prisma: { DbNull: Symbol.for("test.DbNull") },
-  enqueueMediaAnalyze: (id: string) => {
+  enqueueMediaAnalyze: (
+    id: string,
+    options?: { semanticRefresh?: boolean }
+  ) => {
     enqueuedIds.push(id);
+    if (options?.semanticRefresh) {
+      semanticRefreshIds.push(id);
+    }
     return Promise.resolve();
   },
   // Unused by this sweep; present so whichever test file evaluates the sweep
@@ -31,16 +38,19 @@ mock.module("@asm/db", () => ({
   // this process-wide mock key.
   enqueueMediaProcess: () => Promise.resolve(),
   enqueueMediaScan: () => Promise.resolve(),
+  globalKnowledgeGraph: {},
   prisma: {
     media: {
       findMany: () => Promise.resolve(candidateRows),
     },
   },
+  redis: {},
 }));
 
 const {
   MAX_TRANSCRIPTION_BACKFILL_ATTEMPTS,
   TRANSCRIPTION_BACKFILL_RETRY_WINDOW_MS,
+  semanticClassificationBackfillSweep,
   transcriptionBackfillSweep,
 } = await import("./index");
 
@@ -49,6 +59,7 @@ describe("transcriptionBackfillSweep loop prevention", () => {
     backfillEnabled = true;
     candidateRows = [];
     enqueuedIds.length = 0;
+    semanticRefreshIds.length = 0;
   });
 
   test("enqueues fresh candidates with no prior transcription metadata", async () => {
@@ -171,5 +182,20 @@ describe("transcriptionBackfillSweep loop prevention", () => {
     const result = await transcriptionBackfillSweep();
     expect(result.enqueued).toBe(0);
     expect(enqueuedIds).toHaveLength(0);
+  });
+
+  test("backfills media that has not received the current semantic classifier", async () => {
+    candidateRows = [
+      { id: "legacy-image", techMetadata: null },
+      {
+        id: "current-image",
+        techMetadata: { semanticClassificationVersion: "semantic-v2" },
+      },
+    ];
+
+    const result = await semanticClassificationBackfillSweep();
+
+    expect(result.enqueued).toBe(1);
+    expect(semanticRefreshIds).toEqual(["legacy-image"]);
   });
 });

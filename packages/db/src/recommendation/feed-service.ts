@@ -1,6 +1,6 @@
 // For-You feed service: fetches a fresh candidate pool, builds (and caches)
 // the user's taste persona, ranks candidates using semantic embeddings and
-// media features, and returns diverse, unskippable pages with continuous pagination.
+// media features, and returns diverse pages with continuous pagination.
 
 import { createLogger } from "@asm/logger";
 
@@ -19,9 +19,10 @@ import type { CandidatePost } from "./score-candidate";
 
 const logger = createLogger({ serviceName: "fyp-feed" });
 
-// Candidate pool window: 72 hours of recent posts.
+// Rank the newest bounded pool, then continue with the chronological cursor.
+// There is no arbitrary age cutoff, so a small community or new account can
+// still reach the complete archive while freshness remains a score feature.
 const CANDIDATE_POOL_SIZE = 500;
-const CANDIDATE_WINDOW_HOURS = 72;
 const CANDIDATE_POOL_TAKE = { take: CANDIDATE_POOL_SIZE };
 
 // 15 minutes cache TTL for user taste profiles.
@@ -33,6 +34,21 @@ const PROFILE_SIGNAL_WINDOW_MS =
   PROFILE_SIGNAL_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
 const PROFILE_EMBEDDING_TAKE = 100;
+const RECOMMENDATION_EVENT_TAKE = 200;
+const COLLABORATIVE_SOURCE_TAKE = 100;
+const COLLABORATIVE_PEER_EVENT_TAKE = 2000;
+const COLLABORATIVE_CANDIDATE_EVENT_TAKE = 5000;
+const SOCIAL_PROOF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SOCIAL_PROOF_EVENT_TAKE = 2000;
+const SOCIAL_PROOF_SATURATION = 3;
+const POSITIVE_RECOMMENDATION_EVENTS = [
+  "VIEW_COMPLETE",
+  "DWELL",
+  "BOOKMARK",
+  "VOTE",
+  "COMMENT",
+  "SHARE",
+] as const;
 
 export const FYP_PROFILE_KEY_PREFIX = "fyp-profile:";
 
@@ -47,6 +63,15 @@ const AUTHOR_TAGS_SELECT = {
     isGust: true,
     semanticTags: true,
     tags: { select: { name: true } },
+    user: {
+      select: {
+        sessions: {
+          orderBy: { updatedAt: "desc" },
+          select: { country: true },
+          take: 1,
+        },
+      },
+    },
     userId: true,
   },
 } as const;
@@ -58,6 +83,7 @@ export interface PersonalizedFeedPage {
 }
 
 export interface GetPersonalizedFeedOptions {
+  contentKind?: "post" | "gust";
   cursor?: string;
   excludeModerated?: boolean;
   includeVisited?: boolean;
@@ -75,6 +101,154 @@ async function fetchFollowedAuthorIds(userId: string): Promise<string[]> {
     where: { followerId: userId },
   });
   return follows.map((follow) => follow.followingId);
+}
+
+async function getCollaborativePostWeights(
+  userId: string,
+  candidatePostIds: string[]
+): Promise<Map<string, number>> {
+  if (candidatePostIds.length === 0) {
+    return new Map();
+  }
+
+  const ownSignals = await prisma.recommendationEvent.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { postId: true },
+    take: COLLABORATIVE_SOURCE_TAKE,
+    where: {
+      eventType: { in: [...POSITIVE_RECOMMENDATION_EVENTS] },
+      userId,
+    },
+  });
+  const sourcePostIds = [...new Set(ownSignals.map((signal) => signal.postId))];
+  if (sourcePostIds.length === 0) {
+    return new Map();
+  }
+
+  const peerSignals = await prisma.recommendationEvent.findMany({
+    select: { userId: true },
+    take: COLLABORATIVE_PEER_EVENT_TAKE,
+    where: {
+      eventType: { in: [...POSITIVE_RECOMMENDATION_EVENTS] },
+      postId: { in: sourcePostIds },
+      userId: { not: userId },
+    },
+  });
+  const peerCounts = new Map<string, number>();
+  for (const signal of peerSignals) {
+    peerCounts.set(signal.userId, (peerCounts.get(signal.userId) ?? 0) + 1);
+  }
+  const peerIds = [...peerCounts.entries()]
+    .toSorted((a, b) => b[1] - a[1])
+    .slice(0, 50)
+    .map(([peerId]) => peerId);
+  if (peerIds.length === 0) {
+    return new Map();
+  }
+
+  const candidateSignals = await prisma.recommendationEvent.findMany({
+    select: { postId: true, userId: true },
+    take: COLLABORATIVE_CANDIDATE_EVENT_TAKE,
+    where: {
+      eventType: { in: [...POSITIVE_RECOMMENDATION_EVENTS] },
+      postId: { in: candidatePostIds },
+      userId: { in: peerIds },
+    },
+  });
+  const weights = new Map<string, number>();
+  for (const signal of candidateSignals) {
+    const peerWeight = peerCounts.get(signal.userId) ?? 1;
+    weights.set(
+      signal.postId,
+      (weights.get(signal.postId) ?? 0) + 1 / peerWeight
+    );
+  }
+  const maximum = Math.max(...weights.values(), 0);
+  if (maximum <= 0) {
+    return new Map();
+  }
+  for (const [postId, weight] of weights) {
+    weights.set(postId, Math.min(1, weight / maximum));
+  }
+  return weights;
+}
+
+function socialProofRecencyWeight(createdAt: Date, now: Date): number {
+  const ageHours = Math.max(
+    0,
+    (now.getTime() - createdAt.getTime()) / 3_600_000
+  );
+  return 0.5 ** (ageHours / (7 * 24));
+}
+
+export async function getSocialProofPostWeights(
+  viewerId: string,
+  candidatePostIds: string[],
+  now: Date
+): Promise<Map<string, number>> {
+  if (candidatePostIds.length === 0) {
+    return new Map();
+  }
+
+  const since = new Date(now.getTime() - SOCIAL_PROOF_WINDOW_MS);
+  const [amplifications, comments] = await Promise.all([
+    prisma.vote.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, postId: true, userId: true },
+      take: SOCIAL_PROOF_EVENT_TAKE,
+      where: {
+        createdAt: { gte: since },
+        postId: { in: candidatePostIds },
+        user: { followers: { some: { followerId: viewerId } } },
+        value: 1,
+      },
+    }),
+    prisma.comment.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, postId: true, userId: true },
+      take: SOCIAL_PROOF_EVENT_TAKE,
+      where: {
+        createdAt: { gte: since },
+        deleted: false,
+        postId: { in: candidatePostIds },
+        user: { followers: { some: { followerId: viewerId } } },
+      },
+    }),
+  ]);
+
+  // Count at most one action per followed person per post so a single active
+  // account cannot dominate the feed by commenting repeatedly.
+  const contributionByPost = new Map<string, Map<string, number>>();
+  const addContribution = (
+    postId: string,
+    userId: string,
+    baseWeight: number,
+    createdAt: Date
+  ): void => {
+    const byUser = contributionByPost.get(postId) ?? new Map<string, number>();
+    const contribution = baseWeight * socialProofRecencyWeight(createdAt, now);
+    byUser.set(userId, Math.max(byUser.get(userId) ?? 0, contribution));
+    contributionByPost.set(postId, byUser);
+  };
+
+  for (const amplification of amplifications) {
+    addContribution(
+      amplification.postId,
+      amplification.userId,
+      1,
+      amplification.createdAt
+    );
+  }
+  for (const comment of comments) {
+    addContribution(comment.postId, comment.userId, 0.8, comment.createdAt);
+  }
+
+  const weights = new Map<string, number>();
+  for (const [postId, byUser] of contributionByPost) {
+    const total = [...byUser.values()].reduce((sum, value) => sum + value, 0);
+    weights.set(postId, Math.min(1, total / SOCIAL_PROOF_SATURATION));
+  }
+  return weights;
 }
 
 function toSignal(
@@ -103,6 +277,82 @@ function toSignal(
   };
 }
 
+function buildExplorationAffinities(
+  pool: {
+    id: string;
+    semanticTags?: string[] | null;
+    tags: { name: string }[];
+  }[],
+  profile: UserProfile
+): Map<string, number> {
+  const tagFrequency = new Map<string, number>();
+  for (const post of pool) {
+    const tags = new Set([
+      ...post.tags.map((tag) => tag.name.toLowerCase()),
+      ...(post.semanticTags ?? []).map((tag) => tag.toLowerCase()),
+    ]);
+    for (const tag of tags) {
+      tagFrequency.set(tag, (tagFrequency.get(tag) ?? 0) + 1);
+    }
+  }
+
+  const isColdStart = (profile.signalCount ?? 0) < 8;
+  const explorationScale = isColdStart ? 1 : 0.35;
+  const affinities = new Map<string, number>();
+  for (const post of pool) {
+    const tags = [
+      ...new Set([
+        ...post.tags.map((tag) => tag.name.toLowerCase()),
+        ...(post.semanticTags ?? []).map((tag) => tag.toLowerCase()),
+      ]),
+    ];
+    if (tags.length === 0) {
+      affinities.set(post.id, 0.2 * explorationScale);
+      continue;
+    }
+    const rarity =
+      tags.reduce(
+        (total, tag) => total + 1 / Math.sqrt(tagFrequency.get(tag) ?? 1),
+        0
+      ) / tags.length;
+    const knownTopicMass = tags.reduce(
+      (total, tag) => total + (profile.tagWeights?.[tag] ?? 0),
+      0
+    );
+    const unfamiliarity = 1 - Math.min(1, knownTopicMass);
+    affinities.set(
+      post.id,
+      Math.min(1, (rarity * 0.65 + unfamiliarity * 0.35) * explorationScale)
+    );
+  }
+  return affinities;
+}
+
+function getRecommendationEventKind(
+  eventType: string
+): ProfileSignal["kind"] | null {
+  switch (eventType) {
+    case "VIEW_START": {
+      return "view";
+    }
+    case "VIEW_COMPLETE": {
+      return "viewComplete";
+    }
+    case "DWELL": {
+      return "dwell";
+    }
+    case "SKIP": {
+      return "skip";
+    }
+    case "NOT_INTERESTED": {
+      return "notInterested";
+    }
+    default: {
+      return null;
+    }
+  }
+}
+
 // Joins recent engagement (votes, bookmarks, comments, comment votes, searches) through to
 // posts, media types, and embeddings, constructing a comprehensive UserPersona.
 export async function buildAndCacheProfile(
@@ -116,6 +366,7 @@ export async function buildAndCacheProfile(
     comments,
     commentVotes,
     ownPosts,
+    recommendationEvents,
     searches,
     followedAuthorIds,
   ] = await Promise.all([
@@ -148,6 +399,7 @@ export async function buildAndCacheProfile(
       select: {
         comment: { select: { post: AUTHOR_TAGS_SELECT } },
         createdAt: true,
+        value: true,
       },
       take: PROFILE_EMBEDDING_TAKE,
       where: { createdAt: { gte: since }, userId },
@@ -156,6 +408,16 @@ export async function buildAndCacheProfile(
       orderBy: { createdAt: "desc" },
       select: { ...AUTHOR_TAGS_SELECT.select, createdAt: true },
       take: PROFILE_EMBEDDING_TAKE,
+      where: { createdAt: { gte: since }, userId },
+    }),
+    prisma.recommendationEvent.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        createdAt: true,
+        eventType: true,
+        post: { select: AUTHOR_TAGS_SELECT.select },
+      },
+      take: RECOMMENDATION_EVENT_TAKE,
       where: { createdAt: { gte: since }, userId },
     }),
     searchCache.getHistory(userId),
@@ -186,8 +448,18 @@ export async function buildAndCacheProfile(
   for (const commentVote of commentVotes) {
     if (commentVote.comment?.post) {
       signals.push(
-        toSignal(commentVote.comment.post, "commentVote", commentVote.createdAt)
+        toSignal(
+          commentVote.comment.post,
+          commentVote.value > 0 ? "commentVote" : "downvote",
+          commentVote.createdAt
+        )
       );
+    }
+  }
+  for (const event of recommendationEvents) {
+    const eventKind = getRecommendationEventKind(event.eventType);
+    if (eventKind && event.post) {
+      signals.push(toSignal(event.post, eventKind, event.createdAt));
     }
   }
   for (const ownPost of ownPosts) {
@@ -244,6 +516,15 @@ export async function buildAndCacheProfile(
     followedAuthorIds,
   };
 
+  logger.debug(
+    {
+      signalCount: profile.signalCount ?? 0,
+      topTags: profile.summary?.topTags ?? [],
+      userId,
+    },
+    "fyp profile built"
+  );
+
   try {
     await redis.set(
       fypProfileKey(userId),
@@ -261,7 +542,12 @@ async function getProfile(userId: string): Promise<CachedProfile> {
   try {
     const cached = await redis.get(fypProfileKey(userId));
     if (cached) {
-      return JSON.parse(cached) as CachedProfile;
+      const profile = JSON.parse(cached) as CachedProfile;
+      logger.debug(
+        { signalCount: profile.signalCount ?? 0, userId },
+        "fyp profile cache hit"
+      );
+      return profile;
     }
   } catch (error) {
     logger.warn({ error }, "fyp profile cache read failed");
@@ -294,9 +580,14 @@ export async function getPersonalizedFeedPage(
 
   if (cursor && cursor.startsWith("fyp.")) {
     const parts = cursor.split(".");
-    const rawOffset = Math.trunc(Number(parts[1] ?? "0")) || 0;
+    // New cursors include the content kind (`fyp.gust.20.timestamp`), while
+    // the two-part form remains readable for existing post-feed cursors.
+    const cursorOffsetIndex =
+      parts[1] === "post" || parts[1] === "gust" ? 2 : 1;
+    const rawOffset = Math.trunc(Number(parts[cursorOffsetIndex] ?? "0")) || 0;
     const rawTimestamp =
-      Math.trunc(Number(parts[2] ?? `${Date.now()}`)) || Date.now();
+      Math.trunc(Number(parts[cursorOffsetIndex + 1] ?? `${Date.now()}`)) ||
+      Date.now();
     // Clamp offset to valid bounds and timestamp to supported range
     offset = Math.max(0, Math.min(rawOffset, CANDIDATE_POOL_SIZE));
     const maxTimestamp = Date.now() + 60_000;
@@ -305,21 +596,23 @@ export async function getPersonalizedFeedPage(
   }
 
   const now = new Date(timestamp);
-  const windowStart = new Date(
-    timestamp - CANDIDATE_WINDOW_HOURS * 60 * 60 * 1000
-  );
 
+  const contentKind = options.contentKind ?? "post";
   const whereClause: Prisma.PostWhereInput = {
-    createdAt: { gte: windowStart, lte: now },
-    isGust: false,
+    createdAt: { lte: now },
+    isGust: contentKind === "gust",
     moderated: excludeModerated ? false : undefined,
+    userId: { not: userId },
   };
+  if (contentKind === "gust") {
+    whereClause.attachments = { some: { type: "VIDEO" } };
+  }
 
   if (!includeVisited) {
     whereClause.visits = { none: { userId } };
   }
 
-  const [pool, profile] = await Promise.all([
+  const [pool, profile, viewerSession] = await Promise.all([
     prisma.post.findMany({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
@@ -333,6 +626,15 @@ export async function getPersonalizedFeedPage(
         id: true,
         semanticTags: true,
         tags: { select: { name: true } },
+        user: {
+          select: {
+            sessions: {
+              orderBy: { updatedAt: "desc" },
+              select: { country: true },
+              take: 1,
+            },
+          },
+        },
         userId: true,
         viewCount: true,
         visits: { select: { id: true }, take: 1, where: { userId } },
@@ -341,6 +643,11 @@ export async function getPersonalizedFeedPage(
       ...CANDIDATE_POOL_TAKE,
     }),
     getProfile(userId),
+    prisma.session.findFirst({
+      orderBy: { updatedAt: "desc" },
+      select: { country: true },
+      where: { userId },
+    }),
   ]);
 
   if (pool.length === 0) {
@@ -348,14 +655,33 @@ export async function getPersonalizedFeedPage(
   }
 
   const followedAuthorIds = new Set(profile.followedAuthorIds);
-  const authorSignals = await getAuraSignalsForUsers([
-    ...new Set(pool.map((post) => post.userId)),
-  ]);
+  const [authorSignals, collaborativeWeights, socialProofWeights] =
+    await Promise.all([
+      getAuraSignalsForUsers([...new Set(pool.map((post) => post.userId))]),
+      getCollaborativePostWeights(
+        userId,
+        pool.map((post) => post.id)
+      ),
+      getSocialProofPostWeights(
+        userId,
+        pool.map((post) => post.id),
+        now
+      ),
+    ]);
+  const explorationAffinities = buildExplorationAffinities(pool, profile);
 
   const scored: ScoredCandidate<CandidatePost>[] = pool.map((post) => {
     const attachments = post.attachments ?? [];
+    const authorCountry = post.user?.sessions[0]?.country;
+    const geographicAffinity =
+      viewerSession?.country &&
+      authorCountry &&
+      viewerSession.country === authorCountry
+        ? 1
+        : 0;
     const candidate: CandidatePost = {
       aura: post.aura,
+      authorCountry,
       authorId: post.userId,
       bookmarkCount: post._count.bookmarks,
       commentCount: post._count.comments,
@@ -376,8 +702,12 @@ export async function getPersonalizedFeedPage(
       score: scoreCandidate(candidate, profile, {
         authorVisibilityWeight:
           authorSignals.get(post.userId)?.visibilityWeight ?? 1,
+        collaborativeAffinity: collaborativeWeights.get(post.id),
+        explorationAffinity: explorationAffinities.get(post.id),
         followedAuthorIds,
+        geographicAffinity,
         now,
+        socialProofAffinity: socialProofWeights.get(post.id),
       }),
     };
   });
@@ -405,9 +735,22 @@ export async function getPersonalizedFeedPage(
     .map((id) => byId.get(id))
     .filter((post): post is PostData => post !== undefined);
 
+  logger.debug(
+    {
+      candidateCount: pool.length,
+      contentKind,
+      profileSignalCount: profile.signalCount ?? 0,
+      returnedCount: orderedPosts.length,
+      socialProofPostCount: socialProofWeights.size,
+      topPostIds: orderedPosts.slice(0, 5).map((post) => post.id),
+      userId,
+    },
+    "fyp feed page ranked"
+  );
+
   let nextCursor: string | null = null;
   if (sliceEnd < ranked.length) {
-    nextCursor = `fyp.${sliceEnd}.${timestamp}`;
+    nextCursor = `fyp.${contentKind}.${sliceEnd}.${timestamp}`;
   } else if (pool.length > 0) {
     // Candidates exhausted: transition smoothly to expired posts at bottom
     nextCursor = `exp.${pool.at(-1)?.id ?? ""}`;

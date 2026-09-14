@@ -85,6 +85,18 @@ describe("GET /api/users/[userId]/posts", () => {
     expect(callArgs?.where?.isGust).toBe(false);
   });
 
+  test("includes responses in the standard Posts tab", async () => {
+    const req = new Request("http://localhost:3000/api/users/targetUser/posts");
+    await GET(req, { params: Promise.resolve({ userId: "targetUser" }) });
+
+    const callArgs = lastFindManyArgs as {
+      where?: Record<string, unknown>;
+    };
+    // Responses are first-class posts and list alongside top-level posts, so
+    // the Posts tab must not scope to rootPostId: null.
+    expect(callArgs?.where).not.toHaveProperty("rootPostId");
+  });
+
   test("filters media posts when filter=media", async () => {
     const req = new Request(
       "http://localhost:3000/api/users/targetUser/posts?filter=media"

@@ -5,6 +5,10 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useToast } from "@/lib/gooey-toast";
+import {
+  applyPostAuraDeltaToCaches,
+  applyResponseCountDeltaToCaches,
+} from "@/lib/posts/cache-sync";
 import { getShortPostId } from "@/lib/seo/seo";
 
 import { deletePost, updatePostModeration } from "./actions";
@@ -48,6 +52,21 @@ export function useDeletePostMutation() {
           };
         }
       );
+
+      if (deletedPost.parentPostId) {
+        applyResponseCountDeltaToCaches(
+          queryClient,
+          deletedPost.parentPostId,
+          -1
+        );
+        applyPostAuraDeltaToCaches(queryClient, deletedPost.parentPostId, -1);
+        queryClient.invalidateQueries({
+          queryKey: ["vote-info", deletedPost.parentPostId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["post", deletedPost.parentPostId],
+        });
+      }
 
       toast({
         description: "Post deleted",

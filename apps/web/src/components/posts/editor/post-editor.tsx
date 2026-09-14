@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserData } from "@asm/db";
+import type { Media, PostData, UserData } from "@asm/db";
 import { MAX_POST_ATTACHMENTS } from "@asm/media";
 import {
   DropdownMenu,
@@ -30,6 +30,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import {
   Clapperboard,
+  CornerDownRight,
   FileAudioIcon,
   GripVertical,
   Hash,
@@ -48,9 +49,14 @@ import { useSession } from "@/app/(main)/session-provider";
 import { LoadingButton } from "@/components/auth/loading-button";
 import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
+import { MediaPreviews } from "@/components/home/feedview/media-previews";
 import UserAvatar from "@/components/layouts/user-avatar";
+import UserBadge from "@/components/layouts/user-badge";
+import PostLinkEmbeds from "@/components/posts/link-embeds";
+import PostLinkedContent from "@/components/posts/post-linked-content";
 import { toast as showToast, useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import {
   ALT_TEXT_MAX_LENGTH,
   patchAudioOverlay,
@@ -59,8 +65,9 @@ import {
 } from "@/lib/media/media-upload-client";
 
 import "./styles.css";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeDate } from "@/lib/utils";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
+import type { ComposerReplyTarget } from "@/store/composer-store";
 import { useComposerStore } from "@/store/composer-store";
 
 import AltTextPanel from "./alt-text-panel";
@@ -208,6 +215,125 @@ function createMediaTypeGate(config: {
   };
 }
 
+interface PostEditorResponsePreviewProps {
+  onClear: () => void;
+  replyTo: ComposerReplyTarget;
+}
+
+const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
+  onClear,
+  replyTo,
+}) => {
+  const { data: parentPostQuery } = useQuery<PostData>({
+    enabled: Boolean(replyTo?.id),
+    queryFn: async () => {
+      const json = await kyInstance
+        .get(`/api/posts/${replyTo.id}`)
+        .json<{ post: PostData } | PostData>();
+      return "post" in json && json.post ? json.post : (json as PostData);
+    },
+    queryKey: ["post", replyTo.id],
+    staleTime: 60_000,
+  });
+
+  const parent = parentPostQuery;
+  const username = parent?.user?.username ?? replyTo.username;
+  const displayName =
+    parent?.user?.displayName || replyTo.displayName || username;
+  const avatarUrl = parent?.user?.avatarUrl ?? replyTo.avatarUrl;
+  const badge = parent?.user?.badge ?? replyTo.badge;
+  const badges = parent?.user?.badges ?? replyTo.badges;
+  const createdAt = parent?.createdAt ?? replyTo.createdAt;
+  const content = parent?.content ?? replyTo.content;
+  const isGust = parent?.isGust ?? replyTo.isGust;
+  const attachments = (parent?.attachments ??
+    replyTo.attachments ??
+    []) as Media[];
+  const embeds = parseStoredEmbeds(parent?.embeds ?? replyTo.embeds);
+
+  return (
+    <div className="border-border/60 bg-muted/20 relative rounded-2xl border p-3.5 transition-colors sm:p-4">
+      <div className="flex items-start gap-3">
+        <UserAvatar
+          avatarUrl={avatarUrl}
+          className="size-9 shrink-0 rounded-xl sm:size-10 sm:rounded-2xl"
+          size={40}
+          user={parent?.user}
+        />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs sm:gap-2 sm:text-sm">
+              <span className="text-foreground truncate font-semibold">
+                {displayName}
+              </span>
+              <UserBadge badge={badge} badges={badges} />
+              <span className="text-muted-foreground truncate">
+                @{username}
+              </span>
+              {isGust ? (
+                <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] font-semibold">
+                  Gust
+                </span>
+              ) : null}
+              {createdAt ? (
+                <>
+                  <span className="text-muted-foreground shrink-0">·</span>
+                  <span
+                    className="text-muted-foreground shrink-0"
+                    suppressHydrationWarning
+                  >
+                    {formatRelativeDate(createdAt)}
+                  </span>
+                </>
+              ) : null}
+            </div>
+
+            <button
+              aria-label="Cancel response"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted/60 -mt-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full transition-colors"
+              onClick={onClear}
+              title="Cancel response"
+              type="button"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          {content ? (
+            <div className="text-foreground mt-1.5 max-h-52 overflow-y-auto text-sm leading-relaxed break-words whitespace-pre-wrap sm:text-[15px]">
+              <PostLinkedContent content={content} embeds={embeds} />
+            </div>
+          ) : null}
+
+          {attachments.length > 0 ? (
+            <div className="mt-2.5 max-w-full overflow-hidden rounded-xl">
+              <MediaPreviews
+                attachments={attachments}
+                autoPlayVideos={false}
+                interactive={false}
+                post={parent ?? undefined}
+              />
+            </div>
+          ) : null}
+
+          {embeds.length > 0 ? (
+            <div className="mt-2.5 max-w-full overflow-hidden rounded-xl">
+              <PostLinkEmbeds embeds={embeds} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="text-muted-foreground border-border/40 mt-2.5 flex items-center gap-1.5 border-t pt-2 text-xs">
+        <CornerDownRight className="text-primary size-3.5 shrink-0" />
+        <span>Replying to</span>
+        <span className="text-primary truncate font-medium">@{username}</span>
+      </div>
+    </div>
+  );
+};
+
 export default function PostEditor({
   variant = "feed",
 }: {
@@ -221,7 +347,13 @@ export default function PostEditor({
   const isHnSharing = hnShareStore.isSharing;
 
   const composerMode = useComposerStore((state) => state.mode);
-  const isGust = composerMode === "gust";
+  const replyTo = useComposerStore((state) => state.replyTo);
+  const clearReplyTo = useComposerStore((state) => state.clearReplyTo);
+  const closeComposer = useComposerStore((state) => state.closeComposer);
+  // Responses are always fleets: the reply target forces gust mode off even if
+  // a previous draft left the composer in gust mode.
+  const isResponse = Boolean(replyTo);
+  const isGust = composerMode === "gust" && !isResponse;
 
   const { data: userData } = useQuery({
     enabled: Boolean(user),
@@ -730,6 +862,7 @@ export default function PostEditor({
         selectedTags.map((tag) => tag.toLowerCase()),
         inlineRelations.tags
       ),
+      ...(replyTo ? { parentPostId: replyTo.id } : {}),
       ...(isHnSharing && sharedHnStory
         ? {
             hnStory: {
@@ -793,6 +926,12 @@ export default function PostEditor({
         if (newPost?.isGust) {
           router.push(`/gusts?id=${newPost.id}`);
         }
+        // A response is published into the thread the user is already viewing;
+        // close the composer (which also clears the reply target) so the new
+        // response is visible in place.
+        if (newPost?.parentPostId) {
+          closeComposer();
+        }
       },
     });
   }, [
@@ -818,6 +957,8 @@ export default function PostEditor({
     setGifPickerOpen,
     setSelectedMentions,
     toast,
+    replyTo,
+    closeComposer,
   ]);
   // oxlint-enable react/preserve-manual-memoization
 
@@ -943,6 +1084,11 @@ export default function PostEditor({
           : "rounded-none border-0 bg-transparent"
       )}
     >
+      {/* Response banner: names the post being replied to and clears the reply
+          target (returning the composer to a normal post). */}
+      {replyTo ? (
+        <PostEditorResponsePreview onClear={clearReplyTo} replyTo={replyTo} />
+      ) : null}
       {/* The avatar leads the composer on every breakpoint: the input bar
           sits beside it on mobile too. Gust mode with a clip keeps its
           stacked mobile grid instead - there the avatar leads the rail
@@ -1393,8 +1539,12 @@ export default function PostEditor({
                 {isGust ? null : (
                   <div className="flex items-center gap-2">
                     <ModeToggle
-                      disabled={modeSwitchLocked}
-                      disabledReason={modeSwitchReason}
+                      disabled={modeSwitchLocked || isResponse}
+                      disabledReason={
+                        isResponse
+                          ? "Responses are fleet posts"
+                          : modeSwitchReason
+                      }
                       isGust={isGust}
                     />
                     {publishButton}
@@ -1930,7 +2080,7 @@ const ModeToggle: React.FC<{
   const setMode = useComposerStore((state) => state.setMode);
 
   const activeClasses =
-    "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.1)]";
+    "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
   const idleClasses = "text-muted-foreground hover:text-foreground";
 
   return (

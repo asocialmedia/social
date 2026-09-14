@@ -12,10 +12,13 @@ const mockGetSession = mock((): { user: { id: string } } | null => ({
 const state = {
   attachmentClaims: [] as { claimedPostId: string; mediaIds: string[] }[],
   auraAwards: [] as { recipientId: string; type: string }[],
+  createdPostData: null as Record<string, unknown> | null,
   createdPostId: null as string | null,
   mentionCreates: [] as { userId: string }[],
   notifications: [] as { recipientId: string; type: string }[],
   ownedMediaIds: [] as string[],
+  postUpdates: [] as { data: Record<string, unknown>; id: string }[],
+  postsById: {} as Record<string, Record<string, unknown>>,
   scheduledCleanups: [] as string[],
 };
 
@@ -23,9 +26,12 @@ function resetState() {
   state.attachmentClaims = [];
   state.auraAwards = [];
   state.createdPostId = null;
+  state.createdPostData = null;
   state.mentionCreates = [];
   state.notifications = [];
   state.ownedMediaIds = [];
+  state.postUpdates = [];
+  state.postsById = {};
   state.scheduledCleanups = [];
 }
 
@@ -77,6 +83,7 @@ const mockTx = {
       const created = args.data.mentions?.create ?? [];
       state.mentionCreates.push(...created);
       state.createdPostId = args.data.id;
+      state.createdPostData = args.data;
       return Promise.resolve({
         hnStoryShare: null,
         id: args.data.id,
@@ -84,9 +91,32 @@ const mockTx = {
         tags: [],
       });
     },
-    findUnique: () =>
+    findUnique: (args: {
+      select?: Record<string, unknown>;
+      where?: { id?: string };
+    }) => {
+      // A `select` marks the response-target lookup (parent, then thread root),
+      // keyed by the requested id; the include-fetch passes an `include` and
+      // stays null in this harness.
+      if (args.select && args.where?.id) {
+        return Promise.resolve(state.postsById[args.where.id] ?? null);
+      }
       // The final include-fetch: null-safe in assertions via result?.id.
-      Promise.resolve(null),
+      return Promise.resolve(null);
+    },
+    update: (args: {
+      data: Record<string, unknown>;
+      where: { id: string };
+    }) => {
+      state.postUpdates.push(args);
+      if (args.where.id && state.postsById[args.where.id]) {
+        state.postsById[args.where.id] = {
+          ...state.postsById[args.where.id],
+          ...args.data,
+        };
+      }
+      return Promise.resolve(state.postsById[args.where.id] ?? null);
+    },
   },
   user: {
     // Both ids exist in the database, so ONLY the self-exclusion rule can
@@ -130,6 +160,7 @@ mock.module("@asm/db", () => ({
     },
   },
   redis: {
+    ...asmDbMockBase.redis,
     get: () => Promise.resolve(null),
     set: () => Promise.resolve("OK"),
   },
@@ -290,5 +321,170 @@ describe("submitPost attachment claiming", () => {
         tags: [],
       } as Parameters<typeof submitPost>[0])
     ).rejects.toThrow("One or more attachments are invalid");
+  });
+});
+
+describe("submitPost responses", () => {
+  beforeEach(() => {
+    resetState();
+    mockGetSession.mockClear();
+  });
+
+  test("a direct response sets rootPostId to the parent and notifies the parent author", async () => {
+    const { submitPost } = await import("./actions");
+    state.postsById["post-root"] = {
+      id: "post-root",
+      moderated: false,
+      parentPostId: null,
+      rootPostId: null,
+      threadTopId: null,
+      userId: "parent-author",
+    };
+
+    await submitPost({
+      content: "a response",
+      mediaIds: [],
+      mentions: [],
+      parentPostId: "post-root",
+      tags: [],
+    } as Parameters<typeof submitPost>[0]);
+
+    expect(state.createdPostData?.parentPostId).toBe("post-root");
+    expect(state.createdPostData?.rootPostId).toBe("post-root");
+    expect(state.createdPostData?.threadTopId).toBeNull();
+    // The parent author is notified once, as a REPLY.
+    const replyRecipients = state.notifications
+      .filter((notification) => notification.type === "REPLY")
+      .map((notification) => notification.recipientId);
+    expect(replyRecipients).toEqual(["parent-author"]);
+
+    // Parent post's aura is incremented and author is awarded response aura.
+    expect(state.postUpdates).toContainEqual({
+      data: { aura: { increment: 1 } },
+      where: { id: "post-root" },
+    });
+    expect(state.auraAwards).toContainEqual({
+      recipientId: "parent-author",
+      type: "COMMENT_RECEIVED",
+    });
+  });
+
+  test("responding to one's own post does not increment parent post aura or award aura", async () => {
+    const { submitPost } = await import("./actions");
+    state.postsById["self-post"] = {
+      id: "self-post",
+      moderated: false,
+      parentPostId: null,
+      rootPostId: null,
+      threadTopId: null,
+      userId: AUTHOR_ID,
+    };
+
+    await submitPost({
+      content: "my own follow-up",
+      mediaIds: [],
+      mentions: [],
+      parentPostId: "self-post",
+      tags: [],
+    } as Parameters<typeof submitPost>[0]);
+
+    expect(state.createdPostData?.parentPostId).toBe("self-post");
+    expect(state.postUpdates).toEqual([]);
+    const commentReceivedAwards = state.auraAwards.filter(
+      (award) => award.type === "COMMENT_RECEIVED"
+    );
+    expect(commentReceivedAwards).toEqual([]);
+  });
+
+  test("a nested response carries the thread root and both threadTopId and rootPostId", async () => {
+    const { submitPost } = await import("./actions");
+    // The parent is itself a direct response of "post-root".
+    state.postsById["response-1"] = {
+      id: "response-1",
+      moderated: false,
+      parentPostId: "post-root",
+      rootPostId: "post-root",
+      threadTopId: null,
+      userId: "response-author",
+    };
+    state.postsById["post-root"] = { userId: "root-author" };
+
+    await submitPost({
+      content: "a nested response",
+      mediaIds: [],
+      mentions: [],
+      parentPostId: "response-1",
+      tags: [],
+    } as Parameters<typeof submitPost>[0]);
+
+    expect(state.createdPostData?.parentPostId).toBe("response-1");
+    expect(state.createdPostData?.rootPostId).toBe("post-root");
+    // The first-level parent response becomes the thread's top anchor.
+    expect(state.createdPostData?.threadTopId).toBe("response-1");
+    // Both the parent author and the thread-root author are notified.
+    const replyRecipients = state.notifications
+      .filter((notification) => notification.type === "REPLY")
+      .map((notification) => notification.recipientId)
+      .toSorted();
+    expect(replyRecipients).toEqual(["response-author", "root-author"]);
+  });
+
+  test("a gust response is coerced to a fleet", async () => {
+    const { submitPost } = await import("./actions");
+    state.postsById["post-root"] = {
+      id: "post-root",
+      moderated: false,
+      parentPostId: null,
+      rootPostId: null,
+      threadTopId: null,
+      userId: "parent-author",
+    };
+
+    await submitPost({
+      content: "not a gust",
+      isGust: true,
+      mediaIds: [],
+      mentions: [],
+      parentPostId: "post-root",
+      tags: [],
+    } as Parameters<typeof submitPost>[0]);
+
+    expect(state.createdPostData?.isGust).toBe(false);
+  });
+
+  test("responding to a deleted or missing post is rejected", async () => {
+    const { submitPost } = await import("./actions");
+
+    await expect(
+      submitPost({
+        content: "into the void",
+        mediaIds: [],
+        mentions: [],
+        parentPostId: "missing",
+        tags: [],
+      } as Parameters<typeof submitPost>[0])
+    ).rejects.toThrow("no longer exists");
+  });
+
+  test("responding to a moderated post is rejected", async () => {
+    const { submitPost } = await import("./actions");
+    state.postsById["moderated-post"] = {
+      id: "moderated-post",
+      moderated: true,
+      parentPostId: null,
+      rootPostId: null,
+      threadTopId: null,
+      userId: "parent-author",
+    };
+
+    await expect(
+      submitPost({
+        content: "nope",
+        mediaIds: [],
+        mentions: [],
+        parentPostId: "moderated-post",
+        tags: [],
+      } as Parameters<typeof submitPost>[0])
+    ).rejects.toThrow("no longer available");
   });
 });

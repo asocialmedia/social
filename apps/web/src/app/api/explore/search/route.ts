@@ -76,8 +76,9 @@ export async function GET(request: Request) {
           isGust: true,
           // Moderated posts are hidden from explore entirely.
           moderated: false,
+          rootPostId: null,
         }
-      : { ...searchFilter, moderated: false };
+      : { ...searchFilter, moderated: false, rootPostId: null };
 
   const [rawPosts, users] = await Promise.all([
     prisma.post.findMany({

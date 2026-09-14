@@ -75,6 +75,7 @@ model User {
   messagesSent          Message[]
   blocksIssued          Block[]                     @relation("BlocksIssued")
   blocksReceived        Block[]                     @relation("BlocksReceived")
+  recommendationEvents  RecommendationEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -405,6 +406,19 @@ model Post {
   isGust                Boolean        @default(false)
   moderated             Boolean        @default(false)
   explicitContent       Boolean        @default(false)
+  // Responses are posts that reply to another post. `parentPostId` is the
+  // immediate parent (relation, nulled if the parent is hard-deleted so the
+  // response survives as a tombstone). `rootPostId` is the id of the thread's
+  // top-level POST and is set for every response, which is what marks a post as
+  // a response even after its parent is gone. `threadTopId` is the id of the
+  // thread's top-level response (null for a direct response), giving the
+  // responses API the same one-level pagination anchor comments use via
+  // `rootId`.
+  parentPostId          String?
+  parentPost            Post?          @relation("PostResponses", fields: [parentPostId], references: [id], onDelete: SetNull)
+  responses             Post[]         @relation("PostResponses")
+  rootPostId            String?
+  threadTopId           String?
   attachments           Media[]
   bookmarks             Bookmark[]
   comments              Comment[]
@@ -416,6 +430,7 @@ model Post {
   mentions              Mention[]
   hnStoryShare          HNStoryShare?
   visits                PostVisit[]
+  recommendationEvents  RecommendationEvent[]
   // Resolved link previews (max 5, LinkEmbed payloads from
   // apps/web/src/lib/link-embeds): fetched server-side at publish with SSRF
   // validation and stored so feed rendering never performs outbound fetches.
@@ -431,6 +446,9 @@ model Post {
   @@index([isGust, aura, id])
   @@index([isGust, trendingScore, id])
   @@index([userId, isGust, createdAt])
+  @@index([parentPostId, createdAt])
+  @@index([rootPostId, createdAt])
+  @@index([threadTopId, createdAt])
   @@map("posts")
 }
 
@@ -446,6 +464,28 @@ model PostVisit {
   @@index([userId, visitedAt])
   @@index([postId])
   @@map("post_visits")
+}
+
+// Behavioral signals used for recommendation learning. These are deliberately
+// append-only and separate from votes/bookmarks so passive attention can be
+// measured without changing the social/aura ledger.
+model RecommendationEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  postId     String
+  eventType  String
+  durationMs Int?
+  dedupeKey  String?  @unique
+  value      Float?
+  sessionId  String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType, createdAt])
+  @@index([postId, eventType, createdAt])
+  @@index([userId, postId, createdAt])
+  @@map("recommendation_events")
 }
 
 // Ops bookkeeping for one-shot data backfills (guarded runs that must happen
@@ -801,6 +841,7 @@ enum NotificationType {
   MENTION
   MODERATION
   PUBLISHED
+  REPLY
   TRANSCRIPTION
 }
 

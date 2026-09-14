@@ -645,7 +645,7 @@ export default function SecuritySettings({
           dashboard instead of a stack of identical cards. */}
       <div className="grid items-stretch gap-4 md:grid-cols-2 lg:grid-cols-6">
         <SettingsCard
-          className="flex scroll-mt-24 flex-col md:col-span-2 lg:col-span-4"
+          className="flex min-w-0 scroll-mt-24 flex-col md:col-span-2 lg:col-span-4"
           id="settings-two-factor"
         >
           <div className="flex items-start justify-between gap-4">
@@ -728,7 +728,7 @@ export default function SecuritySettings({
         </SettingsCard>
 
         <SettingsCard
-          className="flex scroll-mt-24 flex-col md:col-span-1 lg:col-span-2"
+          className="flex min-w-0 scroll-mt-24 flex-col md:col-span-1 lg:col-span-2"
           id="settings-password"
         >
           <div className="flex items-center justify-between gap-4">
@@ -768,7 +768,7 @@ export default function SecuritySettings({
         </SettingsCard>
 
         <SettingsCard
-          className="scroll-mt-24 md:col-span-1 lg:col-span-2"
+          className="min-w-0 scroll-mt-24 md:col-span-1 lg:col-span-2"
           id="settings-passkeys"
         >
           <div className="flex items-start justify-between gap-4">
@@ -828,7 +828,7 @@ export default function SecuritySettings({
           )}
         </SettingsCard>
 
-        <div className="md:col-span-2 lg:col-span-4">
+        <div className="min-w-0 md:col-span-2 lg:col-span-4">
           <SecuritySessionsCard currentSessionId={currentSessionId} />
         </div>
       </div>
@@ -845,7 +845,12 @@ export default function SecuritySettings({
         <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
           <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <div
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg",
+                  ORANGE_GRADIENT_CLASS
+                )}
+              >
                 <ShieldCheck className="size-4" />
               </div>
               {twoFactorDialogTitle(twoFactorAction)}
@@ -910,7 +915,12 @@ export default function SecuritySettings({
         <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
           <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <div
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg",
+                  ORANGE_GRADIENT_CLASS
+                )}
+              >
                 <KeyRound className="size-4" />
               </div>
               {hasAuthenticatorApp
@@ -985,7 +995,12 @@ export default function SecuritySettings({
         <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
           <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <div
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg",
+                  ORANGE_GRADIENT_CLASS
+                )}
+              >
                 <Fingerprint className="size-4" />
               </div>
               Add a passkey
@@ -1048,7 +1063,12 @@ export default function SecuritySettings({
         <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
           <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <div
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg",
+                  ORANGE_GRADIENT_CLASS
+                )}
+              >
                 <ShieldCheck className="size-4" />
               </div>
               Confirm it&apos;s you

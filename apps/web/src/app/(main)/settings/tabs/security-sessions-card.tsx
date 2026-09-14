@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { LoadingButton } from "@/components/auth/loading-button";
 import {
+  ORANGE_GRADIENT_CLASS,
   SETTINGS_SUBCARD_CLASS,
   SettingsCard,
   SettingsCardHeading,
@@ -336,7 +337,12 @@ export default function SecuritySessionsCard({
         <DialogContent className="apple-panel w-[calc(100%-1.5rem)] max-w-[420px] gap-0 overflow-hidden border-0 p-0 sm:rounded-2xl">
           <DialogHeader className="border-border/60 gap-0 border-b px-5 pt-5 pb-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]">
+              <div
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg",
+                  ORANGE_GRADIENT_CLASS
+                )}
+              >
                 <ShieldAlert className="size-4" />
               </div>
               {revokeCopy.title}

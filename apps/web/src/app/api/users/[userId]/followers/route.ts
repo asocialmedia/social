@@ -8,6 +8,7 @@ import {
   FOLLOW_GIVEN_AURA,
   followerInfoCache,
   invalidateAuraSignals,
+  invalidateFypProfile,
   prisma,
   reverseExactAura,
 } from "@asm/db";
@@ -141,6 +142,7 @@ export async function POST(
     };
 
     await followerInfoCache.invalidate(params.userId);
+    void invalidateFypProfile(loggedInUser.id);
     // Who to follow is personalized for the actor; following someone
     // invalidates their suggestions so the just-followed user disappears
     // and a fresh candidate can surface without waiting for TTL.
@@ -331,6 +333,7 @@ export async function DELETE(
         /* empty */
       }),
     ]);
+    void invalidateFypProfile(loggedInUser.id);
     try {
       await invalidateAuraSignals([userId, loggedInUser.id]);
     } catch (error) {

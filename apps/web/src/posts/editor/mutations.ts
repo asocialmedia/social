@@ -1,9 +1,14 @@
 import { clientLog } from "@asm/config/debug";
-import type { PostsPage } from "@asm/db";
+import type { PostsPage, ResponsesPage } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
 import { useToast } from "@/lib/gooey-toast";
+import {
+  applyPostAuraDeltaToCaches,
+  applyResponseCountDeltaToCaches,
+  forceInvalidatePostFeeds,
+} from "@/lib/posts/cache-sync";
 
 import { submitPost, updatePostMentions } from "./actions";
 
@@ -21,6 +26,8 @@ interface PostInput {
   isGust?: boolean;
   mediaIds: string[];
   mentions: string[];
+  // When set, this post is a response to that post.
+  parentPostId?: string;
   tags: string[];
 }
 
@@ -38,6 +45,7 @@ export function useSubmitPostMutation() {
         mentions: Array.isArray(input.mentions)
           ? input.mentions.filter(Boolean)
           : [],
+        parentPostId: input.parentPostId,
         tags: input.tags,
       };
 
@@ -55,6 +63,51 @@ export function useSubmitPostMutation() {
       });
     },
     onSuccess: async (newPost) => {
+      // A response is a first-class post: it lands in its parent's thread and
+      // in the timeline feeds (home + profile Posts), so refresh those caches.
+      if (newPost.parentPostId) {
+        const parentId = newPost.parentPostId;
+        // The thread list is cached and streamed per thread ROOT, so a nested
+        // response lands under its parent in the same cache every viewer of
+        // the post shares.
+        const threadRootId = newPost.rootPostId ?? parentId;
+        const responseFilter = { queryKey: ["responses", threadRootId] };
+        await queryClient.cancelQueries(responseFilter);
+        queryClient.setQueriesData<InfiniteData<ResponsesPage, string | null>>(
+          responseFilter,
+          (oldData) => {
+            if (!oldData?.pages[0]) {
+              return oldData;
+            }
+            return {
+              pageParams: oldData.pageParams,
+              pages: [
+                {
+                  previousCursor: oldData.pages[0].previousCursor,
+                  responses: [newPost, ...oldData.pages[0].responses],
+                },
+                ...oldData.pages.slice(1),
+              ],
+            };
+          }
+        );
+        // The count shown on a card is its DIRECT responses, so a nested
+        // response bumps its immediate parent, not the thread root.
+        applyResponseCountDeltaToCaches(queryClient, parentId, 1);
+        applyPostAuraDeltaToCaches(queryClient, parentId, 1);
+        queryClient.invalidateQueries({ queryKey: ["vote-info", parentId] });
+        queryClient.invalidateQueries({ queryKey: ["post", threadRootId] });
+        // Responses appear in Following / For You / Latest and the author's
+        // Posts tab, so refresh those feeds too.
+        forceInvalidatePostFeeds(queryClient);
+        toast({
+          description: "Your response is live",
+          duration: 4000,
+          title: "Response Published",
+        });
+        return;
+      }
+
       // Gusts live on the dedicated /gusts feed, not the home "for-you" feed
       // (which filters isGust=false server-side). Only prepend regular posts
       // to the home feed cache; gusts are invalidated separately below so the

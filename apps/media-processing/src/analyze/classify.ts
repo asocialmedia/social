@@ -3,183 +3,163 @@
 // visual media (Gemini Multimodal Vision), OCR scene text, and speech transcripts.
 // Feeds the Dynamic Knowledge Graph without any hardcoded category dictionaries.
 
-import { globalKnowledgeGraph } from "@asm/db";
+import { globalKnowledgeGraph, redis } from "@asm/db";
 
 import { workerEnv } from "../env";
 import { mediaLogger, withSpan } from "../log";
 
-// Common English functional and grammatical stop words to ignore when extracting salient keywords.
-const STOP_WORDS = new Set([
-  "a",
-  "about",
-  "above",
-  "after",
-  "again",
-  "against",
-  "all",
-  "also",
-  "am",
-  "an",
-  "and",
-  "any",
-  "are",
-  "aren",
-  "as",
-  "at",
-  "be",
-  "because",
-  "been",
-  "before",
-  "being",
-  "below",
-  "between",
-  "both",
-  "but",
-  "by",
-  "can",
-  "cannot",
-  "could",
-  "couldn",
-  "did",
-  "didn",
-  "do",
-  "does",
-  "doesn",
-  "doing",
-  "don",
-  "down",
-  "during",
-  "each",
-  "few",
-  "for",
-  "from",
-  "further",
-  "good",
-  "had",
-  "hadn",
-  "has",
-  "hasn",
-  "have",
-  "haven",
-  "having",
-  "he",
-  "hello",
-  "her",
-  "here",
-  "hers",
-  "herself",
-  "him",
-  "himself",
-  "his",
-  "how",
-  "i",
-  "if",
-  "in",
-  "into",
-  "is",
-  "isn",
-  "it",
-  "its",
-  "itself",
-  "just",
-  "me",
-  "more",
-  "morning",
-  "most",
-  "my",
-  "myself",
-  "no",
-  "nor",
-  "not",
-  "now",
-  "of",
-  "off",
-  "on",
-  "once",
-  "only",
-  "or",
-  "other",
-  "our",
-  "ours",
-  "ourselves",
-  "out",
-  "over",
-  "own",
-  "same",
-  "she",
-  "should",
-  "shouldn",
-  "so",
-  "some",
-  "such",
-  "than",
-  "that",
-  "the",
-  "their",
-  "theirs",
-  "them",
-  "themselves",
-  "then",
-  "there",
-  "these",
-  "they",
-  "this",
-  "those",
-  "through",
-  "to",
-  "today",
-  "tomorrow",
-  "too",
-  "under",
-  "until",
-  "up",
-  "very",
-  "was",
-  "wasn",
-  "we",
-  "were",
-  "weren",
-  "what",
-  "when",
-  "where",
-  "which",
-  "while",
-  "who",
-  "whom",
-  "why",
-  "will",
-  "with",
-  "won",
-  "would",
-  "wouldn",
-  "yesterday",
-  "you",
-  "your",
-  "yours",
-  "yourself",
-  "yourselves",
-  "really",
-  "something",
-  "someone",
-  "anyone",
-  "world",
-  "good",
-  "morning",
-  "afternoon",
-  "evening",
-]);
+export { SEMANTIC_CLASSIFICATION_VERSION } from "./semantic-version";
+
+interface TermStatistics {
+  documentFrequency: number;
+}
+
+// Learns corpus-specific term importance while this worker processes media.
+// This deliberately has no language dictionary: terms that appear everywhere
+// lose weight over time, while rare terms and entities remain discoverable.
+const TERM_STATISTICS_LIMIT = 50_000;
+const MAX_DOCUMENT_TERMS = 512;
+const TERM_DOCUMENT_COUNT_KEY = "recommendation:media-terms:v1:documents";
+const TERM_FREQUENCY_KEY = "recommendation:media-terms:v1:frequency";
+const TERM_RECENCY_KEY = "recommendation:media-terms:v1:recency";
+const termStatistics = new Map<string, TermStatistics>();
+let observedDocumentCount = 0;
+
+interface CorpusStatistics {
+  documentCount: number;
+  documentFrequency: Map<string, number>;
+}
+
+function normalizeTag(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replaceAll(/[^a-z0-9-_]/g, "-")
+    .replaceAll(/-+/g, "-")
+    .replaceAll(/^[-#@]+|[-]+$/g, "");
+}
+
+function observeTerms(terms: string[]): void {
+  const uniqueTerms = new Set(terms);
+  observedDocumentCount += 1;
+
+  for (const term of uniqueTerms) {
+    const current = termStatistics.get(term);
+    termStatistics.set(term, {
+      documentFrequency: (current?.documentFrequency ?? 0) + 1,
+    });
+  }
+
+  while (termStatistics.size > TERM_STATISTICS_LIMIT) {
+    const oldest = termStatistics.keys().next().value;
+    if (!oldest) {
+      break;
+    }
+    termStatistics.delete(oldest);
+  }
+}
+
+function getLocalCorpusStatistics(terms: string[]): CorpusStatistics {
+  observeTerms(terms);
+  return {
+    documentCount: observedDocumentCount,
+    documentFrequency: new Map(
+      [...termStatistics].map(([term, stats]) => [
+        term,
+        stats.documentFrequency,
+      ])
+    ),
+  };
+}
+
+const UPDATE_TERM_STATISTICS_SCRIPT = `
+  local document_count = redis.call("INCR", KEYS[1])
+  local limit = tonumber(ARGV[1])
+
+  for index = 2, #ARGV do
+    local term = ARGV[index]
+    redis.call("HINCRBY", KEYS[2], term, 1)
+    redis.call("ZADD", KEYS[3], document_count, term)
+  end
+
+  local overflow = redis.call("ZCARD", KEYS[3]) - limit
+  if overflow > 0 then
+    local stale_terms = redis.call("ZRANGE", KEYS[3], 0, overflow - 1)
+    for _, term in ipairs(stale_terms) do
+      redis.call("HDEL", KEYS[2], term)
+      redis.call("ZREM", KEYS[3], term)
+    end
+  end
+
+  return document_count
+`;
+
+async function getSharedCorpusStatistics(
+  terms: string[]
+): Promise<CorpusStatistics> {
+  const uniqueTerms = [...new Set(terms)].slice(0, MAX_DOCUMENT_TERMS);
+  if (uniqueTerms.length === 0) {
+    return {
+      documentCount: observedDocumentCount,
+      documentFrequency: new Map(),
+    };
+  }
+
+  try {
+    const documentCount = Number(
+      await redis.eval(
+        UPDATE_TERM_STATISTICS_SCRIPT,
+        3,
+        TERM_DOCUMENT_COUNT_KEY,
+        TERM_FREQUENCY_KEY,
+        TERM_RECENCY_KEY,
+        TERM_STATISTICS_LIMIT,
+        ...uniqueTerms
+      )
+    );
+    const frequencies = await redis.hmget(TERM_FREQUENCY_KEY, ...uniqueTerms);
+    return {
+      documentCount: Number.isFinite(documentCount)
+        ? documentCount
+        : observedDocumentCount,
+      documentFrequency: new Map(
+        uniqueTerms.map((term, index) => [
+          term,
+          Number(frequencies[index] ?? 0),
+        ])
+      ),
+    };
+  } catch (error) {
+    mediaLogger.warn(
+      { error: String(error) },
+      "shared term statistics unavailable; using local fallback"
+    );
+    return getLocalCorpusStatistics(terms);
+  }
+}
+
+function calculateTermSalience(
+  term: string,
+  frequency: number,
+  corpus: CorpusStatistics
+): number {
+  const documentFrequency = corpus.documentFrequency.get(term) ?? 0;
+  const inverseDocumentFrequency = Math.log(
+    (corpus.documentCount + 2) / (documentFrequency + 1)
+  );
+  const lengthWeight = 1 + Math.log2(Math.min(term.length, 24)) / 4;
+  const repetitionWeight = 1 + Math.log1p(frequency);
+  return (
+    Math.max(0.1, inverseDocumentFrequency) * lengthWeight * repetitionWeight
+  );
+}
 
 // Normalizes a list of strings into clean, unique, lowercase kebab-case tags.
 export function sanitizeTags(tags: string[]): string[] {
   const seen = new Set<string>();
   for (const raw of tags) {
-    const clean = raw
-      .toLowerCase()
-      .trim()
-      .replaceAll(/[^a-z0-9-_]/g, "-")
-      .replaceAll(/-+/g, "-")
-      .replaceAll(/^[-#@]+|[-]+$/g, "");
-    if (clean.length >= 2 && clean.length <= 32 && !STOP_WORDS.has(clean)) {
+    const clean = normalizeTag(raw);
+    if (clean.length >= 2 && clean.length <= 32) {
       seen.add(clean);
     }
   }
@@ -187,19 +167,28 @@ export function sanitizeTags(tags: string[]): string[] {
 }
 
 // Dynamically extracts entity tags and concepts from text without any hardcoded dictionary.
-export function extractTextTopics(combinedText: string): string[] {
+function extractTextTopicsWithCorpus(
+  combinedText: string,
+  corpus?: CorpusStatistics
+): string[] {
   if (!combinedText || combinedText.trim().length === 0) {
     return [];
   }
 
-  const matchedTags = new Set<string>();
+  const matchedTags = new Map<string, number>();
+  const addCandidate = (raw: string, score: number): void => {
+    const tag = normalizeTag(raw);
+    if (tag.length >= 2 && tag.length <= 32) {
+      matchedTags.set(tag, Math.max(matchedTags.get(tag) ?? 0, score));
+    }
+  };
 
   // 1. Dynamic hashtag extraction (#astrophotography, #vintagetypewriter, #leicam6)
   const hashtagMatches = combinedText.matchAll(/#(?<tag>[a-zA-Z0-9_-]{2,32})/g);
   for (const match of hashtagMatches) {
     const tag = match.groups?.tag;
     if (tag) {
-      matchedTags.add(tag.toLowerCase().replaceAll("_", "-"));
+      addCandidate(tag.replaceAll("_", "-"), Number.POSITIVE_INFINITY);
     }
   }
 
@@ -210,9 +199,12 @@ export function extractTextTopics(combinedText: string): string[] {
   for (const match of properNounMatches) {
     const term = match.groups?.entity?.trim();
     if (term) {
-      const lower = term.toLowerCase();
-      if (!STOP_WORDS.has(lower) && lower.length >= 3) {
-        matchedTags.add(lower.replaceAll(/\s+/g, "-"));
+      const precedingText = combinedText.slice(0, match.index ?? 0);
+      const isSentenceInitialSingleWord =
+        !/\s/.test(term) &&
+        (precedingText.length === 0 || /[.!?]\s*$/.test(precedingText));
+      if (!isSentenceInitialSingleWord || /\s|\d/.test(term)) {
+        addCandidate(term.replaceAll(/\s+/g, "-"), Number.POSITIVE_INFINITY);
       }
     }
   }
@@ -224,42 +216,89 @@ export function extractTextTopics(combinedText: string): string[] {
   for (const match of modelMatches) {
     const code = match.groups?.code;
     if (code) {
-      matchedTags.add(code.toLowerCase());
+      addCandidate(code, Number.POSITIVE_INFINITY);
     }
   }
 
-  // 4. Dynamic salient term & phrase extraction (meaningful terms not in stop words)
-  const words = combinedText
-    .toLowerCase()
-    .split(/[^a-z0-9_-]+/)
-    .filter(Boolean);
-  for (let i = 0; i < words.length; i += 1) {
+  // 4. Dynamic salient term and phrase extraction. The worker learns inverse
+  // document frequency from the media corpus instead of deleting a fixed list
+  // of English words. Explicit entities above always outrank ordinary terms.
+  const sourceWords = combinedText.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const words = sourceWords.map((word) => word.toLowerCase());
+  const lexicalWords = words.filter(
+    (word) => word.length >= 4 && !/^\d+$/.test(word)
+  );
+  const corpusStatistics = corpus ?? getLocalCorpusStatistics(lexicalWords);
+
+  const frequencies = new Map<string, number>();
+  for (const word of lexicalWords) {
+    frequencies.set(word, (frequencies.get(word) ?? 0) + 1);
+    addCandidate(
+      word,
+      calculateTermSalience(word, frequencies.get(word) ?? 1, corpusStatistics)
+    );
+  }
+
+  for (let i = 0; i < words.length - 1; i += 1) {
     const word = words[i];
-    if (
-      word &&
-      word.length >= 4 &&
-      !STOP_WORDS.has(word) &&
-      !/^\d+$/.test(word)
-    ) {
-      matchedTags.add(word);
+    const nextWord = words[i + 1];
+    const sourceWord = sourceWords[i];
+    const nextSourceWord = sourceWords[i + 1];
+    if (!word || !nextWord || !sourceWord || !nextSourceWord) {
+      continue;
     }
-    // Dynamic bigram noun phrases (e.g. "golden-retriever", "shiba-inu", "wireguard-vpn")
-    if (i < words.length - 1) {
-      const nextWord = words[i + 1];
-      if (
-        word &&
-        nextWord &&
-        word.length >= 3 &&
-        nextWord.length >= 3 &&
-        !STOP_WORDS.has(word) &&
-        !STOP_WORDS.has(nextWord)
-      ) {
-        matchedTags.add(`${word}-${nextWord}`);
-      }
+
+    const isStructuredPhrase =
+      (word.length >= 4 && nextWord.length >= 4) ||
+      /[A-Z0-9]/.test(sourceWord) ||
+      /[A-Z0-9]/.test(nextSourceWord) ||
+      (word.length >= 4 &&
+        nextWord.length === 3 &&
+        calculateTermSalience(
+          nextWord,
+          frequencies.get(nextWord) ?? 1,
+          corpusStatistics
+        ) > 1.4);
+    if (isStructuredPhrase && word.length >= 3 && nextWord.length >= 3) {
+      const phrase = `${word}-${nextWord}`;
+      const phraseScore =
+        calculateTermSalience(
+          word,
+          frequencies.get(word) ?? 1,
+          corpusStatistics
+        ) +
+        calculateTermSalience(
+          nextWord,
+          frequencies.get(nextWord) ?? 1,
+          corpusStatistics
+        );
+      addCandidate(phrase, phraseScore * 1.15);
     }
   }
 
-  return sanitizeTags([...matchedTags]);
+  return [...matchedTags.entries()]
+    .toSorted((a, b) => b[1] - a[1])
+    .map(([tag]) => tag)
+    .slice(0, 20);
+}
+
+export function extractTextTopics(combinedText: string): string[] {
+  return extractTextTopicsWithCorpus(combinedText);
+}
+
+export async function extractTextTopicsWithSharedStatistics(
+  combinedText: string
+): Promise<string[]> {
+  if (!combinedText || combinedText.trim().length === 0) {
+    return [];
+  }
+
+  const words = combinedText.match(/[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const lexicalWords = words
+    .map((word) => word.toLowerCase())
+    .filter((word) => word.length >= 4 && !/^\d+$/.test(word));
+  const corpus = await getSharedCorpusStatistics(lexicalWords);
+  return extractTextTopicsWithCorpus(combinedText, corpus);
 }
 
 // Multimodal visual entity and scene classifier powered by Google Gemini Vision.
@@ -425,7 +464,8 @@ export function classifyMediaConcepts(input: {
       const textToAnalyze = [input.transcript, input.ocrText]
         .filter(Boolean)
         .join(" ");
-      const textTopics = extractTextTopics(textToAnalyze);
+      const textTopics =
+        await extractTextTopicsWithSharedStatistics(textToAnalyze);
       for (const t of textTopics) {
         tags.add(t);
       }

@@ -24,6 +24,7 @@ function createMockNotification(
       content: "Hello world post",
       id: overrides.postId ?? "post-1",
       isGust: false,
+      parentPostId: null,
     },
     postId: overrides.postId ?? "post-1",
     read: false,

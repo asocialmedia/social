@@ -25,6 +25,7 @@ export interface CandidatePost {
   hasTranscript?: boolean;
   hasVideo?: boolean;
   isVisited?: boolean;
+  authorCountry?: string | null;
 }
 
 export interface ScoreCandidateOptions {
@@ -34,6 +35,10 @@ export interface ScoreCandidateOptions {
   // to neutral 1 when unknown.
   authorVisibilityWeight?: number;
   followedAuthorIds?: ReadonlySet<string>;
+  collaborativeAffinity?: number;
+  geographicAffinity?: number;
+  explorationAffinity?: number;
+  socialProofAffinity?: number;
   now?: Date;
 }
 
@@ -46,6 +51,10 @@ export interface CandidateScoreComponents {
   semanticSimilarity: number;
   tagOverlap: number;
   traction: number;
+  collaborativeAffinity: number;
+  geographicAffinity: number;
+  explorationAffinity: number;
+  socialProofAffinity: number;
   visitedMultiplier: number;
 }
 
@@ -72,6 +81,10 @@ export const AUTHOR_AFFINITY_POINTS = 40;
 export const TAG_OVERLAP_POINTS = 30;
 export const FRESHNESS_POINTS = 20;
 export const TRACTION_POINTS = 10;
+export const COLLABORATIVE_POINTS = 12;
+export const GEOGRAPHIC_POINTS = 4;
+export const EXPLORATION_POINTS = 8;
+export const SOCIAL_PROOF_POINTS = 14;
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -103,8 +116,12 @@ export function scoreCandidateComponents(
 
   // 2. Tag Overlap & Negative Tag Demotion
   const distinctTags = [
-    ...new Set([...post.tags, ...(post.semanticTags ?? [])]),
-  ].filter(Boolean);
+    ...new Set(
+      [...post.tags, ...(post.semanticTags ?? [])]
+        .map((tag) => tag.toLowerCase().trim())
+        .filter(Boolean)
+    ),
+  ];
   let tagMass = 0;
   let negativeTagMass = 0;
   for (const tag of distinctTags) {
@@ -174,11 +191,20 @@ export function scoreCandidateComponents(
   // 7. Visited Soft Multiplier (instead of deleting/hiding visited posts)
   const visitedMultiplier = post.isVisited ? 0.35 : 1;
 
+  const collaborativeAffinity = clamp01(options.collaborativeAffinity ?? 0);
+  const geographicAffinity = clamp01(options.geographicAffinity ?? 0);
+  const explorationAffinity = clamp01(options.explorationAffinity ?? 0);
+  const socialProofAffinity = clamp01(options.socialProofAffinity ?? 0);
+
   return {
     authorAffinity,
+    collaborativeAffinity,
+    explorationAffinity,
     freshness,
+    geographicAffinity,
     mediaFit,
     semanticSimilarity,
+    socialProofAffinity,
     tagOverlap,
     traction,
     visitedMultiplier,
@@ -197,10 +223,14 @@ export function scoreCandidate(
     components.authorAffinity * AUTHOR_AFFINITY_POINTS +
     components.tagOverlap * TAG_OVERLAP_POINTS +
     components.freshness * FRESHNESS_POINTS +
-    components.traction * TRACTION_POINTS;
+    components.traction * TRACTION_POINTS +
+    components.collaborativeAffinity * COLLABORATIVE_POINTS +
+    components.geographicAffinity * GEOGRAPHIC_POINTS +
+    components.explorationAffinity * EXPLORATION_POINTS +
+    components.socialProofAffinity * SOCIAL_PROOF_POINTS;
 
   // Scale by format fit and reputation visibility, then apply soft visited cooldown
   const mediaScaled =
     base * components.mediaFit * clamp01(options.authorVisibilityWeight ?? 1);
-  return mediaScaled * components.visitedMultiplier;
+  return Math.min(100, mediaScaled * components.visitedMultiplier);
 }

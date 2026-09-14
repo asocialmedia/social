@@ -44,9 +44,11 @@ describe("extractTextTopics", () => {
     expect(topics).toContain("anime");
   });
 
-  test("returns empty array for unrelated or empty text", () => {
+  test("returns no topics for empty text and keeps meaningful terms without a word blacklist", () => {
     expect(extractTextTopics("")).toEqual([]);
-    expect(extractTextTopics("hello world good morning")).toEqual([]);
+    expect(extractTextTopics("hello world good morning")).toEqual(
+      expect.arrayContaining(["hello", "world", "good", "morning"])
+    );
   });
 
   test("extracts deep nature entities: beach, mountain, cave", () => {

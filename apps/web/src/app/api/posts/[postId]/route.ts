@@ -1,4 +1,10 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  getPostAncestors,
+  getPostDataInclude,
+  hydrateViewCounts,
+  prisma,
+} from "@asm/db";
+import type { PostData } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -35,5 +41,10 @@ export async function GET(
   }
 
   const [hydrated] = await hydrateViewCounts([post]);
-  return Response.json({ post: hydrated });
+  let ancestors: PostData[] = [];
+  if (hydrated.parentPostId) {
+    ancestors = await getPostAncestors(hydrated.parentPostId, user.id);
+  }
+
+  return Response.json({ ancestors, post: hydrated });
 }

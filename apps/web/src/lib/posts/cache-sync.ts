@@ -94,6 +94,39 @@ export function applyAuraToCaches(
   );
 }
 
+// Mirrors a post's aura delta into every cached shape carrying that post,
+// and updates the live ["vote-info", postId] query cache if present.
+export function applyPostAuraDeltaToCaches(
+  queryClient: QueryClient,
+  postId: string,
+  delta: number
+): void {
+  updateCacheByPredicate(
+    queryClient,
+    (record) => record.id === postId && typeof record.aura === "number",
+    (record) => {
+      const currentAura = record.aura as number;
+      return {
+        ...record,
+        aura: currentAura + delta,
+      };
+    }
+  );
+
+  queryClient.setQueriesData<{ aura: number; userVote: number }>(
+    { queryKey: ["vote-info", postId] },
+    (old) => {
+      if (!old) {
+        return old;
+      }
+      return {
+        ...old,
+        aura: old.aura + delta,
+      };
+    }
+  );
+}
+
 // Mirrors a comment's aura into every cached shape that carries a comment
 // object (the ["comments", postId] list). Voting on an eddie updates the aura
 // shown in the thread immediately.
@@ -169,6 +202,42 @@ export function applyCommentCountDeltaToCaches(
   );
 }
 
+// Mirrors a response count change (delta) into every cached shape that carries
+// a post (_count.responses on feeds, bookmarks, search, profiles, single post).
+export function applyResponseCountDeltaToCaches(
+  queryClient: QueryClient,
+  postId: string,
+  delta: number
+): void {
+  updateCacheByPredicate(
+    queryClient,
+    (record) =>
+      record.id === postId &&
+      typeof record._count === "object" &&
+      record._count !== null,
+    (record) => {
+      const countObj = record._count as {
+        responses?: number;
+        [key: string]: unknown;
+      };
+      if (typeof countObj.responses !== "number") {
+        return record;
+      }
+      const newCount = Math.max(0, countObj.responses + delta);
+      if (newCount === countObj.responses) {
+        return record;
+      }
+      return {
+        ...record,
+        _count: {
+          ...countObj,
+          responses: newCount,
+        },
+      };
+    }
+  );
+}
+
 // Heals stale PostData that lost its viewer-scoped `bookmarks` (and `vote`)
 // join during serialization or optimistic construction. Runs as a synchronous
 // patch over every cached query so the UI stops crashing immediately; the
@@ -192,6 +261,7 @@ function isStalePostRecord(record: Record<string, unknown>): boolean {
     Array.isArray(record._count) ||
     typeof (record._count as Record<string, unknown>).comments !== "number" ||
     typeof (record._count as Record<string, unknown>).mentions !== "number" ||
+    typeof (record._count as Record<string, unknown>).responses !== "number" ||
     typeof (record._count as Record<string, unknown>).vote !== "number"
   );
 }

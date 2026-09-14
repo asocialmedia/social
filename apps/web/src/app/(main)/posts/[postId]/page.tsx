@@ -1,4 +1,4 @@
-import { getPostDataInclude, prisma } from "@asm/db";
+import { getPostAncestors, getPostDataInclude, prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -144,6 +144,10 @@ async function PostContent({ params }: PageProps) {
     session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
 
+  const ancestors = post.parentPostId
+    ? await getPostAncestors(post.parentPostId, session?.user?.id ?? "")
+    : [];
+
   const authorUsername = post.user?.username || "unknown";
   const authorDisplayName =
     post.user?.displayName || post.user?.username || "Anonymous";
@@ -255,7 +259,7 @@ async function PostContent({ params }: PageProps) {
             : [postJsonLd, breadcrumbJsonLd]
         }
       />
-      <ClientPost post={post} userData={userData} />
+      <ClientPost ancestors={ancestors} post={post} userData={userData} />
       {/* Hidden related links for bots - no visible block */}
       {filteredRelated.length > 0 ? (
         <div className="sr-only" aria-hidden={false}>

@@ -29,8 +29,8 @@ export async function GET(request: Request) {
   // from Postgres (deleted/moderated since publish) is filtered here and its
   // slot simply advances the cursor.
   const where: Prisma.PostWhereInput = excludeModerated
-    ? { isGust: false, moderated: false }
-    : { isGust: false };
+    ? { isGust: false, moderated: false, rootPostId: null }
+    : { isGust: false, rootPostId: null };
 
   let data: PostsPage | null = null;
   try {
@@ -42,9 +42,10 @@ export async function GET(request: Request) {
       const ids = snapshot.entries.map((entry) => entry.id);
       const rows = await prisma.post.findMany({
         include: getPostDataInclude(userId),
-        // Gusts must never surface here even if the worker snapshotted one:
-        // the live fallback excludes them, so the snapshot path must too.
-        where: { id: { in: ids }, isGust: false },
+        // Gusts and responses must never surface here even if the worker
+        // snapshotted one: the live fallback excludes them, so the snapshot
+        // path must too.
+        where: { id: { in: ids }, isGust: false, rootPostId: null },
       });
       const byId = new Map(rows.map((row) => [row.id, row]));
 

@@ -206,7 +206,9 @@ export async function grantShitposterBadgeIfQualified(
 
   const windowStart = new Date(Date.now() - SHITPOSTER_WINDOW_MS);
   const recentPosts = await prisma.post.count({
-    where: { createdAt: { gte: windowStart }, userId },
+    // Responses are conversation, not timeline posts: they must not push an
+    // author over the shitposter threshold.
+    where: { createdAt: { gte: windowStart }, rootPostId: null, userId },
   });
 
   if (recentPosts < SHITPOSTER_THRESHOLD) {

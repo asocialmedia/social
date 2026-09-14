@@ -15,7 +15,12 @@ export type ProfileSignalKind =
   | "hide"
   | "ownPost"
   | "ownGust"
-  | "search";
+  | "search"
+  | "view"
+  | "viewComplete"
+  | "dwell"
+  | "skip"
+  | "notInterested";
 
 export interface ProfileSignal {
   authorId: string;
@@ -63,11 +68,16 @@ export const SIGNAL_WEIGHTS: Record<ProfileSignalKind, number> = {
   comment: 2,
   commentVote: 1,
   downvote: -2,
+  dwell: 1.5,
   hide: -3,
+  notInterested: -4,
   ownGust: 3,
   ownPost: 3.5,
   search: 2.5,
+  skip: -0.75,
   upvote: 1.5,
+  view: 0.5,
+  viewComplete: 2.5,
 };
 
 function addWeight(

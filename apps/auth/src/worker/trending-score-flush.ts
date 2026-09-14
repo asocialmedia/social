@@ -47,7 +47,7 @@ export async function flushTrendingScores(
           viewCount: true,
         },
         take: BATCH_SIZE,
-        where: { createdAt: { gte: windowStart } },
+        where: { createdAt: { gte: windowStart }, rootPostId: null },
         ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
       });
       if (posts.length === 0) {

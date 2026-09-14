@@ -18,7 +18,7 @@ import type { ReactCropperElement } from "react-cropper";
 import { cn } from "@/lib/utils";
 
 const ORANGE_GRADIENT_CLASS =
-  "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+  "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
 
 interface CropImageDialogProps {
   cropAspectRatio: number;
