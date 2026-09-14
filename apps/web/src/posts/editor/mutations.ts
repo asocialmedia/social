@@ -4,7 +4,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
 import { useToast } from "@/lib/gooey-toast";
-import { applyResponseCountDeltaToCaches } from "@/lib/posts/cache-sync";
+import {
+  applyResponseCountDeltaToCaches,
+  forceInvalidatePostFeeds,
+} from "@/lib/posts/cache-sync";
 
 import { submitPost, updatePostMentions } from "./actions";
 
@@ -59,9 +62,8 @@ export function useSubmitPostMutation() {
       });
     },
     onSuccess: async (newPost) => {
-      // A response belongs in its parent's thread, not the home feed (which
-      // filters responses out server-side). Prepend it to the open thread and
-      // fan the +1 response count into every cached parent record.
+      // A response is a first-class post: it lands in its parent's thread and
+      // in the timeline feeds (home + profile Posts), so refresh those caches.
       if (newPost.parentPostId) {
         const parentId = newPost.parentPostId;
         // The thread list is cached and streamed per thread ROOT, so a nested
@@ -92,9 +94,9 @@ export function useSubmitPostMutation() {
         // response bumps its immediate parent, not the thread root.
         applyResponseCountDeltaToCaches(queryClient, parentId, 1);
         queryClient.invalidateQueries({ queryKey: ["post", threadRootId] });
-        queryClient.invalidateQueries({
-          queryKey: ["post-feed", "user-responses"],
-        });
+        // Responses appear in Following / For You / Latest and the author's
+        // Posts tab, so refresh those feeds too.
+        forceInvalidatePostFeeds(queryClient);
         toast({
           description: "Your response is live",
           duration: 4000,
