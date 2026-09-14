@@ -15,6 +15,7 @@ mock.module("@/lib/media/media-upload-client", () => ({
 }));
 
 mock.module("@/lib/gooey-toast", () => ({
+  toast: mockToast,
   useToast: () => ({ toast: mockToast }),
 }));
 

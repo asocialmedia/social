@@ -50,6 +50,7 @@ interface CommentInputProps {
   // Hides the top-level composer on small screens when a floating mobile
   // editor is already pinned to the bottom (e.g. the post detail page).
   hideOnMobile?: boolean;
+  onCancel?: () => void;
   onSubmitted?: () => void;
   parentId?: string;
   placeholder?: string;
@@ -68,6 +69,7 @@ export default function CommentInput({
   autoFocus = false,
   className,
   hideOnMobile = false,
+  onCancel,
   onSubmitted,
   parentId,
   placeholder = "Add your Eddie to the flow...",
@@ -234,20 +236,31 @@ export default function CommentInput({
       )}
       onSubmit={onSubmit}
     >
-      {replyingTo && (
-        <p className="text-muted-foreground mb-1 pl-12 text-xs">
-          Replying to{" "}
-          <span className="text-primary font-medium">
-            @{replyingTo.username}
-          </span>
-        </p>
-      )}
-      <div className="flex w-full items-start gap-2">
+      <div className="flex w-full items-start gap-2.5">
         <UserAvatar
           avatarUrl={userData?.avatarUrl || user?.image}
-          className="mt-0.5 h-10 w-10 shrink-0"
+          className="h-10 w-10 shrink-0"
         />
         <div className="relative min-w-0 flex-1">
+          {replyingTo && (
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="text-muted-foreground text-xs">
+                Replying to{" "}
+                <span className="text-primary font-medium">
+                  @{replyingTo.username}
+                </span>
+              </p>
+              {onCancel && (
+                <button
+                  className="text-muted-foreground hover:text-foreground cursor-pointer text-xs transition-colors"
+                  onClick={onCancel}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
           <div
             className={cn(
               "flex min-w-0 flex-col transition-all",

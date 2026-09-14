@@ -11,7 +11,7 @@ import UserTooltip from "@/components/layouts/user-tooltip";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import PostLinkedContent from "@/components/posts/post-linked-content";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
-import { formatRelativeDate } from "@/lib/utils";
+import { cn, formatRelativeDate } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import {
@@ -165,7 +165,7 @@ export default function CommentItem({
       {/* Stub: connects THIS comment's avatar down to its first reply's rail
           segment, so the thread line reads as hanging off the parent avatar. */}
       <div className="group/comment relative min-w-0 pt-2.5 pr-1 pb-2.5">
-        {children.length > 0 && (
+        {(children.length > 0 || showReply) && (
           <svg
             aria-hidden="true"
             className="pointer-events-none absolute top-6 bottom-0 left-0 overflow-visible"
@@ -285,28 +285,73 @@ export default function CommentItem({
                 )}
               </div>
             )}
-
-            {showReply && !isDeleted && (
-              <div className={hasFloatingComposer ? "hidden lg:block" : ""}>
-                <CommentInput
-                  applyCreated={applyCreated}
-                  autoFocus
-                  className="mt-1"
-                  key={`reply-${comment.id}`}
-                  onSubmitted={() => {
-                    setShowReply(false);
-                    shared?.setReplyOpen(false);
-                  }}
-                  parentId={comment.id}
-                  placeholder={`Reply to @${username}...`}
-                  post={post}
-                  replyingTo={{ username }}
-                />
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {showReply && !isDeleted && (
+        <div
+          className={cn(
+            "relative pt-1.5 pb-2.5 pl-8",
+            hasFloatingComposer && "hidden lg:block"
+          )}
+        >
+          {/* Rail connector for the reply composer: curves into composer avatar
+              and continues down to subsequent siblings if children exist. */}
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 left-0 overflow-visible"
+            style={{
+              height: children.length === 0 ? AVATAR_CENTER + 4 : "100%",
+              width: LEVEL_PAD + 4,
+            }}
+          >
+            {children.length === 0 ? (
+              <path
+                d={`M ${RAIL_X} -1 V ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+                fill="none"
+                stroke="hsl(var(--border))"
+                strokeWidth="2"
+              />
+            ) : (
+              <>
+                <line
+                  stroke="hsl(var(--border))"
+                  strokeWidth="2"
+                  x1={RAIL_X}
+                  x2={RAIL_X}
+                  y1="-1"
+                  y2="100%"
+                />
+                <path
+                  d={`M ${RAIL_X} ${AVATAR_CENTER - CURVE_RADIUS} A ${CURVE_RADIUS} ${CURVE_RADIUS} 0 0 0 ${LEVEL_PAD} ${AVATAR_CENTER} H ${LEVEL_PAD + 2}`}
+                  fill="none"
+                  stroke="hsl(var(--border))"
+                  strokeWidth="2"
+                />
+              </>
+            )}
+          </svg>
+          <CommentInput
+            applyCreated={applyCreated}
+            autoFocus
+            className="my-0"
+            key={`reply-${comment.id}`}
+            onCancel={() => {
+              setShowReply(false);
+              shared?.setReplyOpen(false);
+            }}
+            onSubmitted={() => {
+              setShowReply(false);
+              shared?.setReplyOpen(false);
+            }}
+            parentId={comment.id}
+            placeholder={`Reply to @${username}...`}
+            post={post}
+            replyingTo={{ username }}
+          />
+        </div>
+      )}
 
       {children.length > 0 && (
         <div className="space-y-0">
