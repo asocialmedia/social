@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.5.27",
+  "version": "1.5.28",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -23,7 +23,8 @@
     "docker:dev": "docker compose -f docker/docker-compose.dev.yml --profile init --profile studio up -d",
     "postinstall": "bun run --filter=@asm/db db:generate",
     "test": "bun scripts/run-tests.ts",
-    "test:coverage": "bun scripts/run-coverage-suite.ts"
+    "test:coverage": "bun scripts/run-coverage-suite.ts",
+    "test:recommendation:integration": "bun test --env-file=.env.test ./packages/db/src/recommendation/feed-service.integration.test.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

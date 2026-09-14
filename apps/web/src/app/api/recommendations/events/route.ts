@@ -1,9 +1,11 @@
 import { consumeRateLimit, invalidateFypProfile, prisma } from "@asm/db";
+import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
 const MAX_EVENTS_PER_REQUEST = 50;
 const MAX_DURATION_MS = 30 * 60 * 1000;
+const logger = createLogger({ serviceName: "api-recommendation-events" });
 const EVENT_TYPES = new Set([
   "IMPRESSION",
   "VIEW_START",
@@ -66,6 +68,7 @@ export async function POST(request: Request) {
     windowSeconds: 60,
   });
   if (!rate.allowed) {
+    logger.warn({ userId }, "recommendation event rate limit exceeded");
     return Response.json(
       { error: "Too many recommendation events" },
       {
@@ -123,6 +126,20 @@ export async function POST(request: Request) {
     })),
     skipDuplicates: true,
   });
+  const eventCounts = Object.fromEntries(
+    [...new Set(events.map((event) => event.eventType))].map((eventType) => [
+      eventType,
+      events.filter((event) => event.eventType === eventType).length,
+    ])
+  );
+  logger.info(
+    {
+      eventCount: events.length,
+      eventCounts,
+      userId,
+    },
+    "recommendation events accepted"
+  );
   if (events.some((event) => event.eventType === "NOT_INTERESTED")) {
     void invalidateFypProfile(userId);
   }

@@ -435,6 +435,15 @@ export async function buildAndCacheProfile(
     followedAuthorIds,
   };
 
+  logger.debug(
+    {
+      signalCount: profile.signalCount ?? 0,
+      topTags: profile.summary?.topTags ?? [],
+      userId,
+    },
+    "fyp profile built"
+  );
+
   try {
     await redis.set(
       fypProfileKey(userId),
@@ -452,7 +461,12 @@ async function getProfile(userId: string): Promise<CachedProfile> {
   try {
     const cached = await redis.get(fypProfileKey(userId));
     if (cached) {
-      return JSON.parse(cached) as CachedProfile;
+      const profile = JSON.parse(cached) as CachedProfile;
+      logger.debug(
+        { signalCount: profile.signalCount ?? 0, userId },
+        "fyp profile cache hit"
+      );
+      return profile;
     }
   } catch (error) {
     logger.warn({ error }, "fyp profile cache read failed");
@@ -633,6 +647,18 @@ export async function getPersonalizedFeedPage(
   const orderedPosts = rankedIds
     .map((id) => byId.get(id))
     .filter((post): post is PostData => post !== undefined);
+
+  logger.debug(
+    {
+      candidateCount: pool.length,
+      contentKind,
+      profileSignalCount: profile.signalCount ?? 0,
+      returnedCount: orderedPosts.length,
+      topPostIds: orderedPosts.slice(0, 5).map((post) => post.id),
+      userId,
+    },
+    "fyp feed page ranked"
+  );
 
   let nextCursor: string | null = null;
   if (sliceEnd < ranked.length) {
