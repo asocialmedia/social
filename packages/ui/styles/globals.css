@@ -507,4 +507,66 @@
       0 2px 4px -2px rgba(0, 0, 0, 0.12);
     transform: translateY(1px);
   }
+
+  /* Light mode: the neutral secondary action is a raised light surface with
+     dark ink, matching the tonal elevation used by icon-btn-3d and the cards.
+     A soft self-colored ring replaces the dark-only 0.7 black ring, which read
+     as a hard shard around the pill on light backgrounds. */
+  :root:not(.dark) .btn-3d-gray {
+    color: #1f2430;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+    background: linear-gradient(to bottom, #f7f8fa, #e4e7ec);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.85),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.95),
+      0 0 0 1px rgba(0, 0, 0, 0.1),
+      0 1px 1px rgba(255, 255, 255, 0.6),
+      0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  :root:not(.dark) .btn-3d-gray:hover {
+    color: #111827;
+    background: linear-gradient(to bottom, #eef0f4, #d8dce3);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.9),
+      inset 0 2px 3px rgba(255, 255, 255, 1),
+      0 0 0 1px rgba(0, 0, 0, 0.14),
+      0 2px 3px rgba(0, 0, 0, 0.07),
+      0 4px 8px -3px rgba(0, 0, 0, 0.1);
+  }
+
+  :root:not(.dark) .btn-3d-gray:active {
+    color: #1f2430;
+    background: linear-gradient(to bottom, #dfe3e9, #cdd2da);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+      inset 0 1px 3px rgba(0, 0, 0, 0.12),
+      0 0 0 1px rgba(0, 0, 0, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  /* ── Orange 3D surface (brand tiles + primary buttons) ────────────
+     Owns only the bevel/ring so gradient and hover utilities still apply.
+     Dark uses the deep brown ring that separates the fill from the dark page.
+     Light mode uses a self-colored orange edge and a tight orange-tinted
+     shadow instead of the dark 0.95 brown ring + black shadow, so the surface
+     reads as a clean tonal object on light backgrounds rather than a dark
+     shard pasted onto them. */
+  .orange-3d-surface {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.4),
+      0 3px 5px rgba(0, 0, 0, 0.12);
+  }
+
+  :root:not(.dark) .orange-3d-surface {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.65),
+      0 0 0 1px rgba(230, 85, 0, 0.32),
+      0 1px 2px rgba(190, 75, 0, 0.24),
+      0 3px 7px -2px rgba(190, 75, 0, 0.26);
+  }
 }

@@ -3,8 +3,11 @@ import type React from "react";
 
 import { cn } from "@/lib/utils";
 
+// The brand 3D surface. Light mode uses the same softened self-colored ring as
+// .btn-3d (rgba(170,60,0,0.45)) instead of the dark-only 0.95 ring, which read
+// as a hard dark shard around the orange fill on light backgrounds.
 export const ORANGE_GRADIENT_CLASS =
-  "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+  "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
 
 interface SettingsSectionHeaderProps {
   description: string;
@@ -17,7 +20,7 @@ export const SettingsSectionHeader = ({
   icon: Icon,
   title,
 }: SettingsSectionHeaderProps) => (
-  <div className="flex items-center gap-3">
+  <div className="flex min-w-0 items-center gap-3">
     <div
       className={cn(
         "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
@@ -77,7 +80,7 @@ export const SettingsCardHeading = ({
   icon: Icon,
   title,
 }: SettingsCardHeadingProps) => (
-  <div className="flex items-center gap-2">
+  <div className="flex min-w-0 items-center gap-2">
     <div
       className={cn(
         "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",

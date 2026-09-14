@@ -1930,7 +1930,7 @@ const ModeToggle: React.FC<{
   const setMode = useComposerStore((state) => state.setMode);
 
   const activeClasses =
-    "bg-linear-to-b from-[#ff9500] to-[#e65500] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.1)]";
+    "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
   const idleClasses = "text-muted-foreground hover:text-foreground";
 
   return (

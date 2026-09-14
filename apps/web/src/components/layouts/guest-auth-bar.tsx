@@ -75,7 +75,7 @@ export const GuestAuthBar: React.FC = () => {
             </Button>
             <Button
               asChild
-              className="btn-3d-gray h-9 rounded-full px-5 text-sm! font-semibold hover:text-white active:translate-y-px"
+              className="btn-3d-gray h-9 rounded-full px-5 text-sm! font-semibold active:translate-y-px"
               variant="ghost"
             >
               <Link href="/signup">Sign up</Link>

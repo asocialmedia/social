@@ -100,7 +100,7 @@ export const HNSearchBar = ({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="btn-3d-gray flex h-10 shrink-0 cursor-pointer items-center gap-1 rounded-full px-3 text-[11px] text-white transition-all active:translate-y-px"
+            className="btn-3d-gray flex h-10 shrink-0 cursor-pointer items-center gap-1 rounded-full px-3 text-[11px] transition-all active:translate-y-px"
             type="button"
           >
             <activeFilter.icon className="h-3.5 w-3.5" />
