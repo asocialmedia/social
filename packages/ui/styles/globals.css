@@ -467,6 +467,158 @@
       0 0 0 4px rgba(255, 149, 0, 0.25),
       0 1px 1px rgba(255, 255, 255, 0.8);
   }
+
+  /* ══ 3D dual-border primitives ══════════════════════════════════════════
+     The raised surface the whole app uses: a hairline outer edge plus a bright
+     inner lip that catches light, on a surface one step above the page.
+
+     CRITICAL: these live in @layer components, NOT unlayered. Utilities win
+     against the components layer, so a call site can still opt out with
+     `bg-transparent`, `bg-black`, `border-0` or `shadow-none`. That is the
+     whole point - an unlayered rule (like `.apple-panel` in the app stylesheet)
+     outranks every utility and forces call sites to reach for `!important`.
+
+     Dark mode is handled with a `.dark` prefixed rule, never Tailwind's `dark:`
+     variant, which compiles to a prefers-color-scheme media query in this repo
+     and would follow the OS instead of the app's theme class. */
+
+  /* Floating surfaces: dialog, dropdown menu, popover, tooltip. */
+  .panel-3d {
+    background: hsl(var(--background-alt));
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+      inset 0 1px 2px rgba(255, 255, 255, 0.8),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.03),
+      0 1px 3px rgba(0, 0, 0, 0.06),
+      0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .dark .panel-3d {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 2px rgba(255, 255, 255, 0.06),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.1),
+      0 1px 3px rgba(0, 0, 0, 0.2),
+      0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+
+  /* In-page raised surfaces: cards, list panels. */
+  .surface-3d {
+    background: hsl(var(--background-alt));
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+      inset 0 1px 2px rgba(255, 255, 255, 0.9),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.03),
+      0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .dark .surface-3d {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 2px rgba(255, 255, 255, 0.06),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.05),
+      0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Small status chips. Tonal, never a saturated fill. */
+  .chip-3d {
+    background: hsl(var(--muted));
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.7),
+      0 1px 1px rgba(0, 0, 0, 0.04);
+  }
+
+  .dark .chip-3d {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.05),
+      0 1px 1px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Switch: a recessed track that fills with the brand gradient when on, and a
+     raised thumb. Matches the tactile checkbox/radio family. */
+  .premium-switch {
+    background-color: hsl(var(--muted));
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.18),
+      0 0 0 1px rgba(0, 0, 0, 0.08),
+      0 1px 1px rgba(255, 255, 255, 0.05);
+  }
+
+  .premium-switch[data-state="checked"] {
+    background: linear-gradient(to bottom, #ff9500, #e65500);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.5),
+      0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  :root:not(.dark) .premium-switch {
+    background-color: hsl(var(--background));
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.08),
+      0 0 0 1px rgba(0, 0, 0, 0.12),
+      0 1px 1px rgba(0, 0, 0, 0.03);
+  }
+
+  :root:not(.dark) .premium-switch[data-state="checked"] {
+    background: linear-gradient(to bottom, #ff9500, #e65500);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+      inset 0 1.5px 2px rgba(255, 255, 255, 0.65),
+      0 0 0 1px rgba(230, 85, 0, 0.32),
+      0 1px 2px rgba(190, 75, 0, 0.24),
+      0 3px 7px -2px rgba(190, 75, 0, 0.26);
+  }
+
+  /* The thumb is a raised disc; Radix renders it as a span inside the root. */
+  .premium-switch > span {
+    background: #ffffff;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+      0 1px 2px rgba(0, 0, 0, 0.25),
+      0 2px 4px rgba(0, 0, 0, 0.12);
+  }
+
+  /* Slider: recessed rail, brand-gradient range, raised thumb. */
+  .premium-slider-track {
+    background-color: hsl(var(--muted));
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.18),
+      0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+
+  :root:not(.dark) .premium-slider-track {
+    background-color: hsl(var(--background));
+    box-shadow:
+      inset 0 1px 2px rgba(0, 0, 0, 0.07),
+      0 0 0 1px rgba(0, 0, 0, 0.1);
+  }
+
+  .premium-slider-range {
+    background: linear-gradient(to bottom, #ff9500, #e65500);
+  }
+
+  .premium-slider-thumb {
+    background: #ffffff;
+    /* A real 1px border, not only a box-shadow ring: the video player and media
+       viewer recolor the thumb with `border-orange-400/70`, which sets a border
+       COLOUR. Without a width on the base that override is silently dead. */
+    border-width: 1px;
+    border-style: solid;
+    border-color: rgba(170, 60, 0, 0.55);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+      0 1px 2px rgba(0, 0, 0, 0.28),
+      0 2px 4px rgba(0, 0, 0, 0.14);
+  }
 }
 
 @layer utilities {

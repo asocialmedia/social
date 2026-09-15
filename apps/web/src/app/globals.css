@@ -1211,43 +1211,24 @@
   @apply h-2.5 w-2.5 rounded-full border border-white/90 bg-white shadow-xs transition-transform hover:scale-110;
 }
 
-.slider-track {
-  @apply h-1 rounded-full bg-white/20;
-}
+/* Radix focuses the dialog content when it opens, so suppress the UA outline.
+   Declared in @layer base (not unlayered like the rest of this file's legacy
+   rules) so a call site can still opt into a visible ring.
 
-.slider-range {
-  @apply absolute h-full bg-white/90;
-}
-
-.dialog-content {
-  outline: none;
-  box-shadow: none;
-}
-
-[role="dialog"] {
-  outline: none;
-  box-shadow: none;
+   REMOVED: `[role="dialog"] { box-shadow: none }` and the `.dialog-content`
+   reset that used to sit beside this. Being unlayered, they outranked EVERY
+   utility and layer rule, which stripped the bevel off every dialog in the app
+   and forced call sites to paper over it with `apple-panel` (whose box-shadow
+   needed `!important` precisely to fight this). The dialogs now get their
+   surface from the primitives' own `panel-3d`. */
+@layer base {
+  [role="dialog"] {
+    outline: none;
+  }
 }
 
 .suggested-connection-card {
   @apply transition-all duration-300;
-}
-
-.user-avatar-hover {
-  @apply transform transition-transform duration-300 hover:scale-110;
-}
-
-.connection-item {
-  @apply relative overflow-hidden rounded-lg;
-}
-
-.connection-item:hover {
-  @apply bg-accent/5;
-}
-
-.dialog-content {
-  min-width: 320px;
-  min-height: 50vh;
 }
 
 /* Seamless connected transitions between feed / post / media routes. The
