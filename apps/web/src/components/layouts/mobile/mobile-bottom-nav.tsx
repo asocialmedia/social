@@ -31,7 +31,7 @@ const NAV_ITEMS: MobileNavItem[] = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/discover", icon: Compass, label: "Explore" },
   { href: "/gusts", icon: Clapperboard, label: "Gusts" },
-  { href: "/comm", icon: Users, label: "Communities" },
+  { href: "/communities", icon: Users, label: "Communities" },
   {
     href: "/messages",
     icon: MessagesSquare,
@@ -139,7 +139,7 @@ const MobileBottomNav: React.FC = () => {
         {isActive ? (
           <motion.span
             aria-hidden
-            className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-[#ff9500] to-[#e65500] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
+            className="pointer-events-none absolute inset-0 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]"
             layoutId="mobile-nav-active-pill"
             transition={{
               damping: 34,
@@ -151,7 +151,7 @@ const MobileBottomNav: React.FC = () => {
         <span className="relative z-10">
           <NavIcon active={isActive} icon={Icon} />
           {count !== undefined && count > 0 ? (
-            <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-[hsl(var(--background-alt))] bg-gradient-to-b from-[#ff9500] to-[#e65500] px-1 text-[9px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),0_1px_2px_rgba(0,0,0,0.2)]">
+            <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full border border-[hsl(var(--background-alt))] bg-linear-to-b from-[#ff9500] to-[#e65500] px-1 text-[9px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),0_1px_2px_rgba(0,0,0,0.2)]">
               {formatCount(count)}
             </span>
           ) : null}

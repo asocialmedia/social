@@ -13,18 +13,22 @@ interface CommunityAvatarProps {
   className?: string;
   name: string;
   priority?: boolean;
+  size?: number;
   slug: string;
 }
 
-// Community mark. When the community has uploaded an avatar it renders the real
-// image; otherwise it falls back to a deterministic default avatar seeded by
-// the slug. The accent only supplies the ring, never a tile behind the mark.
+// Community mark. Same shape and depth as the app's UserAvatar (rounded-xl with
+// the .avatar-ring 3D lip and the muted-to-background gradient backing), with
+// the outer edge swapped to the community's accent via .community-avatar-ring.
+// Falls back to a deterministic default avatar seeded by the slug when the
+// community has not uploaded one.
 export default function CommunityAvatar({
   accentColor,
   avatarUrl,
   className,
   name,
   priority = false,
+  size = 48,
   slug,
 }: CommunityAvatarProps) {
   const [hasError, setHasError] = useState(false);
@@ -35,24 +39,22 @@ export default function CommunityAvatar({
   const isDefault = resolvedSrc.startsWith("/avatars/");
 
   return (
-    <span
+    <Image
+      alt={`${name} community`}
       className={cn(
-        "ring-2 ring-[var(--community-accent)] ring-offset-2 ring-offset-[hsl(var(--background-alt))] dark:ring-[var(--community-accent-dark)]",
-        "relative inline-flex shrink-0 overflow-hidden rounded-full",
+        "community-avatar-ring aspect-square h-fit flex-none rounded-xl",
+        "bg-gradient-to-b from-[hsl(var(--muted))] to-[hsl(var(--background-alt))]",
+        "object-cover",
         className
       )}
+      height={size}
+      onError={() => setHasError(true)}
+      priority={priority}
+      sizes="96px"
+      src={resolvedSrc}
       style={communityAccentStyle(accentColor)}
-    >
-      <Image
-        alt={`${name} community`}
-        className="size-full object-cover"
-        fill
-        onError={() => setHasError(true)}
-        priority={priority}
-        sizes="96px"
-        src={resolvedSrc}
-        unoptimized={isProxy || isDefault}
-      />
-    </span>
+      unoptimized={isProxy || isDefault}
+      width={size}
+    />
   );
 }

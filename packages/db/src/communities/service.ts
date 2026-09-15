@@ -14,6 +14,8 @@ import type { PostData } from "../client";
 import prisma from "../prisma";
 import {
   COMMUNITY_ACTIVITY_WINDOW_DAYS,
+  COMMUNITY_CATEGORIES,
+  COMMUNITY_GROWING_WINDOW_DAYS,
   COMMUNITY_LIMITS,
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
@@ -311,57 +313,151 @@ export async function setMemberRole(
 }
 
 export interface ListCommunitiesOptions {
+  // Cursor is the last community id of the previous page (newest-first order).
   cursor?: string;
+  // Topic keys to match (ANY). Empty/absent means every public community.
+  // The discovery categories expand to a topic set before calling this.
+  categories?: string[];
   limit?: number;
-  topic?: string;
 }
 
-// Discovery listing: newest first, optionally filtered by topic. Private
+export interface CommunitiesPage {
+  communities: CommunityData[];
+  nextCursor: string | null;
+  // Total public communities matching the active filter, ignoring the cursor
+  // and page size. Drives the "N Results Found" line on discovery.
+  total: number;
+}
+
+// Discovery listing: newest first, optionally filtered by a topic set. Private
 // communities are excluded because they are not discoverable.
 export async function listCommunities(
   options: ListCommunitiesOptions = {}
-): Promise<{ communities: CommunityData[]; nextCursor: string | null }> {
+): Promise<CommunitiesPage> {
   const limit = Math.min(Math.max(options.limit ?? 24, 1), 48);
-  const communities = await prisma.community.findMany({
-    cursor: options.cursor ? { id: options.cursor } : undefined,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: getCommunitySelect(),
-    skip: options.cursor ? 1 : 0,
-    take: limit + 1,
-    where: {
-      type: { not: "PRIVATE" },
-      ...(options.topic ? { topics: { has: options.topic } } : {}),
-    },
-  });
+  const topics = options.categories?.filter(Boolean) ?? [];
+  const where: Prisma.CommunityWhereInput = {
+    type: { not: "PRIVATE" },
+    ...(topics.length > 0 ? { topics: { hasSome: topics } } : {}),
+  };
+
+  const [communities, total] = await Promise.all([
+    prisma.community.findMany({
+      cursor: options.cursor ? { id: options.cursor } : undefined,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: getCommunitySelect(),
+      skip: options.cursor ? 1 : 0,
+      take: limit + 1,
+      where,
+    }),
+    prisma.community.count({ where }),
+  ]);
 
   const hasMore = communities.length > limit;
   return {
     communities: hasMore ? communities.slice(0, limit) : communities,
     nextCursor: hasMore ? (communities[limit - 1]?.id ?? null) : null,
+    total,
   };
+}
+
+export interface CommunitySearchResult {
+  communities: CommunityData[];
+  total: number;
 }
 
 export async function searchCommunities(
   query: string,
   limit = 10
-): Promise<CommunityData[]> {
+): Promise<CommunitySearchResult> {
   const q = query.trim();
   if (!q) {
-    return [];
+    return { communities: [], total: 0 };
   }
-  return await prisma.community.findMany({
-    orderBy: [{ members: { _count: "desc" } }, { createdAt: "desc" }],
-    select: getCommunitySelect(),
-    take: Math.min(Math.max(limit, 1), 25),
-    where: {
-      OR: [
-        { name: { contains: q, mode: "insensitive" } },
-        { slug: { contains: q, mode: "insensitive" } },
-        { description: { contains: q, mode: "insensitive" } },
-      ],
-      type: { not: "PRIVATE" },
-    },
-  });
+  const where: Prisma.CommunityWhereInput = {
+    OR: [
+      { name: { contains: q, mode: "insensitive" } },
+      { slug: { contains: q, mode: "insensitive" } },
+      { description: { contains: q, mode: "insensitive" } },
+    ],
+    type: { not: "PRIVATE" },
+  };
+
+  const [communities, total] = await Promise.all([
+    prisma.community.findMany({
+      orderBy: [{ members: { _count: "desc" } }, { createdAt: "desc" }],
+      select: getCommunitySelect(),
+      take: Math.min(Math.max(limit, 1), 25),
+      where,
+    }),
+    prisma.community.count({ where }),
+  ]);
+
+  return { communities, total };
+}
+
+// Per-category public community counts for the discovery filter row. "all" is
+// the unfiltered total; every other key counts communities carrying ANY of
+// that category's topics. Categories hidden from discovery are skipped so the
+// row never pays for a count it will not show.
+export async function getCommunityCategoryCounts(): Promise<
+  Record<string, number>
+> {
+  const publicWhere: Prisma.CommunityWhereInput = {
+    type: { not: "PRIVATE" },
+  };
+  const filtered = COMMUNITY_CATEGORIES.filter(
+    (c) => c.key !== "all" && !c.hidden
+  );
+  const [all, perCategory] = await Promise.all([
+    prisma.community.count({ where: publicWhere }),
+    Promise.all(
+      filtered.map((category) =>
+        prisma.community.count({
+          where: {
+            ...publicWhere,
+            topics: { hasSome: [...category.topics] },
+          },
+        })
+      )
+    ),
+  ]);
+
+  const counts: Record<string, number> = { all };
+  for (const [index, category] of filtered.entries()) {
+    counts[category.key] = perCategory[index] ?? 0;
+  }
+  return counts;
+}
+
+export interface CommunityDiscoveryStats {
+  // Public communities (matching the discovery surface).
+  communities: number;
+  // Posts published into any public community.
+  posts: number;
+  // Distinct users holding an ACTIVE membership somewhere.
+  members: number;
+}
+
+// Headline totals for the discovery hero. Counted live over the public set so
+// the numbers can never drift from what the grid below actually lists.
+export async function getCommunityDiscoveryStats(): Promise<CommunityDiscoveryStats> {
+  const publicCommunity: Prisma.CommunityWhereInput = {
+    type: { not: "PRIVATE" },
+  };
+  const [communities, posts, members] = await Promise.all([
+    prisma.community.count({ where: publicCommunity }),
+    prisma.post.count({ where: { community: publicCommunity } }),
+    prisma.communityMember
+      .findMany({
+        distinct: ["userId"],
+        select: { userId: true },
+        where: { community: publicCommunity, status: "ACTIVE" },
+      })
+      .then((rows) => rows.length),
+  ]);
+
+  return { communities, members, posts };
 }
 
 // Communities the viewer belongs to (ACTIVE only), newest membership first.
@@ -376,6 +472,110 @@ export async function getJoinedCommunities(
     where: { status: "ACTIVE", userId },
   });
   return memberships.map((m) => m.community);
+}
+
+export interface CommunitySections {
+  growing: CommunityData[];
+  trending: CommunityData[];
+}
+
+// The population ranking behind the sidebar's "Popular communities" list. This
+// is a GLOBAL list, so it is kept out of `getCommunitySections` (which serves
+// the grid's rails and is intentionally emptied while searching) - the sidebar
+// must not change just because the reader typed in the search box.
+export async function getTopCommunities(limit = 6): Promise<CommunityData[]> {
+  return await prisma.community.findMany({
+    orderBy: [{ members: { _count: "desc" } }, { createdAt: "desc" }],
+    select: getCommunitySelect(),
+    take: Math.min(Math.max(limit, 1), 24),
+    where: { type: { not: "PRIVATE" } },
+  });
+}
+
+export interface RecentCommunityVisit {
+  community: CommunityData;
+  visitedAt: Date;
+}
+
+// Community aura in one batched pass: the sum of every post's raw aura inside
+// each community. This is the community's own output (the sidebar's "Community
+// aura"), not the combined wealth of its members, and a single groupBy covers
+// a whole page of cards instead of one aggregate per community.
+export async function getCommunityAuraMap(
+  communityIds: string[]
+): Promise<Record<string, number>> {
+  const ids = [...new Set(communityIds.filter(Boolean))];
+  if (ids.length === 0) {
+    return {};
+  }
+
+  const rows = await prisma.post.groupBy({
+    _sum: { aura: true },
+    by: ["communityId"],
+    where: { communityId: { in: ids } },
+  });
+
+  const auras: Record<string, number> = {};
+  for (const id of ids) {
+    auras[id] = 0;
+  }
+  for (const row of rows) {
+    if (row.communityId) {
+      auras[row.communityId] = row._sum.aura ?? 0;
+    }
+  }
+  return auras;
+}
+
+// The curated rails above the browse grid. Trending is ranked by population
+// (most joined first); growing is the newest cohort that has actually picked up
+// members, so a brand-new empty community cannot sit at the top of the rail.
+// A community can only appear on ONE rail: anything shown as growing is
+// excluded from trending, so the two rows never repeat the same card.
+export async function getCommunitySections({
+  limit = 12,
+  now = new Date(),
+}: {
+  limit?: number;
+  now?: Date;
+} = {}): Promise<CommunitySections> {
+  const take = Math.min(Math.max(limit, 1), 24);
+  const publicWhere: Prisma.CommunityWhereInput = {
+    type: { not: "PRIVATE" },
+  };
+  const growingSince = new Date(
+    now.getTime() - COMMUNITY_GROWING_WINDOW_DAYS * 86_400_000
+  );
+  const byPopulation: Prisma.CommunityOrderByWithRelationInput[] = [
+    { members: { _count: "desc" } },
+    { createdAt: "desc" },
+  ];
+
+  // Growing is resolved first so its ids can be excluded from the trending
+  // query itself (rather than filtered after the fact, which would leave
+  // trending short by however many overlapped).
+  const growing = await prisma.community.findMany({
+    orderBy: byPopulation,
+    select: getCommunitySelect(),
+    take,
+    where: {
+      ...publicWhere,
+      createdAt: { gte: growingSince },
+      members: { some: { status: "ACTIVE" } },
+    },
+  });
+
+  const trending = await prisma.community.findMany({
+    orderBy: byPopulation,
+    select: getCommunitySelect(),
+    take,
+    where: {
+      ...publicWhere,
+      id: { notIn: growing.map((community) => community.id) },
+    },
+  });
+
+  return { growing, trending };
 }
 
 // Aggregated sidebar stats. Community aura is the sum of its posts' raw aura
@@ -488,4 +688,115 @@ export async function getCommunityFeedPage(
     nextCursor: hasMore ? (posts[limit - 1]?.id ?? null) : null,
     posts: posts.slice(0, limit),
   };
+}
+
+// Highest-aura communities: rank by the sum of their posts' raw aura, then
+// hydrate the winners. A groupBy first keeps this to two queries (the ranking
+// plus one fetch) rather than probing every community.
+export async function getTopCommunitiesByAura(
+  limit = 6
+): Promise<CommunityData[]> {
+  const take = Math.min(Math.max(limit, 1), 24);
+  const ranked = await prisma.post.groupBy({
+    _sum: { aura: true },
+    by: ["communityId"],
+    orderBy: { _sum: { aura: "desc" } },
+    take,
+    where: { communityId: { not: null } },
+  });
+
+  const ids = ranked
+    .map((row) => row.communityId)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const communities = await prisma.community.findMany({
+    select: getCommunitySelect(),
+    where: { id: { in: ids }, type: { not: "PRIVATE" } },
+  });
+
+  // Preserve the aura ranking: findMany returns arbitrary DB order.
+  const byId = new Map(
+    communities.map((community) => [community.id, community])
+  );
+  return ids
+    .map((id) => byId.get(id))
+    .filter((community): community is CommunityData => Boolean(community));
+}
+
+export interface ActiveCategory {
+  count: number;
+  key: string;
+  label: string;
+  // Topic keys of the winning category, so callers can filter the browse grid.
+  topics: string[];
+}
+
+// The category with the most published posts - "most active" measured by
+// output rather than by member count. Counts run per category in one batched
+// pass; a tie falls to the earlier category, which keeps the label stable
+// instead of flickering between equal shelves.
+export async function getMostActiveCategory(): Promise<ActiveCategory | null> {
+  const categories = COMMUNITY_CATEGORIES.filter((c) => c.key !== "all");
+  const counts = await Promise.all(
+    categories.map((category) =>
+      prisma.post.count({
+        where: {
+          community: {
+            topics: { hasSome: [...category.topics] },
+            type: { not: "PRIVATE" },
+          },
+        },
+      })
+    )
+  );
+
+  let bestIndex = -1;
+  for (const [index, count] of counts.entries()) {
+    if (count > 0 && (bestIndex === -1 || count > (counts[bestIndex] ?? 0))) {
+      bestIndex = index;
+    }
+  }
+  if (bestIndex === -1) {
+    return null;
+  }
+
+  const best = categories[bestIndex];
+  return {
+    count: counts[bestIndex] ?? 0,
+    key: best.key,
+    label: best.label,
+    topics: [...best.topics],
+  };
+}
+
+// The viewer's most recently visited communities, newest first, each carrying
+// the visit time so the sidebar can show how long ago. One row per (community,
+// viewer) is refreshed on each visit, so this reading is the person's own
+// recent trail rather than a global feed.
+export async function getRecentlyVisitedCommunities(
+  userId: string,
+  limit = 6
+): Promise<RecentCommunityVisit[]> {
+  if (!userId) {
+    return [];
+  }
+  const visits = await prisma.communityVisit.findMany({
+    orderBy: { visitedAt: "desc" },
+    select: {
+      community: { select: getCommunitySelect() },
+      visitedAt: true,
+    },
+    take: Math.min(Math.max(limit, 1), 24),
+    where: {
+      community: { type: { not: "PRIVATE" } },
+      userId,
+    },
+  });
+  return visits.map((visit) => ({
+    community: visit.community,
+    visitedAt: visit.visitedAt,
+  }));
 }

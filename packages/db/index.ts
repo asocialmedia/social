@@ -7,6 +7,8 @@ export * from "./cache/tag-cache";
 export * from "./cache/user-cache";
 export * from "./constants/cache-keys";
 export * from "./src/aura";
+// Communities: `aura` holds the cached aggregates (stats, category counts,
+// discovery totals, curated sections); `service` holds the queries they wrap.
 export * from "./src/communities/aura";
 export * from "./src/communities/constants";
 export * from "./src/communities/media";

@@ -4,10 +4,10 @@ import { Suspense } from "react";
 
 import JsonLd from "@/components/seo/json-ld";
 
-import ClientComm from "./client-comm";
+import ClientComm from "./client-communities";
 
 export const metadata: Metadata = {
-  alternates: { canonical: "/comm" },
+  alternates: { canonical: "/communities" },
   description:
     "Discover communities on asocialmedia. Find your people, join topic-scoped spaces, and post about what you love.",
   keywords: [
@@ -35,7 +35,7 @@ export default function Page() {
     description:
       "Browse communities on asocialmedia, organised by topic and interest.",
     name: "Communities on asocialmedia",
-    url: `${siteConfig.url}/comm`,
+    url: `${siteConfig.url}/communities`,
   };
 
   return (

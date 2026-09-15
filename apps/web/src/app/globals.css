@@ -50,6 +50,26 @@
     0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
+/* Community mark: the exact 3D lip of .avatar-ring, with the outer edge taking
+   the community's accent so the mark carries its community identity. The two
+   accent custom properties are set inline by communityAccentStyle(). */
+.community-avatar-ring {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    0 0 0 1px var(--community-accent),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.dark .community-avatar-ring {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 2px rgba(255, 255, 255, 0.1),
+    0 0 0 1px var(--community-accent-dark),
+    0 1px 1px rgba(255, 255, 255, 0.35),
+    0 2px 4px rgba(0, 0, 0, 0.12);
+}
+
 .pill-3d-hover {
   outline: none;
   transition: all 0.2s ease-out;
@@ -143,6 +163,34 @@
 
 .dark .embed-panel-3d {
   background: hsl(var(--background-alt));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 0.06),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Discovery search field: the same dual-border 3D construction as
+   .embed-panel-3d, but filled with the raised (background) surface instead of
+   background-alt, so the control stands off the background-alt page it sits
+   on. Light and dark both lift because --background is the lighter step of the
+   pair in either theme. */
+.search-panel-3d {
+  background: hsl(var(--background));
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    inset 0 1px 2px rgba(255, 255, 255, 0.8),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.03),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 3px 8px rgba(0, 0, 0, 0.06);
+}
+
+.dark .search-panel-3d {
+  background: hsl(var(--background));
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -406,6 +454,77 @@
     inset 0 1px 2px rgba(255, 255, 255, 0.9),
     inset 0 -2px 4px rgba(0, 0, 0, 0.03),
     0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Interactive .sidebar-subcard (discovery cards). The base rule sets
+   `background` as unlayered CSS, which outranks the @layer utilities that
+   Tailwind's `hover:bg-*` compiles into - so the hover state has to be declared
+   here beside it. `:hover` also lifts specificity above the base rule, so it
+   wins without !important. Only the background shifts (the border and inner
+   shadows defining the 3D lip stay), keeping the feedback tonal, not a lift. */
+.sidebar-subcard-interactive {
+  cursor: pointer;
+  transition: background-color 0.15s ease-out;
+}
+
+.sidebar-subcard-interactive:hover {
+  background: hsl(var(--muted));
+}
+
+/* ── Discovery card width ────────────────────────────────────────────────
+   One card size shared by the browse grid and the horizontal rails, so no two
+   sections show a different width - and one layout rule, keyed off the CONTENT
+   column's width, not the viewport.
+
+   That distinction matters: the left and right sidebars appear at different
+   viewport breakpoints, so a viewport-based grid steps to three columns exactly
+   when the content is thinnest (both sidebars, ~700px at a 1280 viewport) and
+   crushes the cards to ~200px. Container queries measure the space the cards
+   actually have, so the column count only steps up once there is room.
+
+   `.communities-cq` is the content column; `.community-grid` and the rail cards
+   both read it, so the two can never drift. Padding is `px-5` (2.5rem) alone
+   below sm and `sm:px-8` (4rem) above; the gap is 1rem. Keep those in step with
+   the component's classes. */
+.communities-cq {
+  container-type: inline-size;
+}
+
+.community-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+.community-card-w {
+  /* 1 column */
+  width: calc(100cqw - 2.5rem);
+}
+
+/* 2 columns: (content - 2 * 2rem padding - 1rem gap) / 2. Steps up at a
+   container just wide enough to keep a card ~280px. */
+@container (min-width: 40rem) {
+  .community-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .community-card-w {
+    width: calc((100cqw - 5rem) / 2);
+  }
+}
+
+/* 3 columns - the cap, so this holds for every wider container. The threshold
+   is generous: stepping to three columns always narrows the cards, so this
+   waits until a third card can still be comfortably wide rather than dipping
+   below the two-column size just before it. */
+@container (min-width: 62rem) {
+  .community-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .community-card-w {
+    width: calc((100cqw - 6rem) / 3);
+  }
 }
 
 .sidebar-row-hover {

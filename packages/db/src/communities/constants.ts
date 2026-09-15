@@ -48,6 +48,91 @@ export function getCommunityTopic(key: string): CommunityTopic | undefined {
   return TOPIC_BY_KEY.get(key);
 }
 
+// The generalized browse categories shown as the single filter row on the
+// discovery page. Each rolls several fine-grained topics up into one
+// Discord-style shelf so the filter row stays a handful of items instead of
+// the full 29-topic taxonomy. `topics` empty means "All" (no filter).
+export interface CommunityCategory {
+  key: string;
+  label: string;
+  // Hidden from the discovery filter row but still a real category: it keeps
+  // anchoring its topics for coverage/counting without being offered as a
+  // browsable shelf. Used for adult content, which is opted into by topic
+  // rather than advertised on the main directory.
+  hidden?: boolean;
+  topics: readonly string[];
+}
+
+// Order is intentional: the discovery filter row renders it left to right.
+// Every COMMUNITY_TOPICS key must appear in exactly one non-"all" category;
+// the coverage test in constants.test.ts enforces it.
+export const COMMUNITY_CATEGORIES: readonly CommunityCategory[] = [
+  { key: "all", label: "All", topics: [] },
+  { key: "gaming", label: "Gaming", topics: ["games"] },
+  {
+    key: "entertainment",
+    label: "Entertainment",
+    topics: ["anime", "movies", "popculture", "spooky"],
+  },
+  { key: "music", label: "Music", topics: ["music"] },
+  {
+    key: "education",
+    label: "Education",
+    topics: ["education", "reading", "humanities", "qanda"],
+  },
+  {
+    key: "science-tech",
+    label: "Science & Tech",
+    topics: ["technology", "sciences"],
+  },
+  { key: "art", label: "Art & Design", topics: ["art", "fashion"] },
+  {
+    key: "lifestyle",
+    label: "Lifestyle",
+    topics: [
+      "collectibles",
+      "food",
+      "health",
+      "home",
+      "nature",
+      "vehicles",
+      "wellness",
+    ],
+  },
+  { key: "sports", label: "Sports", topics: ["sports"] },
+  {
+    key: "society",
+    label: "Society",
+    topics: ["business", "identity", "internet", "news", "places"],
+  },
+  {
+    hidden: true,
+    key: "adult",
+    label: "Adult (18+)",
+    topics: ["adult", "mature"],
+  },
+] as const;
+
+// What the discovery filter row actually renders. Hidden categories stay in
+// COMMUNITY_CATEGORIES so their topics remain covered and counted, but are not
+// offered as a browsable shelf on the main directory.
+export const COMMUNITY_DISCOVERY_CATEGORIES: readonly CommunityCategory[] =
+  COMMUNITY_CATEGORIES.filter((category) => !category.hidden);
+
+const CATEGORY_BY_KEY = new Map(COMMUNITY_CATEGORIES.map((c) => [c.key, c]));
+
+export const DEFAULT_COMMUNITY_CATEGORY = "all";
+
+export function getCommunityCategory(
+  key: string
+): CommunityCategory | undefined {
+  return CATEGORY_BY_KEY.get(key);
+}
+
+export function isCommunityCategory(key: string): boolean {
+  return CATEGORY_BY_KEY.has(key);
+}
+
 // Tonal accent palette. Each key resolves to a considered pair of values: a
 // deep, desaturated tone for light mode and a lifted one for dark mode, so the
 // post-card rail and header always clear their surface. Deliberately no
@@ -101,3 +186,6 @@ export const COMMUNITY_LIMITS = {
 
 // Rolling window for the "weekly" visitor / contributor counts.
 export const COMMUNITY_ACTIVITY_WINDOW_DAYS = 7;
+
+// A community counts as "new" for the growing rail inside this window.
+export const COMMUNITY_GROWING_WINDOW_DAYS = 30;

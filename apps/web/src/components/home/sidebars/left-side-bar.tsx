@@ -85,7 +85,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/gusts", icon: Clapperboard, label: "Gusts" },
   {
     fillable: true,
-    href: "/comm",
+    href: "/communities",
     icon: Users,
     label: "Communities",
   },
@@ -534,7 +534,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
                   ? { ...item, count: bookmarkCount?.totalCount }
                   : item
               )}
-              {item.href === "/comm" ? <JoinedCommunitiesRail /> : null}
+              {item.href === "/communities" ? <JoinedCommunitiesRail /> : null}
             </div>
           );
         })}
