@@ -84,14 +84,14 @@ export default function CommunityHeader({
       className="relative"
       style={communityAccentStyle(community.accentColor)}
     >
-      <div className="relative h-28 overflow-hidden sm:h-36">
+      <div className="relative h-36 overflow-hidden sm:h-48">
         {hasBanner ? (
           <Image
             alt={`${community.name} banner`}
             className="object-cover"
             fill
             onError={() => setBannerFailed(true)}
-            sizes="(max-width: 768px) 100vw, 720px"
+            sizes="(max-width: 768px) 100vw, 1024px"
             src={community.bannerUrl as string}
             unoptimized
           />
@@ -110,12 +110,16 @@ export default function CommunityHeader({
             hard horizontal band where the content column begins. */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-transparent to-[hsl(var(--background-alt))]"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-[hsl(var(--background-alt))]"
         />
       </div>
 
       <div className="px-4 pb-4">
-        <div className="-mt-8 flex items-end justify-between gap-3 sm:-mt-10">
+        {/* relative z-10 is load-bearing: the banner above is position:relative,
+            so it paints on top of a static sibling and was cropping the top of
+            the avatar as it pulled up over the banner. Positioned + z-10 puts
+            the identity row back in front of the artwork. */}
+        <div className="relative z-10 -mt-8 flex items-end justify-between gap-3 sm:-mt-10">
           <CommunityAvatar
             accentColor={community.accentColor}
             avatarUrl={community.avatarUrl}
@@ -126,25 +130,31 @@ export default function CommunityHeader({
           />
           <div className="flex flex-wrap items-center justify-end gap-2 pb-1">
             <Button
-              onClick={handleShare}
-              size="icon"
-              variant="ghost"
               aria-label="Share community"
+              className="icon-btn-3d flex h-8 w-8 items-center justify-center rounded-full p-0!"
+              onClick={handleShare}
+              variant="ghost"
             >
               <Share2 className="size-4" />
             </Button>
-            <JoinButton
-              className="w-auto"
-              communityId={community.id}
-              initialMembership={membership}
-              isLoggedIn={isLoggedIn}
-              slug={community.slug}
-            />
+            {/* An owner cannot leave their own community, so a "Join/Owner" pill
+                is dead weight next to Create post. Ownership is already stated
+                in the About panel and the members list. */}
+            {membership?.role === "OWNER" ? null : (
+              <JoinButton
+                className="w-auto"
+                communityId={community.id}
+                initialMembership={membership}
+                isLoggedIn={isLoggedIn}
+                slug={community.slug}
+              />
+            )}
             <Button
+              className="h-8 gap-1.5 px-3.5! py-0! text-xs!"
               disabled={!canPost}
               onClick={handleCreatePost}
-              size="sm"
               title={canPost ? undefined : "Join this community to post in it"}
+              variant="premium"
             >
               <PenSquare className="size-4" />
               Create post

@@ -64,6 +64,7 @@ export interface CommunityMemberRow {
   role: "MEMBER" | "MODERATOR" | "OWNER";
   status: "ACTIVE" | "PENDING";
   user: {
+    aura: number;
     avatarUrl: string | null;
     displayName: string;
     id: string;

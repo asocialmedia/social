@@ -95,7 +95,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
       <Tooltip>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent className="apple-panel overflow-hidden bg-transparent p-1.5 shadow-none">
-          <div className="flex max-w-80 flex-col gap-3 px-2.5 py-2.5 break-words md:min-w-52">
+          <div className="flex max-w-80 flex-col gap-3 px-2.5 py-2.5 wrap-break-word md:min-w-52">
             <div className="flex items-start justify-between gap-3">
               <Link href={`/users/${user.username}`}>
                 <UserAvatar avatarUrl={user.avatarUrl} size={70} />

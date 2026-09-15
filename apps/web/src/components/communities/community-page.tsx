@@ -80,7 +80,10 @@ export default function ClientCommunity({
           )}
           inert={isBlocked || undefined}
         >
-          <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-3xl">
+          {/* Same column metrics as the home feed: lg:max-w-5xl on the center
+              column and a w-72 rail, so the two pages share one grid instead of
+              the community reading narrower with a wider rail. */}
+          <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-5xl">
             <MobileTopBar />
             <CommunityHeader
               community={community}
@@ -90,7 +93,7 @@ export default function ClientCommunity({
             <CommunityFeed slug={slug} />
           </div>
 
-          <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-80 shrink-0 flex-col overflow-visible border-l px-3 pt-3 pb-6 xl:flex">
+          <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-5 xl:flex">
             <div className="shrink-0 pb-3">
               <SearchField />
             </div>

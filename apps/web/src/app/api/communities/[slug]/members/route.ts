@@ -41,6 +41,7 @@ export async function GET(
         status: true,
         user: {
           select: {
+            aura: true,
             avatarUrl: true,
             displayName: true,
             id: true,

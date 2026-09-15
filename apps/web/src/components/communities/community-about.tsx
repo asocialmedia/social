@@ -39,50 +39,55 @@ export default function CommunityAbout({
       className="flex flex-col gap-4"
       style={communityAccentStyle(community.accentColor)}
     >
-      <section className="border-border/60 rounded-2xl border p-4">
+      {/* One About card rather than two stacked ones: identity, description and
+          the numbers all describe the same subject, so splitting them just made
+          the rail taller without adding a distinction a reader could name. The
+          surface is the app's raised recipe (sidebar-subcard), matching every
+          other rail card. */}
+      <section className="sidebar-subcard rounded-2xl p-4">
+        <h2 className="text-foreground mb-3 text-sm font-semibold">About</h2>
+
         <div className="flex items-center gap-3">
           <CommunityAvatar
             accentColor={community.accentColor}
             avatarUrl={community.avatarUrl}
-            className="size-10"
+            className="size-11"
             name={community.name}
             slug={community.slug}
           />
-          <div className="min-w-0">
-            <p className="text-foreground truncate text-sm font-semibold">
-              {community.name}
-            </p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-foreground truncate text-sm font-semibold">
+                {community.name}
+              </p>
+              {/* A real status, so it earns a chip here: the one case a
+                  contained label beats plain text. */}
+              {community.mature ? (
+                <span className="bg-muted text-muted-foreground shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide">
+                  18+
+                </span>
+              ) : null}
+            </div>
             <p className="text-muted-foreground truncate text-xs">
               a/{community.slug}
             </p>
           </div>
         </div>
-        <p className="text-muted-foreground mt-3 text-sm">
+
+        <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
           {community.description}
         </p>
-        {community.topics.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {community.topics.map((topic) => (
-              <span className="text-muted-foreground text-xs" key={topic}>
-                #{topic}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        <p className="text-muted-foreground mt-3 text-xs">
-          Created {formatDate(new Date(community.createdAt), "MMMM d, yyyy")}
-        </p>
-      </section>
 
-      <section className="border-border/60 rounded-2xl border p-4">
-        <h2 className="text-foreground mb-3 text-sm font-semibold">About</h2>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
           <Stat label="Weekly visitors" value={stats.weeklyVisitors} />
           <Stat label="Contributors" value={stats.contributors} />
           <Stat label="Members" value={stats.members} />
           <Stat label="Community aura" value={stats.communityAura} withFlame />
         </dl>
-        <div className="border-border/60 mt-3 flex items-center justify-between border-t pt-3">
+
+        {/* Combined member aura as a tonal row: hierarchy from the surface
+            shift, not a hairline rule drawn across the card. */}
+        <div className="bg-muted/50 mt-3 flex items-center justify-between rounded-xl px-3 py-2">
           <span className="text-muted-foreground text-xs">
             Combined member aura
           </span>
@@ -95,15 +100,31 @@ export default function CommunityAbout({
             {formatNumber(stats.memberAura)}
           </span>
         </div>
+
+        {/* Both lines stay left-aligned on the card's own margin. Pushing the
+            date to the right with ml-auto stranded it at the far edge opposite
+            the topics, leaving a dead gulf in the middle of a two-item row. */}
+        <div className="text-muted-foreground mt-3 space-y-1 text-xs">
+          {community.topics.length > 0 ? (
+            <p className="flex flex-wrap gap-x-2.5 gap-y-1">
+              {community.topics.map((topic) => (
+                <span key={topic}>#{topic}</span>
+              ))}
+            </p>
+          ) : null}
+          <p>
+            Created {formatDate(new Date(community.createdAt), "MMMM d, yyyy")}
+          </p>
+        </div>
       </section>
 
       {owner ? (
-        <section className="border-border/60 rounded-2xl border p-4">
-          <h2 className="text-foreground mb-3 text-sm font-semibold">
+        <section className="sidebar-subcard rounded-2xl p-4">
+          <h2 className="text-foreground mb-2 text-sm font-semibold">
             Created by
           </h2>
           <Link
-            className="flex items-center gap-2.5"
+            className="hover:bg-muted/60 -mx-1 flex items-center gap-2.5 rounded-xl px-1 py-1 transition-colors"
             href={`/users/${owner.username}`}
           >
             <UserAvatar

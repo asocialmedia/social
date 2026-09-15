@@ -1,7 +1,9 @@
 "use client";
 
 import type { PostsPage } from "@asm/db";
+import { Button } from "@asm/ui/shadui/button";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
+import errorImage from "@assets/general/error.png";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -13,6 +15,7 @@ import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
+import EmptyFeedState from "@/components/profile/empty-feed-state";
 import kyInstance from "@/lib/ky";
 import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
 
@@ -27,22 +30,28 @@ export default function CommunityFeed({ slug }: { slug: string }) {
 
   const queryKey = useMemo(() => ["community-feed", slug, sort], [slug, sort]);
 
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } =
-    useInfiniteQuery({
-      getNextPageParam: (lastPage) => lastPage.nextCursor,
-      initialPageParam: null as string | null,
-      queryFn: ({ pageParam }: { pageParam: string | null }) =>
-        kyInstance
-          .get(`/api/communities/${slug}/posts`, {
-            searchParams: {
-              sort,
-              ...(pageParam ? { cursor: pageParam } : {}),
-            },
-          })
-          .json<PostsPage>(),
-      queryKey,
-      ...FEED_QUERY_BEHAVIOR,
-    });
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+    status,
+  } = useInfiniteQuery({
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
+      kyInstance
+        .get(`/api/communities/${slug}/posts`, {
+          searchParams: {
+            sort,
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+        })
+        .json<PostsPage>(),
+    queryKey,
+    ...FEED_QUERY_BEHAVIOR,
+  });
 
   const posts = useMemo(
     () => data?.pages.flatMap((page) => page.posts) || [],
@@ -58,18 +67,27 @@ export default function CommunityFeed({ slug }: { slug: string }) {
     body = <FeedViewSkeleton />;
   } else if (status === "error") {
     body = (
-      <p className="text-destructive px-4 py-8 text-center text-sm">
-        Couldn&apos;t load this community&apos;s posts.
-      </p>
+      <EmptyFeedState
+        action={
+          <Button
+            className="h-8 gap-1.5 px-3.5! py-0! text-xs!"
+            onClick={() => refetch()}
+            variant="premium"
+          >
+            Try again
+          </Button>
+        }
+        description="Something went wrong loading this community's posts."
+        image={errorImage}
+        title="Couldn't load posts"
+      />
     );
   } else if (posts.length === 0) {
     body = (
-      <div className="flex flex-col items-center justify-center py-16">
-        <p className="text-foreground text-sm font-medium">No posts yet</p>
-        <p className="text-muted-foreground mt-1 text-xs">
-          Be the first to post here.
-        </p>
-      </div>
+      <EmptyFeedState
+        description="Be the first to post here."
+        title="No posts yet"
+      />
     );
   } else {
     body = (

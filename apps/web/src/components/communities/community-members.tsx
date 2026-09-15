@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Flame } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useState } from "react";
@@ -11,8 +12,10 @@ import {
   useSetMemberRoleMutation,
 } from "@/communities/mutations";
 import UserAvatar from "@/components/layouts/user-avatar";
+import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useCommunityMembersQuery } from "@/lib/communities/client";
 import { useToast } from "@/lib/gooey-toast";
+import { cn, formatNumber } from "@/lib/utils";
 
 function roleLabel(
   role: "MEMBER" | "MODERATOR" | "OWNER",
@@ -83,7 +86,22 @@ export function CommunityMembers({
 
   let body: React.ReactNode;
   if (membersQuery.isLoading) {
-    body = <p className="text-muted-foreground text-xs">Loading…</p>;
+    // Skeleton rows rather than a bare "Loading…" string, matching the home
+    // rail's suggestion skeleton so a slow members fetch reads as a shape, not
+    // as an empty card that then pops in.
+    body = (
+      <div className="flex flex-col gap-2.5">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div className="flex items-center gap-2.5" key={`member-sk-${index}`}>
+            <div className="bg-muted size-8 shrink-0 animate-pulse rounded-full" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="bg-muted h-3 w-24 animate-pulse rounded" />
+              <div className="bg-muted h-2.5 w-16 animate-pulse rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   } else if (members.length === 0) {
     body = (
       <p className="text-muted-foreground text-xs">
@@ -92,12 +110,15 @@ export function CommunityMembers({
     );
   } else {
     body = (
-      <ul className="flex flex-col gap-2.5">
+      <ul className="flex flex-col gap-1">
         {members.slice(0, 12).map((member) => {
           const isSelf = member.user.id === user?.id;
           const canToggleRole = isOwner && member.role !== "OWNER" && !isSelf;
           return (
-            <li className="flex items-center gap-2.5" key={member.user.id}>
+            <li
+              className="group/member hover:bg-muted/60 -mx-1 flex items-center gap-2.5 rounded-xl px-1 py-1 transition-colors"
+              key={member.user.id}
+            >
               <Link href={`/users/${member.user.username}`}>
                 <UserAvatar
                   avatarUrl={member.user.avatarUrl}
@@ -118,28 +139,58 @@ export function CommunityMembers({
               </div>
               {showPending ? (
                 <Button
+                  className="btn-3d-gray h-7 shrink-0 rounded-full px-2.5! py-0! text-xs!"
                   disabled={approveMutation.isPending}
                   onClick={() => handleApprove(member.user.id)}
                   size="sm"
-                  variant="outline"
+                  variant="ghost"
                 >
                   Approve
                 </Button>
-              ) : null}
-              {!showPending && canToggleRole ? (
-                <button
-                  className="text-muted-foreground hover:text-foreground text-xs font-medium transition-colors"
-                  onClick={() =>
-                    handleRoleChange(
-                      member.user.id,
-                      member.role === "MODERATOR" ? "MEMBER" : "MODERATOR"
-                    )
-                  }
-                  type="button"
-                >
-                  {member.role === "MODERATOR" ? "Demote" : "Promote"}
-                </button>
-              ) : null}
+              ) : (
+                // The member's aura, read at a glance down the column. For an
+                // owner the slot is shared with the promote/demote action, which
+                // swaps in on row hover so moderation never adds permanent
+                // width. The swap is gated behind `(hover: hover)`: this rail
+                // renders from xl up, which includes touch devices (a tablet in
+                // landscape), where a hover-only control would be unreachable.
+                // There the action is simply always shown.
+                <span className="relative flex h-5 shrink-0 items-center justify-end">
+                  <span
+                    className={cn(
+                      "flex items-center gap-1 text-xs",
+                      canToggleRole &&
+                        "[@media(hover:hover)]:group-hover/member:hidden"
+                    )}
+                  >
+                    <Flame
+                      aria-hidden="true"
+                      className={cn(
+                        "size-3.5",
+                        getAuraFlameClass(member.user.aura)
+                      )}
+                    />
+                    <span className="text-foreground font-semibold tabular-nums">
+                      {formatNumber(member.user.aura)}
+                    </span>
+                    <span className="sr-only">aura</span>
+                  </span>
+                  {canToggleRole ? (
+                    <button
+                      className="text-muted-foreground hover:text-foreground text-xs font-medium transition-colors [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/member:block"
+                      onClick={() =>
+                        handleRoleChange(
+                          member.user.id,
+                          member.role === "MODERATOR" ? "MEMBER" : "MODERATOR"
+                        )
+                      }
+                      type="button"
+                    >
+                      {member.role === "MODERATOR" ? "Demote" : "Promote"}
+                    </button>
+                  ) : null}
+                </span>
+              )}
             </li>
           );
         })}
@@ -148,7 +199,7 @@ export function CommunityMembers({
   }
 
   return (
-    <section className="border-border/60 rounded-2xl border p-4">
+    <section className="sidebar-subcard rounded-2xl p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-foreground text-sm font-semibold">
           {showPending ? "Join requests" : "Members"}
