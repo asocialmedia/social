@@ -15,6 +15,7 @@ import {
   getPostDataInclude,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
+  invalidateCommunityStats,
   invalidateFypProfile,
   MENTION_RECEIVED_AURA,
   POST_CREATION_AURA,
@@ -133,6 +134,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     const parsed = (
       input.isGust && !isResponse ? createGustSchema : createPostSchema
     ).parse({
+      communityId: input.communityId,
+      communitySharePostId: input.communitySharePostId,
       content: input.content,
       dismissedEmbedUrls: input.dismissedEmbedUrls ?? [],
       isGust: isResponse ? false : (input.isGust ?? false),
@@ -142,6 +145,52 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       tags: input.tags || [],
     });
     const validatedInput: CreatePostInput = parsed;
+
+    // Community authorization is checked BEFORE the transaction: publishing
+    // into a community requires an ACTIVE membership (owner/moderator/member),
+    // and a reshare must point at a post that actually lives in a community.
+    let communityId: string | null = null;
+    if (validatedInput.communityId) {
+      const community = await prisma.community.findUnique({
+        select: { id: true },
+        where: { id: validatedInput.communityId },
+      });
+      if (!community) {
+        throw new Error("That community does not exist");
+      }
+      const membership = await prisma.communityMember.findUnique({
+        select: { status: true },
+        where: {
+          communityId_userId: {
+            communityId: community.id,
+            userId: sessionData.user.id,
+          },
+        },
+      });
+      if (membership?.status !== "ACTIVE") {
+        throw new Error("Join this community before posting in it");
+      }
+      communityId = community.id;
+    }
+
+    // A reshare must reference a real community post. The source's community
+    // is captured so the side row stays correct even if the source is later
+    // detached from the community.
+    let communityShare: { communityId: string; sourcePostId: string } | null =
+      null;
+    if (validatedInput.communitySharePostId) {
+      const source = await prisma.post.findUnique({
+        select: { communityId: true, id: true },
+        where: { id: validatedInput.communitySharePostId },
+      });
+      if (!source?.communityId) {
+        throw new Error("That post is not from a community");
+      }
+      communityShare = {
+        communityId: source.communityId,
+        sourcePostId: source.id,
+      };
+    }
 
     // Link embeds resolve before the transaction: cache-first (the composer
     // preview warmed Redis moments ago), bounded by a wall-clock budget so a
@@ -308,6 +357,8 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       const post = await tx.post.create({
         data: {
           aura: 0,
+          // Native community post when set; null for a normal global post.
+          communityId,
           content: validatedInput.content,
           embedding: initialEmbedding,
           // Resolved link previews; text-only posts keep the column null.
@@ -479,6 +530,18 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         });
       }
 
+      // Reshare of a community post onto the global feed: the new post owns
+      // its own media, and this side row records the source for attribution.
+      if (communityShare) {
+        await tx.communityPostShare.create({
+          data: {
+            communityId: communityShare.communityId,
+            postId: post.id,
+            sourcePostId: communityShare.sourcePostId,
+          },
+        });
+      }
+
       if (validatedInput.mentions.length > 0) {
         await Promise.all(
           validatedInput.mentions.map(async (userId) => {
@@ -580,6 +643,17 @@ export async function submitPost(input: ExtendedCreatePostInput) {
 
       return completePost;
     });
+
+    // A new community post changes the community's aggregate aura, so drop the
+    // cached stats so the sidebar reflects it on the next read. Best effort:
+    // a cache miss only means a stale count for a minute.
+    if (communityId) {
+      try {
+        await invalidateCommunityStats(communityId);
+      } catch (error) {
+        console.error("Failed to invalidate community stats:", error);
+      }
+    }
 
     // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.
     // Enqueue media analyze only AFTER the transaction commits so a rollback does not leave an orphan job.

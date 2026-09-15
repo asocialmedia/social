@@ -20,7 +20,14 @@ import { getPostUrl } from "@/lib/seo/seo";
 // the index at /sitemap.xml is emitted explicitly, which robots.txt has been
 // promising all along.
 
-export const SITEMAP_IDS = ["core", "posts", "gusts", "users", "tags"] as const;
+export const SITEMAP_IDS = [
+  "core",
+  "posts",
+  "gusts",
+  "users",
+  "tags",
+  "communities",
+] as const;
 
 export type SitemapId = (typeof SITEMAP_IDS)[number];
 
@@ -213,6 +220,22 @@ async function getTagEntries(): Promise<SitemapEntry[]> {
   }));
 }
 
+// Public communities only; private communities are not discoverable and must
+// not leak into the crawl graph.
+async function getCommunityEntries(): Promise<SitemapEntry[]> {
+  const communities = await prisma.community.findMany({
+    orderBy: { updatedAt: "desc" },
+    select: { slug: true, updatedAt: true },
+    take: SITEMAP_URL_LIMIT,
+    where: { type: { not: "PRIVATE" } },
+  });
+
+  return communities.map((community) => ({
+    lastModified: community.updatedAt,
+    url: `${siteConfig.url}/a/${community.slug}`,
+  }));
+}
+
 export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
   switch (id) {
     case "posts": {
@@ -226,6 +249,9 @@ export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
     }
     case "users": {
       return getUserEntries();
+    }
+    case "communities": {
+      return getCommunityEntries();
     }
     default: {
       return getCoreEntries();
@@ -266,6 +292,15 @@ export async function getSitemapLastModified(
         orderBy: { updatedAt: "desc" },
         select: { updatedAt: true },
         take: 1,
+      });
+      return latest?.updatedAt;
+    }
+    case "communities": {
+      const [latest] = await prisma.community.findMany({
+        orderBy: { updatedAt: "desc" },
+        select: { updatedAt: true },
+        take: 1,
+        where: { type: { not: "PRIVATE" } },
       });
       return latest?.updatedAt;
     }

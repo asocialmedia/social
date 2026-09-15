@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { getMediaClickPath } from "./media-previews";
 import { getPostCardBorderAndPadding, isInteractiveTarget } from "./post-card";
 
 interface MockNode {
@@ -192,5 +193,49 @@ describe("getPostCardBorderAndPadding", () => {
       hasThreadParent: true,
     });
     expect(threadChild.threadPaddingClass).toBe("pt-2 sm:pt-2.5 pb-4 px-4");
+  });
+});
+
+describe("getMediaClickPath", () => {
+  const post = {
+    content: "Check out this amazing photo of sunset",
+    id: "12345678-abcd-ef01-2345-6789abcdef01",
+  };
+
+  test("feed view (detail=false or omitted) navigates to post detail page", () => {
+    // Flow: post card -> post detail page
+    const feedDefault = getMediaClickPath(post, 0);
+    expect(feedDefault).toBe(
+      "/posts/12345678/check-out-this-amazing-photo-of-sunset"
+    );
+
+    const feedExplicit = getMediaClickPath(post, 1, false);
+    expect(feedExplicit).toBe(
+      "/posts/12345678/check-out-this-amazing-photo-of-sunset"
+    );
+  });
+
+  test("detail view (detail=true) navigates to post media viewer page", () => {
+    // Flow: post detail page -> post media page
+    const mediaPageFirst = getMediaClickPath(post, 0, true);
+    expect(mediaPageFirst).toBe("/posts/12345678/media/0");
+
+    const mediaPageSecond = getMediaClickPath(post, 2, true);
+    expect(mediaPageSecond).toBe("/posts/12345678/media/2");
+  });
+
+  test("gust post navigates to gust route in feed and media route in detail", () => {
+    const gustPost = {
+      content: "Short gust update",
+      id: "87654321-dcba-10fe-5432-10fedcba9876",
+      isGust: true,
+    };
+
+    expect(getMediaClickPath(gustPost, 0, false)).toBe(
+      "/gusts?id=87654321-dcba-10fe-5432-10fedcba9876"
+    );
+    expect(getMediaClickPath(gustPost, 0, true)).toBe(
+      "/posts/87654321/media/0"
+    );
   });
 });

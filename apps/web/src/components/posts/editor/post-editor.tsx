@@ -54,17 +54,18 @@ import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import PostLinkEmbeds from "@/components/posts/link-embeds";
 import PostLinkedContent from "@/components/posts/post-linked-content";
+import { communityAccentStyle } from "@/lib/communities/accent";
 import { toast as showToast, useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+
+import "./styles.css";
 import {
   ALT_TEXT_MAX_LENGTH,
   patchAudioOverlay,
   patchThumbnail,
   uploadMediaFile,
 } from "@/lib/media/media-upload-client";
-
-import "./styles.css";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { useSubmitPostMutation } from "@/posts/editor/mutations";
 import type { ComposerReplyTarget } from "@/store/composer-store";
@@ -350,6 +351,14 @@ export default function PostEditor({
   const replyTo = useComposerStore((state) => state.replyTo);
   const clearReplyTo = useComposerStore((state) => state.clearReplyTo);
   const closeComposer = useComposerStore((state) => state.closeComposer);
+  const communityTarget = useComposerStore((state) => state.community);
+  const clearCommunity = useComposerStore((state) => state.clearCommunity);
+  const communityShareTarget = useComposerStore(
+    (state) => state.communityShare
+  );
+  const clearCommunityShare = useComposerStore(
+    (state) => state.clearCommunityShare
+  );
   // Responses are always fleets: the reply target forces gust mode off even if
   // a previous draft left the composer in gust mode.
   const isResponse = Boolean(replyTo);
@@ -863,6 +872,10 @@ export default function PostEditor({
         inlineRelations.tags
       ),
       ...(replyTo ? { parentPostId: replyTo.id } : {}),
+      ...(communityTarget ? { communityId: communityTarget.id } : {}),
+      ...(communityShareTarget
+        ? { communitySharePostId: communityShareTarget.sourcePostId }
+        : {}),
       ...(isHnSharing && sharedHnStory
         ? {
             hnStory: {
@@ -878,7 +891,14 @@ export default function PostEditor({
         : {}),
     };
 
-    if (!(payload.content || isHnSharing || payload.mediaIds.length > 0)) {
+    if (
+      !(
+        payload.content ||
+        isHnSharing ||
+        communityShareTarget ||
+        payload.mediaIds.length > 0
+      )
+    ) {
       return;
     }
     if (isGust && !hasGustVideo) {
@@ -921,6 +941,14 @@ export default function PostEditor({
         if (isHnSharing) {
           hnShareStore.clearState();
         }
+        // A community post is published into the community the user was
+        // viewing; clear the target so the next composer opens globally.
+        if (communityTarget) {
+          clearCommunity();
+        }
+        if (communityShareTarget) {
+          clearCommunityShare();
+        }
         // A gust is not a home-feed post; take the user to the reels feed
         // where their new clip is the active one.
         if (newPost?.isGust) {
@@ -959,6 +987,10 @@ export default function PostEditor({
     toast,
     replyTo,
     closeComposer,
+    communityTarget,
+    clearCommunity,
+    communityShareTarget,
+    clearCommunityShare,
   ]);
   // oxlint-enable react/preserve-manual-memoization
 
@@ -1088,6 +1120,57 @@ export default function PostEditor({
           target (returning the composer to a normal post). */}
       {replyTo ? (
         <PostEditorResponsePreview onClear={clearReplyTo} replyTo={replyTo} />
+      ) : null}
+      {/* Community banner: names the community the post is being published
+          into and clears the target (returning the composer to a global post). */}
+      {communityTarget && !replyTo ? (
+        <div className="border-border/60 bg-card flex items-center gap-2 rounded-xl border px-3 py-2">
+          <span
+            aria-hidden="true"
+            className="h-4 w-0.5 shrink-0 rounded-full bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+            style={communityAccentStyle(communityTarget.accentColor)}
+          />
+          <span className="text-muted-foreground min-w-0 truncate text-sm">
+            Posting in{" "}
+            <span className="text-foreground font-medium">
+              a/{communityTarget.slug}
+            </span>
+          </span>
+          <button
+            aria-label="Post to the global feed instead"
+            className="text-muted-foreground hover:text-foreground ml-auto shrink-0 text-xs font-medium"
+            onClick={clearCommunity}
+            type="button"
+          >
+            Change
+          </button>
+        </div>
+      ) : null}
+      {/* Community reshare banner: the post will be republished onto the
+          global feed with attribution back to the source community post. */}
+      {communityShareTarget && !replyTo ? (
+        <div className="border-border/60 bg-card flex items-center gap-2 rounded-xl border px-3 py-2">
+          <span
+            aria-hidden="true"
+            className="h-4 w-0.5 shrink-0 rounded-full bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+            style={communityAccentStyle(communityShareTarget.accentColor)}
+          />
+          <span className="text-muted-foreground min-w-0 truncate text-sm">
+            Sharing from{" "}
+            <span className="text-foreground font-medium">
+              a/{communityShareTarget.communitySlug}
+            </span>{" "}
+            to your feed
+          </span>
+          <button
+            aria-label="Remove the community share"
+            className="text-muted-foreground hover:text-foreground ml-auto shrink-0 text-xs font-medium"
+            onClick={clearCommunityShare}
+            type="button"
+          >
+            Remove
+          </button>
+        </div>
       ) : null}
       {/* The avatar leads the composer on every breakpoint: the input bar
           sits beside it on mobile too. Gust mode with a clip keeps its

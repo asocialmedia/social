@@ -13,6 +13,10 @@ import {
 import { submitPost, updatePostMentions } from "./actions";
 
 interface PostInput {
+  // When set, this post is published INTO that community.
+  communityId?: string;
+  // When set, this post is a reshare of that community post.
+  communitySharePostId?: string;
   content: string;
   hnStory?: {
     storyId: number;
@@ -38,6 +42,8 @@ export function useSubmitPostMutation() {
   const mutation = useMutation({
     mutationFn: async (input: PostInput) => {
       const payload = {
+        communityId: input.communityId,
+        communitySharePostId: input.communitySharePostId,
         content: input.content,
         hnStory: input.hnStory,
         isGust: input.isGust ?? false,
@@ -62,7 +68,7 @@ export function useSubmitPostMutation() {
         variant: "destructive",
       });
     },
-    onSuccess: async (newPost) => {
+    onSuccess: async (newPost, input) => {
       // A response is a first-class post: it lands in its parent's thread and
       // in the timeline feeds (home + profile Posts), so refresh those caches.
       if (newPost.parentPostId) {
@@ -136,6 +142,12 @@ export function useSubmitPostMutation() {
             };
           }
         );
+      }
+
+      // A community post (native or reshare) changes that community's feed and
+      // its aggregate stats, so refresh every community feed cache.
+      if (input.communityId || input.communitySharePostId) {
+        void queryClient.invalidateQueries({ queryKey: ["community-feed"] });
       }
 
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });

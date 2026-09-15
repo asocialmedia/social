@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, PostsPage } from "@asm/db";
+import type { PostData, PostsPage, SearchCommunityResult } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
@@ -8,12 +8,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import CommunityAvatar from "@/components/communities/community-avatar";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
@@ -49,6 +51,7 @@ const TAB_META: Record<ExploreTab, string> = {
 const TAB_ORDER = Object.keys(TAB_META) as ExploreTab[];
 
 interface FeedData {
+  communities?: SearchCommunityResult[];
   posts: PostData[];
   users: ExploreUser[];
 }
@@ -183,6 +186,7 @@ const ExploreClient: React.FC = () => {
 
   const posts = useMemo(() => data?.posts ?? [], [data]);
   const users = useMemo(() => data?.users ?? [], [data]);
+  const communities = useMemo(() => data?.communities ?? [], [data]);
   const gusts = useMemo(() => gustsData ?? [], [gustsData]);
 
   // Poll every 45s for the newest post in the active feed. When a brand-new
@@ -369,6 +373,40 @@ const ExploreClient: React.FC = () => {
               gusts={gusts}
               onViewAll={() => handleTabChange("gusts")}
             />
+          ) : null}
+
+          {/* Community matches, above the post masonry, when searching. */}
+          {debouncedSearch.trim() && communities.length > 0 ? (
+            <section className="mb-5">
+              <h2 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+                Communities
+              </h2>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {communities.map((community) => (
+                  <Link
+                    className="border-border/60 hover:bg-muted/50 flex w-56 shrink-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
+                    href={`/a/${community.slug}`}
+                    key={community.id}
+                  >
+                    <CommunityAvatar
+                      accentColor={community.accentColor}
+                      avatarUrl={community.avatarUrl}
+                      className="size-9"
+                      name={community.name}
+                      slug={community.slug}
+                    />
+                    <span className="min-w-0">
+                      <span className="text-foreground block truncate text-sm font-medium">
+                        {community.name}
+                      </span>
+                      <span className="text-muted-foreground block truncate text-xs">
+                        a/{community.slug}
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
           ) : null}
 
           {/* Masonry Post Stream */}

@@ -18,6 +18,10 @@ import {
 
 import { useSession } from "@/app/(main)/session-provider";
 import Comments from "@/components/comments/comments";
+import {
+  CommunityAttribution,
+  CommunityShareCard,
+} from "@/components/communities/community-attribution";
 import FollowButton from "@/components/layouts/follow-button";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
@@ -32,6 +36,7 @@ import PostMoreButton from "@/components/posts/post-more-button";
 import ViewTracker from "@/components/posts/view-counter";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
+import { communityAccentStyle } from "@/lib/communities/accent";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
@@ -53,6 +58,21 @@ import ShareButton from "./share-button";
 export { isInteractiveTarget } from "@/lib/interactive-target";
 
 type ExtendedPostData = PostData & {
+  community?: {
+    accentColor: string;
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
+  communityShare?: {
+    community: {
+      accentColor: string;
+      id: string;
+      name: string;
+      slug: string;
+    };
+    sourcePostId: string;
+  } | null;
   hnStoryShare?: {
     storyId: number;
     title: string;
@@ -74,6 +94,9 @@ interface PostCardProps {
   // narrow embedded columns (media page sidebar).
   mobileLayout?: boolean;
   post: ExtendedPostData;
+  // Ranked feeds add a short "Trending in a/<slug>" reason line beside the
+  // community attribution; chronological feeds leave it off.
+  showCommunityReason?: boolean;
 }
 
 interface PostHeaderProps {
@@ -118,7 +141,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           </Link>
         </UserTooltip>
 
-        <div className="min-w-0 flex-1 pr-[4.75rem]">
+        <div className="min-w-0 flex-1 pr-19">
           <div className="flex min-w-0 items-center gap-2">
             <UserTooltip user={post.user}>
               <Link
@@ -246,7 +269,7 @@ const ThreadConnectorRail: React.FC<ThreadConnectorRailProps> = ({
     return (
       <span
         aria-hidden="true"
-        className="bg-border pointer-events-none absolute -top-[9px] -bottom-[9px] left-1/2 w-0.5 -translate-x-1/2 sm:-top-[11px] sm:-bottom-[11px]"
+        className="bg-border pointer-events-none absolute -top-2.25 -bottom-2.25 left-1/2 w-0.5 -translate-x-1/2 sm:-top-2.75 sm:-bottom-2.75"
       />
     );
   }
@@ -255,7 +278,7 @@ const ThreadConnectorRail: React.FC<ThreadConnectorRailProps> = ({
     return (
       <span
         aria-hidden="true"
-        className="bg-border pointer-events-none absolute -top-[9px] left-1/2 h-[27px] w-0.5 -translate-x-1/2 sm:-top-[11px] sm:h-[31px]"
+        className="bg-border pointer-events-none absolute -top-2.25 left-1/2 h-6.75 w-0.5 -translate-x-1/2 sm:-top-2.75 sm:h-7.75"
       />
     );
   }
@@ -264,7 +287,7 @@ const ThreadConnectorRail: React.FC<ThreadConnectorRailProps> = ({
     return (
       <span
         aria-hidden="true"
-        className="bg-border pointer-events-none absolute top-[18px] -bottom-[9px] left-1/2 w-0.5 -translate-x-1/2 sm:top-[20px] sm:-bottom-[11px]"
+        className="bg-border pointer-events-none absolute top-4.5 -bottom-2.25 left-1/2 w-0.5 -translate-x-1/2 sm:top-5 sm:-bottom-2.75"
       />
     );
   }
@@ -284,6 +307,7 @@ interface PostContentProps {
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
+  showCommunityReason?: boolean;
 }
 
 const PostContent: React.FC<PostContentProps> = ({
@@ -291,13 +315,13 @@ const PostContent: React.FC<PostContentProps> = ({
   detail,
   hasThreadChild = false,
   hasThreadParent = false,
-  initialMediaIndex = 0,
+  initialMediaIndex,
   isExpanded,
-  isJoined,
   mobileLayout,
   onToggleComments,
   onToggleExpand,
   post,
+  showCommunityReason = false,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -417,6 +441,29 @@ const PostContent: React.FC<PostContentProps> = ({
                 </div>
               ) : null}
 
+              {/* Native community post: name the community it was published
+                  into. Ranked feeds add the reason line. */}
+              {post.community ? (
+                <CommunityAttribution
+                  className="mt-2.5"
+                  community={post.community}
+                  reason={
+                    showCommunityReason
+                      ? `Trending in a/${post.community.slug}`
+                      : undefined
+                  }
+                />
+              ) : null}
+
+              {/* Reshare of a community post onto the global feed: attribute
+                  the source post and community. */}
+              {post.communityShare ? (
+                <CommunityShareCard
+                  community={post.communityShare.community}
+                  sourcePostId={post.communityShare.sourcePostId}
+                />
+              ) : null}
+
               {!!attachments.length && (
                 <div
                   className={cn(
@@ -429,9 +476,9 @@ const PostContent: React.FC<PostContentProps> = ({
                       <MediaPreviews
                         attachments={attachments}
                         autoPlayVideos={detail}
+                        detail={detail}
                         forceMobile={mobileLayout}
                         initialMediaIndex={initialMediaIndex}
-                        interactive={!isJoined}
                         post={post}
                       />
                     </ExplicitContentGate>
@@ -439,9 +486,9 @@ const PostContent: React.FC<PostContentProps> = ({
                     <MediaPreviews
                       attachments={attachments}
                       autoPlayVideos={detail}
+                      detail={detail}
                       forceMobile={mobileLayout}
                       initialMediaIndex={initialMediaIndex}
-                      interactive={!isJoined}
                       post={post}
                     />
                   )}
@@ -698,9 +745,11 @@ const RespondButton = ({ post }: RespondButtonProps) => {
 };
 
 // Hacker News signature accent: HN reshared posts receive an absolute orange
-// left indicator line. Because the indicator is absolutely positioned (taking 0px
-// in layout), every post card maintains standard padding (px-4) so avatars and
-// the vertical thread connector rail stay 100% vertically aligned with responses.
+// left indicator line. Community posts reuse the exact rail geometry with the
+// community's own accent, so both read as one system. Because the indicator is
+// absolutely positioned (taking 0px in layout), every post card maintains
+// standard padding (px-4) so avatars and the vertical thread connector rail
+// stay 100% vertically aligned with responses.
 export function getPostCardBorderAndPadding({
   hasHnStoryShare = false,
   hasThreadChild = false,
@@ -732,6 +781,7 @@ const PostCard: React.FC<PostCardProps> = ({
   isJoined = false,
   mobileLayout = false,
   post: initialPost,
+  showCommunityReason = false,
 }) => {
   const { user } = useSession();
   const router = useRouter();
@@ -809,6 +859,7 @@ const PostCard: React.FC<PostCardProps> = ({
       onToggleComments={handleToggleComments}
       onToggleExpand={handleToggleExpand}
       post={post}
+      showCommunityReason={showCommunityReason}
     />
   );
 
@@ -832,6 +883,22 @@ const PostCard: React.FC<PostCardProps> = ({
     hasThreadParent,
   });
 
+  // The left rail: HN posts keep the orange signature, a community post takes
+  // the community's accent. A community rail wins when a post is somehow both.
+  let railStyle: React.CSSProperties | undefined;
+  let railClassName =
+    "pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5";
+  if (post.community) {
+    railStyle = communityAccentStyle(post.community.accentColor);
+    railClassName = cn(
+      railClassName,
+      "bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+    );
+  } else if (hasHnIndicator) {
+    railClassName = cn(railClassName, "bg-orange-500");
+  }
+  const showRail = Boolean(post.community) || hasHnIndicator;
+
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure
     <motion.article
@@ -850,10 +917,11 @@ const PostCard: React.FC<PostCardProps> = ({
       <ViewTracker postId={post.id} />
       {isJoined ? (
         <div className="group/post relative rounded-none bg-[hsl(var(--background-alt))]">
-          {hasHnIndicator ? (
+          {showRail ? (
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5 bg-orange-500"
+              className={railClassName}
+              style={railStyle}
             />
           ) : null}
           <div
@@ -873,10 +941,11 @@ const PostCard: React.FC<PostCardProps> = ({
             detail ? "border-x-0 border-b-0" : ""
           )}
         >
-          {hasHnIndicator ? (
+          {showRail ? (
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5 bg-orange-500"
+              className={railClassName}
+              style={railStyle}
             />
           ) : null}
           <CardContent

@@ -84,6 +84,31 @@ export function getPostDataInclude(loggedInUserId: string) {
         userId: loggedInUserId,
       },
     },
+    // Native community post: the compact community identity drives the accent
+    // rail and the a/<slug> attribution on the card. Null for global posts.
+    community: {
+      select: {
+        accentColor: true,
+        id: true,
+        name: true,
+        slug: true,
+      },
+    },
+    // Reshare of a community post onto the global feed: carries the source
+    // post id and the community it came from for the attribution card.
+    communityShare: {
+      select: {
+        community: {
+          select: {
+            accentColor: true,
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+        sourcePostId: true,
+      },
+    },
     hnStoryShare: true,
     mentions: {
       include: {

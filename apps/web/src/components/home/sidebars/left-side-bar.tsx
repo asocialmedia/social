@@ -34,6 +34,7 @@ import type React from "react";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { JoinedCommunitiesRail } from "@/components/communities/joined-communities-rail";
 import Spinner3D from "@/components/layouts/spinner-3d";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
@@ -84,7 +85,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/gusts", icon: Clapperboard, label: "Gusts" },
   {
     fillable: true,
-    href: "/soon?feature=communities",
+    href: "/comm",
     icon: Users,
     label: "Communities",
   },
@@ -526,10 +527,15 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
             });
           }
 
-          return renderItem(
-            item.href === "/bookmarks"
-              ? { ...item, count: bookmarkCount?.totalCount }
-              : item
+          return (
+            <div key={item.href}>
+              {renderItem(
+                item.href === "/bookmarks"
+                  ? { ...item, count: bookmarkCount?.totalCount }
+                  : item
+              )}
+              {item.href === "/comm" ? <JoinedCommunitiesRail /> : null}
+            </div>
           );
         })}
 

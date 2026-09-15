@@ -49,6 +49,8 @@ mock.module("@asm/db", () => ({
       findMany: mockUserFindMany,
     },
   },
+  // Communities are surfaced alongside posts/users in the search response.
+  searchCommunitiesForSearch: () => Promise.resolve([]),
 }));
 
 mock.module("@/lib/auth/session", () => ({

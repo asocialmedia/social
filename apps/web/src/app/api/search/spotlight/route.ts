@@ -1,4 +1,4 @@
-import { searchPosts, searchUsers } from "@asm/db";
+import { searchCommunitiesForSearch, searchPosts, searchUsers } from "@asm/db";
 
 export async function GET(request: Request) {
   // Public search popup; no account needed.
@@ -10,13 +10,14 @@ export async function GET(request: Request) {
   );
 
   if (!q) {
-    return Response.json({ posts: [], users: [] });
+    return Response.json({ communities: [], posts: [], users: [] });
   }
 
-  const [users, posts] = await Promise.all([
+  const [users, posts, communities] = await Promise.all([
     searchUsers(q, limit),
     searchPosts(q, limit),
+    searchCommunitiesForSearch(q, limit),
   ]);
 
-  return Response.json({ posts, users });
+  return Response.json({ communities, posts, users });
 }

@@ -190,6 +190,7 @@ export default function HomeFeed({
             cacheKey={queryKey}
             excludePostId={excludePostId}
             posts={posts}
+            showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         )}

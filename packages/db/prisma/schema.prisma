@@ -76,6 +76,9 @@ model User {
   blocksIssued          Block[]                     @relation("BlocksIssued")
   blocksReceived        Block[]                     @relation("BlocksReceived")
   recommendationEvents  RecommendationEvent[]
+  ownedCommunities      Community[]                 @relation("CommunityOwner")
+  communityMemberships  CommunityMember[]
+  communityVisits       CommunityVisit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -273,6 +276,9 @@ enum AuraType {
   // user per UTC day upstream; issuer and recipient are both the awarded
   // user since the platform itself is the actor.
   TRENDING_APPEARANCE
+  // One-time award to the creator when a community is founded. Subject to the
+  // daily income cap like other creation awards.
+  COMMUNITY_CREATED
 }
 
 model PasswordResetToken {
@@ -429,6 +435,12 @@ model Post {
   tags                  Tag[]
   mentions              Mention[]
   hnStoryShare          HNStoryShare?
+  // Set when this post was published INTO a community (native community post).
+  communityId           String?
+  community             Community?           @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  // Set when this post is a reshare of a community post onto the global feed.
+  communityShare        CommunityPostShare?  @relation("CommunityPostShareTarget")
+  communityShares       CommunityPostShare[] @relation("CommunityPostShares")
   visits                PostVisit[]
   recommendationEvents  RecommendationEvent[]
   // Resolved link previews (max 5, LinkEmbed payloads from
@@ -446,6 +458,7 @@ model Post {
   @@index([isGust, aura, id])
   @@index([isGust, trendingScore, id])
   @@index([userId, isGust, createdAt])
+  @@index([communityId, createdAt])
   @@index([parentPostId, createdAt])
   @@index([rootPostId, createdAt])
   @@index([threadTopId, createdAt])
@@ -509,6 +522,117 @@ model Tag {
   posts     Post[]
 }
 
+// A community is a topic-scoped space for posts, addressed by an immutable
+// slug at /a/{slug}. Membership is explicit (CommunityMember) and only
+// ACTIVE members may publish into it; viewing is public for every community.
+model Community {
+  id            String          @id @default(cuid())
+  slug          String          @unique
+  name          String
+  description   String
+  // Discovery topics (keys from COMMUNITY_TOPICS), stored as a string array so
+  // the taxonomy can grow without a migration per topic.
+  topics        String[]        @default([])
+  type          CommunityType   @default(PUBLIC)
+  mature        Boolean         @default(false)
+  // Accent key (from COMMUNITY_ACCENTS), resolved to a theme-safe tonal color
+  // on the client. Drives the post card's left rail and the community header.
+  accentColor   String          @default("slate")
+  ownerId       String
+  owner         User            @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  avatarUrl     String?
+  avatarKey     String?
+  avatarMediaId String?         @unique
+  avatarMedia   Media?          @relation("CommunityAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerUrl     String?
+  bannerKey     String?
+  bannerMediaId String?         @unique
+  bannerMedia   Media?          @relation("CommunityBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  members       CommunityMember[]
+  visits        CommunityVisit[]
+  posts         Post[]
+  postShares    CommunityPostShare[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([createdAt])
+  @@index([ownerId])
+  @@index([type])
+  @@map("communities")
+}
+
+// Membership + role for a community. The creator is seeded as OWNER/ACTIVE.
+// PENDING rows are join requests awaiting an owner/moderator decision; the
+// ACTIVE/PENDING status keeps approval state on the same row as the role.
+model CommunityMember {
+  id          String                @id @default(cuid())
+  communityId String
+  community   Community             @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        CommunityRole         @default(MEMBER)
+  status      CommunityMemberStatus @default(ACTIVE)
+  createdAt   DateTime              @default(now())
+
+  @@unique([communityId, userId])
+  @@index([userId])
+  @@index([communityId, role])
+  @@index([communityId, status])
+  @@map("community_members")
+}
+
+// One row per (community, viewer) pair, refreshed on every community page
+// view. Weekly unique visitors and contributors are counted from this table
+// over a rolling window rather than from a denormalized counter, so the
+// numbers stay honest as membership changes.
+model CommunityVisit {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visitedAt   DateTime  @default(now())
+
+  @@unique([communityId, userId])
+  @@index([communityId, visitedAt])
+  @@map("community_visits")
+}
+
+// A community post reshared onto the global feed as a first-class Post. The
+// new post owns its own media (the author re-uploads), while this side row
+// records the source post and community so the card can show attribution.
+model CommunityPostShare {
+  id            String    @id @default(cuid())
+  postId        String    @unique
+  post          Post      @relation("CommunityPostShareTarget", fields: [postId], references: [id], onDelete: Cascade)
+  sourcePostId  String
+  sourcePost    Post      @relation("CommunityPostShares", fields: [sourcePostId], references: [id], onDelete: Cascade)
+  communityId   String
+  community     Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+
+  @@index([sourcePostId])
+  @@index([communityId])
+  @@map("community_post_shares")
+}
+
+enum CommunityType {
+  PUBLIC
+  RESTRICTED
+  PRIVATE
+}
+
+enum CommunityRole {
+  OWNER
+  MODERATOR
+  MEMBER
+}
+
+enum CommunityMemberStatus {
+  ACTIVE
+  PENDING
+}
+
 model Media {
   id                   String           @id @default(cuid())
   postId               String?
@@ -518,6 +642,8 @@ model Media {
   userId               String?
   avatarOf             User?            @relation("UserAvatar")
   bannerOf             User?            @relation("UserBanner")
+  communityAvatarOf    Community?       @relation("CommunityAvatar")
+  communityBannerOf    Community?       @relation("CommunityBanner")
   url                  String
   key                  String           @default("")
   mimeType             String           @default("application/octet-stream")

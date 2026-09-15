@@ -99,6 +99,10 @@ export const ATTACHMENT_BONUSES = {
 // Total post-creation award ceiling including all bonuses.
 export const POST_CREATION_MAX_AURA = 150;
 
+// One-time flat award to the creator when a community is founded. Subject to
+// the daily income cap so community creation cannot be farmed for aura.
+export const COMMUNITY_CREATED_AURA = 25;
+
 // ---------------------------------------------------------------------------
 // View & share attention milestones
 // ---------------------------------------------------------------------------

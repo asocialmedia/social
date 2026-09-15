@@ -6,6 +6,7 @@ import {
   Home,
   MessagesSquare,
   Newspaper,
+  Users,
 } from "lucide-react";
 import { motion } from "motion/react";
 import Link, { useLinkStatus } from "next/link";
@@ -30,6 +31,7 @@ const NAV_ITEMS: MobileNavItem[] = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/discover", icon: Compass, label: "Explore" },
   { href: "/gusts", icon: Clapperboard, label: "Gusts" },
+  { href: "/comm", icon: Users, label: "Communities" },
   {
     href: "/messages",
     icon: MessagesSquare,
@@ -198,7 +200,7 @@ const MobileBottomNav: React.FC = () => {
       aria-label="Primary"
       className="border-border/60 fixed inset-x-0 bottom-0 z-50 border-t bg-[hsl(var(--background-alt))]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
     >
-      <div className="relative grid grid-cols-5 gap-1 px-2 py-1.5">
+      <div className="relative grid grid-cols-6 gap-1 px-2 py-1.5">
         {NAV_ITEMS.map(({ href, label, icon: Icon, requiresAuth }) =>
           renderNavItem(href, label, Icon, countFor(href, counts), requiresAuth)
         )}

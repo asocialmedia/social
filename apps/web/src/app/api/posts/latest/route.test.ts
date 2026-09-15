@@ -46,8 +46,10 @@ describe("GET /api/posts/latest", () => {
 
     expect(response.status).toBe(200);
     // Responses are first-class posts in the timeline, so the latest feed does
-    // not exclude them.
+    // not exclude them. Community posts live in their own feed, so communityId
+    // must be null here.
     expect(lastFindManyArgs?.where).toEqual({
+      communityId: null,
       isGust: false,
     });
     expect(lastFindManyArgs?.take).toBe(21);
@@ -62,6 +64,7 @@ describe("GET /api/posts/latest", () => {
     );
 
     expect(lastFindManyArgs?.where).toEqual({
+      communityId: null,
       isGust: false,
       moderated: false,
     });

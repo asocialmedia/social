@@ -3,6 +3,7 @@ import {
   getUserDataSelect,
   hydrateViewCounts,
   prisma,
+  searchCommunitiesForSearch,
 } from "@asm/db";
 import type { Prisma } from "@asm/db";
 
@@ -80,7 +81,7 @@ export async function GET(request: Request) {
         }
       : { ...searchFilter, moderated: false, rootPostId: null };
 
-  const [rawPosts, users] = await Promise.all([
+  const [rawPosts, users, communities] = await Promise.all([
     prisma.post.findMany({
       include: getPostDataInclude(userId),
       orderBy: postOrderBy,
@@ -99,9 +100,10 @@ export async function GET(request: Request) {
         ],
       },
     }),
+    searchCommunitiesForSearch(q, pageSize),
   ]);
 
   const posts = await hydrateViewCounts(rawPosts);
 
-  return Response.json({ posts, users });
+  return Response.json({ communities, posts, users });
 }

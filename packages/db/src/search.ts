@@ -64,6 +64,15 @@ export interface SearchPostResult {
   viewCount: number;
 }
 
+export interface SearchCommunityResult {
+  accentColor: string;
+  avatarUrl: string | null;
+  id: string;
+  memberCount: number;
+  name: string;
+  slug: string;
+}
+
 export async function searchUsers(
   query: string,
   limit = 10
@@ -183,4 +192,46 @@ export async function searchPosts(
         : null,
       viewCount: post.viewCount,
     }));
+}
+
+// Community search for the spotlight and explore surfaces. Public communities
+// only (private ones are not discoverable), ranked by member count.
+export async function searchCommunitiesForSearch(
+  query: string,
+  limit = 6
+): Promise<SearchCommunityResult[]> {
+  const q = query.trim();
+  if (!q) {
+    return [];
+  }
+
+  const communities = await prisma.community.findMany({
+    orderBy: [{ members: { _count: "desc" } }, { createdAt: "desc" }],
+    select: {
+      _count: { select: { members: { where: { status: "ACTIVE" } } } },
+      accentColor: true,
+      avatarUrl: true,
+      id: true,
+      name: true,
+      slug: true,
+    },
+    take: Math.min(Math.max(limit, 1), 20),
+    where: {
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { slug: { contains: q, mode: "insensitive" } },
+        { description: { contains: q, mode: "insensitive" } },
+      ],
+      type: { not: "PRIVATE" },
+    },
+  });
+
+  return communities.map((community) => ({
+    accentColor: community.accentColor,
+    avatarUrl: community.avatarUrl,
+    id: community.id,
+    memberCount: community._count.members,
+    name: community.name,
+    slug: community.slug,
+  }));
 }

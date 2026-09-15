@@ -46,13 +46,24 @@ import MediaViewer from "./media-viewer";
 interface MediaPreviewsProps {
   attachments?: Media[];
   autoPlayVideos?: boolean;
-  // Renders the mobile layout regardless of the actual viewport (used in
-  // narrow embedded columns like the media page's sidebar, where the desktop
-  // grids would be cramped).
+  // When false (e.g. in feeds), clicking media navigates to the post detail page first.
+  // When true (on the post detail page), clicking media navigates to the media viewer route.
+  detail?: boolean;
   forceMobile?: boolean;
   initialMediaIndex?: number;
   interactive?: boolean;
   post?: PostData;
+}
+
+export function getMediaClickPath(
+  post: Parameters<typeof getPostPath>[0],
+  index: number,
+  detail = false
+): string {
+  if (!detail) {
+    return getPostPath(post);
+  }
+  return getPostMediaPath(post, index);
 }
 
 // Top-level component (not nested) so its own hover/play state doesn't cause
@@ -960,6 +971,7 @@ const SingleVideoPreview = ({
 export const MediaPreviews = ({
   attachments: rawAttachments,
   autoPlayVideos = false,
+  detail = false,
   forceMobile = false,
   interactive = true,
   post,
@@ -1048,12 +1060,14 @@ export const MediaPreviews = ({
   const openAtIndex = useCallback(
     (index: number) => {
       if (post) {
-        withViewTransition(() => router.push(getPostMediaPath(post, index)));
+        withViewTransition(() =>
+          router.push(getMediaClickPath(post, index, detail))
+        );
         return;
       }
       setSelectedIndex(index);
     },
-    [post, router]
+    [detail, post, router]
   );
 
   const handleNavigateIndex = useCallback(
@@ -1070,7 +1084,7 @@ export const MediaPreviews = ({
 
   const initialCount = 3;
   // Post page (autoPlay/detail) should always show all media in bento, no collapse.
-  const isDetailBento = autoPlayVideos && attachments.length >= 5;
+  const isDetailBento = (detail || autoPlayVideos) && attachments.length >= 5;
   // Feed cards with 3-5 attachments show a composed bento (no "Show all"
   // collapse); 6+ keeps the collapsible uniform grid.
   const isFeedBento =

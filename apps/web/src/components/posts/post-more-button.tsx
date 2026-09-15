@@ -10,6 +10,7 @@ import {
   EyeOff,
   Hash,
   MoreHorizontal,
+  Share2,
   ShieldCheck,
   Subtitles,
   Trash2,
@@ -25,6 +26,7 @@ import { setPopupOpen } from "@/lib/popup-tracker";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn } from "@/lib/utils";
+import { useComposerStore } from "@/store/composer-store";
 
 import DeletePostDialog from "./delete-post-dialog";
 import PostModerationDialog from "./post-moderation-dialog";
@@ -47,6 +49,9 @@ export default function PostMoreButton({
   extraItems,
 }: PostMoreButtonProps) {
   const { user } = useSession();
+  const openComposerForCommunityShare = useComposerStore(
+    (state) => state.openComposerForCommunityShare
+  );
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showModerationDialog, setShowModerationDialog] = useState(false);
@@ -143,6 +148,26 @@ export default function PostMoreButton({
     [post.id]
   );
 
+  // Reshare a community post onto the global feed: opens the composer with the
+  // source attached, which publishes a new post + CommunityPostShare side row.
+  const handleShareToFeed = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!post.community) {
+        return;
+      }
+      openComposerForCommunityShare({
+        accentColor: post.community.accentColor,
+        communityName: post.community.name,
+        communitySlug: post.community.slug,
+        sourcePostId: post.id,
+      });
+      setIsOpen(false);
+      setPopupOpen(false);
+    },
+    [post.community, post.id, openComposerForCommunityShare]
+  );
+
   return (
     <>
       <DropdownMenu onOpenChange={handleOpenChange}>
@@ -167,6 +192,17 @@ export default function PostMoreButton({
           className="apple-panel p-1.5 shadow-none"
         >
           {extraItems}
+          {user && post.community && !post.moderated ? (
+            <DropdownMenuItem
+              className="pill-3d-hover rounded-md px-2 py-2"
+              onClick={handleShareToFeed}
+            >
+              <span className="flex items-center gap-3">
+                <Share2 className="size-4" />
+                Share to feed
+              </span>
+            </DropdownMenuItem>
+          ) : null}
           {user && !isOwner ? (
             <DropdownMenuItem
               className="pill-3d-hover rounded-md px-2 py-2"
