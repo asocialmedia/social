@@ -1,18 +1,18 @@
 "use client";
 
 import type { CommunityData, CommunityStats, UserData } from "@asm/db";
-import { ShieldAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
-import { communityAccentStyle } from "@/lib/communities/accent";
+import { cn } from "@/lib/utils";
 
 import CommunityAbout from "./community-about";
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
+import CommunityMatureGate from "./community-mature-gate";
 
 interface ClientCommunityProps {
   community: CommunityData;
@@ -64,67 +64,55 @@ export default function ClientCommunity({
     router.back();
   }, [router]);
 
-  if (community.mature && !matureAccepted) {
-    return (
-      <div
-        className="mx-auto flex max-w-2xl min-w-0 flex-1 items-center justify-center px-5"
-        style={communityAccentStyle(community.accentColor)}
-      >
-        <div className="border-border/60 w-full max-w-md rounded-2xl border p-6 text-center">
-          <ShieldAlert className="mx-auto size-7 text-[var(--community-accent)] dark:text-[var(--community-accent-dark)]" />
-          <h1 className="text-foreground mt-4 text-lg font-bold">
-            a/{community.slug} is marked 18+
-          </h1>
-          <p className="text-muted-foreground mt-2 text-sm">
-            This community may contain mature content. You must be over 18 to
-            view and contribute.
-          </p>
-          <div className="mt-5 flex justify-center gap-2">
-            <button
-              className="border-border/60 hover:bg-muted/50 rounded-full border px-4 py-2 text-sm font-medium transition-colors"
-              onClick={handleLeave}
-              type="button"
-            >
-              Go back
-            </button>
-            <button
-              className="bg-foreground text-background rounded-full px-4 py-2 text-sm font-medium"
-              onClick={handleEnter}
-              type="button"
-            >
-              I am 18 or older
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const isBlocked = community.mature && !matureAccepted;
 
   return (
     <>
-      <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-3xl">
-        <MobileTopBar />
-        <CommunityHeader
-          community={community}
-          members={stats.members}
-          membership={membership}
-        />
-        <CommunityFeed slug={slug} />
-      </div>
+      {/* The community renders either way; when gated it is blurred and made
+          inert so the gate reads as a popup over the real page rather than
+          replacing it. `overflow-hidden` also clips the blur's soft bleed. */}
+      <div className="relative flex min-w-0 flex-1 overflow-hidden">
+        <div
+          aria-hidden={isBlocked || undefined}
+          className={cn(
+            "flex min-w-0 flex-1",
+            isBlocked && "pointer-events-none scale-[1.03] blur-md select-none"
+          )}
+          inert={isBlocked || undefined}
+        >
+          <div className="border-border/60 mx-auto flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x lg:max-w-3xl">
+            <MobileTopBar />
+            <CommunityHeader
+              community={community}
+              members={stats.members}
+              membership={membership}
+            />
+            <CommunityFeed slug={slug} />
+          </div>
 
-      <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-80 shrink-0 flex-col overflow-visible border-l px-3 pt-3 pb-6 xl:flex">
-        <div className="shrink-0 pb-3">
-          <SearchField />
+          <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-80 shrink-0 flex-col overflow-visible border-l px-3 pt-3 pb-6 xl:flex">
+            <div className="shrink-0 pb-3">
+              <SearchField />
+            </div>
+            <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto">
+              <CommunityAbout
+                community={community}
+                membership={membership}
+                owner={owner}
+                stats={stats}
+              />
+            </div>
+          </aside>
         </div>
-        <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto">
-          <CommunityAbout
+
+        {isBlocked ? (
+          <CommunityMatureGate
             community={community}
-            membership={membership}
-            owner={owner}
-            stats={stats}
+            onEnter={handleEnter}
+            onLeave={handleLeave}
           />
-        </div>
-      </aside>
+        ) : null}
+      </div>
 
       <MobileBottomNav />
     </>

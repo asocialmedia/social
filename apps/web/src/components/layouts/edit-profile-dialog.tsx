@@ -43,6 +43,7 @@ import {
   BannerInput,
 } from "@/components/profile/profile-media-inputs";
 import { useToast } from "@/lib/gooey-toast";
+import { croppedImageFile } from "@/lib/media/cropped-image-file";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 
@@ -333,9 +334,7 @@ export default function EditProfileDialog({
 
   const updateAvatar = async () => {
     const file = croppedAvatar
-      ? new File([croppedAvatar], `avatar_${user.id}.webp`, {
-          type: "image/webp",
-        })
+      ? croppedImageFile(croppedAvatar, `avatar_${user.id}`)
       : gifToCenter;
 
     if (file) {
@@ -381,9 +380,7 @@ export default function EditProfileDialog({
       return;
     }
     if (croppedBanner) {
-      const file = new File([croppedBanner], `banner_${user.id}.webp`, {
-        type: "image/webp",
-      });
+      const file = croppedImageFile(croppedBanner, `banner_${user.id}`);
       setBannerStage("uploading");
       setBannerProgress(0);
       try {
@@ -495,7 +492,7 @@ export default function EditProfileDialog({
         <FormControl>
           <div className="space-y-1">
             <Textarea
-              className="premium-input resize-none rounded-xl text-sm"
+              className="resize-none"
               placeholder="Tell us a little bit about yourself"
               rows={4}
               {...field}

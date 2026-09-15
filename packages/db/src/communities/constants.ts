@@ -1,9 +1,8 @@
 // Community taxonomy and presentation constants. Kept in @asm/db so the
 // wizard, the discovery page, and server validation all read one source of
-// truth. Topics are stored on the row as keys; labels and emoji are UI-only.
+// truth. Topics are stored on the row as keys; labels are UI-only.
 
 export interface CommunityTopic {
-  emoji: string;
   key: string;
   label: string;
 }
@@ -11,35 +10,35 @@ export interface CommunityTopic {
 // The topic list a community can be filed under. Order is intentional: the
 // wizard and discovery rails render it top to bottom.
 export const COMMUNITY_TOPICS: readonly CommunityTopic[] = [
-  { emoji: "🍣", key: "anime", label: "Anime & Cosplay" },
-  { emoji: "🧑‍🎨", key: "art", label: "Art" },
-  { emoji: "💵", key: "business", label: "Business & Finance" },
-  { emoji: "🧩", key: "collectibles", label: "Collectibles & Other Hobbies" },
-  { emoji: "🧑‍🏫", key: "education", label: "Education & Career" },
-  { emoji: "🪞", key: "fashion", label: "Fashion & Beauty" },
-  { emoji: "🍔", key: "food", label: "Food & Drinks" },
-  { emoji: "🕹️", key: "games", label: "Games" },
-  { emoji: "❤️‍🩹", key: "health", label: "Health" },
-  { emoji: "🏡", key: "home", label: "Home & Garden" },
-  { emoji: "📜", key: "humanities", label: "Humanities & Law" },
-  { emoji: "🌈", key: "identity", label: "Identity & Relationships" },
-  { emoji: "🙉", key: "internet", label: "Internet Culture" },
-  { emoji: "🎞️", key: "movies", label: "Movies & TV" },
-  { emoji: "🎶", key: "music", label: "Music" },
-  { emoji: "🌿", key: "nature", label: "Nature & Outdoors" },
-  { emoji: "📰", key: "news", label: "News & Politics" },
-  { emoji: "🌐", key: "places", label: "Places & Travel" },
-  { emoji: "✨", key: "popculture", label: "Pop Culture" },
-  { emoji: "✏️", key: "qanda", label: "Q&As & Stories" },
-  { emoji: "📖", key: "reading", label: "Reading & Writing" },
-  { emoji: "🧪", key: "sciences", label: "Sciences" },
-  { emoji: "💀", key: "spooky", label: "Spooky" },
-  { emoji: "🏅", key: "sports", label: "Sports" },
-  { emoji: "🛰️", key: "technology", label: "Technology" },
-  { emoji: "🚗", key: "vehicles", label: "Vehicles" },
-  { emoji: "🧘", key: "wellness", label: "Wellness" },
-  { emoji: "🟥", key: "adult", label: "Adult Content" },
-  { emoji: "🔞", key: "mature", label: "Mature Topics" },
+  { key: "anime", label: "Anime & Cosplay" },
+  { key: "art", label: "Art" },
+  { key: "business", label: "Business & Finance" },
+  { key: "collectibles", label: "Collectibles & Other Hobbies" },
+  { key: "education", label: "Education & Career" },
+  { key: "fashion", label: "Fashion & Beauty" },
+  { key: "food", label: "Food & Drinks" },
+  { key: "games", label: "Games" },
+  { key: "health", label: "Health" },
+  { key: "home", label: "Home & Garden" },
+  { key: "humanities", label: "Humanities & Law" },
+  { key: "identity", label: "Identity & Relationships" },
+  { key: "internet", label: "Internet Culture" },
+  { key: "movies", label: "Movies & TV" },
+  { key: "music", label: "Music" },
+  { key: "nature", label: "Nature & Outdoors" },
+  { key: "news", label: "News & Politics" },
+  { key: "places", label: "Places & Travel" },
+  { key: "popculture", label: "Pop Culture" },
+  { key: "qanda", label: "Q&As & Stories" },
+  { key: "reading", label: "Reading & Writing" },
+  { key: "sciences", label: "Sciences" },
+  { key: "spooky", label: "Spooky" },
+  { key: "sports", label: "Sports" },
+  { key: "technology", label: "Technology" },
+  { key: "vehicles", label: "Vehicles" },
+  { key: "wellness", label: "Wellness" },
+  { key: "adult", label: "Adult Content" },
+  { key: "mature", label: "Mature Topics" },
 ] as const;
 
 const TOPIC_BY_KEY = new Map(COMMUNITY_TOPICS.map((t) => [t.key, t]));

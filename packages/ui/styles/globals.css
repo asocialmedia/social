@@ -340,6 +340,62 @@
     transform: translate(-50%, -50%) scale(1);
   }
 
+  /* ── Tactile Radio (same construction as premium-checkbox) ──────
+     A recessed dark well that fills with the orange gradient and takes the
+     bevel ring when chosen. Light mode is overridden in the app stylesheet
+     (see :root:not(.dark) .premium-radio), matching premium-input's pattern. */
+  .premium-radio {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    background-color: #232323;
+    border-radius: 9999px;
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.1),
+      0 1px 1px rgba(255, 255, 255, 0.05);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-radio:hover {
+    box-shadow:
+      inset 0 2px 3px rgba(0, 0, 0, 0.35),
+      0 1px 1px rgba(255, 255, 255, 0.05);
+  }
+
+  .premium-radio[data-state="checked"] {
+    background: linear-gradient(#ff9500, #e65500);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+      inset 0 1px 1.5px rgba(255, 255, 255, 0.5),
+      0 0 0 1px rgba(170, 60, 0, 0.95),
+      0 1px 1px rgba(255, 255, 255, 0.5),
+      0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .premium-radio::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    content: "";
+    background: #ffffff;
+    border-radius: 9999px;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+    transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  .premium-radio[data-state="checked"]::after {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
   /* ── Social Auth Button (dark tactile) ────────────────────────── */
   .btn-social {
     color: #e8e8e8;

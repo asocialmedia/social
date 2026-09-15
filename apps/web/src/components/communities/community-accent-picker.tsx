@@ -2,15 +2,14 @@
 
 import { COMMUNITY_ACCENTS } from "@asm/db/communities";
 import type { CommunityAccent } from "@asm/db/communities";
-import { Check } from "lucide-react";
 
 import { communityAccentStyle } from "@/lib/communities/accent";
 import { cn } from "@/lib/utils";
 
-// Accent swatches. Each key maps to a deep tone for light mode and a lifted one
-// for dark, both held in @asm/db so the wizard, the rail and the header read the
-// same source. A swatch fills with the theme-appropriate value and shows the
-// key's label, never a raw hex field.
+// Accent chips. Each key maps to a deep tone for light mode and a lifted one for
+// dark, both held in @asm/db so the wizard, the rail and the post card read the
+// same source. The dot carries the swatch; the chip follows the same chip
+// language as the topic picker so the two steps feel like one control.
 export default function CommunityAccentPicker({
   onChange,
   value,
@@ -19,37 +18,28 @@ export default function CommunityAccentPicker({
   value: string;
 }) {
   return (
-    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+    <div className="flex flex-wrap gap-1.5">
       {COMMUNITY_ACCENTS.map((accent: CommunityAccent) => {
         const isSelected = accent.key === value;
         return (
           <button
-            aria-label={accent.label}
             aria-pressed={isSelected}
             className={cn(
-              "group relative flex flex-col items-center gap-1.5 rounded-xl border p-2 transition-colors",
+              "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm whitespace-nowrap transition-all duration-200 ease-out",
               isSelected
-                ? "border-primary/60 bg-primary/5"
-                : "border-border/60 hover:bg-muted/50"
+                ? "pill-nav-active"
+                : "pill-3d-hover text-muted-foreground hover:text-foreground border-transparent"
             )}
             key={accent.key}
             onClick={() => onChange(accent.key)}
+            style={communityAccentStyle(accent.key)}
             type="button"
           >
             <span
-              className="flex size-8 items-center justify-center rounded-full bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
-              style={communityAccentStyle(accent.key)}
-            >
-              {isSelected ? (
-                <Check
-                  className="size-4 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)]"
-                  strokeWidth={3}
-                />
-              ) : null}
-            </span>
-            <span className="text-muted-foreground truncate text-[11px]">
-              {accent.label}
-            </span>
+              aria-hidden="true"
+              className="size-3.5 shrink-0 rounded-[5px] bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+            />
+            {accent.label}
           </button>
         );
       })}

@@ -471,6 +471,47 @@
   background: hsl(var(--muted));
 }
 
+/* A selectable .sidebar-subcard option row (the community wizard's access and
+   mature choices). It keeps the same dual-border construction as every other
+   raised surface - hairline edge plus inner white lip - and only swaps the
+   outer edge for the primary tone plus a tinted fill when chosen, so selection
+   reads tonally rather than as a different component. Declared here because
+   .sidebar-subcard sets `background` unlayered; a `bg-*` utility could not
+   override it. */
+.select-option-3d {
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease-out,
+    border-color 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+
+.select-option-3d:hover {
+  background: hsl(var(--muted));
+}
+
+.select-option-3d[data-selected="true"] {
+  background: hsl(var(--primary) / 0.1);
+  border-color: hsl(var(--primary) / 0.55);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+    inset 0 1px 2px rgba(255, 255, 255, 0.6),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.03),
+    0 0 0 1px hsl(var(--primary) / 0.18),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+:root:not(.dark) .select-option-3d[data-selected="true"] {
+  background: hsl(var(--primary) / 0.08);
+  border-color: hsl(var(--primary) / 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.85),
+    inset 0 1px 2px rgba(255, 255, 255, 0.95),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.03),
+    0 0 0 1px hsl(var(--primary) / 0.14),
+    0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
 /* ── Discovery card width ────────────────────────────────────────────────
    One card size shared by the browse grid and the horizontal rails, so no two
    sections show a different width - and one layout rule, keyed off the CONTENT
@@ -989,6 +1030,40 @@
 
 :root:not(.dark) .premium-input::placeholder {
   color: hsl(var(--muted-foreground));
+}
+
+/* Light-mode variants for the tactile check/radio. Their base recipe is a dark
+   #232323 well (correct on the dark auth pages they originated on); on a light
+   surface that reads as a foreign dark box, so they get the same raised-light
+   treatment as .premium-input, and the checked state takes the light-mode
+   orange ring used by .orange-3d-surface instead of the dark brown one. */
+:root:not(.dark) .premium-checkbox,
+:root:not(.dark) .premium-radio {
+  background-color: hsl(var(--background));
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 1px 1px rgba(0, 0, 0, 0.03);
+}
+
+:root:not(.dark) .premium-checkbox:hover,
+:root:not(.dark) .premium-radio:hover {
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.09),
+    0 0 0 1px rgba(0, 0, 0, 0.16),
+    0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+:root:not(.dark) .premium-checkbox:checked,
+:root:not(.dark) .premium-checkbox[data-state="checked"],
+:root:not(.dark) .premium-radio[data-state="checked"] {
+  background: linear-gradient(to bottom, #ff9500, #e65500);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.65),
+    0 0 0 1px rgba(230, 85, 0, 0.32),
+    0 1px 2px rgba(190, 75, 0, 0.24),
+    0 3px 7px -2px rgba(190, 75, 0, 0.26);
 }
 
 .premium-command {

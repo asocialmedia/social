@@ -20,6 +20,34 @@ import { cn } from "@/lib/utils";
 const ORANGE_GRADIENT_CLASS =
   "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";
 
+// Whether the cropped pixels actually use transparency, sampled on a downscaled
+// copy so this stays cheap on a full-size banner. An opaque crop can then be
+// encoded as JPEG instead of carrying a needless alpha channel.
+function cropHasTransparency(source: HTMLCanvasElement): boolean {
+  const probe = document.createElement("canvas");
+  probe.width = 64;
+  probe.height = 64;
+  const context = probe.getContext("2d");
+  if (!context) {
+    return false;
+  }
+  context.drawImage(source, 0, 0, 64, 64);
+  try {
+    const { data } = context.getImageData(0, 0, 64, 64);
+    // 250 rather than 255 so near-opaque anti-aliased edges still count.
+    for (let index = 3; index < data.length; index += 4) {
+      if (data[index] < 250) {
+        return true;
+      }
+    }
+  } catch {
+    // Treat an unreadable probe as opaque; JPEG is the safer default since a
+    // needless alpha channel is the worse failure.
+    return false;
+  }
+  return false;
+}
+
 interface CropImageDialogProps {
   cropAspectRatio: number;
   onClose: () => void;
@@ -40,7 +68,14 @@ export default function CropImageDialog({
     if (!cropper) {
       return;
     }
-    cropper.getCroppedCanvas().toBlob((blob) => onCropped(blob), "image/webp");
+    const canvas = cropper.getCroppedCanvas();
+    // Never encode WebP here: a canvas WebP is the extended VP8X form (Chrome
+    // always writes an ICC profile), which the media pipeline's Bun.Image
+    // decoder cannot read, so the process job fails with "unrecognised format"
+    // and the upload never becomes usable. PNG keeps transparency; JPEG keeps
+    // photos small.
+    const type = cropHasTransparency(canvas) ? "image/png" : "image/jpeg";
+    canvas.toBlob((blob) => onCropped(blob), type, 0.92);
     onClose();
   }
 

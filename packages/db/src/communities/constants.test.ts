@@ -26,9 +26,8 @@ describe("community constants", () => {
     expect(getCommunityTopic("nope")).toBeUndefined();
   });
 
-  test("every topic carries an emoji and label", () => {
+  test("every topic carries a label", () => {
     for (const topic of COMMUNITY_TOPICS) {
-      expect(topic.emoji.length).toBeGreaterThan(0);
       expect(topic.label.length).toBeGreaterThan(0);
     }
   });

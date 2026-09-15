@@ -41,6 +41,7 @@ import {
   SettingsSectionHeader,
 } from "@/components/settings/settings-section-card";
 import { useToast } from "@/lib/gooey-toast";
+import { croppedImageFile } from "@/lib/media/cropped-image-file";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -271,9 +272,7 @@ export default function ProfileSettings({
 
   async function uploadAvatar() {
     const file = croppedAvatar
-      ? new File([croppedAvatar], `avatar_${user.id}.webp`, {
-          type: "image/webp",
-        })
+      ? croppedImageFile(croppedAvatar, `avatar_${user.id}`)
       : gifToCenter;
     if (!file) {
       return;
@@ -302,9 +301,7 @@ export default function ProfileSettings({
 
   async function uploadBanner() {
     const file = croppedBanner
-      ? new File([croppedBanner], `banner_${user.id}.webp`, {
-          type: "image/webp",
-        })
+      ? croppedImageFile(croppedBanner, `banner_${user.id}`)
       : bannerGif;
     if (!file) {
       return;

@@ -1,12 +1,13 @@
 "use client";
 
 import { COMMUNITY_LIMITS, COMMUNITY_TOPICS } from "@asm/db/communities";
-import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-// Multi-select topic grid. Topics are the discovery taxonomy: they file the
-// community under the rails on /comm. Capped at COMMUNITY_LIMITS.topicMax.
+// Multi-select topic chips. Topics are the discovery taxonomy: they file the
+// community under the shelves on /communities. Styled as the same chips the
+// discovery filter strip uses (rounded-lg, pill-nav-active when chosen) so the
+// wizard and the page it feeds read as one control. Capped at topicMax.
 export default function CommunityTopicPicker({
   onChange,
   selected,
@@ -25,41 +26,36 @@ export default function CommunityTopicPicker({
     onChange([...selected, key]);
   };
 
+  const atCap = selected.length >= COMMUNITY_LIMITS.topicMax;
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="grid max-h-72 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-wrap gap-1.5">
         {COMMUNITY_TOPICS.map((topic) => {
           const isSelected = selected.includes(topic.key);
-          const atCap =
-            !isSelected && selected.length >= COMMUNITY_LIMITS.topicMax;
+          const isDisabled = !isSelected && atCap;
           return (
             <button
+              aria-pressed={isSelected}
               className={cn(
-                "flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+                "rounded-lg border px-3 py-1.5 text-sm whitespace-nowrap transition-all duration-200 ease-out",
                 isSelected
-                  ? "border-primary/60 bg-primary/10 text-foreground"
-                  : "border-border/60 hover:bg-muted/50 text-muted-foreground",
-                atCap && "cursor-not-allowed opacity-50"
+                  ? "pill-nav-active"
+                  : "pill-3d-hover text-muted-foreground hover:text-foreground border-transparent",
+                isDisabled && "cursor-not-allowed opacity-40"
               )}
-              disabled={atCap}
+              disabled={isDisabled}
               key={topic.key}
               onClick={() => toggle(topic.key)}
               type="button"
             >
-              <span aria-hidden="true" className="text-base leading-none">
-                {topic.emoji}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{topic.label}</span>
-              {isSelected ? (
-                <Check className="text-primary size-4 shrink-0" />
-              ) : null}
+              {topic.label}
             </button>
           );
         })}
       </div>
-      <p className="text-muted-foreground text-xs">
-        {selected.length}/{COMMUNITY_LIMITS.topicMax} selected. Topics help
-        people find your community.
+      <p className="text-muted-foreground text-xs tabular-nums">
+        {selected.length}/{COMMUNITY_LIMITS.topicMax} selected
       </p>
     </div>
   );

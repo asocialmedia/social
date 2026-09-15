@@ -63,7 +63,9 @@ export interface BannerInputProps {
   progress?: number;
   stage?: UploadStage | null;
   src: string;
-  user: PrivateUserData;
+  // Only the id is read (for GifCenteringDialog's storage key), so callers can
+  // pass anything with an id - a session user, not just a full profile.
+  user: Pick<PrivateUserData, "id">;
 }
 
 export const BannerInput = ({
@@ -296,7 +298,8 @@ export interface AvatarInputProps {
   shape?: "circle" | "squircle";
   stage?: UploadStage | null;
   src: string | StaticImageData;
-  user: PrivateUserData;
+  // See BannerInputProps.user.
+  user: Pick<PrivateUserData, "id">;
   // "row" is the dialog's bordered row with helper copy; "bare" is just the
   // circular control, for the settings hero.
   variant?: "bare" | "row";
