@@ -7,18 +7,21 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
-import { Flame } from "lucide-react";
+import { formatDate } from "date-fns";
+import { Flame, UserPlus, Users } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
+import type React from "react";
 import type { PropsWithChildren } from "react";
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
+import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import FollowButton from "./follow-button";
-import FollowerCount from "./follower-count";
 import UserAvatar from "./user-avatar";
 import UserBadge from "./user-badge";
 
@@ -69,8 +72,37 @@ function renderBioHashtagLink(match: string, key: number) {
   );
 }
 
+const TooltipStat = ({
+  icon: Icon,
+  iconClassName,
+  title,
+  value,
+  filled = true,
+}: {
+  icon: React.ComponentType<{ className?: string; fill?: string }>;
+  iconClassName?: string;
+  title: string;
+  value: number;
+  filled?: boolean;
+}) => (
+  <span
+    className="text-card-foreground inline-flex w-full min-w-0 items-center justify-center gap-1.5 text-sm font-semibold"
+    title={title}
+  >
+    <Icon
+      className={cn(
+        "size-4 shrink-0",
+        iconClassName ?? "text-muted-foreground"
+      )}
+      fill={filled ? "currentColor" : undefined}
+    />
+    <span className="tabular-nums">{formatNumber(value)}</span>
+  </span>
+);
+
 export default function UserTooltip({ children, user }: UserTooltipProps) {
   const { user: loggedInUser } = useSession();
+  const [bannerFailed, setBannerFailed] = useState(false);
   const isMobile = useSyncExternalStore(
     subscribeToViewport,
     getIsMobileSnapshot,
@@ -90,64 +122,127 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
       : false,
   };
 
+  const canFollow = Boolean(loggedInUser && loggedInUser.id !== user.id);
+  const aura = user.aura ?? 0;
+  const bannerUrl =
+    user.bannerUrl && !bannerFailed ? getSecureImageUrl(user.bannerUrl) : null;
+
+  // Header image pinned to the top-left corner the way the "Who to follow"
+  // rows pin theirs: the panel colour sweeps in from the right and up from the
+  // bottom, so the visible photograph stays anchored to the top-left corner.
+  let headerImage: React.ReactNode;
+  if (bannerUrl) {
+    headerImage = (
+      <Image
+        alt=""
+        className="object-cover"
+        fill
+        onError={() => setBannerFailed(true)}
+        sizes="320px"
+        src={bannerUrl}
+        unoptimized
+      />
+    );
+  } else if (user.avatarUrl) {
+    headerImage = (
+      <div
+        aria-hidden
+        className="absolute inset-0 scale-110 bg-cover bg-center opacity-40 blur-md"
+        style={{ backgroundImage: `url(${getSecureImageUrl(user.avatarUrl)})` }}
+      />
+    );
+  } else {
+    headerImage = (
+      <div className="absolute inset-0 bg-gradient-to-br from-[#ff9500] via-[#e65500] to-[#8b2f00] opacity-90" />
+    );
+  }
+
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
-        <TooltipContent className="apple-panel overflow-hidden bg-transparent p-1.5 shadow-none">
-          <div className="flex max-w-80 flex-col gap-3 px-2.5 py-2.5 wrap-break-word md:min-w-52">
-            <div className="flex items-start justify-between gap-3">
-              <Link href={`/users/${user.username}`}>
-                <UserAvatar avatarUrl={user.avatarUrl} size={70} />
-              </Link>
-              <div className="flex flex-col items-end gap-2 pr-1">
-                <span
-                  className="inline-flex flex-col items-center gap-0.5"
-                  title="Aura"
-                >
-                  <Flame
-                    className={cn("h-5 w-5", getAuraFlameClass(user.aura ?? 0))}
+        <TooltipContent className="overflow-hidden p-0" sideOffset={6}>
+          <div className="flex max-w-80 flex-col wrap-break-word md:min-w-52">
+            <div className="relative h-20 shrink-0 overflow-hidden">
+              {headerImage}
+              <div className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.72)] to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.35)] to-transparent" />
+            </div>
+
+            <div className="relative flex flex-col gap-2.5 px-3 pb-3">
+              <div className="-mt-7 flex items-end justify-between gap-3">
+                <Link className="shrink-0" href={`/users/${user.username}`}>
+                  <UserAvatar
+                    avatarUrl={user.avatarUrl}
+                    className="ring-4 ring-[hsl(var(--background-alt))]"
+                    size={56}
                   />
-                  <span className="text-foreground text-sm leading-none font-semibold tabular-nums">
-                    {formatNumber(user.aura ?? 0)}
-                  </span>
-                  <span className="text-muted-foreground text-[11px] leading-none">
-                    Aura
-                  </span>
-                </span>
-                {loggedInUser && loggedInUser.id !== user.id && (
-                  <FollowButton initialState={followerState} userId={user.id} />
-                )}
+                </Link>
+                {canFollow ? (
+                  <FollowButton
+                    className="h-8 shrink-0 px-3 text-xs"
+                    initialState={followerState}
+                    userId={user.id}
+                  />
+                ) : null}
               </div>
-            </div>
-            <div>
-              <Link href={`/users/${user.username}`}>
-                <div className="text-card-foreground flex items-center gap-1.5 text-lg font-semibold hover:underline">
-                  {user.displayName}
-                  <UserBadge badge={user.badge} badges={user.badges} />
-                </div>
-                <div className="text-muted-foreground">@{user.username}</div>
-              </Link>
-            </div>
-            {user.bio ? (
-              <LinkIt
-                component={renderBioUsernameLink}
-                regex={BIO_USERNAME_REGEX}
+
+              <Link
+                className="flex min-w-0 flex-col gap-0.5"
+                href={`/users/${user.username}`}
               >
+                <span className="text-card-foreground flex items-center gap-1.5 text-base leading-tight font-semibold">
+                  <span className="truncate">
+                    {user.displayName || user.username}
+                  </span>
+                  <UserBadge badge={user.badge} badges={user.badges} />
+                </span>
+                <span className="text-muted-foreground block truncate text-sm">
+                  @{user.username}
+                </span>
+              </Link>
+
+              <span className="text-muted-foreground text-xs">
+                Joined {formatDate(new Date(user.createdAt), "MMM yyyy")}
+              </span>
+
+              {user.bio ? (
                 <LinkIt
-                  component={renderBioHashtagLink}
-                  regex={BIO_HASHTAG_REGEX}
+                  component={renderBioUsernameLink}
+                  regex={BIO_USERNAME_REGEX}
                 >
-                  <LinkItUrl className="text-primary hover:underline">
-                    <div className="text-card-foreground line-clamp-4 whitespace-pre-line">
-                      {user.bio}
-                    </div>
-                  </LinkItUrl>
+                  <LinkIt
+                    component={renderBioHashtagLink}
+                    regex={BIO_HASHTAG_REGEX}
+                  >
+                    <LinkItUrl className="text-primary hover:underline">
+                      <div className="text-card-foreground line-clamp-4 text-sm whitespace-pre-line">
+                        {user.bio}
+                      </div>
+                    </LinkItUrl>
+                  </LinkIt>
                 </LinkIt>
-              </LinkIt>
-            ) : null}
-            <div className="text-card-foreground">
-              <FollowerCount initialState={followerState} userId={user.id} />
+              ) : null}
+
+              <div className="grid grid-cols-3 items-center gap-3">
+                <TooltipStat
+                  icon={Users}
+                  title="Followers"
+                  value={followerState.followers}
+                />
+                <TooltipStat
+                  icon={UserPlus}
+                  title="Following"
+                  value={user._count?.following ?? 0}
+                />
+                <TooltipStat
+                  filled={false}
+                  icon={Flame}
+                  iconClassName={getAuraFlameClass(aura)}
+                  title="Aura"
+                  value={aura}
+                />
+              </div>
             </div>
           </div>
         </TooltipContent>
