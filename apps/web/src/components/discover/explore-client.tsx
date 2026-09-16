@@ -23,6 +23,7 @@ import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import PostHistoryCard from "@/components/posts/post-history-card";
+import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import useDebounce from "@/hooks/use-debounce";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
@@ -89,6 +90,13 @@ const ExploreClient: React.FC = () => {
     storedExplore,
     memoryReady
   );
+
+  // Each tab keeps its own scroll position: leaving for a post and coming
+  // back lands exactly where you left.
+  useFeedScrollMemory({
+    containerRef: feedScrollRef,
+    memoryKey: `explore:${activeTab}`,
+  });
 
   // "For you" needs an account (guests see the login card); Trending and Gusts stay open.
   const showForYou = isLoggedIn;
@@ -517,7 +525,7 @@ const ExploreClient: React.FC = () => {
               ) : null}
               <div
                 className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
-                  isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                  isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
                 }`}
                 ref={feedScrollRef}
               >

@@ -75,20 +75,17 @@ function renderBioHashtagLink(match: string, key: number) {
 const TooltipStat = ({
   icon: Icon,
   iconClassName,
-  title,
+  label,
   value,
   filled = true,
 }: {
   icon: React.ComponentType<{ className?: string; fill?: string }>;
   iconClassName?: string;
-  title: string;
+  label: string;
   value: number;
   filled?: boolean;
 }) => (
-  <span
-    className="text-card-foreground inline-flex w-full min-w-0 items-center justify-center gap-1.5 text-sm font-semibold"
-    title={title}
-  >
+  <span className="text-card-foreground inline-flex w-full min-w-0 items-center justify-center gap-1.5 text-sm font-semibold">
     <Icon
       className={cn(
         "size-4 shrink-0",
@@ -97,6 +94,7 @@ const TooltipStat = ({
       fill={filled ? "currentColor" : undefined}
     />
     <span className="tabular-nums">{formatNumber(value)}</span>
+    <span className="sr-only">{label}</span>
   </span>
 );
 
@@ -162,7 +160,7 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
       <Tooltip>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent className="overflow-hidden p-0" sideOffset={6}>
-          <div className="flex max-w-80 flex-col wrap-break-word md:min-w-52">
+          <div className="flex max-w-80 flex-col wrap-break-word md:min-w-56">
             <div className="relative h-20 shrink-0 overflow-hidden">
               {headerImage}
               <div className="absolute inset-0 bg-linear-to-l from-[hsl(var(--background-alt))] via-[hsl(var(--background-alt)/0.72)] to-transparent" />
@@ -170,17 +168,18 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
             </div>
 
             <div className="relative flex flex-col gap-2.5 px-3 pb-3">
-              <div className="-mt-7 flex items-end justify-between gap-3">
+              <div className="-mt-8 flex items-end justify-between gap-3">
                 <Link className="shrink-0" href={`/users/${user.username}`}>
-                  <UserAvatar
-                    avatarUrl={user.avatarUrl}
-                    className="ring-4 ring-[hsl(var(--background-alt))]"
-                    size={56}
-                  />
+                  {/* The separation from the banner is a painted wrapper, not a
+                      `ring-*`: .avatar-ring sets box-shadow unlayered in
+                      globals.css, so a ring utility is silently discarded. */}
+                  <span className="inline-flex rounded-xl bg-[hsl(var(--background-alt))] p-1">
+                    <UserAvatar avatarUrl={user.avatarUrl} size={56} />
+                  </span>
                 </Link>
                 {canFollow ? (
                   <FollowButton
-                    className="h-8 shrink-0 px-3 text-xs"
+                    className="mb-1 h-8 shrink-0 px-3 text-xs"
                     initialState={followerState}
                     userId={user.id}
                   />
@@ -227,19 +226,19 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
               <div className="grid grid-cols-3 items-center gap-3">
                 <TooltipStat
                   icon={Users}
-                  title="Followers"
+                  label="Followers"
                   value={followerState.followers}
                 />
                 <TooltipStat
                   icon={UserPlus}
-                  title="Following"
+                  label="Following"
                   value={user._count?.following ?? 0}
                 />
                 <TooltipStat
                   filled={false}
                   icon={Flame}
                   iconClassName={getAuraFlameClass(aura)}
-                  title="Aura"
+                  label="Aura"
                   value={aura}
                 />
               </div>

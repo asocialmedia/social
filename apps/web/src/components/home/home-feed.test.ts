@@ -15,4 +15,11 @@ describe("HomeFeed query freshness", () => {
     expect(HOME_FEED_QUERY_BEHAVIOR.refetchOnWindowFocus).toBe(false);
     expect(HOME_FEED_QUERY_BEHAVIOR.refetchOnReconnect).toBe(false);
   });
+
+  test("retains cached pages across a post/media detour", () => {
+    // 30 minutes comfortably outlives opening a post and its media viewer, so
+    // coming back renders the cached pages instantly instead of refetching
+    // from the top with a skeleton.
+    expect(HOME_FEED_QUERY_BEHAVIOR.gcTime).toBe(30 * 60 * 1000);
+  });
 });

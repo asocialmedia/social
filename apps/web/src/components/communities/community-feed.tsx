@@ -131,7 +131,7 @@ export default function CommunityFeed({ slug }: { slug: string }) {
       <div className="relative min-h-0 flex-1">
         <div className="relative h-full">
           <div
-            className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-16 lg:pb-0"
+            className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
             ref={feedScrollRef}
           >
             <TabsContent className="mt-0" value="new">

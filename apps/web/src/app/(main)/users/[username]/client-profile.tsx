@@ -21,6 +21,7 @@ import UserPostsFeed from "@/components/profile/user-posts-feed";
 import UserRepliesFeed from "@/components/profile/user-replies-feed";
 import UserResponsesFeed from "@/components/profile/user-responses-feed";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import {
   resolveProfileTab,
@@ -60,6 +61,12 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const memoryReady = useTabMemoryReady();
   const profileUserId = userData.id;
   const setProfileTab = useTabStore((state) => state.setProfileTab);
+  // Scroll position is per profile AND per tab: leaving for a post and
+  // coming back lands exactly where you left.
+  useFeedScrollMemory({
+    containerRef: feedScrollRef,
+    memoryKey: `profile:${profileUserId}:${activeTab}`,
+  });
 
   // Restore this profile's remembered tab once storage is ready. Memory is
   // keyed per user id, so Lisa can sit on Media while Harsh sits on Gusts,
@@ -150,7 +157,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
             <div className="relative min-h-0 flex-1">
               <div
                 className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
-                  isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                  isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
                 }`}
                 ref={feedScrollRef}
               >

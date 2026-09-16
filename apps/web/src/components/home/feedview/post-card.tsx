@@ -907,6 +907,7 @@ const PostCard: React.FC<PostCardProps> = ({
         post.hnStoryShare ? "hn-story-share" : "",
         detail ? "cursor-default" : "cursor-pointer"
       )}
+      data-post-id={post.id}
       id={`post-${post.id}`}
       initial={{ opacity: 0 }}
       onClick={handleCardClick}

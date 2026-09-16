@@ -13,6 +13,7 @@ import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
 import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
+import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";
 import { normalizePostData } from "@/lib/posts/post-normalize";
@@ -71,6 +72,12 @@ const ClientPost: React.FC<ClientPostProps> = ({
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Returning from the fullscreen media viewer restores the exact scroll
+  // position (e.g. where you were reading eddies) instead of the top.
+  useFeedScrollMemory({
+    containerRef: scrollRef,
+    memoryKey: `post:${initialPost.id}`,
+  });
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user } = useSession();

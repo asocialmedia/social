@@ -4,6 +4,7 @@ import type { CommentData } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { CornerDownRight, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import React, { useCallback, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -16,15 +17,80 @@ import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import UserAvatar from "@/components/layouts/user-avatar";
 import AuraVoteButton from "@/components/posts/aura-vote-button";
 import Linkify from "@/helpers/global/linkify";
+import { isInteractiveTarget } from "@/lib/interactive-target";
 import kyInstance from "@/lib/ky";
+import { isPopupOpen } from "@/lib/popup-tracker";
+import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
+import { withViewTransition } from "@/lib/view-transition";
 
 import EmptyFeedState from "./empty-feed-state";
 import FeedCaughtUp from "./feed-caught-up";
 
 interface UserRepliesFeedProps {
   userId: string;
+}
+
+// The reply body navigates to the post, but its text carries inline links
+// (@mentions, #hashtags, URL badges) - so it cannot itself be an <a> without
+// nesting links, which breaks hydration. A keyboard-accessible container with
+// the feed's standard click handling (inner links, buttons, and open popups
+// never trigger navigation) instead, mirroring PostCard.
+function ReplyContentLink({
+  children,
+  href,
+}: {
+  children: React.ReactNode;
+  href: string;
+}) {
+  const router = useRouter();
+
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (isPopupOpen()) {
+        return;
+      }
+      withViewTransition(() => router.push(href));
+    },
+    [href, router]
+  );
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (isPopupOpen()) {
+        return;
+      }
+      event.preventDefault();
+      withViewTransition(() => router.push(href));
+    },
+    [href, router]
+  );
+
+  return (
+    <div
+      className="mt-1 block cursor-pointer"
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native anchor would nest the reply's mention/hashtag/URL links inside it (hydration error); this container implements link semantics with keyboard handling instead.
+      role="link"
+      tabIndex={0}
+    >
+      {children}
+    </div>
+  );
 }
 
 const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
@@ -39,6 +105,9 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
+    // Kept past a post/media detour so coming back restores the cached list
+    // (and its scroll position) instead of refetching from the top.
+    gcTime: FEED_CACHE_RETENTION_MS,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>
@@ -164,7 +233,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                     <span className="text-primary">@{repliedToUsername}</span>
                   </p>
                 </Link>
-                <Link className="mt-1 block" href={postHref}>
+                <ReplyContentLink href={postHref}>
                   <p
                     className={cn(
                       "text-foreground text-[15px] leading-relaxed break-words whitespace-pre-line",
@@ -177,7 +246,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
                       <Linkify>{reply.content}</Linkify>
                     )}
                   </p>
-                </Link>
+                </ReplyContentLink>
 
                 {!reply.deleted && (reply.attachments?.length ?? 0) > 0 ? (
                   <div className="mt-2">

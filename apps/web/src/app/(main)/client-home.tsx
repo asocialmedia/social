@@ -25,6 +25,7 @@ import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
 import PostEditor from "@/components/posts/editor/post-editor";
+import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import {
@@ -98,6 +99,12 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const hideTopBar = useHideOnScroll(feedScrollRef);
+  // Each tab keeps its own scroll position: leaving for a post (or another
+  // tab) and coming back lands exactly where you left.
+  useFeedScrollMemory({
+    containerRef: feedScrollRef,
+    memoryKey: `home:${tab}`,
+  });
 
   // Mobile swipes drag the tab strip like a carousel from personalized to
   // latest, trending, and finally following.
@@ -199,7 +206,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
           <div className="relative min-h-0 flex-1">
             <div
               className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
-                isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
               }`}
               ref={feedScrollRef}
             >

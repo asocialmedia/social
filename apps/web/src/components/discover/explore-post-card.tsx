@@ -138,7 +138,10 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   // A moderated post never shows its media or content on the explore surface.
   if (post.moderated) {
     return (
-      <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl p-3 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+      <article
+        className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl p-3 transition-colors duration-150 hover:bg-[hsl(var(--muted))]"
+        data-post-id={post.id}
+      >
         <ModeratedNotice kind={isGustPost ? "gust" : "post"} />
       </article>
     );
@@ -147,7 +150,10 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   // Explicit media is just blurred in explore - no gate popup, the content
   // stays hidden until the post is opened.
   return (
-    <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+    <article
+      className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]"
+      data-post-id={post.id}
+    >
       <Link className="block" href={href}>
         {media ? (
           <div

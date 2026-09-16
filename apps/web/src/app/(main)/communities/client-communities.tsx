@@ -18,7 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -26,12 +26,14 @@ import CommunitiesRightRail from "@/components/communities/communities-right-rai
 import CommunityCard from "@/components/communities/community-card";
 import CommunityRail from "@/components/communities/community-rail";
 import CreateCommunityDialog from "@/components/communities/create-community-dialog";
+import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
 import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import CommunitiesPageSkeleton from "@/components/layouts/skeletons/communities-page-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import { useInfiniteCommunitiesQuery } from "@/lib/communities/client";
 import { cn, formatNumber } from "@/lib/utils";
 
@@ -45,6 +47,10 @@ export default function ClientComm() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // The page's own scroll container, so the mobile top bar can fold away on
+  // scroll down and return on scroll up like the home and explore feeds.
+  const pageScrollRef = useRef<HTMLDivElement>(null);
+  const hideTopBar = useHideOnScroll(pageScrollRef);
   // Sentinel parked where the search field sticks. While it is still in view
   // the field is resting over the hero art and must stay transparent (a tint
   // there reads as a stray band); once it scrolls off, the field is genuinely
@@ -139,9 +145,14 @@ export default function ClientComm() {
       {/* `communities-cq` makes this column the query container for the card
           width variable, so grid cards and rail cards read back the same size. */}
       <div className="communities-cq border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
-        <MobileTopBar />
+        <CollapsibleTopBar hidden={hideTopBar}>
+          <MobileTopBar />
+        </CollapsibleTopBar>
 
-        <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto pb-16 lg:pb-0">
+        <div
+          className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-0"
+          ref={pageScrollRef}
+        >
           {/* Category filter: the generalized shelves lead the page and stay
               pinned to the top of the scroll area. Horizontally scrollable (the
               chips are `shrink-0`, so without overflow-x they push the page

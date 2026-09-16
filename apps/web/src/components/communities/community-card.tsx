@@ -30,7 +30,13 @@ export default function CommunityCard({
 
   return (
     <Link
-      className="sidebar-subcard sidebar-subcard-interactive group/card flex h-full flex-col overflow-hidden rounded-2xl"
+      // `isolate` is load-bearing. The mark below is pulled up over the banner
+      // with `relative z-10`, and without a stacking context on this root that
+      // z-index leaks into the page: as a same-z-index, later-in-DOM sibling it
+      // then painted OVER the communities page's sticky search bar (also z-10)
+      // when a rail card scrolled past it. Isolation confines the card's
+      // internal z-index so the sticky chrome always wins.
+      className="sidebar-subcard sidebar-subcard-interactive group/card isolate flex h-full flex-col overflow-hidden rounded-2xl"
       href={`/a/${community.slug}`}
       style={communityAccentStyle(community.accentColor)}
     >
