@@ -8,15 +8,16 @@ import type React from "react";
 
 // One community card, matching CommunityCard's box: tall banner header, the
 // overlapping mark, name + a/slug with the open affordance, a two-line
-// description well, and the bordered stat row.
+// description well, and the bordered stat row. Every size here steps at `sm`
+// exactly as the real card does, so the mobile scale-down does not shift on load.
 const CommunityCardSkeleton: React.FC = () => (
   <div className="sidebar-subcard flex flex-col overflow-hidden rounded-2xl">
-    <Skeleton className="h-36 w-full rounded-none" />
-    <div className="flex flex-1 flex-col px-5 pb-5">
-      <div className="-mt-10">
-        <Skeleton className="size-18 rounded-xl" />
+    <Skeleton className="h-28 w-full rounded-none sm:h-36" />
+    <div className="flex flex-1 flex-col px-4 pb-4 sm:px-5 sm:pb-5">
+      <div className="-mt-8 sm:-mt-10">
+        <Skeleton className="size-14 rounded-xl sm:size-18" />
       </div>
-      <div className="mt-3 flex items-start justify-between gap-2">
+      <div className="mt-3 flex items-start justify-between gap-2 sm:mt-3.5">
         <div className="min-w-0 space-y-1.5">
           <Skeleton className="h-6 w-32 rounded-md" />
           <Skeleton className="h-3.5 w-20 rounded-md" />
@@ -27,10 +28,13 @@ const CommunityCardSkeleton: React.FC = () => (
         <Skeleton className="h-4 w-full rounded-md" />
         <Skeleton className="h-4 w-4/5 rounded-md" />
       </div>
-      <div className="border-border/60 mt-3.5 flex items-center gap-5 border-t pt-3.5">
+      <div className="border-border/60 mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 sm:mt-3.5 sm:gap-x-5 sm:pt-3.5">
         <Skeleton className="h-4 w-12 rounded-md" />
         <Skeleton className="h-4 w-12 rounded-md" />
         <Skeleton className="h-4 w-12 rounded-md" />
+        {/* The age label's slot. Slightly narrower than the real label so it
+            never pushes the row into a wrap the live content would not take. */}
+        <Skeleton className="ml-auto h-3 w-24 rounded-md" />
       </div>
     </div>
   </div>
@@ -40,11 +44,11 @@ const CommunityCardSkeleton: React.FC = () => (
 // at the same width the real rail uses, so nothing reflows on load.
 const CommunityRailSkeleton: React.FC<{ cards?: number }> = ({ cards = 4 }) => (
   <section className="relative">
-    <div className="mb-3 flex items-center gap-2.5 px-5 sm:px-8">
+    <div className="mb-3 flex items-center gap-2.5 px-8">
       <Skeleton className="size-5 rounded-md" />
       <Skeleton className="h-5 w-40 rounded-md" />
     </div>
-    <div className="flex gap-4 overflow-hidden px-5 sm:px-8">
+    <div className="flex gap-4 overflow-hidden px-8">
       {Array.from({ length: cards }).map((_, index) => (
         <div className="community-card-w shrink-0" key={`rail-card-${index}`}>
           <CommunityCardSkeleton />
@@ -61,7 +65,7 @@ const CommunitiesPageSkeleton: React.FC = () => (
       <Skeleton className="h-12 w-full shrink-0 rounded-none lg:hidden" />
 
       {/* Sticky category strip */}
-      <div className="flex shrink-0 gap-1.5 px-5 py-2.5 sm:px-8">
+      <div className="flex shrink-0 gap-1.5 px-8 py-2.5">
         {["w-16", "w-24", "w-32", "w-20", "w-28", "w-36", "w-24", "w-20"].map(
           (width, index) => (
             <Skeleton
@@ -73,7 +77,7 @@ const CommunitiesPageSkeleton: React.FC = () => (
       </div>
 
       {/* Hero statement + action, then the search field */}
-      <div className="px-5 pt-8 pb-6 sm:px-8">
+      <div className="px-8 pt-8 pb-6">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
           <div className="min-w-0 space-y-2.5">
             <Skeleton className="h-8 w-52 rounded-md sm:h-10 sm:w-64" />
@@ -86,7 +90,7 @@ const CommunitiesPageSkeleton: React.FC = () => (
           </div>
         </div>
       </div>
-      <div className="px-5 pb-8 sm:px-8">
+      <div className="px-8 pb-8">
         <Skeleton className="h-12 w-full rounded-[14px]" />
       </div>
 
@@ -100,7 +104,7 @@ const CommunitiesPageSkeleton: React.FC = () => (
       </div>
 
       {/* Browse grid */}
-      <div className="px-5 pb-10 sm:px-8">
+      <div className="px-8 pb-10">
         <div className="mb-3 flex items-center gap-2.5">
           <Skeleton className="size-5 rounded-md" />
           <Skeleton className="h-5 w-36 rounded-md" />

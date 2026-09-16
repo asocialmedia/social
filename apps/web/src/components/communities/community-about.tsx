@@ -1,6 +1,7 @@
 "use client";
 
 import type { CommunityData, CommunityStats, UserData } from "@asm/db";
+import { Badge } from "@asm/ui/shadui/badge";
 import { formatDate } from "date-fns";
 import { Flame } from "lucide-react";
 import Link from "next/link";
@@ -63,9 +64,12 @@ export default function CommunityAbout({
               {/* A real status, so it earns a chip here: the one case a
                   contained label beats plain text. */}
               {community.mature ? (
-                <span className="bg-muted text-muted-foreground shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide">
+                <Badge
+                  className="bg-muted text-foreground shrink-0 px-1.5 py-0.5 text-[10px] font-bold tracking-wide"
+                  variant="outline"
+                >
                   18+
-                </span>
+                </Badge>
               ) : null}
             </div>
             <p className="text-muted-foreground truncate text-xs">

@@ -159,7 +159,7 @@ export default function ClientComm() {
               wider than the viewport); `overscroll-x-contain` keeps a swipe
               from chaining out to the page. Same treatment as the app's other
               chip/rail strips. */}
-          <div className="hide-native-scrollbar sticky top-0 z-20 flex gap-1.5 overflow-x-auto overscroll-x-contain bg-[hsl(var(--background-alt))]/95 px-5 py-2.5 backdrop-blur-md sm:px-8">
+          <div className="hide-native-scrollbar sticky top-0 z-20 flex gap-1.5 overflow-x-auto overscroll-x-contain bg-[hsl(var(--background-alt))]/95 px-8 py-2.5 backdrop-blur-md">
             {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
               const isActive = entry.key === category;
               const count = counts[entry.key];
@@ -191,10 +191,13 @@ export default function ClientComm() {
             })}
           </div>
 
-          {/* Brand backdrop wrapper: the art spans the statement, the search
-              field and the first two rails, ending at Trending communities.
-              Masked on every edge and kept faint, so the type always sits on a
-              clean field - no vignette, no shadow behind the copy. */}
+          {/* Brand backdrop wrapper: the art sits behind the hero statement.
+              It is scoped to the hero alone rather than spanning the search and
+              rails as well, because it is a positioned wrapper and `position:
+              sticky` is constrained to its parent - widening this box would
+              shrink the sticky search's travel (see the note on the search
+              below). Masked on every edge and kept faint, so the type always
+              sits on a clean field - no vignette, no shadow behind the copy. */}
           <div className="relative">
             <div
               aria-hidden="true"
@@ -218,7 +221,7 @@ export default function ClientComm() {
 
             {/* Hero statement, sitting directly under the category strip so the
                 directory is reachable without scrolling a full screen. */}
-            <header className="relative px-5 pt-8 pb-6 sm:px-8">
+            <header className="relative px-8 pt-8 pb-4 sm:pb-6">
               <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
                 {/* Statement, anchored to the top-left. Each line is its own
                     flex row so the inline brand mark centres against the type by
@@ -279,83 +282,105 @@ export default function ClientComm() {
                 </dl>
               </div>
             </header>
-
-            {/* Sentinel: its position relative to the viewport (offset by the
-                category strip's height) is what tells the search field whether
-                it is resting or stuck. */}
-            <div aria-hidden="true" ref={searchSentinelRef} />
-
-            {/* Full-width search, directly below the statement. Pinned under
-                the category strip (top-13 = the strip's 52px) so it rides
-                along while the hero and curated rails scroll past. The surface
-                only fades in once the field is actually stuck - at rest over
-                the hero it stays transparent, so no band shows against the art.
-                The z-index sits below the strip's and the 2px of overlap hides
-                behind it rather than opening a seam. */}
-            <div
-              className={cn(
-                // Symmetric padding (matching the category strip's py-2.5) so
-                // the stuck field sits centred between the strip above and the
-                // content below, with no extra band beneath it.
-                "sticky top-13 z-10 px-5 py-2.5 transition-colors duration-200 sm:px-8",
-                isSearchAtRest
-                  ? "bg-transparent"
-                  : "bg-[hsl(var(--background-alt))]/90 backdrop-blur-md"
-              )}
-            >
-              <div className="search-panel-3d flex items-center gap-3 px-4">
-                <Search className="text-muted-foreground size-4 shrink-0" />
-                <input
-                  aria-label="Search communities"
-                  autoComplete="off"
-                  className="text-foreground placeholder:text-muted-foreground h-12 w-full min-w-0 bg-transparent text-sm outline-none"
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search communities"
-                  type="text"
-                  value={search}
-                />
-                {search ? (
-                  <button
-                    aria-label="Clear search"
-                    className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1 transition-colors"
-                    onClick={() => setSearch("")}
-                    type="button"
-                  >
-                    <X className="size-4" />
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            {/* The first two rails sit inside the backdrop wrapper, so the art
-                carries through Trending and fades just past it. Each rail is
-                rendered only when it has content, and the wrapper itself only
-                when at least one does. */}
-            {showTopRails ? (
-              <div className="relative flex flex-col gap-8 pt-5 pb-8">
-                {showJoinedRail ? (
-                  <CommunityRail
-                    communities={joined}
-                    icon={Users}
-                    auras={auras}
-                    title="Joined communities"
-                  />
-                ) : null}
-                {showTrendingRail ? (
-                  <CommunityRail
-                    communities={sections.trending}
-                    icon={Flame}
-                    auras={auras}
-                    title="Trending communities"
-                  />
-                ) : null}
-              </div>
-            ) : null}
           </div>
 
-          {/* Growing fast sits past the backdrop, on the plain surface. */}
+          {/* Sentinel and search are deliberately OUTSIDE the backdrop wrapper
+              above, as direct children of the scroll container. `position:
+              sticky` is constrained to its parent's box, and the backdrop
+              wrapper only spans the hero - so while the field lived inside it,
+              the sticky had almost no room to travel. For a signed-out visitor
+              (who sees no curated rails) the field sat flush against that
+              wrapper's bottom edge and was shoved straight up under the category
+              strip, which sliced it in half. A direct child of the scroller is
+              constrained by the whole scroll area, so the field now pins under
+              the strip and stays pinned over the directory.
+
+              Sentinel: its position relative to the viewport (offset by the
+              category strip's height) is what tells the search field whether it
+              is resting or stuck. */}
+          <div aria-hidden="true" ref={searchSentinelRef} />
+
+          {/* Full-width search, directly below the statement. Pinned under the
+              category strip (top-13 = the strip's 52px) and, being a child of
+              the scroller, it stays pinned all the way down the directory. The
+              surface only fades in once the field is actually stuck - at rest
+              over the hero it stays transparent, so no band shows against the
+              art. The z-index sits below the strip's and the 2px of overlap
+              hides behind it rather than opening a seam. */}
+          <div
+            className={cn(
+              "sticky top-13 z-10 px-8 pt-2 pb-1 transition-colors duration-200 sm:py-2.5",
+              isSearchAtRest
+                ? "bg-transparent"
+                : "bg-[hsl(var(--background-alt))]/90 backdrop-blur-md"
+            )}
+          >
+            <div className="search-panel-3d flex items-center gap-3 px-4">
+              <Search className="text-muted-foreground size-4 shrink-0" />
+              <input
+                aria-label="Search communities"
+                autoComplete="off"
+                className="text-foreground placeholder:text-muted-foreground h-12 w-full min-w-0 bg-transparent text-sm outline-none"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search communities"
+                type="text"
+                value={search}
+              />
+              {search ? (
+                <button
+                  aria-label="Clear search"
+                  className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1 transition-colors"
+                  onClick={() => setSearch("")}
+                  type="button"
+                >
+                  <X className="size-4" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Each rail is rendered only when it has content, and the wrapper
+              itself only when at least one does.
+
+              The vertical rhythm on mobile is 32px between every section, and
+              it is measured from the card EDGES. A rail's own track already
+              contributes 4px of bottom padding, and the search field is given a
+              matching 4px (`pb-1`) so every "source" hands over the same 4px.
+              Each wrapper then only supplies the remaining 28px (`pt-7`). `pb-1`
+              on the wrapper would stack a second 4px, so its padding is omitted
+              on mobile and only restored at `sm`. Desktop keeps its original
+              tighter rhythm. */}
+          {showTopRails ? (
+            <div className="relative flex flex-col gap-7 pt-7 sm:gap-8 sm:pt-5 sm:pb-8">
+              {showJoinedRail ? (
+                <CommunityRail
+                  communities={joined}
+                  icon={Users}
+                  auras={auras}
+                  title="Joined communities"
+                />
+              ) : null}
+              {showTrendingRail ? (
+                <CommunityRail
+                  communities={sections.trending}
+                  icon={Flame}
+                  auras={auras}
+                  title="Trending communities"
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Growing fast sits past the backdrop, on the plain surface.
+
+              `pt-7` (28px) plus the 4px every source hands over (see the
+              top-rails wrapper above) is the same 32px rhythm, whatever precedes
+              it: the search field or another rail. `pb-7` (28px) plus the rail's
+              own 4px track padding completes the 32px this rail sits in; the grid
+              below then adds its own `pt-8` on top of that hand-off. Desktop
+              keeps its original pt-8 / pb-9. */}
           {showGrowingRail ? (
-            <div className="pt-8 pb-9">
+            <div className="pt-7 pb-7 sm:pt-8 sm:pb-9">
               <CommunityRail
                 communities={sections.growing}
                 icon={Zap}
@@ -365,8 +390,14 @@ export default function ClientComm() {
             </div>
           ) : null}
 
-          {/* All communities: the browsable, paginated grid. */}
-          <div className="px-5 pb-10 sm:px-8">
+          {/* All communities: the browsable, paginated grid.
+
+              `pt-8` on mobile is deliberate and larger than the 32px rail-to-rail
+              rhythm: this is where the curated rails hand off to the browsable
+              directory, so the heading needs to read as a new kind of section
+              rather than one more rail. Desktop already separates them with its
+              wider `pt-8 / pb-9` wrappers, so it needs no extra here. */}
+          <div className="px-8 pt-8 pb-10 sm:pt-0">
             <div className="mb-3 flex items-center gap-2.5">
               <LayoutGrid
                 className="text-primary size-5 shrink-0"

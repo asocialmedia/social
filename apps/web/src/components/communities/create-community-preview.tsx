@@ -1,6 +1,7 @@
 "use client";
 
 import { getCommunityTopic } from "@asm/db/communities";
+import { Badge } from "@asm/ui/shadui/badge";
 import { Flame, LayoutGrid, Users } from "lucide-react";
 import Image from "next/image";
 
@@ -66,9 +67,12 @@ export default function CreateCommunityPreview({
           )}
           <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-b from-transparent to-[hsl(var(--background-alt))]" />
           {mature ? (
-            <span className="bg-background/85 text-foreground absolute top-2.5 right-2.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums backdrop-blur-sm">
+            <Badge
+              className="bg-muted text-foreground absolute top-2.5 right-2.5 px-1.5 py-0.5 text-[11px] tabular-nums"
+              variant="outline"
+            >
               18+
-            </span>
+            </Badge>
           ) : null}
         </div>
 

@@ -76,7 +76,7 @@ export default function CommunityRail({
 
   return (
     <section className="relative">
-      <div className="mb-3 flex items-center gap-2.5 px-5 sm:px-8">
+      <div className="mb-3 flex items-center gap-2.5 px-8">
         <Icon className="text-primary size-5 shrink-0" fill="currentColor" />
         <h2 className="text-foreground text-lg font-bold tracking-tight">
           {title}
@@ -93,8 +93,13 @@ export default function CommunityRail({
           <RailArrow direction="right" onClick={() => scrollByPage(1)} />
         ) : null}
 
+        {/* `scroll-pl-8` is load-bearing: the cards are `snap-start` under
+            `snap-mandatory`, and without a scroll-padding the snap port starts
+            at the track's border box, so the browser rests the first card flush
+            against the viewport edge (scrollLeft = 32) and the rail bleeds left
+            of its own heading. Matching the padding keeps it at scrollLeft 0. */}
         <div
-          className="hide-native-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain px-5 pb-1 sm:px-8"
+          className="hide-native-scrollbar flex snap-x snap-mandatory scroll-pl-8 gap-4 overflow-x-auto overscroll-x-contain px-8 pb-1"
           ref={trackRef}
         >
           {communities.map((community) => (

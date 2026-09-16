@@ -524,9 +524,8 @@
    actually have, so the column count only steps up once there is room.
 
    `.communities-cq` is the content column; `.community-grid` and the rail cards
-   both read it, so the two can never drift. Padding is `px-5` (2.5rem) alone
-   below sm and `sm:px-8` (4rem) above; the gap is 1rem. Keep those in step with
-   the component's classes. */
+   both read it, so the two can never drift. Padding is `px-8` (4rem) at every
+   width; the gap is 1rem. Keep those in step with the component's classes. */
 .communities-cq {
   container-type: inline-size;
 }
@@ -538,8 +537,8 @@
 }
 
 .community-card-w {
-  /* 1 column */
-  width: calc(100cqw - 2.5rem);
+  /* 1 column: content - 2 * 2rem padding. */
+  width: calc(100cqw - 4rem);
 }
 
 /* 2 columns: (content - 2 * 2rem padding - 1rem gap) / 2. Steps up at a
