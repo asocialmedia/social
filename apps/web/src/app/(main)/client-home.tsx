@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
@@ -27,12 +27,27 @@ import SearchField from "@/components/layouts/search-field";
 import PostEditor from "@/components/posts/editor/post-editor";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
+import {
+  HOME_TABS,
+  isTabValue,
+  resolveHomeTab,
+  useTabMemoryReady,
+  useTabStore,
+} from "@/store/tab-store";
+import type { HomeTab } from "@/store/tab-store";
 
 interface ClientHomeProps {
   userData: UserData | null;
 }
 
-type FeedTab = "following" | "latest" | "personalized" | "trending";
+type FeedTab = HomeTab;
+
+const HOME_TAB_VALUES: readonly FeedTab[] = [
+  "personalized",
+  "latest",
+  "trending",
+  "following",
+];
 
 const ClientHome: React.FC<ClientHomeProps> = () => {
   const pathname = usePathname();
@@ -40,28 +55,37 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
   const searchParams = useSearchParams();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  const memoryReady = useTabMemoryReady();
+  const storedHome = useTabStore((state) => state.home);
+  const setHomeTab = useTabStore((state) => state.setHomeTab);
 
   const tabParam = searchParams.get("tab");
   const defaultTab: FeedTab = isLoggedIn ? "personalized" : "latest";
-  const tab: FeedTab =
-    tabParam === "following" ||
-    tabParam === "latest" ||
-    tabParam === "personalized" ||
-    tabParam === "trending"
-      ? tabParam
-      : defaultTab;
+  // Explicit ?tab= wins (shareable links); otherwise the remembered tab
+  // restores, so leaving for a profile and coming back lands where you left.
+  const tab: FeedTab = resolveHomeTab(
+    tabParam,
+    isLoggedIn,
+    storedHome,
+    memoryReady
+  );
+
+  // Adopt shared links (?tab=...) into memory so they survive navigation too.
+  useEffect(() => {
+    if (isTabValue(HOME_TABS, tabParam)) {
+      setHomeTab(tabParam);
+    }
+  }, [setHomeTab, tabParam]);
 
   const handleTabChange = useCallback(
     (value: string) => {
+      if (isTabValue(HOME_TABS, value)) {
+        setHomeTab(value);
+      }
       const nextParams = new URLSearchParams(searchParams.toString());
       if (value === defaultTab) {
         nextParams.delete("tab");
-      } else if (
-        value === "following" ||
-        value === "latest" ||
-        value === "personalized" ||
-        value === "trending"
-      ) {
+      } else if (isTabValue(HOME_TABS, value)) {
         nextParams.set("tab", value);
       } else {
         nextParams.delete("tab");
@@ -69,7 +93,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
       const query = nextParams.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
     },
-    [defaultTab, pathname, router, searchParams]
+    [defaultTab, pathname, router, searchParams, setHomeTab]
   );
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -79,15 +103,9 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
   // latest, trending, and finally following.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      const order: FeedTab[] = [
-        "personalized",
-        "latest",
-        "trending",
-        "following",
-      ];
-      const nextIndex = order.indexOf(tab) + direction;
-      if (nextIndex >= 0 && nextIndex < order.length) {
-        handleTabChange(order[nextIndex]);
+      const nextIndex = HOME_TAB_VALUES.indexOf(tab) + direction;
+      if (nextIndex >= 0 && nextIndex < HOME_TAB_VALUES.length) {
+        handleTabChange(HOME_TAB_VALUES[nextIndex]);
       }
     },
     [handleTabChange, tab]

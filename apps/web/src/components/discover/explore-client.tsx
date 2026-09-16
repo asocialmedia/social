@@ -28,6 +28,14 @@ import useDebounce from "@/hooks/use-debounce";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
+import {
+  EXPLORE_TABS,
+  isTabValue,
+  resolveExploreTab,
+  useTabMemoryReady,
+  useTabStore,
+} from "@/store/tab-store";
+import type { ExploreTab } from "@/store/tab-store";
 
 import { ExploreGustsGrid } from "./explore-gusts-grid";
 import { ExploreGustsRail } from "./explore-gusts-rail";
@@ -36,8 +44,6 @@ import ExplorePeople from "./explore-people";
 import ExplorePostCard from "./explore-post-card";
 import ExploreUserCard from "./explore-user-card";
 import type { ExploreUser } from "./explore-user-card";
-
-type ExploreTab = "for-you" | "people" | "gusts" | "trending";
 
 const TAB_META: Record<ExploreTab, string> = {
   "for-you": "For you",
@@ -69,23 +75,20 @@ const ExploreClient: React.FC = () => {
   const isLoggedIn = Boolean(sessionUser);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
+  const memoryReady = useTabMemoryReady();
+  const storedExplore = useTabStore((state) => state.explore);
+  const setExploreTab = useTabStore((state) => state.setExploreTab);
 
   const tabParam = searchParams.get("tab");
-  let activeTab: ExploreTab;
-  if (tabParam === "trending") {
-    activeTab = "trending";
-  } else if (tabParam === "gusts") {
-    activeTab = "gusts";
-  } else if (tabParam === "people") {
-    activeTab = "people";
-  } else if (tabParam === "for-you") {
-    activeTab = "for-you";
-  } else if (isLoggedIn) {
-    activeTab = "for-you";
-  } else {
-    // Guests default to the open Trending tab; For you is behind auth.
-    activeTab = "trending";
-  }
+  // Explicit ?tab= wins (shareable links); otherwise the remembered tab
+  // restores, so leaving for a profile and coming back lands where you left.
+  // Guests default to the open Trending tab; For you is behind auth.
+  const activeTab: ExploreTab = resolveExploreTab(
+    tabParam,
+    isLoggedIn,
+    storedExplore,
+    memoryReady
+  );
 
   // "For you" needs an account (guests see the login card); Trending and Gusts stay open.
   const showForYou = isLoggedIn;
@@ -101,16 +104,26 @@ const ExploreClient: React.FC = () => {
   const [newPostsCount, setNewPostsCount] = useState(0);
   const feedRootRef = useRef<HTMLDivElement>(null);
 
+  // Adopt shared links (?tab=...) into memory so they survive navigation too.
+  useEffect(() => {
+    if (isTabValue(EXPLORE_TABS, tabParam)) {
+      setExploreTab(tabParam);
+    }
+  }, [setExploreTab, tabParam]);
+
   const handleTabChange = useCallback(
     (tab: string) => {
       setNewPostsCount(0);
       newestIdRef.current = null;
+      if (isTabValue(EXPLORE_TABS, tab)) {
+        setExploreTab(tab);
+      }
       const nextParams = new URLSearchParams(searchParams.toString());
       nextParams.set("tab", tab);
       const query = nextParams.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
     },
-    [pathname, router, searchParams]
+    [pathname, router, searchParams, setExploreTab]
   );
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the

@@ -4,7 +4,7 @@ import type { PrivateUserData, UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -22,19 +22,17 @@ import UserRepliesFeed from "@/components/profile/user-replies-feed";
 import UserResponsesFeed from "@/components/profile/user-responses-feed";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
+import {
+  resolveProfileTab,
+  useTabMemoryReady,
+  useTabStore,
+} from "@/store/tab-store";
+import type { ProfileTab } from "@/store/tab-store";
 
 interface ProfilePageProps {
   loggedInUserData: PrivateUserData | null;
   userData: UserData;
 }
-
-type ProfileTab =
-  | "posts"
-  | "gusts"
-  | "responses"
-  | "replies"
-  | "amplified"
-  | "media";
 
 // Mobile swipe order mirrors the rendered tab strip. Guests never get
 // Responses/Eddies/Amplified, so swipes skip them instead of bouncing to login.
@@ -59,6 +57,26 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
+  const memoryReady = useTabMemoryReady();
+  const profileUserId = userData.id;
+  const setProfileTab = useTabStore((state) => state.setProfileTab);
+
+  // Restore this profile's remembered tab once storage is ready. Memory is
+  // keyed per user id, so Lisa can sit on Media while Harsh sits on Gusts,
+  // and navigating between profiles swaps to each profile's own tab. The
+  // entry is read imperatively so profile switches re-run the effect without
+  // subscribing this component to every other profile's writes.
+  useEffect(() => {
+    // oxlint-disable-next-line react/no-deriving-state-in-effects, react/set-state-in-effect -- the remembered tab lives in localStorage (unavailable during SSR), so it can only be adopted after mount; deriving during render would mismatch the server HTML.
+    setActiveTab(
+      resolveProfileTab(
+        useTabStore.getState().profileByUserId[profileUserId],
+        isLoggedIn,
+        isXl,
+        memoryReady
+      )
+    );
+  }, [isLoggedIn, isXl, memoryReady, profileUserId]);
 
   const handleGoBack = useCallback(() => {
     // Return to wherever the user came from (e.g. a post opened via a swipe);
@@ -93,8 +111,9 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
         return;
       }
       setActiveTab(value as ProfileTab);
+      setProfileTab(profileUserId, value as ProfileTab);
     },
-    [goToLogin, isLoggedIn]
+    [goToLogin, isLoggedIn, profileUserId, setProfileTab]
   );
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
@@ -110,18 +129,6 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
     [activeTab, handleTabChange, isLoggedIn]
   );
   useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
-
-  // The media tab only exists below xl; once the sidebar takes over, hop back to posts.
-  const [prevLayoutInputs, setPrevLayoutInputs] = useState({ activeTab, isXl });
-  if (
-    prevLayoutInputs.activeTab !== activeTab ||
-    prevLayoutInputs.isXl !== isXl
-  ) {
-    setPrevLayoutInputs({ activeTab, isXl });
-    if (isXl && activeTab === "media") {
-      setActiveTab("posts");
-    }
-  }
 
   const isOwnProfile = loggedInUserData
     ? userData.id === loggedInUserData.id
