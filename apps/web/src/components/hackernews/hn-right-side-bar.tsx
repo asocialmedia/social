@@ -10,7 +10,7 @@ import {
   PopularOnHackerNews,
 } from "@/components/home/sidebars/right/popular-on-hackernews";
 import { APPLE_CARD_CLASS } from "@/components/home/sidebars/right/sidebar-styles";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
 import kyInstance from "@/lib/ky";
 import { formatNumber } from "@/lib/utils";
 

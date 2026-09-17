@@ -13,7 +13,7 @@ import { useCallback } from "react";
 import type { MouseEvent } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import { normalizeHistoryItem } from "@/components/search/use-search-history";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import {

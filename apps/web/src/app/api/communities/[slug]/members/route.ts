@@ -1,4 +1,5 @@
 import {
+  canViewCommunity,
   getCommunityBySlug,
   getMembership,
   isCommunityModerator,
@@ -62,6 +63,12 @@ export async function GET(
   try {
     const community = await getCommunityBySlug(slug);
     if (!community) {
+      return Response.json({ error: "Community not found" }, { status: 404 });
+    }
+
+    // The roster is part of a PRIVATE community's contents. 404 for anyone
+    // without an ACTIVE membership, matching the detail and feed routes.
+    if (!(await canViewCommunity(community, userId))) {
       return Response.json({ error: "Community not found" }, { status: 404 });
     }
 

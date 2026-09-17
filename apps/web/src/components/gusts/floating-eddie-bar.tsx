@@ -6,7 +6,7 @@ import Link from "next/link";
 import React, { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { useSubmitCommentMutation } from "@/components/comments/mutations";
+import { useSubmitCommentMutation } from "@/components/comments/data/mutations";
 import { formatNumber } from "@/lib/utils";
 
 interface FloatingEddieBarProps {

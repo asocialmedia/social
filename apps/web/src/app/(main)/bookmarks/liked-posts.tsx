@@ -7,7 +7,7 @@ import type React from "react";
 import { useCallback } from "react";
 
 import { FeedView } from "@/components/home/feed-view";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";

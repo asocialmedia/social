@@ -5,7 +5,7 @@ import type { Editor } from "@tiptap/core";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 
 import { collectInlineRelations, mergeUniqueIds } from "./inline-nodes";
 

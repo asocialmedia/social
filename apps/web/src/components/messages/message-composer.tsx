@@ -15,8 +15,8 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import KlipyGifPicker from "@/components/comments/klipy-gif-picker";
-import type { KlipyGif } from "@/components/comments/klipy-gif-picker";
+import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
+import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import { toast } from "@/lib/gooey-toast";
 import {

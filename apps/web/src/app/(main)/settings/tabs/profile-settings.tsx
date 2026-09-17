@@ -28,7 +28,7 @@ import {
   useUpdateBannerMutation,
   useUpdateProfileMutation,
 } from "@/app/(main)/users/[username]/avatar-mutations";
-import { LoadingButton } from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
 import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import {

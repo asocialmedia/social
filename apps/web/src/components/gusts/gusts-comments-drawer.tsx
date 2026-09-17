@@ -4,7 +4,7 @@ import type { PostData } from "@asm/db";
 import { X } from "lucide-react";
 import React from "react";
 
-import Comments from "@/components/comments/comments";
+import Comments from "@/components/comments/thread/comments";
 
 interface GustsCommentsDrawerProps {
   onClose: () => void;

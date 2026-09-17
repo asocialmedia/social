@@ -7,10 +7,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostLinkEmbeds from "@/components/posts/link-embeds";
-import PostLinkedContent from "@/components/posts/post-linked-content";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { getPostPath } from "@/lib/seo/seo";

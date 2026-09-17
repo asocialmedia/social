@@ -30,6 +30,7 @@ mock.module("@asm/db", () => ({
     IMAGE: "IMAGE",
     VIDEO: "VIDEO",
   },
+  communityVisibilityWhere: () => ({}),
   getPostDataInclude: (viewerId: string) => ({
     user: true,
     vote: !!viewerId,

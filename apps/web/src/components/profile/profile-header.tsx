@@ -10,11 +10,11 @@ import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
-import EditProfileButton from "@/components/layouts/edit-profile-button";
-import FollowButton from "@/components/layouts/follow-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostLinkedContent from "@/components/posts/post-linked-content";
+import EditProfileButton from "@/components/layouts/user/edit-profile-button";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import CommunityRoleSummary from "@/components/profile/community-role-summary";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";

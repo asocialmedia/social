@@ -1,4 +1,5 @@
 import {
+  canViewCommunity,
   getCachedCommunityStats,
   getCommunityBySlug,
   getMembership,
@@ -22,6 +23,12 @@ export async function GET(
   try {
     const community = await getCommunityBySlug(slug);
     if (!community) {
+      return Response.json({ error: "Community not found" }, { status: 404 });
+    }
+
+    // A PRIVATE community's identity and stats are members-only. 404 rather
+    // than 403 so the response does not confirm the slug exists.
+    if (!(await canViewCommunity(community, userId))) {
       return Response.json({ error: "Community not found" }, { status: 404 });
     }
 

@@ -24,9 +24,9 @@ import React, {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";

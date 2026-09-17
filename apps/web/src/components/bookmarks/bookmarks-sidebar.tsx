@@ -4,8 +4,8 @@ import { Bookmark, Clapperboard, Newspaper, Terminal } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
-import SearchField from "@/components/layouts/search-field";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import SearchField from "@/components/layouts/navigation/search-field";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { formatNumber } from "@/lib/utils";
 
 const FOOTER_LINKS = [

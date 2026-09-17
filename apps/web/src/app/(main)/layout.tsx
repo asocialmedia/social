@@ -1,10 +1,10 @@
 import type React from "react";
 import { Suspense } from "react";
 
-import { GooeyToaster } from "@/components/auth/gooey-toaster";
-import FloatingPostComposer from "@/components/layouts/floating-post-composer";
-import { GuestAuthBar } from "@/components/layouts/guest-auth-bar";
-import { MainShell } from "@/components/layouts/main-shell";
+import { GooeyToaster } from "@/components/auth/shell/gooey-toaster";
+import FloatingPostComposer from "@/components/layouts/feed/floating-post-composer";
+import { GuestAuthBar } from "@/components/layouts/shell/guest-auth-bar";
+import { MainShell } from "@/components/layouts/shell/main-shell";
 import AppShellSkeleton from "@/components/layouts/skeletons/app-shell-skeleton";
 import { SpotlightProvider } from "@/components/search/spotlight-provider";
 import { getUserData } from "@/hooks/users/use-user-data";

@@ -6,13 +6,13 @@ import Link from "next/link";
 
 // eslint-disable-next-line import/no-cycle -- response rows render media-previews, whose viewer surfaces related posts via post-card, which renders responses
 import { MediaPreviews } from "@/components/home/feedview/media-previews";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import UserTooltip from "@/components/layouts/user-tooltip";
-import AuraVoteButton from "@/components/posts/aura-vote-button";
-import PostLinkEmbeds from "@/components/posts/link-embeds";
-import ModeratedNotice from "@/components/posts/moderated-notice";
-import PostLinkedContent from "@/components/posts/post-linked-content";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import UserTooltip from "@/components/layouts/user/user-tooltip";
+import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { PostMeta } from "@/components/tags/post-meta";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { normalizePostData } from "@/lib/posts/post-normalize";

@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
 import PostCard from "@/components/home/feedview/post-card";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";

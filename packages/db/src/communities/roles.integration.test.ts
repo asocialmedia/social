@@ -187,4 +187,62 @@ describe("community role model", () => {
     const rejoined = await getMembership(id, PLAIN_ID);
     expect(rejoined?.role).toBe("PARTICIPANT");
   });
+
+  test("parallel promotions cannot exceed the moderator cap", async () => {
+    // Counting moderators then promoting is a read-then-write race: without a
+    // per-community lock each promotion reads the pre-promotion count, all pass
+    // the cap, and the community ends up over the limit. A fresh community is
+    // used because the fixture above already sits at the cap.
+    const slug = `rc${RUN_ID}`;
+    const community = await createCommunity({
+      description: "Concurrent promotion fixture.",
+      name: "Role Cap",
+      ownerId: OWNER_ID,
+      slug,
+      topics: ["technology"],
+    });
+
+    const candidates: string[] = [];
+    // One extra beyond the cap, so the losers prove the limit held.
+    // eslint-disable-next-line no-await-in-loop -- sequential fixture setup
+    for (let index = 0; index <= COMMUNITY_MAX_MODERATORS; index += 1) {
+      const id = `role-race-${RUN_ID}-${index}`;
+      candidates.push(id);
+      // eslint-disable-next-line no-await-in-loop -- sequential fixture setup
+      await createUser(id);
+      // eslint-disable-next-line no-await-in-loop -- sequential fixture setup
+      await joinCommunity(community.id, id);
+    }
+
+    try {
+      const results = await Promise.allSettled(
+        candidates.map((id) =>
+          setMemberRole(community.id, OWNER_ID, id, "MODERATOR")
+        )
+      );
+
+      const moderators = await prisma.communityMember.count({
+        where: {
+          communityId: community.id,
+          role: "MODERATOR",
+          status: "ACTIVE",
+        },
+      });
+      expect(moderators).toBe(COMMUNITY_MAX_MODERATORS);
+      expect(
+        results.filter((result) => result.status === "rejected")
+      ).toHaveLength(candidates.length - COMMUNITY_MAX_MODERATORS);
+    } finally {
+      await prisma.auraLog.deleteMany({
+        where: {
+          OR: [
+            { issuerId: { in: candidates } },
+            { userId: { in: candidates } },
+          ],
+        },
+      });
+      await prisma.community.deleteMany({ where: { slug } });
+      await prisma.user.deleteMany({ where: { id: { in: candidates } } });
+    }
+  });
 });

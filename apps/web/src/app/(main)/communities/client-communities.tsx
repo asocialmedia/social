@@ -25,18 +25,18 @@ import { useCallback, useRef, useState } from "react";
 import { useInView } from "react-intersection-observer";
 
 import { useSession } from "@/app/(main)/session-provider";
-import CommunitiesRightRail from "@/components/communities/communities-right-rail";
-import CommunityCard from "@/components/communities/community-card";
+import CommunityCard from "@/components/communities/card/community-card";
 import {
   CommunityCreateButton,
   CommunityCreationInfo,
-} from "@/components/communities/community-create-button";
-import CommunityRail from "@/components/communities/community-rail";
-import CreateCommunityDialog from "@/components/communities/create-community-dialog";
-import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+} from "@/components/communities/create/community-create-button";
+import CreateCommunityDialog from "@/components/communities/create/create-community-dialog";
+import CommunitiesRightRail from "@/components/communities/rails/communities-right-rail";
+import CommunityRail from "@/components/communities/rails/community-rail";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
+import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import CommunitiesPageSkeleton from "@/components/layouts/skeletons/communities-page-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";

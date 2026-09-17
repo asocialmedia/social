@@ -6,7 +6,7 @@ import { KeyRound, Mail, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
-import { LoadingButton } from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
 

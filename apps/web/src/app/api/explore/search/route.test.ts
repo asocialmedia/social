@@ -38,6 +38,7 @@ const mockHydrateViewCounts = mock((posts: unknown[]) =>
 );
 
 mock.module("@asm/db", () => ({
+  communityVisibilityWhere: () => ({}),
   getPostDataInclude: () => ({ user: true }),
   getUserDataSelect: () => ({ id: true }),
   hydrateViewCounts: mockHydrateViewCounts,

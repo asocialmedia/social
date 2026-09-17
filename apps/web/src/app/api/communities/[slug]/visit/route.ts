@@ -1,4 +1,8 @@
-import { getCommunityBySlug, recordCommunityVisit } from "@asm/db";
+import {
+  canViewCommunity,
+  getCommunityBySlug,
+  recordCommunityVisit,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -23,6 +27,11 @@ export async function POST(
     const community = await getCommunityBySlug(slug);
     if (!community) {
       return Response.json({ error: "Community not found" }, { status: 404 });
+    }
+    // Never record a visit to a PRIVATE community the viewer cannot read; a
+    // member's trail must not be seeded by a denied lookup either.
+    if (!(await canViewCommunity(community, userId))) {
+      return Response.json({ recorded: false });
     }
     await recordCommunityVisit(community.id, userId);
     return Response.json({ recorded: true });

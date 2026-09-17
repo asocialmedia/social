@@ -180,6 +180,23 @@ async function grantCommunityJoinBonus(
     return;
   }
 
+  // Serialize the cap check and the payout on the joiner's own row. Without
+  // this lock, parallel joins into DIFFERENT communities all read the same
+  // running total, each conclude the gift fits inside the remaining daily
+  // budget, and together overshoot COMMUNITY_JOIN_DAILY_AURA_CAP by up to
+  // (concurrency - 1) awards. The lock is held to commit, so the next join
+  // sees this one's marker row in its aggregate.
+  //
+  // FOR NO KEY UPDATE, not FOR UPDATE: the membership upsert earlier in this
+  // transaction already holds a FK KEY SHARE on this user row, and FOR UPDATE
+  // conflicts with KEY SHARE. Two concurrent joins would then each hold their
+  // own KEY SHARE and each wait for the other's FOR UPDATE - a deadlock. NO KEY
+  // UPDATE is compatible with KEY SHARE, still mutually exclusive with itself,
+  // and is the correct mode for an aura increment that does not touch the id.
+  await tx.$queryRaw`
+    SELECT "id" FROM "users" WHERE "id" = ${input.userId} FOR NO KEY UPDATE
+  `;
+
   const earnedToday = await tx.communityJoinBonus.aggregate({
     _sum: { joinerAura: true },
     where: { createdAt: { gte: startOfUtcDay(now) }, userId: input.userId },
@@ -485,6 +502,85 @@ export async function isCommunityModerator(
   );
 }
 
+// The single view-access rule for community contents. PUBLIC and RESTRICTED
+// communities are world-readable; PRIVATE promises "only approved users can
+// view", so it is readable only by a viewer holding an ACTIVE membership. A
+// guest, and a PENDING applicant, are both denied. Reads that resolve a
+// community by slug or id must gate on this before returning its posts,
+// metadata, roster, or media, otherwise knowing the slug would defeat the
+// privacy setting.
+//
+// Takes the already-resolved community so a caller that has fetched it does not
+// pay for a second lookup; `type` is all the rule needs.
+export async function canViewCommunity(
+  community: { id: string; type: CommunityData["type"] },
+  userId: string
+): Promise<boolean> {
+  if (community.type !== "PRIVATE") {
+    return true;
+  }
+  if (!userId) {
+    return false;
+  }
+  const membership = await getMembership(community.id, userId);
+  return membership?.status === "ACTIVE";
+}
+
+// The same rule when only the community id is known (e.g. the avatar/banner
+// media proxies). Returns false rather than throwing for a missing community,
+// so callers can answer 404 without a second existence check.
+export async function canViewCommunityById(
+  communityId: string,
+  userId: string
+): Promise<boolean> {
+  const community = await prisma.community.findUnique({
+    select: { id: true, type: true },
+    where: { id: communityId },
+  });
+  if (!community) {
+    return false;
+  }
+  return await canViewCommunity(community, userId);
+}
+
+// The row-level companion to canViewCommunity, for post reads that are NOT
+// already scoped to one community (global feeds, search, profiles, sitemaps).
+// A post inside a PRIVATE community must not surface there except to that
+// community's ACTIVE members: global posts and PUBLIC/RESTRICTED community
+// posts stay visible to everyone. A reshare is judged by the community it
+// carries, so resurfacing a private post onto the global feed cannot route
+// around the rule. Merge into a query as `{ AND: [where, visibility] }` so an
+// existing OR is preserved.
+export function communityVisibilityWhere(
+  userId: string
+): Prisma.PostWhereInput {
+  // A community the viewer may read: any non-private community, or a private
+  // one they hold an ACTIVE membership in.
+  const readableCommunity: Prisma.CommunityWhereInput = userId
+    ? {
+        OR: [
+          { type: { not: "PRIVATE" } },
+          { members: { some: { status: "ACTIVE", userId } } },
+        ],
+      }
+    : { type: { not: "PRIVATE" } };
+
+  return {
+    OR: [
+      // Plain global post (no community, no reshare source).
+      { communityId: null, communityShare: null },
+      // Native community post.
+      { community: readableCommunity },
+      // Global reshare of a community post.
+      {
+        communityShare: {
+          is: { community: readableCommunity },
+        },
+      },
+    ],
+  };
+}
+
 // Public communities join instantly. Restricted and Private communities open a
 // PENDING request that an owner/moderator approves; the creator is always
 // ACTIVE. Kept here so both the API route and any future surface share it.
@@ -662,7 +758,27 @@ export async function setMemberRole(
   }
 
   await prisma.$transaction(async (tx) => {
-    if (role === "MODERATOR" && target.role !== "MODERATOR") {
+    // Serialize role changes on the community row. Counting moderators and then
+    // promoting is a read-then-write race: two concurrent promotions can both
+    // read the pre-promotion count, both pass the cap, and commit as the
+    // (N+1)th and (N+2)th moderator. The row lock is held to commit, so each
+    // promoter sees every promotion that committed before it.
+    await tx.$queryRaw`
+      SELECT "id" FROM "communities" WHERE "id" = ${communityId} FOR UPDATE
+    `;
+
+    // Re-read the target under the lock: the pre-transaction `target.role` can
+    // be stale by the time we get here, and a promotion of this same person
+    // already committed must not be counted as a fresh slot.
+    const currentTarget = await tx.communityMember.findUnique({
+      select: { role: true },
+      where: { communityId_userId: { communityId, userId: targetUserId } },
+    });
+    if (!currentTarget) {
+      throw new CommunityError("NOT_FOUND", "That person is not a member");
+    }
+
+    if (role === "MODERATOR" && currentTarget.role !== "MODERATOR") {
       const moderatorCount = await tx.communityMember.count({
         where: { communityId, role: "MODERATOR", status: "ACTIVE" },
       });

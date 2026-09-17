@@ -9,7 +9,7 @@ import { useMediaQuery } from "usehooks-ts";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import MediaGallery, {
   MediaGalleryContent,
   MediaGalleryLocked,

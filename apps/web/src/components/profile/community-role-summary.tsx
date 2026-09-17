@@ -4,8 +4,8 @@ import type { UserCommunityRole } from "@asm/db";
 import Link from "next/link";
 import type React from "react";
 
-import CommunityRoleBadge from "@/components/communities/community-role-badge";
-import type { CommunityBadgedRole } from "@/components/communities/community-role-badge";
+import CommunityRoleBadge from "@/components/communities/card/community-role-badge";
+import type { CommunityBadgedRole } from "@/components/communities/card/community-role-badge";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABEL: Record<CommunityBadgedRole, string> = {

@@ -9,8 +9,8 @@ import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";

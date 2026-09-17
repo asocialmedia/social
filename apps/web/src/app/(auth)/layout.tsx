@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import type React from "react";
 
-import { GooeyToaster } from "@/components/auth/gooey-toaster";
+import { GooeyToaster } from "@/components/auth/shell/gooey-toaster";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 // Auth pages (login, signup, reset, verify) are not indexable content. The

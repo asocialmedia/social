@@ -2,7 +2,7 @@
 
 import { ArrowUp } from "lucide-react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 
 export interface NewContentAuthor {
   avatarUrl?: string | null;

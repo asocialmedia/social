@@ -1,4 +1,5 @@
 import {
+  canViewCommunity,
   getCachedCommunityStats,
   getCommunityBySlug,
   getMembership,
@@ -9,7 +10,7 @@ import { cacheLife } from "next/cache";
 import { notFound } from "next/navigation";
 import { cache, Suspense } from "react";
 
-import CommunityPage from "@/components/communities/community-page";
+import CommunityPage from "@/components/communities/page/community-page";
 import JsonLd from "@/components/seo/json-ld";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { absoluteUrl, excerpt } from "@/lib/seo/seo";
@@ -39,6 +40,17 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
   if (!community) {
     notFound();
+  }
+
+  // A PRIVATE community's name, description and avatar are members-only, but
+  // metadata is shared by every viewer and crawler. Emit nothing identifying
+  // and mark the page noindex; the page body enforces membership access.
+  if (community.type === "PRIVATE") {
+    return {
+      description: "A private community on Asocial.",
+      robots: { follow: false, index: false },
+      title: "Private community",
+    };
   }
 
   const title = `a/${community.slug} · ${community.name}`;
@@ -84,6 +96,11 @@ async function CommunityContent({ params }: PageProps) {
   const userId = session?.user?.id ?? "";
 
   const community = await getCommunity(slug);
+  // A PRIVATE community is invisible to anyone without an ACTIVE membership;
+  // 404 rather than a "join to view" screen so the slug cannot be confirmed.
+  if (!(await canViewCommunity(community, userId))) {
+    notFound();
+  }
   // The owner is no longer fetched here: the sidebar's roster lists the founder
   // (with the owner badge) straight from the members API, so this second read
   // was the same person fetched twice.

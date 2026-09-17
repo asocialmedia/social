@@ -9,9 +9,9 @@ import { useState } from "react";
 
 import UserReasonLine from "@/components/discover/user-reason-line";
 import type { UserMutualFollower } from "@/components/discover/user-reason-line";
-import FollowButton from "@/components/layouts/follow-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";

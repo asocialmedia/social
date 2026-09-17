@@ -8,11 +8,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { CommentsRealtimeProvider } from "@/components/comments/comments-realtime-context";
+import { CommentsRealtimeProvider } from "@/components/comments/thread/comments-realtime-context";
 import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import PostAuthorSidebar from "@/components/posts/post-author-sidebar";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import PostAuthorSidebar from "@/components/posts/views/post-author-sidebar";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";

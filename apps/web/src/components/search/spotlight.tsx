@@ -17,8 +17,8 @@ import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import CommunityAvatar from "@/components/communities/community-avatar";
-import UserAvatar from "@/components/layouts/user-avatar";
+import CommunityAvatar from "@/components/communities/card/community-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import {
   normalizeHistoryItem,
   useSearchHistory,

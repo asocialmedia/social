@@ -7,10 +7,10 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import Linkify from "@/helpers/global/linkify";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { isPopupOpen } from "@/lib/popup-tracker";

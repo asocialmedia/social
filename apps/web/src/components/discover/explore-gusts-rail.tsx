@@ -7,8 +7,8 @@ import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useRef, useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";

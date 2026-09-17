@@ -264,4 +264,64 @@ describe("community join bonus", () => {
       await prisma.user.deleteMany({ where: { id: sweepId } });
     }
   });
+
+  test("parallel joins cannot overshoot the daily ceiling", async () => {
+    // The cap check and the payout race when joins run concurrently: without a
+    // per-user lock every join reads the same running total, each concludes the
+    // gift fits, and the sum blows past the ceiling. Fire more joins than the
+    // cap can fund at once and assert the total still holds.
+    const joinsAtCap = Math.ceil(
+      COMMUNITY_JOIN_DAILY_AURA_CAP / COMMUNITY_JOIN_AURA
+    );
+    const concurrency = joinsAtCap + 2;
+    const slugs: string[] = [];
+    const communityIds = await Promise.all(
+      Array.from({ length: concurrency }, (_, index) => {
+        const slug = `jbx${RUN_ID}${index}`;
+        slugs.push(slug);
+        return prisma.community
+          .create({
+            data: {
+              description: `Parallel cap community ${index}`,
+              name: `JBX ${index}`,
+              ownerId: OWNER_ID,
+              slug,
+              topics: ["technology"],
+            },
+          })
+          .then((created) => created.id);
+      })
+    );
+
+    const racerId = `jb-race-${RUN_ID}`;
+    await createUser(racerId, 100);
+
+    try {
+      await Promise.all(
+        communityIds.map((communityId) => joinCommunity(communityId, racerId))
+      );
+
+      // Every join is a real membership...
+      expect(await joinedCommunityIds(racerId)).toHaveLength(concurrency);
+
+      // ...but the paid total never exceeds the ceiling, and every pair was
+      // marked (capped ones with a zero payout) so a rejoin cannot revisit it.
+      const paid = await prisma.communityJoinBonus.aggregate({
+        _sum: { joinerAura: true },
+        where: { userId: racerId },
+      });
+      expect(paid._sum.joinerAura ?? 0).toBeLessThanOrEqual(
+        COMMUNITY_JOIN_DAILY_AURA_CAP
+      );
+      expect(
+        await prisma.communityJoinBonus.count({ where: { userId: racerId } })
+      ).toBe(concurrency);
+    } finally {
+      await prisma.auraLog.deleteMany({
+        where: { OR: [{ issuerId: racerId }, { userId: racerId }] },
+      });
+      await prisma.community.deleteMany({ where: { slug: { in: slugs } } });
+      await prisma.user.deleteMany({ where: { id: racerId } });
+    }
+  });
 });

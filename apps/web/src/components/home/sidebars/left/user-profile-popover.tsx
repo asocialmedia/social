@@ -25,10 +25,10 @@ import type React from "react";
 import { useCallback, useState } from "react";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
-import { LogoutDialog } from "@/components/layouts/logout-dialog";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostLinkedContent from "@/components/posts/post-linked-content";
+import { LogoutDialog } from "@/components/layouts/dialogs/logout-dialog";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import { useLogout } from "@/hooks/auth/use-logout";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { getAuraFlameClass } from "@/lib/aura/aura";

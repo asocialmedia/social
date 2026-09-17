@@ -7,7 +7,7 @@ import { renderToString } from "react-dom/server";
 import {
   LinkBadge,
   MAX_INLINE_LINK_PREVIEWS,
-} from "@/components/posts/link-badge";
+} from "@/components/posts/embeds/link-badge";
 
 import Linkify from "./linkify";
 

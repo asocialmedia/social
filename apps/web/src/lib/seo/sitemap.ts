@@ -1,4 +1,8 @@
-import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
+import {
+  communityVisibilityWhere,
+  prisma,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { getPostUrl } from "@/lib/seo/seo";
@@ -141,6 +145,8 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
       moderated: false,
       rootPostId: null,
       user: { banned: false },
+      // Crawlers are anonymous: private-community posts must not be indexed.
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -183,6 +189,7 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
       isGust: true,
       moderated: false,
       user: { banned: false },
+      ...communityVisibilityWhere(""),
     },
   });
 

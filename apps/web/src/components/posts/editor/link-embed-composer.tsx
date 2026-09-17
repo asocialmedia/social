@@ -5,7 +5,7 @@ import kyInstance from "ky";
 import { Loader2, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
-import { EmbedSiteBadge } from "@/components/posts/embed-utils";
+import { EmbedSiteBadge } from "@/components/posts/embeds/embed-utils";
 import useDebounce from "@/hooks/use-debounce";
 import { extractPostUrls, MAX_POST_EMBEDS } from "@/lib/link-embeds/shared";
 import type { LinkEmbed } from "@/lib/link-embeds/shared";

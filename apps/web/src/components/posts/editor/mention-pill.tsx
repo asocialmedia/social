@@ -6,7 +6,7 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { HTTPError } from "ky";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import kyInstance from "@/lib/ky";
 
 // Editor-side rendering for a mention pill. Rehydrated mentions (from a stored

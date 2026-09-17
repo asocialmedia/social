@@ -51,6 +51,7 @@ const mockGetPersonalizedFeedPage = mock(
 );
 
 mock.module("@asm/db", () => ({
+  communityVisibilityWhere: () => ({}),
   encodeTrendingCursor: () => "tz1.mock",
   fetchTrendingSnapshotPage: () => null,
   getPersonalizedFeedPage: mockGetPersonalizedFeedPage,

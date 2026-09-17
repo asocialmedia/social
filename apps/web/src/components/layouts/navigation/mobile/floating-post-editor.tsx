@@ -1,0 +1,481 @@
+"use client";
+
+import { MAX_COMMENT_CHARS, MAX_COMMENT_WORDS } from "@asm/auth/validation";
+import type { PostData, UserData } from "@asm/db";
+import { useQuery } from "@tanstack/react-query";
+import type { Editor } from "@tiptap/core";
+import {
+  Clapperboard,
+  ImageIcon,
+  Loader2,
+  SendHorizonal,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useSession } from "@/app/(main)/session-provider";
+import {
+  clearCommentDraft,
+  getCommentDraft,
+  saveCommentDraft,
+} from "@/components/comments/composer/comment-draft-store";
+import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
+import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
+import { useCommentAttachments } from "@/components/comments/composer/use-comment-attachments";
+import { useSubmitCommentMutation } from "@/components/comments/data/mutations";
+import { useCommentsRealtimeValue } from "@/components/comments/thread/comments-realtime-context";
+import { useCommentsRealtime } from "@/components/comments/thread/use-comments-realtime";
+import type { LiveCommentStore } from "@/components/comments/thread/use-comments-realtime";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
+import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
+import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import { useToast } from "@/lib/gooey-toast";
+import kyInstance from "@/lib/ky";
+import { cn } from "@/lib/utils";
+
+const SEND_BTN_SHADOW =
+  "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+// Post-card 3D action buttons: muted gray at rest, blooming to the orange
+// (image) or purple (gif open) gradient on hover/active like the vote buttons.
+const ICON_BTN_BASE =
+  "bg-muted/70 text-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 active:translate-y-px";
+const ICON_BTN_HOVER =
+  "hover:bg-linear-to-b hover:from-[#ff9500] hover:to-[#e65500] hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)] hover:brightness-110";
+const ICON_BTN_PURPLE =
+  "bg-linear-to-b from-[#7c5cff] to-[#5a3ae0] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(70,40,170,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+interface FloatingPostEditorProps {
+  post: PostData;
+}
+
+const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
+  const { user } = useSession();
+  const { goToLogin } = useRequireAuth();
+  const { toast } = useToast();
+  const shared = useCommentsRealtimeValue();
+  const replyingTo = shared?.replyingTo;
+  const ownStoreRef = useRef<LiveCommentStore>(new Map());
+  const ownRealtime = useCommentsRealtime(post.id, ownStoreRef, !shared);
+  const applyCreated = shared?.applyCreated ?? ownRealtime.applyCreated;
+  const mutation = useSubmitCommentMutation(post.id, applyCreated);
+  const [input, setInput] = useState(
+    () => getCommentDraft(post.id)?.content ?? ""
+  );
+  const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<Editor | null>(null);
+
+  const {
+    attachments,
+    isUploading,
+    mediaIds,
+    removeAttachment,
+    reset,
+    startUpload,
+  } = useCommentAttachments();
+
+  const { data: userData } = useQuery({
+    enabled: Boolean(user),
+    queryFn: () => kyInstance.get(`/api/users/${user?.id}`).json<UserData>(),
+    queryKey: ["user", user?.id],
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Persist draft to storage whenever input or replying target changes
+  useEffect(() => {
+    saveCommentDraft(post.id, {
+      content: input,
+      parentId: replyingTo?.commentId,
+      replyingTo,
+    });
+  }, [input, post.id, replyingTo]);
+
+  // Focus the editor whenever a reply target is chosen
+  useEffect(() => {
+    if (replyingTo) {
+      editorRef.current?.commands.focus("end");
+    }
+  }, [replyingTo]);
+
+  // Lift the bar above the on-screen keyboard: on iOS Safari where layout
+  // viewport stays full-height, visualViewport shrinks and offset > 50 lifts
+  // the bar. On Android Chrome/Brave where layout viewport automatically
+  // resizes with the keyboard, clientHeight matches visualHeight so offset is 0.
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  useEffect(() => {
+    const { visualViewport } = window;
+    if (!visualViewport) {
+      return;
+    }
+    const updateOffset = () => {
+      const layoutHeight = document.documentElement.clientHeight;
+      const visualHeight = visualViewport.height;
+      const visualTop = visualViewport.offsetTop;
+      const offset = layoutHeight - (visualHeight + visualTop);
+      setKeyboardOffset(offset > 50 ? Math.round(offset) : 0);
+    };
+    visualViewport.addEventListener("resize", updateOffset);
+    visualViewport.addEventListener("scroll", updateOffset);
+    updateOffset();
+    return () => {
+      visualViewport.removeEventListener("resize", updateOffset);
+      visualViewport.removeEventListener("scroll", updateOffset);
+    };
+  }, []);
+
+  const wordCount = countWords(input);
+  const isLengthExceeded =
+    wordCount > MAX_COMMENT_WORDS || input.length > MAX_COMMENT_CHARS;
+  const isNearLengthLimit =
+    wordCount >= MAX_COMMENT_WORDS * 0.8 ||
+    input.length >= MAX_COMMENT_CHARS * 0.8;
+
+  const canSubmit =
+    (input.trim().length > 0 ||
+      attachments.length > 0 ||
+      mediaIds.length > 0) &&
+    !isLengthExceeded;
+
+  const handleSubmit = useCallback(() => {
+    if (!user) {
+      goToLogin();
+      return;
+    }
+    if (!canSubmit || mutation.isPending || isUploading) {
+      return;
+    }
+    mutation.mutate(
+      {
+        content: input.trim(),
+        mediaIds,
+        parentId: replyingTo?.commentId,
+        post,
+      },
+      {
+        onSuccess: () => {
+          clearCommentDraft(post.id, replyingTo?.commentId);
+          setInput("");
+          setDismissedEmbedUrls([]);
+          editorRef.current?.commands.clearContent();
+          editorRef.current?.commands.blur();
+          reset();
+          setGifPickerOpen(false);
+          setIsExpanded(false);
+          shared?.setReplyingTo(null);
+        },
+      }
+    );
+  }, [
+    canSubmit,
+    goToLogin,
+    input,
+    isUploading,
+    mediaIds,
+    mutation,
+    post,
+    replyingTo?.commentId,
+    reset,
+    shared,
+    user,
+  ]);
+
+  const handleFocus = useCallback(() => {
+    setIsExpanded(true);
+  }, []);
+
+  // Collapse when focus leaves the whole bar, but keep it open while the
+  // user is interacting with the upload/send buttons inside it.
+  const handleBarBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsExpanded(false);
+    }
+  }, []);
+
+  const handleFilesSelected = useCallback(
+    (files: FileList | null) => {
+      if (files) {
+        setIsExpanded(true);
+        void startUpload([...files]);
+      }
+    },
+    [startUpload]
+  );
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      handleFilesSelected(e.target.files);
+      e.target.value = "";
+    },
+    [handleFilesSelected]
+  );
+
+  const handleGifSelect = useCallback(
+    async (gif: KlipyGif) => {
+      setGifPickerOpen(false);
+      setIsExpanded(true);
+      try {
+        const blob = await fetch(gif.url).then((r) => {
+          if (!r.ok) {
+            throw new Error("Failed to fetch GIF");
+          }
+          return r.blob();
+        });
+        const file = new File([blob], `${gif.slug || "gif"}.gif`, {
+          type: "image/gif",
+        });
+        await startUpload([file]);
+      } catch {
+        toast({
+          description: "Couldn't add that GIF, try another?",
+          title: "GIF Failed",
+          variant: "destructive",
+        });
+      }
+    },
+    [startUpload, toast]
+  );
+
+  return (
+    <div
+      className="bg-background/95 fixed right-0 bottom-0 left-0 z-40 border-t border-white/10 p-2 shadow-[0_-4px_20px_rgba(0,0,0,0.15)] backdrop-blur-md transition-transform duration-200 lg:hidden"
+      onBlur={handleBarBlur}
+      style={{
+        bottom: `${keyboardOffset}px`,
+      }}
+    >
+      <div className="relative mx-auto max-w-lg">
+        {replyingTo ? (
+          <div className="mb-1.5 flex items-start justify-between gap-2 rounded-lg bg-black/5 px-2.5 py-1.5 text-xs dark:bg-white/5">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground font-medium">
+                  Replying to
+                </span>
+                <span className="text-primary font-semibold">
+                  @{replyingTo.username}
+                </span>
+              </div>
+              {replyingTo.content ? (
+                <p className="text-muted-foreground line-clamp-1 truncate text-[11px] opacity-80">
+                  {replyingTo.content}
+                </p>
+              ) : null}
+            </div>
+            <button
+              aria-label="Cancel reply"
+              className="text-muted-foreground hover:text-foreground mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors active:translate-y-px"
+              onClick={() => shared?.setReplyingTo(null)}
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex items-center gap-2">
+          <UserAvatar
+            avatarUrl={userData?.avatarUrl || user?.image}
+            className="h-9 w-9 shrink-0"
+          />
+          <InlineRichEditor
+            autoFocus={false}
+            className="premium-input min-h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
+            editorClassName="max-h-28 min-h-6 overflow-y-auto py-2 leading-relaxed"
+            editorRef={editorRef}
+            initialContent={input}
+            onChange={setInput}
+            onFocus={handleFocus}
+            onSubmit={handleSubmit}
+            placeholder={
+              replyingTo
+                ? `Reply to @${replyingTo.username}...`
+                : "Add your Eddie to the flow..."
+            }
+          />
+          <AnimatePresence initial={false}>
+            {!isExpanded && (
+              <motion.button
+                animate={{ opacity: 1, scale: 1 }}
+                className={cn(
+                  "flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-medium text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                  SEND_BTN_SHADOW,
+                  !canSubmit && "opacity-50"
+                )}
+                disabled={!canSubmit}
+                exit={{ opacity: 0, scale: 0.85 }}
+                initial={{ opacity: 0, scale: 0.85 }}
+                onClick={handleSubmit}
+                transition={{ duration: 0.15 }}
+                type="button"
+              >
+                {mutation.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <SendHorizonal className="size-4" />
+                )}
+                Send
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {isExpanded ? (
+            <motion.div
+              animate={{ height: "auto", opacity: 1 }}
+              className="overflow-hidden"
+              exit={{ height: 0, opacity: 0 }}
+              initial={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+            >
+              <input
+                accept="image/*,.png,.jpg,.jpeg,.gif,.webp"
+                aria-label="Add image or GIF attachment"
+                className="sr-only"
+                onChange={handleFileInputChange}
+                ref={fileInputRef}
+                type="file"
+              />
+
+              {attachments.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {attachments.map((attachment) => (
+                    <div
+                      className={cn(
+                        "group relative overflow-hidden rounded-xl border border-black/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3),0_1px_3px_rgba(0,0,0,0.1)] dark:border-white/15 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),0_2px_6px_rgba(0,0,0,0.3)]",
+                        attachment.file?.type === "image/gif"
+                          ? "flex h-36 w-56 items-center justify-center sm:h-44 sm:w-64"
+                          : "h-20 w-20"
+                      )}
+                      key={attachment.objectUrl}
+                    >
+                      <Image
+                        alt="Attachment preview"
+                        className="h-full w-full object-cover"
+                        fill
+                        src={attachment.objectUrl}
+                      />
+                      <div className="pointer-events-none absolute inset-0 rounded-xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_2px_rgba(255,255,255,0.06)]" />
+                      {attachment.isUploading ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs">
+                          <Loader2 className="size-5 animate-spin text-white" />
+                        </div>
+                      ) : (
+                        <button
+                          aria-label="Remove attachment"
+                          className="absolute top-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white shadow-[0_1px_3px_rgba(0,0,0,0.4),inset_0_0_0_1px_rgba(255,255,255,0.25)] transition-all hover:scale-105 hover:bg-black/90"
+                          onClick={() => removeAttachment(attachment.objectUrl)}
+                          type="button"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center justify-between gap-2 pt-2">
+                <div className="flex items-center gap-2">
+                  {attachments.length === 0 ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        aria-label="Add image or GIF"
+                        className={cn(
+                          ICON_BTN_BASE,
+                          ICON_BTN_HOVER,
+                          (isUploading || mutation.isPending) && "opacity-50"
+                        )}
+                        disabled={isUploading || mutation.isPending}
+                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                      >
+                        <ImageIcon className="size-4" />
+                      </button>
+                      <button
+                        aria-label="Search and add a GIF"
+                        className={cn(
+                          ICON_BTN_BASE,
+                          gifPickerOpen ? ICON_BTN_PURPLE : ICON_BTN_HOVER,
+                          (isUploading || mutation.isPending) && "opacity-50"
+                        )}
+                        disabled={isUploading || mutation.isPending}
+                        onClick={() => setGifPickerOpen((prev) => !prev)}
+                        type="button"
+                      >
+                        <Clapperboard className="size-4" />
+                      </button>
+                    </div>
+                  ) : null}
+                  {isNearLengthLimit ? (
+                    <span
+                      className={cn(
+                        "text-[11px] font-medium tabular-nums",
+                        isLengthExceeded
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {wordCount}/{MAX_COMMENT_WORDS}w · {input.length}/
+                      {MAX_COMMENT_CHARS}c
+                    </span>
+                  ) : null}
+                </div>
+                <button
+                  className={cn(
+                    "flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500] px-4 text-sm font-medium text-white transition-all duration-200 hover:brightness-110 active:translate-y-px",
+                    SEND_BTN_SHADOW,
+                    !canSubmit && "opacity-50"
+                  )}
+                  disabled={!canSubmit}
+                  onClick={handleSubmit}
+                  type="button"
+                >
+                  {mutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <SendHorizonal className="size-4" />
+                  )}
+                  Send
+                </button>
+              </div>
+
+              {gifPickerOpen ? (
+                <div className="apple-panel mt-2 w-full rounded-2xl p-2">
+                  <KlipyGifPicker
+                    disabled={isUploading}
+                    onSelect={handleGifSelect}
+                  />
+                </div>
+              ) : null}
+
+              <LinkEmbedComposer
+                content={input}
+                dismissedUrls={new Set<string>(dismissedEmbedUrls)}
+                onDismiss={(url) =>
+                  setDismissedEmbedUrls((prev) =>
+                    prev.includes(url) ? prev : [...prev, url]
+                  )
+                }
+              />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+export default FloatingPostEditor;

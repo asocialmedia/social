@@ -13,8 +13,8 @@ import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
 import MediaViewer from "@/components/home/feedview/media-viewer";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { useUserMediaQuery } from "@/hooks/users/use-user-media-query";
 import type { UserMediaItem } from "@/hooks/users/use-user-media-query";
 import { formatFileName } from "@/lib/format-file-name";

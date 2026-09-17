@@ -5,9 +5,9 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 
-import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
+import SecondaryRightSideBar from "@/components/layouts/shell/secondary-right-side-bar";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
-import HashtagFeed from "@/components/posts/hashtag-feed";
+import HashtagFeed from "@/components/posts/views/hashtag-feed";
 import JsonLd from "@/components/seo/json-ld";
 import { getHashtagPostsForCrawl } from "@/lib/posts/server-feed";
 import { absoluteUrl, getPostPath, getPostUrl } from "@/lib/seo/seo";

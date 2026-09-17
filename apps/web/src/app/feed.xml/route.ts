@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { communityVisibilityWhere, prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { excerpt, getPostUrl } from "@/lib/seo/seo";
@@ -32,6 +32,8 @@ export async function GET(): Promise<Response> {
       moderated: false,
       rootPostId: null,
       user: { banned: false },
+      // The public feed is anonymous: private-community posts stay out.
+      ...communityVisibilityWhere(""),
     },
   });
 

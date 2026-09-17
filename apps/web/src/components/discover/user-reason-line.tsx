@@ -3,7 +3,7 @@
 import { Clock, Sparkles, Users } from "lucide-react";
 import type React from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 
 export interface UserMutualFollower {
   avatarUrl: string | null;

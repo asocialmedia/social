@@ -6,9 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import type { AccountLinkingReadiness } from "@/components/settings/linked-accounts";
 import SettingsSearch from "@/components/settings/settings-search";
 import type { SettingsTab } from "@/components/settings/settings-search";

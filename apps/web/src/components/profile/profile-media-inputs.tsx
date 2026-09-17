@@ -10,9 +10,9 @@ import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Resizer from "react-image-file-resizer";
 
-import CropImageDialog from "@/components/layouts/crop-image-dialog";
-import GifCenteringDialog from "@/components/layouts/gif-centering-dialog";
-import Spinner3D from "@/components/layouts/spinner-3d";
+import CropImageDialog from "@/components/layouts/dialogs/crop-image-dialog";
+import GifCenteringDialog from "@/components/layouts/dialogs/gif-centering-dialog";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { useToast } from "@/lib/gooey-toast";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";

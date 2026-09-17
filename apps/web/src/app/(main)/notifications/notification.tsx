@@ -20,7 +20,7 @@ import {
 import Link from "next/link";
 import type React from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import kyInstance from "@/lib/ky";
 import { cn, formatRelativeDate } from "@/lib/utils";
 

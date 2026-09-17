@@ -5,7 +5,7 @@ import Link from "next/link";
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import ScrollUpButton from "@/components/layouts/scroll-up-button";
+import ScrollUpButton from "@/components/layouts/navigation/scroll-up-button";
 import { cn } from "@/lib/utils";
 
 // Shared shell for the two legal documents (Privacy Policy, Terms of Service).

@@ -7,7 +7,7 @@ import { Clapperboard } from "lucide-react";
 import { Fragment, useCallback } from "react";
 
 import GustRowCard from "@/components/gusts/gust-row-card";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import kyInstance from "@/lib/ky";

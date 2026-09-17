@@ -17,23 +17,23 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import Comments from "@/components/comments/comments";
+import Comments from "@/components/comments/thread/comments";
 import {
   CommunityAttribution,
   CommunityShareCard,
-} from "@/components/communities/community-attribution";
-import FollowButton from "@/components/layouts/follow-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import UserTooltip from "@/components/layouts/user-tooltip";
-import AuraVoteButton from "@/components/posts/aura-vote-button";
-import BookmarkButton from "@/components/posts/bookmark-button";
-import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import PostLinkEmbeds from "@/components/posts/link-embeds";
-import ModeratedNotice from "@/components/posts/moderated-notice";
-import PostLinkedContent from "@/components/posts/post-linked-content";
-import PostMoreButton from "@/components/posts/post-more-button";
-import ViewTracker from "@/components/posts/view-counter";
+} from "@/components/communities/card/community-attribution";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import UserTooltip from "@/components/layouts/user/user-tooltip";
+import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
+import BookmarkButton from "@/components/posts/actions/bookmark-button";
+import PostMoreButton from "@/components/posts/actions/post-more-button";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import ViewTracker from "@/components/posts/effects/view-counter";
+import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
 import { communityAccentStyle } from "@/lib/communities/accent";

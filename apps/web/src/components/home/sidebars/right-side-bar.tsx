@@ -16,15 +16,15 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import UserReasonLine from "@/components/discover/user-reason-line";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
-import FollowButton from "@/components/layouts/follow-button";
-import SearchField from "@/components/layouts/search-field";
-import SidebarFooterLinks from "@/components/layouts/sidebar-footer-links";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import SearchField from "@/components/layouts/navigation/search-field";
+import SidebarFooterLinks from "@/components/layouts/shell/sidebar-footer-links";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";

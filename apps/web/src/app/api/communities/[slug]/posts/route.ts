@@ -1,4 +1,5 @@
 import {
+  canViewCommunity,
   getCommunityBySlug,
   getCommunityFeedPage,
   hydrateViewCounts,
@@ -26,6 +27,12 @@ export async function GET(
   try {
     const community = await getCommunityBySlug(slug);
     if (!community) {
+      return Response.json({ error: "Community not found" }, { status: 404 });
+    }
+
+    // PRIVATE communities are readable only by approved members; answer 404
+    // rather than 403 so a guessed slug cannot even confirm existence.
+    if (!(await canViewCommunity(community, userId))) {
       return Response.json({ error: "Community not found" }, { status: 404 });
     }
 

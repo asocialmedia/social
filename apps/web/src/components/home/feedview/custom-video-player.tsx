@@ -24,7 +24,7 @@ import { AnimatePresence, motion } from "motion/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import Spinner3D from "@/components/layouts/spinner-3d";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import {
   parseWebVttCues,
   splitTranscriptIntoTimedLines,

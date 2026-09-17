@@ -1,4 +1,5 @@
 import {
+  communityVisibilityWhere,
   encodeTrendingCursor,
   fetchTrendingSnapshotPage,
   getPostDataInclude,
@@ -28,9 +29,13 @@ export async function GET(request: Request) {
   // order-by-a-mutating-column pagination had. Anything that went missing
   // from Postgres (deleted/moderated since publish) is filtered here and its
   // slot simply advances the cursor.
-  const where: Prisma.PostWhereInput = excludeModerated
-    ? { isGust: false, moderated: false, rootPostId: null }
-    : { isGust: false, rootPostId: null };
+  const where: Prisma.PostWhereInput = {
+    ...(excludeModerated
+      ? { isGust: false, moderated: false, rootPostId: null }
+      : { isGust: false, rootPostId: null }),
+    // A private-community post must never trend to someone who cannot read it.
+    ...communityVisibilityWhere(userId),
+  };
 
   let data: PostsPage | null = null;
   try {
@@ -45,7 +50,12 @@ export async function GET(request: Request) {
         // Gusts and responses must never surface here even if the worker
         // snapshotted one: the live fallback excludes them, so the snapshot
         // path must too.
-        where: { id: { in: ids }, isGust: false, rootPostId: null },
+        where: {
+          id: { in: ids },
+          isGust: false,
+          rootPostId: null,
+          ...communityVisibilityWhere(userId),
+        },
       });
       const byId = new Map(rows.map((row) => [row.id, row]));
 

@@ -34,8 +34,8 @@ import type React from "react";
 import { useCallback, useSyncExternalStore } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { JoinedCommunitiesRail } from "@/components/communities/joined-communities-rail";
-import Spinner3D from "@/components/layouts/spinner-3d";
+import { JoinedCommunitiesRail } from "@/components/communities/rails/joined-communities-rail";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
