@@ -80,19 +80,30 @@ function openMessageStream(response: Response): ReadableStream<Uint8Array> {
 
 // Decides whether a (re)connect should trigger a catch-up refetch. Guards
 // against the fetch-overwrite race that made the transcript look different on
-// every open: an in-flight fetch must not be duplicated, and freshly written
-// data (mount fetch, recent SSE fold) needs no catch-up. Pure so the policy
-// is unit-tested independently of the stream.
+// every open: an in-flight fetch must never be duplicated.
+//
+// The recent-data age gate applies ONLY to the initial connection, where the
+// mount fetch (or a just-folded SSE event for this same stream) already covers
+// the window. The stream has no replay cursor, so a genuine reconnect can have
+// missed an arbitrary `message.created`/`message.deleted` during the gap -
+// no matter how recently the cache was written - and must always reconcile.
+// Reconnect catch-up is therefore independent of `dataUpdatedAt`; the in-flight
+// guard is what keeps it from stacking a second GET. Pure so the policy is
+// unit-tested independently of the stream.
 const CATCH_UP_MIN_AGE_MS = 10_000;
 
 export function shouldCatchUp(params: {
   dataUpdatedAt: number;
   isFetching: boolean;
+  isReconnect?: boolean;
   minAgeMs?: number;
   now: number;
 }): boolean {
   if (params.isFetching) {
     return false;
+  }
+  if (params.isReconnect) {
+    return true;
   }
   if (params.dataUpdatedAt <= 0) {
     return true;
@@ -127,7 +138,10 @@ export function parseServerSentFrame(rawEvent: string): {
 // conversation. The caller decides how to fold each event into its query
 // cache, so this stays reusable across the thread view and any future UI.
 // `onConnect` fires on every (re)connect so the caller can catch up on
-// events missed while the stream was down (mobile network drops).
+// events missed while the stream was down (mobile network drops). It receives
+// `isReconnect`, false only for the first greeting of this stream instance, so
+// the caller can tell the initial connect (already covered by the mount fetch)
+// apart from a real reconnect that may have missed events.
 export function useMessagesRealtime(
   conversationId: string,
   onEvent: (event: {
@@ -137,7 +151,7 @@ export function useMessagesRealtime(
     userId?: string;
   }) => void,
   enabled = true,
-  onConnect?: () => void
+  onConnect?: (isReconnect: boolean) => void
 ): { connected: boolean } {
   const { user } = useSession();
   // A stable id keeps the stream effect from tearing down and reconnecting
@@ -162,6 +176,9 @@ export function useMessagesRealtime(
     let controller: AbortController | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = INITIAL_RETRY_MS;
+    // First greeting of this stream instance (per conversation + effect run);
+    // every later one is a reconnect that may have a delivery gap.
+    let hasConnected = false;
 
     const handleRawEvent = (rawEvent: string) => {
       const { data, eventType } = parseServerSentFrame(rawEvent);
@@ -170,7 +187,9 @@ export function useMessagesRealtime(
       // carries no message data, but it is the signal to refetch and catch
       // up on anything published while the stream was down.
       if (eventType === "connected") {
-        onConnectRef.current?.();
+        const isReconnect = hasConnected;
+        hasConnected = true;
+        onConnectRef.current?.(isReconnect);
         return;
       }
 

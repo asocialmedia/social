@@ -4,10 +4,15 @@
 --
 -- Locking: ADD COLUMN with a NULL default is metadata-only. The FK is added
 -- NOT VALID so it does not scan/lock the existing table, then validated under
--- SHARE UPDATE EXCLUSIVE (concurrent reads and writes are unaffected). The
--- index is built last; on a very large `post_media` in production, run the
--- CREATE INDEX CONCURRENTLY variant out of band instead (it cannot run inside
--- a migration transaction).
+-- SHARE UPDATE EXCLUSIVE (concurrent reads and writes are unaffected).
+--
+-- The index is built CONCURRENTLY so a large `post_media` is never write-locked
+-- for the duration of the build. Because PostgreSQL forbids CONCURRENTLY inside
+-- a transaction block, this whole file MUST be applied outside one. This repo
+-- applies schema SQL through `prisma db execute` (see docker/prisma-sync.sh),
+-- which runs statements without a wrapping transaction, so the concurrent build
+-- is valid here. It would NOT be valid under `prisma migrate deploy`, which
+-- wraps each migration in a transaction; do not move this file to that path.
 ALTER TABLE "post_media" ADD COLUMN IF NOT EXISTS "messageConversationId" TEXT;
 
 DO $$
@@ -28,5 +33,5 @@ $$;
 ALTER TABLE "post_media"
   VALIDATE CONSTRAINT "post_media_messageConversationId_fkey";
 
-CREATE INDEX IF NOT EXISTS "post_media_messageConversationId_idx"
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "post_media_messageConversationId_idx"
   ON "post_media"("messageConversationId");

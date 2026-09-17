@@ -331,12 +331,18 @@ export function MessageThread({
   // in-flight ids, so over-calling is harmless.
   const requestDecrypt = useCallback(
     (message: MessageData | undefined) => {
-      if (!message) {
+      // Hold the request until the thread's prerequisites exist. Queueing
+      // before then makes getBaseKey resolve null, which the decryptor records
+      // as a terminal "error" and the row briefly renders a Retry button
+      // instead of its loading skeleton (the key-healing effect clears it, so
+      // this is only a transient flicker). The request effect re-runs once
+      // these dependencies arrive, so nothing is lost by returning early.
+      if (!message || !detail || !rootKeyStore || !userId) {
         return;
       }
       messageDecryptor.request([toDecryptItem(message)], { getBaseKey });
     },
-    [getBaseKey, toDecryptItem]
+    [detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
   );
 
   // Healed keys (re-provisioned identity, first wrapped-key post) must retry
@@ -563,24 +569,31 @@ export function MessageThread({
     handleEvent,
     Boolean(user),
     // Catch up on messages published while the stream was down (mobile
-    // network drops). Guarded so a reconnect never stacks a refetch on top of
-    // an in-flight one or on top of freshly written data — overlapping
-    // responses can land out of order and leave a stale page on screen.
-    useCallback(() => {
-      const state = queryClient.getQueryState(["messages", conversationId]);
-      if (
-        !shouldCatchUp({
-          dataUpdatedAt: state?.dataUpdatedAt ?? 0,
-          isFetching: state?.fetchStatus === "fetching",
-          now: Date.now(),
-        })
-      ) {
-        return;
-      }
-      void queryClient.invalidateQueries({
-        queryKey: ["messages", conversationId],
-      });
-    }, [conversationId, queryClient])
+    // network drops). The in-flight guard stops a reconnect from stacking a
+    // refetch on top of one already running (overlapping responses can land
+    // out of order and leave a stale page on screen). A real reconnect
+    // reconciles regardless of cache age: the stream has no replay cursor, so
+    // a gap may exist even if data was written moments ago; only the initial
+    // connect leans on the mount fetch and skips on recently written data.
+    useCallback(
+      (isReconnect: boolean) => {
+        const state = queryClient.getQueryState(["messages", conversationId]);
+        if (
+          !shouldCatchUp({
+            dataUpdatedAt: state?.dataUpdatedAt ?? 0,
+            isFetching: state?.fetchStatus === "fetching",
+            isReconnect,
+            now: Date.now(),
+          })
+        ) {
+          return;
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ["messages", conversationId],
+        });
+      },
+      [conversationId, queryClient]
+    )
   );
 
   // Clear the typing timer when the thread unmounts.

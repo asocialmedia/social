@@ -63,6 +63,31 @@ describe("shouldCatchUp", () => {
     ).toBe(true);
   });
 
+  test("always reconciles on reconnect, even with freshly written data", () => {
+    // The stream has no replay cursor, so a reconnect can have missed an event
+    // during the gap regardless of how recently the cache was written.
+    expect(
+      shouldCatchUp({
+        dataUpdatedAt: now - 2000,
+        isFetching: false,
+        isReconnect: true,
+        now,
+      })
+    ).toBe(true);
+  });
+
+  test("still skips a reconnect while a fetch is already in flight", () => {
+    // The in-flight guard is what prevents the overwrite race on reconnect.
+    expect(
+      shouldCatchUp({
+        dataUpdatedAt: 0,
+        isFetching: true,
+        isReconnect: true,
+        now,
+      })
+    ).toBe(false);
+  });
+
   test("honours a custom minimum age", () => {
     expect(
       shouldCatchUp({

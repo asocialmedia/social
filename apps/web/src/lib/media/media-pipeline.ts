@@ -463,34 +463,55 @@ export async function createInitiatedUpload(input: {
         // Bind the in-flight row to this thread so the peer can fetch it
         // once the pipeline publishes. Post drafts bind via postId later,
         // which takes precedence in the access decision.
+        //
+        // The claim is a conditional update, not a blind write: two concurrent
+        // sends of the same file to different conversations can both read this
+        // row as unattached, and an unconditional update would let the last
+        // writer silently steal recipient access from the first. Only a row
+        // that is still unattached (or already ours) can be claimed. When the
+        // claim affects no row, another conversation won it, or the update
+        // failed: either way we must NOT hand back this mediaId, because the
+        // peer would fail the conversation-access check. Fall through and let
+        // a fresh row be created for this conversation instead.
+        let claimed = !messageConversationId;
         if (messageConversationId) {
           try {
-            await prisma.media.update({
+            const result = await prisma.media.updateMany({
               data: {
                 messageConversationId,
                 ...(width ? { width } : {}),
                 ...(height ? { height } : {}),
               },
-              where: { id: existing.id },
+              where: {
+                OR: [
+                  { messageConversationId: null },
+                  { messageConversationId },
+                ],
+                id: existing.id,
+              },
             });
+            claimed = result.count > 0;
           } catch (error) {
             console.error("Failed to link in-flight media:", error);
+            claimed = false;
           }
         }
-        if (purpose !== "message") {
-          try {
-            await scheduleMediaCleanup(existing.id);
-          } catch (error) {
-            console.error("Failed to schedule media cleanup:", error);
+        if (claimed) {
+          if (purpose !== "message") {
+            try {
+              await scheduleMediaCleanup(existing.id);
+            } catch (error) {
+              console.error("Failed to schedule media cleanup:", error);
+            }
           }
+          return {
+            deduplicated: true,
+            extension: sanitizeExtension(extensionGuess),
+            mediaId: existing.id,
+            status: existing.status,
+            uploadUrl: null,
+          };
         }
-        return {
-          deduplicated: true,
-          extension: sanitizeExtension(extensionGuess),
-          mediaId: existing.id,
-          status: existing.status,
-          uploadUrl: null,
-        };
       }
     }
   }

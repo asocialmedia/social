@@ -240,11 +240,16 @@ export function MessageComposer({
           }
         : { content, type: "text" as const };
       const ok = await sendPayload(payload);
-      // Return focus to the input so the user can keep typing without
-      // clicking back in. preventScroll keeps the just-scrolled transcript
-      // from being yanked by the browser focusing the composer.
+      // Clear the sending flag BEFORE focusing: the textarea is disabled while
+      // `busy`, and a disabled element cannot receive focus, so focusing first
+      // was a no-op. The frame callback then runs after React has re-enabled
+      // it, so the caret actually lands. preventScroll keeps the just-scrolled
+      // transcript from being yanked by the browser focusing the composer.
+      setSending(false);
       if (ok) {
-        textareaRef.current?.focus({ preventScroll: true });
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus({ preventScroll: true });
+        });
       }
     } catch (error) {
       // Reset before rethrowing so the sending flag clears on the failure
@@ -252,7 +257,6 @@ export function MessageComposer({
       setSending(false);
       throw error;
     }
-    setSending(false);
   }, [peer, privateKey, replyTarget, sendPayload, sending, text, user]);
 
   const handleSendMedia = useCallback(

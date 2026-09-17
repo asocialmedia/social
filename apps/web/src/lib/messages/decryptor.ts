@@ -190,14 +190,21 @@ export function createDecryptor(
     if (!baseKey) {
       baseKey = lastKeys.getBaseKey(item.conversationId);
       baseKeys.set(item.conversationId, baseKey);
-      // A rejected unwrap must not poison the cache forever.
+      // Neither a rejected unwrap nor a resolved `null` may poison the cache
+      // forever. `null` means the key is not available *yet* (identity still
+      // provisioning, first wrapped key not in), so caching it would keep every
+      // later request in terminal "error" even after the key arrives and
+      // clearErrors()/retry() are called. Drop the entry so the next request
+      // retries; the identity check avoids deleting a newer promise.
       void (async () => {
+        let resolved: CryptoKey | null = null;
         try {
-          await baseKey;
+          resolved = await baseKey;
         } catch {
-          if (baseKeys.get(item.conversationId) === baseKey) {
-            baseKeys.delete(item.conversationId);
-          }
+          resolved = null;
+        }
+        if (!resolved && baseKeys.get(item.conversationId) === baseKey) {
+          baseKeys.delete(item.conversationId);
         }
       })();
     }

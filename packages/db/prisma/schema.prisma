@@ -122,14 +122,14 @@ model MessageIdentity {
 }
 
 model MessageConversation {
-  id        String                      @id @default(cuid())
-  pairKey   String?                     @unique
-  members   MessageConversationMember[]
-  keys      MessageConversationKey[]
-  messages  Message[]
+  id           String                      @id @default(cuid())
+  pairKey      String?                     @unique
+  members      MessageConversationMember[]
+  keys         MessageConversationKey[]
+  messages     Message[]
   messageMedia Media[]
-  createdAt DateTime                    @default(now())
-  updatedAt DateTime                    @updatedAt
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
 
   @@map("message_conversations")
 }
@@ -563,74 +563,70 @@ enum CommunityMemberStatus {
 }
 
 model Media {
-  id                   String           @id @default(cuid())
-  postId               String?
-  post                 Post?            @relation(fields: [postId], references: [id], onDelete: SetNull)
-  commentId            String?
-  comment              Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  // Conversation a message attachment belongs to. Set at upload initiation
-  // (purpose "message") so the media serving route can admit the peer via
-  // conversation membership instead of owner-only access. Null for every
-  // other media flavor.
+  id                    String               @id @default(cuid())
+  postId                String?
+  post                  Post?                @relation(fields: [postId], references: [id], onDelete: SetNull)
+  commentId             String?
+  comment               Comment?             @relation(fields: [commentId], references: [id], onDelete: Cascade)
   messageConversationId String?
   messageConversation   MessageConversation? @relation(fields: [messageConversationId], references: [id], onDelete: SetNull)
-  userId               String?
-  avatarOf             User?            @relation("UserAvatar")
-  bannerOf             User?            @relation("UserBanner")
-  communityAvatarOf    Community?       @relation("CommunityAvatar")
-  communityBannerOf    Community?       @relation("CommunityBanner")
-  url                  String
-  key                  String           @default("")
-  mimeType             String           @default("application/octet-stream")
-  type                 MediaType        @default(IMAGE)
-  size                 Int              @default(0)
-  width                Int?
-  height               Int?
-  thumbnailKey         String?
-  thumbnailWidth       Int?
-  thumbnailHeight      Int?
-  customThumbnailKey   String?
-  hasHls               Boolean          @default(false)
-  createdAt            DateTime         @default(now())
-  status               MediaStatus      @default(UPLOADING)
-  visibility           MediaVisibility  @default(PUBLIC)
-  originalKey          String?
-  publishedKey         String?
-  claimedMime          String?
-  detectedMime         String?
-  originalName         String?
-  sha256               String?
-  phash                String?
-  rejectedReason       RejectionReason?
-  failureCode          String?
-  failureDetail        Json?
-  attempts             Int              @default(0)
-  techMetadata         Json?
-  exifStripped         Boolean          @default(false)
-  altText              String?
-  generatedAltText     String?
-  ocrText              String?
-  transcript           String?
-  captionsKey          String?
-  semanticTags         String[]         @default([])
-  safety               Json?
-  semantics            Json?
-  aiGenerated          Boolean?
-  aiProvenance         Json?
-  pipelineVersion      String?
-  processedAt          DateTime?
-  audioOverlayId       String?          @unique
-  audioOverlay         Media?           @relation("AudioOverlay", fields: [audioOverlayId], references: [id], onDelete: SetNull)
-  audioOverlayFor      Media[]          @relation("AudioOverlay")
-  updatedAt            DateTime         @default(now()) @updatedAt
-  blurDataUrl          String?
-  platform             String           @default("asocialmedia.cc")
-  uploaderDisplayName  String?
-  uploaderUsername     String?
-  encoderVersion       String?
-  duplicateOf          String?
-  originalProvenanceId String?
-  reShareChecked       Boolean          @default(false)
+  userId                String?
+  avatarOf              User?                @relation("UserAvatar")
+  bannerOf              User?                @relation("UserBanner")
+  communityAvatarOf     Community?           @relation("CommunityAvatar")
+  communityBannerOf     Community?           @relation("CommunityBanner")
+  url                   String
+  key                   String               @default("")
+  mimeType              String               @default("application/octet-stream")
+  type                  MediaType            @default(IMAGE)
+  size                  Int                  @default(0)
+  width                 Int?
+  height                Int?
+  thumbnailKey          String?
+  thumbnailWidth        Int?
+  thumbnailHeight       Int?
+  customThumbnailKey    String?
+  hasHls                Boolean              @default(false)
+  createdAt             DateTime             @default(now())
+  status                MediaStatus          @default(UPLOADING)
+  visibility            MediaVisibility      @default(PUBLIC)
+  originalKey           String?
+  publishedKey          String?
+  claimedMime           String?
+  detectedMime          String?
+  originalName          String?
+  sha256                String?
+  phash                 String?
+  rejectedReason        RejectionReason?
+  failureCode           String?
+  failureDetail         Json?
+  attempts              Int                  @default(0)
+  techMetadata          Json?
+  exifStripped          Boolean              @default(false)
+  altText               String?
+  generatedAltText      String?
+  ocrText               String?
+  transcript            String?
+  captionsKey           String?
+  semanticTags          String[]             @default([])
+  safety                Json?
+  semantics             Json?
+  aiGenerated           Boolean?
+  aiProvenance          Json?
+  pipelineVersion       String?
+  processedAt           DateTime?
+  audioOverlayId        String?              @unique
+  audioOverlay          Media?               @relation("AudioOverlay", fields: [audioOverlayId], references: [id], onDelete: SetNull)
+  audioOverlayFor       Media[]              @relation("AudioOverlay")
+  updatedAt             DateTime             @default(now()) @updatedAt
+  blurDataUrl           String?
+  platform              String               @default("asocialmedia.cc")
+  uploaderDisplayName   String?
+  uploaderUsername      String?
+  encoderVersion        String?
+  duplicateOf           String?
+  originalProvenanceId  String?
+  reShareChecked        Boolean              @default(false)
 
   derivatives MediaDerivative[]
 
