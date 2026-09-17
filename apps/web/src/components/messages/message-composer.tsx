@@ -239,7 +239,13 @@ export function MessageComposer({
             type: "text" as const,
           }
         : { content, type: "text" as const };
-      await sendPayload(payload);
+      const ok = await sendPayload(payload);
+      // Return focus to the input so the user can keep typing without
+      // clicking back in. preventScroll keeps the just-scrolled transcript
+      // from being yanked by the browser focusing the composer.
+      if (ok) {
+        textareaRef.current?.focus({ preventScroll: true });
+      }
     } catch (error) {
       // Reset before rethrowing so the sending flag clears on the failure
       // path too (replaces the previous `finally` clause).
@@ -278,6 +284,8 @@ export function MessageComposer({
     [sendPayload, sending, sendingMedia]
   );
 
+  const conversationId = conversation.conversation.id;
+
   const handleFileSelected = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -294,7 +302,7 @@ export function MessageComposer({
         return;
       }
       try {
-        const media = await uploadMessageMedia(file, "image");
+        const media = await uploadMessageMedia(file, "image", conversationId);
         await handleSendMedia(media);
       } catch {
         toast({
@@ -304,7 +312,7 @@ export function MessageComposer({
         });
       }
     },
-    [handleSendMedia]
+    [conversationId, handleSendMedia]
   );
 
   const handleGifSelect = useCallback(
@@ -320,7 +328,7 @@ export function MessageComposer({
         const file = new File([blob], `${gif.slug || "gif"}.gif`, {
           type: "image/gif",
         });
-        const media = await uploadMessageMedia(file, "gif");
+        const media = await uploadMessageMedia(file, "gif", conversationId);
         await handleSendMedia(media);
       } catch {
         toast({
@@ -330,7 +338,7 @@ export function MessageComposer({
         });
       }
     },
-    [handleSendMedia]
+    [conversationId, handleSendMedia]
   );
 
   const handleKeyDown = useCallback(
@@ -460,6 +468,10 @@ export function MessageComposer({
           onClick={() => {
             void handleSend();
           }}
+          // Keep the textarea focused through the click: mousedown would
+          // otherwise blur it first, leaving the input inactive after send
+          // (and dropping the mobile keyboard).
+          onMouseDown={(event) => event.preventDefault()}
           type="button"
         >
           {sending ? (

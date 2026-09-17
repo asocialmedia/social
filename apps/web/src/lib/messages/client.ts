@@ -7,7 +7,6 @@ import type {
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 
 import {
-  decryptMessage,
   encryptMessage,
   generateRootKey,
   publicKeyBase64ToJwk,
@@ -233,22 +232,52 @@ export interface MessageMediaUpload {
 
 export async function uploadMessageMedia(
   file: File,
-  kind: "gif" | "image"
+  kind: "gif" | "image",
+  conversationId: string
 ): Promise<MessageMediaUpload> {
   // Message attachments live inside E2EE ciphertext and can't be linked to a
   // post, so the pipeline skips post-linking; they still go through the full
   // scan -> publish lifecycle. The stored URL is the app proxy path, never a
-  // raw object-storage address.
-  const result = await uploadMediaFile(file, { purpose: "message" });
+  // raw object-storage address. The row is bound to the conversation so the
+  // peer passes the serving gate; natural dimensions ride along in the
+  // encrypted payload so receivers reserve the bubble box up front.
+  const dimensions = await readImageDimensions(file);
+  const result = await uploadMediaFile(file, {
+    height: dimensions?.height ?? null,
+    messageConversationId: conversationId,
+    purpose: "message",
+    width: dimensions?.width ?? null,
+  });
   if (result.status === "REJECTED") {
     throw new Error("Attachment was rejected by moderation scanning");
   }
   return {
-    height: null,
+    height: dimensions?.height ?? null,
     kind,
     url: `/api/media/${result.mediaId}`,
-    width: null,
+    width: dimensions?.width ?? null,
   };
+}
+
+// Natural image dimensions from the file's first frame, so the sender can
+// encrypt them into the payload and receivers avoid layout shift. Null when
+// the browser cannot decode the file; bubbles fall back to a fixed ratio.
+async function readImageDimensions(
+  file: File
+): Promise<{ height: number; width: number } | null> {
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(file);
+      const dimensions = { height: bitmap.height, width: bitmap.width };
+      bitmap.close();
+      if (dimensions.width > 0 && dimensions.height > 0) {
+        return dimensions;
+      }
+    }
+  } catch {
+    // Decoding failures surface at upload/scan time; dimensions stay unknown.
+  }
+  return null;
 }
 
 export async function sendEncryptedMessage(
@@ -512,13 +541,4 @@ export async function ensureConversationKeys(
     { encryptedKey: wrapped, ownerUserId: peer.userId },
   ]);
   return rootKey;
-}
-
-export function decryptMessagePayload(
-  rootKey: Uint8Array,
-  senderId: string,
-  conversationId: string,
-  message: Pick<MessageData, "ciphertext" | "iv" | "ratchetIndex">
-): Promise<MessagePayload> {
-  return decryptMessage(rootKey, senderId, conversationId, message);
 }

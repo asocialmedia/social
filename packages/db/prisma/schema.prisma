@@ -127,6 +127,7 @@ model MessageConversation {
   members   MessageConversationMember[]
   keys      MessageConversationKey[]
   messages  Message[]
+  messageMedia Media[]
   createdAt DateTime                    @default(now())
   updatedAt DateTime                    @updatedAt
 
@@ -567,6 +568,12 @@ model Media {
   post                 Post?            @relation(fields: [postId], references: [id], onDelete: SetNull)
   commentId            String?
   comment              Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  // Conversation a message attachment belongs to. Set at upload initiation
+  // (purpose "message") so the media serving route can admit the peer via
+  // conversation membership instead of owner-only access. Null for every
+  // other media flavor.
+  messageConversationId String?
+  messageConversation   MessageConversation? @relation(fields: [messageConversationId], references: [id], onDelete: SetNull)
   userId               String?
   avatarOf             User?            @relation("UserAvatar")
   bannerOf             User?            @relation("UserBanner")
@@ -628,6 +635,7 @@ model Media {
   derivatives MediaDerivative[]
 
   @@index([commentId])
+  @@index([messageConversationId])
   @@index([status])
   @@index([sha256])
   @@index([phash])

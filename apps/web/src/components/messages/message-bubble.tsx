@@ -9,6 +9,7 @@ import {
 import {
   Check,
   Copy,
+  ImageOff,
   MessageSquareQuote,
   MoreHorizontal,
   Trash2,
@@ -22,6 +23,7 @@ import { deleteMessage } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { cn, formatRelativeDate } from "@/lib/utils";
+import { getMessageMediaVariantUrl } from "@/lib/utils/image-url";
 
 import { PostEmbed } from "./post-embed";
 
@@ -120,23 +122,7 @@ export function MessageBubble({
       );
     }
     if (content.type === "media") {
-      return (
-        <div
-          className={cn(
-            "max-w-full overflow-hidden rounded-lg",
-            mine ? "bg-black/15" : "bg-muted/40"
-          )}
-        >
-          <Image
-            alt={content.kind === "gif" ? "GIF" : "Shared image"}
-            className="h-auto max-h-72 w-full max-w-full object-contain"
-            height={content.height ?? 200}
-            src={content.url}
-            unoptimized={content.kind === "gif"}
-            width={content.width ?? 280}
-          />
-        </div>
-      );
+      return <MediaContent content={content} mine={mine} />;
     }
     return <PostEmbed postId={content.postId} mine={mine} />;
   }
@@ -337,6 +323,108 @@ export function MessageBubble({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Message attachment renderer. The box has a DEFINITE width (w-64) and a
+// payload-derived aspect ratio, so it can never collapse the way a
+// content-sized flex child with an absolutely-positioned image does. Sources
+// prefer the pipeline's optimized derivative and fall back to the original on
+// error; a failed load shows a retry affordance instead of an invisible box.
+function MediaContent({
+  content,
+  mine,
+}: {
+  content: Extract<MessagePayload, { type: "media" }>;
+  mine: boolean;
+}) {
+  const originalUrl = content.url;
+  const variantUrl =
+    content.kind === "image"
+      ? getMessageMediaVariantUrl(originalUrl, content.width)
+      : null;
+  const [src, setSrc] = useState(variantUrl ?? originalUrl);
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">(
+    "loading"
+  );
+  const [attempt, setAttempt] = useState(0);
+
+  // A payload's media URL is immutable for a given message id (the decryptor
+  // caches the parsed payload), so state is initialized once and the caller
+  // keys this component by URL; no prop-sync effect is needed.
+
+  const handleError = useCallback(() => {
+    // One automatic fallback: variant -> original. If the original also
+    // fails, surface a retry rather than leaving an empty box.
+    if (src !== originalUrl) {
+      setSrc(originalUrl);
+      return;
+    }
+    setStatus("error");
+  }, [originalUrl, src]);
+
+  const retry = useCallback(() => {
+    setStatus("loading");
+    setAttempt((value) => value + 1);
+  }, []);
+
+  // Reserve the real aspect ratio (captured at upload and carried in the
+  // payload); legacy payloads without dimensions fall back to 4/3.
+  const aspectRatio =
+    content.width && content.height
+      ? `${content.width} / ${content.height}`
+      : "4 / 3";
+
+  return (
+    <div
+      className={cn(
+        "relative w-64 max-w-full overflow-hidden rounded-lg",
+        mine ? "bg-black/15" : "bg-muted/40"
+      )}
+      style={{ aspectRatio }}
+    >
+      {status === "loading" ? (
+        <div className="bg-muted/60 absolute inset-0 animate-pulse" />
+      ) : null}
+
+      {status === "error" ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center">
+          <ImageOff className="text-muted-foreground h-5 w-5" />
+          <span className="text-muted-foreground text-xs">
+            Couldn&apos;t load image
+          </span>
+          <button
+            className={cn(
+              "text-xs font-medium hover:underline",
+              mine ? "text-white" : "text-primary"
+            )}
+            onClick={retry}
+            type="button"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <Image
+          alt={content.kind === "gif" ? "GIF" : "Shared image"}
+          className={cn(
+            "absolute inset-0 h-full w-full object-contain transition-opacity duration-200",
+            status === "loaded" ? "opacity-100" : "opacity-0"
+          )}
+          fill
+          key={attempt}
+          onError={handleError}
+          onLoad={() => setStatus("loaded")}
+          sizes="(max-width: 640px) 80vw, 256px"
+          src={src}
+          // Message attachments are session-gated (/api/media enforces
+          // membership), and the Image Optimization fetch runs server-side
+          // without the viewer's cookies, so it can never retrieve them.
+          // Sources are pre-sized pipeline derivatives instead.
+          unoptimized
+        />
+      )}
     </div>
   );
 }

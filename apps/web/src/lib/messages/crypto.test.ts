@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   decryptMessage,
+  decryptMessageWithBaseKey,
   decryptWithMasterKey,
   deriveMasterKey,
   deriveMessageKey,
@@ -16,6 +17,7 @@ import {
   hashAccountSecret,
   importPrivateKeyJwk,
   importPublicKeyJwk,
+  importRatchetBaseKey,
   publicKeyBase64ToJwk,
   publicKeyJwkToBase64,
   unwrapRootKey,
@@ -353,6 +355,185 @@ describe("message ratchet", () => {
     };
     await expect(
       decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("media payload with a same-origin /api/media url round-trips", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc",
+      width: 320,
+    });
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual({
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc",
+      width: 320,
+    });
+  });
+
+  test("media payload with a derivative variant url round-trips", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc/v/md-webp.webp",
+      width: 704,
+    });
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual({
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc/v/md-webp.webp",
+      width: 704,
+    });
+  });
+
+  // Built at runtime so the no-script-url lint rule cannot flag the literal.
+  const JS_URL = ["javascript", "alert(1)"].join(":");
+  test.each([
+    JS_URL,
+    "data:image/png;base64,abcd",
+    "//cdn.example.com/a.png",
+    "/api/media/../../etc/passwd",
+    "/api/media/abc def",
+    "/api/media/abc\\def",
+    "/api/other/abc123",
+    "/api/media/",
+    "/api/media/cm123/v/../../etc/passwd",
+  ])("rejects a media payload with a hostile url (%s)", async (url) => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { height: 240, kind: "image", type: "media", url, width: 320 },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test.each([
+    { height: 0, width: 320 },
+    { height: -5, width: 320 },
+    { height: 240, width: 1.5 },
+    { height: 240, width: 999_999_999 },
+    { height: 240, width: "320" },
+  ])("rejects a media payload with hostile dimensions (%j)", async (dims) => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { ...dims, kind: "image", type: "media", url: "/api/media/cm123abc" },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("base-key path decrypts identically to the direct path", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 3, CONVO_ID, {
+      content: "base path check",
+      type: "text",
+    });
+    const baseKey = await importRatchetBaseKey(rootKey);
+    const viaBase = await decryptMessageWithBaseKey(
+      baseKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    const direct = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(viaBase).toEqual(direct);
+    expect(viaBase).toEqual({ content: "base path check", type: "text" });
+  });
+
+  test("base-key path decrypts a frozen pre-split ciphertext (known answer)", async () => {
+    // Frozen vector produced BEFORE the import/derive split, so a future
+    // change to the ratchet derivation (HKDF salt/info/length) fails here
+    // instead of silently making every historical message undecryptable.
+    // Both the one-shot and base-key paths must reproduce it.
+    const rootKey = base64ToBytes(
+      "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dw="
+    );
+    const frozen = {
+      ciphertext:
+        "JrRBa84+gpUImgX1XVkn3bIu8pecuDA7TuWDaoNIeO29M1etlr/I5+pGWpZ69EGUSM27T2Zdjtg=",
+      iv: "H59753OvR65ZUJf3",
+      ratchetIndex: 7,
+    };
+    const expected = { content: "known answer", type: "text" };
+    expect(await decryptMessage(rootKey, SENDER_ID, CONVO_ID, frozen)).toEqual(
+      expected
+    );
+    const baseKey = await importRatchetBaseKey(rootKey);
+    expect(
+      await decryptMessageWithBaseKey(baseKey, SENDER_ID, CONVO_ID, frozen)
+    ).toEqual(expected);
+  });
+
+  test("base-key path still enforces ratchet index and payload checks", async () => {
+    const rootKey = generateRootKey();
+    const baseKey = await importRatchetBaseKey(rootKey);
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      content: "hey bob",
+      type: "text",
+    });
+    await expect(
+      decryptMessageWithBaseKey(baseKey, SENDER_ID, CONVO_ID, {
+        ...encrypted,
+        ratchetIndex: 1,
+      })
+    ).rejects.toThrow();
+    const tampered = {
+      ...encrypted,
+      ciphertext: await encryptRaw(
+        {
+          kind: "image",
+          type: "media",
+          // Built at runtime so the no-script-url lint rule cannot flag it.
+          url: ["javascript", "alert(1)"].join(":"),
+        },
+        rootKey,
+        0,
+        encrypted.iv
+      ),
+    };
+    await expect(
+      decryptMessageWithBaseKey(baseKey, SENDER_ID, CONVO_ID, tampered)
     ).rejects.toThrow();
   });
 

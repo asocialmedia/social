@@ -7,9 +7,55 @@ import {
   getMediaProxyUrl,
   getMediaVariantUrl,
   getMediaVideoUrl,
+  getMessageMediaVariantUrl,
   getSecureImageUrl,
+  pickMessageImageVariant,
   toAppProxyUrl,
 } from "./image-url";
+
+describe("pickMessageImageVariant", () => {
+  test("picks the largest rung the source can actually produce", () => {
+    expect(pickMessageImageVariant(null)).toBe("thumb-webp.webp");
+    expect(pickMessageImageVariant()).toBe("thumb-webp.webp");
+    expect(pickMessageImageVariant(200)).toBe("thumb-webp.webp");
+    expect(pickMessageImageVariant(320)).toBe("thumb-webp.webp");
+    expect(pickMessageImageVariant(500)).toBe("thumb-webp.webp");
+    expect(pickMessageImageVariant(640)).toBe("sm-webp.webp");
+    expect(pickMessageImageVariant(704)).toBe("sm-webp.webp");
+    expect(pickMessageImageVariant(800)).toBe("md-webp.webp");
+    // Capped at md: chat bubbles never render wider than a few hundred px,
+    // and requesting a rung above the source would miss and waste the win.
+    expect(pickMessageImageVariant(1600)).toBe("md-webp.webp");
+  });
+});
+
+describe("getMessageMediaVariantUrl", () => {
+  test("rewrites our proxy paths to a sized derivative", () => {
+    expect(getMessageMediaVariantUrl("/api/media/cm123abc", 704)).toBe(
+      "/api/media/cm123abc/v/sm-webp.webp"
+    );
+    expect(getMessageMediaVariantUrl("/api/media/cm123abc", null)).toBe(
+      "/api/media/cm123abc/v/thumb-webp.webp"
+    );
+  });
+
+  test("tolerates a query string on the original path", () => {
+    expect(
+      getMessageMediaVariantUrl("/api/media/cm123abc?download=true", 800)
+    ).toBe("/api/media/cm123abc/v/md-webp.webp");
+  });
+
+  test("returns null for external or malformed urls", () => {
+    expect(
+      getMessageMediaVariantUrl("https://cdn.example.com/a.png", 500)
+    ).toBeNull();
+    expect(getMessageMediaVariantUrl("/api/other/abc", 500)).toBeNull();
+    expect(getMessageMediaVariantUrl("/api/media/", 500)).toBeNull();
+    expect(
+      getMessageMediaVariantUrl("/api/media/../../etc/passwd", 500)
+    ).toBeNull();
+  });
+});
 
 describe("getDefaultAvatar", () => {
   test("returns a valid default avatar URL", () => {
