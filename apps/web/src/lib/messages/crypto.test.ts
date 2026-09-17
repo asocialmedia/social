@@ -356,6 +356,58 @@ describe("message ratchet", () => {
     ).rejects.toThrow();
   });
 
+  test("media payload with a same-origin /api/media url round-trips", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc",
+      width: 320,
+    });
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual({
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc",
+      width: 320,
+    });
+  });
+
+  // Built at runtime so the no-script-url lint rule cannot flag the literal.
+  const JS_URL = ["javascript", "alert(1)"].join(":");
+  test.each([
+    JS_URL,
+    "data:image/png;base64,abcd",
+    "//cdn.example.com/a.png",
+    "/api/media/../../etc/passwd",
+    "/api/media/abc def",
+    "/api/media/abc\\def",
+    "/api/other/abc123",
+    "/api/media/",
+  ])("rejects a media payload with a hostile url (%s)", async (url) => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { height: 240, kind: "image", type: "media", url, width: 320 },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
   test("media round-trips through an offset Uint8Array view of the root key", async () => {
     const full = generateRootKey();
     // A subarray view exercises toBufferSource's copy path.

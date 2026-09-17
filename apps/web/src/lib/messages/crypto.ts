@@ -388,6 +388,16 @@ export async function decryptMessage(
 // A media payload must carry a supported kind and a URL that resolves to an
 // external scheme. Only https is accepted in production; http is tolerated for
 // localhost/loopback so local development against a local object store works.
+// Same-origin app proxy paths (/api/media/<id>) are also accepted: that is how
+// message attachments are stored (see uploadMessageMedia), and they resolve
+// against the recipient's own origin, so no cross-origin leak is possible.
+// Anything else (protocol-relative, javascript:, data:, path traversal) is
+// rejected because the URL comes from the peer's encrypted payload.
+// Relative paths are matched with a strict character class instead of the URL
+// constructor so `new URL` is never handed a scheme-relative input.
+const RELATIVE_MEDIA_PATH_RE =
+  /^\/api\/media\/[A-Za-z0-9_-]+(?:\?[A-Za-z0-9_=&%.-]+)?$/;
+
 function isValidMediaPayload(
   payload: Partial<Extract<MessagePayload, { type: "media" }>>
 ): boolean {
@@ -396,6 +406,9 @@ function isValidMediaPayload(
   }
   if (typeof payload.url !== "string") {
     return false;
+  }
+  if (RELATIVE_MEDIA_PATH_RE.test(payload.url)) {
+    return true;
   }
   let url: URL;
   try {
