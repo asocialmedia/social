@@ -9,6 +9,7 @@ import {
 import type { InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  ArrowDown,
   ArrowLeft,
   KeyRound,
   ShieldAlert,
@@ -51,6 +52,12 @@ import {
 } from "@/lib/messages/crypto";
 import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
 import { messageDecryptor } from "@/lib/messages/decryptor";
+import {
+  formatArrivalCount,
+  isNearBottom,
+  nextArrivalCount,
+  PINNED_THRESHOLD_PX,
+} from "@/lib/messages/scroll-state";
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
   findMyWrappedKey,
@@ -96,9 +103,17 @@ export function MessageThread({
     senderName?: string;
   } | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
+  // Whether the viewport is pinned to the newest message, and how many peer
+  // messages have arrived since it last was (the Telegram-style badge).
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const [arrivalCount, setArrivalCount] = useState(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirrors `pinnedToBottom` for reads inside event callbacks without stale
+  // closures. Kept in sync in one place (the scroll listener) so the two can
+  // never disagree.
+  const pinnedRef = useRef(true);
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -245,7 +260,9 @@ export function MessageThread({
     overscan: 8,
     paddingEnd: 8,
     paddingStart: 16,
-    scrollEndThreshold: 100,
+    // Same threshold the pinned tracker uses, so "follow new messages" and
+    // "show the jump badge" flip at exactly the same scroll position.
+    scrollEndThreshold: PINNED_THRESHOLD_PX,
     useFlushSync: false,
   });
 
@@ -344,6 +361,50 @@ export function MessageThread({
     rowVirtualizer.scrollToEnd();
   }, [detail, rowVirtualizer]);
 
+  // The landing above runs the moment `detail` resolves, when the first page
+  // of messages is usually still in flight — so it scrolls an empty list and
+  // the transcript then renders from the top. Re-pin once the first real
+  // content exists so opening or refreshing a thread always shows the newest
+  // message, regardless of which query settled first. The extra rAF re-pins
+  // after the first measurement pass corrects the estimated row heights,
+  // which otherwise leaves the view a little short of the true end.
+  const hasLandedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (hasLandedRef.current || allMessages.length === 0 || !detail) {
+      return;
+    }
+    hasLandedRef.current = true;
+    rowVirtualizer.scrollToEnd();
+    const frame = requestAnimationFrame(() => {
+      rowVirtualizer.scrollToEnd();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [allMessages.length, detail, rowVirtualizer]);
+
+  // Track the pinned state from actual scroll position. Passive listener with
+  // change-gated state writes, so scrolling never triggers a render storm.
+  // Becoming pinned clears the arrival badge (the user has caught up).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+    const measure = () => {
+      const pinned = isNearBottom(el);
+      if (pinned === pinnedRef.current) {
+        return;
+      }
+      pinnedRef.current = pinned;
+      setPinnedToBottom(pinned);
+      if (pinned) {
+        setArrivalCount(0);
+      }
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    return () => el.removeEventListener("scroll", measure);
+  }, [detail]);
+
   // Pull older history as the top of the loaded window nears the first
   // virtual row. Stable keys keep the viewport anchored on prepend.
   const { fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage } =
@@ -374,6 +435,16 @@ export function MessageThread({
     },
     [detail, requestDecrypt, rootKeyStore, userId]
   );
+
+  // Jump to the newest message and clear the badge. Optimistically marks the
+  // viewport pinned so followOnAppend resumes tracking immediately, without
+  // waiting for the smooth scroll to settle and fire a scroll event.
+  const jumpToBottom = useCallback(() => {
+    pinnedRef.current = true;
+    setPinnedToBottom(true);
+    setArrivalCount(0);
+    rowVirtualizer.scrollToEnd({ behavior: "smooth" });
+  }, [rowVirtualizer]);
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
@@ -457,6 +528,14 @@ export function MessageThread({
         if (message.senderId !== user?.id) {
           setPeerTyping(false);
           scheduleRead();
+          // Scrolled away from the bottom: surface how many arrived instead
+          // of yanking the viewport (Telegram behavior).
+          setArrivalCount((current) =>
+            nextArrivalCount(current, {
+              isOwn: false,
+              pinned: pinnedRef.current,
+            })
+          );
         }
       } else if (event.kind === "message.deleted") {
         queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
@@ -596,13 +675,39 @@ export function MessageThread({
             </div>
           </div>
         ) : null}
+
+        {!pinnedToBottom && allMessages.length > 0 ? (
+          <button
+            aria-label={
+              arrivalCount > 0
+                ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
+                : "Scroll to latest messages"
+            }
+            className="apple-panel motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
+            onClick={jumpToBottom}
+            title="Scroll to latest"
+            type="button"
+          >
+            <ArrowDown className="h-5 w-5" />
+            {arrivalCount > 0 ? (
+              <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
+                {formatArrivalCount(arrivalCount)}
+              </span>
+            ) : null}
+          </button>
+        ) : null}
       </div>
 
       <MessageComposer
         conversation={detail}
         replyTarget={replyTarget}
         onReplyCancel={() => setReplyTarget(null)}
-        onSent={() => scheduleRead()}
+        onSent={() => {
+          scheduleRead();
+          // Sending always returns the user to the newest message, even from
+          // mid-history, matching every mainstream chat client.
+          jumpToBottom();
+        }}
       />
     </div>
   );
