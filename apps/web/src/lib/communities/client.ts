@@ -78,6 +78,7 @@ export interface CommunityMemberRow {
   user: {
     aura: number;
     avatarUrl: string | null;
+    bannerUrl: string | null;
     displayName: string;
     id: string;
     username: string;
@@ -160,15 +161,41 @@ export function useCommunityQuery(slug: string) {
   });
 }
 
-export function useCommunityMembersQuery(slug: string, pending = false) {
+export type CommunityMemberSort = "role" | "aura";
+
+export interface CommunityMembersQueryOptions {
+  // Only members holding a role badge (owner/moderator/member). Participants
+  // are the default state, so the roster card asks for this to avoid listing
+  // every joiner.
+  badged?: boolean;
+  limit?: number;
+  pending?: boolean;
+  sort?: CommunityMemberSort;
+}
+
+// The members list behind the community sidebar. The options map straight onto
+// the route's query params, so a caller asks for exactly the slice it renders
+// rather than fetching the whole roster and slicing on the client.
+export function useCommunityMembersQuery(
+  slug: string,
+  options: CommunityMembersQueryOptions = {}
+) {
+  const { badged = false, limit, pending = false, sort = "role" } = options;
   return useQuery({
     enabled: Boolean(slug),
     queryFn: () =>
       kyInstance
         .get(`/api/communities/${slug}/members`, {
-          searchParams: pending ? { pending: "1" } : {},
+          searchParams: {
+            ...(pending ? { pending: "1" } : {}),
+            ...(badged ? { badged: "1" } : {}),
+            // Sent unconditionally: the route defaults to role order, so
+            // omitting it and sending "role" are the same request.
+            sort,
+            ...(limit ? { limit: String(limit) } : {}),
+          },
         })
         .json<CommunityMembersResponse>(),
-    queryKey: ["community-members", slug, pending ? "pending" : "active"],
+    queryKey: ["community-members", slug, { badged, limit, pending, sort }],
   });
 }

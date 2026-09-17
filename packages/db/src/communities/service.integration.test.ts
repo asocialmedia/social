@@ -119,7 +119,7 @@ describe("community service integration", () => {
     expect(await getMembership(community.id, MEMBER_ID)).toBeNull();
   });
 
-  test("feed sorts by new and top and stats count contributors", async () => {
+  test("feed sorts by new and top and stats reflect the community", async () => {
     const community = await getCommunityBySlug(SLUG);
     if (!community) {
       throw new Error("community missing");
@@ -157,7 +157,6 @@ describe("community service integration", () => {
 
     const stats = await getCommunityStats(community.id);
     expect(stats.members).toBe(1);
-    expect(stats.contributors).toBe(1);
     expect(stats.communityAura).toBe(30);
   });
 

@@ -391,6 +391,7 @@ model Post {
   @@index([isGust, trendingScore, id])
   @@index([userId, isGust, createdAt])
   @@index([communityId, createdAt])
+  @@index([communityId, aura])
   @@index([parentPostId, createdAt])
   @@index([rootPostId, createdAt])
   @@index([threadTopId, createdAt])

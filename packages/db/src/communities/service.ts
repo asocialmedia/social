@@ -81,10 +81,10 @@ export type CommunityData = Prisma.CommunityGetPayload<{
 }>;
 
 export interface CommunityStats {
+  // The community's own output: the sum of its posts' raw aura.
   communityAura: number;
-  contributors: number;
-  memberAura: number;
   members: number;
+  // Distinct viewers over the rolling activity window.
   weeklyVisitors: number;
 }
 
@@ -967,11 +967,10 @@ export async function getCommunitySections({
   return { growing, trending };
 }
 
-// Aggregated sidebar stats. Community aura is the sum of its posts' raw aura
-// plus the lifetime aura of every active member, so a community reads as the
-// combined weight of what it publishes and who it holds. Weekly visitors and
-// contributors come from CommunityVisit / CommunityMember over a rolling
-// window rather than a denormalized counter.
+// Aggregated sidebar stats: the community's own output, how many people belong,
+// and how many distinct viewers it drew inside the rolling activity window.
+// Visitors come from CommunityVisit over that window rather than a
+// denormalized counter, so the number stays honest as the window slides.
 export async function getCommunityStats(
   communityId: string
 ): Promise<CommunityStats> {
@@ -979,37 +978,30 @@ export async function getCommunityStats(
     Date.now() - COMMUNITY_ACTIVITY_WINDOW_DAYS * 86_400_000
   );
 
-  const [postAura, memberAura, members, contributors, weeklyVisitors] =
-    await Promise.all([
-      prisma.post.aggregate({
-        _sum: { aura: true },
-        where: { communityId },
-      }),
-      prisma.user.aggregate({
-        _sum: { aura: true },
-        where: {
-          communityMemberships: { some: { communityId, status: "ACTIVE" } },
-        },
-      }),
-      prisma.communityMember.count({
-        where: { communityId, status: "ACTIVE" },
-      }),
-      prisma.communityMember.count({
-        where: {
-          communityId,
-          status: "ACTIVE",
-          user: { posts: { some: { communityId } } },
-        },
-      }),
-      prisma.communityVisit.count({
-        where: { communityId, visitedAt: { gte: since } },
-      }),
-    ]);
+  // Three indexed reads, all O(index range for this community):
+  //  - the aura sum rides the (communityId, aura) covering index;
+  //  - the member count rides (communityId, status);
+  //  - the visitor count rides (communityId, visitedAt) inside the window.
+  //
+  // Two aggregates were dropped here: `contributors` (a correlated EXISTS per
+  // member, O(members)) and `memberAura` (a sum over every active member,
+  // O(members)). Neither had a reader left once the sidebar dropped them, so
+  // they were pure cost on every cache miss.
+  const [postAura, members, weeklyVisitors] = await Promise.all([
+    prisma.post.aggregate({
+      _sum: { aura: true },
+      where: { communityId },
+    }),
+    prisma.communityMember.count({
+      where: { communityId, status: "ACTIVE" },
+    }),
+    prisma.communityVisit.count({
+      where: { communityId, visitedAt: { gte: since } },
+    }),
+  ]);
 
   return {
     communityAura: postAura._sum.aura ?? 0,
-    contributors,
-    memberAura: memberAura._sum.aura ?? 0,
     members,
     weeklyVisitors,
   };

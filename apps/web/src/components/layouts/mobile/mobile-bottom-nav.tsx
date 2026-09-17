@@ -17,9 +17,9 @@ import { useSession } from "@/app/(main)/session-provider";
 import Spinner3D from "@/components/layouts/spinner-3d";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useHideOnPageScroll } from "@/hooks/use-hide-on-scroll";
+import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { cn, formatNumber, isRouteActive } from "@/lib/utils";
-import { useComposerStore } from "@/store/composer-store";
 
 interface MobileNavItem {
   href: string;
@@ -91,7 +91,9 @@ const MobileBottomNav: React.FC = () => {
   const isLoggedIn = Boolean(user);
   const { goToLogin } = useRequireAuth();
   const unreadMessageCount = useUnreadMessageCount();
-  const openComposer = useComposerStore((state) => state.openComposer);
+  // Context-aware: scopes the composer to the community being viewed when the
+  // reader can post there. See useOpenComposer.
+  const openComposer = useOpenComposer();
   const hidden = useHideOnPageScroll();
   const reduceMotion = useReducedMotion();
 

@@ -40,10 +40,11 @@ import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
+import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { cn, isRouteActive } from "@/lib/utils";
-import { useComposerStore } from "@/store/composer-store";
+import { useActiveCommunityStore } from "@/store/active-community-store";
 import { useSidebarStore } from "@/store/sidebar-store";
 
 import UserProfilePopover from "./left/user-profile-popover";
@@ -200,7 +201,21 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   const { data: unreadNotificationCount } = useUnreadNotificationCount();
   const unreadMessageCount = useUnreadMessageCount();
   const { openSpotlight } = useSpotlight();
-  const openComposer = useComposerStore((state) => state.openComposer);
+  // Context-aware: scopes the composer to the community being viewed when the
+  // reader can post there. See useOpenComposer.
+  const openComposer = useOpenComposer();
+  // The same scope, read for its LABEL: the button says where the post will
+  // land instead of a bare "Create Post". Kept in step with the action above by
+  // reading the identical condition (community set AND the viewer may post).
+  const activeCommunity = useActiveCommunityStore((state) => state.community);
+  const canPostInActiveCommunity = useActiveCommunityStore(
+    (state) => state.canPost
+  );
+  const composerTarget =
+    activeCommunity && canPostInActiveCommunity ? activeCommunity : null;
+  const composeLabel = composerTarget
+    ? `Post in a/${composerTarget.slug}`
+    : "Create Post";
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
 
   const handleToggleTheme = useCallback(() => {
@@ -468,12 +483,12 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    aria-label="Create Post"
+                    aria-label={composeLabel}
                     className="follow-btn-3d flex size-10 items-center justify-center"
                     onClick={handleOpenComposer}
                     type="button"
                   >
-                    <PenSquare className="size-5" />
+                    <PenSquare className="size-4.5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent
@@ -481,7 +496,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
                   side="right"
                   sideOffset={12}
                 >
-                  Create Post
+                  {composeLabel}
                 </TooltipContent>
               </Tooltip>
             ) : null}
@@ -553,8 +568,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
             onClick={handleOpenComposer}
             variant="premium"
           >
-            <PenSquare className="mr-1 h-5.5! w-5.5!" />
-            <span>Create Post</span>
+            <PenSquare className="mr-1 h-5! w-5! shrink-0" />
+            {/* Truncated: a slug can run to 21 characters, and the label must
+                never push the button wider than its column. */}
+            <span className="truncate">{composeLabel}</span>
           </Button>
         ) : null}
 

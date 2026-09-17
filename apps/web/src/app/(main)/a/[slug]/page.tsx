@@ -2,10 +2,7 @@ import {
   getCachedCommunityStats,
   getCommunityBySlug,
   getMembership,
-  getPublicUserSelect,
-  prisma,
 } from "@asm/db";
-import type { UserData } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
@@ -87,13 +84,12 @@ async function CommunityContent({ params }: PageProps) {
   const userId = session?.user?.id ?? "";
 
   const community = await getCommunity(slug);
-  const [stats, membership, owner] = await Promise.all([
+  // The owner is no longer fetched here: the sidebar's roster lists the founder
+  // (with the owner badge) straight from the members API, so this second read
+  // was the same person fetched twice.
+  const [stats, membership] = await Promise.all([
     getCachedCommunityStats(community.id),
     userId ? getMembership(community.id, userId) : Promise.resolve(null),
-    prisma.user.findUnique({
-      select: getPublicUserSelect(userId),
-      where: { id: community.ownerId },
-    }),
   ]);
 
   const communityUrl = absoluteUrl(`/a/${community.slug}`);
@@ -118,12 +114,6 @@ async function CommunityContent({ params }: PageProps) {
       <CommunityPage
         community={community}
         membership={membership}
-        owner={
-          owner as Pick<
-            UserData,
-            "avatarUrl" | "displayName" | "id" | "username"
-          > | null
-        }
         slug={community.slug}
         stats={stats}
       />

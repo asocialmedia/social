@@ -1,19 +1,19 @@
 "use client";
 
-import type { CommunityData, CommunityStats, UserData } from "@asm/db";
+import type { CommunityData, CommunityStats } from "@asm/db";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import SearchField from "@/components/layouts/search-field";
 import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
+import { useActiveCommunityStore } from "@/store/active-community-store";
 
-import CommunityAbout from "./community-about";
 import CommunityFeed from "./community-feed";
 import CommunityHeader from "./community-header";
 import CommunityMatureGate from "./community-mature-gate";
+import CommunitySidebar from "./community-sidebar";
 
 interface ClientCommunityProps {
   community: CommunityData;
@@ -21,7 +21,6 @@ interface ClientCommunityProps {
     role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
   } | null;
-  owner: Pick<UserData, "avatarUrl" | "displayName" | "id" | "username"> | null;
   slug: string;
   stats: CommunityStats;
 }
@@ -32,13 +31,48 @@ interface ClientCommunityProps {
 export default function ClientCommunity({
   community,
   membership,
-  owner,
   slug,
   stats,
 }: ClientCommunityProps) {
   const router = useRouter();
   const [matureAccepted, setMatureAccepted] = useState(false);
   const hasRecorded = useRef(false);
+  const setActiveCommunity = useActiveCommunityStore(
+    (state) => state.setActiveCommunity
+  );
+  const clearActiveCommunity = useActiveCommunityStore(
+    (state) => state.clearActiveCommunity
+  );
+
+  // Publish this community as the page context while it is mounted, so the
+  // persistent compose triggers (left sidebar, mobile dock) open scoped to it.
+  // Cleared on unmount so leaving the page returns them to the global composer.
+  //
+  // `canPost` mirrors the header's own gate: only an ACTIVE member may publish
+  // into the community, and anything else must fall back to the global composer.
+  const canPost = membership?.status === "ACTIVE";
+  useEffect(() => {
+    setActiveCommunity(
+      {
+        accentColor: community.accentColor,
+        avatarUrl: community.avatarUrl,
+        id: community.id,
+        name: community.name,
+        slug: community.slug,
+      },
+      canPost
+    );
+    return () => clearActiveCommunity();
+  }, [
+    canPost,
+    clearActiveCommunity,
+    community.accentColor,
+    community.avatarUrl,
+    community.id,
+    community.name,
+    community.slug,
+    setActiveCommunity,
+  ]);
 
   // One visit row per (community, viewer) per page mount. Best effort: a
   // failure never blocks the page.
@@ -94,19 +128,11 @@ export default function ClientCommunity({
             <CommunityFeed slug={slug} />
           </div>
 
-          <aside className="bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col overflow-visible border-l px-2.5 pt-2.5 pb-5 xl:flex">
-            <div className="shrink-0 pb-3">
-              <SearchField />
-            </div>
-            <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto">
-              <CommunityAbout
-                community={community}
-                membership={membership}
-                owner={owner}
-                stats={stats}
-              />
-            </div>
-          </aside>
+          <CommunitySidebar
+            community={community}
+            membership={membership}
+            stats={stats}
+          />
         </div>
 
         {isBlocked ? (

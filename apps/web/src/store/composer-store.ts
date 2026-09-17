@@ -8,6 +8,9 @@ export type ComposerMode = "post" | "gust";
 // through to submitPost; membership is verified server-side.
 export interface ComposerCommunityTarget {
   accentColor: string;
+  // The community's mark. Carried so a compose trigger can show whose
+  // community the post will land in rather than a generic pen icon.
+  avatarUrl: string | null;
   id: string;
   name: string;
   slug: string;

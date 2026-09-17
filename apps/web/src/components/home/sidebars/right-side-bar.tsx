@@ -21,6 +21,7 @@ import UserReasonLine from "@/components/discover/user-reason-line";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import FollowButton from "@/components/layouts/follow-button";
 import SearchField from "@/components/layouts/search-field";
+import SidebarFooterLinks from "@/components/layouts/sidebar-footer-links";
 import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import PostHistoryCard from "@/components/posts/post-history-card";
@@ -30,14 +31,6 @@ import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import { APPLE_CARD_CLASS } from "./right/sidebar-styles";
-
-const FOOTER_LINKS = [
-  { href: "/toc", label: "Terms" },
-  { href: "/privacy", label: "Privacy" },
-  { href: "https://x.com/parazeeknova", label: "Twitter" },
-  { href: "https://github.com/asocialmedia/social", label: "Github" },
-  { href: "/support", label: "Support" },
-];
 
 const SubCard: React.FC<{
   action?: React.ReactNode;
@@ -477,19 +470,7 @@ const RightSideBar: React.FC = () => {
           />
         )}
 
-        <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
-          <span>© {new Date().getFullYear()} asocialmedia</span>
-          {FOOTER_LINKS.map(({ href, label }) => (
-            <Link
-              className="hover:text-foreground transition-colors"
-              href={href}
-              key={label}
-              target={href.startsWith("http") ? "_blank" : undefined}
-            >
-              {label}
-            </Link>
-          ))}
-        </footer>
+        <SidebarFooterLinks />
       </div>
     </aside>
   );
