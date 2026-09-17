@@ -52,14 +52,13 @@ export function decideMediaAccess(
   }
 
   if (media.messageConversationId) {
-    if (!viewer) {
-      return { allowed: false, status: 401 };
+    // Owner is always a member; guests and non-members learn nothing. Return
+    // 404 (not 401) for guests too, so an unauthenticated caller cannot use
+    // the status code to confirm that a message-media id exists.
+    if (!viewer || !options.isConversationMember) {
+      return { allowed: false, status: 404 };
     }
-    // Owner is always a member; guests and non-members learn nothing (404,
-    // not 403, so media ids are not oracle-able).
-    return options.isConversationMember
-      ? { allowed: true }
-      : { allowed: false, status: 404 };
+    return { allowed: true };
   }
 
   if (!viewer) {

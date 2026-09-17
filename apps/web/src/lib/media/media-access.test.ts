@@ -41,7 +41,8 @@ describe("decideMediaAccess", () => {
       isConversationMember: false,
     });
     expect(guest.allowed).toBe(false);
-    expect(!guest.allowed && guest.status).toBe(401);
+    // Guests get 404 too: a 401 here would confirm the id exists.
+    expect(!guest.allowed && guest.status).toBe(404);
 
     // The owner/sender is always a member; strangers (even signed in) 404.
     expect(

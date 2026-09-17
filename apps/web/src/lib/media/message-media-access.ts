@@ -8,12 +8,14 @@ import { areBlocked } from "@/lib/messages/server";
 // message reads use: conversation member, with blocks enforced.
 //
 // Results are cached briefly in Redis so the hot byte-serving path does not
-// hit Postgres per request. Denials cache shorter than allows: a freshly
-// unblocked member regains access within seconds, while steady-state members
-// skip the database. Every Redis failure falls through to the database so an
-// outage fails open to correct (slower) decisions, never to wrong ones.
-const ALLOW_TTL_SECONDS = 60;
-const DENY_TTL_SECONDS = 10;
+// hit Postgres per request. The TTL is deliberately short: it is the maximum
+// delay before a block or membership change takes effect on media serving.
+// The underlying check is two indexed primary-key lookups, so a miss is cheap
+// and correctness wins over a longer cache. Every Redis failure falls through
+// to the database so an outage fails open to correct (slower) decisions,
+// never to wrong ones.
+const ALLOW_TTL_SECONDS = 5;
+const DENY_TTL_SECONDS = 5;
 
 function admissionCacheKey(conversationId: string, viewerId: string): string {
   return `msgmedia:member:${conversationId}:${viewerId}`;
