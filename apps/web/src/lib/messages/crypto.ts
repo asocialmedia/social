@@ -450,6 +450,14 @@ function isValidMediaPayload(
   if (typeof payload.url !== "string") {
     return false;
   }
+  // Dimensions are attacker-controlled (they ride in the peer's payload) and
+  // flow into CSS aspect-ratio, so accept only sane positive integers.
+  if (
+    !isValidMediaDimension(payload.width) ||
+    !isValidMediaDimension(payload.height)
+  ) {
+    return false;
+  }
   if (RELATIVE_MEDIA_PATH_RE.test(payload.url)) {
     return true;
   }
@@ -462,14 +470,29 @@ function isValidMediaPayload(
   if (url.protocol === "https:") {
     return true;
   }
+  // Plain http is a local-development affordance only: loopback in dev. It is
+  // never accepted in production, where a peer could otherwise force the
+  // recipient's browser to make insecure/plaintext requests.
   if (url.protocol === "http:") {
-    return (
+    const isLoopback =
       url.hostname === "localhost" ||
       url.hostname === "127.0.0.1" ||
-      url.hostname === "::1"
-    );
+      url.hostname === "::1";
+    return process.env.NODE_ENV !== "production" && isLoopback;
   }
   return false;
+}
+
+const MAX_MEDIA_DIMENSION = 16_384;
+
+function isValidMediaDimension(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (typeof value === "number" &&
+      Number.isInteger(value) &&
+      value > 0 &&
+      value <= MAX_MEDIA_DIMENSION)
+  );
 }
 
 // ---- fingerprints ------------------------------------------------------------

@@ -435,6 +435,29 @@ describe("message ratchet", () => {
     ).rejects.toThrow();
   });
 
+  test.each([
+    { height: 0, width: 320 },
+    { height: -5, width: 320 },
+    { height: 240, width: 1.5 },
+    { height: 240, width: 999_999_999 },
+    { height: 240, width: "320" },
+  ])("rejects a media payload with hostile dimensions (%j)", async (dims) => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { ...dims, kind: "image", type: "media", url: "/api/media/cm123abc" },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
   test("base-key path decrypts identically to the direct path", async () => {
     const rootKey = generateRootKey();
     const encrypted = await encryptMessage(rootKey, SENDER_ID, 3, CONVO_ID, {
@@ -456,6 +479,30 @@ describe("message ratchet", () => {
     );
     expect(viaBase).toEqual(direct);
     expect(viaBase).toEqual({ content: "base path check", type: "text" });
+  });
+
+  test("base-key path decrypts a frozen pre-split ciphertext (known answer)", async () => {
+    // Frozen vector produced BEFORE the import/derive split, so a future
+    // change to the ratchet derivation (HKDF salt/info/length) fails here
+    // instead of silently making every historical message undecryptable.
+    // Both the one-shot and base-key paths must reproduce it.
+    const rootKey = base64ToBytes(
+      "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dw="
+    );
+    const frozen = {
+      ciphertext:
+        "JrRBa84+gpUImgX1XVkn3bIu8pecuDA7TuWDaoNIeO29M1etlr/I5+pGWpZ69EGUSM27T2Zdjtg=",
+      iv: "H59753OvR65ZUJf3",
+      ratchetIndex: 7,
+    };
+    const expected = { content: "known answer", type: "text" };
+    expect(await decryptMessage(rootKey, SENDER_ID, CONVO_ID, frozen)).toEqual(
+      expected
+    );
+    const baseKey = await importRatchetBaseKey(rootKey);
+    expect(
+      await decryptMessageWithBaseKey(baseKey, SENDER_ID, CONVO_ID, frozen)
+    ).toEqual(expected);
   });
 
   test("base-key path still enforces ratchet index and payload checks", async () => {
