@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   decryptMessage,
+  decryptMessageWithBaseKey,
   decryptWithMasterKey,
   deriveMasterKey,
   deriveMessageKey,
@@ -16,6 +17,7 @@ import {
   hashAccountSecret,
   importPrivateKeyJwk,
   importPublicKeyJwk,
+  importRatchetBaseKey,
   publicKeyBase64ToJwk,
   publicKeyJwkToBase64,
   unwrapRootKey,
@@ -405,6 +407,61 @@ describe("message ratchet", () => {
     };
     await expect(
       decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("base-key path decrypts identically to the direct path", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 3, CONVO_ID, {
+      content: "base path check",
+      type: "text",
+    });
+    const baseKey = await importRatchetBaseKey(rootKey);
+    const viaBase = await decryptMessageWithBaseKey(
+      baseKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    const direct = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(viaBase).toEqual(direct);
+    expect(viaBase).toEqual({ content: "base path check", type: "text" });
+  });
+
+  test("base-key path still enforces ratchet index and payload checks", async () => {
+    const rootKey = generateRootKey();
+    const baseKey = await importRatchetBaseKey(rootKey);
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      content: "hey bob",
+      type: "text",
+    });
+    await expect(
+      decryptMessageWithBaseKey(baseKey, SENDER_ID, CONVO_ID, {
+        ...encrypted,
+        ratchetIndex: 1,
+      })
+    ).rejects.toThrow();
+    const tampered = {
+      ...encrypted,
+      ciphertext: await encryptRaw(
+        {
+          kind: "image",
+          type: "media",
+          // Built at runtime so the no-script-url lint rule cannot flag it.
+          url: ["javascript", "alert(1)"].join(":"),
+        },
+        rootKey,
+        0,
+        encrypted.iv
+      ),
+    };
+    await expect(
+      decryptMessageWithBaseKey(baseKey, SENDER_ID, CONVO_ID, tampered)
     ).rejects.toThrow();
   });
 

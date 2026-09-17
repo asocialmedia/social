@@ -268,18 +268,24 @@ export function generateRootKey(): Uint8Array<ArrayBuffer> {
 
 // Deterministic per-message key: both the sender and the receiver derive the
 // same key from the root key, the sender's id, and the message's chain index.
-export async function deriveMessageKey(
-  rootKey: Uint8Array,
-  senderId: string,
-  index: number
-): Promise<CryptoKey> {
-  const baseKey = await globalThis.crypto.subtle.importKey(
+// Split into import + derive so a conversation imports its HKDF base key once
+// and reuses it for every message instead of paying an importKey round-trip
+// per decrypt. The derived keys are identical either way.
+export function importRatchetBaseKey(rootKey: Uint8Array): Promise<CryptoKey> {
+  return globalThis.crypto.subtle.importKey(
     "raw",
     toBufferSource(rootKey),
     "HKDF",
     false,
     ["deriveKey"]
   );
+}
+
+export function deriveMessageKeyFromBase(
+  baseKey: CryptoKey,
+  senderId: string,
+  index: number
+): Promise<CryptoKey> {
   return globalThis.crypto.subtle.deriveKey(
     {
       hash: "SHA-256",
@@ -291,6 +297,18 @@ export async function deriveMessageKey(
     { length: 256, name: "AES-GCM" },
     false,
     ["encrypt", "decrypt"]
+  );
+}
+
+export async function deriveMessageKey(
+  rootKey: Uint8Array,
+  senderId: string,
+  index: number
+): Promise<CryptoKey> {
+  return deriveMessageKeyFromBase(
+    await importRatchetBaseKey(rootKey),
+    senderId,
+    index
   );
 }
 
@@ -352,8 +370,25 @@ export async function decryptMessage(
   conversationId: string,
   message: Pick<EncryptedMessage, "ciphertext" | "iv" | "ratchetIndex">
 ): Promise<MessagePayload> {
-  const messageKey = await deriveMessageKey(
-    rootKey,
+  return decryptMessageWithBaseKey(
+    await importRatchetBaseKey(rootKey),
+    senderId,
+    conversationId,
+    message
+  );
+}
+
+// Same as decryptMessage but starting from an already-imported ratchet base
+// key (see importRatchetBaseKey). The batch decryptor resolves the base key
+// once per conversation and funnels every message through here.
+export async function decryptMessageWithBaseKey(
+  baseKey: CryptoKey,
+  senderId: string,
+  conversationId: string,
+  message: Pick<EncryptedMessage, "ciphertext" | "iv" | "ratchetIndex">
+): Promise<MessagePayload> {
+  const messageKey = await deriveMessageKeyFromBase(
+    baseKey,
     senderId,
     message.ratchetIndex
   );
@@ -365,7 +400,13 @@ export async function decryptMessage(
     messageKey,
     base64ToBytes(message.ciphertext)
   );
-  const payload = JSON.parse(DEC.decode(plaintext)) as Partial<MessagePayload>;
+  return parseMessagePayload(DEC.decode(plaintext));
+}
+
+// Parses and validates a decrypted payload. Shared by both decrypt entry
+// points so the trust boundary (peer-controlled JSON) is identical.
+function parseMessagePayload(plaintext: string): MessagePayload {
+  const payload = JSON.parse(plaintext) as Partial<MessagePayload>;
   if (
     payload.type !== "text" &&
     payload.type !== "post" &&
