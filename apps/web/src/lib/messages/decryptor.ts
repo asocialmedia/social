@@ -157,20 +157,21 @@ export function createDecryptor(
 
   async function run(item: DecryptItem, runGeneration: number): Promise<void> {
     const { id } = item.message;
+    let payload: MessagePayload | null = null;
     try {
       // A rejection lands in "error" — a decrypt must never strand "pending".
-      // (No try/finally: keep the settled-state write unconditional instead.)
-      const payload = await resolvePayload(item).catch(() => null);
-      if (runGeneration === generation) {
-        entries.set(id, payload ?? "error");
-        evictIfNeeded();
-      }
+      payload = await resolvePayload(item).catch(() => null);
     } catch {
-      if (runGeneration === generation) {
-        entries.set(id, "error");
-        evictIfNeeded();
-      }
+      payload = null;
     }
+    // A run that outlived its scope must not write results, release slots, or
+    // decrement the CURRENT scope's `active`. The generation check guards all
+    // shared bookkeeping, not just the entry write.
+    if (runGeneration !== generation) {
+      return;
+    }
+    entries.set(id, payload ?? "error");
+    evictIfNeeded();
     inFlight.delete(id);
     active -= 1;
     scheduleNotify();
@@ -231,6 +232,12 @@ export function createDecryptor(
       queued.clear();
       queue.length = 0;
       baseKeys.clear();
+      // Runs still in flight belong to the old generation; their completions
+      // are dropped by the generation guard in run(). Clearing the bookkeeping
+      // here lets the new scope start at full concurrency immediately instead
+      // of waiting on (and being throttled by) the previous identity's work.
+      inFlight.clear();
+      active = 0;
       notify();
     },
 
@@ -262,8 +269,14 @@ export function createDecryptor(
     },
 
     retry(id: string): void {
-      entries.delete(id);
+      const existed = entries.delete(id);
       queued.delete(id);
+      // Notify so subscribers see the entry drop back to "unrequested"; the
+      // row-level self-heal then re-queues it. Without this a retry that is
+      // not immediately followed by a request() would be invisible.
+      if (existed) {
+        notify();
+      }
     },
 
     subscribe(listener: () => void): () => void {

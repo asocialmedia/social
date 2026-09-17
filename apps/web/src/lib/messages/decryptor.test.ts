@@ -183,6 +183,56 @@ describe("message decryptor", () => {
     expect(decryptor.get("a")).toBe("error");
   });
 
+  test("scope reset drops in-flight bookkeeping so the new scope is not throttled", async () => {
+    const started: string[] = [];
+    const gate = deferred<MessagePayload>();
+    const decryptor = createDecryptor({
+      concurrency: 1,
+      decrypt: (decryptItem) => {
+        started.push(decryptItem.message.id);
+        return decryptItem.message.id === "old"
+          ? gate.promise
+          : Promise.resolve(TEXT);
+      },
+    });
+    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+
+    decryptor.configureScope("user-1");
+    decryptor.request([item("old")], keys);
+    await settle(2);
+    expect(started).toEqual(["old"]);
+
+    // A different identity takes over while the old decrypt is still pending.
+    decryptor.configureScope("user-2");
+    decryptor.request([item("fresh")], keys);
+    await settle(5);
+    // The stale run must not hold the single concurrency slot.
+    expect(decryptor.get("fresh")).toEqual(TEXT);
+
+    // The stale run resolving later must not corrupt the new scope's state.
+    gate.resolve(TEXT);
+    await settle(5);
+    expect(decryptor.get("fresh")).toEqual(TEXT);
+  });
+
+  test("clearErrors returns entries to unrequested so they can be retried", async () => {
+    let calls = 0;
+    const decryptor = createDecryptor({
+      decrypt: () => {
+        calls += 1;
+        return Promise.reject(new Error("nope"));
+      },
+    });
+    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(decryptor.get("a")).toBe("error");
+
+    decryptor.clearErrors();
+    // Dropped to undefined, which is what a mounted row self-heals on.
+    expect(decryptor.get("a")).toBeUndefined();
+  });
+
   test("evicts oldest terminal entries past the cap", async () => {
     const decryptor = createDecryptor({
       cacheCap: 3,
