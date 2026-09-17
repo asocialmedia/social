@@ -146,6 +146,11 @@ export function MessageThread({
     () => new Map(allMessages.map((message) => [message.id, message])),
     [allMessages]
   );
+  // Bumped only when a PREVIOUS page is prepended (pages.length grows). An
+  // appended message can never introduce a reply parent (parents are older),
+  // so rows can skip re-rendering on append but must re-render on prepend to
+  // resolve a parent that just became available. See the row memo comparator.
+  const historyVersion = messagesQuery.data?.pages.length ?? 0;
 
   const peer = detail?.conversation.members.find(
     (member) => member.userId !== user?.id
@@ -304,9 +309,10 @@ export function MessageThread({
     rowVirtualizer,
   ]);
 
-  // Row-level hook for a message's own payload: rows subscribe individually,
-  // so a completion batch re-renders only the rows whose entries changed.
-  const requestParent = useCallback(
+  // Row-level request helper: a row asks for its own payload (self-heal) or a
+  // quoted parent's. request() is idempotent and cheap for cached/queued/
+  // in-flight ids, so over-calling is harmless.
+  const requestDecrypt = useCallback(
     (message: MessageData | undefined) => {
       if (!message) {
         return;
@@ -317,8 +323,8 @@ export function MessageThread({
   );
 
   // Healed keys (re-provisioned identity, first wrapped-key post) must retry
-  // payloads that previously failed: drop errors back to unrequested so the
-  // request effect above picks them up.
+  // payloads that previously failed. Dropping the errors makes both the
+  // request effect and each row's self-heal re-queue them.
   useEffect(() => {
     if (!detail || !rootKeyStore || !userId) {
       return;
@@ -326,10 +332,17 @@ export function MessageThread({
     messageDecryptor.clearErrors();
   }, [detail, rootKeyStore, userId]);
 
-  // Start pinned to the latest message; anchorTo "end" keeps it there.
+  // Start pinned to the latest message. The scroll element only exists once
+  // `detail` resolves (before that the skeleton renders), so this must key on
+  // detail and run exactly once — not on every detail refetch.
+  const didInitialScrollRef = useRef(false);
   useLayoutEffect(() => {
+    if (!detail || didInitialScrollRef.current) {
+      return;
+    }
+    didInitialScrollRef.current = true;
     rowVirtualizer.scrollToEnd();
-  }, [rowVirtualizer, conversationId]);
+  }, [detail, rowVirtualizer]);
 
   // Pull older history as the top of the loaded window nears the first
   // virtual row. Stable keys keep the viewport anchored on prepend.
@@ -357,27 +370,11 @@ export function MessageThread({
         return;
       }
       messageDecryptor.retry(message.id);
-      messageDecryptor.request(
-        [
-          {
-            conversationId,
-            message: {
-              ciphertext: message.ciphertext,
-              id: message.id,
-              iv: message.iv,
-              ratchetIndex: message.ratchetIndex,
-              senderId: message.senderId,
-            },
-          },
-        ],
-        { getBaseKey }
-      );
+      requestDecrypt(message);
     },
-    [conversationId, detail, getBaseKey, rootKeyStore, userId]
+    [detail, requestDecrypt, rootKeyStore, userId]
   );
 
-  // Mark the conversation read when it opens and when the peer sends while
-  // the thread is open (debounced so burst sends only fire one request).
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
   const myUserId = user?.id;
@@ -576,11 +573,12 @@ export function MessageThread({
                     }}
                   >
                     <VirtualRow
+                      historyVersion={historyVersion}
                       message={message}
                       messagesById={messagesById}
                       myUserId={userId ?? ""}
                       onReply={handleReply}
-                      onRequestParent={requestParent}
+                      onRequest={requestDecrypt}
                       onRetry={retryDecrypt}
                       peerName={peer?.displayName ?? "them"}
                     />
@@ -611,11 +609,12 @@ export function MessageThread({
 }
 
 interface VirtualRowProps {
+  historyVersion: number;
   message: MessageData;
   messagesById: Map<string, MessageData>;
   myUserId: string;
   onReply: (message: MessageData) => void;
-  onRequestParent: (message: MessageData | undefined) => void;
+  onRequest: (message: MessageData | undefined) => void;
   onRetry: (message: MessageData) => void;
   peerName: string;
 }
@@ -628,12 +627,21 @@ function VirtualRowInner({
   messagesById,
   myUserId,
   onReply,
-  onRequestParent,
+  onRequest,
   onRetry,
   peerName,
 }: VirtualRowProps) {
   const mine = message.senderId === myUserId;
   const payload = useDecryptEntry(message.id);
+
+  // Self-heal: an entry can legitimately be missing while the row is mounted
+  // (evicted from the LRU, dropped by scope reset, or cleared after key
+  // healing). Re-request it so the bubble can never stay a permanent skeleton.
+  useEffect(() => {
+    if (payload === undefined) {
+      onRequest(message);
+    }
+  }, [message, onRequest, payload]);
 
   // Resolve the quoted parent only once our own payload names it, then ask
   // the decryptor for the parent's payload if it is not cached yet.
@@ -646,9 +654,9 @@ function VirtualRowInner({
 
   useEffect(() => {
     if (parent && parentPayload === undefined) {
-      onRequestParent(parent);
+      onRequest(parent);
     }
-  }, [onRequestParent, parent, parentPayload]);
+  }, [onRequest, parent, parentPayload]);
 
   const quote = useMemo(() => {
     if (!payload || payload === "error" || payload === "pending") {
@@ -753,7 +761,23 @@ function VirtualRowInner({
   );
 }
 
-const VirtualRow = memo(VirtualRowInner);
+// `messagesById` is a fresh Map on every message-list change, so the default
+// shallow compare would re-render every visible row on each incoming message.
+// Compare only what a row actually renders on: its own message identity, the
+// history version (prepends can introduce a reply parent), identity, peer
+// name, and the stable callbacks. Rows instead re-render from their own
+// decrypt subscription when a payload lands.
+const VirtualRow = memo(
+  VirtualRowInner,
+  (prev, next) =>
+    prev.message === next.message &&
+    prev.historyVersion === next.historyVersion &&
+    prev.myUserId === next.myUserId &&
+    prev.peerName === next.peerName &&
+    prev.onReply === next.onReply &&
+    prev.onRequest === next.onRequest &&
+    prev.onRetry === next.onRetry
+);
 
 function ThreadHeader({
   conversation,
