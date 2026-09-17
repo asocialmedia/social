@@ -1,7 +1,6 @@
 "use client";
 
 import type { MessageData } from "@asm/db";
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -79,9 +78,70 @@ function openMessageStream(response: Response): ReadableStream<Uint8Array> {
   return response.body;
 }
 
+// Decides whether a (re)connect should trigger a catch-up refetch. Guards
+// against the fetch-overwrite race that made the transcript look different on
+// every open: an in-flight fetch must never be duplicated.
+//
+// The recent-data age gate applies ONLY to the initial connection, where the
+// mount fetch (or a just-folded SSE event for this same stream) already covers
+// the window. The stream has no replay cursor, so a genuine reconnect can have
+// missed an arbitrary `message.created`/`message.deleted` during the gap -
+// no matter how recently the cache was written - and must always reconcile.
+// Reconnect catch-up is therefore independent of `dataUpdatedAt`; the in-flight
+// guard is what keeps it from stacking a second GET. Pure so the policy is
+// unit-tested independently of the stream.
+const CATCH_UP_MIN_AGE_MS = 10_000;
+
+export function shouldCatchUp(params: {
+  dataUpdatedAt: number;
+  isFetching: boolean;
+  isReconnect?: boolean;
+  minAgeMs?: number;
+  now: number;
+}): boolean {
+  if (params.isFetching) {
+    return false;
+  }
+  if (params.isReconnect) {
+    return true;
+  }
+  if (params.dataUpdatedAt <= 0) {
+    return true;
+  }
+  return (
+    params.now - params.dataUpdatedAt >=
+    (params.minAgeMs ?? CATCH_UP_MIN_AGE_MS)
+  );
+}
+
+// Splits one raw SSE frame ("event: x\ndata: y") into its type and payload.
+// Pure so the framing edge cases stay unit-testable without a stream.
+export function parseServerSentFrame(rawEvent: string): {
+  data: string | null;
+  eventType: string;
+} {
+  let eventType = "message";
+  let data: string | null = null;
+
+  for (const line of rawEvent.split("\n")) {
+    if (line.startsWith("event:")) {
+      eventType = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      data = line.slice("data:".length).trim();
+    }
+  }
+
+  return { data, eventType };
+}
+
 // Returns an `onEvent` callback wired to an SSE connection for a single
 // conversation. The caller decides how to fold each event into its query
 // cache, so this stays reusable across the thread view and any future UI.
+// `onConnect` fires on every (re)connect so the caller can catch up on
+// events missed while the stream was down (mobile network drops). It receives
+// `isReconnect`, false only for the first greeting of this stream instance, so
+// the caller can tell the initial connect (already covered by the mount fetch)
+// apart from a real reconnect that may have missed events.
 export function useMessagesRealtime(
   conversationId: string,
   onEvent: (event: {
@@ -90,20 +150,22 @@ export function useMessagesRealtime(
     message?: MessageData;
     userId?: string;
   }) => void,
-  enabled = true
+  enabled = true,
+  onConnect?: (isReconnect: boolean) => void
 ): { connected: boolean } {
-  const queryClient = useQueryClient();
   const { user } = useSession();
   // A stable id keeps the stream effect from tearing down and reconnecting
   // whenever the user object identity changes.
   const userId = user?.id;
 
-  // Keep the latest handler without reconnecting on every render; the SSE
+  // Keep the latest handlers without reconnecting on every render; the SSE
   // effect below only depends on auth state, the convo id, and enabled.
   const onEventRef = useRef(onEvent);
+  const onConnectRef = useRef(onConnect);
   useEffect(() => {
     onEventRef.current = onEvent;
-  }, [onEvent]);
+    onConnectRef.current = onConnect;
+  }, [onEvent, onConnect]);
 
   useEffect(() => {
     if (!enabled || !userId || typeof window === "undefined") {
@@ -114,17 +176,21 @@ export function useMessagesRealtime(
     let controller: AbortController | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = INITIAL_RETRY_MS;
+    // First greeting of this stream instance (per conversation + effect run);
+    // every later one is a reconnect that may have a delivery gap.
+    let hasConnected = false;
 
     const handleRawEvent = (rawEvent: string) => {
-      let eventType = "message";
-      let data: string | null = null;
+      const { data, eventType } = parseServerSentFrame(rawEvent);
 
-      for (const line of rawEvent.split("\n")) {
-        if (line.startsWith("event:")) {
-          eventType = line.slice("event:".length).trim();
-        } else if (line.startsWith("data:")) {
-          data = line.slice("data:".length).trim();
-        }
+      // The server greets every (re)connect with `event: connected`. It
+      // carries no message data, but it is the signal to refetch and catch
+      // up on anything published while the stream was down.
+      if (eventType === "connected") {
+        const isReconnect = hasConnected;
+        hasConnected = true;
+        onConnectRef.current?.(isReconnect);
+        return;
       }
 
       if (!data || eventType !== "message") {
@@ -153,17 +219,10 @@ export function useMessagesRealtime(
         message,
         userId: event.userId,
       });
-      // Only events that actually change the message list (create/delete)
-      // invalidate the query; typing and read receipts are handled purely by
-      // the event callback and would cause a wasteful refetch.
-      if (
-        event.kind === "message.created" ||
-        event.kind === "message.deleted"
-      ) {
-        queryClient.invalidateQueries({
-          queryKey: ["messages", conversationId],
-        });
-      }
+      // No invalidation here: the caller folds creates/deletes straight into
+      // the query cache, so a refetch per event would just churn the list
+      // (and reset decrypt state). Catch-up after a disconnect happens via
+      // onConnect instead.
     };
 
     const connect = async () => {
@@ -229,7 +288,7 @@ export function useMessagesRealtime(
         clearTimeout(retryTimer);
       }
     };
-  }, [conversationId, enabled, queryClient, userId]);
+  }, [conversationId, enabled, userId]);
 
   return { connected: enabled && Boolean(user) };
 }

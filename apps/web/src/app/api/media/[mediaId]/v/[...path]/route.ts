@@ -9,6 +9,7 @@ import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
 } from "@/lib/media/media-variants";
+import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
@@ -76,6 +77,7 @@ export async function GET(
       commentId: true,
       detectedMime: true,
       key: true,
+      messageConversationId: true,
       mimeType: true,
       postId: true,
       publishedKey: true,
@@ -88,7 +90,14 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
   const session = await getSessionFromApi();
-  const decision = decideMediaAccess(ownership, session?.user ?? null);
+  const viewer = session?.user ?? null;
+  const isConversationMember = await resolveMessageMediaMembership(
+    ownership.messageConversationId,
+    viewer?.id
+  );
+  const decision = decideMediaAccess(ownership, viewer, {
+    isConversationMember,
+  });
   if (!decision.allowed) {
     return new NextResponse("Media not found", { status: decision.status });
   }
@@ -152,15 +161,23 @@ export async function GET(
     let status = 200;
     const headers = new Headers();
     headers.set("Content-Type", mimeType);
-    headers.set(
-      "Cache-Control",
-      ownership.postId
-        ? "public, max-age=31536000, immutable, stale-while-revalidate=86400"
-        : "private, max-age=86400"
-    );
+    // Post-linked media is immutable and safe to share-cache. Message-linked
+    // media is session-gated (membership + blocks can be revoked at any time),
+    // so it must never be stored: a cached copy would keep serving after a
+    // block, unfriend, or conversation deletion. Other private media keeps its
+    // short-lived private cache.
+    let cacheControl = "private, max-age=86400";
+    if (ownership.postId) {
+      cacheControl =
+        "public, max-age=31536000, immutable, stale-while-revalidate=86400";
+    } else if (ownership.messageConversationId) {
+      cacheControl = "private, no-store";
+    }
+    headers.set("Cache-Control", cacheControl);
     // HLS playlists must not be cached aggressively by shared caches so
-    // takedowns propagate quickly; segments are content-addressed anyway.
-    if (objectKey.endsWith(".m3u8")) {
+    // takedowns propagate quickly; segments are content-addressed anyway. Only
+    // public (post-linked) media may use the shared cache.
+    if (objectKey.endsWith(".m3u8") && ownership.postId) {
       headers.set("Cache-Control", "public, max-age=60");
     }
     headers.set("Accept-Ranges", "bytes");

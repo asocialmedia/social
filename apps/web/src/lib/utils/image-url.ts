@@ -180,3 +180,47 @@ export function getMediaImageSrcSet(media: {
     ([variant, width]) => `${getMediaVariantUrl(media.id, variant)} ${width}w`
   ).join(", ");
 }
+
+// A message attachment payload carries a same-origin proxy path
+// (/api/media/<id>), never a variant path. Pick the largest pipeline ladder
+// rung that the source can actually produce (the pipeline only emits rungs up
+// to the source width), capped at md since chat bubbles never display wider
+// than a few hundred CSS pixels. Choosing a rung above the source would miss
+// and fall back to the full original, wasting the optimization.
+const MESSAGE_LADDER: readonly [width: number, variant: string][] = [
+  [320, "thumb-webp.webp"],
+  [640, "sm-webp.webp"],
+  [800, "md-webp.webp"],
+];
+
+export function pickMessageImageVariant(width?: number | null): string {
+  const [[firstWidth, firstVariant]] = MESSAGE_LADDER;
+  if (!width || width <= firstWidth) {
+    return firstVariant;
+  }
+  let chosen = firstVariant;
+  for (const [rungWidth, variant] of MESSAGE_LADDER) {
+    if (rungWidth <= width) {
+      chosen = variant;
+    }
+  }
+  return chosen;
+}
+
+// Rewrites a message media payload URL to its optimized derivative URL when
+// it is one of our own proxy paths. Returns null for anything else (external
+// URLs, malformed ids) so callers keep the original source.
+const MESSAGE_MEDIA_PATH_RE =
+  /^\/api\/media\/(?<id>[A-Za-z0-9_-]+)(?:\?[A-Za-z0-9_=&%.-]+)?$/;
+
+export function getMessageMediaVariantUrl(
+  url: string,
+  width?: number | null
+): string | null {
+  const match = MESSAGE_MEDIA_PATH_RE.exec(url);
+  const id = match?.groups?.id;
+  if (!id) {
+    return null;
+  }
+  return getMediaVariantUrl(id, pickMessageImageVariant(width));
+}

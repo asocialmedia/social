@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 
 // Lightweight lifecycle polling for the composer: the frontend uploads
 // asynchronously and needs to know when an attachment becomes READY (or was
@@ -23,6 +24,7 @@ export async function GET(
       commentId: true,
       failureCode: true,
       id: true,
+      messageConversationId: true,
       postId: true,
       rejectedReason: true,
       safety: true,
@@ -36,7 +38,12 @@ export async function GET(
   }
 
   const session = await getSessionFromApi();
-  const decision = decideMediaAccess(media, session?.user ?? null);
+  const viewer = session?.user ?? null;
+  const isConversationMember = await resolveMessageMediaMembership(
+    media.messageConversationId,
+    viewer?.id
+  );
+  const decision = decideMediaAccess(media, viewer, { isConversationMember });
   if (!decision.allowed) {
     return Response.json(
       { error: "Media not found" },

@@ -127,18 +127,29 @@ export async function createInitiatedUpload(input: {
   declaredMime: string;
   fileName: string;
   fileSize: number;
+  // Conversation a message attachment belongs to. Required when purpose is
+  // "message" (the route verifies membership); stored on the row so the
+  // serving route can admit the peer.
+  messageConversationId?: string | null;
   purpose: string | null;
   sha256?: string | null;
   userId: string;
+  // Natural image dimensions captured client-side. Stored so receivers can
+  // reserve the bubble box before the bytes arrive (no scroll jump).
+  width?: number | null;
+  height?: number | null;
 }): Promise<InitiatedUpload> {
   const {
     audioOverlayId,
     declaredMime,
     fileName,
     fileSize,
+    messageConversationId,
     purpose,
     sha256,
     userId,
+    width,
+    height,
   } = input;
 
   const mediaType = mediaTypeFromMime(declaredMime);
@@ -234,6 +245,7 @@ export async function createInitiatedUpload(input: {
       const isUnattached =
         !existing.postId &&
         !existing.commentId &&
+        !existing.messageConversationId &&
         !existing.avatarOf &&
         !existing.bannerOf;
 
@@ -244,6 +256,36 @@ export async function createInitiatedUpload(input: {
         // through to full processing so the overlay is re-baked.
         const overlayMatches =
           (existing.audioOverlayId ?? null) === (audioOverlayId ?? null);
+        // Same image re-sent to the same thread: reuse the row (and refresh
+        // dimensions) instead of cloning per send. A row linked to a
+        // *different* conversation is "attached" by the check above, so it
+        // falls through to the clone path with the new conversation link.
+        if (
+          overlayMatches &&
+          messageConversationId &&
+          existing.messageConversationId === messageConversationId
+        ) {
+          if (width ?? height) {
+            try {
+              await prisma.media.update({
+                data: {
+                  ...(width ? { width } : {}),
+                  ...(height ? { height } : {}),
+                },
+                where: { id: existing.id },
+              });
+            } catch (error) {
+              console.error("Failed to refresh media dimensions:", error);
+            }
+          }
+          return {
+            deduplicated: true,
+            extension: sanitizeExtension(extensionGuess),
+            mediaId: existing.id,
+            status: "READY",
+            uploadUrl: null,
+          };
+        }
         if (overlayMatches && isUnattached) {
           // An unattached draft already exists (e.g. author uploaded in another tab
           // or cancelled before post): reuse it directly and extend its TTL.
@@ -283,8 +325,9 @@ export async function createInitiatedUpload(input: {
                 encoderVersion: existing.encoderVersion,
                 exifStripped: existing.exifStripped,
                 hasHls: existing.hasHls,
-                height: existing.height,
+                height: height ?? existing.height ?? null,
                 key: existing.key,
+                messageConversationId: messageConversationId ?? null,
                 mimeType: existing.mimeType,
                 originalName: sanitizeDisplayName(fileName),
                 pipelineVersion: existing.pipelineVersion,
@@ -306,7 +349,7 @@ export async function createInitiatedUpload(input: {
                 uploaderUsername: existing.uploaderUsername,
                 url: existing.url,
                 userId,
-                width: existing.width,
+                width: width ?? existing.width ?? null,
                 ...(audioOverlayId ? { audioOverlayId } : {}),
               },
             });
@@ -382,6 +425,9 @@ export async function createInitiatedUpload(input: {
             rejectedReason: null,
             status: "READY",
             ...(audioOverlayId ? { audioOverlayId } : {}),
+            ...(messageConversationId ? { messageConversationId } : {}),
+            ...(width ? { width } : {}),
+            ...(height ? { height } : {}),
           },
           where: { id: existing.id },
         });
@@ -414,20 +460,58 @@ export async function createInitiatedUpload(input: {
           existing.status === "PROCESSING" ||
           existing.status === "QUARANTINED")
       ) {
-        if (purpose !== "message") {
+        // Bind the in-flight row to this thread so the peer can fetch it
+        // once the pipeline publishes. Post drafts bind via postId later,
+        // which takes precedence in the access decision.
+        //
+        // The claim is a conditional update, not a blind write: two concurrent
+        // sends of the same file to different conversations can both read this
+        // row as unattached, and an unconditional update would let the last
+        // writer silently steal recipient access from the first. Only a row
+        // that is still unattached (or already ours) can be claimed. When the
+        // claim affects no row, another conversation won it, or the update
+        // failed: either way we must NOT hand back this mediaId, because the
+        // peer would fail the conversation-access check. Fall through and let
+        // a fresh row be created for this conversation instead.
+        let claimed = !messageConversationId;
+        if (messageConversationId) {
           try {
-            await scheduleMediaCleanup(existing.id);
+            const result = await prisma.media.updateMany({
+              data: {
+                messageConversationId,
+                ...(width ? { width } : {}),
+                ...(height ? { height } : {}),
+              },
+              where: {
+                OR: [
+                  { messageConversationId: null },
+                  { messageConversationId },
+                ],
+                id: existing.id,
+              },
+            });
+            claimed = result.count > 0;
           } catch (error) {
-            console.error("Failed to schedule media cleanup:", error);
+            console.error("Failed to link in-flight media:", error);
+            claimed = false;
           }
         }
-        return {
-          deduplicated: true,
-          extension: sanitizeExtension(extensionGuess),
-          mediaId: existing.id,
-          status: existing.status,
-          uploadUrl: null,
-        };
+        if (claimed) {
+          if (purpose !== "message") {
+            try {
+              await scheduleMediaCleanup(existing.id);
+            } catch (error) {
+              console.error("Failed to schedule media cleanup:", error);
+            }
+          }
+          return {
+            deduplicated: true,
+            extension: sanitizeExtension(extensionGuess),
+            mediaId: existing.id,
+            status: existing.status,
+            uploadUrl: null,
+          };
+        }
       }
     }
   }
@@ -447,6 +531,9 @@ export async function createInitiatedUpload(input: {
       url: "",
       userId,
       ...(audioOverlayId ? { audioOverlayId } : {}),
+      ...(messageConversationId ? { messageConversationId } : {}),
+      ...(width ? { width } : {}),
+      ...(height ? { height } : {}),
     },
   });
 

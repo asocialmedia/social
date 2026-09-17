@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
 import {
@@ -30,6 +31,7 @@ export async function GET(
     select: {
       commentId: true,
       key: true,
+      messageConversationId: true,
       mimeType: true,
       postId: true,
       publishedKey: true,
@@ -63,7 +65,12 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
 
-  const decision = decideMediaAccess(media, user);
+  const decision = decideMediaAccess(media, user, {
+    isConversationMember: await resolveMessageMediaMembership(
+      media.messageConversationId,
+      user.id
+    ),
+  });
   if (!decision.allowed) {
     return new NextResponse(
       decision.status === 401 ? "Unauthorized" : "Media not found",
