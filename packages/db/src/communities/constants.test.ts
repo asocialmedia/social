@@ -4,10 +4,12 @@ import {
   COMMUNITY_ACCENTS,
   COMMUNITY_CATEGORIES,
   COMMUNITY_CREATION_AURA_TIERS,
+  COMMUNITY_FOUNDING_BONUSES,
   COMMUNITY_LIMITS,
   COMMUNITY_MAX_OWNED,
   COMMUNITY_TOPICS,
   communityCreationAuraRequirement,
+  communityFoundingBonus,
   DEFAULT_COMMUNITY_ACCENT,
   DEFAULT_COMMUNITY_CATEGORY,
   getCommunityAccent,
@@ -100,6 +102,7 @@ describe("community constants", () => {
   test("creation aura tiers ascend and cap at the owned-community limit", () => {
     // The array length IS the cap, so the two can never disagree.
     expect(COMMUNITY_MAX_OWNED).toBe(COMMUNITY_CREATION_AURA_TIERS.length);
+    expect(COMMUNITY_MAX_OWNED).toBe(10);
 
     const tiers = [...COMMUNITY_CREATION_AURA_TIERS];
     for (let index = 1; index < tiers.length; index += 1) {
@@ -111,6 +114,10 @@ describe("community constants", () => {
       expect(current).toBeGreaterThan(previous);
     }
 
+    // The two committed milestones: 6 communities at 25k, 10 (the cap) at 50k.
+    expect(COMMUNITY_CREATION_AURA_TIERS[5]).toBe(25_000);
+    expect(COMMUNITY_CREATION_AURA_TIERS[9]).toBe(50_000);
+
     expect(communityCreationAuraRequirement(0)).toBe(1000);
     expect(communityCreationAuraRequirement(1)).toBe(5000);
     expect(communityCreationAuraRequirement(2)).toBe(10_000);
@@ -120,5 +127,23 @@ describe("community constants", () => {
     expect(
       communityCreationAuraRequirement(COMMUNITY_MAX_OWNED + 5)
     ).toBeNull();
+  });
+
+  test("founding bonuses escalate then flatten, one per tier", () => {
+    // Parallel to the tiers: the reward for founding the Nth community.
+    expect(COMMUNITY_FOUNDING_BONUSES).toHaveLength(COMMUNITY_MAX_OWNED);
+
+    expect(communityFoundingBonus(0)).toBe(500);
+    expect(communityFoundingBonus(1)).toBe(1000);
+    expect(communityFoundingBonus(2)).toBe(2000);
+    expect(communityFoundingBonus(3)).toBe(5000);
+    expect(communityFoundingBonus(4)).toBe(10_000);
+    // Flat tail: never larger than the fifth, so it cannot explode.
+    for (let index = 4; index < COMMUNITY_MAX_OWNED; index += 1) {
+      expect(communityFoundingBonus(index)).toBe(10_000);
+    }
+    // Past the cap there is nothing to pay.
+    expect(communityFoundingBonus(COMMUNITY_MAX_OWNED)).toBe(0);
+    expect(communityFoundingBonus(99)).toBe(0);
   });
 });

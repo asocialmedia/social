@@ -7,8 +7,14 @@
 import { createLogger } from "@asm/logger";
 
 import type { Prisma } from "../../prisma/generated/prisma/client";
-import { COMMUNITY_CREATED_AURA } from "../aura/config";
+import {
+  COMMUNITY_JOIN_AURA,
+  COMMUNITY_JOIN_DAILY_AURA_CAP,
+  COMMUNITY_JOIN_MIN_ACCOUNT_AGE_DAYS,
+  COMMUNITY_JOIN_OWNER_AURA,
+} from "../aura/config";
 import { applyFlatAward } from "../aura/ledger";
+import { computeStandingForUser, getCommunityStanding } from "../aura/standing";
 import { getPostDataInclude } from "../client";
 import type { PostData } from "../client";
 import prisma from "../prisma";
@@ -20,6 +26,7 @@ import {
   COMMUNITY_LIMITS,
   COMMUNITY_MAX_OWNED,
   communityCreationAuraRequirement,
+  communityFoundingBonus,
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
 } from "./constants";
@@ -104,42 +111,181 @@ function isUniqueConstraintError(error: unknown): boolean {
   );
 }
 
+function startOfUtcDay(now: Date): Date {
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      0,
+      0,
+      0,
+      0
+    )
+  );
+}
+
+// Pays the one-time join bonus for a membership that has just become ACTIVE.
+//
+// Guards, in order of importance:
+//  1. The CommunityJoinBonus unique constraint on (communityId, userId) is the
+//     durable one-time marker. It is written the first time the pair activates
+//     and never deleted, so leaving and rejoining cannot pay twice - unlike the
+//     membership row, which leave() removes.
+//  2. A rolling daily ceiling on joiner aura bounds a sweep of the directory.
+//     Membership still succeeds past the ceiling; only the payout stops, so the
+//     cap never blocks a genuine join.
+//  3. Owners are never paid for joining their own community.
+//
+// Must run inside the caller's transaction so the marker and the balance moves
+// commit together.
+async function grantCommunityJoinBonus(
+  tx: Prisma.TransactionClient,
+  input: { communityId: string; ownerId: string; userId: string }
+): Promise<void> {
+  if (input.userId === input.ownerId) {
+    return;
+  }
+
+  const now = new Date();
+
+  // Sybil gate: a freshly minted account joins freely but is not paid, so a
+  // farm cannot convert throwaway accounts into aura without aging each one.
+  const joiner = await tx.user.findUnique({
+    select: { createdAt: true },
+    where: { id: input.userId },
+  });
+  const accountAgeDays =
+    (now.getTime() - (joiner?.createdAt.getTime() ?? now.getTime())) /
+    86_400_000;
+  if (accountAgeDays < COMMUNITY_JOIN_MIN_ACCOUNT_AGE_DAYS) {
+    return;
+  }
+
+  const earnedToday = await tx.communityJoinBonus.aggregate({
+    _sum: { joinerAura: true },
+    where: { createdAt: { gte: startOfUtcDay(now) }, userId: input.userId },
+  });
+  const paidToday = earnedToday._sum.joinerAura ?? 0;
+  // The gift must FIT inside the remaining daily budget, not merely start
+  // below it: checking `paidToday < cap` alone would let the final join
+  // overshoot the ceiling by up to one full award. A partial gift is not paid
+  // either - the award is all-or-nothing, so the ceiling is never exceeded.
+  const withinCap =
+    paidToday + COMMUNITY_JOIN_AURA <= COMMUNITY_JOIN_DAILY_AURA_CAP;
+
+  // The marker is written even when the cap zeroes the payout: the pair has
+  // been considered, so a later leave/rejoin cannot revisit it. A capped join
+  // simply forfeits that community's gift.
+  const joinerAura = withinCap ? COMMUNITY_JOIN_AURA : 0;
+  const ownerAura = withinCap ? COMMUNITY_JOIN_OWNER_AURA : 0;
+
+  // `createMany` with skipDuplicates, NOT create + catch(P2002): in Postgres a
+  // failed statement aborts the surrounding transaction, and a later COMMIT on
+  // an aborted transaction silently ROLLS BACK. Catching the unique violation in
+  // JS would therefore leave the caller's membership upsert undone while this
+  // function reported success. skipDuplicates makes the insert a no-op on
+  // conflict, so the transaction stays healthy either way.
+  const inserted = await tx.communityJoinBonus.createMany({
+    data: [
+      {
+        communityId: input.communityId,
+        joinerAura,
+        ownerAura,
+        userId: input.userId,
+      },
+    ],
+    skipDuplicates: true,
+  });
+  if (inserted.count === 0) {
+    // Already paid or already considered for this community.
+    return;
+  }
+
+  if (joinerAura > 0) {
+    // Not subject to the daily income cap: it is a one-time welcome gift
+    // already bounded by the join-specific ceiling above, and the generic
+    // 120/day cap would shred it to pocket change.
+    await applyFlatAward(tx, {
+      actorId: input.ownerId,
+      baseAmount: joinerAura,
+      now,
+      recipientId: input.userId,
+      subjectToDailyCap: false,
+      type: "COMMUNITY_JOIN",
+    });
+  }
+
+  if (ownerAura > 0) {
+    await applyFlatAward(tx, {
+      actorId: input.userId,
+      baseAmount: ownerAura,
+      now,
+      recipientId: input.ownerId,
+      subjectToDailyCap: false,
+      type: "COMMUNITY_JOIN_OWNER",
+    });
+  }
+
+  logger.info(
+    {
+      communityId: input.communityId,
+      joinerAura,
+      ownerAura,
+      userId: input.userId,
+    },
+    "community join bonus"
+  );
+}
+
 export interface CommunityCreationQuota {
   // How many communities the account already owns.
   owned: number;
-  // The account's current aura.
+  // The account's raw aura balance, for display.
   aura: number;
-  // Aura required to found the next community (null once capped).
+  // The founding credential. Gates creation; see getCommunityStanding.
+  standing: number;
+  // Total attention-milestone aura earned (views, shares).
+  reachAura: number;
+  // How much of that reach counted toward standing (capped).
+  reachCounted: number;
+  // Standing required to found the next community (null once capped).
   nextRequirement: number | null;
-  // False when either the aura gate or the ownership cap blocks creation.
+  // Aura paid to the founder for founding the next community.
+  nextBonus: number;
+  // False when either the standing gate or the ownership cap blocks creation.
   canCreate: boolean;
-  // True when the ownership cap has been reached (distinct from aura).
+  // True when the ownership cap has been reached (distinct from standing).
   maxed: boolean;
 }
 
-// Server-side creation quota. Reads the account's aura and owned-community
-// count so the wizard can show the gate before the reader invests time in the
-// flow; the same rule is re-checked atomically at write time in
-// createCommunity, so this can never be trusted as the enforcement point.
+// Server-side creation quota. Reads the account's standing (the founding
+// credential) and owned-community count so the wizard can show the gate before
+// the reader invests time in the flow; the same rule is re-checked atomically at
+// write time in createCommunity, so this can never be trusted as the
+// enforcement point.
 export async function getCommunityCreationQuota(
   userId: string
 ): Promise<CommunityCreationQuota> {
-  const [user, owned] = await Promise.all([
-    prisma.user.findUnique({
-      select: { aura: true },
-      where: { id: userId },
-    }),
+  const [standing, owned] = await Promise.all([
+    getCommunityStanding(userId),
     prisma.community.count({ where: { ownerId: userId } }),
   ]);
-  const aura = user?.aura ?? 0;
   const nextRequirement = communityCreationAuraRequirement(owned);
   const maxed = owned >= COMMUNITY_MAX_OWNED;
   return {
-    aura,
-    canCreate: !maxed && nextRequirement !== null && aura >= nextRequirement,
+    aura: standing.aura,
+    canCreate:
+      !maxed &&
+      nextRequirement !== null &&
+      standing.standing >= nextRequirement,
     maxed,
+    nextBonus: communityFoundingBonus(owned),
     nextRequirement,
     owned,
+    reachAura: standing.reachAura,
+    reachCounted: standing.reachCounted,
+    standing: standing.standing,
   };
 }
 
@@ -182,13 +328,12 @@ export async function createCommunity(
   const community = await prisma.$transaction(async (tx) => {
     // Serialize concurrent creations by the same account on its own user row.
     // Without the row lock, two in-flight requests both read "you own none of
-    // your four communities" and both pass the aura gate, letting an account
-    // spend one aura balance on several communities at once. The lock makes the
-    // count-then-create sequence effectively atomic per user.
-    const locked = await tx.$queryRaw<{ aura: number }[]>`
-      SELECT "aura" FROM "users" WHERE "id" = ${input.ownerId} FOR UPDATE
+    // your four communities" and both pass the gate, letting one account found
+    // several communities at once. The lock makes the count-then-create
+    // sequence effectively atomic per user.
+    await tx.$queryRaw`
+      SELECT "id" FROM "users" WHERE "id" = ${input.ownerId} FOR UPDATE
     `;
-    const aura = locked[0]?.aura ?? 0;
 
     const owned = await tx.community.count({
       where: { ownerId: input.ownerId },
@@ -200,10 +345,15 @@ export async function createCommunity(
         `You've reached the limit of ${COMMUNITY_MAX_OWNED} communities`
       );
     }
-    if (aura < requirement) {
+
+    // Gate on standing (the credential), not the raw aura balance, so one
+    // viral post cannot clear a permanent bar. Read inside the locked
+    // transaction so it cannot race a concurrent award or creation.
+    const standing = await computeStandingForUser(tx, input.ownerId);
+    if (standing.standing < requirement) {
       throw new CommunityError(
         "AURA_TOO_LOW",
-        `Founding this community needs ${requirement} aura. You have ${aura}.`
+        `Founding this community needs ${requirement} standing. You have ${standing.standing}.`
       );
     }
 
@@ -247,12 +397,17 @@ export async function createCommunity(
       },
     });
 
+    // Escalating founding bonus. Deliberately NOT subject to the daily income
+    // cap: the action is already gated hard (standing + the 10-community cap +
+    // rate limits), so it cannot be farmed, and the 120/day cap would shred a
+    // 10,000 award down to pocket change. The award is excluded from standing
+    // (STANDING_EXCLUDED_TYPES) so it cannot fund the next bar.
     await applyFlatAward(tx, {
       actorId: input.ownerId,
-      baseAmount: COMMUNITY_CREATED_AURA,
+      baseAmount: communityFoundingBonus(owned),
       now: new Date(),
       recipientId: input.ownerId,
-      subjectToDailyCap: true,
+      subjectToDailyCap: false,
       type: "COMMUNITY_CREATED",
     });
 
@@ -323,7 +478,7 @@ export async function joinCommunity(
   userId: string
 ): Promise<{ status: "ACTIVE" | "PENDING" }> {
   const community = await prisma.community.findUnique({
-    select: { id: true, type: true },
+    select: { id: true, ownerId: true, type: true },
     where: { id: communityId },
   });
   if (!community) {
@@ -339,10 +494,22 @@ export async function joinCommunity(
   }
 
   const status = community.type === "PUBLIC" ? "ACTIVE" : "PENDING";
-  await prisma.communityMember.upsert({
-    create: { communityId, role: "MEMBER", status, userId },
-    update: { status },
-    where: { communityId_userId: { communityId, userId } },
+  await prisma.$transaction(async (tx) => {
+    await tx.communityMember.upsert({
+      create: { communityId, role: "MEMBER", status, userId },
+      update: { status },
+      where: { communityId_userId: { communityId, userId } },
+    });
+
+    // Restricted/private communities pay only once the join is ACTIVE, which
+    // happens on approval (approveMember), not here.
+    if (status === "ACTIVE") {
+      await grantCommunityJoinBonus(tx, {
+        communityId,
+        ownerId: community.ownerId,
+        userId,
+      });
+    }
   });
 
   logger.info({ communityId, status, userId }, "community join");
@@ -379,10 +546,32 @@ export async function approveMember(
       "Only moderators can approve members"
     );
   }
-  await prisma.communityMember.updateMany({
-    data: { status: "ACTIVE" },
-    where: { communityId, status: "PENDING", userId: targetUserId },
+
+  const community = await prisma.community.findUnique({
+    select: { ownerId: true },
+    where: { id: communityId },
   });
+  if (!community) {
+    throw new CommunityError("NOT_FOUND", "Community not found");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.communityMember.updateMany({
+      data: { status: "ACTIVE" },
+      where: { communityId, status: "PENDING", userId: targetUserId },
+    });
+    // Pay the join bonus only when a PENDING request actually flipped to
+    // ACTIVE; a re-approval of an already-active member must not pay again.
+    // The CommunityJoinBonus marker is the second guard either way.
+    if (updated.count > 0) {
+      await grantCommunityJoinBonus(tx, {
+        communityId,
+        ownerId: community.ownerId,
+        userId: targetUserId,
+      });
+    }
+  });
+
   logger.info(
     { actorId, communityId, targetUserId },
     "community member approved"

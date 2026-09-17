@@ -8,5 +8,6 @@ export * from "./config";
 export * from "./engine";
 export * from "./ledger";
 export * from "./signals";
+export * from "./standing";
 export * from "./trending-card";
 export * from "./vote-settlement";

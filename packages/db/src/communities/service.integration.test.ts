@@ -47,10 +47,22 @@ beforeAll(async () => {
   await createUser(OWNER_ID);
   await createUser(MEMBER_ID);
   await createUser(VISITOR_ID);
-  // Founding is gated on aura; the fixture owner must clear the first tier.
+  // Founding is gated on STANDING, which is derived from earned ledger income
+  // (attention milestones only count up to an allowance). The fixture owner
+  // needs real non-milestone income to clear the first tier, not just a raw
+  // balance - a bare `aura` update would leave standing at 0.
   await prisma.user.update({
     data: { aura: 1000 },
     where: { id: OWNER_ID },
+  });
+  await prisma.auraLog.create({
+    data: {
+      amount: 1000,
+      issuerId: OWNER_ID,
+      targetUserId: OWNER_ID,
+      type: "POST_CREATION",
+      userId: OWNER_ID,
+    },
   });
 });
 

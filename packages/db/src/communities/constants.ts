@@ -184,11 +184,16 @@ export const COMMUNITY_LIMITS = {
 } as const;
 
 // Founding is earned, not free. The Nth community an account creates requires
-// this much user aura; index 0 is the first community. The array length is also
+// this much standing; index 0 is the first community. The array length is also
 // the hard cap on how many communities one account may ever own, so the two
 // rules can never drift apart.
+//
+// Shape: a steep early ladder (1k, 5k, 10k, 15k) that rewards getting started,
+// then a steady 5k step to 40k, then a deliberate 10k jump to the 50k ceiling.
+// The two named milestones the product commits to are index 5 (6 communities
+// at 25k) and index 9 (the 10-community cap at 50k).
 export const COMMUNITY_CREATION_AURA_TIERS = [
-  1000, 5000, 10_000, 15_000,
+  1000, 5000, 10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000, 50_000,
 ] as const;
 
 export const COMMUNITY_MAX_OWNED = COMMUNITY_CREATION_AURA_TIERS.length;
@@ -199,6 +204,31 @@ export function communityCreationAuraRequirement(
   ownedCount: number
 ): number | null {
   return COMMUNITY_CREATION_AURA_TIERS[ownedCount] ?? null;
+}
+
+// Escalating one-time bonus paid to the founder, keyed by how many communities
+// they already owned (index 0 = their first). A reward for building more of the
+// platform, deliberately superlinear, and capped flat once past the fifth so
+// the tail does not explode.
+//
+// This is a REWARD, not a credential. It is excluded from standing (see
+// STANDING_EXCLUDED_TYPES in aura/config) precisely so it cannot self-fund the
+// next bar: by the sixth community the account would otherwise have banked
+// 18,500 of the 25,000 bar purely from founding. Excluded, the bonus lands in
+// aura - visible, rankable, and paying into the flame - while each next bar
+// still demands real outside contribution.
+//
+// Parallel to COMMUNITY_CREATION_AURA_TIERS, but they measure different things:
+// the tier is the standing BAR to found the Nth community, this is the aura
+// REWARD for having founded it.
+export const COMMUNITY_FOUNDING_BONUSES = [
+  500, 1000, 2000, 5000, 10_000, 10_000, 10_000, 10_000, 10_000, 10_000,
+] as const;
+
+// The bonus for founding the community at `ownedCount` (0-based). Zero once
+// past the table, which the ownership cap makes unreachable anyway.
+export function communityFoundingBonus(ownedCount: number): number {
+  return COMMUNITY_FOUNDING_BONUSES[ownedCount] ?? 0;
 }
 
 // Rolling window for the "weekly" visitor / contributor counts.

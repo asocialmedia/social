@@ -27,6 +27,10 @@ import { useInView } from "react-intersection-observer";
 import { useSession } from "@/app/(main)/session-provider";
 import CommunitiesRightRail from "@/components/communities/communities-right-rail";
 import CommunityCard from "@/components/communities/community-card";
+import {
+  CommunityCreateButton,
+  CommunityCreationInfo,
+} from "@/components/communities/community-create-button";
 import CommunityRail from "@/components/communities/community-rail";
 import CreateCommunityDialog from "@/components/communities/create-community-dialog";
 import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
@@ -115,7 +119,7 @@ export default function ClientComm() {
       toast({
         description: quota.maxed
           ? `You've founded the maximum of ${COMMUNITY_MAX_OWNED} communities`
-          : `Founding a community needs ${formatNumber(quota.nextRequirement ?? 0)} aura`,
+          : `Founding a community needs ${formatNumber(quota.nextRequirement ?? 0)} standing`,
         variant: "destructive",
       });
       return;
@@ -255,24 +259,48 @@ export default function ClientComm() {
               <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
                 {/* Statement, anchored to the top-left. Each line is its own
                     flex row so the inline brand mark centres against the type by
-                    layout rather than hand-tuned baseline offsets. */}
-                <div className="min-w-0">
-                  <h1 className="text-foreground flex flex-col items-start text-3xl leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
-                    <span>Discover your</span>
-                    <span className="flex items-center gap-[0.16em]">
-                      <span>next</span>
-                      <Image
-                        alt="asocialmedia"
-                        className="h-[1.2em] w-auto shrink-0"
-                        priority
-                        src={zephImage}
-                      />
-                      <span>community</span>
-                    </span>
-                  </h1>
+                    layout rather than hand-tuned baseline offsets.
+
+                    `flex-auto` (grow with a content basis), NOT `flex-1`: the
+                    line-break is decided on the content width, so the block
+                    still wraps the stat panel below it on narrow screens, then
+                    grows to fill the row so the (i) can ride the right edge. */}
+                <div className="min-w-0 flex-auto">
+                  {/* The statement and, when the aura gate is unmet, the (i)
+                      that explains it. `justify-between` pins the mark to the
+                      row's right edge instead of tucking it against the
+                      headline. */}
+                  <div className="flex items-start justify-between gap-3">
+                    <h1 className="text-foreground flex flex-col items-start text-3xl leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
+                      <span>Discover your</span>
+                      <span className="flex items-center gap-[0.16em]">
+                        <span>next</span>
+                        <Image
+                          alt="asocialmedia"
+                          className="h-[1.2em] w-auto shrink-0"
+                          priority
+                          src={zephImage}
+                        />
+                        <span>community</span>
+                      </span>
+                    </h1>
+                    <CommunityCreationInfo
+                      className="mt-1 xl:hidden"
+                      quota={creationQuota.data}
+                    />
+                  </div>
                   <p className="text-muted-foreground mt-3 max-w-lg text-sm sm:text-base">
                     Find a new space to play, chill, and hang out.
                   </p>
+                  {/* The right rail is the create home on wide screens; below
+                      xl it is absent, so the hero carries the action. It
+                      renders nothing when the gate is unmet. */}
+                  <div className="mt-5 w-full xl:hidden">
+                    <CommunityCreateButton
+                      onCreate={handleCreate}
+                      quota={creationQuota.data}
+                    />
+                  </div>
                 </div>
 
                 {/* Right corner: the directory's headline totals as one

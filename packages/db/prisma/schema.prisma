@@ -79,6 +79,7 @@ model User {
   ownedCommunities      Community[]                 @relation("CommunityOwner")
   communityMemberships  CommunityMember[]
   communityVisits       CommunityVisit[]
+  communityJoinBonuses  CommunityJoinBonus[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,8 +90,6 @@ model User {
   @@map("users")
 }
 
-// A username remains owned by its previous account for a short time after a
-// rename. This preserves old profile links and prevents immediate impersonation.
 model UsernameAlias {
   id        String   @id @default(cuid())
   username  String   @unique
@@ -104,23 +103,10 @@ model UsernameAlias {
   @@map("username_aliases")
 }
 
-// E2EE messages. The server only ever stores ciphertext plus routing metadata;
-// the plaintext (and any referenced post id) lives inside the AES-GCM payload.
-// The private identity key is backed up on the server encrypted under a
-// PBKDF2-derived master key so the owner can recover old chats on a new
-// device, while the server never learns the secret.
 model MessageIdentity {
   userId              String   @id
   publicKey           String
   encryptedPrivateKey String
-  // SHA-256 hex hash of the account's random 64-char backup secret. This is
-  // a VERIFIER only: it proves knowledge of the secret but cannot yield the
-  // master key, because the master key derives (PBKDF2) from the raw secret,
-  // which lives exclusively on the user's devices. A database reader holding
-  // this row therefore cannot decrypt encryptedPrivateKey. Rows created by
-  // older clients derived the master key from this hash directly; those
-  // legacy rows remain decryptable until the identity is re-provisioned.
-  // Optional only to tolerate such legacy rows.
   masterKeyHash       String?
   salt                String
   kdfIterations       Int
@@ -133,10 +119,6 @@ model MessageIdentity {
 
 model MessageConversation {
   id        String                      @id @default(cuid())
-  // Deterministic key for a two-member thread: the two user ids joined in
-  // sorted order. Unique so concurrent "start a chat" requests for the same
-  // pair resolve to one conversation instead of racing into two. Nullable so
-  // rows created before this column existed keep their place until rewritten.
   pairKey   String?                     @unique
   members   MessageConversationMember[]
   keys      MessageConversationKey[]
@@ -160,9 +142,6 @@ model MessageConversationMember {
   @@map("message_conversation_members")
 }
 
-// The per-conversation symmetric key, wrapped separately for each participant
-// via ECDH + HKDF so nobody but the two members can unwrap it. The counter
-// tracks the symmetric ratchet for this participant's decryption chain.
 model MessageConversationKey {
   id             String              @id @default(cuid())
   conversationId String
@@ -186,26 +165,16 @@ model Message {
   sender         User                @relation(fields: [senderId], references: [id], onDelete: Cascade)
   ciphertext     String
   iv             String
-  // Position of this message within the sender's chain in this conversation.
-  // The receiver derives the same message key from the root convo key plus
-  // (senderId, ratchetIndex), so decryption works deterministically on any
-  // device without any client-side chain state.
   ratchetIndex   Int                 @default(0)
   createdAt      DateTime            @default(now())
   deletedAt      DateTime?
 
-  // A sender may never emit two messages at the same ratchet position. The
-  // server hands out indexes from an atomic counter, so this is the last line
-  // of defense against a concurrent duplicate send racing the counter read.
   @@unique([conversationId, senderId, ratchetIndex])
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@map("messages")
 }
 
-// A block is bidirectional in practice: either party can block, and the pair
-// can never message again until both unblock. Messaging is the only consumer
-// of Block in v1.
 model Block {
   blockerId String
   blocker   User     @relation("BlocksIssued", fields: [blockerId], references: [id], onDelete: Cascade)
@@ -226,12 +195,6 @@ model AuraLog {
   type         AuraType
   postId       String?
   commentId    String?
-  // Recipient of the underlying action (post author, followed user, ...),
-  // denormalized so pair-based anti-farm queries (tapering repeat
-  // interactions between the same two accounts) and audits do not need joins.
-  // Nullable because rows written before this column existed have no value;
-  // the aura engine treats null as "legacy row" and falls back to
-  // content-id-scoped lookups instead of pair-scoped ones.
   targetUserId String?
   createdAt    DateTime @default(now())
   user         User     @relation("AuraReceived", fields: [userId], references: [id])
@@ -259,26 +222,14 @@ enum AuraType {
   POST_BOOKMARKED
   POST_BOOKMARK_RECEIVED
   MODERATION_PENALTY
-  // Cost charged to the muter when they mute (downvote) someone's content;
-  // keeps muting honest by making mass-muting expensive. Reversals on un-mute
-  // reuse this type with the opposite sign.
   MUTING_COST
-  // Author award when a post's aggregate share count crosses a milestone.
-  // Shares are tracked per platform without a per-user actor, so like view
-  // milestones these are attributed to aggregate attention, not one account.
   SHARE_MILESTONE
-  // Author bonus for sharing a story to Hacker News at creation time.
   HN_SHARE_BONUS
-  // Award to a user for being mentioned in someone's post. Unique per
-  // (post, mentioned user) by the Mention table.
   MENTION_RECEIVED
-  // Flat daily award for appearing in the trending users card. Deduped per
-  // user per UTC day upstream; issuer and recipient are both the awarded
-  // user since the platform itself is the actor.
   TRENDING_APPEARANCE
-  // One-time award to the creator when a community is founded. Subject to the
-  // daily income cap like other creation awards.
   COMMUNITY_CREATED
+  COMMUNITY_JOIN
+  COMMUNITY_JOIN_OWNER
 }
 
 model PasswordResetToken {
@@ -384,10 +335,6 @@ model Follow {
   follower    User   @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
   followingId String
   following   User   @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
-  // Open aura positions: gainedAura is what the followed user earned from
-  // this follow, givenAura is what the follower earned for it. Unfollowing
-  // reverses exactly these amounts; zero defaults keep legacy follows inert
-  // on removal (conservative under-refund).
   gainedAura  Int    @default(0)
   givenAura   Int    @default(0)
 
@@ -397,32 +344,21 @@ model Follow {
 }
 
 model Post {
-  id                    String         @id @default(cuid())
+  id                    String                @id @default(cuid())
   content               String
   userId                String
-  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  aura                  Int            @default(0)
-  viewCount             Int            @default(0)
-  lastAwardedViewCount  Int            @default(0)
-  // Highest share total already paid out for SHARE_MILESTONE aura. The
-  // share-flush worker reads and advances it under a CAS so concurrent
-  // flushes never double-award (see apps/auth/src/worker/share-flush.ts).
-  lastAwardedShareCount Int            @default(0)
-  trendingScore         Float          @default(0)
-  isGust                Boolean        @default(false)
-  moderated             Boolean        @default(false)
-  explicitContent       Boolean        @default(false)
-  // Responses are posts that reply to another post. `parentPostId` is the
-  // immediate parent (relation, nulled if the parent is hard-deleted so the
-  // response survives as a tombstone). `rootPostId` is the id of the thread's
-  // top-level POST and is set for every response, which is what marks a post as
-  // a response even after its parent is gone. `threadTopId` is the id of the
-  // thread's top-level response (null for a direct response), giving the
-  // responses API the same one-level pagination anchor comments use via
-  // `rootId`.
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aura                  Int                   @default(0)
+  viewCount             Int                   @default(0)
+  lastAwardedViewCount  Int                   @default(0)
+  lastAwardedShareCount Int                   @default(0)
+  trendingScore         Float                 @default(0)
+  isGust                Boolean               @default(false)
+  moderated             Boolean               @default(false)
+  explicitContent       Boolean               @default(false)
   parentPostId          String?
-  parentPost            Post?          @relation("PostResponses", fields: [parentPostId], references: [id], onDelete: SetNull)
-  responses             Post[]         @relation("PostResponses")
+  parentPost            Post?                 @relation("PostResponses", fields: [parentPostId], references: [id], onDelete: SetNull)
+  responses             Post[]                @relation("PostResponses")
   rootPostId            String?
   threadTopId           String?
   attachments           Media[]
@@ -435,24 +371,16 @@ model Post {
   tags                  Tag[]
   mentions              Mention[]
   hnStoryShare          HNStoryShare?
-  // Set when this post was published INTO a community (native community post).
   communityId           String?
-  community             Community?           @relation(fields: [communityId], references: [id], onDelete: SetNull)
-  // Set when this post is a reshare of a community post onto the global feed.
-  communityShare        CommunityPostShare?  @relation("CommunityPostShareTarget")
-  communityShares       CommunityPostShare[] @relation("CommunityPostShares")
+  community             Community?            @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  communityShare        CommunityPostShare?   @relation("CommunityPostShareTarget")
+  communityShares       CommunityPostShare[]  @relation("CommunityPostShares")
   visits                PostVisit[]
   recommendationEvents  RecommendationEvent[]
-  // Resolved link previews (max 5, LinkEmbed payloads from
-  // apps/web/src/lib/link-embeds): fetched server-side at publish with SSRF
-  // validation and stored so feed rendering never performs outbound fetches.
-  // Author-dismissed links are simply excluded at write time.
   embeds                Json?
-  // Extracted topics & keywords from text, transcript, and OCR for recommendations
-  semanticTags          String[]       @default([])
-  // Semantic vector embedding for recommendation & similarity
-  embedding             Float[]        @default([])
-  createdAt             DateTime       @default(now())
+  semanticTags          String[]              @default([])
+  embedding             Float[]               @default([])
+  createdAt             DateTime              @default(now())
 
   @@index([isGust, createdAt])
   @@index([isGust, aura, id])
@@ -479,9 +407,6 @@ model PostVisit {
   @@map("post_visits")
 }
 
-// Behavioral signals used for recommendation learning. These are deliberately
-// append-only and separate from votes/bookmarks so passive attention can be
-// measured without changing the social/aura ledger.
 model RecommendationEvent {
   id         String   @id @default(cuid())
   userId     String
@@ -501,11 +426,6 @@ model RecommendationEvent {
   @@map("recommendation_events")
 }
 
-// Ops bookkeeping for one-shot data backfills (guarded runs that must happen
-// exactly once across a deployment fleet). The table is created and consumed
-// by scripts/sync-trending-scores.ts and docker/prisma-sync.sh; it is
-// declared here with @@ignore purely so `prisma db push` never drops it as an
-// unknown table. It intentionally emits no client types.
 model BackfillMarker {
   name        String   @id
   completedAt DateTime @default(now()) @map("completed_at")
@@ -522,52 +442,40 @@ model Tag {
   posts     Post[]
 }
 
-// A community is a topic-scoped space for posts, addressed by an immutable
-// slug at /a/{slug}. Membership is explicit (CommunityMember) and only
-// ACTIVE members may publish into it; viewing is public for every community.
 model Community {
-  id            String          @id @default(cuid())
-  slug          String          @unique
+  id            String               @id @default(cuid())
+  slug          String               @unique
   name          String
   description   String
-  // Discovery topics (keys from COMMUNITY_TOPICS), stored as a string array so
-  // the taxonomy can grow without a migration per topic.
-  topics        String[]        @default([])
-  type          CommunityType   @default(PUBLIC)
-  mature        Boolean         @default(false)
-  // Accent key (from COMMUNITY_ACCENTS), resolved to a theme-safe tonal color
-  // on the client. Drives the post card's left rail and the community header.
-  accentColor   String          @default("slate")
+  topics        String[]             @default([])
+  type          CommunityType        @default(PUBLIC)
+  mature        Boolean              @default(false)
+  accentColor   String               @default("slate")
   ownerId       String
-  owner         User            @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner         User                 @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   avatarUrl     String?
   avatarKey     String?
-  avatarMediaId String?         @unique
-  avatarMedia   Media?          @relation("CommunityAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  avatarMediaId String?              @unique
+  avatarMedia   Media?               @relation("CommunityAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
   bannerUrl     String?
   bannerKey     String?
-  bannerMediaId String?         @unique
-  bannerMedia   Media?          @relation("CommunityBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  bannerMediaId String?              @unique
+  bannerMedia   Media?               @relation("CommunityBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
   members       CommunityMember[]
   visits        CommunityVisit[]
   posts         Post[]
   postShares    CommunityPostShare[]
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  joinBonuses   CommunityJoinBonus[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
 
   @@index([createdAt])
   @@index([ownerId])
   @@index([type])
-  // Discovery filters by `topics hasSome [...]` (the array overlap operator);
-  // a GIN index is what keeps that from becoming a sequential scan as the
-  // directory grows into the hundreds of thousands.
   @@index([topics], type: Gin)
   @@map("communities")
 }
 
-// Membership + role for a community. The creator is seeded as OWNER/ACTIVE.
-// PENDING rows are join requests awaiting an owner/moderator decision; the
-// ACTIVE/PENDING status keeps approval state on the same row as the role.
 model CommunityMember {
   id          String                @id @default(cuid())
   communityId String
@@ -580,18 +488,12 @@ model CommunityMember {
 
   @@unique([communityId, userId])
   @@index([userId])
-  // The joined sidebar lists a viewer's ACTIVE memberships newest-first; this
-  // composite serves both the filter and the ordering from one index.
   @@index([userId, status, createdAt])
   @@index([communityId, role])
   @@index([communityId, status])
   @@map("community_members")
 }
 
-// One row per (community, viewer) pair, refreshed on every community page
-// view. Weekly unique visitors and contributors are counted from this table
-// over a rolling window rather than from a denormalized counter, so the
-// numbers stay honest as membership changes.
 model CommunityVisit {
   id          String    @id @default(cuid())
   communityId String
@@ -602,28 +504,38 @@ model CommunityVisit {
 
   @@unique([communityId, userId])
   @@index([communityId, visitedAt])
-  // The right rail reads a viewer's own trail newest-first; without this the
-  // per-user lookup has no index (the composite above leads with communityId).
   @@index([userId, visitedAt])
   @@map("community_visits")
 }
 
-// A community post reshared onto the global feed as a first-class Post. The
-// new post owns its own media (the author re-uploads), while this side row
-// records the source post and community so the card can show attribution.
 model CommunityPostShare {
-  id            String    @id @default(cuid())
-  postId        String    @unique
-  post          Post      @relation("CommunityPostShareTarget", fields: [postId], references: [id], onDelete: Cascade)
-  sourcePostId  String
-  sourcePost    Post      @relation("CommunityPostShares", fields: [sourcePostId], references: [id], onDelete: Cascade)
-  communityId   String
-  community     Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  createdAt     DateTime  @default(now())
+  id           String    @id @default(cuid())
+  postId       String    @unique
+  post         Post      @relation("CommunityPostShareTarget", fields: [postId], references: [id], onDelete: Cascade)
+  sourcePostId String
+  sourcePost   Post      @relation("CommunityPostShares", fields: [sourcePostId], references: [id], onDelete: Cascade)
+  communityId  String
+  community    Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
 
   @@index([sourcePostId])
   @@index([communityId])
   @@map("community_post_shares")
+}
+
+model CommunityJoinBonus {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinerAura  Int
+  ownerAura   Int
+  createdAt   DateTime  @default(now())
+
+  @@unique([communityId, userId])
+  @@index([userId, createdAt])
+  @@map("community_join_bonuses")
 }
 
 enum CommunityType {
@@ -657,29 +569,16 @@ model Media {
   url                  String
   key                  String           @default("")
   mimeType             String           @default("application/octet-stream")
-  // Coarse category written at upload initiation from the declared MIME
-  // (mediaTypeFromMime) and consumed across serving surfaces. mimeType
-  // stays the precise source of truth; this drives routing/UI switches.
   type                 MediaType        @default(IMAGE)
   size                 Int              @default(0)
   width                Int?
   height               Int?
-  // Frame extracted at ~2s for video uploads; served via /api/media/{id}?thumb=1
   thumbnailKey         String?
   thumbnailWidth       Int?
   thumbnailHeight      Int?
-  // Author-uploaded cover image (gust thumbnail): bytes are copied into this
-  // video's own key space by the thumbnail attach endpoint, so the serving
-  // route prefers it over the pipeline's scene-aware poster and no second
-  // media row needs to stay alive.
   customThumbnailKey   String?
-  // True when the pipeline generated an adaptive HLS ladder for this video
-  // (long-form or >1080p sources); clients use it to pick the streaming URL.
   hasHls               Boolean          @default(false)
   createdAt            DateTime         @default(now())
-  // Legacy rows keep status UPLOADING with a legacy `key`; the serving route
-  // falls back to legacy columns whenever no derivatives exist, so old posts
-  // never break. New uploads always walk the state machine.
   status               MediaStatus      @default(UPLOADING)
   visibility           MediaVisibility  @default(PUBLIC)
   originalKey          String?
@@ -697,64 +596,27 @@ model Media {
   exifStripped         Boolean          @default(false)
   altText              String?
   generatedAltText     String?
-  // Scene text extracted by the analyze stage's OCR (PP-OCRv4 via ONNX).
-  // Input for alt-text assist and text-based moderation; null when OCR is
-  // disabled or nothing readable was found.
   ocrText              String?
-  // Spoken speech transcript from Whisper STT
   transcript           String?
-  // WebVTT subtitles file key in object storage (e.g. captions/{mediaId}.vtt)
   captionsKey          String?
-  // Visual and audio concept tags extracted during semantic analysis
   semanticTags         String[]         @default([])
   safety               Json?
   semantics            Json?
-  // Content provenance (C2PA): AI-generation classification recorded by the
-  // scan stage. Null means never inspected (legacy/pre-pipeline rows). The
-  // row flag is authoritative - embedded manifests can be stripped, this
-  // cannot, and it survives re-uploads of the same media id.
   aiGenerated          Boolean?
   aiProvenance         Json?
   pipelineVersion      String?
   processedAt          DateTime?
-  // Optional audio track that REPLACES the video's own audio: the pipeline
-  // remuxes this track over the video before transcoding (gust "sound").
   audioOverlayId       String?          @unique
   audioOverlay         Media?           @relation("AudioOverlay", fields: [audioOverlayId], references: [id], onDelete: SetNull)
   audioOverlayFor      Media[]          @relation("AudioOverlay")
-  // Default(now()) lets db push backfill existing rows instead of refusing
-  // the migration; @updatedAt keeps Prisma refreshing it on every write.
   updatedAt            DateTime         @default(now()) @updatedAt
-  // ThumbHash LQIP data URL (~500 bytes) inlined into API responses.
   blurDataUrl          String?
-  // Authoritative record attached by the scan stage at publish time. This
-  // lives in the database ON PURPOSE: provenance embedded in binary files
-  // can be stripped by any re-upload, while this record survives and keeps
-  // answering "who posted what, when, through which pipeline version".
-  // Identifies the platform that processed and serves this media.
   platform             String           @default("asocialmedia.cc")
-  // Author display name snapshot taken when the media was published, so
-  // attribution survives later profile renames.
   uploaderDisplayName  String?
-  // Author @username snapshot, same publish-time contract as the display
-  // name above. Mirrored into every C2PA provenance stamp.
   uploaderUsername     String?
-  // Encoder implementation version (MEDIA_ENCODER_VERSION) that produced
-  // the derivatives, distinct from the pipeline logic version above.
   encoderVersion       String?
-  // Exact-duplicate signal: id of an earlier media row whose published
-  // bytes carry the same SHA-256. Detection signal only - never treated
-  // as proof of ownership.
   duplicateOf          String?
-  // Root of the single-hop duplicate chain, denormalized for feed batch
-  // loads. When media B near-duplicates A (phash <= 10), B.duplicateOf = A
-  // and B.originalProvenanceId = A.originalProvenanceId ?? A.id. Lets
-  // "originally from @X" resolve in one indexed lookup, no chain walk.
   originalProvenanceId String?
-  // Set to true once this row's phash near-duplicate search has run
-  // exactly once. Prevents the O(400-row) attribution scan from firing
-  // on every retry or backfill re-run. Indexed so findMany({ where:
-  // { phash: { not: null }, reShareChecked: false } }) stays cheap.
   reShareChecked       Boolean          @default(false)
 
   derivatives MediaDerivative[]
@@ -831,12 +693,6 @@ model Vote {
   postId         String
   post           Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
   value          Int
-  // Open aura positions created by this vote, so removal reverses EXACTLY
-  // what was awarded even when weighting/tapering made amounts vary.
-  // awardedAura: net author-side aura currently applied by this vote.
-  // mutingCostAura: muter honesty cost currently charged for this vote.
-  // Zero defaults mean legacy votes (created before the economy shipped)
-  // have nothing open to reverse - conservative: un-voting never charges.
   awardedAura    Int      @default(0)
   mutingCostAura Int      @default(0)
   createdAt      DateTime @default(now())
@@ -853,7 +709,6 @@ model CommentVote {
   commentId      String
   comment        Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
   value          Int
-  // Open aura positions, mirroring Vote.awardedAura / Vote.mutingCostAura.
   awardedAura    Int      @default(0)
   mutingCostAura Int      @default(0)
   createdAt      DateTime @default(now())
@@ -869,10 +724,6 @@ model Bookmark {
   user           User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   postId         String
   post           Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
-  // Open aura positions: bookmarkerAura is what the bookmarker earned for
-  // curating, authorAura is what the post author earned. Un-bookmarking
-  // reverses exactly these amounts. Zero defaults keep legacy bookmarks
-  // (pre-economy) inert on removal - conservative under-refund.
   bookmarkerAura Int    @default(0)
   authorAura     Int    @default(0)
 
@@ -926,12 +777,6 @@ model Comment {
   replies          Comment[]      @relation("CommentReplies")
   rootComments     Comment[]      @relation("CommentRoots")
   aura             Int            @default(0)
-  // Open aura positions from this comment's creation: creationAura is what
-  // the commenter earned, receivedAura is what the parent/post author earned
-  // as primary recipient, postReceivedAura is what the POST author earned
-  // when this comment was a reply (the thread-cumulative award). Soft-delete
-  // reverses exactly these; zero defaults keep legacy comments inert on
-  // deletion (conservative under-refund).
   creationAura     Int            @default(0)
   receivedAura     Int            @default(0)
   postReceivedAura Int            @default(0)
@@ -1014,9 +859,6 @@ model jwks {
   privateKey String
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-  // Fields better-auth's JWT plugin writes per key: algorithm and curve for
-  // EdDSA/OKP keys, and rotation expiry. All optional - only alg/crv appear
-  // on Ed25519 keys (expiresAt is reserved for retired keys).
   alg        String?
   crv        String?
   expiresAt  DateTime?
