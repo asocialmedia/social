@@ -61,6 +61,7 @@ export function MessageBubble({
   const mine = message.senderId === myUserId;
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   const handleMenuOpenChange = useCallback((open: boolean) => {
     setMenuOpen(open);
@@ -120,20 +121,33 @@ export function MessageBubble({
       );
     }
     if (content.type === "media") {
+      // Reserve the real aspect ratio (captured at upload and carried in
+      // the payload) behind a shimmer so the bubble never resizes when the
+      // bytes arrive. Legacy payloads without dimensions fall back to 4/3.
+      const aspectRatio =
+        content.width && content.height
+          ? `${content.width} / ${content.height}`
+          : "4 / 3";
       return (
         <div
           className={cn(
-            "max-w-full overflow-hidden rounded-lg",
+            "relative max-h-96 max-w-full overflow-hidden rounded-lg",
             mine ? "bg-black/15" : "bg-muted/40"
           )}
+          style={{ aspectRatio }}
         >
+          {imageLoaded ? null : (
+            <div className="bg-muted/60 absolute inset-0 animate-pulse" />
+          )}
           <Image
             alt={content.kind === "gif" ? "GIF" : "Shared image"}
-            className="h-auto max-h-72 w-full max-w-full object-contain"
-            height={content.height ?? 200}
+            className="absolute inset-0 h-full w-full object-contain"
+            fill
+            onError={() => setImageLoaded(true)}
+            onLoad={() => setImageLoaded(true)}
+            sizes="(max-width: 640px) 85vw, 420px"
             src={content.url}
             unoptimized={content.kind === "gif"}
-            width={content.width ?? 280}
           />
         </div>
       );
