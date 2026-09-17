@@ -3,8 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   COMMUNITY_ACCENTS,
   COMMUNITY_CATEGORIES,
+  COMMUNITY_CREATION_AURA_TIERS,
   COMMUNITY_LIMITS,
+  COMMUNITY_MAX_OWNED,
   COMMUNITY_TOPICS,
+  communityCreationAuraRequirement,
   DEFAULT_COMMUNITY_ACCENT,
   DEFAULT_COMMUNITY_CATEGORY,
   getCommunityAccent,
@@ -92,5 +95,30 @@ describe("community constants", () => {
     for (const key of keys) {
       expect(getCommunityCategory(key)?.key).toBe(key);
     }
+  });
+
+  test("creation aura tiers ascend and cap at the owned-community limit", () => {
+    // The array length IS the cap, so the two can never disagree.
+    expect(COMMUNITY_MAX_OWNED).toBe(COMMUNITY_CREATION_AURA_TIERS.length);
+
+    const tiers = [...COMMUNITY_CREATION_AURA_TIERS];
+    for (let index = 1; index < tiers.length; index += 1) {
+      const previous = tiers[index - 1];
+      const current = tiers[index];
+      if (previous === undefined || current === undefined) {
+        throw new Error("unexpected gap in creation tiers");
+      }
+      expect(current).toBeGreaterThan(previous);
+    }
+
+    expect(communityCreationAuraRequirement(0)).toBe(1000);
+    expect(communityCreationAuraRequirement(1)).toBe(5000);
+    expect(communityCreationAuraRequirement(2)).toBe(10_000);
+    expect(communityCreationAuraRequirement(3)).toBe(15_000);
+    // At and past the cap there is no next community to unlock.
+    expect(communityCreationAuraRequirement(COMMUNITY_MAX_OWNED)).toBeNull();
+    expect(
+      communityCreationAuraRequirement(COMMUNITY_MAX_OWNED + 5)
+    ).toBeNull();
   });
 });

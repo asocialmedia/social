@@ -6,10 +6,20 @@
 // is invisible to the reader. The underlying computations live in
 // service.getCommunityStats / service.getCommunityCategoryCounts; this module
 // only wraps them.
+//
+// Every aggregate goes through `withAggregateCache`, which adds two protections
+// the plain get/set pattern lacked:
+//   1. Single-flight. When a key expires under load, only one caller
+//      recomputes and the rest wait briefly for it instead of stampeding the
+//      database with the same expensive aggregate. (A stale copy is served if
+//      the leader is slower than the wait.)
+//   2. Stale-while-error. The last good value is kept on a longer TTL as a
+//      fallback, so a database hiccup degrades the numbers to slightly old
+//      rather than blanking the page.
 
 import { createLogger } from "@asm/logger";
 
-import { redis } from "../redis";
+import { claimOnce, redis } from "../redis";
 import {
   getCommunityCategoryCounts,
   getCommunityDiscoveryStats,
@@ -32,55 +42,102 @@ const logger = createLogger({ serviceName: "community-aura" });
 const STATS_CACHE_PREFIX = "community:stats:";
 const STATS_CACHE_TTL_SECONDS = 60;
 const CATEGORY_COUNTS_CACHE_KEY = "community:category-counts";
-const CATEGORY_COUNTS_TTL_SECONDS = 60;
+const CATEGORY_COUNTS_TTL_SECONDS = 120;
 const DISCOVERY_STATS_CACHE_KEY = "community:discovery-stats";
-const DISCOVERY_STATS_TTL_SECONDS = 60;
+const DISCOVERY_STATS_TTL_SECONDS = 120;
 const SECTIONS_CACHE_KEY = "community:sections";
-const SECTIONS_TTL_SECONDS = 60;
+const SECTIONS_TTL_SECONDS = 300;
+// Leaderboards move slowly by nature (a rank flips only when two communities
+// cross), so they sit on a much longer TTL than the live-ish counts.
+const LEADERBOARD_TTL_SECONDS = 300;
+// How many multiples of the primary TTL the stale fallback is kept for.
+const STALE_TTL_MULTIPLIER = 10;
 
 function statsKey(communityId: string): string {
   return `${STATS_CACHE_PREFIX}${communityId}`;
 }
 
-export async function getCachedCommunityStats(
+interface CacheRead<T> {
+  hit: boolean;
+  value: T;
+}
+
+async function readCached<T>(key: string): Promise<CacheRead<T>> {
+  try {
+    const raw = await redis.get(key);
+    if (raw === null) {
+      return { hit: false, value: undefined as T };
+    }
+    return { hit: true, value: JSON.parse(raw) as T };
+  } catch (error) {
+    logger.warn({ error: String(error), key }, "community cache read failed");
+    return { hit: false, value: undefined as T };
+  }
+}
+
+async function writeCached(
+  key: string,
+  value: unknown,
+  ttlSeconds: number
+): Promise<void> {
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", ttlSeconds);
+  } catch (error) {
+    logger.warn({ error: String(error), key }, "community cache write failed");
+  }
+}
+
+// Read-through cache with single-flight and a stale fallback. Fails open: if
+// Redis is unreachable every call recomputes, exactly as the previous
+// uncached-on-error behaviour did.
+async function withAggregateCache<T>(
+  key: string,
+  ttlSeconds: number,
+  compute: () => Promise<T>
+): Promise<T> {
+  const primary = await readCached<T>(key);
+  if (primary.hit) {
+    return primary.value;
+  }
+
+  const staleKey = `${key}:stale`;
+  const hasLock = await claimOnce(
+    `${key}:lock`,
+    Math.max(5, Math.ceil(ttlSeconds / 2))
+  );
+  if (!hasLock) {
+    // Another caller is already recomputing. Serve the last good copy instead
+    // of piling a second heavy aggregate onto the database. On a truly cold
+    // key there is no stale copy, so fall through and compute rather than
+    // return nothing; only the first load of a key can duplicate work.
+    const stale = await readCached<T>(staleKey);
+    if (stale.hit) {
+      return stale.value;
+    }
+  }
+
+  const value = await compute();
+  await writeCached(key, value, ttlSeconds);
+  await writeCached(staleKey, value, ttlSeconds * STALE_TTL_MULTIPLIER);
+  return value;
+}
+
+export function getCachedCommunityStats(
   communityId: string
 ): Promise<CommunityStats> {
-  try {
-    const cached = await redis.get(statsKey(communityId));
-    if (cached) {
-      return JSON.parse(cached) as CommunityStats;
-    }
-  } catch (error) {
-    logger.warn(
-      { communityId, error: String(error) },
-      "community stats cache read failed"
-    );
-  }
-
-  const stats = await getCommunityStats(communityId);
-
-  try {
-    await redis.set(
-      statsKey(communityId),
-      JSON.stringify(stats),
-      "EX",
-      STATS_CACHE_TTL_SECONDS
-    );
-  } catch (error) {
-    logger.warn(
-      { communityId, error: String(error) },
-      "community stats cache write failed"
-    );
-  }
-
-  return stats;
+  return withAggregateCache(
+    statsKey(communityId),
+    STATS_CACHE_TTL_SECONDS,
+    () => getCommunityStats(communityId)
+  );
 }
 
 export async function invalidateCommunityStats(
   communityId: string
 ): Promise<void> {
+  const key = statsKey(communityId);
   try {
-    await redis.del(statsKey(communityId));
+    await redis.del(key, `${key}:stale`);
   } catch (error) {
     logger.warn(
       { communityId, error: String(error) },
@@ -90,186 +147,57 @@ export async function invalidateCommunityStats(
 }
 
 // Category counts for the discovery filter row, cached as one small map.
-export async function getCachedCommunityCategoryCounts(): Promise<
+export function getCachedCommunityCategoryCounts(): Promise<
   Record<string, number>
 > {
-  try {
-    const cached = await redis.get(CATEGORY_COUNTS_CACHE_KEY);
-    if (cached) {
-      return JSON.parse(cached) as Record<string, number>;
-    }
-  } catch (error) {
-    logger.warn(
-      { error: String(error) },
-      "community category counts cache read failed"
-    );
-  }
-
-  const counts = await getCommunityCategoryCounts();
-
-  try {
-    await redis.set(
-      CATEGORY_COUNTS_CACHE_KEY,
-      JSON.stringify(counts),
-      "EX",
-      CATEGORY_COUNTS_TTL_SECONDS
-    );
-  } catch (error) {
-    logger.warn(
-      { error: String(error) },
-      "community category counts cache write failed"
-    );
-  }
-
-  return counts;
+  return withAggregateCache(
+    CATEGORY_COUNTS_CACHE_KEY,
+    CATEGORY_COUNTS_TTL_SECONDS,
+    getCommunityCategoryCounts
+  );
 }
 
-// Headline totals for the discovery hero, cached on the same short TTL.
-export async function getCachedCommunityDiscoveryStats(): Promise<CommunityDiscoveryStats> {
-  try {
-    const cached = await redis.get(DISCOVERY_STATS_CACHE_KEY);
-    if (cached) {
-      return JSON.parse(cached) as CommunityDiscoveryStats;
-    }
-  } catch (error) {
-    logger.warn(
-      { error: String(error) },
-      "community discovery stats cache read failed"
-    );
-  }
-
-  const stats = await getCommunityDiscoveryStats();
-
-  try {
-    await redis.set(
-      DISCOVERY_STATS_CACHE_KEY,
-      JSON.stringify(stats),
-      "EX",
-      DISCOVERY_STATS_TTL_SECONDS
-    );
-  } catch (error) {
-    logger.warn(
-      { error: String(error) },
-      "community discovery stats cache write failed"
-    );
-  }
-
-  return stats;
+// Headline totals for the discovery hero, cached on a slightly longer TTL.
+export function getCachedCommunityDiscoveryStats(): Promise<CommunityDiscoveryStats> {
+  return withAggregateCache(
+    DISCOVERY_STATS_CACHE_KEY,
+    DISCOVERY_STATS_TTL_SECONDS,
+    getCommunityDiscoveryStats
+  );
 }
 
-// Curated discovery rails, cached as one payload on the same short TTL.
-export async function getCachedCommunitySections(): Promise<CommunitySections> {
-  try {
-    const cached = await redis.get(SECTIONS_CACHE_KEY);
-    if (cached) {
-      return JSON.parse(cached) as CommunitySections;
-    }
-  } catch (error) {
-    logger.warn(
-      { error: String(error) },
-      "community sections cache read failed"
-    );
-  }
-
-  const sections = await getCommunitySections();
-
-  try {
-    await redis.set(
-      SECTIONS_CACHE_KEY,
-      JSON.stringify(sections),
-      "EX",
-      SECTIONS_TTL_SECONDS
-    );
-  } catch (error) {
-    logger.warn(
-      { error: String(error) },
-      "community sections cache write failed"
-    );
-  }
-
-  return sections;
+// Curated discovery rails, cached as one payload.
+export function getCachedCommunitySections(): Promise<CommunitySections> {
+  return withAggregateCache(
+    SECTIONS_CACHE_KEY,
+    SECTIONS_TTL_SECONDS,
+    getCommunitySections
+  );
 }
 
 // Sidebar leaderboards: highest-aura communities and the most active category.
-// Both are global rankings that move slowly, so they share the same short TTL.
-export async function getCachedTopCommunitiesByAura(): Promise<
-  CommunityData[]
-> {
-  const KEY = "community:top-by-aura";
-  try {
-    const cached = await redis.get(KEY);
-    if (cached) {
-      return JSON.parse(cached) as CommunityData[];
-    }
-  } catch (error) {
-    logger.warn({ error: String(error) }, "top communities cache read failed");
-  }
-
-  const communities = await getTopCommunitiesByAura();
-
-  try {
-    await redis.set(
-      KEY,
-      JSON.stringify(communities),
-      "EX",
-      SECTIONS_TTL_SECONDS
-    );
-  } catch (error) {
-    logger.warn({ error: String(error) }, "top communities cache write failed");
-  }
-
-  return communities;
+// Both are global rankings that move slowly, so they share one longer TTL.
+export function getCachedTopCommunitiesByAura(): Promise<CommunityData[]> {
+  return withAggregateCache(
+    "community:top-by-aura",
+    LEADERBOARD_TTL_SECONDS,
+    () => getTopCommunitiesByAura()
+  );
 }
 
-export async function getCachedMostActiveCategory(): Promise<ActiveCategory | null> {
-  const KEY = "community:most-active-category";
-  try {
-    const cached = await redis.get(KEY);
-    if (cached) {
-      return JSON.parse(cached) as ActiveCategory;
-    }
-  } catch (error) {
-    logger.warn({ error: String(error) }, "active category cache read failed");
-  }
-
-  const category = await getMostActiveCategory();
-
-  try {
-    // Null is a real answer ("no posts yet"); cache it as JSON `null` so the
-    // empty state does not re-query on every request.
-    await redis.set(KEY, JSON.stringify(category), "EX", SECTIONS_TTL_SECONDS);
-  } catch (error) {
-    logger.warn({ error: String(error) }, "active category cache write failed");
-  }
-
-  return category;
+export function getCachedMostActiveCategory(): Promise<ActiveCategory | null> {
+  return withAggregateCache(
+    "community:most-active-category",
+    LEADERBOARD_TTL_SECONDS,
+    getMostActiveCategory
+  );
 }
 
-// Sidebar "Popular communities": a global population ranking, cached on the
-// same short TTL as the other leaderboards.
-export async function getCachedTopCommunities(): Promise<CommunityData[]> {
-  const KEY = "community:top-by-population";
-  try {
-    const cached = await redis.get(KEY);
-    if (cached) {
-      return JSON.parse(cached) as CommunityData[];
-    }
-  } catch (error) {
-    logger.warn({ error: String(error) }, "top communities cache read failed");
-  }
-
-  const communities = await getTopCommunities();
-
-  try {
-    await redis.set(
-      KEY,
-      JSON.stringify(communities),
-      "EX",
-      SECTIONS_TTL_SECONDS
-    );
-  } catch (error) {
-    logger.warn({ error: String(error) }, "top communities cache write failed");
-  }
-
-  return communities;
+// Sidebar "Popular communities": a global population ranking.
+export function getCachedTopCommunities(): Promise<CommunityData[]> {
+  return withAggregateCache(
+    "community:top-by-population",
+    LEADERBOARD_TTL_SECONDS,
+    () => getTopCommunities()
+  );
 }

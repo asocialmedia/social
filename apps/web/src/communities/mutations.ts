@@ -38,6 +38,9 @@ export function useCreateCommunityMutation() {
     onSuccess: (community: CommunityData) => {
       queryClient.invalidateQueries({ queryKey: ["communities"] });
       queryClient.invalidateQueries({ queryKey: ["community-joined"] });
+      // The account now owns one more community, so the sidebar's aura ladder
+      // is stale (its "next needs" tier advances).
+      queryClient.invalidateQueries({ queryKey: ["community-creation-quota"] });
       toast({ description: `a/${community.slug} is live`, title: "Created" });
       router.push(`/a/${community.slug}`);
     },

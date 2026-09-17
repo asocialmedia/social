@@ -12,6 +12,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 
+import { communityCreationQuota } from "@/communities/actions";
 import kyInstance from "@/lib/ky";
 
 export interface CommunitySidebarPayload {
@@ -105,6 +106,19 @@ export function useInfiniteCommunitiesQuery({
         })
         .json<CommunityListResponse>(),
     queryKey: ["communities", category ?? "all", search],
+    staleTime: 30_000,
+  });
+}
+
+// The viewer's community-creation gate (owned count, aura, next requirement).
+// Read when the wizard opens so the aura/ownership rule is shown before the
+// reader fills the flow out, rather than failing on submit. The server action
+// re-checks it atomically, so this is presentational only.
+export function useCommunityCreationQuotaQuery(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryFn: () => communityCreationQuota(),
+    queryKey: ["community-creation-quota"],
     staleTime: 30_000,
   });
 }

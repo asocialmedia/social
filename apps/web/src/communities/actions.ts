@@ -4,13 +4,15 @@ import { createCommunitySchema } from "@asm/auth/validation";
 import {
   approveMember as approveMemberService,
   CommunityError,
+  consumeRateLimit,
   createCommunity as createCommunityService,
+  getCommunityCreationQuota,
   invalidateCommunityStats,
   joinCommunity as joinCommunityService,
   leaveCommunity as leaveCommunityService,
   setMemberRole as setMemberRoleService,
 } from "@asm/db";
-import type { CommunityData } from "@asm/db";
+import type { CommunityCreationQuota, CommunityData } from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -24,6 +26,34 @@ function requireUser(userId: string | undefined): string {
   return userId;
 }
 
+// Creation spam is the most expensive abuse a single account can mount here
+// (each create writes a community, a membership and an aura award), and the
+// server action bypasses the /api edge guard entirely. Two Redis-backed caps
+// bound it: a burst window and a daily ceiling. Both fail open when Redis is
+// down, matching the rest of the rate limiting in the app.
+const CREATE_BURST = {
+  bucket: "community-create",
+  limit: 3,
+  windowSeconds: 600,
+};
+const CREATE_DAILY = {
+  bucket: "community-create-daily",
+  limit: 10,
+  windowSeconds: 86_400,
+};
+
+async function assertCreationRate(userId: string): Promise<void> {
+  const [burst, daily] = await Promise.all([
+    consumeRateLimit({ ...CREATE_BURST, identifier: userId }),
+    consumeRateLimit({ ...CREATE_DAILY, identifier: userId }),
+  ]);
+  if (!burst.allowed || !daily.allowed) {
+    throw new Error(
+      "You're creating communities too quickly. Try again a little later."
+    );
+  }
+}
+
 // Creates a community from the wizard payload. The creator becomes the OWNER
 // and the first ACTIVE member; slug/name/topic/accent validation happens in the
 // service so the API route and any future surface share one set of rules.
@@ -31,9 +61,14 @@ export async function createCommunity(input: unknown): Promise<CommunityData> {
   const session = await getSessionFromApi();
   const userId = requireUser(session?.user?.id);
 
+  await assertCreationRate(userId);
+
   const parsed = createCommunitySchema.parse(input);
   try {
-    return await createCommunityService({ ...parsed, ownerId: userId });
+    return await createCommunityService({
+      ...parsed,
+      ownerId: userId,
+    });
   } catch (error) {
     if (error instanceof CommunityError) {
       throw new TypeError(error.message, { cause: error });
@@ -43,6 +78,15 @@ export async function createCommunity(input: unknown): Promise<CommunityData> {
       cause: error,
     });
   }
+}
+
+// The wizard reads this on open so the aura/ownership gate is shown up front
+// instead of surfacing as a failed submit at the end of the flow. The server
+// still re-checks the same rule atomically at write time.
+export async function communityCreationQuota(): Promise<CommunityCreationQuota> {
+  const session = await getSessionFromApi();
+  const userId = requireUser(session?.user?.id);
+  return getCommunityCreationQuota(userId);
 }
 
 export async function joinCommunity(

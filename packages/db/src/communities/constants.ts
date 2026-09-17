@@ -183,6 +183,24 @@ export const COMMUNITY_LIMITS = {
   topicMax: 5,
 } as const;
 
+// Founding is earned, not free. The Nth community an account creates requires
+// this much user aura; index 0 is the first community. The array length is also
+// the hard cap on how many communities one account may ever own, so the two
+// rules can never drift apart.
+export const COMMUNITY_CREATION_AURA_TIERS = [
+  1000, 5000, 10_000, 15_000,
+] as const;
+
+export const COMMUNITY_MAX_OWNED = COMMUNITY_CREATION_AURA_TIERS.length;
+
+// Aura required to found the community at `ownedCount` (0-based). Returns null
+// once the account is at the cap, where no further creation is possible.
+export function communityCreationAuraRequirement(
+  ownedCount: number
+): number | null {
+  return COMMUNITY_CREATION_AURA_TIERS[ownedCount] ?? null;
+}
+
 // Rolling window for the "weekly" visitor / contributor counts.
 export const COMMUNITY_ACTIVITY_WINDOW_DAYS = 7;
 

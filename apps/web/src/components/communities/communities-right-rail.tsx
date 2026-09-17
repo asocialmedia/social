@@ -1,17 +1,32 @@
 "use client";
 
-import type { CommunityData } from "@asm/db";
+import type { CommunityCreationQuota, CommunityData } from "@asm/db";
+import { COMMUNITY_MAX_OWNED } from "@asm/db/communities";
 import { Button } from "@asm/ui/shadui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@asm/ui/shadui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@asm/ui/shadui/tooltip";
 import { formatDistanceToNow } from "date-fns";
-import { Clock, Flame, Sparkles, TrendingUp, Users } from "lucide-react";
+import { Clock, Flame, Info, Sparkles, TrendingUp, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import CommunityAvatar from "@/components/communities/community-avatar";
 import SearchField from "@/components/layouts/search-field";
+import { getAuraFlameClass } from "@/lib/aura/aura";
+import { useCommunityCreationQuotaQuery } from "@/lib/communities/client";
 import type { CommunitySidebarPayload } from "@/lib/communities/client";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 interface CommunitiesRightRailProps {
   auras: Record<string, number>;
@@ -154,6 +169,86 @@ function RowMetric({
   );
 }
 
+const ORDINALS = ["1st", "2nd", "3rd", "4th"] as const;
+
+function ordinal(index: number): string {
+  return ORDINALS[index] ?? `${index + 1}th`;
+}
+
+// The aura ladder behind community creation, opened from the (i) beside the
+// create CTA. It is a standing rule about the account rather than a step of the
+// wizard, so it lives next to the button that opens the wizard. Presentational
+// only - the service re-checks the gate atomically at write time.
+function CreationGatePanel({ quota }: { quota: CommunityCreationQuota }) {
+  const requirement = quota.maxed ? null : quota.nextRequirement;
+  const eligible = requirement !== null && quota.aura >= requirement;
+  const remaining =
+    requirement === null ? 0 : Math.max(0, requirement - quota.aura);
+  // Only ever shown while an unmet requirement exists, so `requirement` is a
+  // real number here and the ratio cannot divide by zero.
+  const progress =
+    requirement === null || requirement <= 0
+      ? 1
+      : Math.min(1, quota.aura / requirement);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-foreground text-sm font-semibold">
+          Founding is earned
+        </p>
+        <p className="text-muted-foreground text-xs">
+          Each community you start costs aura.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+          <Flame
+            aria-hidden="true"
+            className={cn("size-3.5", getAuraFlameClass(quota.aura))}
+            fill="currentColor"
+          />
+          Your aura
+        </span>
+        <span className="text-foreground text-sm font-semibold tabular-nums">
+          {formatNumber(quota.aura)}
+        </span>
+      </div>
+
+      {quota.maxed ? (
+        <p className="text-muted-foreground text-xs">
+          You have founded all {COMMUNITY_MAX_OWNED} communities.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-muted-foreground text-xs">
+              Your {ordinal(quota.owned)} community
+            </span>
+            <span className="text-foreground text-xs font-semibold tabular-nums">
+              {formatNumber(requirement ?? 0)} aura
+            </span>
+          </div>
+          {/* A single tonal meter to the next threshold, flat and unlit. The
+              width is the value itself, not an animation. */}
+          <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
+            <div
+              className="bg-primary h-full rounded-full"
+              style={{ width: `${progress * 100}%` }}
+            />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {eligible
+              ? "You're ready to found it."
+              : `${formatNumber(remaining)} aura to go.`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Right rail for /communities: the create call to action, then the reader's
 // useful shortlists - biggest, highest-aura, the busiest category, and their
 // own recent trail. Same 3D surface language as the rest of the app.
@@ -164,6 +259,21 @@ export default function CommunitiesRightRail({
   sidebar = EMPTY_SIDEBAR,
 }: CommunitiesRightRailProps) {
   const { activeCategory, popular, recentVisits, topByAura } = sidebar;
+  const { user } = useSession();
+  // Fetched only for signed-in readers; signed-out visitors cannot create at
+  // all, so the (i) stays hidden and no request is made.
+  const quota = useCommunityCreationQuotaQuery(Boolean(user));
+
+  // Signed-out readers are left enabled on purpose: the click routes them to
+  // sign-in, which is the correct next step. Only a loaded, unmet quota for a
+  // signed-in account disables the button.
+  const blocked = Boolean(quota.data && !quota.data.canCreate);
+  let blockedReason: string | null = null;
+  if (blocked && quota.data) {
+    blockedReason = quota.data.maxed
+      ? `All ${COMMUNITY_MAX_OWNED} communities founded`
+      : `Needs ${formatNumber(quota.data.nextRequirement ?? 0)} aura`;
+  }
 
   return (
     <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 z-30 hidden h-screen w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l px-3 pt-3 pb-6 xl:flex">
@@ -178,20 +288,60 @@ export default function CommunitiesRightRail({
           className="text-primary pointer-events-none absolute -top-2 -right-2 size-16 opacity-10"
           fill="currentColor"
         />
-        <h2 className="text-foreground relative text-sm font-bold tracking-tight">
-          Start a community
-        </h2>
+        <div className="relative flex items-center gap-1.5">
+          <h2 className="text-foreground text-sm font-bold tracking-tight">
+            Start a community
+          </h2>
+          {/* The gate, explained where the action is. Click, not hover: it is
+              a small panel of real information, so it needs to be readable and
+              dismissible rather than fleeting. */}
+          {quota.data ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  aria-label="How founding a community is unlocked"
+                  className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground -m-1 flex items-center justify-center rounded-md p-1 transition-colors"
+                  type="button"
+                >
+                  <Info className="size-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-64 p-3.5"
+                side="bottom"
+              >
+                <CreationGatePanel quota={quota.data} />
+              </PopoverContent>
+            </Popover>
+          ) : null}
+        </div>
         <p className="text-muted-foreground relative mt-1 text-xs">
           Bring people together around the thing you cannot stop talking about.
         </p>
-        <Button
-          className="relative mt-3.5 h-10 w-full rounded-lg text-[15px]"
-          onClick={onCreate}
-          variant="premium"
-        >
-          <FilledPlus />
-          Create community
-        </Button>
+        {/* The gate disables the triggering button rather than failing the
+            submit at the end of the wizard. A disabled button emits no pointer
+            events, so the span carries the tooltip. */}
+        <TooltipProvider delayDuration={100}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="relative mt-3.5 block w-full">
+                <Button
+                  className="h-10 w-full rounded-lg text-[15px]"
+                  disabled={blocked}
+                  onClick={onCreate}
+                  variant="premium"
+                >
+                  <FilledPlus />
+                  Create community
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {blocked && blockedReason ? (
+              <TooltipContent side="bottom">{blockedReason}</TooltipContent>
+            ) : null}
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       <CommunityListCard

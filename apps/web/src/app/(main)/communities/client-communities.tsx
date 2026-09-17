@@ -1,7 +1,10 @@
 "use client";
 
 import type { CommunityData } from "@asm/db";
-import { COMMUNITY_DISCOVERY_CATEGORIES } from "@asm/db/communities";
+import {
+  COMMUNITY_DISCOVERY_CATEGORIES,
+  COMMUNITY_MAX_OWNED,
+} from "@asm/db/communities";
 import { Button } from "@asm/ui/shadui/button";
 import bannerAsm from "@assets/banner-asm.png";
 import noSearchImage from "@assets/general/nosearch.png";
@@ -33,8 +36,13 @@ import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import CommunitiesPageSkeleton from "@/components/layouts/skeletons/communities-page-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import useDebounce from "@/hooks/use-debounce";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
-import { useInfiniteCommunitiesQuery } from "@/lib/communities/client";
+import {
+  useCommunityCreationQuotaQuery,
+  useInfiniteCommunitiesQuery,
+} from "@/lib/communities/client";
+import { useToast } from "@/lib/gooey-toast";
 import { cn, formatNumber } from "@/lib/utils";
 
 // Discovery page. A tall centred hero statement fills the fold, then the
@@ -60,7 +68,13 @@ export default function ClientComm() {
     threshold: 0,
   });
 
-  const query = useInfiniteCommunitiesQuery({ category, q: search });
+  // The input updates on every keystroke, but the query only fires on the
+  // settled value. Without this each character typed would run the ILIKE scan
+  // behind the backend search (and one round trip per keypress); 300ms is the
+  // same debounce the app's other search surfaces use.
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  const isSearchPending = search.trim() !== debouncedSearch;
+  const query = useInfiniteCommunitiesQuery({ category, q: debouncedSearch });
   const pages = query.data?.pages ?? [];
   const communities = pages.flatMap((page) => page.communities);
   // Auras arrive as one id -> aura map covering every community on the response.
@@ -85,13 +99,29 @@ export default function ClientComm() {
     topByAura: pages[0]?.sidebar?.topByAura ?? [],
   };
 
+  // The right rail disables its create button when the account is ineligible;
+  // this is the safety net for the other entry points (the empty-shelf button)
+  // so the wizard never opens only to fail on submit.
+  const creationQuota = useCommunityCreationQuotaQuery(isLoggedIn);
+  const { toast } = useToast();
+
   const handleCreate = useCallback(() => {
     if (!isLoggedIn) {
       goToLogin();
       return;
     }
+    const quota = creationQuota.data;
+    if (quota && !quota.canCreate) {
+      toast({
+        description: quota.maxed
+          ? `You've founded the maximum of ${COMMUNITY_MAX_OWNED} communities`
+          : `Founding a community needs ${formatNumber(quota.nextRequirement ?? 0)} aura`,
+        variant: "destructive",
+      });
+      return;
+    }
     setIsCreateOpen(true);
-  }, [goToLogin, isLoggedIn]);
+  }, [creationQuota.data, goToLogin, isLoggedIn, toast]);
 
   const handleLoadMore = useCallback(() => {
     if (query.hasNextPage && !query.isFetchingNextPage) {
@@ -99,7 +129,7 @@ export default function ClientComm() {
     }
   }, [query]);
 
-  const isSearching = search.trim().length > 0;
+  const isSearching = debouncedSearch.length > 0;
   const activeLabel =
     COMMUNITY_DISCOVERY_CATEGORIES.find((c) => c.key === category)?.label ??
     "All";
@@ -117,7 +147,7 @@ export default function ClientComm() {
 
   let browseHeading = "All communities";
   if (isSearching) {
-    browseHeading = `Results for “${search.trim()}”`;
+    browseHeading = `Results for “${debouncedSearch}”`;
   } else if (category !== "all") {
     browseHeading = activeLabel;
   }
@@ -416,7 +446,8 @@ export default function ClientComm() {
                 </span>{" "}
                 Results Found
               </p>
-              {query.isFetching && !query.isFetchingNextPage ? (
+              {(query.isFetching && !query.isFetchingNextPage) ||
+              isSearchPending ? (
                 <span className="text-muted-foreground text-xs">
                   Refreshing…
                 </span>

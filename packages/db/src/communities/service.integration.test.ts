@@ -47,6 +47,11 @@ beforeAll(async () => {
   await createUser(OWNER_ID);
   await createUser(MEMBER_ID);
   await createUser(VISITOR_ID);
+  // Founding is gated on aura; the fixture owner must clear the first tier.
+  await prisma.user.update({
+    data: { aura: 1000 },
+    where: { id: OWNER_ID },
+  });
 });
 
 afterAll(async () => {

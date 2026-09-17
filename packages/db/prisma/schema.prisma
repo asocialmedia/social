@@ -558,6 +558,10 @@ model Community {
   @@index([createdAt])
   @@index([ownerId])
   @@index([type])
+  // Discovery filters by `topics hasSome [...]` (the array overlap operator);
+  // a GIN index is what keeps that from becoming a sequential scan as the
+  // directory grows into the hundreds of thousands.
+  @@index([topics], type: Gin)
   @@map("communities")
 }
 
@@ -576,6 +580,9 @@ model CommunityMember {
 
   @@unique([communityId, userId])
   @@index([userId])
+  // The joined sidebar lists a viewer's ACTIVE memberships newest-first; this
+  // composite serves both the filter and the ordering from one index.
+  @@index([userId, status, createdAt])
   @@index([communityId, role])
   @@index([communityId, status])
   @@map("community_members")
@@ -595,6 +602,9 @@ model CommunityVisit {
 
   @@unique([communityId, userId])
   @@index([communityId, visitedAt])
+  // The right rail reads a viewer's own trail newest-first; without this the
+  // per-user lookup has no index (the composite above leads with communityId).
+  @@index([userId, visitedAt])
   @@map("community_visits")
 }
 

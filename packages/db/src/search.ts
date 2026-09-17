@@ -3,7 +3,12 @@ import { SYSTEM_MODERATION_USER_ID } from "./users/reserved-usernames";
 
 let ensurePromise: Promise<void> | null = null;
 
-function ensureSearchIndexes(): Promise<void> {
+// Runtime-managed trigram indexes. Prisma cannot express GIN/trgm operator
+// classes in the schema, so these are created here on first search and dropped
+// then recreated by the production sync (see docker/prisma-sync.sh). Community
+// search rides the same lazy path as user/post search so the first directory
+// search on a fresh database is the only one that pays for index creation.
+export function ensureSearchIndexes(): Promise<void> {
   if (!ensurePromise) {
     ensurePromise = (async () => {
       try {
@@ -21,6 +26,15 @@ function ensureSearchIndexes(): Promise<void> {
         );
         await prisma.$executeRawUnsafe(
           "CREATE INDEX IF NOT EXISTS idx_posts_content_trgm ON posts USING gin (content gin_trgm_ops)"
+        );
+        await prisma.$executeRawUnsafe(
+          `CREATE INDEX IF NOT EXISTS idx_communities_name_trgm ON communities USING gin (name gin_trgm_ops)`
+        );
+        await prisma.$executeRawUnsafe(
+          `CREATE INDEX IF NOT EXISTS idx_communities_slug_trgm ON communities USING gin (slug gin_trgm_ops)`
+        );
+        await prisma.$executeRawUnsafe(
+          `CREATE INDEX IF NOT EXISTS idx_communities_description_trgm ON communities USING gin (description gin_trgm_ops)`
         );
       } catch (error) {
         ensurePromise = null;
@@ -204,6 +218,8 @@ export async function searchCommunitiesForSearch(
   if (!q) {
     return [];
   }
+
+  await ensureSearchIndexes();
 
   const communities = await prisma.community.findMany({
     orderBy: [{ members: { _count: "desc" } }, { createdAt: "desc" }],

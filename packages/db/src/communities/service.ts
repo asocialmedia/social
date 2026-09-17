@@ -12,11 +12,14 @@ import { applyFlatAward } from "../aura/ledger";
 import { getPostDataInclude } from "../client";
 import type { PostData } from "../client";
 import prisma from "../prisma";
+import { ensureSearchIndexes } from "../search";
 import {
   COMMUNITY_ACTIVITY_WINDOW_DAYS,
   COMMUNITY_CATEGORIES,
   COMMUNITY_GROWING_WINDOW_DAYS,
   COMMUNITY_LIMITS,
+  COMMUNITY_MAX_OWNED,
+  communityCreationAuraRequirement,
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
 } from "./constants";
@@ -76,8 +79,10 @@ export interface CreateCommunityInput {
 export class CommunityError extends Error {
   code:
     | "ALREADY_MEMBER"
+    | "AURA_TOO_LOW"
     | "FORBIDDEN"
     | "INVALID_SLUG"
+    | "LIMIT_REACHED"
     | "NOT_FOUND"
     | "SLUG_TAKEN";
   constructor(code: CommunityError["code"], message: string) {
@@ -85,6 +90,57 @@ export class CommunityError extends Error {
     this.code = code;
     this.name = "CommunityError";
   }
+}
+
+// Prisma reports a violated unique index as P2002. Read structurally rather
+// than via instanceof so the check works across generated-client copies and
+// test doubles.
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
+export interface CommunityCreationQuota {
+  // How many communities the account already owns.
+  owned: number;
+  // The account's current aura.
+  aura: number;
+  // Aura required to found the next community (null once capped).
+  nextRequirement: number | null;
+  // False when either the aura gate or the ownership cap blocks creation.
+  canCreate: boolean;
+  // True when the ownership cap has been reached (distinct from aura).
+  maxed: boolean;
+}
+
+// Server-side creation quota. Reads the account's aura and owned-community
+// count so the wizard can show the gate before the reader invests time in the
+// flow; the same rule is re-checked atomically at write time in
+// createCommunity, so this can never be trusted as the enforcement point.
+export async function getCommunityCreationQuota(
+  userId: string
+): Promise<CommunityCreationQuota> {
+  const [user, owned] = await Promise.all([
+    prisma.user.findUnique({
+      select: { aura: true },
+      where: { id: userId },
+    }),
+    prisma.community.count({ where: { ownerId: userId } }),
+  ]);
+  const aura = user?.aura ?? 0;
+  const nextRequirement = communityCreationAuraRequirement(owned);
+  const maxed = owned >= COMMUNITY_MAX_OWNED;
+  return {
+    aura,
+    canCreate: !maxed && nextRequirement !== null && aura >= nextRequirement,
+    maxed,
+    nextRequirement,
+    owned,
+  };
 }
 
 export async function createCommunity(
@@ -124,19 +180,60 @@ export async function createCommunity(
       : DEFAULT_COMMUNITY_ACCENT;
 
   const community = await prisma.$transaction(async (tx) => {
-    const created = await tx.community.create({
-      data: {
-        accentColor,
-        description: input.description.trim(),
-        mature: input.mature ?? false,
-        name,
-        ownerId: input.ownerId,
-        slug,
-        topics,
-        type: input.type ?? "PUBLIC",
-      },
-      select: getCommunitySelect(),
+    // Serialize concurrent creations by the same account on its own user row.
+    // Without the row lock, two in-flight requests both read "you own none of
+    // your four communities" and both pass the aura gate, letting an account
+    // spend one aura balance on several communities at once. The lock makes the
+    // count-then-create sequence effectively atomic per user.
+    const locked = await tx.$queryRaw<{ aura: number }[]>`
+      SELECT "aura" FROM "users" WHERE "id" = ${input.ownerId} FOR UPDATE
+    `;
+    const aura = locked[0]?.aura ?? 0;
+
+    const owned = await tx.community.count({
+      where: { ownerId: input.ownerId },
     });
+    const requirement = communityCreationAuraRequirement(owned);
+    if (requirement === null) {
+      throw new CommunityError(
+        "LIMIT_REACHED",
+        `You've reached the limit of ${COMMUNITY_MAX_OWNED} communities`
+      );
+    }
+    if (aura < requirement) {
+      throw new CommunityError(
+        "AURA_TOO_LOW",
+        `Founding this community needs ${requirement} aura. You have ${aura}.`
+      );
+    }
+
+    let created: CommunityData;
+    try {
+      created = await tx.community.create({
+        data: {
+          accentColor,
+          description: input.description.trim(),
+          mature: input.mature ?? false,
+          name,
+          ownerId: input.ownerId,
+          slug,
+          topics,
+          type: input.type ?? "PUBLIC",
+        },
+        select: getCommunitySelect(),
+      });
+    } catch (error) {
+      // The pre-check above reads without a lock on the slug, so two accounts
+      // can still race to the same address; the unique constraint is the real
+      // guard. Map the collision to the domain error the wizard understands.
+      if (isUniqueConstraintError(error)) {
+        throw new CommunityError(
+          "SLUG_TAKEN",
+          "That community address is taken"
+        );
+      }
+      throw error;
+    }
 
     // The creator is the first ACTIVE member and holds OWNER. Seeding the
     // membership in the same transaction means a community can never exist
@@ -374,6 +471,11 @@ export async function searchCommunities(
   if (!q) {
     return { communities: [], total: 0 };
   }
+  // Warm the community trigram indexes before the ILIKE scan; a no-op once
+  // they exist. Without them the name/slug/description `contains` degrades to a
+  // sequential scan of the whole directory.
+  await ensureSearchIndexes();
+
   const where: Prisma.CommunityWhereInput = {
     OR: [
       { name: { contains: q, mode: "insensitive" } },
@@ -441,23 +543,33 @@ export interface CommunityDiscoveryStats {
 
 // Headline totals for the discovery hero. Counted live over the public set so
 // the numbers can never drift from what the grid below actually lists.
+//
+// The member figure is a DISTINCT count in SQL, not a `findMany(distinct)`:
+// distinct users across the public set is O(all memberships) and materializing
+// every userId in the app (as the previous version did) would ship hundreds of
+// thousands of ids over the wire into memory on every cache miss. One indexed
+// COUNT(DISTINCT) keeps the work in Postgres and returns a single row.
 export async function getCommunityDiscoveryStats(): Promise<CommunityDiscoveryStats> {
   const publicCommunity: Prisma.CommunityWhereInput = {
     type: { not: "PRIVATE" },
   };
-  const [communities, posts, members] = await Promise.all([
+  const [communities, posts, memberRows] = await Promise.all([
     prisma.community.count({ where: publicCommunity }),
     prisma.post.count({ where: { community: publicCommunity } }),
-    prisma.communityMember
-      .findMany({
-        distinct: ["userId"],
-        select: { userId: true },
-        where: { community: publicCommunity, status: "ACTIVE" },
-      })
-      .then((rows) => rows.length),
+    prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(DISTINCT cm."userId")::bigint AS count
+      FROM "community_members" cm
+      JOIN "communities" c ON c."id" = cm."communityId"
+      WHERE cm."status" = 'ACTIVE'::"CommunityMemberStatus"
+        AND c."type" <> 'PRIVATE'::"CommunityType"
+    `,
   ]);
 
-  return { communities, members, posts };
+  return {
+    communities,
+    members: Number(memberRows[0]?.count ?? 0),
+    posts,
+  };
 }
 
 // Communities the viewer belongs to (ACTIVE only), newest membership first.
