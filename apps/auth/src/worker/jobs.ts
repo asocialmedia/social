@@ -3,11 +3,14 @@ import {
   cleanupExpiredPublishedNotifications,
   cleanupSinglePublishedNotification,
   deleteObject,
+  getTrendingUserIds,
   grantShitposterBadgeIfQualified,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
   redis,
+  sweepEarlyBadges,
+  syncTrendingBadges,
   unreadNotificationCache,
 } from "@asm/db";
 
@@ -145,6 +148,37 @@ export async function processShitposterCheck(
     },
     { "user.id": userId }
   );
+}
+
+// Periodic reconciliation of the two automated badges that are not tied to a
+// single user action:
+//  - early: grants the founding-era badge to everyone who has reached the aura
+//    threshold before the deadline (a sweep rather than a ledger hook, because
+//    aura arrives from many paths).
+//  - trending: grants the presence badge to the current trending cohort and
+//    releases it from anyone who has dropped off, so the badge tracks the live
+//    ranking instead of accumulating.
+//
+// Both are idempotent, so a missed run or a duplicated one is harmless.
+export async function processBadgeSweep(logger?: WorkerLogger): Promise<{
+  earlyGranted: number;
+  trendingGranted: number;
+  trendingRevoked: number;
+}> {
+  const log = resolveLogger(logger);
+  return await withSpan("job.badge-sweep", async () => {
+    const earlyGranted = await sweepEarlyBadges();
+    const trendingIds = await getTrendingUserIds();
+    const trending = await syncTrendingBadges(trendingIds);
+
+    const result = {
+      earlyGranted,
+      trendingGranted: trending.granted,
+      trendingRevoked: trending.revoked,
+    };
+    log.info(result, "badge sweep finished");
+    return result;
+  });
 }
 
 export async function processMediaCleanup(

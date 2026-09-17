@@ -402,6 +402,15 @@ export async function registerMaintenanceSchedulers(): Promise<void> {
   await queue.upsertJobScheduler("cleanup-published-notifications", {
     every: 5 * 60 * 1000,
   });
+  // Reconciles the two automated badges: the founding-era early badge (awards
+  // anyone who has crossed the aura threshold before the deadline) and the
+  // presence-based trending badge (grants to the live trending cohort and
+  // releases anyone who dropped off). Five minutes keeps the trending badge
+  // close to the card it mirrors; both sweeps are idempotent and cheap once
+  // everyone eligible holds their badge.
+  await queue.upsertJobScheduler("badge-sweep", {
+    every: 5 * 60 * 1000,
+  });
 }
 
 export function createBullConnection() {

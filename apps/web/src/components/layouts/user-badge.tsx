@@ -19,6 +19,7 @@ import memberRoleBadge from "@assets/roles/member.png";
 import modRoleBadge from "@assets/roles/mod.png";
 import ownerRoleBadge from "@assets/roles/owner.png";
 import shitposterBadge from "@assets/roles/shitposter.png";
+import trendingBadge from "@assets/roles/trending.png";
 import Image from "next/image";
 import Link from "next/link";
 import { memo, useState } from "react";
@@ -26,7 +27,7 @@ import { memo, useState } from "react";
 import CommunityAvatar from "@/components/communities/community-avatar";
 import { cn } from "@/lib/utils";
 
-import { normalizeBadges } from "./user-badge-utils";
+import { badgeRank, normalizeBadges } from "./user-badge-utils";
 import type { UserBadgeType } from "./user-badge-utils";
 
 export type { UserBadgeType } from "./user-badge-utils";
@@ -91,6 +92,13 @@ const ACCOUNT_BADGE_META: Record<UserBadgeType, BadgeMeta> = {
     key: "shitposter",
     src: shitposterBadge.src,
     title: "Shitposter",
+  },
+  trending: {
+    alt: "Trending badge",
+    description: "Currently on the trending card, held while you are there",
+    key: "trending",
+    src: trendingBadge.src,
+    title: "Trending",
   },
 };
 
@@ -183,29 +191,44 @@ const UserBadge: React.FC<{
   // where the whole row is already one control.
   interactive?: boolean;
 }> = ({ badge, badges, className, communityRoles, interactive = true }) => {
-  // Always merge the legacy `badge` column with the `badges` array so a badge
-  // stored in either location renders (author in the legacy column + early in
-  // the array shows both, with author leading via precedence). normalizeBadges
   const [open, setOpen] = useState(false);
 
-  // dedupes and sorts, so the first entry is the primary banner.
+  // Always merge the legacy `badge` column with the `badges` array so a badge
+  // stored in either location renders (author in the legacy column + early in
+  // the array shows both). normalizeBadges dedupes and sorts by the unified
+  // display precedence, which also covers the community roles.
   const primary = [...(badges ?? []), ...(badge ? [badge] : [])];
   const accountList = normalizeBadges(primary);
   const communityGroups = groupCommunityRoles(communityRoles ?? []);
 
-  // The inline rail is just the primary banner plus a count of the rest, so it
-  // only needs the meta, not the community lists.
-  const inlineBadges = [
-    ...accountList.map((type) => ACCOUNT_BADGE_META[type]),
-    ...communityGroups.map(({ role }) => COMMUNITY_BADGE_META[role]),
-  ];
-  if (inlineBadges.length === 0) {
+  // One ordered list across BOTH families. Platform badges and community roles
+  // are ranked by the same table (author -> owner -> moderator -> dev ->
+  // shitposter -> member -> early), so they interleave on significance rather
+  // than rendering as two blocks with every role after every platform badge.
+  //
+  // Ranked by the badge/role value itself, not by meta.key: role keys are
+  // namespaced ("community-owner") and would not match the precedence table.
+  const ranked = [
+    ...accountList.map((type) => ({
+      communities: [] as CommunityRoleCommunity[],
+      kind: "platform" as const,
+      meta: ACCOUNT_BADGE_META[type],
+      rank: badgeRank(type),
+    })),
+    ...communityGroups.map(({ communities, role }) => ({
+      communities,
+      kind: "role" as const,
+      meta: COMMUNITY_BADGE_META[role],
+      rank: badgeRank(role),
+    })),
+  ].toSorted((a, b) => a.rank - b.rank);
+
+  if (ranked.length === 0) {
     return null;
   }
 
-  const [primaryEntry, ...rest] = inlineBadges;
-  const hasAccountBadges = accountList.length > 0;
-  const hasCommunityRoles = communityGroups.length > 0;
+  const [primaryEntry, ...rest] = ranked;
+  const restCount = rest.length;
 
   const rail = (
     <span
@@ -226,17 +249,17 @@ const UserBadge: React.FC<{
           height={20}
           loading="eager"
           priority
-          src={primaryEntry.src}
+          src={primaryEntry.meta.src}
           unoptimized
           width={60}
         />
       </span>
-      {rest.length > 0 ? (
+      {restCount > 0 ? (
         <span
-          aria-label={`${rest.length} more badge${rest.length === 1 ? "" : "s"}`}
+          aria-label={`${restCount} more badge${restCount === 1 ? "" : "s"}`}
           className="bg-muted text-muted-foreground flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none font-semibold"
         >
-          +{rest.length}
+          +{restCount}
         </span>
       ) : null}
     </span>
@@ -271,7 +294,7 @@ const UserBadge: React.FC<{
         <span
           aria-expanded={open}
           aria-haspopup="dialog"
-          aria-label={primaryEntry.alt}
+          aria-label={primaryEntry.meta.alt}
           className="inline-flex shrink-0 cursor-pointer items-center gap-1"
           onClick={(event) => {
             // stopPropagation keeps an ancestor's onSelect/onClick from firing;
@@ -305,100 +328,93 @@ const UserBadge: React.FC<{
         sideOffset={6}
       >
         <div className="flex flex-col">
-          {accountList.map((type) => {
-            const entry = ACCOUNT_BADGE_META[type];
-            return (
+          {/* Rows follow the same unified order as the inline rail, so the
+              panel and the banner agree on what leads. */}
+          {ranked.map((item) =>
+            item.kind === "platform" ? (
               <div
                 className="flex items-start gap-2.5 px-1 py-1"
-                key={entry.key}
+                key={item.meta.key}
               >
                 <Image
                   alt=""
                   className="mt-0.5 h-5 w-15 shrink-0 object-contain"
                   height={20}
-                  src={entry.src}
+                  src={item.meta.src}
                   unoptimized
                   width={60}
                 />
                 <div className="min-w-0 flex-1 text-left">
                   <span className="text-foreground block text-xs font-semibold">
-                    {entry.title}
+                    {item.meta.title}
                   </span>
                   <span className="text-muted-foreground block text-[11px] leading-tight">
-                    {entry.description}
+                    {item.meta.description}
                   </span>
                 </div>
               </div>
-            );
-          })}
-
-          {/* Space between sections rather than a hairline: the two groups read
-              apart on their own, and a drawn rule here is ornament. */}
-          {hasAccountBadges && hasCommunityRoles ? (
-            <span aria-hidden="true" className="block h-2" />
-          ) : null}
-
-          {communityGroups.map(({ communities, role }) => (
-            <div key={role}>
-              {/* One sentence per role: the badge and "Owner of" lead, then the
-                  communities run inline after it, separated by & (or , for a
-                  longer list). The panel is a deliberately narrow fixed width,
-                  so a long list wraps onto as many lines as it needs; the badge
-                  and its label are one non-wrapping unit so a wrap can never
-                  strand "Owner of" on its own line. */}
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1 py-1">
-                <span className="inline-flex shrink-0 items-center gap-1.5">
-                  <Image
-                    alt=""
-                    className="h-5 w-15 shrink-0 object-contain"
-                    height={20}
-                    src={COMMUNITY_BADGE_META[role].src}
-                    unoptimized
-                    width={60}
-                  />
-                  <span className="text-foreground text-xs font-semibold">
-                    {COMMUNITY_BADGE_META[role].title} of
+            ) : (
+              <div key={item.meta.key}>
+                {/* One sentence per role: the badge and "Owner of" lead, then the
+                    communities run inline after it, separated by & (or , for a
+                    longer list). The panel is a deliberately narrow fixed width,
+                    so a long list wraps onto as many lines as it needs; the badge
+                    and its label are one non-wrapping unit so a wrap can never
+                    strand "Owner of" on its own line. */}
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1 py-1">
+                  <span className="inline-flex shrink-0 items-center gap-1.5">
+                    <Image
+                      alt=""
+                      className="h-5 w-15 shrink-0 object-contain"
+                      height={20}
+                      src={item.meta.src}
+                      unoptimized
+                      width={60}
+                    />
+                    <span className="text-foreground text-xs font-semibold">
+                      {item.meta.title} of
+                    </span>
                   </span>
-                </span>
-                {communities.map((community, index) => (
-                  <span
-                    className="inline-flex items-center"
-                    key={community.slug}
-                  >
-                    {index > 0 ? (
-                      <span
-                        aria-hidden="true"
-                        className="text-muted-foreground mr-1.5 text-xs"
-                      >
-                        {index === communities.length - 1 ? "&" : ","}
-                      </span>
-                    ) : null}
-                    <Link
-                      className="hover:bg-muted/60 flex items-center gap-1.5 rounded-lg py-0.5 pr-1.5 pl-0.5 transition-colors"
-                      href={`/a/${community.slug}`}
-                      onClick={() => setOpen(false)}
+                  {item.communities.map((community, index) => (
+                    <span
+                      className="inline-flex items-center"
+                      key={community.slug}
                     >
-                      <CommunityAvatar
-                        accentColor={community.accentColor}
-                        avatarUrl={community.avatarUrl}
-                        className="size-5 shrink-0"
-                        name={community.name}
-                        size={20}
-                        slug={community.slug}
-                      />
-                      {/* Address only, no name: the mark plus a/slug is what
-                          identifies a community everywhere else in the app
-                          (cards, rails, members), and the name is redundant
-                          next to it. */}
-                      <span className="text-foreground text-xs font-medium">
-                        a/{community.slug}
-                      </span>
-                    </Link>
-                  </span>
-                ))}
+                      {index > 0 ? (
+                        <span
+                          aria-hidden="true"
+                          className="text-muted-foreground mr-1.5 text-xs"
+                        >
+                          {index === item.communities.length - 1 ? "&" : ","}
+                        </span>
+                      ) : null}
+                      <Link
+                        className="hover:bg-muted/60 flex items-center gap-1.5 rounded-lg py-0.5 pr-1.5 pl-0.5 transition-colors"
+                        href={`/a/${community.slug}`}
+                        onClick={() => setOpen(false)}
+                      >
+                        <CommunityAvatar
+                          accentColor={community.accentColor}
+                          avatarUrl={community.avatarUrl}
+                          className="size-5 shrink-0"
+                          name={community.name}
+                          size={20}
+                          slug={community.slug}
+                        />
+                        {/* Address only, no name: the mark plus a/slug is what
+                            identifies a community everywhere else in the app
+                            (cards, rails, members), and the name is redundant
+                            next to it. */}
+                        <span className="text-foreground text-xs font-medium">
+                          a/{community.slug}
+                        </span>
+                      </Link>
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          )}
         </div>
       </HoverCardContent>
     </HoverCard>

@@ -87,6 +87,10 @@ model User {
   @@index([aura])
   @@index([banned])
   @@index([banExpires])
+  // Badge lookups by value ("who holds trending?", the single-author slot
+  // check) filter the array with `has`, which is a GIN operation. Without this
+  // index those are sequential scans of the users table.
+  @@index([badges], type: Gin)
   @@map("users")
 }
 

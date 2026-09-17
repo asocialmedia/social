@@ -1,21 +1,52 @@
-export type UserBadgeType = "author" | "dev" | "early" | "shitposter";
+export type UserBadgeType =
+  | "author"
+  | "dev"
+  | "early"
+  | "shitposter"
+  | "trending";
 
 const KNOWN_BADGES = new Set<UserBadgeType>([
   "author",
   "dev",
   "early",
   "shitposter",
+  "trending",
 ]);
 
-// Precedence for the primary badge shown inline: the first (lowest number) is
-// rendered as the banner and the rest collapse into the "+N" chip. Author
-// outranks every earned/honor badge so it always leads when present.
-export const BADGE_ORDER: Record<UserBadgeType, number> = {
-  author: 0,
-  dev: 1,
-  early: 2,
-  shitposter: 3,
-};
+// The single display precedence across BOTH badge families. Platform badges
+// (author/dev/early/shitposter) and community roles (owner/moderator/member)
+// are ordered together rather than as two blocks, so a community owner
+// outranks a developer instead of sitting after every platform badge.
+//
+// Order: author -> owner -> moderator -> dev -> shitposter -> member -> early
+// -> trending. Anything unrecognised sorts last. This is the display order
+// only; it does not affect who holds which badge.
+export const BADGE_PRECEDENCE = [
+  "author",
+  "owner",
+  "moderator",
+  "dev",
+  "shitposter",
+  "member",
+  "early",
+  // Presence-based, so it trails the earned badges: it says where you are right
+  // now, not what you have done.
+  "trending",
+] as const;
+
+export type BadgePrecedenceKey = (typeof BADGE_PRECEDENCE)[number];
+
+// Rank for any badge or role key. Case-insensitive, because the two families
+// store their values differently: platform badges are lowercase ("author")
+// while community roles are uppercase ("OWNER"). Unknown keys sort after every
+// known one, so a future badge can be added to the data model before its
+// placing is decided without crashing or jumping the queue.
+export function badgeRank(key: string): number {
+  const index = BADGE_PRECEDENCE.indexOf(
+    key.toLowerCase() as BadgePrecedenceKey
+  );
+  return index === -1 ? BADGE_PRECEDENCE.length : index;
+}
 
 // Maps a stored badge value to a known type. Unknown values are dropped so a
 // bad DB toggle never shows a broken image.
@@ -32,8 +63,8 @@ export function normalizeBadge(
 }
 
 // Normalizes a stored badge list, dropping unknown values, deduping and sorting
-// by precedence. The primary badge rendered inline is the first one; the rest
-// are shown behind the "+N" chip and inside the tooltip.
+// by display precedence. The primary badge rendered inline is the first one;
+// the rest are shown behind the "+N" chip and inside the panel.
 export function normalizeBadges(
   values: (string | null | undefined)[] | null | undefined
 ): UserBadgeType[] {
@@ -49,5 +80,5 @@ export function normalizeBadges(
       result.push(type);
     }
   }
-  return [...result].toSorted((a, b) => BADGE_ORDER[a] - BADGE_ORDER[b]);
+  return [...result].toSorted((a, b) => badgeRank(a) - badgeRank(b));
 }
