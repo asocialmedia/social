@@ -619,6 +619,95 @@
       0 1px 2px rgba(0, 0, 0, 0.28),
       0 2px 4px rgba(0, 0, 0, 0.14);
   }
+
+  /* Running text inside the legal documents (see components/docs/doc-page).
+     Sits in the components layer on purpose so a utility at a call site still
+     wins, and replaces the stock @tailwindcss/typography look, which was tuned
+     for generic articles rather than this app's type and spacing. */
+  .doc-body {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.9375rem;
+    line-height: 1.75;
+  }
+
+  .doc-body > * + * {
+    margin-top: 1rem;
+  }
+
+  .doc-body p {
+    text-wrap: pretty;
+  }
+
+  .doc-body strong {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+  }
+
+  .doc-body a {
+    color: hsl(var(--primary));
+    font-weight: 500;
+    text-underline-offset: 2px;
+  }
+
+  .doc-body a:hover {
+    text-decoration: underline;
+  }
+
+  .doc-body code {
+    color: hsl(var(--foreground));
+    background: hsl(var(--muted));
+    border-radius: 0.375rem;
+    padding: 0.1em 0.4em;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85em;
+  }
+
+  /* Sub-headings inside a section: a step down in scale, never a rule or an
+     eyebrow. Numbered sub-sections (2.1, 2.2) read as document structure. */
+  .doc-body h3 {
+    color: hsl(var(--foreground));
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-top: 1.75rem;
+  }
+
+  .doc-body h3 + * {
+    margin-top: 0.5rem;
+  }
+
+  .doc-body ul,
+  .doc-body ol {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-left: 1.15rem;
+    list-style: disc;
+  }
+
+  .doc-body ol {
+    list-style: decimal;
+  }
+
+  .doc-body li {
+    padding-left: 0.15rem;
+    text-wrap: pretty;
+  }
+
+  .doc-body li::marker {
+    color: hsl(var(--border));
+  }
+
+  /* Inside a DocNote the copy is already framed by a raised surface, so it runs
+     a step tighter and starts flush. */
+  .doc-body-tight {
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+
+  .doc-body-tight > * + * {
+    margin-top: 0.6rem;
+  }
 }
 
 @layer utilities {
