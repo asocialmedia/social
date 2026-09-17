@@ -78,6 +78,10 @@ export function MessageThread({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const decryptedRef = useRef(decrypted);
+  // Ids with a decrypt currently in flight. A message marked "pending" with
+  // no in-flight entry is a stranded attempt (keys/detail were not ready when
+  // it was marked) and must be retried, never left to spin forever.
+  const inFlightDecryptRef = useRef<Set<string>>(new Set());
   const pinnedToBottomRef = useRef(true);
   const prevScrollHeightRef = useRef(0);
 
@@ -172,40 +176,65 @@ export function MessageThread({
     [decrypted, messagesById, peer?.displayName, user?.id]
   );
 
-  const decrypt = useCallback(
-    async (messageId: string) => {
-      const message = allMessages.find((m) => m.id === messageId);
-      if (!message || !detail) {
+  // Decrypts one message and always lands it in a terminal state ("error"
+  // on any failure). In-flight ids are tracked so concurrent effect runs can
+  // never start a duplicate decrypt or strand a "pending" entry.
+  const userId = user?.id;
+  const decryptOne = useCallback(
+    async (message: MessageData) => {
+      if (!detail || !rootKeyStore || !userId) {
         return;
       }
+      if (inFlightDecryptRef.current.has(message.id)) {
+        return;
+      }
+      inFlightDecryptRef.current.add(message.id);
+      // decryptMessageWithRootKey already maps every failure to null, but a
+      // rejection here must still land in "error" — never strand "pending".
+      // (No try/finally: React Compiler cannot lower a finalizer clause.)
       const payload = await decryptMessageWithRootKey(
         rootKeyStore,
         detail.conversation,
-        user?.id ?? "",
+        userId,
         message
-      );
+      ).catch(() => null);
+      inFlightDecryptRef.current.delete(message.id);
       setDecrypted((prev) => ({
         ...prev,
-        [messageId]: payload ?? "error",
+        [message.id]: payload ?? "error",
       }));
     },
-    [allMessages, detail, rootKeyStore, user?.id]
+    [detail, rootKeyStore, userId]
   );
 
-  // Decrypt any messages not yet in the cache. Retried when rootKeyStore, detail
-  // or message list changes so messages decrypt as soon as keys are available.
+  // Decrypt any messages not yet in the cache. Keys (detail) and the root key
+  // store must both be ready before marking anything "pending": marking first
+  // and decrypting later is what stranded messages on the loader forever.
+  // Entries stuck in "pending" with no in-flight decrypt are retried here.
   useEffect(() => {
-    if (!rootKeyStore) {
+    if (!rootKeyStore || !detail || !userId) {
       return;
     }
     for (const message of allMessages) {
       const state = decryptedRef.current[message.id];
-      if (state === undefined || state === "error") {
+      if (
+        state === undefined ||
+        state === "error" ||
+        (state === "pending" && !inFlightDecryptRef.current.has(message.id))
+      ) {
         setDecrypted((prev) => ({ ...prev, [message.id]: "pending" }));
-        void decrypt(message.id);
+        void decryptOne(message);
       }
     }
-  }, [allMessages, decrypt, rootKeyStore]);
+  }, [allMessages, decryptOne, detail, rootKeyStore, userId]);
+
+  // A decrypt that outlives the thread must not keep its id reserved.
+  useEffect(
+    () => () => {
+      inFlightDecryptRef.current.clear();
+    },
+    []
+  );
 
   // Mark the conversation read when it opens and when the peer sends while
   // the thread is open (debounced so burst sends only fire one request).
