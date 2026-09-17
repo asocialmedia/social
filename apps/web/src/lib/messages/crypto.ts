@@ -435,9 +435,11 @@ function parseMessagePayload(plaintext: string): MessagePayload {
 // Anything else (protocol-relative, javascript:, data:, path traversal) is
 // rejected because the URL comes from the peer's encrypted payload.
 // Relative paths are matched with a strict character class instead of the URL
-// constructor so `new URL` is never handed a scheme-relative input.
+// constructor so `new URL` is never handed a scheme-relative input. Both the
+// original proxy path and the pipeline derivative path (/v/<name>) are
+// accepted, since senders may embed either.
 const RELATIVE_MEDIA_PATH_RE =
-  /^\/api\/media\/[A-Za-z0-9_-]+(?:\?[A-Za-z0-9_=&%.-]+)?$/;
+  /^\/api\/media\/[A-Za-z0-9_-]+(?:\/v\/[A-Za-z0-9.-]+)?(?:\?[A-Za-z0-9_=&%.-]+)?$/;
 
 function isValidMediaPayload(
   payload: Partial<Extract<MessagePayload, { type: "media" }>>

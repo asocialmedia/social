@@ -382,6 +382,30 @@ describe("message ratchet", () => {
     });
   });
 
+  test("media payload with a derivative variant url round-trips", async () => {
+    const rootKey = generateRootKey();
+    const encrypted = await encryptMessage(rootKey, SENDER_ID, 0, CONVO_ID, {
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc/v/md-webp.webp",
+      width: 704,
+    });
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual({
+      height: 240,
+      kind: "image",
+      type: "media",
+      url: "/api/media/cm123abc/v/md-webp.webp",
+      width: 704,
+    });
+  });
+
   // Built at runtime so the no-script-url lint rule cannot flag the literal.
   const JS_URL = ["javascript", "alert(1)"].join(":");
   test.each([
@@ -393,6 +417,7 @@ describe("message ratchet", () => {
     "/api/media/abc\\def",
     "/api/other/abc123",
     "/api/media/",
+    "/api/media/cm123/v/../../etc/passwd",
   ])("rejects a media payload with a hostile url (%s)", async (url) => {
     const rootKey = generateRootKey();
     const tampered = {
