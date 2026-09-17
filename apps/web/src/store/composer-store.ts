@@ -32,6 +32,10 @@ export interface ComposerReplyTarget {
   badges?: string[] | null;
   content?: string;
   createdAt?: Date | string;
+  // Badged community roles of the reply target, so the composer's quoted row
+  // shows the same role banners as the post it mirrors. Optional because the
+  // composer is opened from several places and not all carry the full payload.
+  communityMemberships?: { role: string }[] | null;
   displayName?: string;
   embeds?: unknown;
   id: string;

@@ -169,7 +169,11 @@ const AuthorPostRow: React.FC<AuthorPostRowProps> = ({ post }) => {
           <span className="block truncate text-sm font-semibold">
             {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
+          <UserBadge
+            badge={post.user?.badge}
+            badges={post.user?.badges}
+            communityRoles={post.user?.communityMemberships}
+          />
         </span>
         {post.moderated ? (
           <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-sm leading-snug font-medium">
@@ -317,7 +321,11 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
                   <span className="block truncate font-bold group-hover:underline">
                     {author.displayName || author.username}
                   </span>
-                  <UserBadge badge={author.badge} badges={author.badges} />
+                  <UserBadge
+                    badge={author.badge}
+                    badges={author.badges}
+                    communityRoles={author.communityMemberships}
+                  />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
                   @{author.username}

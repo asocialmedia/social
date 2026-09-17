@@ -151,7 +151,11 @@ const GustRowCard: React.FC<{
               <span className="text-foreground block truncate text-sm font-semibold">
                 {post.user?.displayName || post.user?.username || "Anonymous"}
               </span>
-              <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
+              <UserBadge
+                badge={post.user?.badge}
+                badges={post.user?.badges}
+                communityRoles={post.user?.communityMemberships}
+              />
             </span>
             <span className="text-muted-foreground block truncate text-xs">
               @{post.user?.username || "unknown"}

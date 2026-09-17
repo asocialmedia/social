@@ -87,6 +87,7 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
             badge={item.badge}
             badges={item.badges}
             className="shrink-0"
+            communityRoles={item.communityMemberships}
           />
         </span>
         <span className="text-muted-foreground block truncate text-xs transition-colors group-hover:text-inherit">
@@ -208,6 +209,7 @@ const TrendingTopics: React.FC = () => {
                       badge={auraUser.badge}
                       badges={auraUser.badges}
                       className="shrink-0"
+                      communityRoles={auraUser.communityMemberships}
                     />
                   </span>
                   <span className="text-muted-foreground flex items-center gap-1 truncate text-xs transition-colors group-hover:text-inherit">

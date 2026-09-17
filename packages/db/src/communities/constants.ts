@@ -198,6 +198,35 @@ export const COMMUNITY_CREATION_AURA_TIERS = [
 
 export const COMMUNITY_MAX_OWNED = COMMUNITY_CREATION_AURA_TIERS.length;
 
+// Role model. Joining grants PARTICIPANT (no badge); the OWNER promotes
+// participants to MEMBER, and promotes members to MODERATOR. There is exactly
+// one owner (the founder) and at most this many moderators per community;
+// members are uncapped.
+export const COMMUNITY_ROLES = [
+  "OWNER",
+  "MODERATOR",
+  "MEMBER",
+  "PARTICIPANT",
+] as const;
+
+export type CommunityRoleName = (typeof COMMUNITY_ROLES)[number];
+
+// The roles that carry a badge rendered next to a username. PARTICIPANT is
+// deliberately absent: it is the default state, not an achievement.
+export const COMMUNITY_BADGED_ROLES = ["OWNER", "MODERATOR", "MEMBER"] as const;
+
+export type CommunityBadgedRole = (typeof COMMUNITY_BADGED_ROLES)[number];
+
+export function isBadgedCommunityRole(
+  role: string
+): role is CommunityBadgedRole {
+  return (COMMUNITY_BADGED_ROLES as readonly string[]).includes(role);
+}
+
+// A community can hold at most this many moderators. The owner is separate and
+// never counted here.
+export const COMMUNITY_MAX_MODERATORS = 5;
+
 // Aura required to found the community at `ownedCount` (0-based). Returns null
 // once the account is at the cap, where no further creation is possible.
 export function communityCreationAuraRequirement(

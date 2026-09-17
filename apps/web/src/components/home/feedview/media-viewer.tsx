@@ -986,6 +986,7 @@ const MediaViewer = ({
                     <UserBadge
                       badge={post.user?.badge}
                       badges={post.user?.badges}
+                      communityRoles={post.user?.communityMemberships}
                     />
                   </span>
                   <Link
@@ -1457,6 +1458,7 @@ const MediaViewer = ({
                     <UserBadge
                       badge={post.user?.badge}
                       badges={post.user?.badges}
+                      communityRoles={post.user?.communityMemberships}
                     />
                   </span>
                   <Link

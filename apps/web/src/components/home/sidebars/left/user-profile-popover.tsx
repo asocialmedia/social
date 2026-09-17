@@ -199,7 +199,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                   <span className="block truncate text-sm font-medium">
                     {userData.displayName || userData.username}
                   </span>
-                  <UserBadge badge={userData.badge} badges={userData.badges} />
+                  {/* Non-interactive: the whole row is one control (this
+                      button), and the badge's own hover card would nest. */}
+                  <UserBadge
+                    badge={userData.badge}
+                    badges={userData.badges}
+                    communityRoles={userData.communityMemberships}
+                    interactive={false}
+                  />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs">
                   @{userData.username}
@@ -243,7 +250,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             <div className="mt-2.5">
               <h3 className="flex items-center gap-1.5 text-lg leading-tight font-semibold">
                 {userData.displayName || userData.username}
-                <UserBadge badge={userData.badge} />
+                {/* Non-interactive: a hover card here would nest inside this
+                    panel's own popover and render open alongside it. */}
+                <UserBadge
+                  badge={userData.badge}
+                  badges={userData.badges}
+                  communityRoles={userData.communityMemberships}
+                  interactive={false}
+                />
               </h3>
               <p className="text-muted-foreground text-sm">
                 @{userData.username}

@@ -9,13 +9,14 @@ import {
   useLeaveCommunityMutation,
 } from "@/communities/mutations";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
+import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 
 interface JoinButtonProps {
   className?: string;
   communityId: string;
   initialMembership: {
-    role: "MEMBER" | "MODERATOR" | "OWNER";
+    role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
   } | null;
   isLoggedIn: boolean;
@@ -73,8 +74,8 @@ export default function JoinButton({
       onSuccess: (data) =>
         setMembership(
           data?.status
-            ? { role: "MEMBER", status: data.status }
-            : { role: "MEMBER", status: "ACTIVE" }
+            ? { role: "PARTICIPANT", status: data.status }
+            : { role: "PARTICIPANT", status: "ACTIVE" }
         ),
     });
   }, [

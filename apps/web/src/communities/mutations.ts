@@ -1,7 +1,7 @@
 "use client";
 
 import { clientLog } from "@asm/config/debug";
-import type { CommunityData } from "@asm/db";
+import type { AssignableCommunityRole, CommunityData } from "@asm/db";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
@@ -116,11 +116,13 @@ export function useSetMemberRoleMutation(slug: string) {
       userId,
     }: {
       communityId: string;
-      role: "MODERATOR" | "MEMBER";
+      role: AssignableCommunityRole;
       userId: string;
     }) => setMemberRole(communityId, userId, role),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["community-members", slug] });
+      // A role change moves the badge on the member's profile too.
+      queryClient.invalidateQueries({ queryKey: ["community-roles"] });
     },
   });
 }

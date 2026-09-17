@@ -103,6 +103,7 @@ interface PostHeaderProps {
   authorAvatarUrl?: string | null;
   authorBadge?: string | null;
   authorBadges?: string[] | null;
+  authorCommunityRoles?: readonly { role: string }[] | null;
   authorDisplayName: string;
   authorProfileHref: string;
   authorUsername: string;
@@ -116,6 +117,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   authorAvatarUrl,
   authorBadge,
   authorBadges,
+  authorCommunityRoles,
   authorDisplayName,
   authorProfileHref,
   authorUsername,
@@ -152,7 +154,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                 {authorDisplayName}
               </Link>
             </UserTooltip>
-            <UserBadge badge={authorBadge} badges={authorBadges} />
+            <UserBadge
+              badge={authorBadge}
+              badges={authorBadges}
+              communityRoles={authorCommunityRoles}
+            />
             <Link
               className="text-muted-foreground shrink-0 hover:underline"
               href={getPostPath(post)}
@@ -214,7 +220,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             {authorDisplayName}
           </Link>
         </UserTooltip>
-        <UserBadge badge={authorBadge} badges={authorBadges} />
+        <UserBadge
+          badge={authorBadge}
+          badges={authorBadges}
+          communityRoles={authorCommunityRoles}
+        />
         <UserTooltip user={post.user}>
           <Link
             className="text-muted-foreground truncate hover:underline"
@@ -355,6 +365,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const authorAvatarUrl = post.user?.avatarUrl;
   const authorBadge = post.user?.badge;
   const authorBadges = post.user?.badges;
+  const authorCommunityRoles = post.user?.communityMemberships;
   const authorProfileHref = post.user?.username
     ? `/users/${post.user.username}`
     : "#";
@@ -401,6 +412,7 @@ const PostContent: React.FC<PostContentProps> = ({
             authorAvatarUrl={authorAvatarUrl}
             authorBadge={authorBadge}
             authorBadges={authorBadges}
+            authorCommunityRoles={authorCommunityRoles}
             authorDisplayName={authorDisplayName}
             authorProfileHref={authorProfileHref}
             authorUsername={authorUsername}
@@ -720,6 +732,7 @@ const RespondButton = ({ post }: RespondButtonProps) => {
           avatarUrl: post.user?.avatarUrl ?? null,
           badge: post.user?.badge,
           badges: post.user?.badges,
+          communityMemberships: post.user?.communityMemberships,
           content: post.content,
           createdAt: post.createdAt,
           displayName: post.user?.displayName ?? undefined,

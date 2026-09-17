@@ -589,7 +589,11 @@ function ThreadHeader({
           >
             {peer?.displayName ?? "Conversation"}
           </Link>
-          <UserBadge badge={peer?.badge} badges={peer?.badges} />
+          <UserBadge
+            badge={peer?.badge}
+            badges={peer?.badges}
+            communityRoles={peer?.communityMemberships}
+          />
         </p>
         {peerTyping ? (
           <p className="text-primary truncate text-xs font-medium">typing…</p>

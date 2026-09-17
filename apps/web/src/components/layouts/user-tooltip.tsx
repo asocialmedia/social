@@ -14,9 +14,9 @@ import Link from "next/link";
 import type React from "react";
 import type { PropsWithChildren } from "react";
 import { useState, useSyncExternalStore } from "react";
-import { LinkIt, LinkItUrl } from "react-linkify-it";
 
 import { useSession } from "@/app/(main)/session-provider";
+import { PostInlineContent } from "@/components/posts/post-inline-content";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
@@ -28,9 +28,6 @@ import UserBadge from "./user-badge";
 interface UserTooltipProps extends PropsWithChildren {
   user: UserData;
 }
-
-const BIO_USERNAME_REGEX = /(?<username>@[a-zA-Z0-9_-]+)/;
-const BIO_HASHTAG_REGEX = /(?<hashtag>#[a-zA-Z0-9]+)/;
 
 // Viewport detection as an external store: the server snapshot renders the
 // tooltip variant so hydration matches, then the client snapshot flips to the
@@ -47,30 +44,6 @@ function subscribeToViewport(callback: () => void) {
 const getIsMobileSnapshot = () => window.innerWidth < 768;
 
 const getServerIsMobile = () => false;
-
-function renderBioUsernameLink(match: string, key: number) {
-  return (
-    <Link
-      className="text-primary hover:underline"
-      href={`/users/${match.slice(1)}`}
-      key={key}
-    >
-      {match}
-    </Link>
-  );
-}
-
-function renderBioHashtagLink(match: string, key: number) {
-  return (
-    <Link
-      className="text-primary hover:underline"
-      href={`/hashtag/${match.slice(1)}`}
-      key={key}
-    >
-      {match}
-    </Link>
-  );
-}
 
 const TooltipStat = ({
   icon: Icon,
@@ -194,7 +167,11 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
                   <span className="truncate">
                     {user.displayName || user.username}
                   </span>
-                  <UserBadge badge={user.badge} badges={user.badges} />
+                  <UserBadge
+                    badge={user.badge}
+                    badges={user.badges}
+                    communityRoles={user.communityMemberships}
+                  />
                 </span>
                 <span className="text-muted-foreground block truncate text-sm">
                   @{user.username}
@@ -206,21 +183,19 @@ export default function UserTooltip({ children, user }: UserTooltipProps) {
               </span>
 
               {user.bio ? (
-                <LinkIt
-                  component={renderBioUsernameLink}
-                  regex={BIO_USERNAME_REGEX}
-                >
-                  <LinkIt
-                    component={renderBioHashtagLink}
-                    regex={BIO_HASHTAG_REGEX}
-                  >
-                    <LinkItUrl className="text-primary hover:underline">
-                      <div className="text-card-foreground line-clamp-4 text-sm whitespace-pre-line">
-                        {user.bio}
-                      </div>
-                    </LinkItUrl>
-                  </LinkIt>
-                </LinkIt>
+                // PostInlineContent, not raw LinkIt: it renders @mentions and
+                // #hashtags as the same avatar/tag chips the feed and profile
+                // use, and URLs as link badges. Raw LinkIt produced plain
+                // underlined text, so the tooltip's bio read as a plainer
+                // surface than every other place a bio appears.
+                //
+                // Deliberately the tooltip-free renderer: these mentions must
+                // not open their own hover card from inside a tooltip.
+                <PostInlineContent
+                  className="text-card-foreground line-clamp-4 text-sm whitespace-pre-line"
+                  content={user.bio}
+                  linkBadge="chip"
+                />
               ) : null}
 
               <div className="grid grid-cols-3 items-center gap-3">

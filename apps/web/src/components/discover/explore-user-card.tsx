@@ -163,7 +163,11 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
             >
               {user.displayName}
             </Link>
-            <UserBadge badge={user.badge} badges={user.badges} />
+            <UserBadge
+              badge={user.badge}
+              badges={user.badges}
+              communityRoles={user.communityMemberships}
+            />
           </div>
           <p className="text-muted-foreground truncate text-xs">
             @{user.username}

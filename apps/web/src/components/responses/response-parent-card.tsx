@@ -122,7 +122,11 @@ export function ResponseParentRow({
           >
             {displayName}
           </Link>
-          <UserBadge badge={parent.user?.badge} badges={parent.user?.badges} />
+          <UserBadge
+            badge={parent.user?.badge}
+            badges={parent.user?.badges}
+            communityRoles={parent.user?.communityMemberships}
+          />
           <Link
             className="text-muted-foreground truncate hover:underline"
             href={`/users/${username}`}

@@ -24,6 +24,7 @@ import {
   COMMUNITY_CATEGORIES,
   COMMUNITY_GROWING_WINDOW_DAYS,
   COMMUNITY_LIMITS,
+  COMMUNITY_MAX_MODERATORS,
   COMMUNITY_MAX_OWNED,
   communityCreationAuraRequirement,
   communityFoundingBonus,
@@ -33,6 +34,21 @@ import {
 import { normalizeCommunitySlug, isValidCommunitySlug } from "./slug";
 
 const logger = createLogger({ serviceName: "communities" });
+
+// The membership role, shared by every read/write signature here so the wizard,
+// the members list and the profile can all agree on one union. Named
+// `CommunityRoleValue` rather than `CommunityRole` because the generated Prisma
+// enum already owns that name on the package barrel.
+export type CommunityRoleValue =
+  | "MEMBER"
+  | "MODERATOR"
+  | "OWNER"
+  | "PARTICIPANT";
+
+export interface CommunityMembership {
+  role: CommunityRoleValue;
+  status: "ACTIVE" | "PENDING";
+}
 
 // The public shape every community read returns. Stats are computed separately
 // (getCommunityStats) because they are expensive and only the detail page
@@ -88,8 +104,10 @@ export class CommunityError extends Error {
     | "ALREADY_MEMBER"
     | "AURA_TOO_LOW"
     | "FORBIDDEN"
+    | "INVALID_ROLE"
     | "INVALID_SLUG"
     | "LIMIT_REACHED"
+    | "MOD_LIMIT_REACHED"
     | "NOT_FOUND"
     | "SLUG_TAKEN";
   constructor(code: CommunityError["code"], message: string) {
@@ -440,10 +458,7 @@ export function getCommunityById(id: string): Promise<CommunityData | null> {
 export async function getMembership(
   communityId: string,
   userId: string
-): Promise<{
-  role: "MEMBER" | "MODERATOR" | "OWNER";
-  status: "ACTIVE" | "PENDING";
-} | null> {
+): Promise<CommunityMembership | null> {
   const member = await prisma.communityMember.findUnique({
     select: { role: true, status: true },
     where: { communityId_userId: { communityId, userId } },
@@ -496,7 +511,10 @@ export async function joinCommunity(
   const status = community.type === "PUBLIC" ? "ACTIVE" : "PENDING";
   await prisma.$transaction(async (tx) => {
     await tx.communityMember.upsert({
-      create: { communityId, role: "MEMBER", status, userId },
+      // Joining grants PARTICIPANT, which carries no badge. A promoted role
+      // does not survive a leave: leaveCommunity deletes the membership row, so
+      // a returning member rejoins as a participant and must be re-promoted.
+      create: { communityId, role: "PARTICIPANT", status, userId },
       update: { status },
       where: { communityId_userId: { communityId, userId } },
     });
@@ -578,20 +596,90 @@ export async function approveMember(
   );
 }
 
+// Assignable roles: OWNER is never set through this path (the founder holds it
+// and ownership transfer is out of scope), so the actor can only move someone
+// between participant / member / moderator.
+export type AssignableCommunityRole = "MEMBER" | "MODERATOR" | "PARTICIPANT";
+
+const ASSIGNABLE_ROLES = new Set<AssignableCommunityRole>([
+  "MEMBER",
+  "MODERATOR",
+  "PARTICIPANT",
+]);
+
+// Changes a member's role. Two actors may do this, with different reach:
+//  - the OWNER may set any assignable role, including moderator;
+//  - a MODERATOR may only move people between PARTICIPANT and MEMBER, so a mod
+//    cannot mint peers or demote them.
+// The owner row itself is untouchable through this path, and moderator
+// promotions are capped at COMMUNITY_MAX_MODERATORS. Runs in a transaction so
+// the cap check cannot be raced into a sixth moderator.
 export async function setMemberRole(
   communityId: string,
   actorId: string,
   targetUserId: string,
-  role: "MODERATOR" | "MEMBER"
+  role: AssignableCommunityRole
 ): Promise<void> {
-  const membership = await getMembership(communityId, actorId);
-  if (membership?.role !== "OWNER") {
-    throw new CommunityError("FORBIDDEN", "Only the owner can change roles");
+  if (!ASSIGNABLE_ROLES.has(role)) {
+    throw new CommunityError("INVALID_ROLE", "That role cannot be assigned");
   }
-  await prisma.communityMember.updateMany({
-    data: { role },
-    where: { communityId, userId: targetUserId },
+
+  const [actor, target, community] = await Promise.all([
+    getMembership(communityId, actorId),
+    getMembership(communityId, targetUserId),
+    prisma.community.findUnique({
+      select: { ownerId: true },
+      where: { id: communityId },
+    }),
+  ]);
+  if (!community) {
+    throw new CommunityError("NOT_FOUND", "Community not found");
+  }
+
+  const isOwner = actor?.status === "ACTIVE" && actor.role === "OWNER";
+  const isMod = actor?.status === "ACTIVE" && actor.role === "MODERATOR";
+  if (!isOwner && !isMod) {
+    throw new CommunityError(
+      "FORBIDDEN",
+      "Only the owner or a moderator can change roles"
+    );
+  }
+
+  // A moderator may only promote/demote between participant and member.
+  if (!isOwner && role === "MODERATOR") {
+    throw new CommunityError(
+      "FORBIDDEN",
+      "Only the owner can appoint moderators"
+    );
+  }
+
+  if (!target) {
+    throw new CommunityError("NOT_FOUND", "That person is not a member");
+  }
+  // The owner's role is fixed; ownership transfer is out of scope.
+  if (target.role === "OWNER" || targetUserId === community.ownerId) {
+    throw new CommunityError("FORBIDDEN", "The owner's role cannot be changed");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (role === "MODERATOR" && target.role !== "MODERATOR") {
+      const moderatorCount = await tx.communityMember.count({
+        where: { communityId, role: "MODERATOR", status: "ACTIVE" },
+      });
+      if (moderatorCount >= COMMUNITY_MAX_MODERATORS) {
+        throw new CommunityError(
+          "MOD_LIMIT_REACHED",
+          `A community can have at most ${COMMUNITY_MAX_MODERATORS} moderators`
+        );
+      }
+    }
+
+    await tx.communityMember.updateMany({
+      data: { role },
+      where: { communityId, userId: targetUserId },
+    });
   });
+
   logger.info(
     { actorId, communityId, role, targetUserId },
     "community role set"
@@ -950,6 +1038,49 @@ export async function getManagedCommunities(
     where: { role: { in: ["OWNER", "MODERATOR"] }, status: "ACTIVE", userId },
   });
   return memberships.map((m) => m.community);
+}
+
+export interface UserCommunityRole {
+  community: {
+    accentColor: string;
+    avatarUrl: string | null;
+    id: string;
+    name: string;
+    slug: string;
+  };
+  role: "MEMBER" | "MODERATOR" | "OWNER";
+}
+
+// The badged community roles a user holds, for the profile's "outside" surface.
+// Only roles that carry a badge are returned (PARTICIPANT is the default state,
+// not an achievement), ordered owner-first so the most senior role leads.
+export async function getUserCommunityRoles(
+  userId: string
+): Promise<UserCommunityRole[]> {
+  if (!userId) {
+    return [];
+  }
+  const memberships = await prisma.communityMember.findMany({
+    orderBy: [{ role: "asc" }, { createdAt: "desc" }],
+    select: {
+      community: {
+        select: {
+          accentColor: true,
+          avatarUrl: true,
+          id: true,
+          name: true,
+          slug: true,
+        },
+      },
+      role: true,
+    },
+    where: {
+      role: { in: ["OWNER", "MODERATOR", "MEMBER"] },
+      status: "ACTIVE",
+      userId,
+    },
+  });
+  return memberships as UserCommunityRole[];
 }
 
 export type CommunityFeedSort = "new" | "top";

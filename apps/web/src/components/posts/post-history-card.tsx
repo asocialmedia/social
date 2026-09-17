@@ -138,7 +138,11 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
           <span className="block truncate text-sm font-semibold">
             {post.user?.displayName || post.user?.username || "Anonymous"}
           </span>
-          <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
+          <UserBadge
+            badge={post.user?.badge}
+            badges={post.user?.badges}
+            communityRoles={post.user?.communityMemberships}
+          />
         </span>
 
         {post.moderated ? (

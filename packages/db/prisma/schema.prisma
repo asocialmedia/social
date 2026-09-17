@@ -482,7 +482,7 @@ model CommunityMember {
   community   Community             @relation(fields: [communityId], references: [id], onDelete: Cascade)
   userId      String
   user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role        CommunityRole         @default(MEMBER)
+  role        CommunityRole         @default(PARTICIPANT)
   status      CommunityMemberStatus @default(ACTIVE)
   createdAt   DateTime              @default(now())
 
@@ -548,6 +548,7 @@ enum CommunityRole {
   OWNER
   MODERATOR
   MEMBER
+  PARTICIPANT
 }
 
 enum CommunityMemberStatus {

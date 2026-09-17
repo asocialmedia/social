@@ -646,6 +646,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                 <UserBadge
                   badge={post.user?.badge}
                   badges={post.user?.badges}
+                  communityRoles={post.user?.communityMemberships}
                 />
                 {canFollow && post.user ? (
                   <FollowButton

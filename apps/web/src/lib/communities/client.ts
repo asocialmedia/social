@@ -54,15 +54,26 @@ export interface CommunityListResponse {
 export interface CommunityDetailResponse {
   community: CommunityData;
   membership: {
-    role: "MEMBER" | "MODERATOR" | "OWNER";
+    role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
   } | null;
   stats: CommunityStats;
 }
 
+// Mirrors the db-side union. PARTICIPANT is the default and carries no badge.
+export type CommunityRoleValue =
+  | "MEMBER"
+  | "MODERATOR"
+  | "OWNER"
+  | "PARTICIPANT";
+
+// The roles a moderator/owner may assign through the members list. OWNER is
+// never assignable (the founder holds it; transfer is out of scope).
+export type AssignableCommunityRole = "MEMBER" | "MODERATOR" | "PARTICIPANT";
+
 export interface CommunityMemberRow {
   createdAt: string;
-  role: "MEMBER" | "MODERATOR" | "OWNER";
+  role: CommunityRoleValue;
   status: "ACTIVE" | "PENDING";
   user: {
     aura: number;

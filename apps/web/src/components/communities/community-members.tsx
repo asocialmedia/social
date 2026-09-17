@@ -1,6 +1,12 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@asm/ui/shadui/dropdown-menu";
 import { Flame } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
@@ -14,18 +20,26 @@ import {
 import UserAvatar from "@/components/layouts/user-avatar";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useCommunityMembersQuery } from "@/lib/communities/client";
+import type {
+  AssignableCommunityRole,
+  CommunityRoleValue,
+} from "@/lib/communities/client";
 import { useToast } from "@/lib/gooey-toast";
 import { cn, formatNumber } from "@/lib/utils";
 
-function roleLabel(
-  role: "MEMBER" | "MODERATOR" | "OWNER",
-  username: string
-): string {
+import CommunityRoleBadge, {
+  isCommunityBadgedRole,
+} from "./community-role-badge";
+
+function roleLabel(role: CommunityRoleValue, username: string): string {
   if (role === "OWNER") {
     return "Owner";
   }
   if (role === "MODERATOR") {
     return "Moderator";
+  }
+  if (role === "MEMBER") {
+    return "Member";
   }
   return `@${username}`;
 }
@@ -65,16 +79,12 @@ export function CommunityMembers({
   );
 
   const handleRoleChange = useCallback(
-    (userId: string, role: "MODERATOR" | "MEMBER") => {
+    (userId: string, role: AssignableCommunityRole, message: string) => {
       roleMutation.mutate(
         { communityId, role, userId },
         {
           onSuccess: () =>
-            toast({
-              description:
-                role === "MODERATOR" ? "Promoted to moderator" : "Demoted",
-              title: "Role updated",
-            }),
+            toast({ description: message, title: "Role updated" }),
         }
       );
     },
@@ -82,7 +92,10 @@ export function CommunityMembers({
   );
 
   const members = membersQuery.data?.members ?? [];
-  const isOwner = membersQuery.data?.membership?.role === "OWNER";
+  const actorRole = membersQuery.data?.membership?.role;
+  const isOwner = actorRole === "OWNER";
+  // A moderator may name members but not appoint peers; the owner manages mods.
+  const canModerateRoles = isOwner || actorRole === "MODERATOR";
 
   let body: React.ReactNode;
   if (membersQuery.isLoading) {
@@ -113,7 +126,15 @@ export function CommunityMembers({
       <ul className="flex flex-col gap-1">
         {members.slice(0, 12).map((member) => {
           const isSelf = member.user.id === user?.id;
-          const canToggleRole = isOwner && member.role !== "OWNER" && !isSelf;
+          // The owner row is never editable here: ownership transfer is out of
+          // scope, and nobody promotes or demotes themselves.
+          const canManage =
+            canModerateRoles && member.role !== "OWNER" && !isSelf;
+          // A moderator may only toggle member <-> participant; appointing a
+          // moderator is the owner's alone.
+          const canAppointMod = isOwner;
+          const nextRole: AssignableCommunityRole =
+            member.role === "PARTICIPANT" ? "MEMBER" : "PARTICIPANT";
           return (
             <li
               className="group/member hover:bg-muted/60 -mx-1 flex items-center gap-2.5 rounded-xl px-1 py-1 transition-colors"
@@ -128,10 +149,15 @@ export function CommunityMembers({
               </Link>
               <div className="min-w-0 flex-1">
                 <Link
-                  className="text-foreground block truncate text-sm font-medium hover:underline"
+                  className="text-foreground flex items-center gap-1.5 text-sm font-medium hover:underline"
                   href={`/users/${member.user.username}`}
                 >
-                  {member.user.displayName || member.user.username}
+                  <span className="truncate">
+                    {member.user.displayName || member.user.username}
+                  </span>
+                  {isCommunityBadgedRole(member.role) ? (
+                    <CommunityRoleBadge roleValue={member.role} />
+                  ) : null}
                 </Link>
                 <span className="text-muted-foreground block truncate text-xs">
                   {roleLabel(member.role, member.user.username)}
@@ -149,7 +175,7 @@ export function CommunityMembers({
                 </Button>
               ) : (
                 // The member's aura, read at a glance down the column. For an
-                // owner the slot is shared with the promote/demote action, which
+                // owner/moderator the slot is shared with the role action, which
                 // swaps in on row hover so moderation never adds permanent
                 // width. The swap is gated behind `(hover: hover)`: this rail
                 // renders from xl up, which includes touch devices (a tablet in
@@ -159,7 +185,7 @@ export function CommunityMembers({
                   <span
                     className={cn(
                       "flex items-center gap-1 text-xs",
-                      canToggleRole &&
+                      canManage &&
                         "[@media(hover:hover)]:group-hover/member:hidden"
                     )}
                   >
@@ -175,19 +201,48 @@ export function CommunityMembers({
                     </span>
                     <span className="sr-only">aura</span>
                   </span>
-                  {canToggleRole ? (
-                    <button
-                      className="text-muted-foreground hover:text-foreground text-xs font-medium transition-colors [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/member:block"
-                      onClick={() =>
-                        handleRoleChange(
-                          member.user.id,
-                          member.role === "MODERATOR" ? "MEMBER" : "MODERATOR"
-                        )
-                      }
-                      type="button"
-                    >
-                      {member.role === "MODERATOR" ? "Demote" : "Promote"}
-                    </button>
+                  {canManage ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          aria-label={`Change role for ${member.user.username}`}
+                          className="text-muted-foreground hover:text-foreground text-xs font-medium transition-colors [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/member:block"
+                          type="button"
+                        >
+                          Manage
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {canAppointMod ? (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              handleRoleChange(
+                                member.user.id,
+                                "MODERATOR",
+                                "Promoted to moderator"
+                              )
+                            }
+                          >
+                            Make moderator
+                          </DropdownMenuItem>
+                        ) : null}
+                        <DropdownMenuItem
+                          onClick={() =>
+                            handleRoleChange(
+                              member.user.id,
+                              nextRole,
+                              nextRole === "MEMBER"
+                                ? "Promoted to member"
+                                : "Moved to participant"
+                            )
+                          }
+                        >
+                          {nextRole === "MEMBER"
+                            ? "Make member"
+                            : "Remove member role"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ) : null}
                 </span>
               )}

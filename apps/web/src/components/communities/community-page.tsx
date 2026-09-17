@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/search-field";
+import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 
 import CommunityAbout from "./community-about";
@@ -17,7 +18,7 @@ import CommunityMatureGate from "./community-mature-gate";
 interface ClientCommunityProps {
   community: CommunityData;
   membership: {
-    role: "MEMBER" | "MODERATOR" | "OWNER";
+    role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
   } | null;
   owner: Pick<UserData, "avatarUrl" | "displayName" | "id" | "username"> | null;

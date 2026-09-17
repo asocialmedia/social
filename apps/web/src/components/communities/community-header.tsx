@@ -8,6 +8,7 @@ import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { communityAccentStyle } from "@/lib/communities/accent";
+import type { CommunityRoleValue } from "@/lib/communities/client";
 import { useToast } from "@/lib/gooey-toast";
 import { formatNumber } from "@/lib/utils";
 import { useComposerStore } from "@/store/composer-store";
@@ -18,7 +19,7 @@ import JoinButton from "./join-button";
 interface CommunityHeaderProps {
   community: CommunityData;
   membership: {
-    role: "MEMBER" | "MODERATOR" | "OWNER";
+    role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
   } | null;
   members: number;

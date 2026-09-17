@@ -159,7 +159,11 @@ export default function ResponseItem({
                 {displayName}
               </Link>
             </UserTooltip>
-            <UserBadge badge={author?.badge} badges={author?.badges} />
+            <UserBadge
+              badge={author?.badge}
+              badges={author?.badges}
+              communityRoles={author?.communityMemberships}
+            />
             <Link
               className="text-muted-foreground truncate hover:underline"
               href={`/users/${username}`}

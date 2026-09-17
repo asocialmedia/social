@@ -160,7 +160,11 @@ function PostEmbedCard({ data, mine }: { data: PostData; mine: boolean }) {
             <span className="truncate">
               {data.user?.displayName || data.user?.username || "Anonymous"}
             </span>
-            <UserBadge badge={data.user?.badge} badges={data.user?.badges} />
+            <UserBadge
+              badge={data.user?.badge}
+              badges={data.user?.badges}
+              communityRoles={data.user?.communityMemberships}
+            />
           </span>
           <span
             className={cn(

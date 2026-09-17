@@ -106,8 +106,10 @@ describe("community service integration", () => {
     }
 
     await joinCommunity(community.id, MEMBER_ID);
+    // Joining grants PARTICIPANT: the member/mod badges are earned by
+    // promotion, not by walking in the door.
     expect(await getMembership(community.id, MEMBER_ID)).toEqual({
-      role: "MEMBER",
+      role: "PARTICIPANT",
       status: "ACTIVE",
     });
     const joined = await getJoinedCommunities(MEMBER_ID);

@@ -1,6 +1,6 @@
 "use client";
 
-import type { PrivateUserData, UserData } from "@asm/db";
+import type { PrivateUserData, UserCommunityRole, UserData } from "@asm/db";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ArrowLeft, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -31,6 +31,7 @@ import {
 import type { ProfileTab } from "@/store/tab-store";
 
 interface ProfilePageProps {
+  communityRoles: UserCommunityRole[];
   loggedInUserData: PrivateUserData | null;
   userData: UserData;
 }
@@ -50,6 +51,7 @@ const GUEST_TAB_ORDER: ProfileTab[] = ["posts", "gusts", "media"];
 const ClientProfile: React.FC<ProfilePageProps> = ({
   userData,
   loggedInUserData,
+  communityRoles,
 }) => {
   const [activeTab, setActiveTab] = useState<ProfileTab>("posts");
   const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -163,6 +165,7 @@ const ClientProfile: React.FC<ProfilePageProps> = ({
               >
                 <div className="relative">
                   <ProfileHeader
+                    communityRoles={communityRoles}
                     isOwnProfile={isOwnProfile}
                     ownUserData={loggedInUserData}
                     userData={userData}

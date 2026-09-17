@@ -244,6 +244,8 @@ const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
   const avatarUrl = parent?.user?.avatarUrl ?? replyTo.avatarUrl;
   const badge = parent?.user?.badge ?? replyTo.badge;
   const badges = parent?.user?.badges ?? replyTo.badges;
+  const communityRoles =
+    parent?.user?.communityMemberships ?? replyTo.communityMemberships;
   const createdAt = parent?.createdAt ?? replyTo.createdAt;
   const content = parent?.content ?? replyTo.content;
   const isGust = parent?.isGust ?? replyTo.isGust;
@@ -268,7 +270,11 @@ const PostEditorResponsePreview: React.FC<PostEditorResponsePreviewProps> = ({
               <span className="text-foreground truncate font-semibold">
                 {displayName}
               </span>
-              <UserBadge badge={badge} badges={badges} />
+              <UserBadge
+                badge={badge}
+                badges={badges}
+                communityRoles={communityRoles}
+              />
               <span className="text-muted-foreground truncate">
                 @{username}
               </span>

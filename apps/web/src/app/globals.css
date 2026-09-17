@@ -1018,6 +1018,22 @@
   background: linear-gradient(to bottom, #8f96a3, #5c6370);
 }
 
+/* Inline chips inside flowing prose (post bodies, bios). A .meta-chip is 26px
+   tall, which exceeds a prose line box (15px x 1.625 leading-relaxed = 24.4px),
+   so in multi-line text each chip consumes the whole line and consecutive
+   chips end up touching - they read as collided. Inside prose they run a touch
+   slimmer and carry a little vertical margin, so every line clears the one
+   above it while the line rhythm stays the same.
+
+   Unlayered on purpose: the base .meta-chip rule above is unlayered legacy
+   CSS, which outranks @layer utilities and @layer components, so a layered
+   override would silently lose to it. Two-class specificity plus later source
+   order is what wins here. `.post-prose` is applied by PostInlineContent. */
+.post-prose .meta-chip {
+  height: 23px;
+  margin: 2px 0;
+}
+
 :root:not(.dark) .premium-input {
   color: hsl(var(--foreground));
   background-color: hsl(var(--background));

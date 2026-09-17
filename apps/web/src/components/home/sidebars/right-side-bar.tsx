@@ -123,7 +123,11 @@ const WhoToFollowRow: React.FC<{
               <span className="block truncate text-sm font-medium">
                 {user.displayName || user.username}
               </span>
-              <UserBadge badge={user.badge} badges={user.badges} />
+              <UserBadge
+                badge={user.badge}
+                badges={user.badges}
+                communityRoles={user.communityMemberships}
+              />
             </span>
             <span className="text-muted-foreground block truncate text-xs">
               @{user.username}

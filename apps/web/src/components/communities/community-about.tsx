@@ -9,10 +9,12 @@ import Link from "next/link";
 import UserAvatar from "@/components/layouts/user-avatar";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { communityAccentStyle } from "@/lib/communities/accent";
+import type { CommunityRoleValue } from "@/lib/communities/client";
 import { formatNumber } from "@/lib/utils";
 
 import CommunityAvatar from "./community-avatar";
 import { CommunityMembers } from "./community-members";
+import CommunityRoleBadge from "./community-role-badge";
 
 // Community sidebar: the about block. Ordered identity -> description ->
 // creation -> activity -> totals -> moderation, so the eye lands on what the
@@ -25,7 +27,7 @@ export default function CommunityAbout({
 }: {
   community: CommunityData;
   membership: {
-    role: "MEMBER" | "MODERATOR" | "OWNER";
+    role: CommunityRoleValue;
     status: "ACTIVE" | "PENDING";
   } | null;
   owner: Pick<UserData, "avatarUrl" | "displayName" | "id" | "username"> | null;
@@ -137,8 +139,16 @@ export default function CommunityAbout({
               user={owner}
             />
             <span className="min-w-0">
-              <span className="text-foreground block truncate text-sm font-medium">
-                {owner.displayName || owner.username}
+              <span className="text-foreground flex items-center gap-1.5 text-sm font-medium">
+                <span className="truncate">
+                  {owner.displayName || owner.username}
+                </span>
+                {/* The founder's role, stated where the community introduces
+                    them rather than only in the members list. */}
+                <CommunityRoleBadge
+                  communityName={community.name}
+                  roleValue="OWNER"
+                />
               </span>
               <span className="text-muted-foreground block truncate text-xs">
                 @{owner.username}

@@ -225,6 +225,7 @@ export default function CommentItem({
                   <UserBadge
                     badge={commentUser.badge}
                     badges={commentUser.badges}
+                    communityRoles={commentUser.communityMemberships}
                   />
                   <Link
                     className="text-muted-foreground truncate hover:underline"

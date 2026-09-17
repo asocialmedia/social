@@ -194,6 +194,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 <UserBadge
                   badge={post.user?.badge}
                   badges={post.user?.badges}
+                  communityRoles={post.user?.communityMemberships}
                 />
               </div>
               <p className="text-muted-foreground truncate text-[11px]">

@@ -1,4 +1,5 @@
 import {
+  getUserCommunityRoles,
   getUserDataSelect,
   prisma,
   resolveUsername,
@@ -184,7 +185,10 @@ async function ProfileContent({ params }: PageProps) {
 
   // Crawlable recent posts from this user - visible in SSR HTML so
   // profile pages link to post URLs without JS.
-  const recentPosts = await getUserPostsForCrawl(userData.id, 12);
+  const [recentPosts, communityRoles] = await Promise.all([
+    getUserPostsForCrawl(userData.id, 12),
+    getUserCommunityRoles(userData.id),
+  ]);
 
   const itemListJsonLd =
     recentPosts.length > 0
@@ -205,7 +209,11 @@ async function ProfileContent({ params }: PageProps) {
       <JsonLd
         data={itemListJsonLd ? [profileJsonLd, itemListJsonLd] : profileJsonLd}
       />
-      <ClientProfile loggedInUserData={loggedInUserData} userData={userData} />
+      <ClientProfile
+        communityRoles={communityRoles}
+        loggedInUserData={loggedInUserData}
+        userData={userData}
+      />
       {/* Hidden fallback list for bots - no visible block */}
       <div className="sr-only" aria-hidden={false}>
         <nav aria-label={`Posts by @${userData.username} crawlable`}>

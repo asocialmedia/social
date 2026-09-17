@@ -140,12 +140,14 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
             badge={gust.user?.badge}
             badges={gust.user?.badges}
             className="hidden shrink-0 sm:inline-flex"
+            communityRoles={gust.user?.communityMemberships}
           />
         </div>
         <UserBadge
           badge={gust.user?.badge}
           badges={gust.user?.badges}
           className="mt-1 shrink-0 sm:hidden"
+          communityRoles={gust.user?.communityMemberships}
         />
         {gust.content ? (
           <p className="mt-1 line-clamp-1 text-[11px] text-white/80">

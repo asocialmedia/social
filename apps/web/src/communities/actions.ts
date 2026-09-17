@@ -12,7 +12,11 @@ import {
   leaveCommunity as leaveCommunityService,
   setMemberRole as setMemberRoleService,
 } from "@asm/db";
-import type { CommunityCreationQuota, CommunityData } from "@asm/db";
+import type {
+  AssignableCommunityRole,
+  CommunityCreationQuota,
+  CommunityData,
+} from "@asm/db";
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -115,7 +119,7 @@ export async function approveMember(
 export async function setMemberRole(
   communityId: string,
   targetUserId: string,
-  role: "MODERATOR" | "MEMBER"
+  role: AssignableCommunityRole
 ): Promise<void> {
   const session = await getSessionFromApi();
   const actorId = requireUser(session?.user?.id);
