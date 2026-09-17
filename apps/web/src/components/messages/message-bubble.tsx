@@ -147,7 +147,11 @@ export function MessageBubble({
             onLoad={() => setImageLoaded(true)}
             sizes="(max-width: 640px) 85vw, 420px"
             src={content.url}
-            unoptimized={content.kind === "gif"}
+            // Message attachments are session-gated (/api/media enforces
+            // membership), so the Image Optimization fetch — which runs
+            // server-side without the viewer's cookies — can never retrieve
+            // them. Serve the bytes directly like GIFs already do.
+            unoptimized
           />
         </div>
       );
