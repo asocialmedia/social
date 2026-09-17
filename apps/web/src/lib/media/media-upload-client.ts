@@ -471,7 +471,14 @@ export async function uploadMediaFile(
     /** Media id of an AUDIO upload whose track replaces the video's own
      * audio during pipeline processing (gust "sound"). */
     audioOverlayId?: string | null;
+    // Conversation a message attachment belongs to. Required when purpose is
+    // "message" so the peer can fetch the bytes back.
+    messageConversationId?: string | null;
     purpose?: "avatar" | "banner" | "comment" | "message" | "post";
+    // Natural image dimensions captured client-side; stored so receivers can
+    // reserve the bubble box before the bytes arrive.
+    width?: number | null;
+    height?: number | null;
     signal?: AbortSignal;
     onProgress?: (percent: number) => void;
     onStage?: (stage: UploadStage) => void;
@@ -515,11 +522,14 @@ export async function uploadMediaFile(
   const initiateResponse = await fetch("/api/upload/initiate", {
     body: JSON.stringify({
       audioOverlayId: options.audioOverlayId ?? undefined,
+      conversationId: options.messageConversationId ?? undefined,
+      height: options.height ?? undefined,
       name: file.name || "attachment",
       purpose: options.purpose ?? "post",
       sha256: sha256 ?? undefined,
       size: file.size,
       type: contentType,
+      width: options.width ?? undefined,
     }),
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },

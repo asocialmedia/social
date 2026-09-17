@@ -1,3 +1,4 @@
+import { prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -14,6 +15,12 @@ const initiateSchema = z.object({
   // Media id of an AUDIO upload whose track replaces the video's own audio
   // (gust "sound"). Validated server-side in createInitiatedUpload.
   audioOverlayId: z.string().min(1).nullish(),
+  // Conversation a message attachment belongs to. Required when purpose is
+  // "message" so the row can be bound to the thread and the peer admitted.
+  conversationId: z.string().min(1).max(64).nullish(),
+  // Natural image dimensions captured client-side; stored so receivers can
+  // reserve the bubble box before the bytes arrive (no scroll jump).
+  height: z.number().int().positive().max(16_384).nullish(),
   name: z.string().min(1).max(255),
   purpose: z.enum(["avatar", "banner", "comment", "message", "post"]).nullish(),
   // Uppercase hex is accepted but normalized to lowercase so dedup matching
@@ -25,6 +32,7 @@ const initiateSchema = z.object({
     .nullish(),
   size: z.number().int().positive(),
   type: z.string().min(3).max(100),
+  width: z.number().int().positive().max(16_384).nullish(),
 });
 
 export async function POST(request: Request) {
@@ -49,7 +57,39 @@ export async function POST(request: Request) {
     );
   }
 
-  const { audioOverlayId, name, purpose, sha256, size, type } = parsed.data;
+  const {
+    audioOverlayId,
+    conversationId,
+    height,
+    name,
+    purpose,
+    sha256,
+    size,
+    type,
+    width,
+  } = parsed.data;
+
+  // Message attachments must be bound to a thread the uploader belongs to;
+  // the link is what later admits the peer in the serving route.
+  if (purpose === "message") {
+    if (!conversationId) {
+      return Response.json(
+        { error: "Message attachments require a conversation" },
+        { status: 400 }
+      );
+    }
+    const membership = await prisma.messageConversationMember.findUnique({
+      where: {
+        conversationId_userId: { conversationId, userId: user.id },
+      },
+    });
+    if (!membership) {
+      return Response.json(
+        { error: "You are not a member of this conversation" },
+        { status: 403 }
+      );
+    }
+  }
 
   try {
     const upload = await createInitiatedUpload({
@@ -57,9 +97,13 @@ export async function POST(request: Request) {
       declaredMime: type,
       fileName: name,
       fileSize: size,
+      height: height ?? null,
+      messageConversationId:
+        purpose === "message" ? (conversationId ?? null) : null,
       purpose: purpose ?? null,
       sha256: sha256 ?? null,
       userId: user.id,
+      width: width ?? null,
     });
     return NextResponse.json({
       deduplicated: upload.deduplicated ?? false,

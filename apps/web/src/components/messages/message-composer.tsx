@@ -278,6 +278,8 @@ export function MessageComposer({
     [sendPayload, sending, sendingMedia]
   );
 
+  const conversationId = conversation.conversation.id;
+
   const handleFileSelected = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -294,7 +296,7 @@ export function MessageComposer({
         return;
       }
       try {
-        const media = await uploadMessageMedia(file, "image");
+        const media = await uploadMessageMedia(file, "image", conversationId);
         await handleSendMedia(media);
       } catch {
         toast({
@@ -304,7 +306,7 @@ export function MessageComposer({
         });
       }
     },
-    [handleSendMedia]
+    [conversationId, handleSendMedia]
   );
 
   const handleGifSelect = useCallback(
@@ -320,7 +322,7 @@ export function MessageComposer({
         const file = new File([blob], `${gif.slug || "gif"}.gif`, {
           type: "image/gif",
         });
-        const media = await uploadMessageMedia(file, "gif");
+        const media = await uploadMessageMedia(file, "gif", conversationId);
         await handleSendMedia(media);
       } catch {
         toast({
@@ -330,7 +332,7 @@ export function MessageComposer({
         });
       }
     },
-    [handleSendMedia]
+    [conversationId, handleSendMedia]
   );
 
   const handleKeyDown = useCallback(
