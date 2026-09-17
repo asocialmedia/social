@@ -47,6 +47,20 @@ async function settle(rounds = 10): Promise<void> {
   }
 }
 
+// Waits until `check` holds, polling across macrotasks. Used where real
+// WebCrypto latency (not just microtask ordering) gates the assertion, so the
+// test is not timing-flaky under parallel load.
+async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitFor timed out");
+    }
+    // oxlint-disable-next-line no-await-in-loop -- condition polling
+    await Bun.sleep(5);
+  }
+}
+
 describe("message decryptor", () => {
   test("decrypts queued items and notifies once for the batch", async () => {
     const started: string[] = [];
@@ -230,7 +244,10 @@ describe("message decryptor", () => {
       ],
       { getBaseKey: () => Promise.resolve(baseKey) }
     );
-    await settle();
+    await waitFor(
+      () =>
+        decryptor.get("m1") !== "pending" && decryptor.get("m2") !== "pending"
+    );
     expect(decryptor.get("m1")).toEqual({ content: "one", type: "text" });
     expect(decryptor.get("m2")).toEqual({ content: "two", type: "text" });
   });
