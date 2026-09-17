@@ -81,7 +81,12 @@ export async function patchThumbnail(
   }
 }
 
-const TERMINAL_POLL_STATUSES = new Set(["READY", "REJECTED", "DELETED"]);
+const TERMINAL_POLL_STATUSES = new Set([
+  "READY",
+  "REJECTED",
+  "DELETED",
+  "FAILED",
+]);
 
 // Attaches (or clears with null) a gust sound on an already-created video
 // row. The overlay normally rides along at upload initiate; this covers the
