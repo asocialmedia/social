@@ -9,6 +9,7 @@ import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
 } from "@/lib/media/media-variants";
+import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
@@ -76,6 +77,7 @@ export async function GET(
       commentId: true,
       detectedMime: true,
       key: true,
+      messageConversationId: true,
       mimeType: true,
       postId: true,
       publishedKey: true,
@@ -88,7 +90,14 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
   const session = await getSessionFromApi();
-  const decision = decideMediaAccess(ownership, session?.user ?? null);
+  const viewer = session?.user ?? null;
+  const isConversationMember = await resolveMessageMediaMembership(
+    ownership.messageConversationId,
+    viewer?.id
+  );
+  const decision = decideMediaAccess(ownership, viewer, {
+    isConversationMember,
+  });
   if (!decision.allowed) {
     return new NextResponse("Media not found", { status: decision.status });
   }

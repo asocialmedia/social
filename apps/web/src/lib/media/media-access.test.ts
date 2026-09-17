@@ -20,7 +20,7 @@ describe("decideMediaAccess", () => {
     expect(decideMediaAccess(media, other).allowed).toBe(true);
   });
 
-  test("unlinked media (message attachments) is owner-only", () => {
+  test("unlinked media (abandoned drafts) is owner-only", () => {
     const media = { commentId: null, postId: null, userId: "user-1" };
     const guest = decideMediaAccess(media, null);
     expect(guest.allowed).toBe(false);
@@ -28,6 +28,33 @@ describe("decideMediaAccess", () => {
 
     expect(decideMediaAccess(media, other).allowed).toBe(false);
     expect(decideMediaAccess(media, viewer).allowed).toBe(true);
+  });
+
+  test("message-linked media admits conversation members, not strangers", () => {
+    const media = {
+      commentId: null,
+      messageConversationId: "convo-1",
+      postId: null,
+      userId: "user-1",
+    };
+    const guest = decideMediaAccess(media, null, {
+      isConversationMember: false,
+    });
+    expect(guest.allowed).toBe(false);
+    expect(!guest.allowed && guest.status).toBe(401);
+
+    // The owner/sender is always a member; strangers (even signed in) 404.
+    expect(
+      decideMediaAccess(media, viewer, { isConversationMember: true }).allowed
+    ).toBe(true);
+    expect(
+      decideMediaAccess(media, other, { isConversationMember: true }).allowed
+    ).toBe(true);
+    const denied = decideMediaAccess(media, other, {
+      isConversationMember: false,
+    });
+    expect(denied.allowed).toBe(false);
+    expect(!denied.allowed && denied.status).toBe(404);
   });
 
   test("ownerless unlinked rows are invisible to everyone", () => {

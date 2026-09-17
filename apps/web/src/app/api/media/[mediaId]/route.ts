@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
   asmobClient,
@@ -82,6 +83,7 @@ async function getMediaOwnership(mediaId: string) {
     select: {
       commentId: true,
       derivatives: { select: { durationMs: true } },
+      messageConversationId: true,
       mimeType: true,
       postId: true,
       userId: true,
@@ -150,7 +152,8 @@ export async function GET(
   }
 
   // Authorization: post attachments are public, comment media needs a
-  // session, message/draft uploads are owner-only (see media-access.ts).
+  // session, message attachments admit conversation members (see
+  // media-access.ts), and drafts stay owner-only.
   // Ownership is read fresh (never cached) so a just-published post's
   // attachments become public immediately instead of serving a stale
   // "protected" row.
@@ -159,7 +162,14 @@ export async function GET(
     return new NextResponse("Media not found", { status: 404 });
   }
   const session = await getSessionFromApi();
-  const decision = decideMediaAccess(ownership, session?.user ?? null);
+  const viewer = session?.user ?? null;
+  const isConversationMember = await resolveMessageMediaMembership(
+    ownership.messageConversationId,
+    viewer?.id
+  );
+  const decision = decideMediaAccess(ownership, viewer, {
+    isConversationMember,
+  });
   if (!decision.allowed) {
     return new NextResponse(
       decision.status === 401 ? "Unauthorized" : "Media not found",
