@@ -7,7 +7,6 @@ import type {
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
 
 import {
-  decryptMessage,
   encryptMessage,
   generateRootKey,
   publicKeyBase64ToJwk,
@@ -542,13 +541,4 @@ export async function ensureConversationKeys(
     { encryptedKey: wrapped, ownerUserId: peer.userId },
   ]);
   return rootKey;
-}
-
-export function decryptMessagePayload(
-  rootKey: Uint8Array,
-  senderId: string,
-  conversationId: string,
-  message: Pick<MessageData, "ciphertext" | "iv" | "ratchetIndex">
-): Promise<MessagePayload> {
-  return decryptMessage(rootKey, senderId, conversationId, message);
 }
