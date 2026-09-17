@@ -9,9 +9,9 @@ import { useState } from "react";
 
 import UserReasonLine from "@/components/discover/user-reason-line";
 import type { UserMutualFollower } from "@/components/discover/user-reason-line";
-import FollowButton from "@/components/layouts/follow-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
@@ -163,7 +163,11 @@ const ExploreUserCard: React.FC<ExploreUserCardProps> = ({
             >
               {user.displayName}
             </Link>
-            <UserBadge badge={user.badge} badges={user.badges} />
+            <UserBadge
+              badge={user.badge}
+              badges={user.badges}
+              communityRoles={user.communityMemberships}
+            />
           </div>
           <p className="text-muted-foreground truncate text-xs">
             @{user.username}

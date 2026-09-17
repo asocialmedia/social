@@ -1,4 +1,5 @@
 import {
+  communityVisibilityWhere,
   getPostDataInclude,
   hydrateViewCounts,
   prisma,
@@ -48,6 +49,9 @@ export async function GET(request: Request) {
       AND: [
         { moderated: false },
         { content: { contains: q, mode: "insensitive" } },
+        // Posts in PRIVATE communities stay out of global search unless the
+        // searcher is an approved member.
+        communityVisibilityWhere(user?.id ?? ""),
       ],
     },
   });

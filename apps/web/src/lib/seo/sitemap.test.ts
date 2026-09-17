@@ -85,7 +85,7 @@ describe("buildSitemapIndexXml", () => {
     );
   });
 
-  test("emits all four ids", () => {
+  test("emits all sitemap ids", () => {
     const xml = buildSitemapIndexXml(
       SITEMAP_IDS.map((id) => ({
         url: `https://asocialmedia.cc/sitemaps/${id}.xml`,

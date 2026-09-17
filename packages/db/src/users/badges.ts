@@ -1,4 +1,5 @@
 import prisma from "../prisma";
+import { SYSTEM_MODERATION_USER_ID } from "./reserved-usernames";
 
 // Badge values stored on User.badges. "author" is special: the app allows at
 // most one holder, enforced in grantBadge so no code path can create a second.
@@ -6,12 +7,15 @@ export const BADGE_AUTHOR = "author";
 export const BADGE_DEV = "dev";
 export const BADGE_EARLY = "early";
 export const BADGE_SHITPOSTER = "shitposter";
+// Held only while the account is in the trending card; see syncTrendingBadges.
+export const BADGE_TRENDING = "trending";
 
 export const BADGES = [
   BADGE_AUTHOR,
   BADGE_DEV,
   BADGE_EARLY,
   BADGE_SHITPOSTER,
+  BADGE_TRENDING,
 ] as const;
 
 export type Badge = (typeof BADGES)[number];
@@ -22,13 +26,16 @@ export const SHITPOSTER_THRESHOLD = 5;
 export const SHITPOSTER_WINDOW_MS = 30 * 60 * 1000;
 
 // Precedence order for badge resolution: the first (lowest number) is the
-// primary badge. Mirrors the client BADGE_ORDER so server-side decisions
-// (dedupe, slot checks) agree with what renders.
+// primary badge. This covers only the PLATFORM badges this module hands out;
+// the client ranks them on one table together with community roles
+// (author -> owner -> moderator -> dev -> shitposter -> member -> early), so
+// the relative order here mirrors that table for the keys this side knows.
 const BADGE_PRECEDENCE: Record<string, number> = {
   author: 0,
   dev: 1,
-  early: 2,
-  shitposter: 3,
+  early: 3,
+  shitposter: 2,
+  trending: 4,
 };
 
 // Resolves a row's badge state into a single deduped list ordered by
@@ -216,4 +223,162 @@ export async function grantShitposterBadgeIfQualified(
   }
 
   return await grantBadge(userId, BADGE_SHITPOSTER);
+}
+
+// ---------------------------------------------------------------------------
+// Early supporter
+// ---------------------------------------------------------------------------
+// A founding-era reward: reach EARLY_AURA_THRESHOLD aura at any point before
+// EARLY_DEADLINE and the badge is granted, then kept for good (grantBadge is
+// one-way and no path revokes it). Both values are config so the campaign can
+// be retuned or retired without touching code.
+//
+// Qualification is evaluated by a periodic sweep rather than hooked into every
+// aura write: aura moves from votes, comments, follows, mentions, views and
+// more, and threading a badge check through the ledger would put a user read on
+// every one of those. The sweep reads the indexed aura column in batches and
+// stops early once the deadline passes.
+export const EARLY_AURA_THRESHOLD = 5000;
+export const EARLY_DEADLINE = new Date("2026-12-31T23:59:59.999Z");
+
+export function isEarlyBadgeWindowOpen(now: Date = new Date()): boolean {
+  return now.getTime() < EARLY_DEADLINE.getTime();
+}
+
+// Grants the early badge to one user if they qualify right now. Safe to call
+// repeatedly: grantBadge returns false when the badge is already held.
+export async function grantEarlyBadgeIfQualified(
+  userId: string,
+  now: Date = new Date()
+): Promise<boolean> {
+  if (!isEarlyBadgeWindowOpen(now)) {
+    return false;
+  }
+  const user = await prisma.user.findUnique({
+    select: { aura: true },
+    where: { id: userId },
+  });
+  if (!user || user.aura < EARLY_AURA_THRESHOLD) {
+    return false;
+  }
+  return await grantBadge(userId, BADGE_EARLY);
+}
+
+// Batched sweep over everyone who currently qualifies but does not yet hold the
+// badge. Paged by id so a large deployment never loads the candidate set at
+// once, and the candidate set shrinks to empty as the campaign runs. Returns
+// how many were newly granted.
+export async function sweepEarlyBadges(
+  now: Date = new Date(),
+  batchSize = 200
+): Promise<number> {
+  if (!isEarlyBadgeWindowOpen(now)) {
+    return 0;
+  }
+
+  let granted = 0;
+  let cursor: string | undefined;
+
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- paged sweep must await each page
+    const batch = await prisma.user.findMany({
+      cursor: cursor ? { id: cursor } : undefined,
+      orderBy: { id: "asc" },
+      select: { id: true },
+      skip: cursor ? 1 : 0,
+      take: batchSize,
+      // Exclude holders by the ARRAY only, never by the legacy `badge` column.
+      // That column is nullable, so a NOT over it compiles to
+      // `NOT (badge = 'early')` - which is NULL for every user whose legacy
+      // badge is unset, and SQL's three-valued logic drops those rows. That
+      // silently excluded nearly everyone and the sweep granted nothing.
+      // `badges` is non-nullable (@default([])), so a NOT over it is safe.
+      //
+      // Legacy-column holders are still handled: grantBadge merges both storage
+      // locations and returns false when the badge is already held, so such a
+      // user is re-read each sweep but never granted twice.
+      where: {
+        NOT: { badges: { has: BADGE_EARLY } },
+        aura: { gte: EARLY_AURA_THRESHOLD },
+      },
+    });
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    // eslint-disable-next-line no-await-in-loop -- paged sweep must await each page
+    const results = await Promise.all(
+      batch.map((user) => grantBadge(user.id, BADGE_EARLY))
+    );
+    granted += results.filter(Boolean).length;
+
+    if (batch.length < batchSize) {
+      break;
+    }
+    cursor = batch.at(-1)?.id;
+  }
+
+  return granted;
+}
+
+// ---------------------------------------------------------------------------
+// Trending
+// ---------------------------------------------------------------------------
+// The trending badge is PRESENCE-based, not an achievement: it is held only
+// while the account is in the trending card and released the moment they drop
+// off, so the badge tracks the live ranking instead of accumulating. The list
+// is ranked exactly as the card ranks it (most followers, then aura); the size
+// is shared so the two cannot drift.
+export const TRENDING_BADGE_SIZE = 6;
+
+export async function getTrendingUserIds(
+  limit: number = TRENDING_BADGE_SIZE
+): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    orderBy: [{ followers: { _count: "desc" } }, { aura: "desc" }],
+    select: { id: true },
+    take: Math.max(1, limit),
+    where: { id: { not: SYSTEM_MODERATION_USER_ID } },
+  });
+  return users.map((user) => user.id);
+}
+
+export interface TrendingBadgeSyncResult {
+  granted: number;
+  revoked: number;
+}
+
+// Reconciles the trending badge against `currentUserIds`: grants to everyone on
+// the list, revokes from every holder who has dropped off. Idempotent, so it is
+// safe to run on any cadence and after any Redis loss.
+//
+// Holders are found by the indexed `badges` array rather than a Redis set: the
+// database stays the single source of truth, so a cache flush cannot strand a
+// badge on an account that is no longer trending.
+export async function syncTrendingBadges(
+  currentUserIds: string[]
+): Promise<TrendingBadgeSyncResult> {
+  const current = new Set(currentUserIds.filter(Boolean));
+
+  const holders = await prisma.user.findMany({
+    select: { id: true },
+    where: { badges: { has: BADGE_TRENDING } },
+  });
+  const holderIds = new Set(holders.map((holder) => holder.id));
+
+  const toGrant = [...current].filter((id) => !holderIds.has(id));
+  const toRevoke = [...holderIds].filter((id) => !current.has(id));
+
+  // Both sides are independent sets of single-row writes, so they run in
+  // parallel rather than one round trip per account.
+  const [grantedResults, revokedResults] = await Promise.all([
+    Promise.all(toGrant.map((id) => grantBadge(id, BADGE_TRENDING))),
+    Promise.all(toRevoke.map((id) => revokeBadge(id, BADGE_TRENDING))),
+  ]);
+
+  return {
+    granted: grantedResults.filter(Boolean).length,
+    revoked: revokedResults.filter(Boolean).length,
+  };
 }

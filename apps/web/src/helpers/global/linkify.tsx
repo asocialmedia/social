@@ -2,8 +2,8 @@ import Link from "next/link";
 import type React from "react";
 import { LinkIt } from "react-linkify-it";
 
-import UserLinkWithTooltip from "@/components/layouts/user-link-with-tooltip";
-import { LinkBadge } from "@/components/posts/link-badge";
+import UserLinkWithTooltip from "@/components/layouts/user/user-link-with-tooltip";
+import { LinkBadge } from "@/components/posts/embeds/link-badge";
 
 interface LinkifyProps {
   children: React.ReactNode;

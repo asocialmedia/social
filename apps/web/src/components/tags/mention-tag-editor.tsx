@@ -14,7 +14,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import { useToast } from "@/lib/gooey-toast";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 
-import UserAvatar from "../layouts/user-avatar";
+import UserAvatar from "../layouts/user/user-avatar";
 
 const tagVariants: Variants = {
   animate: {

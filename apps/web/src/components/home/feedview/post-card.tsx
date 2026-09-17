@@ -17,21 +17,26 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import Comments from "@/components/comments/comments";
-import FollowButton from "@/components/layouts/follow-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import UserTooltip from "@/components/layouts/user-tooltip";
-import AuraVoteButton from "@/components/posts/aura-vote-button";
-import BookmarkButton from "@/components/posts/bookmark-button";
-import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import PostLinkEmbeds from "@/components/posts/link-embeds";
-import ModeratedNotice from "@/components/posts/moderated-notice";
-import PostLinkedContent from "@/components/posts/post-linked-content";
-import PostMoreButton from "@/components/posts/post-more-button";
-import ViewTracker from "@/components/posts/view-counter";
+import Comments from "@/components/comments/thread/comments";
+import {
+  CommunityAttribution,
+  CommunityShareCard,
+} from "@/components/communities/card/community-attribution";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import UserTooltip from "@/components/layouts/user/user-tooltip";
+import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
+import BookmarkButton from "@/components/posts/actions/bookmark-button";
+import PostMoreButton from "@/components/posts/actions/post-more-button";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import ViewTracker from "@/components/posts/effects/view-counter";
+import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { PostMeta } from "@/components/tags/post-meta";
+import { communityAccentStyle } from "@/lib/communities/accent";
 import { isInteractiveTarget } from "@/lib/interactive-target";
 import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
 import { isPopupOpen } from "@/lib/popup-tracker";
@@ -53,6 +58,21 @@ import ShareButton from "./share-button";
 export { isInteractiveTarget } from "@/lib/interactive-target";
 
 type ExtendedPostData = PostData & {
+  community?: {
+    accentColor: string;
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
+  communityShare?: {
+    community: {
+      accentColor: string;
+      id: string;
+      name: string;
+      slug: string;
+    };
+    sourcePostId: string;
+  } | null;
   hnStoryShare?: {
     storyId: number;
     title: string;
@@ -74,12 +94,16 @@ interface PostCardProps {
   // narrow embedded columns (media page sidebar).
   mobileLayout?: boolean;
   post: ExtendedPostData;
+  // Ranked feeds add a short "Trending in a/<slug>" reason line beside the
+  // community attribution; chronological feeds leave it off.
+  showCommunityReason?: boolean;
 }
 
 interface PostHeaderProps {
   authorAvatarUrl?: string | null;
   authorBadge?: string | null;
   authorBadges?: string[] | null;
+  authorCommunityRoles?: readonly { role: string }[] | null;
   authorDisplayName: string;
   authorProfileHref: string;
   authorUsername: string;
@@ -93,6 +117,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   authorAvatarUrl,
   authorBadge,
   authorBadges,
+  authorCommunityRoles,
   authorDisplayName,
   authorProfileHref,
   authorUsername,
@@ -118,7 +143,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           </Link>
         </UserTooltip>
 
-        <div className="min-w-0 flex-1 pr-[4.75rem]">
+        <div className="min-w-0 flex-1 pr-19">
           <div className="flex min-w-0 items-center gap-2">
             <UserTooltip user={post.user}>
               <Link
@@ -129,7 +154,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                 {authorDisplayName}
               </Link>
             </UserTooltip>
-            <UserBadge badge={authorBadge} badges={authorBadges} />
+            <UserBadge
+              badge={authorBadge}
+              badges={authorBadges}
+              communityRoles={authorCommunityRoles}
+            />
             <Link
               className="text-muted-foreground shrink-0 hover:underline"
               href={getPostPath(post)}
@@ -191,7 +220,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             {authorDisplayName}
           </Link>
         </UserTooltip>
-        <UserBadge badge={authorBadge} badges={authorBadges} />
+        <UserBadge
+          badge={authorBadge}
+          badges={authorBadges}
+          communityRoles={authorCommunityRoles}
+        />
         <UserTooltip user={post.user}>
           <Link
             className="text-muted-foreground truncate hover:underline"
@@ -246,7 +279,7 @@ const ThreadConnectorRail: React.FC<ThreadConnectorRailProps> = ({
     return (
       <span
         aria-hidden="true"
-        className="bg-border pointer-events-none absolute -top-[9px] -bottom-[9px] left-1/2 w-0.5 -translate-x-1/2 sm:-top-[11px] sm:-bottom-[11px]"
+        className="bg-border pointer-events-none absolute -top-2.25 -bottom-2.25 left-1/2 w-0.5 -translate-x-1/2 sm:-top-2.75 sm:-bottom-2.75"
       />
     );
   }
@@ -255,7 +288,7 @@ const ThreadConnectorRail: React.FC<ThreadConnectorRailProps> = ({
     return (
       <span
         aria-hidden="true"
-        className="bg-border pointer-events-none absolute -top-[9px] left-1/2 h-[27px] w-0.5 -translate-x-1/2 sm:-top-[11px] sm:h-[31px]"
+        className="bg-border pointer-events-none absolute -top-2.25 left-1/2 h-6.75 w-0.5 -translate-x-1/2 sm:-top-2.75 sm:h-7.75"
       />
     );
   }
@@ -264,7 +297,7 @@ const ThreadConnectorRail: React.FC<ThreadConnectorRailProps> = ({
     return (
       <span
         aria-hidden="true"
-        className="bg-border pointer-events-none absolute top-[18px] -bottom-[9px] left-1/2 w-0.5 -translate-x-1/2 sm:top-[20px] sm:-bottom-[11px]"
+        className="bg-border pointer-events-none absolute top-4.5 -bottom-2.25 left-1/2 w-0.5 -translate-x-1/2 sm:top-5 sm:-bottom-2.75"
       />
     );
   }
@@ -284,6 +317,7 @@ interface PostContentProps {
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
+  showCommunityReason?: boolean;
 }
 
 const PostContent: React.FC<PostContentProps> = ({
@@ -291,13 +325,13 @@ const PostContent: React.FC<PostContentProps> = ({
   detail,
   hasThreadChild = false,
   hasThreadParent = false,
-  initialMediaIndex = 0,
+  initialMediaIndex,
   isExpanded,
-  isJoined,
   mobileLayout,
   onToggleComments,
   onToggleExpand,
   post,
+  showCommunityReason = false,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -331,6 +365,7 @@ const PostContent: React.FC<PostContentProps> = ({
   const authorAvatarUrl = post.user?.avatarUrl;
   const authorBadge = post.user?.badge;
   const authorBadges = post.user?.badges;
+  const authorCommunityRoles = post.user?.communityMemberships;
   const authorProfileHref = post.user?.username
     ? `/users/${post.user.username}`
     : "#";
@@ -377,6 +412,7 @@ const PostContent: React.FC<PostContentProps> = ({
             authorAvatarUrl={authorAvatarUrl}
             authorBadge={authorBadge}
             authorBadges={authorBadges}
+            authorCommunityRoles={authorCommunityRoles}
             authorDisplayName={authorDisplayName}
             authorProfileHref={authorProfileHref}
             authorUsername={authorUsername}
@@ -417,6 +453,29 @@ const PostContent: React.FC<PostContentProps> = ({
                 </div>
               ) : null}
 
+              {/* Native community post: name the community it was published
+                  into. Ranked feeds add the reason line. */}
+              {post.community ? (
+                <CommunityAttribution
+                  className="mt-2.5"
+                  community={post.community}
+                  reason={
+                    showCommunityReason
+                      ? `Trending in a/${post.community.slug}`
+                      : undefined
+                  }
+                />
+              ) : null}
+
+              {/* Reshare of a community post onto the global feed: attribute
+                  the source post and community. */}
+              {post.communityShare ? (
+                <CommunityShareCard
+                  community={post.communityShare.community}
+                  sourcePostId={post.communityShare.sourcePostId}
+                />
+              ) : null}
+
               {!!attachments.length && (
                 <div
                   className={cn(
@@ -429,9 +488,9 @@ const PostContent: React.FC<PostContentProps> = ({
                       <MediaPreviews
                         attachments={attachments}
                         autoPlayVideos={detail}
+                        detail={detail}
                         forceMobile={mobileLayout}
                         initialMediaIndex={initialMediaIndex}
-                        interactive={!isJoined}
                         post={post}
                       />
                     </ExplicitContentGate>
@@ -439,9 +498,9 @@ const PostContent: React.FC<PostContentProps> = ({
                     <MediaPreviews
                       attachments={attachments}
                       autoPlayVideos={detail}
+                      detail={detail}
                       forceMobile={mobileLayout}
                       initialMediaIndex={initialMediaIndex}
-                      interactive={!isJoined}
                       post={post}
                     />
                   )}
@@ -673,6 +732,7 @@ const RespondButton = ({ post }: RespondButtonProps) => {
           avatarUrl: post.user?.avatarUrl ?? null,
           badge: post.user?.badge,
           badges: post.user?.badges,
+          communityMemberships: post.user?.communityMemberships,
           content: post.content,
           createdAt: post.createdAt,
           displayName: post.user?.displayName ?? undefined,
@@ -698,9 +758,11 @@ const RespondButton = ({ post }: RespondButtonProps) => {
 };
 
 // Hacker News signature accent: HN reshared posts receive an absolute orange
-// left indicator line. Because the indicator is absolutely positioned (taking 0px
-// in layout), every post card maintains standard padding (px-4) so avatars and
-// the vertical thread connector rail stay 100% vertically aligned with responses.
+// left indicator line. Community posts reuse the exact rail geometry with the
+// community's own accent, so both read as one system. Because the indicator is
+// absolutely positioned (taking 0px in layout), every post card maintains
+// standard padding (px-4) so avatars and the vertical thread connector rail
+// stay 100% vertically aligned with responses.
 export function getPostCardBorderAndPadding({
   hasHnStoryShare = false,
   hasThreadChild = false,
@@ -732,6 +794,7 @@ const PostCard: React.FC<PostCardProps> = ({
   isJoined = false,
   mobileLayout = false,
   post: initialPost,
+  showCommunityReason = false,
 }) => {
   const { user } = useSession();
   const router = useRouter();
@@ -809,6 +872,7 @@ const PostCard: React.FC<PostCardProps> = ({
       onToggleComments={handleToggleComments}
       onToggleExpand={handleToggleExpand}
       post={post}
+      showCommunityReason={showCommunityReason}
     />
   );
 
@@ -832,6 +896,22 @@ const PostCard: React.FC<PostCardProps> = ({
     hasThreadParent,
   });
 
+  // The left rail: HN posts keep the orange signature, a community post takes
+  // the community's accent. A community rail wins when a post is somehow both.
+  let railStyle: React.CSSProperties | undefined;
+  let railClassName =
+    "pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5";
+  if (post.community) {
+    railStyle = communityAccentStyle(post.community.accentColor);
+    railClassName = cn(
+      railClassName,
+      "bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+    );
+  } else if (hasHnIndicator) {
+    railClassName = cn(railClassName, "bg-orange-500");
+  }
+  const showRail = Boolean(post.community) || hasHnIndicator;
+
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure
     <motion.article
@@ -840,6 +920,7 @@ const PostCard: React.FC<PostCardProps> = ({
         post.hnStoryShare ? "hn-story-share" : "",
         detail ? "cursor-default" : "cursor-pointer"
       )}
+      data-post-id={post.id}
       id={`post-${post.id}`}
       initial={{ opacity: 0 }}
       onClick={handleCardClick}
@@ -850,10 +931,11 @@ const PostCard: React.FC<PostCardProps> = ({
       <ViewTracker postId={post.id} />
       {isJoined ? (
         <div className="group/post relative rounded-none bg-[hsl(var(--background-alt))]">
-          {hasHnIndicator ? (
+          {showRail ? (
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5 bg-orange-500"
+              className={railClassName}
+              style={railStyle}
             />
           ) : null}
           <div
@@ -873,10 +955,11 @@ const PostCard: React.FC<PostCardProps> = ({
             detail ? "border-x-0 border-b-0" : ""
           )}
         >
-          {hasHnIndicator ? (
+          {showRail ? (
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-0 z-10 w-0.5 bg-orange-500"
+              className={railClassName}
+              style={railStyle}
             />
           ) : null}
           <CardContent

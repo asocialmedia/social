@@ -5,7 +5,7 @@ import { Users, X } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import type { PresenceUser } from "@/lib/messages/client";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";

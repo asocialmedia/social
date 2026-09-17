@@ -11,10 +11,7 @@ const Card = ({
   ref?: React.Ref<HTMLDivElement | null>;
 }) => (
   <div
-    className={cn(
-      "bg-card text-card-foreground rounded-xl border shadow",
-      className
-    )}
+    className={cn("surface-3d text-card-foreground rounded-xl", className)}
     ref={ref}
     {...props}
   />

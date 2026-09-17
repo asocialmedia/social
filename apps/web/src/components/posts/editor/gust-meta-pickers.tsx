@@ -7,7 +7,7 @@ import { Hash, Loader2, Plus, Search, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
 

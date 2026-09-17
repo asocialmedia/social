@@ -45,13 +45,64 @@ export function shouldEndSession(
   return true;
 }
 
+type SessionEventSource = Pick<
+  EventSource,
+  "addEventListener" | "close" | "removeEventListener"
+>;
+
+// One shared stream per tab. Mounting a fresh EventSource per guard instance
+// (and per StrictMode/HMR remount) aborts an in-flight request every time,
+// which Firefox reports as an interrupted connection. The grace period lets a
+// synchronous remount reuse the live stream; only a genuine unmount closes it.
+// Listeners stay per-component so each mount still evaluates revocations
+// against its own session id.
+export function createSharedSessionEvents(
+  factory: (url: string) => SessionEventSource,
+  graceMs = 1000
+) {
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  let refs = 0;
+  let source: SessionEventSource | null = null;
+
+  return {
+    acquire(): SessionEventSource {
+      refs += 1;
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
+      if (!source) {
+        source = factory("/api/auth/session-events");
+      }
+      return source;
+    },
+    release(): void {
+      refs = Math.max(0, refs - 1);
+      if (refs > 0 || closeTimer || !source) {
+        return;
+      }
+      closeTimer = setTimeout(() => {
+        closeTimer = null;
+        if (refs === 0) {
+          source?.close();
+          source = null;
+        }
+      }, graceMs);
+    },
+  };
+}
+
+const sharedSessionEvents = createSharedSessionEvents(
+  (url) => new EventSource(url)
+);
+
 export default function SessionRevocationGuard({
   currentSessionId,
 }: {
   currentSessionId: string;
 }) {
   useEffect(() => {
-    const eventSource = new EventSource("/api/auth/session-events");
+    const eventSource = sharedSessionEvents.acquire();
 
     const handleSessionRevocation = (message: Event) => {
       if (
@@ -62,7 +113,7 @@ export default function SessionRevocationGuard({
       }
       const event = parseSessionRevocationEvent(message.data);
       if (event && shouldEndSession(event, currentSessionId)) {
-        eventSource.close();
+        sharedSessionEvents.release();
         window.location.replace("/login?reason=session-ended");
       }
     };
@@ -73,7 +124,7 @@ export default function SessionRevocationGuard({
         "session-revoked",
         handleSessionRevocation
       );
-      eventSource.close();
+      sharedSessionEvents.release();
     };
   }, [currentSessionId]);
 

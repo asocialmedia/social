@@ -84,6 +84,12 @@ export const loginSchema = z.object({
 // object schema that carries refinements, so the gust variant builds from
 // this plain shape via .safeExtend().
 const createPostShape = z.object({
+  // Set when publishing INTO a community (native community post). The publish
+  // path verifies ACTIVE membership before honoring it.
+  communityId: z.string().optional(),
+  // Set when resharing a community post onto the global feed. The publish path
+  // records a CommunityPostShare side row linking the new post to the source.
+  communitySharePostId: z.string().optional(),
   // Caption is optional for fleet posts that carry media - a lone photo or
   // clip speaks for itself. The refine on createPostSchema enforces
   // "text or attachment".
@@ -105,7 +111,11 @@ const createPostShape = z.object({
 
 export const createPostSchema = createPostShape.refine(
   (input) =>
-    input.mediaIds.length > 0 || (input.content ?? "").trim().length > 0,
+    input.mediaIds.length > 0 ||
+    (input.content ?? "").trim().length > 0 ||
+    // A pure community reshare carries no caption of its own; the source card
+    // supplies the content.
+    Boolean(input.communitySharePostId),
   "A post needs either a caption or an attachment"
 );
 
@@ -140,6 +150,85 @@ export const createGustSchema = createPostShape
     (input) => input.mediaIds.length === 1,
     "A gust needs exactly one video attachment"
   );
+
+// Community creation. Limits mirror COMMUNITY_LIMITS in @asm/db; kept literal
+// here so this package stays dependency-free. Slug charset is validated again
+// server-side against the reserved list.
+export const COMMUNITY_TOPIC_KEYS = [
+  "anime",
+  "art",
+  "business",
+  "collectibles",
+  "education",
+  "fashion",
+  "food",
+  "games",
+  "health",
+  "home",
+  "humanities",
+  "identity",
+  "internet",
+  "movies",
+  "music",
+  "nature",
+  "news",
+  "places",
+  "popculture",
+  "qanda",
+  "reading",
+  "sciences",
+  "spooky",
+  "sports",
+  "technology",
+  "vehicles",
+  "wellness",
+  "adult",
+  "mature",
+] as const;
+
+export const COMMUNITY_ACCENT_KEYS = [
+  "ember",
+  "clay",
+  "sand",
+  "moss",
+  "pine",
+  "ocean",
+  "denim",
+  "iris",
+  "plum",
+  "rose",
+  "stone",
+  "slate",
+] as const;
+
+export const createCommunitySchema = z.object({
+  accentColor: z.enum(COMMUNITY_ACCENT_KEYS).default("slate"),
+  description: z
+    .string()
+    .trim()
+    .min(1, "Add a description so people know what this is about")
+    .max(500, "Description must be at most 500 characters"),
+  mature: z.boolean().optional().default(false),
+  name: z
+    .string()
+    .trim()
+    .min(3, "Community name must be at least 3 characters")
+    .max(21, "Community name must be at most 21 characters"),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(3, "Community address must be at least 3 characters")
+    .max(21, "Community address must be at most 21 characters")
+    .regex(/^[a-z0-9_]+$/, "Only lowercase letters, numbers, and underscores"),
+  topics: z
+    .array(z.enum(COMMUNITY_TOPIC_KEYS))
+    .min(1, "Pick at least one topic")
+    .max(5, "Pick at most 5 topics"),
+  type: z.enum(["PUBLIC", "RESTRICTED", "PRIVATE"]).default("PUBLIC"),
+});
+
+export type CreateCommunityValues = z.infer<typeof createCommunitySchema>;
 
 const socialUsername = z
   .string()

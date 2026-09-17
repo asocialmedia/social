@@ -9,10 +9,11 @@ import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
+import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
@@ -175,6 +176,9 @@ const UserGustsFeed: React.FC<UserGustsFeedProps> = ({
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
+    // Kept past a post/media detour so coming back restores the cached list
+    // (and its scroll position) instead of refetching from the top.
+    gcTime: FEED_CACHE_RETENTION_MS,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>

@@ -1,5 +1,46 @@
 import type { Prisma } from "../prisma/generated/prisma/client";
 
+// The badged community roles a user holds, for the role banners on their name.
+// Shared so every user payload in the app carries the same shape. Participants
+// are excluded at the query: they carry no badge, so fetching them would be
+// dead rows on every payload in every feed. The badge rail renders one banner
+// per distinct role, and the tooltip names the communities, so each row carries
+// the community's name and slug alongside the role.
+export function getCommunityRoleSelect() {
+  return {
+    select: {
+      community: {
+        select: {
+          accentColor: true,
+          avatarUrl: true,
+          name: true,
+          slug: true,
+        },
+      },
+      role: true,
+    },
+    where: {
+      role: { in: ["OWNER", "MODERATOR", "MEMBER"] },
+      status: "ACTIVE",
+    },
+  } satisfies Prisma.CommunityMemberFindManyArgs;
+}
+
+// One community role row a user holds. Typed with the FULL role union rather
+// than the badged subset that `getCommunityRoleSelect`'s `where` guarantees:
+// Prisma cannot express a filtered relation's narrowing in its return type, and
+// the badge renderer guards with `isBadgedRole` anyway. A single cast here would
+// be needed otherwise, which is worse than an honest wider type.
+export interface CommunityRoleRow {
+  community: {
+    accentColor: string;
+    avatarUrl: string | null;
+    name: string;
+    slug: string;
+  };
+  role: "MEMBER" | "MODERATOR" | "OWNER" | "PARTICIPANT";
+}
+
 export function getPublicUserSelect(loggedInUserId: string) {
   return {
     _count: {
@@ -17,6 +58,7 @@ export function getPublicUserSelect(loggedInUserId: string) {
     badges: true,
     bannerUrl: true,
     bio: true,
+    communityMemberships: getCommunityRoleSelect(),
     createdAt: true,
     customDomain: true,
     displayName: true,
@@ -84,6 +126,31 @@ export function getPostDataInclude(loggedInUserId: string) {
         userId: loggedInUserId,
       },
     },
+    // Native community post: the compact community identity drives the accent
+    // rail and the a/<slug> attribution on the card. Null for global posts.
+    community: {
+      select: {
+        accentColor: true,
+        id: true,
+        name: true,
+        slug: true,
+      },
+    },
+    // Reshare of a community post onto the global feed: carries the source
+    // post id and the community it came from for the attribution card.
+    communityShare: {
+      select: {
+        community: {
+          select: {
+            accentColor: true,
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+        sourcePostId: true,
+      },
+    },
     hnStoryShare: true,
     mentions: {
       include: {
@@ -120,6 +187,9 @@ export function getPostDataInclude(loggedInUserId: string) {
             avatarUrl: true,
             badge: true,
             badges: true,
+            // Badged community roles, so the quoted parent card's author shows
+            // the same role banners as the main card.
+            communityMemberships: getCommunityRoleSelect(),
             displayName: true,
             id: true,
             username: true,
@@ -284,6 +354,9 @@ export const messageConversationInclude = {
           avatarUrl: true,
           badge: true,
           badges: true,
+          // Badged community roles, so the conversation header and message
+          // rows show the same role banners as every other surface.
+          communityMemberships: getCommunityRoleSelect(),
           displayName: true,
           id: true,
           messageIdentity: {

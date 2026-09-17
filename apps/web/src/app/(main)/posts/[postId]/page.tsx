@@ -1,7 +1,7 @@
 import { getPostAncestors, getPostDataInclude, prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
@@ -13,7 +13,9 @@ import {
   absoluteUrl,
   getPostImage,
   getPostPath,
+  getPostSlug,
   getPostUrl,
+  getShortPostId,
   postDescription,
   postTitle,
 } from "@/lib/seo/seo";
@@ -54,33 +56,37 @@ const getPost = cache(async (postId: string, loggedInUser: string) => {
 
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const params = await props.params;
-  const { postId } = params;
+  const { postId, slug } = params;
   const session = await getSessionFromApi();
 
   let post: Awaited<ReturnType<typeof getPost>> | null = null;
   try {
     post = await getPost(postId, session?.user?.id ?? "");
   } catch {
-    // getPost throws notFound() when the row is missing. Under Cache
-    // Components the HTTP status stays 200 (the shell is streamed), so we
-    // must emit an explicit noindex and a safe title here rather than let
-    // the route appear as a soft-404.
-    return {
-      robots: { follow: false, index: false },
-      title: "Post not found",
-    };
+    notFound();
   }
 
   if (!post) {
-    return {
-      robots: { follow: false, index: false },
-      title: "Post not found",
-    };
+    notFound();
+  }
+
+  if (post.isGust) {
+    permanentRedirect(`/gusts?id=${post.id}`);
+  }
+
+  const shortId = getShortPostId(post.id);
+  const expectedSlug = getPostSlug(post.content);
+  const isExactCanonical =
+    postId === shortId && (expectedSlug ? slug === expectedSlug : !slug);
+
+  const canonicalPath = getPostPath(post);
+
+  if (!isExactCanonical) {
+    permanentRedirect(canonicalPath);
   }
 
   const title = postTitle(post);
   const description = postDescription(post);
-  const canonicalPath = getPostPath(post);
   const url = absoluteUrl(canonicalPath);
   const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
   const postImage = getPostImage(post);
@@ -136,13 +142,28 @@ export default function Page(props: PageProps) {
 }
 
 async function PostContent({ params }: PageProps) {
-  const { postId } = await params;
+  const { postId, slug } = await params;
   const session = await getSessionFromApi();
 
   const [post, userData] = await Promise.all([
     getPost(postId, session?.user?.id ?? ""),
     session?.user ? getUserData(session.user.id) : Promise.resolve(null),
   ]);
+
+  if (post.isGust) {
+    permanentRedirect(`/gusts?id=${post.id}`);
+  }
+
+  const shortId = getShortPostId(post.id);
+  const expectedSlug = getPostSlug(post.content);
+  const isExactCanonical =
+    postId === shortId && (expectedSlug ? slug === expectedSlug : !slug);
+
+  const canonicalPath = getPostPath(post);
+
+  if (!isExactCanonical) {
+    permanentRedirect(canonicalPath);
+  }
 
   const ancestors = post.parentPostId
     ? await getPostAncestors(post.parentPostId, session?.user?.id ?? "")

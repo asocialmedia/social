@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { LoadingButton } from "@/components/auth/loading-button";
+import { LoadingButton } from "@/components/auth/fields/loading-button";
 import {
   ORANGE_GRADIENT_CLASS,
   SETTINGS_SUBCARD_CLASS,

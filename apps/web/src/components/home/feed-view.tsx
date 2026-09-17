@@ -23,6 +23,9 @@ interface FeedViewProps {
   cacheKey?: QueryKey;
   excludePostId?: string;
   posts: PostData[];
+  // Ranked feeds (For-You, Trending) label a community post with a short
+  // "Trending in a/<slug>" reason line; chronological feeds omit it.
+  showCommunityReason?: boolean;
   sortBy?: "newest" | "server";
 }
 
@@ -30,6 +33,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
   excludePostId,
+  showCommunityReason = false,
   sortBy = "newest",
 }) => {
   const MemoizedPostCard = useMemo(() => React.memo(PostCard), []);
@@ -202,6 +206,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                   hasThreadParent={hasThreadParent}
                   isJoined={true}
                   post={post}
+                  showCommunityReason={showCommunityReason}
                 />
               </RecommendationTracker>
             );

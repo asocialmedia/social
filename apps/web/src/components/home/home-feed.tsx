@@ -8,7 +8,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
@@ -190,6 +190,7 @@ export default function HomeFeed({
             cacheKey={queryKey}
             excludePostId={excludePostId}
             posts={posts}
+            showCommunityReason={isTrending || isPersonalized}
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         )}

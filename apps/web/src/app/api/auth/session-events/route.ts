@@ -81,6 +81,15 @@ export async function GET(request: Request): Promise<Response> {
         { once: true }
       );
 
+      // Flush headers, a reconnect policy, and a padding comment BEFORE the
+      // Redis round trip. A byte-less pending request is exactly what
+      // intermediaries time out and browsers report as an interrupted
+      // connection, so the stream must prove it is alive immediately even if
+      // the subscription stalls.
+      controller.enqueue(
+        encoder.encode("retry: 5000\n: session-events stream open\n\n")
+      );
+
       try {
         subscription = await subscribeToChannel(channel, onMessage);
         controller.enqueue(encoder.encode("event: connected\ndata: {}\n\n"));

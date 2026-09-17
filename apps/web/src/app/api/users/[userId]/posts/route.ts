@@ -1,4 +1,5 @@
 import {
+  communityVisibilityWhere,
   getPostDataInclude,
   hydrateViewCounts,
   MediaType,
@@ -47,6 +48,10 @@ export async function GET(
   if (excludeModerated) {
     where = { ...where, moderated: false };
   }
+
+  // A profile is a global read: private-community posts the viewer cannot
+  // access stay off it.
+  where = { ...where, ...communityVisibilityWhere(viewerId) };
 
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,

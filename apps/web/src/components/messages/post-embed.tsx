@@ -4,16 +4,20 @@ import type { PostData } from "@asm/db";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, FileText, Play } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import Linkify from "@/helpers/global/linkify";
+import { isInteractiveTarget } from "@/lib/interactive-target";
+import { isPopupOpen } from "@/lib/popup-tracker";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { getMediaProxyUrl, getSecureImageUrl } from "@/lib/utils/image-url";
+import { withViewTransition } from "@/lib/view-transition";
 
 interface PostEmbedProps {
   mine: boolean;
@@ -62,6 +66,12 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
     );
   }
 
+  return <PostEmbedCard data={data} mine={mine} />;
+}
+
+// The loaded card, split out so hooks run unconditionally above the
+// loading/error early returns in PostEmbed.
+function PostEmbedCard({ data, mine }: { data: PostData; mine: boolean }) {
   const href = getPostPath(data);
   // Images render directly; videos render their extracted thumbnail frame.
   const previews = (data.attachments ?? []).filter(
@@ -79,14 +89,58 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
 
   // Content: moderated posts show the notice instead of the text. Below it the
   // full-width image/video preview (gated when explicit).
+  // The card navigates to the post, but its text carries inline links
+  // (@mentions, #hashtags, URL badges) - so it cannot itself be an <a>
+  // without nesting links, which breaks hydration. A keyboard-accessible
+  // container with the feed's standard click handling instead: inner links,
+  // buttons, and open popups never trigger navigation.
+  const router = useRouter();
+
+  const handleCardClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (isPopupOpen()) {
+        return;
+      }
+      withViewTransition(() => router.push(href));
+    },
+    [href, router]
+  );
+
+  const handleCardKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      if (isInteractiveTarget(event.target)) {
+        return;
+      }
+      if (isPopupOpen()) {
+        return;
+      }
+      event.preventDefault();
+      withViewTransition(() => router.push(href));
+    },
+    [href, router]
+  );
+
   return (
-    <Link
+    <div
       className={cn(
-        "group mt-1 block w-full overflow-hidden rounded-xl border text-left transition-transform hover:scale-[1.01]",
+        "group mt-1 block w-full cursor-pointer overflow-hidden rounded-xl border text-left transition-transform hover:scale-[1.01]",
         cardWidth,
         mine ? "border-white/40 bg-black/25" : "border-border/60 bg-muted/50"
       )}
-      href={href}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native anchor would nest the embed's mention/hashtag/URL links (and buttons) inside it (hydration error); this container implements link semantics with keyboard handling instead.
+      role="link"
+      tabIndex={0}
     >
       {/* Author row */}
       <div className="flex items-center gap-2 px-3 pt-2.5">
@@ -106,7 +160,11 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
             <span className="truncate">
               {data.user?.displayName || data.user?.username || "Anonymous"}
             </span>
-            <UserBadge badge={data.user?.badge} badges={data.user?.badges} />
+            <UserBadge
+              badge={data.user?.badge}
+              badges={data.user?.badges}
+              communityRoles={data.user?.communityMemberships}
+            />
           </span>
           <span
             className={cn(
@@ -215,6 +273,6 @@ export function PostEmbed({ mine, postId }: PostEmbedProps) {
           <ArrowUpRight className="h-3 w-3" />
         </span>
       </div>
-    </Link>
+    </div>
   );
 }

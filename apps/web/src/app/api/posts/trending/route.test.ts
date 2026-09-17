@@ -83,6 +83,7 @@ const mockEncodeCursor = mock(
 );
 
 mock.module("@asm/db", () => ({
+  communityVisibilityWhere: () => ({}),
   encodeTrendingCursor: mockEncodeCursor,
   fetchTrendingSnapshotPage: mockFetchSnapshotPage,
   getPersonalizedFeedPage: () => ({ anchorCursor: null, posts: [] }),

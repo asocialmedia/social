@@ -31,6 +31,7 @@ if (import.meta.main) {
     processExpiredTokens,
     processShitposterCheck,
     processPublishedNotificationCleanup,
+    processBadgeSweep,
     processPublishedNotificationsSweep,
   } = await import("./worker/jobs");
 
@@ -163,6 +164,9 @@ if (import.meta.main) {
           }
           case "cleanup-published-notifications": {
             return processPublishedNotificationsSweep(logger);
+          }
+          case "badge-sweep": {
+            return processBadgeSweep(logger);
           }
           case "trending-scores": {
             const startedAtMs = Date.now();

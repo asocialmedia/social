@@ -16,7 +16,7 @@ import {
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import { toast } from "@/lib/gooey-toast";
 import { deleteMessage } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";

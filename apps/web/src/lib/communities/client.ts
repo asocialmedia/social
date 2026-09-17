@@ -1,0 +1,201 @@
+"use client";
+
+import type {
+  CommunityData,
+  CommunityDiscoveryStats,
+  CommunitySections,
+  CommunityStats,
+} from "@asm/db";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query";
+
+import { communityCreationQuota } from "@/communities/actions";
+import kyInstance from "@/lib/ky";
+
+export interface CommunitySidebarPayload {
+  // The category with the most published posts, or null when nothing is posted.
+  activeCategory: {
+    count: number;
+    key: string;
+    label: string;
+    topics: string[];
+  } | null;
+  // Global population ranking ("Popular communities"). Lives in the sidebar
+  // payload rather than `sections` so searching the grid cannot blank it.
+  popular: CommunityData[];
+  // The viewer's own recent trail, newest first, with the visit time so the
+  // row can show how long ago.
+  recentVisits: { community: CommunityData; visitedAt: string }[];
+  // Global ranking by community aura (sum of posts' aura).
+  topByAura: CommunityData[];
+}
+
+export interface CommunityListResponse {
+  // Community aura per community id (sum of its posts' raw aura).
+  auras: Record<string, number>;
+  communities: CommunityData[];
+  // Public community counts per discovery category key, plus "all".
+  counts: Record<string, number>;
+  joined: CommunityData[];
+  nextCursor: string | null;
+  // Curated rails for the unfiltered view; empty when searching or paging.
+  sections: CommunitySections;
+  // Right-rail leaderboards.
+  sidebar: CommunitySidebarPayload;
+  // Headline totals for the discovery hero.
+  stats: CommunityDiscoveryStats;
+  // Total matching the active filter, ignoring the page size.
+  total: number;
+}
+
+export interface CommunityDetailResponse {
+  community: CommunityData;
+  membership: {
+    role: CommunityRoleValue;
+    status: "ACTIVE" | "PENDING";
+  } | null;
+  stats: CommunityStats;
+}
+
+// Mirrors the db-side union. PARTICIPANT is the default and carries no badge.
+export type CommunityRoleValue =
+  | "MEMBER"
+  | "MODERATOR"
+  | "OWNER"
+  | "PARTICIPANT";
+
+// The roles a moderator/owner may assign through the members list. OWNER is
+// never assignable (the founder holds it; transfer is out of scope).
+export type AssignableCommunityRole = "MEMBER" | "MODERATOR" | "PARTICIPANT";
+
+export interface CommunityMemberRow {
+  createdAt: string;
+  role: CommunityRoleValue;
+  status: "ACTIVE" | "PENDING";
+  user: {
+    aura: number;
+    avatarUrl: string | null;
+    bannerUrl: string | null;
+    displayName: string;
+    id: string;
+    username: string;
+  };
+}
+
+export interface CommunityMembersResponse {
+  canModerate: boolean;
+  members: CommunityMemberRow[];
+  membership: CommunityDetailResponse["membership"];
+}
+
+// Discovery browse with cursor pagination. The first page also carries the
+// category counts, the curated sections and the filtered total. Previous
+// results stay on screen while a new filter/search loads, so switching
+// categories never blanks the page back to the skeleton.
+export function useInfiniteCommunitiesQuery({
+  category,
+  q,
+}: {
+  category?: string;
+  q?: string;
+} = {}) {
+  const search = q?.trim() ?? "";
+  return useInfiniteQuery({
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    initialPageParam: null as string | null,
+    placeholderData: keepPreviousData,
+    queryFn: ({ pageParam }: { pageParam: string | null }) =>
+      kyInstance
+        .get("/api/communities", {
+          searchParams: {
+            ...(search ? { q: search } : {}),
+            ...(category && category !== "all" ? { category } : {}),
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+        })
+        .json<CommunityListResponse>(),
+    queryKey: ["communities", category ?? "all", search],
+    staleTime: 30_000,
+  });
+}
+
+// The viewer's community-creation gate (owned count, aura, next requirement).
+// Read when the wizard opens so the aura/ownership rule is shown before the
+// reader fills the flow out, rather than failing on submit. The server action
+// re-checks it atomically, so this is presentational only.
+export function useCommunityCreationQuotaQuery(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryFn: () => communityCreationQuota(),
+    queryKey: ["community-creation-quota"],
+    staleTime: 30_000,
+  });
+}
+
+// The viewer's joined communities, used by the sidebar rail. Lightweight:
+// the route skips the browse listing and counts for this call.
+export function useJoinedCommunitiesQuery(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryFn: () =>
+      kyInstance
+        .get("/api/communities", { searchParams: { joined: "1" } })
+        .json<CommunityListResponse>(),
+    queryKey: ["community-joined"],
+    staleTime: 60_000,
+  });
+}
+
+export function useCommunityQuery(slug: string) {
+  return useQuery({
+    enabled: Boolean(slug),
+    queryFn: () =>
+      kyInstance
+        .get(`/api/communities/${slug}`)
+        .json<CommunityDetailResponse>(),
+    queryKey: ["community", slug],
+    staleTime: 30_000,
+  });
+}
+
+export type CommunityMemberSort = "role" | "aura";
+
+export interface CommunityMembersQueryOptions {
+  // Only members holding a role badge (owner/moderator/member). Participants
+  // are the default state, so the roster card asks for this to avoid listing
+  // every joiner.
+  badged?: boolean;
+  limit?: number;
+  pending?: boolean;
+  sort?: CommunityMemberSort;
+}
+
+// The members list behind the community sidebar. The options map straight onto
+// the route's query params, so a caller asks for exactly the slice it renders
+// rather than fetching the whole roster and slicing on the client.
+export function useCommunityMembersQuery(
+  slug: string,
+  options: CommunityMembersQueryOptions = {}
+) {
+  const { badged = false, limit, pending = false, sort = "role" } = options;
+  return useQuery({
+    enabled: Boolean(slug),
+    queryFn: () =>
+      kyInstance
+        .get(`/api/communities/${slug}/members`, {
+          searchParams: {
+            ...(pending ? { pending: "1" } : {}),
+            ...(badged ? { badged: "1" } : {}),
+            // Sent unconditionally: the route defaults to role order, so
+            // omitting it and sending "role" are the same request.
+            sort,
+            ...(limit ? { limit: String(limit) } : {}),
+          },
+        })
+        .json<CommunityMembersResponse>(),
+    queryKey: ["community-members", slug, { badged, limit, pending, sort }],
+  });
+}

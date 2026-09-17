@@ -25,23 +25,23 @@ import React, {
 
 import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
-import FollowButton from "@/components/layouts/follow-button";
-import Spinner3D from "@/components/layouts/spinner-3d";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import UserTooltip from "@/components/layouts/user-tooltip";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import UserTooltip from "@/components/layouts/user/user-tooltip";
 import { AiGeneratedBadge } from "@/components/media/ai-generated-badge";
 import {
   parseWebVttCues,
   VideoTranscriptDrawer,
 } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
-import BookmarkButton from "@/components/posts/bookmark-button";
-import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import ModeratedNotice from "@/components/posts/moderated-notice";
-import PostLinkedContent from "@/components/posts/post-linked-content";
-import PostMoreButton from "@/components/posts/post-more-button";
-import ViewTracker from "@/components/posts/view-counter";
+import BookmarkButton from "@/components/posts/actions/bookmark-button";
+import PostMoreButton from "@/components/posts/actions/post-more-button";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import ViewTracker from "@/components/posts/effects/view-counter";
 import { PostMeta } from "@/components/tags/post-meta";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
@@ -646,6 +646,7 @@ export const GustCard: React.FC<GustCardProps> = ({
                 <UserBadge
                   badge={post.user?.badge}
                   badges={post.user?.badges}
+                  communityRoles={post.user?.communityMemberships}
                 />
                 {canFollow && post.user ? (
                   <FollowButton

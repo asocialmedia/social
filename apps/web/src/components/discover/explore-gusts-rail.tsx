@@ -7,8 +7,8 @@ import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useRef, useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -140,12 +140,14 @@ const GustRailCard = ({ gust }: { gust: PostData }) => {
             badge={gust.user?.badge}
             badges={gust.user?.badges}
             className="hidden shrink-0 sm:inline-flex"
+            communityRoles={gust.user?.communityMemberships}
           />
         </div>
         <UserBadge
           badge={gust.user?.badge}
           badges={gust.user?.badges}
           className="mt-1 shrink-0 sm:hidden"
+          communityRoles={gust.user?.communityMemberships}
         />
         {gust.content ? (
           <p className="mt-1 line-clamp-1 text-[11px] text-white/80">

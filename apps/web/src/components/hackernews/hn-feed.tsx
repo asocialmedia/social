@@ -8,7 +8,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { useCallback, useMemo } from "react";
 
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useHnBookmarkStates } from "@/hooks/posts/use-hn-bookmark-states";
 import kyInstance from "@/lib/ky";

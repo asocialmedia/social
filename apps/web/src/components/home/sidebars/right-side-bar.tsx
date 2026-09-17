@@ -16,28 +16,21 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import UserReasonLine from "@/components/discover/user-reason-line";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
-import FollowButton from "@/components/layouts/follow-button";
-import SearchField from "@/components/layouts/search-field";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import SearchField from "@/components/layouts/navigation/search-field";
+import SidebarFooterLinks from "@/components/layouts/shell/sidebar-footer-links";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { useFollowStates } from "@/hooks/users/use-follow-states";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
 import { APPLE_CARD_CLASS } from "./right/sidebar-styles";
-
-const FOOTER_LINKS = [
-  { href: "/toc", label: "Terms" },
-  { href: "/privacy", label: "Privacy" },
-  { href: "https://x.com/parazeeknova", label: "Twitter" },
-  { href: "https://github.com/asocialmedia/social", label: "Github" },
-  { href: "/support", label: "Support" },
-];
 
 const SubCard: React.FC<{
   action?: React.ReactNode;
@@ -123,7 +116,11 @@ const WhoToFollowRow: React.FC<{
               <span className="block truncate text-sm font-medium">
                 {user.displayName || user.username}
               </span>
-              <UserBadge badge={user.badge} badges={user.badges} />
+              <UserBadge
+                badge={user.badge}
+                badges={user.badges}
+                communityRoles={user.communityMemberships}
+              />
             </span>
             <span className="text-muted-foreground block truncate text-xs">
               @{user.username}
@@ -473,19 +470,7 @@ const RightSideBar: React.FC = () => {
           />
         )}
 
-        <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
-          <span>© {new Date().getFullYear()} asocialmedia</span>
-          {FOOTER_LINKS.map(({ href, label }) => (
-            <Link
-              className="hover:text-foreground transition-colors"
-              href={href}
-              key={label}
-              target={href.startsWith("http") ? "_blank" : undefined}
-            >
-              {label}
-            </Link>
-          ))}
-        </footer>
+        <SidebarFooterLinks />
       </div>
     </aside>
   );

@@ -37,6 +37,8 @@ export async function DELETE(
       avatarOf: null,
       bannerOf: null,
       commentId: null,
+      communityAvatarOf: null,
+      communityBannerOf: null,
       id: mediaId,
       postId: null,
       status: {

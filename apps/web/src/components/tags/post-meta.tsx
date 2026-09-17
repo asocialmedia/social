@@ -4,7 +4,7 @@ import type { TagWithCount } from "@asm/db";
 import { Hash } from "lucide-react";
 import Link from "next/link";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import { extractInlineMeta } from "@/lib/posts/inline-meta";
 
 // Accept the payload shapes produced by getPostDataInclude (post.mentions[*].

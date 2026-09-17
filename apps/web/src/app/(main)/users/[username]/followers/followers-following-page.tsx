@@ -13,12 +13,12 @@ import { useCallback, useRef } from "react";
 
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import FollowButton from "@/components/layouts/follow-button";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import UserAvatar from "@/components/layouts/user-avatar";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
 import kyInstance from "@/lib/ky";
 
 interface UserListItem {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, PostsPage } from "@asm/db";
+import type { PostData, PostsPage, SearchCommunityResult } from "@asm/db";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import noFollowImage from "@assets/general/nofollow.png";
@@ -8,24 +8,35 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
+import CommunityAvatar from "@/components/communities/card/community-avatar";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
-import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
+import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
+import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import useDebounce from "@/hooks/use-debounce";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 import kyInstance from "@/lib/ky";
 import { cn } from "@/lib/utils";
+import {
+  EXPLORE_TABS,
+  isTabValue,
+  resolveExploreTab,
+  useTabMemoryReady,
+  useTabStore,
+} from "@/store/tab-store";
+import type { ExploreTab } from "@/store/tab-store";
 
 import { ExploreGustsGrid } from "./explore-gusts-grid";
 import { ExploreGustsRail } from "./explore-gusts-rail";
@@ -34,8 +45,6 @@ import ExplorePeople from "./explore-people";
 import ExplorePostCard from "./explore-post-card";
 import ExploreUserCard from "./explore-user-card";
 import type { ExploreUser } from "./explore-user-card";
-
-type ExploreTab = "for-you" | "people" | "gusts" | "trending";
 
 const TAB_META: Record<ExploreTab, string> = {
   "for-you": "For you",
@@ -49,6 +58,7 @@ const TAB_META: Record<ExploreTab, string> = {
 const TAB_ORDER = Object.keys(TAB_META) as ExploreTab[];
 
 interface FeedData {
+  communities?: SearchCommunityResult[];
   posts: PostData[];
   users: ExploreUser[];
 }
@@ -66,23 +76,27 @@ const ExploreClient: React.FC = () => {
   const isLoggedIn = Boolean(sessionUser);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
+  const memoryReady = useTabMemoryReady();
+  const storedExplore = useTabStore((state) => state.explore);
+  const setExploreTab = useTabStore((state) => state.setExploreTab);
 
   const tabParam = searchParams.get("tab");
-  let activeTab: ExploreTab;
-  if (tabParam === "trending") {
-    activeTab = "trending";
-  } else if (tabParam === "gusts") {
-    activeTab = "gusts";
-  } else if (tabParam === "people") {
-    activeTab = "people";
-  } else if (tabParam === "for-you") {
-    activeTab = "for-you";
-  } else if (isLoggedIn) {
-    activeTab = "for-you";
-  } else {
-    // Guests default to the open Trending tab; For you is behind auth.
-    activeTab = "trending";
-  }
+  // Explicit ?tab= wins (shareable links); otherwise the remembered tab
+  // restores, so leaving for a profile and coming back lands where you left.
+  // Guests default to the open Trending tab; For you is behind auth.
+  const activeTab: ExploreTab = resolveExploreTab(
+    tabParam,
+    isLoggedIn,
+    storedExplore,
+    memoryReady
+  );
+
+  // Each tab keeps its own scroll position: leaving for a post and coming
+  // back lands exactly where you left.
+  useFeedScrollMemory({
+    containerRef: feedScrollRef,
+    memoryKey: `explore:${activeTab}`,
+  });
 
   // "For you" needs an account (guests see the login card); Trending and Gusts stay open.
   const showForYou = isLoggedIn;
@@ -98,16 +112,26 @@ const ExploreClient: React.FC = () => {
   const [newPostsCount, setNewPostsCount] = useState(0);
   const feedRootRef = useRef<HTMLDivElement>(null);
 
+  // Adopt shared links (?tab=...) into memory so they survive navigation too.
+  useEffect(() => {
+    if (isTabValue(EXPLORE_TABS, tabParam)) {
+      setExploreTab(tabParam);
+    }
+  }, [setExploreTab, tabParam]);
+
   const handleTabChange = useCallback(
     (tab: string) => {
       setNewPostsCount(0);
       newestIdRef.current = null;
+      if (isTabValue(EXPLORE_TABS, tab)) {
+        setExploreTab(tab);
+      }
       const nextParams = new URLSearchParams(searchParams.toString());
       nextParams.set("tab", tab);
       const query = nextParams.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
     },
-    [pathname, router, searchParams]
+    [pathname, router, searchParams, setExploreTab]
   );
 
   // Mobile swipes drag the tab strip like a carousel (same mechanism as the
@@ -183,6 +207,7 @@ const ExploreClient: React.FC = () => {
 
   const posts = useMemo(() => data?.posts ?? [], [data]);
   const users = useMemo(() => data?.users ?? [], [data]);
+  const communities = useMemo(() => data?.communities ?? [], [data]);
   const gusts = useMemo(() => gustsData ?? [], [gustsData]);
 
   // Poll every 45s for the newest post in the active feed. When a brand-new
@@ -371,6 +396,40 @@ const ExploreClient: React.FC = () => {
             />
           ) : null}
 
+          {/* Community matches, above the post masonry, when searching. */}
+          {debouncedSearch.trim() && communities.length > 0 ? (
+            <section className="mb-5">
+              <h2 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
+                Communities
+              </h2>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {communities.map((community) => (
+                  <Link
+                    className="border-border/60 hover:bg-muted/50 flex w-56 shrink-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
+                    href={`/a/${community.slug}`}
+                    key={community.id}
+                  >
+                    <CommunityAvatar
+                      accentColor={community.accentColor}
+                      avatarUrl={community.avatarUrl}
+                      className="size-9"
+                      name={community.name}
+                      slug={community.slug}
+                    />
+                    <span className="min-w-0">
+                      <span className="text-foreground block truncate text-sm font-medium">
+                        {community.name}
+                      </span>
+                      <span className="text-muted-foreground block truncate text-xs">
+                        a/{community.slug}
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {/* Masonry Post Stream */}
           <div className="columns-2 gap-4 sm:columns-3 xl:columns-4">
             {items}
@@ -466,7 +525,7 @@ const ExploreClient: React.FC = () => {
               ) : null}
               <div
                 className={`hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto ${
-                  isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                  isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
                 }`}
                 ref={feedScrollRef}
               >

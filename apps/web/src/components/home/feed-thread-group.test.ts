@@ -74,9 +74,67 @@ describe("groupPostsIntoThreads", () => {
 
     const groups = groupPostsIntoThreads([branchB, branchA, root]);
     expect(groups).toHaveLength(2);
-    // First group contains root -> branchA (the earlier reply)
-    expect(groups[0]?.posts.map((p) => p.id)).toEqual(["root", "branchA"]);
-    // Second group contains branchB as a standalone reply group
-    expect(groups[1]?.posts.map((p) => p.id)).toEqual(["branchB"]);
+    // Root connects to branchB (the freshest reply) and bumps to index 0
+    expect(groups[0]?.posts.map((p) => p.id)).toEqual(["root", "branchB"]);
+    // branchA remains as its own standalone reply group
+    expect(groups[1]?.posts.map((p) => p.id)).toEqual(["branchA"]);
+  });
+
+  test("bumps thread group to the feed position of its newest reply (Twitter-style)", () => {
+    const standaloneNew = makeFeedPost("standaloneNew", t(1000));
+    const newReply = makeFeedPost("newReply", t(2000), "oldRoot");
+    const standaloneMid = makeFeedPost("standaloneMid", t(3000));
+    const oldRoot = makeFeedPost("oldRoot", t(4000));
+    const standaloneOld = makeFeedPost("standaloneOld", t(5000));
+
+    const feed = [
+      standaloneNew,
+      newReply,
+      standaloneMid,
+      oldRoot,
+      standaloneOld,
+    ];
+    const groups = groupPostsIntoThreads(feed);
+
+    expect(groups).toHaveLength(4);
+    // Standalone post at index 0 stays on top
+    expect(groups[0]?.posts.map((p) => p.id)).toEqual(["standaloneNew"]);
+    // Thread [oldRoot, newReply] is bumped to position of newReply (index 1)
+    expect(groups[1]?.posts.map((p) => p.id)).toEqual(["oldRoot", "newReply"]);
+    expect(groups[2]?.posts.map((p) => p.id)).toEqual(["standaloneMid"]);
+    expect(groups[3]?.posts.map((p) => p.id)).toEqual(["standaloneOld"]);
+  });
+
+  test("bumps thread to the very top when newest reply is at index 0", () => {
+    const newReply = makeFeedPost("newReply", t(500), "oldRoot");
+    const standalone = makeFeedPost("standalone", t(1000));
+    const oldRoot = makeFeedPost("oldRoot", t(5000));
+
+    const feed = [newReply, standalone, oldRoot];
+    const groups = groupPostsIntoThreads(feed);
+
+    expect(groups).toHaveLength(2);
+    // Thread bumped to top because newReply is at index 0
+    expect(groups[0]?.posts.map((p) => p.id)).toEqual(["oldRoot", "newReply"]);
+    expect(groups[1]?.posts.map((p) => p.id)).toEqual(["standalone"]);
+  });
+
+  test("bumps multi-level thread based on latest grandchild response", () => {
+    const grandchild = makeFeedPost("grandchild", t(500), "child");
+    const standalone = makeFeedPost("standalone", t(1000));
+    const child = makeFeedPost("child", t(2000), "root");
+    const root = makeFeedPost("root", t(4000));
+
+    const feed = [grandchild, standalone, child, root];
+    const groups = groupPostsIntoThreads(feed);
+
+    expect(groups).toHaveLength(2);
+    // Entire chain connected top-to-bottom and bumped to index 0
+    expect(groups[0]?.posts.map((p) => p.id)).toEqual([
+      "root",
+      "child",
+      "grandchild",
+    ]);
+    expect(groups[1]?.posts.map((p) => p.id)).toEqual(["standalone"]);
   });
 });

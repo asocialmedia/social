@@ -8,6 +8,7 @@ import { searchCache } from "../../cache/search-cache";
 import { getAuraSignalsForUsers } from "../aura/signals";
 import type { PostData, Prisma } from "../client";
 import { getPostDataInclude } from "../client";
+import { communityVisibilityWhere } from "../communities/service";
 import prisma from "../prisma";
 import { redis } from "../redis";
 import { buildUserProfile } from "./profile";
@@ -603,6 +604,8 @@ export async function getPersonalizedFeedPage(
     isGust: contentKind === "gust",
     moderated: excludeModerated ? false : undefined,
     userId: { not: userId },
+    // Never rank a PRIVATE community's post into a viewer who cannot read it.
+    ...communityVisibilityWhere(userId),
   };
   if (contentKind === "gust") {
     whereClause.attachments = { some: { type: "VIDEO" } };

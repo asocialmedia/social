@@ -1,7 +1,6 @@
 "use client";
 
-import { DotFilledIcon } from "@radix-ui/react-icons";
-import { Indicator, Item, Root } from "@radix-ui/react-radio-group";
+import { Item, Root } from "@radix-ui/react-radio-group";
 import type * as React from "react";
 import type { ComponentPropsWithoutRef, ElementRef } from "react";
 
@@ -16,6 +15,9 @@ const RadioGroup = ({
 }) => <Root className={cn("grid gap-2", className)} {...props} ref={ref} />;
 RadioGroup.displayName = Root.displayName;
 
+// Uses the app's tactile control (.premium-radio), the sibling of the checkbox
+// recipe: a recessed well that fills with the brand gradient and bevel when
+// chosen. The dot is drawn by the class's ::after, so no Indicator is needed.
 const RadioGroupItem = ({
   className,
   ref,
@@ -25,16 +27,12 @@ const RadioGroupItem = ({
 }) => (
   <Item
     className={cn(
-      "border-primary text-primary focus-visible:ring-ring aspect-square h-4 w-4 rounded-full border shadow-sm focus:outline-hidden focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50",
+      "premium-radio shrink-0 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
       className
     )}
     ref={ref}
     {...props}
-  >
-    <Indicator className="flex items-center justify-center">
-      <DotFilledIcon className="fill-primary h-3.5 w-3.5" />
-    </Indicator>
-  </Item>
+  />
 );
 RadioGroupItem.displayName = Item.displayName;
 

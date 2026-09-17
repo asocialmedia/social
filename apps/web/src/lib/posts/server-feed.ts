@@ -1,7 +1,12 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  communityVisibilityWhere,
+  getPostDataInclude,
+  hydrateViewCounts,
+  prisma,
+} from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
-import { excerpt, getPostUrl } from "@/lib/seo/seo";
+import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
 
 // Server-side feed helpers for SEO crawlable HTML.
 // These mirror the API route logic but run via Prisma directly so
@@ -32,6 +37,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
       moderated: false,
       rootPostId: null,
       user: { banned: false },
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -56,7 +62,12 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
       user: { select: { displayName: true, username: true } },
     },
     take: limit,
-    where: { isGust: true, moderated: false, user: { banned: false } },
+    where: {
+      isGust: true,
+      moderated: false,
+      user: { banned: false },
+      ...communityVisibilityWhere(""),
+    },
   });
 
   return posts.map((p) => ({
@@ -88,6 +99,7 @@ export async function getTrendingPostsForCrawl(
       moderated: false,
       rootPostId: null,
       user: { banned: false },
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -121,6 +133,7 @@ export async function getHashtagPostsForCrawl(
       rootPostId: null,
       tags: { some: { name: tag } },
       user: { banned: false },
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -154,6 +167,7 @@ export async function getUserPostsForCrawl(
       rootPostId: null,
       user: { banned: false },
       userId,
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -180,6 +194,7 @@ export async function getRecentPostDataForCrawl(limit = 20) {
       moderated: false,
       rootPostId: null,
       user: { banned: false },
+      ...communityVisibilityWhere(""),
     },
   });
   return hydrateViewCounts(rows);
@@ -189,7 +204,8 @@ export function crawlPostHref(
   post: { content?: string | null; id: string } | string
 ): string {
   if (typeof post === "string") {
-    return `${siteConfig.url}/posts/${post}`;
+    const shortId = getShortPostId(post);
+    return `${siteConfig.url}/posts/${shortId}`;
   }
   return getPostUrl(post);
 }

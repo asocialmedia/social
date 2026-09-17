@@ -16,7 +16,7 @@ import type { Variants } from "motion/react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import { cn } from "@/lib/utils";
 import { useUpdateMentionsMutation } from "@/posts/editor/mutations";
 

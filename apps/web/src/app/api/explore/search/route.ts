@@ -1,8 +1,10 @@
 import {
+  communityVisibilityWhere,
   getPostDataInclude,
   getUserDataSelect,
   hydrateViewCounts,
   prisma,
+  searchCommunitiesForSearch,
 } from "@asm/db";
 import type { Prisma } from "@asm/db";
 
@@ -69,18 +71,27 @@ export async function GET(request: Request) {
     ],
   };
 
+  // `searchFilter` owns the top-level OR, so the visibility rule is added via
+  // AND rather than clobbering it.
+  const visibility = communityVisibilityWhere(userId);
   const postWhere: Prisma.PostWhereInput =
     tab === "gusts"
       ? {
           ...searchFilter,
+          AND: [visibility],
           isGust: true,
           // Moderated posts are hidden from explore entirely.
           moderated: false,
           rootPostId: null,
         }
-      : { ...searchFilter, moderated: false, rootPostId: null };
+      : {
+          ...searchFilter,
+          AND: [visibility],
+          moderated: false,
+          rootPostId: null,
+        };
 
-  const [rawPosts, users] = await Promise.all([
+  const [rawPosts, users, communities] = await Promise.all([
     prisma.post.findMany({
       include: getPostDataInclude(userId),
       orderBy: postOrderBy,
@@ -99,9 +110,10 @@ export async function GET(request: Request) {
         ],
       },
     }),
+    searchCommunitiesForSearch(q, pageSize),
   ]);
 
   const posts = await hydrateViewCounts(rawPosts);
 
-  return Response.json({ posts, users });
+  return Response.json({ communities, posts, users });
 }

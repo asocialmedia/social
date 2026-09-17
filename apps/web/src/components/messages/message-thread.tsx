@@ -19,7 +19,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import UserBadge from "@/components/layouts/user-badge";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
@@ -589,7 +589,11 @@ function ThreadHeader({
           >
             {peer?.displayName ?? "Conversation"}
           </Link>
-          <UserBadge badge={peer?.badge} badges={peer?.badges} />
+          <UserBadge
+            badge={peer?.badge}
+            badges={peer?.badges}
+            communityRoles={peer?.communityMemberships}
+          />
         </p>
         {peerTyping ? (
           <p className="text-primary truncate text-xs font-medium">typing…</p>

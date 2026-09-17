@@ -29,6 +29,8 @@ export async function processMediaCleanup(
           avatarOf: { select: { id: true } },
           bannerOf: { select: { id: true } },
           commentId: true,
+          communityAvatarOf: { select: { id: true } },
+          communityBannerOf: { select: { id: true } },
           createdAt: true,
           id: true,
           key: true,
@@ -44,13 +46,15 @@ export async function processMediaCleanup(
       });
 
       // Still orphaned after the grace period (never attached to a post, a
-      // comment, or a profile): delete.
+      // comment, a profile, or a community): delete.
       if (
         !media ||
         media.postId ||
         media.commentId ||
         media.avatarOf ||
-        media.bannerOf
+        media.bannerOf ||
+        media.communityAvatarOf ||
+        media.communityBannerOf
       ) {
         return;
       }

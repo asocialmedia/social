@@ -10,9 +10,9 @@ import type { SyntheticEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Resizer from "react-image-file-resizer";
 
-import CropImageDialog from "@/components/layouts/crop-image-dialog";
-import GifCenteringDialog from "@/components/layouts/gif-centering-dialog";
-import Spinner3D from "@/components/layouts/spinner-3d";
+import CropImageDialog from "@/components/layouts/dialogs/crop-image-dialog";
+import GifCenteringDialog from "@/components/layouts/dialogs/gif-centering-dialog";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { useToast } from "@/lib/gooey-toast";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
@@ -63,7 +63,9 @@ export interface BannerInputProps {
   progress?: number;
   stage?: UploadStage | null;
   src: string;
-  user: PrivateUserData;
+  // Only the id is read (for GifCenteringDialog's storage key), so callers can
+  // pass anything with an id - a session user, not just a full profile.
+  user: Pick<PrivateUserData, "id">;
 }
 
 export const BannerInput = ({
@@ -296,7 +298,8 @@ export interface AvatarInputProps {
   shape?: "circle" | "squircle";
   stage?: UploadStage | null;
   src: string | StaticImageData;
-  user: PrivateUserData;
+  // See BannerInputProps.user.
+  user: Pick<PrivateUserData, "id">;
   // "row" is the dialog's bordered row with helper copy; "bare" is just the
   // circular control, for the settings hero.
   variant?: "bare" | "row";

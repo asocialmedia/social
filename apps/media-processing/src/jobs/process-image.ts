@@ -287,9 +287,12 @@ export async function processMediaImage(input: {
         // Best-effort: promotion failure must not fail the process job.
         if (derivativesToInsert.length > 0) {
           try {
-            const { promoteProfileDerivative } = await import("@asm/db");
+            const { promoteCommunityDerivative, promoteProfileDerivative } =
+              await import("@asm/db");
             await promoteProfileDerivative(input.mediaId, "avatar");
             await promoteProfileDerivative(input.mediaId, "banner");
+            await promoteCommunityDerivative(input.mediaId, "avatar");
+            await promoteCommunityDerivative(input.mediaId, "banner");
           } catch (error) {
             mediaLogger.warn(
               { error: String(error), mediaId: input.mediaId },

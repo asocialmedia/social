@@ -2,15 +2,15 @@ import { prisma } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import { Hash } from "lucide-react";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 
-import SecondaryRightSideBar from "@/components/layouts/secondary-right-side-bar";
+import SecondaryRightSideBar from "@/components/layouts/shell/secondary-right-side-bar";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
-import HashtagFeed from "@/components/posts/hashtag-feed";
+import HashtagFeed from "@/components/posts/views/hashtag-feed";
 import JsonLd from "@/components/seo/json-ld";
 import { getHashtagPostsForCrawl } from "@/lib/posts/server-feed";
-import { absoluteUrl } from "@/lib/seo/seo";
+import { absoluteUrl, getPostPath, getPostUrl } from "@/lib/seo/seo";
 
 interface PageProps {
   params: Promise<{ tag: string }>;
@@ -35,10 +35,15 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
     where: { name: { equals: rawTag, mode: "insensitive" } },
   });
   if (!tagRecord) {
-    return {
-      robots: { follow: false, index: false },
-      title: `#${rawTag} — not found`,
-    };
+    notFound();
+  }
+
+  // Mixed-case casing permanently redirects to canonical casing
+  if (
+    params.tag !== encodeURIComponent(tagRecord.name) &&
+    rawTag !== tagRecord.name
+  ) {
+    permanentRedirect(`/hashtag/${encodeURIComponent(tagRecord.name)}`);
   }
 
   const count = await prisma.post.count({
@@ -130,7 +135,7 @@ async function HashtagContent({ params }: PageProps) {
           itemListElement: crawlPosts.map((post, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            url: `${siteConfig.url}/posts/${post.id}`,
+            url: getPostUrl(post),
           })),
           name: `#${canonicalName} posts`,
         }
@@ -157,7 +162,7 @@ async function HashtagContent({ params }: PageProps) {
                   <ul>
                     {crawlPosts.map((p) => (
                       <li key={p.id}>
-                        <a href={`/posts/${p.id}`} tabIndex={-1}>
+                        <a href={getPostPath(p)} tabIndex={-1}>
                           {p.content || p.id}
                         </a>
                       </li>

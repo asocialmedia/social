@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
-import ConfirmResetForm from "@/components/auth/confirm-reset-form";
-import { GooeyToaster } from "@/components/auth/gooey-toaster";
+import ConfirmResetForm from "@/components/auth/forms/confirm-reset-form";
+import { GooeyToaster } from "@/components/auth/shell/gooey-toaster";
 
 export const metadata: Metadata = {
   robots: {

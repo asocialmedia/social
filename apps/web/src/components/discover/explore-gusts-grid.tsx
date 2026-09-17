@@ -24,9 +24,9 @@ import React, {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import kyInstance from "@/lib/ky";
@@ -172,7 +172,11 @@ const ExploreGustTile = ({ post }: { post: PostData }) => {
               <p className="truncate text-xs font-semibold text-white/95">
                 {post.user?.displayName || post.user?.username || "Anonymous"}
               </p>
-              <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
+              <UserBadge
+                badge={post.user?.badge}
+                badges={post.user?.badges}
+                communityRoles={post.user?.communityMemberships}
+              />
             </div>
             <p className="truncate text-[11px] text-white/70">
               @{post.user?.username || "unknown"}

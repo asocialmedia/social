@@ -8,12 +8,28 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         // Public media is streamed through app proxy routes (the buckets are
-        // private), so those paths stay crawlable for OG images.
-        allow: ["/api/media/", "/api/users/avatar/", "/api/users/banner/"],
-        // Account-scoped areas redirect to /login for guests; blocking them
-        // keeps crawler budget focused on indexable, public content.
+        // private), so those paths stay crawlable for OG and avatar images.
+        allow: [
+          "/api/media/",
+          "/api/users/avatar/",
+          "/api/users/banner/",
+          "/api/communities/avatar/",
+          "/api/communities/banner/",
+          "/api/link-preview/image",
+        ],
+        // Account-scoped, private, auth flows, and internal search are disallowed
+        // to keep crawler budget focused on indexable public content.
         disallow: [
           "/api/",
+          "/messages",
+          "/search",
+          "/login",
+          "/signup",
+          "/reset-password",
+          "/two-factor",
+          "/verify-email",
+          "/users/*/followers",
+          "/users/*/following",
           "/settings",
           "/bookmarks",
           "/notifications",

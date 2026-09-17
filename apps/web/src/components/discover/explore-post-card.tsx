@@ -8,10 +8,10 @@ import Link from "next/link";
 import type React from "react";
 import { useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import AuraVoteButton from "@/components/posts/aura-vote-button";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -138,7 +138,10 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   // A moderated post never shows its media or content on the explore surface.
   if (post.moderated) {
     return (
-      <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl p-3 transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+      <article
+        className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl p-3 transition-colors duration-150 hover:bg-[hsl(var(--muted))]"
+        data-post-id={post.id}
+      >
         <ModeratedNotice kind={isGustPost ? "gust" : "post"} />
       </article>
     );
@@ -147,7 +150,10 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
   // Explicit media is just blurred in explore - no gate popup, the content
   // stays hidden until the post is opened.
   return (
-    <article className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]">
+    <article
+      className="sidebar-subcard group mb-4 break-inside-avoid overflow-hidden rounded-2xl transition-colors duration-150 hover:bg-[hsl(var(--muted))]"
+      data-post-id={post.id}
+    >
       <Link className="block" href={href}>
         {media ? (
           <div
@@ -188,6 +194,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
                 <UserBadge
                   badge={post.user?.badge}
                   badges={post.user?.badges}
+                  communityRoles={post.user?.communityMemberships}
                 />
               </div>
               <p className="text-muted-foreground truncate text-[11px]">

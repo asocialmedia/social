@@ -125,6 +125,9 @@ DROP INDEX IF EXISTS "idx_users_username_trgm";
 DROP INDEX IF EXISTS "idx_users_displayname_trgm";
 DROP INDEX IF EXISTS "idx_users_displayusername_trgm";
 DROP INDEX IF EXISTS "idx_posts_content_trgm";
+DROP INDEX IF EXISTS "idx_communities_name_trgm";
+DROP INDEX IF EXISTS "idx_communities_slug_trgm";
+DROP INDEX IF EXISTS "idx_communities_description_trgm";
 SQL
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file "$DROP_TRGM_SQL"
   rm -f "$DROP_TRGM_SQL"

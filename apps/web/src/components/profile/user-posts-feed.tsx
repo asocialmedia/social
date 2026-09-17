@@ -8,9 +8,10 @@ import { Loader2, PenLine } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 
 import PostCard from "@/components/home/feedview/post-card";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
+import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
 import { useComposerStore } from "@/store/composer-store";
 
 import EmptyFeedState from "./empty-feed-state";
@@ -40,6 +41,9 @@ const UserPostsFeed: React.FC<UserPostsFeedProps> = ({
     isFetchingNextPage,
     status,
   } = useInfiniteQuery({
+    // Kept past a post/media detour so coming back restores the cached list
+    // (and its scroll position) instead of refetching from the top.
+    gcTime: FEED_CACHE_RETENTION_MS,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }: { pageParam: string | null }) =>

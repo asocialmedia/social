@@ -44,6 +44,9 @@ type Tx = AuraLedgerTx;
 export type AuraEventType =
   | "COMMENT_CREATION"
   | "COMMENT_RECEIVED"
+  | "COMMUNITY_CREATED"
+  | "COMMUNITY_JOIN"
+  | "COMMUNITY_JOIN_OWNER"
   | "COMMENT_VOTE"
   | "COMMENT_VOTE_REMOVED"
   | "FOLLOW_GAINED"

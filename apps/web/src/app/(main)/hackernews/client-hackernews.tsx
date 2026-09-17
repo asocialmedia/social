@@ -12,11 +12,13 @@ import HnRightSideBar from "@/components/hackernews/hn-right-side-bar";
 import { HNSearchBar } from "@/components/hackernews/hn-search-bar";
 import type { HNFilterId } from "@/components/hackernews/hn-search-bar";
 import { TAB_TRIGGER_CLASS } from "@/components/home/feedview/tab-trigger-class";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
+import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import useDebounce from "@/hooks/use-debounce";
+import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
 
 // Swipe order mirrors the rendered tab strip order.
 const TAB_ORDER: HNSortOption[] = ["score", "time", "comments"];
@@ -70,6 +72,11 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
   );
   useFeedSwipeNavigation(feedScrollRef, handleSwipeNavigate);
 
+  // Same collapse-on-scroll chrome the home and explore feeds use: the top bar
+  // folds away on scroll down and returns on scroll up, leaving the sort tabs
+  // pinned below it.
+  const hideTopBar = useHideOnScroll(feedScrollRef);
+
   if (!userData) {
     return null;
   }
@@ -82,8 +89,14 @@ const ClientHackerNews: React.FC<ClientHackerNewsProps> = ({ userData }) => {
           onValueChange={handleSortChange}
           value={sortBy}
         >
-          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 pt-2 backdrop-blur-md">
-            <MobileTopBar />
+          <div className="z-20 shrink-0 bg-[hsl(var(--background-alt))]/90 backdrop-blur-md">
+            <CollapsibleTopBar hidden={hideTopBar}>
+              {/* pt-2 lives inside the collapsible: on the wrapper it would
+                  survive the collapse as a stray 8px gap. */}
+              <div className="pt-2">
+                <MobileTopBar />
+              </div>
+            </CollapsibleTopBar>
             <div className="border-border/60 relative flex items-center border-b py-1.5">
               <TabsList className="flex h-full flex-1 items-center justify-center gap-0 bg-transparent p-0 md:justify-start">
                 <TabsTrigger className={TAB_TRIGGER_CLASS} value="score">

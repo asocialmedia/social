@@ -7,6 +7,7 @@ import Link from "next/link";
 import SupportForm from "./support-form";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/support" },
   description:
     "Get help, report bugs, or share your suggestions with the asocialmedia team",
   title: "Support",

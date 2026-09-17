@@ -6,10 +6,10 @@ import Image from "next/image";
 import Link from "next/link";
 import React, { useCallback, useRef, useState } from "react";
 
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import ExplicitContentGate from "@/components/posts/explicit-content-gate";
-import ModeratedNotice from "@/components/posts/moderated-notice";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
+import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
@@ -151,7 +151,11 @@ const GustRowCard: React.FC<{
               <span className="text-foreground block truncate text-sm font-semibold">
                 {post.user?.displayName || post.user?.username || "Anonymous"}
               </span>
-              <UserBadge badge={post.user?.badge} badges={post.user?.badges} />
+              <UserBadge
+                badge={post.user?.badge}
+                badges={post.user?.badges}
+                communityRoles={post.user?.communityMemberships}
+              />
             </span>
             <span className="text-muted-foreground block truncate text-xs">
               @{post.user?.username || "unknown"}

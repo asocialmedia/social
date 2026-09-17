@@ -11,28 +11,44 @@ import { Tabs, TabsContent, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { AuthPromptCard } from "@/components/auth/shell/auth-prompt-card";
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import FollowingFeed from "@/components/home/feedview/following";
 import HomeFeed from "@/components/home/home-feed";
 import RightSideBar from "@/components/home/sidebars/right-side-bar";
-import { CollapsibleTopBar } from "@/components/layouts/collapsible-top-bar";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
-import SearchField from "@/components/layouts/search-field";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
+import SearchField from "@/components/layouts/navigation/search-field";
+import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import PostEditor from "@/components/posts/editor/post-editor";
+import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
+import {
+  HOME_TABS,
+  isTabValue,
+  resolveHomeTab,
+  useTabMemoryReady,
+  useTabStore,
+} from "@/store/tab-store";
+import type { HomeTab } from "@/store/tab-store";
 
 interface ClientHomeProps {
   userData: UserData | null;
 }
 
-type FeedTab = "following" | "latest" | "personalized" | "trending";
+type FeedTab = HomeTab;
+
+const HOME_TAB_VALUES: readonly FeedTab[] = [
+  "personalized",
+  "latest",
+  "trending",
+  "following",
+];
 
 const ClientHome: React.FC<ClientHomeProps> = () => {
   const pathname = usePathname();
@@ -40,28 +56,37 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
   const searchParams = useSearchParams();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
+  const memoryReady = useTabMemoryReady();
+  const storedHome = useTabStore((state) => state.home);
+  const setHomeTab = useTabStore((state) => state.setHomeTab);
 
   const tabParam = searchParams.get("tab");
   const defaultTab: FeedTab = isLoggedIn ? "personalized" : "latest";
-  const tab: FeedTab =
-    tabParam === "following" ||
-    tabParam === "latest" ||
-    tabParam === "personalized" ||
-    tabParam === "trending"
-      ? tabParam
-      : defaultTab;
+  // Explicit ?tab= wins (shareable links); otherwise the remembered tab
+  // restores, so leaving for a profile and coming back lands where you left.
+  const tab: FeedTab = resolveHomeTab(
+    tabParam,
+    isLoggedIn,
+    storedHome,
+    memoryReady
+  );
+
+  // Adopt shared links (?tab=...) into memory so they survive navigation too.
+  useEffect(() => {
+    if (isTabValue(HOME_TABS, tabParam)) {
+      setHomeTab(tabParam);
+    }
+  }, [setHomeTab, tabParam]);
 
   const handleTabChange = useCallback(
     (value: string) => {
+      if (isTabValue(HOME_TABS, value)) {
+        setHomeTab(value);
+      }
       const nextParams = new URLSearchParams(searchParams.toString());
       if (value === defaultTab) {
         nextParams.delete("tab");
-      } else if (
-        value === "following" ||
-        value === "latest" ||
-        value === "personalized" ||
-        value === "trending"
-      ) {
+      } else if (isTabValue(HOME_TABS, value)) {
         nextParams.set("tab", value);
       } else {
         nextParams.delete("tab");
@@ -69,25 +94,25 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
       const query = nextParams.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
     },
-    [defaultTab, pathname, router, searchParams]
+    [defaultTab, pathname, router, searchParams, setHomeTab]
   );
 
   const feedScrollRef = useRef<HTMLDivElement>(null);
   const hideTopBar = useHideOnScroll(feedScrollRef);
+  // Each tab keeps its own scroll position: leaving for a post (or another
+  // tab) and coming back lands exactly where you left.
+  useFeedScrollMemory({
+    containerRef: feedScrollRef,
+    memoryKey: `home:${tab}`,
+  });
 
   // Mobile swipes drag the tab strip like a carousel from personalized to
   // latest, trending, and finally following.
   const handleSwipeNavigate = useCallback(
     (direction: -1 | 1) => {
-      const order: FeedTab[] = [
-        "personalized",
-        "latest",
-        "trending",
-        "following",
-      ];
-      const nextIndex = order.indexOf(tab) + direction;
-      if (nextIndex >= 0 && nextIndex < order.length) {
-        handleTabChange(order[nextIndex]);
+      const nextIndex = HOME_TAB_VALUES.indexOf(tab) + direction;
+      if (nextIndex >= 0 && nextIndex < HOME_TAB_VALUES.length) {
+        handleTabChange(HOME_TAB_VALUES[nextIndex]);
       }
     },
     [handleTabChange, tab]
@@ -181,7 +206,7 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
           <div className="relative min-h-0 flex-1">
             <div
               className={`hide-native-scrollbar h-full touch-pan-y overflow-x-hidden overflow-y-auto ${
-                isLoggedIn ? "pb-16 lg:pb-0" : "pb-44 lg:pb-20"
+                isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
               }`}
               ref={feedScrollRef}
             >

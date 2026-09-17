@@ -19,7 +19,6 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   alternates: {
-    canonical: "/",
     types: {
       "application/rss+xml": `${siteConfig.url}/feed.xml`,
     },
@@ -86,7 +85,7 @@ export const metadata: Metadata = {
     index: true,
   },
   title: {
-    default: `${siteConfig.name} — ${siteConfig.description.slice(0, 72)}`,
+    default: `${siteConfig.name} — Open Source Social Media Platform`,
     template: `%s | ${siteConfig.name}`,
   },
   twitter: {
@@ -117,28 +116,37 @@ interface RootLayoutProperties {
 
 const websiteJsonLd = {
   "@context": "https://schema.org",
-  "@type": "WebSite",
-  description: siteConfig.description,
-  inLanguage: "en",
-  name: siteConfig.name,
-  potentialAction: {
-    "@type": "SearchAction",
-    "query-input": "required name=search_term_string",
-    target: {
-      "@type": "EntryPoint",
-      urlTemplate: `${siteConfig.url}/search?q={search_term_string}`,
+  "@graph": [
+    {
+      "@id": `${siteConfig.url}/#website`,
+      "@type": "WebSite",
+      alternateName: ["asocialmedia.cc", "asocial media", "asm"],
+      description: siteConfig.description,
+      inLanguage: "en",
+      name: siteConfig.name,
+      publisher: {
+        "@id": `${siteConfig.url}/#organization`,
+      },
+      url: siteConfig.url,
     },
-  },
-  publisher: {
-    "@type": "Organization",
-    logo: {
-      "@type": "ImageObject",
-      url: `${siteConfig.url}/favicon/android-chrome-512x512.png`,
+    {
+      "@id": `${siteConfig.url}/#organization`,
+      "@type": "Organization",
+      alternateName: ["asocialmedia.cc", "asocial media", "asm"],
+      description: siteConfig.description,
+      logo: {
+        "@type": "ImageObject",
+        url: `${siteConfig.url}/favicon/android-chrome-512x512.png`,
+      },
+      name: siteConfig.name,
+      sameAs: [
+        siteConfig.links.github,
+        siteConfig.links.twitter,
+        "https://przknv.cc",
+      ],
+      url: siteConfig.url,
     },
-    name: siteConfig.name,
-    url: siteConfig.url,
-  },
-  url: siteConfig.url,
+  ],
 };
 
 const RootLayout = ({ children }: RootLayoutProperties) => (

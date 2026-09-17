@@ -1,6 +1,10 @@
 "use client";
 
-import type { SearchPostResult, SearchUserResult } from "@asm/db";
+import type {
+  SearchCommunityResult,
+  SearchPostResult,
+  SearchUserResult,
+} from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import noSearchImage from "@assets/general/nosearch.png";
 import { useQuery } from "@tanstack/react-query";
@@ -13,7 +17,8 @@ import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import UserAvatar from "@/components/layouts/user-avatar";
+import CommunityAvatar from "@/components/communities/card/community-avatar";
+import UserAvatar from "@/components/layouts/user/user-avatar";
 import {
   normalizeHistoryItem,
   useSearchHistory,
@@ -29,6 +34,7 @@ import {
 import { getMediaProxyUrl } from "@/lib/utils/image-url";
 
 interface SpotlightResponse {
+  communities: SearchCommunityResult[];
   posts: SearchPostResult[];
   users: SearchUserResult[];
 }
@@ -52,11 +58,12 @@ export interface SpotlightResultItem {
   } | null;
   rawPost?: SearchPostResult;
   rawUser?: SearchUserResult;
+  rawCommunity?: SearchCommunityResult;
   removeTarget?: string;
   resultCount?: number;
   searchedAt?: number;
   subtitle?: string;
-  type: "user" | "post" | "history" | "suggestion";
+  type: "user" | "post" | "community" | "history" | "suggestion";
   viewCount?: number;
 }
 
@@ -139,6 +146,19 @@ const Spotlight: React.FC<SpotlightProps> = ({
 
   const buildItems = useCallback((): SpotlightResultItem[] => {
     const items: SpotlightResultItem[] = [];
+
+    for (const community of data?.communities ?? []) {
+      items.push({
+        avatarUrl: community.avatarUrl,
+        displayName: community.name,
+        href: `/a/${community.slug}`,
+        id: `community-${community.id}`,
+        meta: `${formatNumber(community.memberCount)} members`,
+        rawCommunity: community,
+        subtitle: `a/${community.slug}`,
+        type: "community",
+      });
+    }
 
     for (const suggestion of data?.users ?? []) {
       const isSelf = Boolean(
@@ -305,9 +325,11 @@ const Spotlight: React.FC<SpotlightProps> = ({
         addUserSearchMutation.mutate(item.rawUser);
       } else if (item.type === "post" && item.rawPost) {
         addPostSearchMutation.mutate(item.rawPost);
+      } else if (item.type === "community") {
+        // Communities are not part of search history; just navigate.
       } else {
         const resultCount = data
-          ? data.users.length + data.posts.length
+          ? data.users.length + data.posts.length + data.communities.length
           : undefined;
         addSearchMutation.mutate({ query: item.displayName, resultCount });
       }
@@ -354,7 +376,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
         handleSelect(activeItems[activeIndex]);
       } else if (trimmedQuery) {
         const resultCount = data
-          ? data.users.length + data.posts.length
+          ? data.users.length + data.posts.length + data.communities.length
           : undefined;
         addSearchMutation.mutate({ query: trimmedQuery, resultCount });
       }
@@ -406,7 +428,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
             className="placeholder:text-muted-foreground w-full bg-transparent text-base outline-none"
             onChange={handleQueryChange}
             onKeyDown={handleKeyDown}
-            placeholder="Search people and posts"
+            placeholder="Search people, posts, and communities"
             ref={inputRef}
             type="text"
             value={query}
@@ -492,21 +514,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
                   role="button"
                   tabIndex={0}
                 >
-                  {item.type === "user" || item.type === "post" ? (
-                    <UserAvatar
-                      avatarUrl={item.avatarUrl}
-                      className="h-9 w-9 shrink-0"
-                      size={36}
-                    />
-                  ) : (
-                    <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
-                      {item.type === "history" ? (
-                        <Clock3 className="h-4 w-4" />
-                      ) : (
-                        <Search className="h-4 w-4" />
-                      )}
-                    </div>
-                  )}
+                  {renderResultIcon(item)}
 
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex items-center gap-1.5 overflow-hidden">
@@ -633,7 +641,7 @@ const Spotlight: React.FC<SpotlightProps> = ({
               />
               <p className="text-sm font-medium">Search asocialmedia</p>
               <p className="text-muted-foreground text-xs">
-                Start typing to find people and posts
+                Start typing to find people, posts, and communities
               </p>
             </div>
           )}
@@ -653,6 +661,40 @@ const Spotlight: React.FC<SpotlightProps> = ({
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+// Leading icon for a result row: a community mark, a user/post avatar, or a
+// neutral tile for history/suggestion entries.
+const renderResultIcon = (item: SpotlightResultItem): React.ReactNode => {
+  if (item.type === "community" && item.rawCommunity) {
+    return (
+      <CommunityAvatar
+        accentColor={item.rawCommunity.accentColor}
+        avatarUrl={item.rawCommunity.avatarUrl}
+        className="size-9"
+        name={item.rawCommunity.name}
+        slug={item.rawCommunity.slug}
+      />
+    );
+  }
+  if (item.type === "user" || item.type === "post") {
+    return (
+      <UserAvatar
+        avatarUrl={item.avatarUrl}
+        className="h-9 w-9 shrink-0"
+        size={36}
+      />
+    );
+  }
+  return (
+    <div className="bg-muted/50 text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+      {item.type === "history" ? (
+        <Clock3 className="h-4 w-4" />
+      ) : (
+        <Search className="h-4 w-4" />
+      )}
     </div>
   );
 };

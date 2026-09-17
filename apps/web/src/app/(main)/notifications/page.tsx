@@ -4,9 +4,9 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
-import PostHistoryCard from "@/components/posts/post-history-card";
+import PostHistoryCard from "@/components/posts/views/post-history-card";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 

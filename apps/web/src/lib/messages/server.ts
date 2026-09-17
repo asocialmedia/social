@@ -1,4 +1,8 @@
-import { messageConversationInclude, prisma } from "@asm/db";
+import {
+  getCommunityRoleSelect,
+  messageConversationInclude,
+  prisma,
+} from "@asm/db";
 
 // The server never sees plaintext, but it does validate membership, follow
 // relationships, and blocks so the API cannot be abused to spam or read
@@ -80,6 +84,9 @@ export function messageSenderSelect() {
         avatarUrl: true,
         badge: true,
         badges: true,
+        // Badged community roles, so a message author shows the same role
+        // banners as everywhere else.
+        communityMemberships: getCommunityRoleSelect(),
         displayName: true,
         id: true,
         username: true,

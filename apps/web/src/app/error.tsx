@@ -5,7 +5,7 @@ import { Button } from "@asm/ui/shadui/button";
 import errorImage from "@assets/general/error.png";
 import { useEffect } from "react";
 
-import { StatusScreen } from "@/components/layouts/status-screen";
+import { StatusScreen } from "@/components/layouts/feedback/status-screen";
 
 export default function Error({
   error,

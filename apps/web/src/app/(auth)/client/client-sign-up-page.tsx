@@ -1,6 +1,6 @@
 "use client";
 
-import AuthPage from "@/components/auth/auth-page";
+import AuthPage from "@/components/auth/shell/auth-page";
 
 export default function ClientSignupPage() {
   return <AuthPage initialMode="signup" />;

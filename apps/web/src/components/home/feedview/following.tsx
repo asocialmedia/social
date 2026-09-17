@@ -10,7 +10,7 @@ import { useSession } from "@/app/(main)/session-provider";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import { FeedView } from "@/components/home/feed-view";
 import FeedEnd from "@/components/home/feedview/feed-end";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";

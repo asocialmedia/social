@@ -1,6 +1,6 @@
 "use client";
 
-import type { PrivateUserData, UserData } from "@asm/db";
+import type { PrivateUserData, UserCommunityRole, UserData } from "@asm/db";
 import { formatDate } from "date-fns";
 import { CalendarDays, Flame, Globe, MessageCircle } from "lucide-react";
 import Image from "next/image";
@@ -10,11 +10,12 @@ import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
 import { useSession } from "@/app/(main)/session-provider";
 import ShareButton from "@/components/home/feedview/share-button";
-import EditProfileButton from "@/components/layouts/edit-profile-button";
-import FollowButton from "@/components/layouts/follow-button";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostLinkedContent from "@/components/posts/post-linked-content";
+import EditProfileButton from "@/components/layouts/user/edit-profile-button";
+import FollowButton from "@/components/layouts/user/follow-button";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
+import CommunityRoleSummary from "@/components/profile/community-role-summary";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
@@ -69,6 +70,9 @@ function getSocialLinks(user: UserData): SocialLink[] {
 }
 
 interface ProfileHeaderProps {
+  // The badged community roles this user holds, shown under the identity so a
+  // profile states which communities they own or moderate.
+  communityRoles?: UserCommunityRole[];
   isOwnProfile: boolean;
   userData: UserData;
   // The session owner's own data (includes avatarKey/bannerKey needed by the
@@ -80,6 +84,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   userData,
   isOwnProfile,
   ownUserData,
+  communityRoles,
 }) => {
   const { data: liveUserData } = useUserDataQuery(userData);
   const { user } = useSession();
@@ -203,10 +208,17 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               badge={liveUserData.badge}
               badges={liveUserData.badges}
               className="h-8 w-24"
+              communityRoles={communityRoles}
             />
           </h1>
           <p className="text-muted-foreground">@{liveUserData.username}</p>
         </div>
+
+        {/* Community roles: what this account does across the platform, one
+            line per role, e.g. "[owner] Owner of a/anime & a/cosplay". */}
+        {communityRoles && communityRoles.length > 0 ? (
+          <CommunityRoleSummary className="mt-3" roles={communityRoles} />
+        ) : null}
 
         {liveUserData.bio ? (
           <PostLinkedContent

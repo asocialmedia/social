@@ -99,6 +99,87 @@ export const ATTACHMENT_BONUSES = {
 // Total post-creation award ceiling including all bonuses.
 export const POST_CREATION_MAX_AURA = 150;
 
+// One-time flat award to the creator when a community is founded. Superseded
+// by the escalating COMMUNITY_FOUNDING_BONUSES ladder, which lives in
+// communities/constants.ts (it is a community-domain rule the client wizard
+// also reads, so it sits on the client-safe entry point). This constant is kept
+// only so legacy ledger rows written with it stay explainable.
+export const COMMUNITY_CREATED_AURA = 25;
+
+// ---------------------------------------------------------------------------
+// Community join bonus
+// ---------------------------------------------------------------------------
+// Joining a community pays the joiner once per community, and pays that
+// community's owner a smaller thank-you per new member. Both are one-time per
+// (community, user) pair, recorded in CommunityJoinBonus; the unique
+// constraint there is the durable guard, so leave/rejoin cannot re-farm.
+//
+// The joiner amount is large relative to the daily cap on purpose: it is a
+// welcome gift, and its one-time-ness is what bounds it, not the cap. To keep
+// that bounded in practice the award is gated on the joining account's own
+// age (COMMUNITY_JOIN_MIN_ACCOUNT_AGE_DAYS) and on a rolling daily ceiling
+// (COMMUNITY_JOIN_DAILY_AURA_CAP) so an account cannot sweep hundreds of
+// communities in one sitting and convert them all to aura at once.
+export const COMMUNITY_JOIN_AURA = 150;
+export const COMMUNITY_JOIN_OWNER_AURA = 1;
+
+// The joiner must have an account at least this old to be paid the welcome
+// gift. Joining itself is never blocked - a brand-new account can still become
+// a member, it simply is not paid until it has some history. This is the
+// sybil cost: a freshly minted account cannot immediately convert a join into
+// aura, so a farm has to age every throwaway account it makes.
+export const COMMUNITY_JOIN_MIN_ACCOUNT_AGE_DAYS = 7;
+
+// Maximum join-bonus aura a single account can earn per UTC day. Reaching it
+// does not block joining (membership still succeeds); it only stops paying.
+// At 150/join this is 6 paid joins/day, which comfortably covers genuine
+// exploration while making a sweep of the directory unprofitable.
+export const COMMUNITY_JOIN_DAILY_AURA_CAP = 1000;
+
+// ---------------------------------------------------------------------------
+// Community standing (the founding credential)
+// ---------------------------------------------------------------------------
+// Aura is the reward currency: it is deliberately uncapped for viral reach so a
+// breakout post pays off fully, and it drives the flame, leaderboards and every
+// other score in the app. Community founding gates on a SEPARATE, derived
+// quantity called standing, so one lucky post cannot buy a permanent
+// credential.
+//
+// standing = (all earned aura, excluding attention milestones and founding
+//             bonuses)
+//          + min(total attention-milestone aura, REACH_ALLOWANCE)
+//
+// Reach therefore still counts toward founding - going viral toward your first
+// community feels rewarded - but it saturates at this allowance. The higher
+// bars can only be cleared by the capped, sustained income that
+// DAILY_INCOME_CAP already bounds, which is what makes the credential mean
+// "sustained contribution" rather than "got lucky once" or "already founded
+// things".
+export const COMMUNITY_REACH_ALLOWANCE = 1000;
+
+// Ledger types that pay for aggregate audience attention (views, shares)
+// rather than a deliberate peer interaction. These are the awards that bypass
+// the daily income cap, so they are the ones that must be bounded for standing.
+// Platform recognition (TRENDING_APPEARANCE) is deliberately NOT here: it is
+// already deduped to once per user per UTC day and only fires for accounts
+// consistently near the top, so it is a sustained signal and stays in standing
+// in full.
+export const ATTENTION_MILESTONE_TYPES = [
+  "POST_VIEWS_MILESTONE",
+  "SHARE_MILESTONE",
+] as const;
+
+// Positive award types that never count toward standing: attention milestones
+// (bounded by the reach allowance above), community founding bonuses (which
+// would otherwise fund their own next tier), and the community join bonus
+// (otherwise joining a hundred communities would buy the whole founding ladder
+// outright). Everything else earned counts in full.
+export const STANDING_EXCLUDED_TYPES = [
+  ...ATTENTION_MILESTONE_TYPES,
+  "COMMUNITY_CREATED",
+  "COMMUNITY_JOIN",
+] as const;
+
 // ---------------------------------------------------------------------------
 // View & share attention milestones
 // ---------------------------------------------------------------------------

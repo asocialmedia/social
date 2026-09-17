@@ -1,6 +1,11 @@
 "use server";
 
-import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
+import {
+  getCommunityRoleSelect,
+  prisma,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
+import type { CommunityRoleRow } from "@asm/db";
 
 import { getTrendingTopics } from "./topic-actions";
 import { selectTopAuraUsers } from "./trending-utils";
@@ -9,6 +14,7 @@ export interface TrendingMention {
   avatarUrl: string | null;
   badge: string | null;
   badges: string[];
+  communityMemberships: CommunityRoleRow[];
   count: number;
   displayName: string;
   type: "mention";
@@ -27,6 +33,7 @@ export interface TrendingAuraUser {
   avatarUrl: string | null;
   badge: string | null;
   badges: string[];
+  communityMemberships: CommunityRoleRow[];
   displayName: string | null;
   type: "aura";
   userId: string;
@@ -59,6 +66,7 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
         avatarUrl: true,
         badge: true,
         badges: true,
+        communityMemberships: getCommunityRoleSelect(),
         displayName: true,
         id: true,
         username: true,
@@ -71,25 +79,30 @@ async function getTopMentionedUsers(): Promise<TrendingMention[]> {
 
     const userById = new Map(users.map((user) => [user.id, user]));
 
-    return grouped
-      .map((group) => {
-        const user = userById.get(group.userId);
-        if (!user) {
-          return null;
-        }
-        return {
-          avatarUrl: user.avatarUrl,
-          badge: user.badge,
-          badges: user.badges,
-          count: group._count._all,
-          displayName: user.displayName,
-          type: "mention" as const,
-          userId: user.id,
-          username: user.username,
-        };
-      })
-      .filter((item): item is TrendingMention => item !== null)
-      .toSorted((a, b) => b.count - a.count);
+    return (
+      grouped
+        // Annotated so the Prisma enum on `role` widens to the DTO's `string`;
+        // without it the type predicate below cannot narrow the mapped array.
+        .map((group): TrendingMention | null => {
+          const user = userById.get(group.userId);
+          if (!user) {
+            return null;
+          }
+          return {
+            avatarUrl: user.avatarUrl,
+            badge: user.badge,
+            badges: user.badges,
+            communityMemberships: user.communityMemberships,
+            count: group._count._all,
+            displayName: user.displayName,
+            type: "mention",
+            userId: user.id,
+            username: user.username,
+          };
+        })
+        .filter((item): item is TrendingMention => item !== null)
+        .toSorted((a, b) => b.count - a.count)
+    );
   } catch (error) {
     console.error("Error fetching top mentioned users:", error);
     return [];
@@ -109,6 +122,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
         avatarUrl: true,
         badge: true,
         badges: true,
+        communityMemberships: getCommunityRoleSelect(),
         displayName: true,
         id: true,
         username: true,
@@ -122,6 +136,7 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
       avatarUrl: user.avatarUrl,
       badge: user.badge,
       badges: user.badges,
+      communityMemberships: user.communityMemberships,
       displayName: user.displayName,
       type: "aura" as const,
       userId: user.id,

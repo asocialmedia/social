@@ -20,9 +20,11 @@ export async function GET(request: Request) {
   const pageSize =
     requestedTake > 0 ? Math.min(requestedTake, PAGE_SIZE) : PAGE_SIZE;
 
+  // Native community posts live in their community feed, not Latest; reshares
+  // onto the global feed have communityId null and still appear here.
   const where: Prisma.PostWhereInput = excludeModerated
-    ? { isGust: false, moderated: false }
-    : { isGust: false };
+    ? { communityId: null, isGust: false, moderated: false }
+    : { communityId: null, isGust: false };
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),

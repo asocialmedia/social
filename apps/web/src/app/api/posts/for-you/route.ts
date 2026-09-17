@@ -1,4 +1,5 @@
 import {
+  communityVisibilityWhere,
   getPersonalizedFeedPage,
   getPostDataInclude,
   hydrateViewCounts,
@@ -72,6 +73,7 @@ export async function GET(request: Request) {
           isGust: false,
           moderated: excludeModerated ? false : undefined,
           userId: { not: userId },
+          ...communityVisibilityWhere(userId),
         };
         const fallbackPosts = await prisma.post.findMany({
           cursor: chronologicalCursor ? { id: chronologicalCursor } : undefined,
@@ -106,6 +108,8 @@ export async function GET(request: Request) {
       isGust: false,
       moderated: excludeModerated ? false : undefined,
       userId: userId ? { not: userId } : undefined,
+      // Private-community posts never stream into a global feed.
+      ...communityVisibilityWhere(userId),
     };
 
     const rawCursor =

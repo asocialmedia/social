@@ -5,6 +5,11 @@ import type {
   QueryKey,
 } from "@tanstack/react-query";
 
+// How long feed pages survive in cache without an observer. Outlives a
+// post/media detour so coming back renders the cached pages instantly (no
+// skeleton, no top-of-feed reset) instead of refetching.
+export const FEED_CACHE_RETENTION_MS = 30 * 60 * 1000;
+
 // Shared cache lifecycle for the timeline feeds (home tabs, following, gusts).
 // staleTime is `Infinity` so time passing - or flipping back and forth between
 // tabs - never replaces a cached list on its own; only an explicit
@@ -13,6 +18,7 @@ import type {
 // unmounted tab remounts. New posts from other people surface through the head
 // probe in useNewContentProbe instead.
 export const FEED_QUERY_BEHAVIOR = {
+  gcTime: FEED_CACHE_RETENTION_MS,
   refetchOnMount: true,
   refetchOnReconnect: false,
   refetchOnWindowFocus: false,

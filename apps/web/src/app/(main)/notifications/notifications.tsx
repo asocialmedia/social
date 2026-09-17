@@ -14,9 +14,9 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AnimatedTabButton } from "@/components/home/feedview/animated-tab-trigger";
-import { FeedScrollbar } from "@/components/layouts/feed-scrollbar";
-import InfiniteScrollContainer from "@/components/layouts/infinite-scroll-container";
-import MobileTopBar from "@/components/layouts/mobile/mobile-top-bar";
+import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
+import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import NotificationsSkeleton from "@/components/layouts/skeletons/notifications-skeleton";
 import { useFeedSwipeNavigation } from "@/hooks/feed/use-feed-swipe-navigation";
 import kyInstance from "@/lib/ky";

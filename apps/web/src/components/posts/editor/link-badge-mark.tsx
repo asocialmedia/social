@@ -4,7 +4,10 @@ import { Link } from "@tiptap/extension-link";
 import { MarkViewContent, ReactMarkViewRenderer } from "@tiptap/react";
 import type { MarkViewProps } from "@tiptap/react";
 
-import { hostLabel, platformFromUrl } from "@/components/posts/link-badge";
+import {
+  hostLabel,
+  platformFromUrl,
+} from "@/components/posts/embeds/link-badge";
 
 // The bio's link mark rendered as the badge it becomes on the profile page:
 // the platform logo (YouTube, GitHub, ...) or a host initial, followed by the

@@ -1,4 +1,8 @@
-import { prisma } from "@asm/db";
+import {
+  communityVisibilityWhere,
+  prisma,
+  SYSTEM_MODERATION_USER_ID,
+} from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { getPostUrl } from "@/lib/seo/seo";
@@ -20,7 +24,14 @@ import { getPostUrl } from "@/lib/seo/seo";
 // the index at /sitemap.xml is emitted explicitly, which robots.txt has been
 // promising all along.
 
-export const SITEMAP_IDS = ["core", "posts", "gusts", "users", "tags"] as const;
+export const SITEMAP_IDS = [
+  "core",
+  "posts",
+  "gusts",
+  "users",
+  "tags",
+  "communities",
+] as const;
 
 export type SitemapId = (typeof SITEMAP_IDS)[number];
 
@@ -100,7 +111,15 @@ export function buildSitemapIndexXml(entries: SitemapEntry[]): string {
 // Hand-picked crawlable public pages. Login, signup, and HackerNews are
 // deliberately absent: auth pages are noindexed and HackerNews redirects
 // guests to login, so listing them only burns crawl budget.
-const CORE_PATHS = ["", "/discover", "/gusts"] as const;
+const CORE_PATHS = [
+  "",
+  "/discover",
+  "/gusts",
+  "/communities",
+  "/privacy",
+  "/toc",
+  "/support",
+] as const;
 
 // oxlint-disable-next-line require-await -- kept async for Promise-return consistency with DB-backed siblings
 async function getCoreEntries(): Promise<SitemapEntry[]> {
@@ -126,6 +145,8 @@ async function getPostEntries(): Promise<SitemapEntry[]> {
       moderated: false,
       rootPostId: null,
       user: { banned: false },
+      // Crawlers are anonymous: private-community posts must not be indexed.
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -168,6 +189,7 @@ async function getGustEntries(): Promise<SitemapEntry[]> {
       isGust: true,
       moderated: false,
       user: { banned: false },
+      ...communityVisibilityWhere(""),
     },
   });
 
@@ -191,7 +213,10 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
     orderBy: { updatedAt: "desc" },
     select: { updatedAt: true, username: true },
     take: SITEMAP_URL_LIMIT,
-    where: { banned: false },
+    where: {
+      banned: false,
+      id: { not: SYSTEM_MODERATION_USER_ID },
+    },
   });
 
   return users.map((user) => ({
@@ -213,6 +238,22 @@ async function getTagEntries(): Promise<SitemapEntry[]> {
   }));
 }
 
+// Public communities only; private communities are not discoverable and must
+// not leak into the crawl graph.
+async function getCommunityEntries(): Promise<SitemapEntry[]> {
+  const communities = await prisma.community.findMany({
+    orderBy: { updatedAt: "desc" },
+    select: { slug: true, updatedAt: true },
+    take: SITEMAP_URL_LIMIT,
+    where: { type: { not: "PRIVATE" } },
+  });
+
+  return communities.map((community) => ({
+    lastModified: community.updatedAt,
+    url: `${siteConfig.url}/a/${community.slug}`,
+  }));
+}
+
 export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
   switch (id) {
     case "posts": {
@@ -226,6 +267,9 @@ export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
     }
     case "users": {
       return getUserEntries();
+    }
+    case "communities": {
+      return getCommunityEntries();
     }
     default: {
       return getCoreEntries();
@@ -266,6 +310,15 @@ export async function getSitemapLastModified(
         orderBy: { updatedAt: "desc" },
         select: { updatedAt: true },
         take: 1,
+      });
+      return latest?.updatedAt;
+    }
+    case "communities": {
+      const [latest] = await prisma.community.findMany({
+        orderBy: { updatedAt: "desc" },
+        select: { updatedAt: true },
+        take: 1,
+        where: { type: { not: "PRIVATE" } },
       });
       return latest?.updatedAt;
     }

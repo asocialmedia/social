@@ -25,10 +25,10 @@ import type React from "react";
 import { useCallback, useState } from "react";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
-import { LogoutDialog } from "@/components/layouts/logout-dialog";
-import UserAvatar from "@/components/layouts/user-avatar";
-import UserBadge from "@/components/layouts/user-badge";
-import PostLinkedContent from "@/components/posts/post-linked-content";
+import { LogoutDialog } from "@/components/layouts/dialogs/logout-dialog";
+import UserAvatar from "@/components/layouts/user/user-avatar";
+import UserBadge from "@/components/layouts/user/user-badge";
+import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import { useLogout } from "@/hooks/auth/use-logout";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
 import { getAuraFlameClass } from "@/lib/aura/aura";
@@ -184,6 +184,13 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
               />
             </button>
           ) : (
+            // The badge sits inline with the name, above the handle, as it did
+            // before - putting it beside the whole row made it claim the row's
+            // width. It stays INTERACTIVE (its own hover card) even though it
+            // is inside the row button: the trigger is a span, not a nested
+            // <button>, so the HTML parser never rewrites the tree, and the
+            // badge's own click handler stops the click reaching the row so
+            // hovering it does not also open the profile menu.
             <button
               aria-haspopup="dialog"
               className="pill-3d-hover group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-0 px-2 py-2 text-left"
@@ -199,7 +206,11 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
                   <span className="block truncate text-sm font-medium">
                     {userData.displayName || userData.username}
                   </span>
-                  <UserBadge badge={userData.badge} badges={userData.badges} />
+                  <UserBadge
+                    badge={userData.badge}
+                    badges={userData.badges}
+                    communityRoles={userData.communityMemberships}
+                  />
                 </span>
                 <span className="text-muted-foreground block truncate text-xs">
                   @{userData.username}
@@ -212,6 +223,12 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
         <PopoverContent
           align="start"
           className="apple-panel z-50 w-[21rem] overflow-hidden rounded-2xl border-0 p-0 shadow-none"
+          // Radix moves focus to the first tabbable child when a popover opens.
+          // Here that child is the badge, and Radix's HoverCard opens on focus -
+          // so opening this menu immediately popped the badge card on top of it
+          // (two panels at once). Keeping focus on the trigger is Radix's
+          // documented opt-out and leaves the badge hoverable without opening it.
+          onOpenAutoFocus={(event) => event.preventDefault()}
           side="top"
           sideOffset={12}
         >
@@ -243,7 +260,14 @@ const UserProfilePopover: React.FC<UserProfilePopoverProps> = ({
             <div className="mt-2.5">
               <h3 className="flex items-center gap-1.5 text-lg leading-tight font-semibold">
                 {userData.displayName || userData.username}
-                <UserBadge badge={userData.badge} />
+                {/* Interactive here: this sits in the popover's CONTENT, not in
+                    its trigger, so the badge's hover card is a sibling surface
+                    rather than a nesting conflict. */}
+                <UserBadge
+                  badge={userData.badge}
+                  badges={userData.badges}
+                  communityRoles={userData.communityMemberships}
+                />
               </h3>
               <p className="text-muted-foreground text-sm">
                 @{userData.username}

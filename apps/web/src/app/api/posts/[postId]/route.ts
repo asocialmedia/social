@@ -1,4 +1,5 @@
 import {
+  communityVisibilityWhere,
   getPostAncestors,
   getPostDataInclude,
   hydrateViewCounts,
@@ -22,15 +23,19 @@ export async function GET(
   }
 
   const { postId } = await ctx.params;
-  let post = await prisma.post.findUnique({
+  // A direct post read must honor the same community visibility as every feed:
+  // a post inside a PRIVATE community the viewer cannot read is a 404, not a
+  // leak of its content through a known id.
+  const visibility = communityVisibilityWhere(user.id);
+  let post = await prisma.post.findFirst({
     include: getPostDataInclude(user.id),
-    where: { id: postId },
+    where: { id: postId, ...visibility },
   });
   if (!post && postId.length >= 8) {
     const matches = await prisma.post.findMany({
       include: getPostDataInclude(user.id),
       take: 2,
-      where: { id: { startsWith: postId } },
+      where: { id: { startsWith: postId }, ...visibility },
     });
     if (matches.length === 1) {
       post = matches[0] ?? null;

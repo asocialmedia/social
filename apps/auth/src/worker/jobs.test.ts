@@ -77,9 +77,12 @@ describe("worker job processors", () => {
       Promise.resolve(id === "notif-valid")
     ),
     deleteObject: mockDeleteObject,
+    getTrendingUserIds: mock(() => Promise.resolve(["user-1"])),
     grantShitposterBadgeIfQualified: mockGrantShitposter,
     prisma: mockPrisma,
     redis: mockRedis,
+    sweepEarlyBadges: mock(() => Promise.resolve(0)),
+    syncTrendingBadges: mock(() => Promise.resolve({ granted: 0, revoked: 0 })),
     unreadNotificationCache: {
       decrement: mock(() => 0),
       increment: mock(() => 1),
@@ -277,5 +280,22 @@ describe("worker job processors", () => {
 
     expect(cleanupExpiredPublishedNotifications).toHaveBeenCalled();
     expect(result).toEqual({ batchesProcessed: 2, deletedCount: 15 });
+  });
+
+  test("processBadgeSweep delegates to the early sweep and trending sync", async () => {
+    const { processBadgeSweep } = await import("./jobs");
+    const { getTrendingUserIds, sweepEarlyBadges, syncTrendingBadges } =
+      await import("@asm/db");
+
+    const result = await processBadgeSweep();
+
+    expect(sweepEarlyBadges).toHaveBeenCalled();
+    expect(getTrendingUserIds).toHaveBeenCalled();
+    expect(syncTrendingBadges).toHaveBeenCalledWith(["user-1"]);
+    expect(result).toEqual({
+      earlyGranted: 0,
+      trendingGranted: 0,
+      trendingRevoked: 0,
+    });
   });
 });

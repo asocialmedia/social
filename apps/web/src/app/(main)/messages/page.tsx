@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import MobileBottomNav from "@/components/layouts/mobile/mobile-bottom-nav";
+import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import { MessageIdentityProvider } from "@/components/messages/message-identity-provider";
 import { MessagesSkeleton } from "@/components/messages/messages-skeleton";
 import { getUserData } from "@/hooks/users/use-user-data";
