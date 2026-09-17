@@ -7,6 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowLeft,
   KeyRound,
@@ -16,9 +17,19 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
+import UserAvatar from "@/components/layouts/user-avatar";
 import UserBadge from "@/components/layouts/user-badge";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
@@ -36,16 +47,19 @@ import {
   exportPublicKeyJwk,
   generateFingerprint,
   importPublicKeyJwk,
+  importRatchetBaseKey,
   publicKeyBase64ToJwk,
 } from "@/lib/messages/crypto";
+import type { DecryptEntry, DecryptItem } from "@/lib/messages/decryptor";
+import { messageDecryptor } from "@/lib/messages/decryptor";
 import {
-  decryptMessageWithRootKey,
   findMyWrappedKey,
   findPeerPublicKey,
   useRootKeyStore,
 } from "@/lib/messages/use-decryption";
 import { useMessagesRealtime } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
+import { cn } from "@/lib/utils";
 
 interface MessageThreadProps {
   conversationId: string;
@@ -53,7 +67,13 @@ interface MessageThreadProps {
   onToggleRail: () => void;
 }
 
-type DecryptedCache = Record<string, MessagePayload | "error" | "pending">;
+// Estimated row height before measurement. Close to a one-line bubble so the
+// scrollbar is roughly right on first paint; measureElement corrects each
+// row after mount and on decrypt/image-load resizes.
+const ESTIMATED_ROW_SIZE = 80;
+// The decrypt window extends this many rows beyond the viewport each way;
+// history outside it is not requested until scrolled near.
+const DECRYPT_PREFETCH_ROWS = 64;
 
 export function MessageThread({
   conversationId,
@@ -66,7 +86,6 @@ export function MessageThread({
   const rootKeyStore = useRootKeyStore();
   const onlineUsers = usePresence(true);
 
-  const [decrypted, setDecrypted] = useState<DecryptedCache>({});
   const [replyTarget, setReplyTarget] = useState<{
     content?: string;
     id: string;
@@ -77,18 +96,14 @@ export function MessageThread({
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const readDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const decryptedRef = useRef(decrypted);
-  // Ids with a decrypt currently in flight. A message marked "pending" with
-  // no in-flight entry is a stranded attempt (keys/detail were not ready when
-  // it was marked) and must be retried, never left to spin forever.
-  const inFlightDecryptRef = useRef<Set<string>>(new Set());
-  const pinnedToBottomRef = useRef(true);
-  const prevScrollHeightRef = useRef(0);
 
-  // Keep the decrypt cache ref in sync without touching refs during render.
-  useEffect(() => {
-    decryptedRef.current = decrypted;
-  }, [decrypted]);
+  // Decrypt results live in the session decryptor (shared across threads,
+  // survives remounts). This subscribes to its version so rows re-render
+  // exactly when their batch of results lands.
+  const decryptVersion = useSyncExternalStore(
+    messageDecryptor.subscribe,
+    messageDecryptor.getVersion
+  );
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -123,15 +138,6 @@ export function MessageThread({
     [allMessages]
   );
 
-  // Messages whose payload hasn't finished decrypting yet. Shown as one
-  // aggregate line at the bottom instead of a spinner on every bubble.
-  const pendingCount = useMemo(
-    () =>
-      allMessages.filter((message) => decrypted[message.id] === "pending")
-        .length,
-    [allMessages, decrypted]
-  );
-
   const peer = detail?.conversation.members.find(
     (member) => member.userId !== user?.id
   )?.user;
@@ -139,101 +145,218 @@ export function MessageThread({
     ? (onlineUsers.find((u) => u.id === peer.id)?.status ?? null)
     : null;
 
-  // Resolve a message's reply parent into a display quote. The parent's own
-  // decrypted payload comes from the same cache, so the quote pops in as soon
-  // as the parent finishes decrypting.
-  const replyQuoteFor = useCallback(
-    (message: MessageData): { content: string; senderName: string } | null => {
-      const payload = decrypted[message.id];
-      if (!payload || payload === "error" || payload === "pending") {
-        return null;
-      }
-      const { replyToId } = payload;
-      if (!replyToId) {
-        return null;
-      }
-      const parent = messagesById.get(replyToId);
-      if (!parent) {
-        return null;
-      }
-      const parentPayload = decrypted[parent.id];
+  const userId = user?.id;
+
+  const handleReply = useCallback(
+    (message: MessageData) => {
+      // Read at click time so the quote always reflects the latest payload.
+      const payload = messageDecryptor.get(message.id);
+      setReplyTarget({
+        content: replyPreview(payload),
+        id: message.id,
+        senderId: message.senderId,
+        senderName:
+          message.senderId === userId
+            ? "You"
+            : (message.sender?.displayName ?? peer?.displayName ?? "them"),
+      });
+    },
+    [peer?.displayName, userId]
+  );
+
+  // The decryptor cache is scoped to this identity so a logout/login never
+  // serves another account's plaintext.
+  useEffect(() => {
+    messageDecryptor.configureScope(userId ?? "anonymous");
+  }, [userId]);
+
+  // Resolves (via the decryptor's per-conversation cache) the imported
+  // ratchet base key every queued message in this thread funnels through.
+  const getBaseKey = useCallback(
+    async (targetConversationId: string): Promise<CryptoKey | null> => {
       if (
-        !parentPayload ||
-        parentPayload === "error" ||
-        parentPayload === "pending"
+        !detail ||
+        !rootKeyStore ||
+        !userId ||
+        targetConversationId !== conversationId
       ) {
         return null;
       }
-      const senderName =
-        parent.senderId === user?.id
-          ? "You"
-          : (parent.sender?.displayName ?? peer?.displayName ?? "them");
-      return {
-        content: quoteContent(parent, parentPayload),
-        senderName,
-      };
+      const wrapped = findMyWrappedKey(detail.keys, userId);
+      const peerPublicKey = findPeerPublicKey(detail.conversation, userId);
+      if (!wrapped || !peerPublicKey) {
+        return null;
+      }
+      try {
+        const rootKey = await rootKeyStore.getRootKey(
+          conversationId,
+          wrapped,
+          peerPublicKey
+        );
+        return await importRatchetBaseKey(rootKey);
+      } catch {
+        return null;
+      }
     },
-    [decrypted, messagesById, peer?.displayName, user?.id]
+    [conversationId, detail, rootKeyStore, userId]
   );
 
-  // Decrypts one message and always lands it in a terminal state ("error"
-  // on any failure). In-flight ids are tracked so concurrent effect runs can
-  // never start a duplicate decrypt or strand a "pending" entry.
-  const userId = user?.id;
-  const decryptOne = useCallback(
-    async (message: MessageData) => {
+  // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream chat recipe); rows stay memoized on their own props
+  const rowVirtualizer = useVirtualizer({
+    anchorTo: "end",
+    count: allMessages.length,
+    estimateSize: () => ESTIMATED_ROW_SIZE,
+    followOnAppend: true,
+    getItemKey: useCallback(
+      (index: number) => allMessages[index]?.id ?? `index-${index}`,
+      [allMessages]
+    ),
+    getScrollElement: () => scrollRef.current,
+    overscan: 8,
+    paddingEnd: 8,
+    paddingStart: 16,
+    scrollEndThreshold: 100,
+    useFlushSync: false,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const virtualRangeKey = (() => {
+    const lastItem = virtualItems.at(-1);
+    return virtualItems.length > 0 && lastItem
+      ? `${virtualItems[0].index}:${lastItem.index}`
+      : "empty";
+  })();
+
+  // Queue decrypts for the visible window plus a prefetch margin, visible
+  // rows first. History outside the window is never requested until scrolled
+  // near, and deleted rows need no payload at all. Reply parents of visible
+  // rows ride along so quotes pop in with the reply.
+  useEffect(() => {
+    if (!detail || !rootKeyStore || !userId || allMessages.length === 0) {
+      return;
+    }
+    const [first, last] = (() => {
+      const items = rowVirtualizer.getVirtualItems();
+      const lastItem = items.at(-1);
+      if (items.length === 0 || !lastItem) {
+        return [allMessages.length - 1, allMessages.length - 1] as const;
+      }
+      return [items[0].index, lastItem.index] as const;
+    })();
+    const start = Math.max(0, first - DECRYPT_PREFETCH_ROWS);
+    const end = Math.min(allMessages.length - 1, last + DECRYPT_PREFETCH_ROWS);
+    const items: DecryptItem[] = [];
+    const seen = new Set<string>();
+    const push = (message: MessageData | undefined) => {
+      if (!message || message.deletedAt || seen.has(message.id)) {
+        return;
+      }
+      seen.add(message.id);
+      items.push({
+        conversationId,
+        message: {
+          ciphertext: message.ciphertext,
+          id: message.id,
+          iv: message.iv,
+          ratchetIndex: message.ratchetIndex,
+          senderId: message.senderId,
+        },
+      });
+    };
+    for (let index = first; index <= last; index += 1) {
+      push(allMessages[index]);
+    }
+    for (let index = first - 1; index >= start; index -= 1) {
+      push(allMessages[index]);
+    }
+    for (let index = last + 1; index <= end; index += 1) {
+      push(allMessages[index]);
+    }
+    for (const item of items) {
+      const payload = messageDecryptor.get(item.message.id);
+      if (payload && payload !== "error" && payload !== "pending") {
+        const parent = payload.replyToId
+          ? messagesById.get(payload.replyToId)
+          : undefined;
+        push(parent);
+      }
+    }
+    messageDecryptor.request(items, { getBaseKey });
+    // decryptVersion re-runs this as payloads land (reply parents), and the
+    // range key re-runs it on scroll; request() itself is a cheap skip for
+    // cached, queued, and in-flight ids.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- trigger-only deps: virtualRangeKey/decryptVersion re-run the cheap request skip-scan
+  }, [
+    allMessages,
+    conversationId,
+    decryptVersion,
+    detail,
+    getBaseKey,
+    messagesById,
+    rootKeyStore,
+    userId,
+    virtualRangeKey,
+    rowVirtualizer,
+  ]);
+
+  // Healed keys (re-provisioned identity, first wrapped-key post) must retry
+  // payloads that previously failed: drop errors back to unrequested so the
+  // request effect above picks them up.
+  useEffect(() => {
+    if (!detail || !rootKeyStore || !userId) {
+      return;
+    }
+    messageDecryptor.clearErrors();
+  }, [detail, rootKeyStore, userId]);
+
+  // Start pinned to the latest message; anchorTo "end" keeps it there.
+  useLayoutEffect(() => {
+    rowVirtualizer.scrollToEnd();
+  }, [rowVirtualizer, conversationId]);
+
+  // Pull older history as the top of the loaded window nears the first
+  // virtual row. Stable keys keep the viewport anchored on prepend.
+  const { fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage } =
+    messagesQuery;
+  useEffect(() => {
+    if (
+      virtualItems.length > 0 &&
+      virtualItems[0].index < 4 &&
+      hasPreviousPage &&
+      !isFetchingPreviousPage
+    ) {
+      void fetchPreviousPage();
+    }
+  }, [
+    fetchPreviousPage,
+    hasPreviousPage,
+    isFetchingPreviousPage,
+    virtualItems,
+  ]);
+
+  const retryDecrypt = useCallback(
+    (message: MessageData) => {
       if (!detail || !rootKeyStore || !userId) {
         return;
       }
-      if (inFlightDecryptRef.current.has(message.id)) {
-        return;
-      }
-      inFlightDecryptRef.current.add(message.id);
-      // decryptMessageWithRootKey already maps every failure to null, but a
-      // rejection here must still land in "error" — never strand "pending".
-      // (No try/finally: React Compiler cannot lower a finalizer clause.)
-      const payload = await decryptMessageWithRootKey(
-        rootKeyStore,
-        detail.conversation,
-        userId,
-        message
-      ).catch(() => null);
-      inFlightDecryptRef.current.delete(message.id);
-      setDecrypted((prev) => ({
-        ...prev,
-        [message.id]: payload ?? "error",
-      }));
+      messageDecryptor.retry(message.id);
+      messageDecryptor.request(
+        [
+          {
+            conversationId,
+            message: {
+              ciphertext: message.ciphertext,
+              id: message.id,
+              iv: message.iv,
+              ratchetIndex: message.ratchetIndex,
+              senderId: message.senderId,
+            },
+          },
+        ],
+        { getBaseKey }
+      );
     },
-    [detail, rootKeyStore, userId]
-  );
-
-  // Decrypt any messages not yet in the cache. Keys (detail) and the root key
-  // store must both be ready before marking anything "pending": marking first
-  // and decrypting later is what stranded messages on the loader forever.
-  // Entries stuck in "pending" with no in-flight decrypt are retried here.
-  useEffect(() => {
-    if (!rootKeyStore || !detail || !userId) {
-      return;
-    }
-    for (const message of allMessages) {
-      const state = decryptedRef.current[message.id];
-      if (
-        state === undefined ||
-        state === "error" ||
-        (state === "pending" && !inFlightDecryptRef.current.has(message.id))
-      ) {
-        setDecrypted((prev) => ({ ...prev, [message.id]: "pending" }));
-        void decryptOne(message);
-      }
-    }
-  }, [allMessages, decryptOne, detail, rootKeyStore, userId]);
-
-  // A decrypt that outlives the thread must not keep its id reserved.
-  useEffect(
-    () => () => {
-      inFlightDecryptRef.current.clear();
-    },
-    []
+    [conversationId, detail, getBaseKey, rootKeyStore, userId]
   );
 
   // Mark the conversation read when it opens and when the peer sends while
@@ -342,7 +465,19 @@ export function MessageThread({
     [conversationId, queryClient, scheduleRead, user?.id]
   );
 
-  useMessagesRealtime(conversationId, handleEvent, Boolean(user));
+  useMessagesRealtime(
+    conversationId,
+    handleEvent,
+    Boolean(user),
+    // Catch up on messages published while the stream was down (mobile
+    // network drops). Event folds keep the cache fresh otherwise, so no
+    // per-message refetch storm.
+    useCallback(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ["messages", conversationId],
+      });
+    }, [conversationId, queryClient])
+  );
 
   // Clear the typing timer when the thread unmounts.
   useEffect(
@@ -353,52 +488,6 @@ export function MessageThread({
     },
     []
   );
-
-  // Track whether the user is reading near the bottom, so a new message pins
-  // the scroll but a prepended older page does not yank the viewport.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
-      return;
-    }
-    const measure = () => {
-      pinnedToBottomRef.current =
-        el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    };
-    measure();
-    el.addEventListener("scroll", measure, { passive: true });
-    return () => el.removeEventListener("scroll", measure);
-  }, []);
-
-  // Keep the scroll pinned to the bottom for new messages and the typing
-  // indicator. When the user has scrolled up, or an older page is being
-  // fetched, preserve the viewport instead: offset by the height that grew
-  // above (prepended history / decrypted bubbles resizing) so the same
-  // messages stay in view.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
-      prevScrollHeightRef.current = 0;
-      return;
-    }
-    const previousHeight = prevScrollHeightRef.current;
-    prevScrollHeightRef.current = el.scrollHeight;
-    const fetchingOlder = messagesQuery.isFetchingPreviousPage;
-
-    if (pinnedToBottomRef.current && !fetchingOlder) {
-      el.scrollTop = el.scrollHeight;
-      return;
-    }
-    if (previousHeight > 0 && !fetchingOlder) {
-      el.scrollTop += el.scrollHeight - previousHeight;
-    }
-  }, [
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- trigger-only deps: the body reads refs (scroll element, pinned flag, prior height), so message count, decrypted results, and the typing flag exist solely to re-run scroll preservation
-    allMessages.length,
-    decrypted,
-    messagesQuery.isFetchingPreviousPage,
-    peerTyping,
-  ]);
 
   if (!detail) {
     return <MessageThreadSkeleton />;
@@ -416,84 +505,80 @@ export function MessageThread({
         privateKey={privateKey}
       />
 
-      <div
-        className="hide-native-scrollbar flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-4"
-        ref={scrollRef}
-      >
-        {messagesQuery.hasPreviousPage ? (
-          <button
-            className="text-muted-foreground hover:text-foreground mx-auto text-xs font-medium transition-colors"
-            onClick={() => {
-              void messagesQuery.fetchPreviousPage();
-            }}
-            type="button"
-          >
-            Load older messages
-          </button>
-        ) : null}
-
-        {allMessages.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <div className="px-6 py-5">
-              <p className="text-muted-foreground text-sm">
-                Say hi to {peer?.displayName ?? "them"}
-              </p>
-              <p className="text-muted-foreground/70 mt-1 text-xs">
-                Messages here are end-to-end encrypted.
-              </p>
+      <div className="relative min-h-0 flex-1">
+        <div
+          className="hide-native-scrollbar h-full overflow-y-auto"
+          ref={scrollRef}
+        >
+          {allMessages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <div className="px-6 py-5">
+                <p className="text-muted-foreground text-sm">
+                  Say hi to {peer?.displayName ?? "them"}
+                </p>
+                <p className="text-muted-foreground/70 mt-1 text-xs">
+                  Messages here are end-to-end encrypted.
+                </p>
+              </div>
             </div>
-          </div>
-        ) : (
-          allMessages.map((message) => {
-            const decryptedPayload = decrypted[message.id];
-            return (
-              <MessageBubble
-                content={
-                  decryptedPayload &&
-                  decryptedPayload !== "error" &&
-                  decryptedPayload !== "pending"
-                    ? decryptedPayload
-                    : null
+          ) : (
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                position: "relative",
+                width: "100%",
+              }}
+            >
+              {virtualItems.map((virtualItem) => {
+                const message = allMessages[virtualItem.index];
+                if (!message) {
+                  return null;
                 }
-                isDecrypting={decryptedPayload === "pending"}
-                key={message.id}
-                message={message}
-                myUserId={user?.id ?? ""}
-                onReply={() => {
-                  const payload = decrypted[message.id];
-                  setReplyTarget({
-                    content: replyPreview(payload),
-                    id: message.id,
-                    senderId: message.senderId,
-                    senderName:
-                      message.senderId === user?.id
-                        ? "You"
-                        : (message.sender?.displayName ??
-                          peer?.displayName ??
-                          "them"),
-                  });
-                }}
-                peerName={peer?.displayName ?? "them"}
-                quote={replyQuoteFor(message)}
-              />
-            );
-          })
-        )}
+                const payload = messageDecryptor.get(message.id);
+                const replyToId =
+                  payload && payload !== "error" && payload !== "pending"
+                    ? payload.replyToId
+                    : undefined;
+                const parent = replyToId
+                  ? messagesById.get(replyToId)
+                  : undefined;
+                return (
+                  <div
+                    data-index={virtualItem.index}
+                    key={virtualItem.key}
+                    ref={rowVirtualizer.measureElement}
+                    style={{
+                      left: 0,
+                      position: "absolute",
+                      top: 0,
+                      transform: `translateY(${virtualItem.start}px)`,
+                      width: "100%",
+                    }}
+                  >
+                    <VirtualRow
+                      message={message}
+                      myUserId={userId ?? ""}
+                      onReply={handleReply}
+                      onRetry={retryDecrypt}
+                      parent={parent}
+                      parentPayload={
+                        parent ? messageDecryptor.get(parent.id) : undefined
+                      }
+                      payload={payload}
+                      peerName={peer?.displayName ?? "them"}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {peerTyping ? (
-          <div className="flex justify-start">
+          <div className="pointer-events-none absolute bottom-2 left-4">
             <div className="bg-muted/40 rounded-2xl rounded-bl-md px-3.5 py-2.5">
               <TypingDots />
             </div>
-          </div>
-        ) : null}
-
-        {pendingCount > 0 ? (
-          <div className="text-muted-foreground flex items-center justify-center gap-1.5 py-2 text-xs">
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            {pendingCount === 1
-              ? "Decrypting a message…"
-              : `Decrypting ${pendingCount} messages…`}
           </div>
         ) : null}
       </div>
@@ -507,6 +592,138 @@ export function MessageThread({
     </div>
   );
 }
+
+interface VirtualRowProps {
+  message: MessageData;
+  myUserId: string;
+  onReply: (message: MessageData) => void;
+  onRetry: (message: MessageData) => void;
+  parent: MessageData | undefined;
+  parentPayload: DecryptEntry | undefined;
+  payload: DecryptEntry | undefined;
+  peerName: string;
+}
+
+// One virtualized transcript row. Memoized on its own payload (plus the
+// reply parent's) so a decrypt result re-renders only the rows it touches,
+// never the whole visible window.
+function VirtualRowInner({
+  message,
+  myUserId,
+  onReply,
+  onRetry,
+  parent,
+  parentPayload,
+  payload,
+  peerName,
+}: VirtualRowProps) {
+  const mine = message.senderId === myUserId;
+
+  const quote = useMemo(() => {
+    if (!payload || payload === "error" || payload === "pending") {
+      return null;
+    }
+    const { replyToId } = payload;
+    if (!replyToId || !parent) {
+      return null;
+    }
+    if (
+      !parentPayload ||
+      parentPayload === "error" ||
+      parentPayload === "pending"
+    ) {
+      return null;
+    }
+    return {
+      content: quoteContent(parent, parentPayload),
+      senderName:
+        parent.senderId === myUserId
+          ? "You"
+          : (parent.sender?.displayName ?? peerName),
+    };
+  }, [myUserId, parent, parentPayload, payload, peerName]);
+
+  if (message.deletedAt) {
+    return (
+      <div
+        className={cn(
+          "flex items-end gap-2 px-4 pb-1",
+          mine ? "justify-end" : "justify-start"
+        )}
+      >
+        {mine ? null : (
+          <UserAvatar avatarUrl={message.sender?.avatarUrl ?? null} size={28} />
+        )}
+        <div className="text-muted-foreground/60 border-border/40 my-0.5 max-w-[85%] min-w-0 rounded-2xl border border-dashed px-3.5 py-2 text-xs italic sm:max-w-[75%]">
+          This message was deleted
+        </div>
+      </div>
+    );
+  }
+
+  if (!payload || payload === "pending") {
+    return (
+      <div
+        className={cn(
+          "flex items-end gap-2 px-4 pb-1",
+          mine ? "justify-end" : "justify-start"
+        )}
+      >
+        {mine ? null : (
+          <div className="bg-muted/40 h-7 w-7 shrink-0 animate-pulse rounded-full" />
+        )}
+        <div
+          className={cn(
+            "h-9 w-48 animate-pulse rounded-2xl",
+            mine
+              ? "rounded-br-sm bg-current opacity-10"
+              : "bg-muted/40 rounded-bl-sm"
+          )}
+        />
+      </div>
+    );
+  }
+
+  if (payload === "error") {
+    return (
+      <div
+        className={cn(
+          "flex items-end gap-2 px-4 pb-1",
+          mine ? "justify-end" : "justify-start"
+        )}
+      >
+        <div className="border-border/60 bg-muted/30 flex max-w-[85%] items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs sm:max-w-[75%]">
+          <span className="text-muted-foreground italic">
+            Couldn&apos;t decrypt this message
+          </span>
+          <button
+            className="text-primary font-medium hover:underline"
+            onClick={() => onRetry(message)}
+            type="button"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="motion-safe:animate-in motion-safe:fade-in px-4 pb-1 duration-200">
+      <MessageBubble
+        content={payload}
+        isDecrypting={false}
+        message={message}
+        myUserId={myUserId}
+        onReply={() => onReply(message)}
+        peerName={peerName}
+        quote={quote}
+      />
+    </div>
+  );
+}
+
+const VirtualRow = memo(VirtualRowInner);
 
 function ThreadHeader({
   conversation,
@@ -711,9 +928,7 @@ function quoteContent(parent: MessageData, payload: MessagePayload): string {
 }
 
 // Short preview of a message shown in the composer's "Replying to" bar.
-function replyPreview(
-  payload: DecryptedCache[string] | undefined
-): string | undefined {
+function replyPreview(payload: DecryptEntry | undefined): string | undefined {
   if (!payload || payload === "error" || payload === "pending") {
     return undefined;
   }
