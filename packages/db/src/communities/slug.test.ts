@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { COMMUNITY_LIMITS } from "./constants";
 import {
   isReservedCommunitySlug,
   isValidCommunitySlug,
@@ -52,5 +53,35 @@ describe("community slug", () => {
 
   test("slugify output never exceeds the slug max", () => {
     expect(slugifyCommunityName("a".repeat(50)).length).toBeLessThanOrEqual(21);
+  });
+
+  test("slugify strips leading and trailing underscores", () => {
+    expect(slugifyCommunityName("___hackers___")).toBe("hackers");
+    expect(slugifyCommunityName("_a_")).toBe("a");
+    // Interior underscores are preserved.
+    expect(slugifyCommunityName("a__b")).toBe("a__b");
+  });
+
+  test("slugify returns empty for an all-underscore name", () => {
+    expect(slugifyCommunityName("___")).toBe("");
+    expect(slugifyCommunityName("_")).toBe("");
+  });
+
+  test("slugify stays linear on an interior underscore run", () => {
+    // The previous /^_+|_+$/ trim is polynomial: an interior run of
+    // underscores is matched by the trailing alternative `_+$`, whose anchor
+    // then fails, and the engine retries from every position in the run. An
+    // interior run is the worst case (an edge run is consumed by `^_+` and
+    // never reaches the trailing alternative). Verified quadratic before the
+    // index-scan rewrite (~470ms at 40k underscores, 4x per doubling); the
+    // rewrite is flat, so this must finish with wide headroom.
+    const pathological = `a${"_".repeat(100_000)}b`;
+    const started = performance.now();
+    // Interior underscores survive the trim, and the result is capped at the
+    // slug max, so the output is the truncated prefix.
+    expect(slugifyCommunityName(pathological)).toBe(
+      `a${"_".repeat(COMMUNITY_LIMITS.slugMax - 1)}`
+    );
+    expect(performance.now() - started).toBeLessThan(100);
   });
 });

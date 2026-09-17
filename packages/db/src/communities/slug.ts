@@ -70,11 +70,29 @@ export function isValidCommunitySlug(raw: string): boolean {
 
 // Turns a display name into a candidate slug. Falls back to an empty string so
 // the caller can prompt the user instead of shipping a broken address.
+//
+// The edge trim is an explicit index scan rather than `/^_+|_+$/`. The
+// alternation of two anchored `_+` quantifiers is a polynomial-backtracking
+// pattern (CodeQL: "polynomial regular expression used on uncontrolled data"):
+// an interior run of underscores is matched by `_+$`, whose anchor then fails,
+// so the engine retries from every position in the run - quadratic in the run
+// length. Walking the ends with two pointers is linear and cannot backtrack.
 export function slugifyCommunityName(name: string): string {
-  return normalizeCommunitySlug(name)
-    .replaceAll(/[^a-z0-9_]+/g, "_")
-    .replaceAll(/^_+|_+$/g, "")
-    .slice(0, COMMUNITY_LIMITS.slugMax);
+  const collapsed = normalizeCommunitySlug(name).replaceAll(
+    /[^a-z0-9_]+/g,
+    "_"
+  );
+
+  let start = 0;
+  let end = collapsed.length;
+  while (start < end && collapsed[start] === "_") {
+    start += 1;
+  }
+  while (end > start && collapsed[end - 1] === "_") {
+    end -= 1;
+  }
+
+  return collapsed.slice(start, end).slice(0, COMMUNITY_LIMITS.slugMax);
 }
 
 export const RESERVED_COMMUNITY_SLUG_LIST = [...RESERVED_COMMUNITY_SLUGS];
