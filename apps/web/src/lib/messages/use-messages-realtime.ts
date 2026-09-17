@@ -78,6 +78,31 @@ function openMessageStream(response: Response): ReadableStream<Uint8Array> {
   return response.body;
 }
 
+// Decides whether a (re)connect should trigger a catch-up refetch. Guards
+// against the fetch-overwrite race that made the transcript look different on
+// every open: an in-flight fetch must not be duplicated, and freshly written
+// data (mount fetch, recent SSE fold) needs no catch-up. Pure so the policy
+// is unit-tested independently of the stream.
+const CATCH_UP_MIN_AGE_MS = 10_000;
+
+export function shouldCatchUp(params: {
+  dataUpdatedAt: number;
+  isFetching: boolean;
+  minAgeMs?: number;
+  now: number;
+}): boolean {
+  if (params.isFetching) {
+    return false;
+  }
+  if (params.dataUpdatedAt <= 0) {
+    return true;
+  }
+  return (
+    params.now - params.dataUpdatedAt >=
+    (params.minAgeMs ?? CATCH_UP_MIN_AGE_MS)
+  );
+}
+
 // Splits one raw SSE frame ("event: x\ndata: y") into its type and payload.
 // Pure so the framing edge cases stay unit-testable without a stream.
 export function parseServerSentFrame(rawEvent: string): {
