@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@asm/ui/shadui/button";
 import { ArrowUp } from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";
@@ -28,13 +27,13 @@ const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
         initial={{ opacity: 0, scale: 0.5 }}
         transition={{ duration: 0.3 }}
       >
-        <Button
-          className="group bg-primary hover:bg-primary/90 relative h-16 w-16 overflow-hidden rounded-full p-2 transition-all duration-300"
+        <button
+          aria-label="Scroll to top"
+          className="btn-3d group relative flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-full p-2 transition-all duration-300 active:scale-95"
           onClick={scrollToTop}
-          size="icon"
-          variant="outline"
+          type="button"
         >
-          <ArrowUp className="text-primary-foreground absolute top-1/2 left-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 transform transition-all duration-300 group-hover:translate-y-[-200%]" />
+          <ArrowUp className="absolute top-1/2 left-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 transform text-white transition-all duration-300 group-hover:translate-y-[-200%]" />
           <div className="absolute inset-0 flex items-center justify-center">
             <motion.div
               animate={{ rotate: 360 }}
@@ -52,7 +51,7 @@ const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
                     id={circleId}
                   />
                 </defs>
-                <text className="fill-primary-foreground text-xs font-semibold uppercase">
+                <text className="fill-white text-xs font-semibold uppercase">
                   <textPath xlinkHref={`#${circleId}`}>
                     Scroll Up • Scroll Up • Scroll Up •
                   </textPath>
@@ -60,7 +59,7 @@ const ScrollUpButton: React.FC<ScrollUpButtonProps> = ({ isVisible }) => {
               </svg>
             </motion.div>
           </div>
-        </Button>
+        </button>
       </motion.div>
     </div>
   );
