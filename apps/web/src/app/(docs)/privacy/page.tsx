@@ -1,6 +1,7 @@
 import PrivacyPolicyPage from "./client-privacy";
 
 export const metadata = {
+  alternates: { canonical: "/privacy" },
   description:
     "Privacy policy and data handling practices for asocialmedia social media platform.",
   title: "Privacy Policy",

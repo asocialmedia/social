@@ -7,7 +7,7 @@ import {
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
 import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
@@ -66,7 +66,11 @@ async function getMetadataUser(username: string) {
   if (!user || user.id === SYSTEM_MODERATION_USER_ID) {
     return null;
   }
-  return user;
+  return {
+    ...user,
+    canonicalUsername: resolvedUsername.username,
+    isAlias: resolvedUsername.isAlias,
+  };
 }
 
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
@@ -75,7 +79,11 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const user = await getMetadataUser(username);
 
   if (!user) {
-    return { robots: { follow: false, index: false }, title: "User not found" };
+    notFound();
+  }
+
+  if (user.isAlias) {
+    permanentRedirect(`/users/${encodeURIComponent(user.canonicalUsername)}`);
   }
 
   const title = `${user.displayName} (@${user.username})`;
@@ -142,7 +150,9 @@ async function ProfileContent({ params }: PageProps) {
   ]);
 
   if (resolvedUser.redirectToCurrentUsername) {
-    redirect(`/users/${encodeURIComponent(resolvedUser.user.username)}`);
+    permanentRedirect(
+      `/users/${encodeURIComponent(resolvedUser.user.username)}`
+    );
   }
   const userData = resolvedUser.user;
 

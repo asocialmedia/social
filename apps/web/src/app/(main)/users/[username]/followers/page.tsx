@@ -1,4 +1,5 @@
 import { getUserDataSelect, prisma, resolveUsername } from "@asm/db";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { cache, Suspense } from "react";
 
@@ -7,6 +8,13 @@ import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 
 import FollowersFollowingPage from "./followers-following-page";
+
+export const metadata: Metadata = {
+  robots: {
+    follow: false,
+    index: false,
+  },
+};
 
 interface PageProps {
   params: Promise<{ username: string }>;

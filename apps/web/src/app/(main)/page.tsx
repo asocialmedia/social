@@ -7,6 +7,7 @@ import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
+import { getPostPath, getPostUrl } from "@/lib/seo/seo";
 
 import ClientHome from "./client-home";
 
@@ -15,23 +16,26 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   description:
-    "Browse the global feed on asocialmedia — a cozy, open source social platform. See what's trending, explore hashtags, and read the conversation without an account.",
+    "asocialmedia (asocialmedia.cc) is an open source social media platform. Browse the global feed, join communities, share posts, and follow conversations without an account.",
   keywords: [
     "asocialmedia",
+    "asocialmedia.cc",
+    "asocial media",
     "global feed",
     "trending",
     "social feed",
     "open source social media",
+    "developer community",
   ],
   openGraph: {
     description:
       "Browse the global feed on asocialmedia — a cozy, open source social platform. See what's trending and join the conversation.",
     siteName: siteConfig.name,
-    title: siteConfig.name,
+    title: `${siteConfig.name} — Open Source Social Media Platform`,
     type: "website",
+    url: siteConfig.url,
   },
-  // No explicit title: the root layout's default (`%s` template) already
-  // brands the home page without doubling it.
+  title: `${siteConfig.name} — Open Source Social Media Platform`,
 };
 
 // The page shell is synchronous so the router can stream it immediately; the
@@ -66,7 +70,7 @@ async function HomeContent() {
           itemListElement: recentPosts.slice(0, 10).map((post, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            url: `${siteConfig.url}/posts/${post.id}`,
+            url: getPostUrl(post),
           })),
           name: "Latest eddies on asocialmedia",
           numberOfItems: recentPosts.length,
@@ -78,13 +82,18 @@ async function HomeContent() {
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
       <ClientHome userData={userData} />
       {/* Visually hidden but present in raw HTML for crawlers / no-JS.
-          No ugly visible block - other agent owns the SSR feed visuals. */}
+          Contains brand H1 and canonical crawl links. */}
       <div className="sr-only" aria-hidden={false}>
+        <h1>asocialmedia — Open Source Social Media Platform</h1>
+        <p>
+          Welcome to asocialmedia (asocialmedia.cc). A cozy, open source social
+          platform to share posts, follow communities, and discover discussions.
+        </p>
         <nav aria-label="Latest eddies">
           <ul>
             {recentPosts.map((post) => (
               <li key={post.id}>
-                <a href={`/posts/${post.id}`} tabIndex={-1}>
+                <a href={getPostPath(post)} tabIndex={-1}>
                   {post.content || post.id}
                 </a>
               </li>
@@ -99,7 +108,7 @@ async function HomeContent() {
             {recentPosts.slice(0, 10).map((p, i) => (
               <span key={p.id}>
                 {i > 0 ? ", " : ""}
-                <a href={`/posts/${p.id}`}>{p.content || p.id}</a>
+                <a href={getPostPath(p)}>{p.content || p.id}</a>
               </span>
             ))}
           </p>

@@ -123,7 +123,7 @@ export function CrawlableList({
           <li key={post.id}>
             <Link
               className="text-muted-foreground hover:text-foreground block truncate text-xs underline-offset-4 hover:underline"
-              href={gust ? `/gusts?id=${post.id}` : `/posts/${post.id}`}
+              href={gust ? `/gusts?id=${post.id}` : getPostPath(post)}
             >
               @{post.username}: {post.content || "View post"}
             </Link>

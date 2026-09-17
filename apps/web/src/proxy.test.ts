@@ -1,10 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import * as actualDb from "@asm/db";
 import { NextRequest } from "next/server";
 
 // The proxy's API guard calls consumeRateLimit (@asm/db -> ioredis). Unit
 // tests here must not touch Redis: fail-open is the contract under test.
 mock.module("@asm/db", () => ({
+  ...actualDb,
   consumeRateLimit: mock(() => ({
     allowed: true,
     remaining: 99,
@@ -168,6 +170,25 @@ describe("proxy middleware", () => {
         process.env.ENFORCE_CLOUDFLARE = originalFlag;
       }
     }
+  });
+
+  test("allows public media read endpoints without same-origin evidence and sets x-robots-tag noindex", async () => {
+    const avatarReq = makeRequest(
+      "http://localhost:3000/api/users/avatar/user123/image",
+      {
+        host: "localhost:3000",
+      }
+    );
+    const avatarRes = await proxy(avatarReq);
+    expect(avatarRes.status).toBe(200);
+    expect(avatarRes.headers.get("x-robots-tag")).toBe("noindex");
+
+    const mediaReq = makeRequest("http://localhost:3000/api/media/med123", {
+      host: "localhost:3000",
+    });
+    const mediaRes = await proxy(mediaReq);
+    expect(mediaRes.status).toBe(200);
+    expect(mediaRes.headers.get("x-robots-tag")).toBe("noindex");
   });
 });
 

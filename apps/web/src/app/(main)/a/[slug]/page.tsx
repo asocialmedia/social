@@ -41,7 +41,7 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const community = await getMetadataCommunity(slug);
 
   if (!community) {
-    return { robots: { follow: false, index: false }, title: "Not found" };
+    notFound();
   }
 
   const title = `a/${community.slug} · ${community.name}`;

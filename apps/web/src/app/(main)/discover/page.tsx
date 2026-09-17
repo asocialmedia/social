@@ -1,4 +1,3 @@
-import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -10,8 +9,10 @@ import {
   getRecentPostsForCrawl,
   getTrendingPostsForCrawl,
 } from "@/lib/posts/server-feed";
+import { getPostPath, getPostUrl } from "@/lib/seo/seo";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/discover" },
   description: "Discover and connect with amazing people on asocialmedia",
   title: "Explore",
 };
@@ -39,7 +40,7 @@ async function DiscoveryContent() {
           itemListElement: trendingPosts.slice(0, 10).map((post, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            url: `${siteConfig.url}/posts/${post.id}`,
+            url: getPostUrl(post),
           })),
           name: "Trending on asocialmedia",
           numberOfItems: trendingPosts.length,
@@ -56,7 +57,7 @@ async function DiscoveryContent() {
           <ul>
             {trendingPosts.map((p) => (
               <li key={p.id}>
-                <a href={`/posts/${p.id}`} tabIndex={-1}>
+                <a href={getPostPath(p)} tabIndex={-1}>
                   {p.content || p.id}
                 </a>
               </li>
@@ -67,7 +68,7 @@ async function DiscoveryContent() {
           <ul>
             {recentPosts.map((p) => (
               <li key={p.id}>
-                <a href={`/posts/${p.id}`} tabIndex={-1}>
+                <a href={getPostPath(p)} tabIndex={-1}>
                   {p.content || p.id}
                 </a>
               </li>

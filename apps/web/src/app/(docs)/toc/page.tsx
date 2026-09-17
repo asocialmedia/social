@@ -1,6 +1,7 @@
 import TermsPage from "./client-toc";
 
 export const metadata = {
+  alternates: { canonical: "/toc" },
   description:
     "Terms and conditions for using asocialmedia social media platform.",
   title: "Terms and Conditions",

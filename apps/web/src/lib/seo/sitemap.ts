@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { prisma, SYSTEM_MODERATION_USER_ID } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { getPostUrl } from "@/lib/seo/seo";
@@ -107,7 +107,15 @@ export function buildSitemapIndexXml(entries: SitemapEntry[]): string {
 // Hand-picked crawlable public pages. Login, signup, and HackerNews are
 // deliberately absent: auth pages are noindexed and HackerNews redirects
 // guests to login, so listing them only burns crawl budget.
-const CORE_PATHS = ["", "/discover", "/gusts"] as const;
+const CORE_PATHS = [
+  "",
+  "/discover",
+  "/gusts",
+  "/communities",
+  "/privacy",
+  "/toc",
+  "/support",
+] as const;
 
 // oxlint-disable-next-line require-await -- kept async for Promise-return consistency with DB-backed siblings
 async function getCoreEntries(): Promise<SitemapEntry[]> {
@@ -198,7 +206,10 @@ async function getUserEntries(): Promise<SitemapEntry[]> {
     orderBy: { updatedAt: "desc" },
     select: { updatedAt: true, username: true },
     take: SITEMAP_URL_LIMIT,
-    where: { banned: false },
+    where: {
+      banned: false,
+      id: { not: SYSTEM_MODERATION_USER_ID },
+    },
   });
 
   return users.map((user) => ({

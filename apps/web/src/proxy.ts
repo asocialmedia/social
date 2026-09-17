@@ -48,13 +48,35 @@ const SAME_ORIGIN_EXEMPT_PATHS = [
   "/api/auth/verify-email",
 ];
 
-function isSameOriginExemptPath(pathname: string): boolean {
-  return SAME_ORIGIN_EXEMPT_PATHS.some(
+// Public media and avatar streaming endpoints that search engines, social bots,
+// and external link previews must be able to fetch via GET/HEAD without 403s.
+const PUBLIC_MEDIA_READ_PREFIXES = [
+  "/api/media/",
+  "/api/users/avatar/",
+  "/api/users/banner/",
+  "/api/communities/avatar/",
+  "/api/communities/banner/",
+  "/api/link-preview/image",
+];
+
+function isSameOriginExemptRequest(pathname: string, method: string): boolean {
+  const isStaticExempt = SAME_ORIGIN_EXEMPT_PATHS.some(
     (exempt) =>
       pathname === exempt ||
       pathname.startsWith(`${exempt}/`) ||
       (exempt.endsWith("/") && pathname.startsWith(exempt))
   );
+  if (isStaticExempt) {
+    return true;
+  }
+
+  if (method === "GET" || method === "HEAD") {
+    return PUBLIC_MEDIA_READ_PREFIXES.some((prefix) =>
+      pathname.startsWith(prefix)
+    );
+  }
+
+  return false;
 }
 
 function hostOfUrlString(value: string | null): string | null {
@@ -224,7 +246,7 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith(API_PATH_PREFIX) &&
     !isLoopback &&
     request.method !== "OPTIONS" &&
-    !isSameOriginExemptPath(request.nextUrl.pathname) &&
+    !isSameOriginExemptRequest(request.nextUrl.pathname, request.method) &&
     !hasSameOriginEvidence(request)
   ) {
     return withSecurityHeaders(
@@ -240,7 +262,17 @@ export async function proxy(request: NextRequest) {
     return withSecurityHeaders(guard.response);
   }
 
-  return withSecurityHeaders(NextResponse.next());
+  const response = withSecurityHeaders(NextResponse.next());
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    PUBLIC_MEDIA_READ_PREFIXES.some((prefix) =>
+      request.nextUrl.pathname.startsWith(prefix)
+    )
+  ) {
+    response.headers.set("x-robots-tag", "noindex");
+  }
+
+  return response;
 }
 
 export const config = {
