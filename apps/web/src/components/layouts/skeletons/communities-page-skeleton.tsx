@@ -64,56 +64,58 @@ const CommunitiesPageSkeleton: React.FC = () => (
       {/* Mobile top bar */}
       <Skeleton className="h-12 w-full shrink-0 rounded-none lg:hidden" />
 
-      {/* Sticky category strip */}
-      <div className="flex shrink-0 gap-1.5 px-8 py-2.5">
-        {["w-16", "w-24", "w-32", "w-20", "w-28", "w-36", "w-24", "w-20"].map(
-          (width, index) => (
-            <Skeleton
-              className={`h-8 shrink-0 rounded-lg ${width}`}
-              key={`cat-${index}`}
-            />
-          )
-        )}
-      </div>
+      <div className="hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-24 lg:pb-0">
+        {/* Sticky category strip */}
+        <div className="flex shrink-0 gap-1.5 px-8 py-1.5 sm:py-2.5">
+          {["w-16", "w-24", "w-32", "w-20", "w-28", "w-36", "w-24", "w-20"].map(
+            (width, index) => (
+              <Skeleton
+                className={`h-8 shrink-0 rounded-lg ${width}`}
+                key={`cat-${index}`}
+              />
+            )
+          )}
+        </div>
 
-      {/* Hero statement + action, then the search field */}
-      <div className="px-8 pt-8 pb-6">
-        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
-          <div className="min-w-0 space-y-2.5">
-            <Skeleton className="h-8 w-52 rounded-md sm:h-10 sm:w-64" />
-            <Skeleton className="h-8 w-44 rounded-md sm:h-10 sm:w-56" />
-            <Skeleton className="h-4 w-72 max-w-full rounded-md" />
-          </div>
-          <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
-            <Skeleton className="h-4 w-40 rounded-md" />
-            <Skeleton className="h-11 w-44 rounded-lg" />
+        {/* Hero statement + action, then the search field */}
+        <div className="px-8 pt-8 pb-6">
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-5">
+            <div className="min-w-0 space-y-2.5">
+              <Skeleton className="h-8 w-52 rounded-md sm:h-10 sm:w-64" />
+              <Skeleton className="h-8 w-44 rounded-md sm:h-10 sm:w-56" />
+              <Skeleton className="h-4 w-72 max-w-full rounded-md" />
+            </div>
+            <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
+              <Skeleton className="h-4 w-40 rounded-md" />
+              <Skeleton className="h-11 w-44 rounded-lg" />
+            </div>
           </div>
         </div>
-      </div>
-      <div className="px-8 pb-8">
-        <Skeleton className="h-12 w-full rounded-[14px]" />
-      </div>
-
-      {/* Curated rails */}
-      <div className="flex flex-col gap-8 pb-8">
-        <CommunityRailSkeleton />
-        <CommunityRailSkeleton />
-      </div>
-      <div className="pt-8 pb-9">
-        <CommunityRailSkeleton cards={3} />
-      </div>
-
-      {/* Browse grid */}
-      <div className="px-8 pb-10">
-        <div className="mb-3 flex items-center gap-2.5">
-          <Skeleton className="size-5 rounded-md" />
-          <Skeleton className="h-5 w-36 rounded-md" />
+        <div className="px-8 pb-8">
+          <Skeleton className="h-12 w-full rounded-[14px]" />
         </div>
-        <Skeleton className="mb-3 h-4 w-28 rounded-md" />
-        <div className="community-grid">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <CommunityCardSkeleton key={`grid-card-${index}`} />
-          ))}
+
+        {/* Curated rails */}
+        <div className="flex flex-col gap-8 pb-8">
+          <CommunityRailSkeleton />
+          <CommunityRailSkeleton />
+        </div>
+        <div className="pt-8 pb-9">
+          <CommunityRailSkeleton cards={3} />
+        </div>
+
+        {/* Browse grid */}
+        <div className="px-8 pb-4 sm:pb-10">
+          <div className="mb-3 flex items-center gap-2.5">
+            <Skeleton className="size-5 rounded-md" />
+            <Skeleton className="h-5 w-36 rounded-md" />
+          </div>
+          <Skeleton className="mb-3 h-4 w-28 rounded-md" />
+          <div className="community-grid">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <CommunityCardSkeleton key={`grid-card-${index}`} />
+            ))}
+          </div>
         </div>
       </div>
     </div>

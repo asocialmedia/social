@@ -19,9 +19,9 @@ test-timings.json
 
 # Turbo
 .turbo
-.kiro
 .cache
 .codex
+.pi
 
 # Vercel
 .vercel

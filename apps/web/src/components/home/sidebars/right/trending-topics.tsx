@@ -183,7 +183,7 @@ const TrendingTopics: React.FC = () => {
       {!isError && topAura.length > 0 ? (
         <>
           <div className="border-border/60 mt-2 flex items-center gap-2 border-t px-2 pt-2 pb-1">
-            <Flame className="h-4 w-4 shrink-0 text-orange-500" />
+            <Flame className="h-4 w-4 shrink-0 fill-red-500 text-red-500" />
             <h3 className="text-sm font-semibold">Top Aura</h3>
           </div>
           <div className="flex flex-col gap-0.5">
