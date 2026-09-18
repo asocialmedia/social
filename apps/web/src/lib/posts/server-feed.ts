@@ -14,6 +14,9 @@ import { excerpt, getPostUrl, getShortPostId } from "@/lib/seo/seo";
 
 export interface CrawlPost {
   aura: number;
+  // The owning community, so a community post's crawlable link is its canonical
+  // /a/<slug>/posts/... address instead of a /posts/... URL that only redirects.
+  community?: { slug: string } | null;
   content: string;
   createdAt: Date;
   id: string;
@@ -21,16 +24,40 @@ export interface CrawlPost {
   displayName: string;
 }
 
+// Shared projection for the non-gust crawl queries: the fields the CrawlPost
+// shape needs, plus the community slug for canonical links.
+const CRAWL_POST_SELECT = {
+  aura: true,
+  community: { select: { slug: true } },
+  content: true,
+  createdAt: true,
+  id: true,
+  user: { select: { displayName: true, username: true } },
+} as const;
+
+function toCrawlPost(p: {
+  aura: number;
+  community: { slug: string } | null;
+  content: string | null;
+  createdAt: Date;
+  id: string;
+  user: { displayName: string | null; username: string } | null;
+}): CrawlPost {
+  return {
+    aura: p.aura,
+    community: p.community,
+    content: excerpt(p.content ?? "", 80),
+    createdAt: p.createdAt,
+    displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
+    id: p.id,
+    username: p.user?.username ?? "unknown",
+  };
+}
+
 export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
   const posts = await prisma.post.findMany({
     orderBy: { createdAt: "desc" },
-    select: {
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      user: { select: { displayName: true, username: true } },
-    },
+    select: CRAWL_POST_SELECT,
     take: limit,
     where: {
       isGust: false,
@@ -41,14 +68,7 @@ export async function getRecentPostsForCrawl(limit = 20): Promise<CrawlPost[]> {
     },
   });
 
-  return posts.map((p) => ({
-    aura: p.aura,
-    content: excerpt(p.content ?? "", 80),
-    createdAt: p.createdAt,
-    displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
-    id: p.id,
-    username: p.user?.username ?? "unknown",
-  }));
+  return posts.map(toCrawlPost);
 }
 
 export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
@@ -71,12 +91,7 @@ export async function getRecentGustsForCrawl(limit = 12): Promise<CrawlPost[]> {
   });
 
   return posts.map((p) => ({
-    aura: p.aura,
-    content: excerpt(p.content ?? "", 80),
-    createdAt: p.createdAt,
-    displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
-    id: p.id,
-    username: p.user?.username ?? "unknown",
+    ...toCrawlPost({ ...p, community: null }),
   }));
 }
 
@@ -86,13 +101,7 @@ export async function getTrendingPostsForCrawl(
   // Trending ranking mirrors the API fallback: order by trendingScore desc.
   const posts = await prisma.post.findMany({
     orderBy: [{ trendingScore: "desc" }, { id: "desc" }],
-    select: {
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      user: { select: { displayName: true, username: true } },
-    },
+    select: CRAWL_POST_SELECT,
     take: limit,
     where: {
       isGust: false,
@@ -103,14 +112,7 @@ export async function getTrendingPostsForCrawl(
     },
   });
 
-  return posts.map((p) => ({
-    aura: p.aura,
-    content: excerpt(p.content ?? "", 80),
-    createdAt: p.createdAt,
-    displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
-    id: p.id,
-    username: p.user?.username ?? "unknown",
-  }));
+  return posts.map(toCrawlPost);
 }
 
 export async function getHashtagPostsForCrawl(
@@ -119,13 +121,7 @@ export async function getHashtagPostsForCrawl(
 ): Promise<CrawlPost[]> {
   const posts = await prisma.post.findMany({
     orderBy: { createdAt: "desc" },
-    select: {
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      user: { select: { displayName: true, username: true } },
-    },
+    select: CRAWL_POST_SELECT,
     take: limit,
     where: {
       isGust: false,
@@ -137,14 +133,7 @@ export async function getHashtagPostsForCrawl(
     },
   });
 
-  return posts.map((p) => ({
-    aura: p.aura,
-    content: excerpt(p.content ?? "", 80),
-    createdAt: p.createdAt,
-    displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
-    id: p.id,
-    username: p.user?.username ?? "unknown",
-  }));
+  return posts.map(toCrawlPost);
 }
 
 export async function getUserPostsForCrawl(
@@ -153,13 +142,7 @@ export async function getUserPostsForCrawl(
 ): Promise<CrawlPost[]> {
   const posts = await prisma.post.findMany({
     orderBy: { createdAt: "desc" },
-    select: {
-      aura: true,
-      content: true,
-      createdAt: true,
-      id: true,
-      user: { select: { displayName: true, username: true } },
-    },
+    select: CRAWL_POST_SELECT,
     take: limit,
     where: {
       isGust: false,
@@ -171,14 +154,7 @@ export async function getUserPostsForCrawl(
     },
   });
 
-  return posts.map((p) => ({
-    aura: p.aura,
-    content: excerpt(p.content ?? "", 80),
-    createdAt: p.createdAt,
-    displayName: p.user?.displayName ?? p.user?.username ?? "Anonymous",
-    id: p.id,
-    username: p.user?.username ?? "unknown",
-  }));
+  return posts.map(toCrawlPost);
 }
 
 // For rich SSR where the client expects full PostData (not just crawl links),
@@ -208,6 +184,36 @@ export function crawlPostHref(
     return `${siteConfig.url}/posts/${shortId}`;
   }
   return getPostUrl(post);
+}
+
+// Posts published into one community, projected for a crawlable link list on
+// the community page. The community slug rides along so each href is the
+// post's canonical /a/<slug>/posts/... address.
+export async function getCommunityPostsForCrawl(
+  community: { id: string; slug: string },
+  limit = 20
+): Promise<CrawlPost[]> {
+  const posts = await prisma.post.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      aura: true,
+      content: true,
+      createdAt: true,
+      id: true,
+      user: { select: { displayName: true, username: true } },
+    },
+    take: limit,
+    where: {
+      communityId: community.id,
+      isGust: false,
+      moderated: false,
+      user: { banned: false },
+    },
+  });
+
+  return posts.map((p) =>
+    toCrawlPost({ ...p, community: { slug: community.slug } })
+  );
 }
 
 export function gustHref(postId: string): string {

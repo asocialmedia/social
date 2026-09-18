@@ -73,11 +73,11 @@ export function useDeletePostMutation() {
       });
 
       const shortId = getShortPostId(deletedPost.id);
+      // Matches both the global /posts/<id> path and a community post's nested
+      // /a/<slug>/posts/<id> path, on the detail page or any of its subpaths.
       const isPostPage =
-        pathname === `/posts/${shortId}` ||
-        pathname?.startsWith(`/posts/${shortId}/`) ||
-        pathname === `/posts/${deletedPost.id}` ||
-        pathname?.startsWith(`/posts/${deletedPost.id}/`);
+        pathname?.includes(`/posts/${shortId}`) ||
+        pathname?.includes(`/posts/${deletedPost.id}`);
 
       if (isPostPage) {
         if (deletedPost.user?.username) {

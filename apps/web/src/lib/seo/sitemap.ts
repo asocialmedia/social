@@ -137,7 +137,13 @@ async function getCoreEntries(): Promise<SitemapEntry[]> {
 // posts that have substance or visual content.
 async function getPostEntries(): Promise<SitemapEntry[]> {
   const posts = await prisma.post.findMany({
-    include: { attachments: { where: { status: "READY" as const } } },
+    // The community slug is required so a community post's sitemap URL is its
+    // canonical /a/<slug>/posts/... address, not the global one it redirects
+    // away from.
+    include: {
+      attachments: { where: { status: "READY" as const } },
+      community: { select: { slug: true } },
+    },
     orderBy: { createdAt: "desc" },
     take: SITEMAP_URL_LIMIT,
     where: {
@@ -238,18 +244,52 @@ async function getTagEntries(): Promise<SitemapEntry[]> {
   }));
 }
 
+interface CommunityActivityRow {
+  // GREATEST(...) of the community's own updatedAt and its newest post.
+  lastmod: Date;
+  slug: string;
+}
+
+// Public communities, freshest activity first. `lastmod` is the later of the
+// community's own updatedAt and its newest visible post's createdAt: a
+// community that only gained posts still reads as changed, which `updatedAt`
+// alone cannot express (inserting a post does not touch the community row).
+//
+// The newest post per community is fetched with a LATERAL subquery, not a
+// GROUP BY over the whole posts table: each lateral probe is an index read
+// (ORDER BY createdAt DESC LIMIT 1 on the (communityId, createdAt) index), so
+// the work is proportional to the number of communities in the window rather
+// than to their entire post history. The route that serves this is CDN-cached.
+async function getCommunityActivity(
+  limit: number
+): Promise<CommunityActivityRow[]> {
+  return await prisma.$queryRaw<CommunityActivityRow[]>`
+    SELECT
+      c."slug" AS slug,
+      GREATEST(c."updatedAt", COALESCE(newest."createdAt", c."updatedAt")) AS lastmod
+    FROM "communities" c
+    LEFT JOIN LATERAL (
+      SELECT p."createdAt"
+      FROM "posts" p
+      WHERE p."communityId" = c."id"
+        AND p."isGust" = false
+        AND p."moderated" = false
+      ORDER BY p."createdAt" DESC
+      LIMIT 1
+    ) AS newest ON true
+    WHERE c."type" <> 'PRIVATE'::"CommunityType"
+    ORDER BY lastmod DESC
+    LIMIT ${limit}
+  `;
+}
+
 // Public communities only; private communities are not discoverable and must
 // not leak into the crawl graph.
 async function getCommunityEntries(): Promise<SitemapEntry[]> {
-  const communities = await prisma.community.findMany({
-    orderBy: { updatedAt: "desc" },
-    select: { slug: true, updatedAt: true },
-    take: SITEMAP_URL_LIMIT,
-    where: { type: { not: "PRIVATE" } },
-  });
+  const communities = await getCommunityActivity(SITEMAP_URL_LIMIT);
 
   return communities.map((community) => ({
-    lastModified: community.updatedAt,
+    lastModified: community.lastmod,
     url: `${siteConfig.url}/a/${community.slug}`,
   }));
 }
@@ -314,13 +354,10 @@ export async function getSitemapLastModified(
       return latest?.updatedAt;
     }
     case "communities": {
-      const [latest] = await prisma.community.findMany({
-        orderBy: { updatedAt: "desc" },
-        select: { updatedAt: true },
-        take: 1,
-        where: { type: { not: "PRIVATE" } },
-      });
-      return latest?.updatedAt;
+      // The child sitemap's own head, so the index lastmod matches the freshest
+      // community entry rather than the newest community-row edit.
+      const [latest] = await getCommunityActivity(1);
+      return latest?.lastmod;
     }
     default: {
       return undefined;

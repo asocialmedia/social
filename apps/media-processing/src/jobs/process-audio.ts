@@ -301,6 +301,8 @@ async function extractWaveformPeaks(
       "-hide_banner",
       "-loglevel",
       "error",
+      "-protocol_whitelist",
+      "file,crypto,data",
       "-i",
       sourcePath,
       "-ac",

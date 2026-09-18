@@ -34,13 +34,39 @@ export default function Page() {
     "@type": "CollectionPage",
     description:
       "Browse communities on asocialmedia, organised by topic and interest.",
+    inLanguage: "en",
+    isPartOf: {
+      "@type": "WebSite",
+      name: siteConfig.name,
+      url: siteConfig.url,
+    },
     name: "Communities on asocialmedia",
     url: `${siteConfig.url}/communities`,
   };
 
+  // Home > Communities, matching the community page's deeper breadcrumb.
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        item: siteConfig.url,
+        name: "Home",
+        position: 1,
+      },
+      {
+        "@type": "ListItem",
+        item: `${siteConfig.url}/communities`,
+        name: "Communities",
+        position: 2,
+      },
+    ],
+  };
+
   return (
     <Suspense>
-      <JsonLd data={itemListJsonLd} />
+      <JsonLd data={[itemListJsonLd, breadcrumbJsonLd]} />
       <ClientComm />
     </Suspense>
   );

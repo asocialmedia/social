@@ -1,4 +1,4 @@
-import { MediaType, prisma } from "@asm/db";
+import { communityVisibilityWhere, MediaType, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -24,6 +24,9 @@ export async function GET(
       // the moderated banner.
       post: {
         select: {
+          // The community slug lets the gallery open a community post's media
+          // at its canonical /a/<slug>/posts/.../media/... address.
+          community: { select: { slug: true } },
           explicitContent: true,
           id: true,
           isGust: true,
@@ -34,7 +37,10 @@ export async function GET(
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: pageSize + 1,
     where: {
-      post: { userId },
+      post: {
+        userId,
+        ...communityVisibilityWhere(session.user.id),
+      },
       type: {
         in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
       },

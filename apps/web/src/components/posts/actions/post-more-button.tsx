@@ -16,16 +16,24 @@ import {
   Trash2,
 } from "lucide-react";
 import type * as React from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { markRecommendationNotInterested } from "@/components/recommendations/recommendation-tracker";
+import {
+  clearRecommendationNotInterested,
+  markRecommendationNotInterested,
+} from "@/components/recommendations/recommendation-tracker";
 import { PostMetaEditorDialog } from "@/components/tags/post-meta-editor-dialog";
+import { useToast } from "@/lib/gooey-toast";
 import { canModeratePost } from "@/lib/moderation/moderation";
 import { setPopupOpen } from "@/lib/popup-tracker";
 import { toggleAltReveal, useAltRevealed } from "@/lib/stores/alt-reveal-store";
 import { useVideoCaptionsStore } from "@/lib/stores/video-captions-store";
 import { cn } from "@/lib/utils";
+import {
+  useHideRecommendationPostMutation,
+  useUnhideRecommendationPostMutation,
+} from "@/recommendations/mutations";
 import { useComposerStore } from "@/store/composer-store";
 
 import DeletePostDialog from "./delete-post-dialog";
@@ -49,9 +57,15 @@ export default function PostMoreButton({
   extraItems,
 }: PostMoreButtonProps) {
   const { user } = useSession();
+  const { toast } = useToast();
   const openComposerForCommunityShare = useComposerStore(
     (state) => state.openComposerForCommunityShare
   );
+  const hideMutation = useHideRecommendationPostMutation();
+  const unhideMutation = useUnhideRecommendationPostMutation();
+  // The in-flight durable hide per post, so Undo can wait for it before
+  // un-hiding (see handleNotInterested).
+  const pendingHideRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showModerationDialog, setShowModerationDialog] = useState(false);
@@ -141,11 +155,50 @@ export default function PostMoreButton({
   const handleNotInterested = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      // Hide everywhere immediately, then persist. The toast's Undo reverses
+      // both the local hide and the server write, so a mis-tap costs nothing.
       markRecommendationNotInterested(post.id);
+      // Never-rejecting wrapper: the durable write is best-effort (the local
+      // hide already applied) and Undo awaits it, so a rejection must not
+      // surface as an unhandled promise.
+      const hidePromise = (async () => {
+        try {
+          await hideMutation.mutateAsync(post.id);
+        } catch {
+          // Local hide stands; the server write is best-effort.
+        }
+      })();
+      pendingHideRef.current.set(post.id, hidePromise);
       setIsOpen(false);
       setPopupOpen(false);
+      toast({
+        button: {
+          onClick: () => {
+            // Undo must not overtake the hide: run the un-hide only once the
+            // hide has settled, or a slow hide could land last and re-mark the
+            // post NOT_INTERESTED after the viewer undid it.
+            void (async () => {
+              clearRecommendationNotInterested(post.id);
+              const pending = pendingHideRef.current.get(post.id);
+              await pending;
+              // A newer hide may have replaced this one while we waited. Only
+              // clear the mapping and un-hide if this is still the latest hide
+              // for the post, otherwise the newer hide owns the lifecycle.
+              if (pendingHideRef.current.get(post.id) !== pending) {
+                return;
+              }
+              pendingHideRef.current.delete(post.id);
+              unhideMutation.mutate(post.id);
+            })();
+          },
+          title: "Undo",
+        },
+        description: "You'll see fewer posts like this.",
+        duration: 6000,
+        title: "Not interested",
+      });
     },
-    [post.id]
+    [hideMutation, post.id, toast, unhideMutation]
   );
 
   // Reshare a community post onto the global feed: opens the composer with the
@@ -187,10 +240,10 @@ export default function PostMoreButton({
             <MoreHorizontal className="size-4 sm:size-4.5" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="apple-panel p-1.5 shadow-none"
-        >
+        {/* `apple-panel` (deprecated, unlayered) used to sit here and fought
+            the primitive's `panel-3d` surface; dropping it lets the shared
+            3D recipe - and its now-rounded corners - apply. */}
+        <DropdownMenuContent align="end" className="p-1.5">
           {extraItems}
           {user && post.community && !post.moderated ? (
             <DropdownMenuItem

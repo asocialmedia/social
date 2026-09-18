@@ -53,6 +53,11 @@ export function getPostSlug(content?: string | null): string {
 
 export interface PostUrlTarget {
   content?: string | null;
+  // The owning community, when the post was published into one. Native
+  // community posts live under the community's own namespace
+  // (`/a/<slug>/posts/...`) rather than the global `/posts/...`; global posts
+  // and reshares carry no community here and keep the default path.
+  community?: { slug: string } | null;
   id: string;
   isGust?: boolean | null;
 }
@@ -62,6 +67,16 @@ export function getShortPostId(id: string): string {
     return "";
   }
   return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+// The URL prefix a post's detail/media URLs hang off. Community posts are
+// nested under the community so the address names the space they belong to;
+// everything else sits under /posts.
+function postPathPrefix(post: PostUrlTarget): string {
+  if (post.community?.slug) {
+    return `/a/${post.community.slug}/posts`;
+  }
+  return "/posts";
 }
 
 // Default URL uses short post ID (8-char prefix) with human-readable content slug
@@ -74,27 +89,30 @@ export function getPostPath(post: PostUrlTarget): string {
   }
   const shortId = getShortPostId(post.id);
   const slug = getPostSlug(post.content);
-  return slug ? `/posts/${shortId}/${slug}` : `/posts/${shortId}`;
+  return slug
+    ? `${postPathPrefix(post)}/${shortId}/${slug}`
+    : `${postPathPrefix(post)}/${shortId}`;
 }
 
 export function getPostUrl(post: PostUrlTarget): string {
   return absoluteUrl(getPostPath(post));
 }
 
-// Default post media URL uses short post ID (e.g. /posts/50769dc7/media/0)
+// Default post media URL uses short post ID (e.g. /posts/50769dc7/media/0, or
+// /a/anime/posts/50769dc7/media/0 inside a community).
 export function getPostMediaPath(
-  post: { id: string },
+  post: PostUrlTarget,
   index: number | string
 ): string {
   if (!post || !post.id) {
     return "/";
   }
   const shortId = getShortPostId(post.id);
-  return `/posts/${shortId}/media/${index}`;
+  return `${postPathPrefix(post)}/${shortId}/media/${index}`;
 }
 
 export function getPostMediaUrl(
-  post: { id: string },
+  post: PostUrlTarget,
   index: number | string
 ): string {
   return absoluteUrl(getPostMediaPath(post, index));
@@ -112,9 +130,37 @@ export function getFullPostPath(post: PostUrlTarget): string {
     return `/gusts?id=${post.id}`;
   }
   const slug = getPostSlug(post.content);
-  return slug ? `/posts/${post.id}/${slug}` : `/posts/${post.id}`;
+  return slug
+    ? `${postPathPrefix(post)}/${post.id}/${slug}`
+    : `${postPathPrefix(post)}/${post.id}`;
 }
 
 export function getFullPostUrl(post: PostUrlTarget): string {
   return absoluteUrl(getFullPostPath(post));
+}
+
+// Reconstructs the path a post request was made with, from route params. Used
+// by the detail/media routes to detect a non-canonical URL (wrong community,
+// wrong slug, or the global /posts path for a community post) and redirect to
+// the single canonical address.
+export function buildPostRequestPath(params: {
+  communitySlug?: string;
+  postId: string;
+  slug?: string;
+}): string {
+  const base = params.communitySlug
+    ? `/a/${params.communitySlug}/posts/${params.postId}`
+    : `/posts/${params.postId}`;
+  return params.slug ? `${base}/${params.slug}` : base;
+}
+
+export function buildPostMediaRequestPath(params: {
+  communitySlug?: string;
+  index: number | string;
+  postId: string;
+}): string {
+  const base = params.communitySlug
+    ? `/a/${params.communitySlug}/posts/${params.postId}`
+    : `/posts/${params.postId}`;
+  return `${base}/media/${params.index}`;
 }

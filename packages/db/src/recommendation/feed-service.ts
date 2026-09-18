@@ -36,6 +36,11 @@ const PROFILE_SIGNAL_WINDOW_MS =
 
 const PROFILE_EMBEDDING_TAKE = 100;
 const RECOMMENDATION_EVENT_TAKE = 200;
+// A "Not interested" is a durable hide, so those posts are excluded from the
+// For-You pool outright rather than only down-weighted through the profile.
+// Bounded so a heavy dismisser cannot build an unbounded NOT IN list; the most
+// recent dismissals win and the oldest fall off once the cap is reached.
+const NOT_INTERESTED_EXCLUSION_LIMIT = 500;
 const COLLABORATIVE_SOURCE_TAKE = 100;
 const COLLABORATIVE_PEER_EVENT_TAKE = 2000;
 const COLLABORATIVE_CANDIDATE_EVENT_TAKE = 5000;
@@ -102,6 +107,28 @@ async function fetchFollowedAuthorIds(userId: string): Promise<string[]> {
     where: { followerId: userId },
   });
   return follows.map((follow) => follow.followingId);
+}
+
+// Posts the viewer explicitly dismissed. This is separate from the profile's
+// negative weights: those only lower an author's or tag's future score, while
+// this is a hard hide, so the dismissed post itself never returns to the pool.
+// Reads the durable NOT_INTERESTED events (the session-only local hide is the
+// client's `dismissedIds`); unhiding deletes the event, so the post comes back.
+export async function getNotInterestedPostIds(
+  userId: string
+): Promise<string[]> {
+  if (!userId) {
+    return [];
+  }
+  const events = await prisma.recommendationEvent.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { postId: true },
+    take: NOT_INTERESTED_EXCLUSION_LIMIT,
+    where: { eventType: "NOT_INTERESTED", userId },
+  });
+  // One event per (user, post) is the steady state (hide upserts), but a
+  // concurrent double-tap could leave two, so dedupe before the NOT IN.
+  return [...new Set(events.map((event) => event.postId))];
 }
 
 async function getCollaborativePostWeights(
@@ -598,6 +625,11 @@ export async function getPersonalizedFeedPage(
 
   const now = new Date(timestamp);
 
+  // Resolved alongside the pool so a dismissed post is filtered by the query
+  // itself. Without this, "Not interested" only hid the post for the session
+  // and the next page load could rank it straight back in.
+  const notInterestedPostIds = await getNotInterestedPostIds(userId);
+
   const contentKind = options.contentKind ?? "post";
   const whereClause: Prisma.PostWhereInput = {
     createdAt: { lte: now },
@@ -613,6 +645,10 @@ export async function getPersonalizedFeedPage(
 
   if (!includeVisited) {
     whereClause.visits = { none: { userId } };
+  }
+
+  if (notInterestedPostIds.length > 0) {
+    whereClause.id = { notIn: notInterestedPostIds };
   }
 
   const [pool, profile, viewerSession] = await Promise.all([

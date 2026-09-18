@@ -1,5 +1,6 @@
 import {
   communityVisibilityWhere,
+  getClientIpFromRequest,
   getPostDataInclude,
   hydrateViewCounts,
   prisma,
@@ -86,11 +87,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const clientId = user?.id || getClientIpFromRequest(req);
+    const hasResults = typeof resultCount !== "number" || resultCount > 0;
+
     // Guests still contribute to global suggestions, just not personal history.
-    // Returning 200 avoids an unhandled 401 in the UI for logged-out users.
+    // Quality check: queries with 0 results are not promoted to global suggestions.
     if (!user) {
-      if (query && typeof query === "string") {
-        await searchSuggestionsCache.addSuggestion(query);
+      if (query && typeof query === "string" && hasResults) {
+        await searchSuggestionsCache.addSuggestion(query, { clientId });
       }
       return Response.json({ success: true });
     }
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
         await searchSuggestionsCache.addUserToHistory(user.id, userPayload);
         const name = userPayload.displayName || userPayload.username;
         if (name) {
-          await searchSuggestionsCache.addSuggestion(name);
+          await searchSuggestionsCache.addSuggestion(name, { clientId });
         }
       }
     } else if (searchedPost || itemType === "post") {
@@ -110,10 +114,15 @@ export async function POST(req: NextRequest) {
         await searchSuggestionsCache.addPostToHistory(user.id, postPayload);
       }
     } else if (query && typeof query === "string") {
-      await Promise.all([
+      const promises: Promise<unknown>[] = [
         searchSuggestionsCache.addToHistory(user.id, query, resultCount),
-        searchSuggestionsCache.addSuggestion(query),
-      ]);
+      ];
+      if (hasResults) {
+        promises.push(
+          searchSuggestionsCache.addSuggestion(query, { clientId })
+        );
+      }
+      await Promise.all(promises);
     }
 
     return Response.json({ success: true });

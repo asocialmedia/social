@@ -437,7 +437,13 @@ export function processMediaScan(
           } catch (error) {
             mediaLogger.warn(
               { error: String(error), mediaId },
-              "re-encode strip failed; publishing scanned bytes"
+              "re-encode strip failed; image decoding error"
+            );
+            return await rejectMedia(
+              mediaId,
+              "CORRUPT",
+              "image-decode-failed",
+              "image decoding failed for processing"
             );
           }
         }

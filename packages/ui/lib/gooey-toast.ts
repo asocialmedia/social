@@ -1,7 +1,7 @@
 "use client";
 
 import { toast as gooeyToast } from "gooey-toast";
-import type { ToastOptions } from "gooey-toast";
+import type { ToastButton, ToastOptions } from "gooey-toast";
 import { isValidElement } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { flushSync } from "react-dom";
@@ -11,6 +11,10 @@ import type { Root } from "react-dom/client";
 type ToastVariant = "default" | "destructive";
 
 interface ToastMessage {
+  // Optional action button rendered in the toast body (e.g. "Undo"). The click
+  // runs the handler and stops there - the toast then dismisses on its own
+  // duration, so a short `duration` keeps an action toast from lingering.
+  button?: ToastButton;
   description?: ReactNode;
   duration?: number;
   icon?: ReactNode;
@@ -28,9 +32,11 @@ function buildGooeyOptions(
   resolvedDescription: string | number | Node | undefined,
   resolvedIcon: string | number | Node | undefined,
   duration: number,
-  styles?: ToastOptions["styles"]
+  styles: ToastOptions["styles"] | undefined,
+  button: ToastButton | undefined
 ): ToastOptions {
   return {
+    button,
     description: resolvedDescription,
     duration,
     fill: GOOEY_FILL,
@@ -59,6 +65,7 @@ function reactNodeToDom(node: ReactNode): { node: Node; unmount: () => void } {
 }
 
 export function toast({
+  button,
   title,
   description,
   icon,
@@ -73,7 +80,8 @@ export function toast({
     resolved?.node,
     resolvedIcon?.node,
     duration,
-    styles
+    styles,
+    button
   );
 
   if (variant === "destructive") {

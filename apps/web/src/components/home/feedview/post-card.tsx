@@ -94,6 +94,10 @@ interface PostCardProps {
   // narrow embedded columns (media page sidebar).
   mobileLayout?: boolean;
   post: ExtendedPostData;
+  // Inside a community's own feed the a/<slug> attribution is redundant, so it
+  // is suppressed there; elsewhere (home, profile, bookmarks) it still names
+  // the source community.
+  showCommunity?: boolean;
   // Ranked feeds add a short "Trending in a/<slug>" reason line beside the
   // community attribution; chronological feeds leave it off.
   showCommunityReason?: boolean;
@@ -317,6 +321,7 @@ interface PostContentProps {
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
+  showCommunity?: boolean;
   showCommunityReason?: boolean;
 }
 
@@ -331,6 +336,7 @@ const PostContent: React.FC<PostContentProps> = ({
   onToggleComments,
   onToggleExpand,
   post,
+  showCommunity = true,
   showCommunityReason = false,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -340,6 +346,12 @@ const PostContent: React.FC<PostContentProps> = ({
   // Validated stored embed payloads drive both the inline link badges and
   // the preview cards below the post.
   const postEmbeds = parseStoredEmbeds(post.embeds);
+  // Attachment media and link embeds render as one gated block, so the gap
+  // below the content follows the media rule (a roomier top gap only when the
+  // post opens straight into attachment media) and an embed-only post keeps
+  // the tighter spacing it always had.
+  const mediaAndEmbedsTopMargin =
+    attachments.length > 0 && !post.content?.trim() ? "mt-3.5" : "mt-2.5";
 
   const updateOverflow = useCallback(() => {
     const el = contentRef.current;
@@ -376,12 +388,50 @@ const PostContent: React.FC<PostContentProps> = ({
   const showParentRow = Boolean(post.parentPostId) && !hasThreadParent;
   const isThreadChild = hasThreadParent || showParentRow;
 
+  // Attachment media and link embeds render as one column, so a post with both
+  // stacks them with the same gap and an embed-only post (a YouTube facade, an
+  // OG card) is the sole child. The whole column is what the explicit gate
+  // wraps below.
+  const mediaAndEmbeds = (
+    <div className="flex flex-col gap-2.5">
+      {attachments.length > 0 ? (
+        <MediaPreviews
+          attachments={attachments}
+          autoPlayVideos={detail}
+          detail={detail}
+          forceMobile={mobileLayout}
+          initialMediaIndex={initialMediaIndex}
+          post={post}
+        />
+      ) : null}
+      {postEmbeds.length > 0 ? (
+        // Spacing comes from the column gap, not the embeds' own top margin.
+        <PostLinkEmbeds className="" embeds={postEmbeds} />
+      ) : null}
+    </div>
+  );
+
   return (
     <div>
       {showParentRow ? (
         <ResponseParentRow
           parent={post.parentPost}
           parentPostId={post.parentPostId as string}
+        />
+      ) : null}
+      {/* Native community post: the community is the card's top-left context,
+          set above the avatar so the space it belongs to reads first, before
+          the author. Suppressed inside that community's own feed, where the
+          attribution is redundant; ranked feeds add the reason line. */}
+      {post.community && showCommunity ? (
+        <CommunityAttribution
+          className="mb-2.5"
+          community={post.community}
+          reason={
+            showCommunityReason
+              ? `Trending in a/${post.community.slug}`
+              : undefined
+          }
         />
       ) : null}
       <div className="flex items-start gap-3">
@@ -453,20 +503,6 @@ const PostContent: React.FC<PostContentProps> = ({
                 </div>
               ) : null}
 
-              {/* Native community post: name the community it was published
-                  into. Ranked feeds add the reason line. */}
-              {post.community ? (
-                <CommunityAttribution
-                  className="mt-2.5"
-                  community={post.community}
-                  reason={
-                    showCommunityReason
-                      ? `Trending in a/${post.community.slug}`
-                      : undefined
-                  }
-                />
-              ) : null}
-
               {/* Reshare of a community post onto the global feed: attribute
                   the source post and community. */}
               {post.communityShare ? (
@@ -476,40 +512,29 @@ const PostContent: React.FC<PostContentProps> = ({
                 />
               ) : null}
 
-              {!!attachments.length && (
+              {/* Attachment media and link embeds share ONE explicit gate. A
+                  post whose only "media" is a link preview (a YouTube facade,
+                  an OG card) must blur behind the same Continue as a native
+                  attachment; gating only MediaPreviews left embed-only posts
+                  showing their player in the clear. Grouping both also gives a
+                  post with media AND embeds a single overlay instead of two
+                  stacked panels. */}
+              {attachments.length > 0 || postEmbeds.length > 0 ? (
                 <div
                   className={cn(
                     "max-w-full overflow-hidden",
-                    post.content?.trim() ? "mt-2.5" : "mt-3.5"
+                    mediaAndEmbedsTopMargin
                   )}
                 >
                   {post.explicitContent ? (
                     <ExplicitContentGate revealKey={post.id}>
-                      <MediaPreviews
-                        attachments={attachments}
-                        autoPlayVideos={detail}
-                        detail={detail}
-                        forceMobile={mobileLayout}
-                        initialMediaIndex={initialMediaIndex}
-                        post={post}
-                      />
+                      {mediaAndEmbeds}
                     </ExplicitContentGate>
                   ) : (
-                    <MediaPreviews
-                      attachments={attachments}
-                      autoPlayVideos={detail}
-                      detail={detail}
-                      forceMobile={mobileLayout}
-                      initialMediaIndex={initialMediaIndex}
-                      post={post}
-                    />
+                    mediaAndEmbeds
                   )}
                 </div>
-              )}
-
-              {/* Link embeds live below the media block: previews resolved at
-                publish time, rendered from the stored (validated) payloads. */}
-              {post.embeds ? <PostLinkEmbeds embeds={postEmbeds} /> : null}
+              ) : null}
 
               {post.tags?.length || post.mentions?.length ? (
                 <PostMeta
@@ -794,6 +819,7 @@ const PostCard: React.FC<PostCardProps> = ({
   isJoined = false,
   mobileLayout = false,
   post: initialPost,
+  showCommunity = true,
   showCommunityReason = false,
 }) => {
   const { user } = useSession();
@@ -872,6 +898,7 @@ const PostCard: React.FC<PostCardProps> = ({
       onToggleComments={handleToggleComments}
       onToggleExpand={handleToggleExpand}
       post={post}
+      showCommunity={showCommunity}
       showCommunityReason={showCommunityReason}
     />
   );

@@ -145,11 +145,18 @@ describe("community view access", () => {
       throw new Error("communities missing");
     }
 
+    // A far-past createdAt keeps these fixtures out of the newest-N global
+    // candidate pools another suite (the For-You feed integration test) ranks
+    // over: a post that is concurrently ranked and then deleted by this suite's
+    // finally block makes that test intermittently see a short page. Nothing
+    // here depends on recency, only on visibility.
+    const fixtureCreatedAt = new Date("2020-01-01T00:00:00.000Z");
     const [privatePost, publicPost, globalPost] = await Promise.all([
       prisma.post.create({
         data: {
           communityId: privateCommunity.id,
           content: "private community post",
+          createdAt: fixtureCreatedAt,
           userId: OWNER_ID,
         },
       }),
@@ -157,11 +164,16 @@ describe("community view access", () => {
         data: {
           communityId: publicCommunity.id,
           content: "public community post",
+          createdAt: fixtureCreatedAt,
           userId: OWNER_ID,
         },
       }),
       prisma.post.create({
-        data: { content: "global post", userId: OWNER_ID },
+        data: {
+          content: "global post",
+          createdAt: fixtureCreatedAt,
+          userId: OWNER_ID,
+        },
       }),
     ]);
 

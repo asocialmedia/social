@@ -66,10 +66,16 @@ export interface SearchPostResult {
   authorDisplayName: string;
   authorId: string;
   authorUsername: string;
+  // The owning community, or null for a global post. Shape matches the URL
+  // helper's target so a search result can build its canonical
+  // /a/<slug>/posts/... link directly.
+  community: { slug: string } | null;
   content: string;
   createdAt: Date;
   explicitContent: boolean;
   id: string;
+  // A gust must route to /gusts, not /posts, so the URL builder needs to know.
+  isGust: boolean;
   previewMedia: {
     id: string;
     thumbnailKey: string | null;
@@ -156,10 +162,12 @@ export async function searchPosts(
         take: 1,
       },
       aura: true,
+      community: { select: { slug: true } },
       content: true,
       createdAt: true,
       explicitContent: true,
       id: true,
+      isGust: true,
       moderated: true,
       user: {
         select: {
@@ -193,10 +201,12 @@ export async function searchPosts(
       authorDisplayName: post.user.displayName,
       authorId: post.user.id,
       authorUsername: post.user.username,
+      community: post.community,
       content: post.content,
       createdAt: post.createdAt,
       explicitContent: post.explicitContent,
       id: post.id,
+      isGust: post.isGust,
       previewMedia: post.attachments?.[0]
         ? {
             id: post.attachments[0].id,

@@ -4,6 +4,7 @@ import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
 import { communityAccentStyle } from "@/lib/communities/accent";
+import { getShortPostId } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 
 export interface CommunityIdentity {
@@ -62,24 +63,30 @@ export const CommunityShareCard = ({
 }: {
   community: CommunityIdentity;
   sourcePostId: string;
-}) => (
-  <Link
-    className="border-border/60 hover:bg-muted/40 group mt-3 flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
-    href={`/posts/${sourcePostId}`}
-  >
-    <span
-      aria-hidden="true"
-      className="h-8 w-0.5 shrink-0 rounded-full bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
-      style={communityAccentStyle(community.accentColor)}
-    />
-    <span className="min-w-0 flex-1">
-      <span className="text-foreground block truncate text-sm font-medium">
-        {community.name}
+}) => {
+  // The source was published into `community`, so it lives under that
+  // community's namespace. Only the id is stored on the share, so the content
+  // slug is omitted here; the route adds it as a canonical redirect.
+  const sourceHref = `/a/${community.slug}/posts/${getShortPostId(sourcePostId)}`;
+  return (
+    <Link
+      className="border-border/60 hover:bg-muted/40 group mt-3 flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
+      href={sourceHref}
+    >
+      <span
+        aria-hidden="true"
+        className="h-8 w-0.5 shrink-0 rounded-full bg-[var(--community-accent)] dark:bg-[var(--community-accent-dark)]"
+        style={communityAccentStyle(community.accentColor)}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="text-foreground block truncate text-sm font-medium">
+          {community.name}
+        </span>
+        <span className="text-muted-foreground block truncate text-xs">
+          Shared from a/{community.slug}
+        </span>
       </span>
-      <span className="text-muted-foreground block truncate text-xs">
-        Shared from a/{community.slug}
-      </span>
-    </span>
-    <ArrowUpRight className="text-muted-foreground group-hover:text-foreground size-4 shrink-0 transition-colors" />
-  </Link>
-);
+      <ArrowUpRight className="text-muted-foreground group-hover:text-foreground size-4 shrink-0 transition-colors" />
+    </Link>
+  );
+};

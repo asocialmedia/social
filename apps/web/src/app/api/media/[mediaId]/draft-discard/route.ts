@@ -40,6 +40,7 @@ export async function DELETE(
       communityAvatarOf: null,
       communityBannerOf: null,
       id: mediaId,
+      messageConversationId: null,
       postId: null,
       status: {
         in: ["UPLOADING", "QUARANTINED", "SCANNING", "PROCESSING", "READY"],

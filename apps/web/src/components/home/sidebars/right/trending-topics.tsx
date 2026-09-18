@@ -11,11 +11,16 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { getAuraFlameClass } from "@/lib/aura/aura";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
 import { APPLE_CARD_CLASS, ROW_HOVER_CLASS } from "./sidebar-styles";
 import { getTrendingFeed } from "./trending-actions";
 import type { TrendingFeed, TrendingItem } from "./trending-actions";
+
+// The sidebar rail is fixed-width, and a valid username can be 50 characters, so
+// the handle is clipped to a length that keeps the aura figure beside it on one
+// line. A `min-w-0 truncate` wrapper below is the responsive backstop.
+const TOP_AURA_USERNAME_MAX_LENGTH = 18;
 
 const TrendingTopicsSkeleton = () => (
   <div className={APPLE_CARD_CLASS}>
@@ -183,7 +188,7 @@ const TrendingTopics: React.FC = () => {
       {!isError && topAura.length > 0 ? (
         <>
           <div className="border-border/60 mt-2 flex items-center gap-2 border-t px-2 pt-2 pb-1">
-            <Flame className="h-4 w-4 shrink-0 text-orange-500" />
+            <Flame className="h-4 w-4 shrink-0 fill-red-500 text-red-500" />
             <h3 className="text-sm font-semibold">Top Aura</h3>
           </div>
           <div className="flex flex-col gap-0.5">
@@ -203,7 +208,8 @@ const TrendingTopics: React.FC = () => {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1">
                     <span className="block min-w-0 flex-1 truncate text-sm font-medium">
-                      {auraUser.displayName || `@${auraUser.username}`}
+                      {auraUser.displayName ||
+                        `@${truncateUsername(auraUser.username, TOP_AURA_USERNAME_MAX_LENGTH)}`}
                     </span>
                     <UserBadge
                       badge={auraUser.badge}
@@ -212,8 +218,14 @@ const TrendingTopics: React.FC = () => {
                       communityRoles={auraUser.communityMemberships}
                     />
                   </span>
-                  <span className="text-muted-foreground flex items-center gap-1 truncate text-xs transition-colors group-hover:text-inherit">
-                    @{auraUser.username}
+                  <span className="text-muted-foreground flex items-center gap-1 text-xs transition-colors group-hover:text-inherit">
+                    <span className="min-w-0 truncate">
+                      @
+                      {truncateUsername(
+                        auraUser.username,
+                        TOP_AURA_USERNAME_MAX_LENGTH
+                      )}
+                    </span>
                     <span className="flex shrink-0 items-center gap-0.5">
                       <Flame
                         className={cn(

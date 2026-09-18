@@ -215,7 +215,11 @@ export function CommunityPeople({
   const viewingRequests = showPending && canModerate && supportsJoinRequests;
 
   const membersQuery = useCommunityMembersQuery(slug, {
-    badged: true,
+    // Moderators see the FULL roster, including plain participants, so a new
+    // joiner is visible to the owner the moment they join. Everyone else gets
+    // only badged roles: participants are the default state, so listing every
+    // joiner would bury the people who actually hold a role.
+    badged: !canModerate,
     // The roster page size, so "Show more" reveals what is already loaded.
     limit: 50,
     // Pending and active are separate lists; the route ignores pending unless

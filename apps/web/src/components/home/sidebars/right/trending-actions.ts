@@ -128,7 +128,10 @@ async function getTopAuraUsers(): Promise<TrendingAuraUser[]> {
         username: true,
       },
       take: TOP_AURA_CANDIDATES,
-      where: { id: { not: SYSTEM_MODERATION_USER_ID } },
+      where: {
+        banned: false,
+        id: { not: SYSTEM_MODERATION_USER_ID },
+      },
     });
 
     return users.map((user) => ({
@@ -165,8 +168,7 @@ export async function getTrendingFeed(
     .toSorted((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  // A user who is already listed among the top mentioned users doesn't need a
-  // second entry in the Top Aura section, so skip them and backfill from the
-  // extra candidates.
+  // Top Aura displays the platform's highest aura earners regardless of
+  // mentions, ensuring high-standing members are always recognized.
   return { items, topAura: selectTopAuraUsers(topAura, mentions) };
 }

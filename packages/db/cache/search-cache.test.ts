@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { parseHistoryEntry, searchSuggestionsCache } from "./search-cache";
+import {
+  isValidSearchSuggestion,
+  parseHistoryEntry,
+  searchSuggestionsCache,
+} from "./search-cache";
 
 describe("search cache", () => {
   it("parses legacy string entries as query type", () => {
@@ -118,10 +122,12 @@ describe("search cache", () => {
       authorDisplayName: "Bob",
       authorId: "bob-1",
       authorUsername: "bob",
+      community: null,
       content: "Bob thoughts",
       createdAt: new Date(),
       explicitContent: false,
       id: "post-bob-1",
+      isGust: false,
       previewMedia: null,
       viewCount: 50,
     };
@@ -168,5 +174,56 @@ describe("search cache", () => {
     const historyAfterClear =
       await searchSuggestionsCache.getHistory(testUserId);
     expect(historyAfterClear.length).toBe(0);
+  });
+
+  it("validates search suggestions against spam and invalid lengths", () => {
+    // Valid queries
+    expect(isValidSearchSuggestion("javascript")).toBe(true);
+    expect(isValidSearchSuggestion("nextjs 15")).toBe(true);
+    expect(isValidSearchSuggestion("hello world")).toBe(true);
+
+    // Invalid: too short or too long
+    expect(isValidSearchSuggestion("a")).toBe(false);
+    expect(isValidSearchSuggestion("")).toBe(false);
+    expect(isValidSearchSuggestion("   ")).toBe(false);
+    expect(isValidSearchSuggestion("a".repeat(51))).toBe(false);
+
+    // Invalid: contains URLs or domains
+    expect(isValidSearchSuggestion("visit https://malicious.com")).toBe(false);
+    expect(isValidSearchSuggestion("buy cheap crypto.xyz")).toBe(false);
+    expect(isValidSearchSuggestion("www.google.com")).toBe(false);
+
+    // Invalid: HTML tags or SQL injection probes
+    expect(isValidSearchSuggestion("<script>alert(1)</script>")).toBe(false);
+    expect(isValidSearchSuggestion("test'; DROP TABLE users;--")).toBe(false);
+    expect(isValidSearchSuggestion("union select 1, 2")).toBe(false);
+  });
+
+  it("deduplicates suggestions from the same client within cooldown window", async () => {
+    // The dedupe claim key lives in Redis for 5 minutes, so fixed identifiers
+    // would make a second run of this suite (e.g. the pre-push hook after the
+    // pre-commit run) fail instead of asserting. A per-run suffix gives every
+    // execution a fresh claim while still exercising the same-client throttle.
+    const runId = Math.random().toString(36).slice(2, 10);
+    const testClient = `client-dedup-${runId}`;
+    const otherClient = `different-client-${runId}`;
+    const testQuery = `typescript tips ${runId}`;
+
+    const first = await searchSuggestionsCache.addSuggestion(testQuery, {
+      clientId: testClient,
+    });
+    expect(first).toBe(true);
+
+    // Immediate second call from same client should be throttled
+    const second = await searchSuggestionsCache.addSuggestion(testQuery, {
+      clientId: testClient,
+    });
+    expect(second).toBe(false);
+
+    // Different client can still suggest it
+    const other = await searchSuggestionsCache.addSuggestion(testQuery, {
+      clientId: otherClient,
+    });
+    expect(other).toBe(true);
   });
 });

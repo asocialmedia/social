@@ -4,7 +4,7 @@ import type { PostsPage } from "@asm/db";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 
-import { prependPostsToFeedCache } from "./feed-cache";
+import { filterFeedPosts, prependPostsToFeedCache } from "./feed-cache";
 
 type Post = PostsPage["posts"][number];
 type FeedData = InfiniteData<PostsPage, string | null>;
@@ -27,6 +27,56 @@ function makeClient() {
 function ids(data: FeedData | undefined, page: number): string[] | undefined {
   return data?.pages[page]?.posts.map((entry) => entry.id);
 }
+
+function listIds(list: { id: string }[]): string[] {
+  return list.map((entry) => entry.id);
+}
+
+describe("filterFeedPosts", () => {
+  const posts = [post("a"), post("b"), post("c")];
+
+  test("keeps everything when no exclusions are supplied", () => {
+    expect(listIds(filterFeedPosts(posts))).toEqual(["a", "b", "c"]);
+  });
+
+  test("drops the current detail post", () => {
+    expect(listIds(filterFeedPosts(posts, { excludePostId: "b" }))).toEqual([
+      "a",
+      "c",
+    ]);
+  });
+
+  test("drops ids already led by another segment", () => {
+    expect(
+      listIds(filterFeedPosts(posts, { excludeIds: new Set(["a", "c"]) }))
+    ).toEqual(["b"]);
+  });
+
+  test("drops posts the viewer dismissed as not interested", () => {
+    // The regression: a dismissed post came straight back from the server props
+    // on the next reconciliation, so it must be filtered everywhere, not only
+    // from the local list.
+    expect(
+      listIds(filterFeedPosts(posts, { dismissedIds: new Set(["a"]) }))
+    ).toEqual(["b", "c"]);
+  });
+
+  test("applies every exclusion together", () => {
+    const filtered = filterFeedPosts(posts, {
+      dismissedIds: new Set(["a"]),
+      excludeIds: new Set(["b"]),
+      excludePostId: "c",
+    });
+    expect(listIds(filtered)).toEqual([]);
+  });
+
+  test("drops falsy entries without throwing", () => {
+    const withHole = [post("a"), null, post("b")] as unknown as {
+      id: string;
+    }[];
+    expect(listIds(filterFeedPosts(withHole))).toEqual(["a", "b"]);
+  });
+});
 
 describe("prependPostsToFeedCache", () => {
   test("merges new posts into the head and keeps cursors and later pages", () => {

@@ -30,14 +30,15 @@ const mention = (userId: string, badges: string[] = []): TrendingMention => ({
 });
 
 describe("selectTopAuraUsers", () => {
-  test("returns the top three by aura when nothing overlaps with mentions", () => {
+  test("returns the top three by aura", () => {
     const topAura = [
       auraUser("a", 300),
       auraUser("b", 200),
       auraUser("c", 100),
+      auraUser("d", 50),
     ];
 
-    const result = selectTopAuraUsers(topAura, []);
+    const result = selectTopAuraUsers(topAura);
 
     expect(result.map((user) => user.userId)).toEqual(["a", "b", "c"]);
   });
@@ -58,7 +59,7 @@ describe("selectTopAuraUsers", () => {
     ]);
   });
 
-  test("skips users already shown as mentions and backfills to three", () => {
+  test("retains top aura users even if they also appear in mentions", () => {
     const topAura = [
       auraUser("a", 300),
       auraUser("b", 200),
@@ -69,19 +70,7 @@ describe("selectTopAuraUsers", () => {
 
     const result = selectTopAuraUsers(topAura, [mention("a"), mention("b")]);
 
-    expect(result.map((user) => user.userId)).toEqual(["c", "d", "e"]);
-  });
-
-  test("stays at three when a non-top mention overlaps with an aura entry", () => {
-    const topAura = [
-      auraUser("a", 300),
-      auraUser("b", 200),
-      auraUser("c", 100),
-    ];
-
-    const result = selectTopAuraUsers(topAura, [mention("c")]);
-
-    expect(result.map((user) => user.userId)).toEqual(["a", "b"]);
+    expect(result.map((user) => user.userId)).toEqual(["a", "b", "c"]);
   });
 
   test("returns what remains when candidates run out", () => {

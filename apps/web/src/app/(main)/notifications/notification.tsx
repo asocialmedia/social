@@ -11,6 +11,7 @@ import {
   Captions,
   CornerDownRight,
   Heart,
+  LayoutGrid,
   MessageCircle,
   ShieldAlert,
   Sparkles,
@@ -22,6 +23,7 @@ import type React from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import kyInstance from "@/lib/ky";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 interface NotificationProps {
@@ -37,25 +39,62 @@ interface TypeConfig {
   icon: React.ComponentType<{ className?: string }>;
 }
 
+// The community a notification's post belongs to, when it was published into
+// one. Engagement on a community post names the space rather than reading as if
+// it happened on the global feed. Prefers the notification row's own community
+// (set on COMMUNITY_POST) and falls back to the post's community, which every
+// other type carries.
+function notificationCommunitySlug(
+  notification: NotificationProps["notification"]
+): string | null {
+  return (
+    notification.community?.slug ?? notification.post?.community?.slug ?? null
+  );
+}
+
+// " in a/<slug>" for a community post, empty otherwise. Appended to the action
+// so a single sentence explains both what happened and where.
+function communitySuffix(
+  notification: NotificationProps["notification"]
+): string {
+  const slug = notificationCommunitySlug(notification);
+  return slug ? ` in a/${slug}` : "";
+}
+
 // Comment notifications carry the linked comment when available, so replies
 // read differently from top-level eddies and link straight into the thread.
 function getCommentAction(
   notification: NotificationProps["notification"]
 ): string {
   const { comment } = notification;
+  const suffix = communitySuffix(notification);
   if (!comment || comment.parentId === null) {
-    return "eddied on your post";
+    return `eddied on your post${suffix}`;
   }
   if (comment.parent?.userId === notification.recipientId) {
-    return "replied to your eddie";
+    return `replied to your eddie${suffix}`;
   }
-  return "replied on your post";
+  return `replied on your post${suffix}`;
+}
+
+// A notification's post link resolves to the canonical address: a community
+// post goes to its /a/<slug>/posts/... home, everything else to /posts/....
+function getNotificationPostHref(
+  notification: NotificationProps["notification"]
+): string {
+  const { post } = notification;
+  if (post?.id) {
+    return getPostPath(post);
+  }
+  return notification.postId
+    ? `/posts/${notification.postId}`
+    : "/notifications";
 }
 
 function getCommentHref(
   notification: NotificationProps["notification"]
 ): string {
-  const base = `/posts/${notification.postId}`;
+  const base = getNotificationPostHref(notification);
   return notification.comment
     ? `${base}?comment=${notification.comment.id}`
     : base;
@@ -64,12 +103,14 @@ function getCommentHref(
 const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   AMPLIFY: {
     action: (notification) =>
-      notification.comment ? "amplified your eddie" : "amplified your post",
+      notification.comment
+        ? `amplified your eddie${communitySuffix(notification)}`
+        : `amplified your post${communitySuffix(notification)}`,
     badgeClass: "bg-gradient-to-b from-[#fb7185] to-[#e11d48]",
     href: (notification) =>
       notification.comment
         ? getCommentHref(notification)
-        : `/posts/${notification.postId}`,
+        : getNotificationPostHref(notification),
     icon: Heart,
   },
   COMMENT: {
@@ -78,6 +119,24 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     href: getCommentHref,
     icon: MessageCircle,
   },
+  // Batched community activity: one rolling row per community, naming it and
+  // how many posts have landed since the row was last read. Links to the
+  // community so the reader lands in the space, not on a single post.
+  COMMUNITY_POST: {
+    // A folded row spans several authors, so the headline is community-level and
+    // carries no subject; only the single-post row is attributed to its author
+    // (via the shared issuer-name headline).
+    action: (notification) =>
+      notification.count > 1
+        ? `${notification.count} new fleets posted in a/${notification.community?.slug ?? ""}`
+        : `posted a new fleet in a/${notification.community?.slug ?? ""}`,
+    badgeClass: "bg-gradient-to-b from-violet-400 to-indigo-600",
+    href: (notification) =>
+      notification.community
+        ? `/a/${notification.community.slug}`
+        : getNotificationPostHref(notification),
+    icon: LayoutGrid,
+  },
   FOLLOW: {
     action: () => "followed you",
     badgeClass: "bg-gradient-to-b from-[#ff9500] to-[#e65500]",
@@ -85,43 +144,47 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     icon: UserPlus,
   },
   MENTION: {
-    action: () => "mentioned you",
+    action: (notification) => `mentioned you${communitySuffix(notification)}`,
     badgeClass: "bg-gradient-to-b from-[#a78bfa] to-[#7c3aed]",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: AtSign,
   },
   MODERATION: {
     action: (notification) =>
-      notification.post?.isGust ? "flagged your gust" : "flagged your post",
+      notification.post?.isGust
+        ? `flagged your gust${communitySuffix(notification)}`
+        : `flagged your post${communitySuffix(notification)}`,
     badgeClass: "bg-gradient-to-b from-amber-400 to-orange-500",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: ShieldAlert,
   },
   // Platform-persona notice: the pipeline finished publishing the upload.
   PUBLISHED: {
     action: (notification) =>
-      notification.post?.isGust ? "your gust is live" : "your fleet is live",
+      notification.post?.isGust
+        ? `your gust is live${communitySuffix(notification)}`
+        : `your fleet is live${communitySuffix(notification)}`,
     badgeClass: "bg-gradient-to-b from-emerald-400 to-teal-600",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: Sparkles,
   },
   // A post-to-post reply: the postId points at the response itself, so the
   // link opens the response's permalink (with its parent card).
   REPLY: {
-    action: () => "responded to your post",
+    action: (notification) =>
+      `responded to your post${communitySuffix(notification)}`,
     badgeClass: "bg-gradient-to-b from-sky-400 to-blue-600",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: CornerDownRight,
   },
   // Platform-persona notice: closed captions and transcript were generated.
   TRANSCRIPTION: {
     action: (notification) =>
       notification.post?.isGust
-        ? "captions & transcript ready for your gust"
-        : "captions & transcript ready for your post",
+        ? `captions & transcript ready for your gust${communitySuffix(notification)}`
+        : `captions & transcript ready for your post${communitySuffix(notification)}`,
     badgeClass: "bg-gradient-to-b from-amber-400 to-orange-600",
-    href: (notification) =>
-      notification.postId ? `/posts/${notification.postId}` : "/notifications",
+    href: getNotificationPostHref,
     icon: Captions,
   },
 };
@@ -193,15 +256,29 @@ function NotificationAvatars({
 
 function NotificationHeadline({
   action,
+  batchCount,
+  communitySuffixText,
   isEddie,
   issuers,
   type,
 }: {
   action: string;
+  // >1 only for a folded COMMUNITY_POST row, whose activity spans several
+  // authors, so there is no single person to name.
+  batchCount: number;
+  communitySuffixText: string;
   isEddie: boolean;
   issuers: NotificationData["issuer"][];
   type: NotificationType;
 }) {
+  if (batchCount > 1) {
+    return (
+      <p className="text-sm leading-snug">
+        <span className="text-muted-foreground">{action}</span>
+      </p>
+    );
+  }
+
   if (type !== "AMPLIFY" || issuers.length <= 1) {
     const [singleIssuer] = issuers;
     return (
@@ -213,6 +290,7 @@ function NotificationHeadline({
   }
 
   const targetNoun = isEddie ? "eddie" : "post";
+  const tail = ` ${communitySuffixText}`;
 
   if (issuers.length === 2) {
     const [firstIssuer, secondIssuer] = issuers;
@@ -223,6 +301,7 @@ function NotificationHeadline({
         <span className="font-semibold">{secondIssuer?.displayName}</span>{" "}
         <span className="text-muted-foreground">
           amplified your {targetNoun}
+          {tail}
         </span>
       </p>
     );
@@ -239,6 +318,7 @@ function NotificationHeadline({
         <span className="font-semibold">{thirdIssuer?.displayName}</span>{" "}
         <span className="text-muted-foreground">
           amplified your {targetNoun}
+          {tail}
         </span>
       </p>
     );
@@ -253,7 +333,10 @@ function NotificationHeadline({
       <span className="font-semibold">{secondIssuer?.displayName}</span>{" "}
       <span className="text-muted-foreground">and</span>{" "}
       <span className="font-semibold">+{othersCount} others</span>{" "}
-      <span className="text-muted-foreground">amplified your {targetNoun}</span>
+      <span className="text-muted-foreground">
+        amplified your {targetNoun}
+        {tail}
+      </span>
     </p>
   );
 }
@@ -312,6 +395,10 @@ export default function Notification({ notification }: NotificationProps) {
         <div className="min-w-0 flex-1">
           <NotificationHeadline
             action={action}
+            batchCount={
+              notification.type === "COMMUNITY_POST" ? notification.count : 0
+            }
+            communitySuffixText={communitySuffix(notification)}
             isEddie={Boolean(notification.comment)}
             issuers={issuers}
             type={notification.type}

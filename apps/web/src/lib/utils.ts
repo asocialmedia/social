@@ -93,6 +93,22 @@ function trimTrailingZero(value: string): string {
   return value.endsWith(".0") ? value.slice(0, -2) : value;
 }
 
+// Clips a username to a fixed character budget, appending an ellipsis. Used in
+// narrow fixed-width rails (the sidebar's Top Aura list) where a valid
+// username can run to 50 characters and would otherwise overflow the row.
+// The ellipsis counts toward `maxLength`, so the result never exceeds it.
+export function truncateUsername(username: string, maxLength: number): string {
+  if (maxLength <= 0) {
+    return "";
+  }
+  if (username.length <= maxLength) {
+    return username;
+  }
+  // A budget of one can only hold the ellipsis itself; otherwise reserve one
+  // slot for it so the result never exceeds `maxLength`.
+  return maxLength === 1 ? "…" : `${username.slice(0, maxLength - 1)}…`;
+}
+
 export function slugify(input: string): string {
   return input
     .toLowerCase()

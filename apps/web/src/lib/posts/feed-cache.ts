@@ -25,6 +25,37 @@ export const FEED_QUERY_BEHAVIOR = {
   staleTime: Number.POSITIVE_INFINITY,
 } as const;
 
+// A single post is dropped from a rendered feed for one of three reasons:
+// it is the detail post this feed is nested under (`excludePostId`), it is
+// already shown by a leading segment (`excludeIds`, e.g. a community lead), or
+// the viewer dismissed it this session (`dismissedIds`). Centralised so the
+// local list, the prop-sync reconciliation, and the cache-sync rebuild can
+// never disagree about what belongs on screen.
+export interface FeedExclusions {
+  dismissedIds?: ReadonlySet<string>;
+  excludeIds?: ReadonlySet<string>;
+  excludePostId?: string;
+}
+
+export function filterFeedPosts<T extends { id: string }>(
+  posts: readonly T[],
+  exclusions: FeedExclusions = {}
+): T[] {
+  const { dismissedIds, excludeIds, excludePostId } = exclusions;
+  return posts.filter((post) => {
+    if (!post) {
+      return false;
+    }
+    if (excludePostId !== undefined && post.id === excludePostId) {
+      return false;
+    }
+    if (excludeIds?.has(post.id)) {
+      return false;
+    }
+    return !dismissedIds?.has(post.id);
+  });
+}
+
 // Merges freshly-probed posts into the head of an infinite feed cache. Used by
 // the "new posts" badge so tapping it reveals content instantly (no refetch
 // round-trip, no skeleton) while leaving pagination cursors untouched. Returns

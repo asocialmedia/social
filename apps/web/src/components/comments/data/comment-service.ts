@@ -114,8 +114,11 @@ export async function createComment(
     if (mediaIdsValidated.length > 0) {
       const attachedMedia = await tx.media.findMany({
         select: {
+          commentId: true,
           id: true,
+          messageConversationId: true,
           mimeType: true,
+          postId: true,
           status: true,
           type: true,
           userId: true,
@@ -132,7 +135,10 @@ export async function createComment(
           media.type === "VIDEO" ||
           !media.mimeType.startsWith("image/") ||
           media.mimeType === "image/svg+xml" ||
-          (media.userId !== null && media.userId !== params.userId) ||
+          media.userId !== params.userId ||
+          media.commentId !== null ||
+          media.postId !== null ||
+          media.messageConversationId !== null ||
           // Rejected/failed/deleted uploads must never ride into a comment.
           !CLAIMABLE_STATUSES.includes(media.status)
       );

@@ -5,13 +5,14 @@ import { Separator } from "@asm/ui/shadui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { RecommendationTracker } from "@/components/recommendations/recommendation-tracker";
 import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
+import { filterFeedPosts } from "@/lib/posts/feed-cache";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
 
 import { groupPostsIntoThreads } from "./feed-thread-group";
@@ -21,8 +22,15 @@ const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
   cacheKey?: QueryKey;
+  // Extra ids to drop from the rendered feed, applied to both the server list
+  // and every cache-synced update. Used when a leading segment already shows a
+  // post that the trailing feed's own cache would reintroduce.
+  excludeIds?: ReadonlySet<string>;
   excludePostId?: string;
   posts: PostData[];
+  // Inside a community's own feed every post belongs to that community, so the
+  // per-post a/<slug> attribution is redundant and is suppressed there.
+  showCommunity?: boolean;
   // Ranked feeds (For-You, Trending) label a community post with a short
   // "Trending in a/<slug>" reason line; chronological feeds omit it.
   showCommunityReason?: boolean;
@@ -32,7 +40,9 @@ interface FeedViewProps {
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
+  excludeIds,
   excludePostId,
+  showCommunity = true,
   showCommunityReason = false,
   sortBy = "newest",
 }) => {
@@ -40,10 +50,24 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const queryClient = useQueryClient();
   const router = useRouter();
   const normalizedInitial = useMemo(
-    () => normalizePostsData(initialPosts ?? []),
-    [initialPosts]
+    () =>
+      filterFeedPosts(normalizePostsData(initialPosts ?? []), {
+        excludeIds,
+        excludePostId,
+      }),
+    [initialPosts, excludeIds, excludePostId]
   );
   const [posts, setPosts] = useState<PostData[]>(normalizedInitial);
+  // Posts the viewer dismissed with "Not interested" this session. Kept out of
+  // every rebuild of `posts`, including the prop-sync below and any refetch
+  // that reintroduces them.
+  const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  // The removed post data behind each dismissal, so Undo can put the exact post
+  // back without a refetch. A plain id set is not enough: once the post is gone
+  // from local state and the cache there is nothing left to restore it from.
+  const removedPostsRef = useRef<Map<string, PostData>>(new Map());
 
   // Self-heal: stale `post.bookmarks` entries (pre-fix cache, persisted SSR
   // props, or optimistic drafts) crash `post.bookmarks.some` in production.
@@ -71,14 +95,13 @@ export const FeedView: React.FC<FeedViewProps> = ({
         });
 
         if (feedQueries.length > 0) {
-          const updatedPosts = normalizePostsData(
-            feedQueries
-              .flatMap(([, data]) =>
-                (data?.pages?.flatMap((page) => page.posts) || []).filter(
-                  Boolean
-                )
+          const updatedPosts = filterFeedPosts(
+            normalizePostsData(
+              feedQueries.flatMap(
+                ([, data]) => data?.pages?.flatMap((page) => page.posts) || []
               )
-              .filter((post) => post.id !== excludePostId)
+            ),
+            { dismissedIds, excludeIds, excludePostId }
           );
 
           if (updatedPosts.length) {
@@ -95,7 +118,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [cacheKey, excludePostId, queryClient]);
+  }, [cacheKey, dismissedIds, excludeIds, excludePostId, queryClient]);
 
   useEffect(() => {
     const handleNotInterested = (event: Event) => {
@@ -104,39 +127,77 @@ export const FeedView: React.FC<FeedViewProps> = ({
       if (!postId) {
         return;
       }
-      setPosts((current) => current.filter((post) => post.id !== postId));
-      queryClient.setQueriesData<{
-        pageParams: unknown[];
-        pages: { posts: PostData[] }[];
-      }>({ queryKey: cacheKey }, (data) => {
-        if (!data) {
-          return data;
+      // Remember the dismissal locally. The local list is filtered below, but
+      // the prop-sync reconciliation (and any refetch that reintroduces the
+      // post) rebuilds `posts` from the server props, which still contain it -
+      // so without this set the post reappeared immediately when it happened to
+      // be the feed's first item. Filtering by this set in `sortedPosts` keeps
+      // it hidden for the session regardless.
+      //
+      // The cache is deliberately NOT mutated: Undo has to restore the post, and
+      // a post filtered out of the shared cache has nothing left to restore from
+      // (and would desync the cache from what the server holds). The id set is
+      // the whole hide mechanism, so Undo is a pure, symmetric state change.
+      setDismissedIds((current) =>
+        current.has(postId) ? current : new Set([...current, postId])
+      );
+      setPosts((current) => {
+        const removed = current.find((post) => post.id === postId);
+        if (removed) {
+          removedPostsRef.current.set(postId, removed);
         }
-        return {
-          ...data,
-          pages: data.pages.map((page) => ({
-            ...page,
-            posts: page.posts.filter((post) => post.id !== postId),
-          })),
-        };
+        return current.filter((post) => post.id !== postId);
       });
     };
+    // Undo: clear the dismissal AND put the removed post back, since the id set
+    // alone no longer contains the data to re-render it.
+    const handleInterested = (event: Event) => {
+      const { detail } = event as CustomEvent<{ postId?: string }>;
+      const postId = detail?.postId;
+      if (!postId) {
+        return;
+      }
+      const restored = removedPostsRef.current.get(postId);
+      if (restored) {
+        removedPostsRef.current.delete(postId);
+        setPosts((current) =>
+          current.some((post) => post.id === postId)
+            ? current
+            : [restored, ...current]
+        );
+      }
+      setDismissedIds((current) => {
+        if (!current.has(postId)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(postId);
+        return next;
+      });
+    };
+
     window.addEventListener(
       "recommendation:not-interested",
       handleNotInterested
     );
+    window.addEventListener("recommendation:interested", handleInterested);
     return () => {
       window.removeEventListener(
         "recommendation:not-interested",
         handleNotInterested
       );
+      window.removeEventListener("recommendation:interested", handleInterested);
     };
-  }, [cacheKey, queryClient]);
+    // Only stable setters and a ref are used, so this subscribes once. The
+    // cache is deliberately no longer touched here (Undo restores from the
+    // removed-post snapshot), so cacheKey/queryClient are not dependencies.
+  }, []);
 
   // Mirrors the last inputs seen by the prop-sync check below so fresh server
   // posts are adopted during render (the documented adjust-state pattern)
   // instead of from a cascading effect.
   const [syncInputs, setSyncInputs] = useState<{
+    excludeIds: ReadonlySet<string> | undefined;
     excludePostId: string | undefined;
     initialPosts: PostData[];
     posts: PostData[];
@@ -144,13 +205,16 @@ export const FeedView: React.FC<FeedViewProps> = ({
 
   if (
     syncInputs === null ||
+    syncInputs.excludeIds !== excludeIds ||
     syncInputs.excludePostId !== excludePostId ||
     syncInputs.initialPosts !== normalizedInitial ||
     syncInputs.posts !== posts
   ) {
-    const safeInitial = (normalizedInitial || [])
-      .filter(Boolean)
-      .filter((post) => post.id !== excludePostId);
+    const safeInitial = filterFeedPosts(normalizedInitial || [], {
+      dismissedIds,
+      excludeIds,
+      excludePostId,
+    });
     const initialFirstId = safeInitial[0]?.id;
     const currentFirstId = posts[0]?.id;
     if (
@@ -162,27 +226,36 @@ export const FeedView: React.FC<FeedViewProps> = ({
         ...new Map(safeInitial.map((post) => [post.id, post])).values(),
       ];
       setSyncInputs({
+        excludeIds,
         excludePostId,
         initialPosts: normalizedInitial,
         posts: uniquePosts,
       });
       setPosts(uniquePosts);
     } else {
-      setSyncInputs({ excludePostId, initialPosts: normalizedInitial, posts });
+      setSyncInputs({
+        excludeIds,
+        excludePostId,
+        initialPosts: normalizedInitial,
+        posts,
+      });
     }
   }
 
   const sortedPosts = useMemo(() => {
+    const filtered = filterFeedPosts(posts, {
+      dismissedIds,
+      excludeIds,
+      excludePostId,
+    });
     if (sortBy === "server") {
-      return [...posts].filter(Boolean);
+      return filtered;
     }
-    return [...posts]
-      .filter(Boolean)
-      .toSorted(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-  }, [posts, sortBy]);
+    return filtered.toSorted(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [posts, excludeIds, excludePostId, dismissedIds, sortBy]);
 
   const threadGroups = useMemo(
     () => groupPostsIntoThreads(sortedPosts),
@@ -206,6 +279,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                   hasThreadParent={hasThreadParent}
                   isJoined={true}
                   post={post}
+                  showCommunity={showCommunity}
                   showCommunityReason={showCommunityReason}
                 />
               </RecommendationTracker>

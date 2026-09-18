@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { computeFileSha256 } from "./media-upload-client";
 
 let mediaFindFirstImpl: (args: unknown) => unknown = () => null;
@@ -58,6 +60,7 @@ const prismaMock = {
 };
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   Prisma: {
     DbNull: null,
   },
@@ -281,5 +284,137 @@ describe("createInitiatedUpload deduplication", () => {
     expect(derivArgs.data.length).toBe(1);
     expect(derivArgs.data[0]?.variant).toBe("720p");
     expect(derivArgs.data[0]?.mediaId).toBe("new-media-id");
+  });
+
+  describe("audioOverlayId security validation", () => {
+    test("rejects audioOverlayId on non-video uploads", async () => {
+      await expect(
+        createInitiatedUpload({
+          audioOverlayId: "sound-1",
+          declaredMime: "image/png",
+          fileName: "photo.png",
+          fileSize: 1024,
+          purpose: "post",
+          userId: "user-1",
+        })
+      ).rejects.toThrow("Audio overlays can only be applied to video uploads");
+    });
+
+    test("rejects audioOverlayId if sound is not found or owned by someone else", async () => {
+      mediaFindFirstImpl = () => null;
+      await expect(
+        createInitiatedUpload({
+          audioOverlayId: "sound-other-user",
+          declaredMime: "video/mp4",
+          fileName: "gust.mp4",
+          fileSize: 1024,
+          purpose: "post",
+          userId: "user-1",
+        })
+      ).rejects.toThrow("Sound track not found");
+    });
+
+    test("rejects audioOverlayId if media is not AUDIO type", async () => {
+      mediaFindFirstImpl = () => ({
+        id: "sound-1",
+        status: "READY",
+        type: "IMAGE",
+        userId: "user-1",
+      });
+      await expect(
+        createInitiatedUpload({
+          audioOverlayId: "sound-1",
+          declaredMime: "video/mp4",
+          fileName: "gust.mp4",
+          fileSize: 1024,
+          purpose: "post",
+          userId: "user-1",
+        })
+      ).rejects.toThrow("Sound track not found");
+    });
+
+    test("rejects audioOverlayId if sound is not ready", async () => {
+      mediaFindFirstImpl = () => ({
+        id: "sound-1",
+        status: "PROCESSING",
+        type: "AUDIO",
+        userId: "user-1",
+      });
+      await expect(
+        createInitiatedUpload({
+          audioOverlayId: "sound-1",
+          declaredMime: "video/mp4",
+          fileName: "gust.mp4",
+          fileSize: 1024,
+          purpose: "post",
+          userId: "user-1",
+        })
+      ).rejects.toThrow("Sound track is not ready yet");
+    });
+
+    test("rejects audioOverlayId if sound is already attached to another gust", async () => {
+      let _callCount = 0;
+      mediaFindFirstImpl = (args: unknown) => {
+        _callCount += 1;
+        const query = args as {
+          where?: { audioOverlayId?: string; id?: string };
+        };
+        if (query.where?.id === "sound-1") {
+          return {
+            id: "sound-1",
+            status: "READY",
+            type: "AUDIO",
+            userId: "user-1",
+          };
+        }
+        if (query.where?.audioOverlayId === "sound-1") {
+          return { id: "existing-video" };
+        }
+        return null;
+      };
+
+      await expect(
+        createInitiatedUpload({
+          audioOverlayId: "sound-1",
+          declaredMime: "video/mp4",
+          fileName: "gust.mp4",
+          fileSize: 1024,
+          purpose: "post",
+          userId: "user-1",
+        })
+      ).rejects.toThrow("That sound is already attached to another gust");
+    });
+
+    test("accepts valid audioOverlayId and stores it on upload row", async () => {
+      mediaFindFirstImpl = (args: unknown) => {
+        const query = args as {
+          where?: { audioOverlayId?: string; id?: string };
+        };
+        if (query.where?.id === "sound-1") {
+          return {
+            id: "sound-1",
+            status: "READY",
+            type: "AUDIO",
+            userId: "user-1",
+          };
+        }
+        return null;
+      };
+
+      const result = await createInitiatedUpload({
+        audioOverlayId: "sound-1",
+        declaredMime: "video/mp4",
+        fileName: "gust.mp4",
+        fileSize: 1024,
+        purpose: "post",
+        userId: "user-1",
+      });
+
+      expect(result.mediaId).toBe("new-media-id");
+      const createArgs = mediaCreateArgs as {
+        data: { audioOverlayId?: string };
+      };
+      expect(createArgs.data.audioOverlayId).toBe("sound-1");
+    });
   });
 });

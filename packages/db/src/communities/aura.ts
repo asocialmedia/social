@@ -87,6 +87,35 @@ async function writeCached(
   }
 }
 
+// A monotonic per-key generation, bumped on every invalidation. It exists to
+// close the compute/invalidate race: a read miss starts a compute, a writer
+// invalidates mid-flight, and the compute then writes its now-stale result back
+// over the fresh state - exactly the stale-count bug the eager invalidation was
+// meant to fix. The generation is captured before compute and re-checked before
+// writing, so a computation that spans an invalidation is discarded.
+function generationKey(key: string): string {
+  return `${key}:gen`;
+}
+
+async function readGeneration(key: string): Promise<string | null> {
+  try {
+    return await redis.get(generationKey(key));
+  } catch (error) {
+    // Fail open: without a readable generation the guard is a no-op and the
+    // cache behaves as it did before (stale-while-invalidate is possible but
+    // Redis is already down, so every read misses anyway).
+    logger.warn(
+      { error: String(error), key },
+      "community cache generation read failed"
+    );
+    return null;
+  }
+}
+
+async function bumpGeneration(keys: string[]): Promise<void> {
+  await Promise.all(keys.map((key) => redis.incr(generationKey(key))));
+}
+
 // Read-through cache with single-flight and a stale fallback. Fails open: if
 // Redis is unreachable every call recomputes, exactly as the previous
 // uncached-on-error behaviour did.
@@ -116,9 +145,23 @@ async function withAggregateCache<T>(
     }
   }
 
+  const generationBefore = await readGeneration(key);
   const value = await compute();
-  await writeCached(key, value, ttlSeconds);
-  await writeCached(staleKey, value, ttlSeconds * STALE_TTL_MULTIPLIER);
+  const generationAfter = await readGeneration(key);
+
+  // Only cache the result if no invalidation happened while it was computing.
+  // On a null guard (Redis unreachable) both reads are null and match, so the
+  // write proceeds - the pre-guard behaviour.
+  if (generationBefore === generationAfter) {
+    await writeCached(key, value, ttlSeconds);
+    await writeCached(staleKey, value, ttlSeconds * STALE_TTL_MULTIPLIER);
+  } else {
+    logger.info(
+      { key },
+      "community aggregate invalidated mid-compute; skipping cache write"
+    );
+  }
+
   return value;
 }
 
@@ -137,6 +180,9 @@ export async function invalidateCommunityStats(
 ): Promise<void> {
   const key = statsKey(communityId);
   try {
+    // Bump the generation FIRST so any compute already in flight for this key
+    // observes the change and skips its write, then drop the stored copies.
+    await bumpGeneration([key]);
     await redis.del(key, `${key}:stale`);
   } catch (error) {
     logger.warn(
@@ -144,6 +190,58 @@ export async function invalidateCommunityStats(
       "community stats cache invalidate failed"
     );
   }
+}
+
+// Best-effort multi-key drop for one aggregate: the primary entry and its
+// longer-lived stale fallback. A missing key is a no-op; a Redis outage only
+// means the stale copy survives to its TTL.
+async function invalidateKeys(keys: string[]): Promise<void> {
+  const targets = keys.flatMap((key) => [key, `${key}:stale`]);
+  try {
+    // Generations are bumped before the delete so a concurrent compute cannot
+    // repopulate either copy with a value that predates this invalidation.
+    await bumpGeneration(keys);
+    await redis.del(...targets);
+  } catch (error) {
+    logger.warn(
+      { error: String(error), keys },
+      "community aggregate cache invalidate failed"
+    );
+  }
+}
+
+// Founding a community changes every population-derived aggregate: the hero's
+// community total, the category filter counts, and both the curated rails and
+// the sidebar rankings.
+export function invalidateCommunityCreationAggregates(): Promise<void> {
+  return invalidateKeys([
+    CATEGORY_COUNTS_CACHE_KEY,
+    DISCOVERY_STATS_CACHE_KEY,
+    SECTIONS_CACHE_KEY,
+    "community:top-by-aura",
+    "community:top-by-population",
+    "community:most-active-category",
+  ]);
+}
+
+// A post being published or deleted moves the hero's post total and the
+// highest-aura community ranking, on top of the community's own stats (dropped
+// separately by id). Without this the discovery totals and the "Top by aura"
+// sidebar list stay stale until their TTL.
+export function invalidateCommunityPostAggregates(): Promise<void> {
+  return invalidateKeys([DISCOVERY_STATS_CACHE_KEY, "community:top-by-aura"]);
+}
+
+// A join/leave/approve changes population, which reorders the rails, the
+// sidebar's popularity ranking, and the most-active category. The per-community
+// stats are dropped separately (they are keyed by id).
+export function invalidateCommunityPopulationAggregates(): Promise<void> {
+  return invalidateKeys([
+    DISCOVERY_STATS_CACHE_KEY,
+    SECTIONS_CACHE_KEY,
+    "community:top-by-population",
+    "community:most-active-category",
+  ]);
 }
 
 // Category counts for the discovery filter row, cached as one small map.

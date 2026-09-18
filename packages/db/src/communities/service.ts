@@ -31,6 +31,7 @@ import {
   DEFAULT_COMMUNITY_ACCENT,
   isCommunityAccent,
 } from "./constants";
+import { planCommunityNotification } from "./notification-plan";
 import { normalizeCommunitySlug, isValidCommunitySlug } from "./slug";
 
 const logger = createLogger({ serviceName: "communities" });
@@ -634,10 +635,16 @@ export async function leaveCommunity(
   communityId: string,
   userId: string
 ): Promise<void> {
-  const membership = await prisma.communityMember.findUnique({
-    select: { role: true },
-    where: { communityId_userId: { communityId, userId } },
-  });
+  const [membership, community] = await Promise.all([
+    prisma.communityMember.findUnique({
+      select: { role: true },
+      where: { communityId_userId: { communityId, userId } },
+    }),
+    prisma.community.findUnique({
+      select: { type: true },
+      where: { id: communityId },
+    }),
+  ]);
   // The owner cannot abandon a community; ownership transfer is out of scope.
   if (membership?.role === "OWNER") {
     throw new CommunityError(
@@ -645,8 +652,269 @@ export async function leaveCommunity(
       "The owner cannot leave their community"
     );
   }
-  await prisma.communityMember.deleteMany({ where: { communityId, userId } });
+
+  await prisma.$transaction(async (tx) => {
+    // Serialize with the notification fan-out: without this lock a fan-out that
+    // read the subscriber set just before the leave could still create a
+    // notification for the departing member after their access was revoked.
+    await lockCommunityNotifications(tx, communityId);
+
+    await tx.communityMember.deleteMany({ where: { communityId, userId } });
+
+    // Leaving a PRIVATE community revokes read access, so the subscription and
+    // any already-delivered post notifications would now expose content the
+    // member can no longer see. Clearing both on the way out closes that, and
+    // the fan-out's own readability filter covers any row missed here.
+    if (community?.type === "PRIVATE") {
+      await tx.communitySubscription.deleteMany({
+        where: { communityId, userId },
+      });
+      await tx.notification.deleteMany({
+        where: { communityId, recipientId: userId, type: "COMMUNITY_POST" },
+      });
+    }
+  });
+
   logger.info({ communityId, userId }, "community leave");
+}
+
+// --- Community subscriptions -------------------------------------------------
+//
+// Subscribing is independent of membership: anyone who can read a community
+// (public, or a private one they belong to) may follow its posts. A
+// subscription drives two things - the notification fan-out on new posts, and
+// the reader's Latest feed - so the write path stays a single small row.
+
+// How many subscribers one post will notify in a single fan-out. A hard cap
+// keeps a megaphone community from turning one publish into an unbounded write
+// burst; the notification is a convenience, and the Latest feed (which reads
+// subscriptions live) remains complete regardless.
+const MAX_COMMUNITY_NOTIFY_FANOUT = 5000;
+
+export async function subscribeToCommunity(
+  communityId: string,
+  userId: string
+): Promise<void> {
+  // A private community's existence is members-only, so subscribing to one the
+  // viewer cannot read would leak it. Everything else is open to follow.
+  const community = await prisma.community.findUnique({
+    select: { type: true },
+    where: { id: communityId },
+  });
+  if (!community) {
+    throw new CommunityError("NOT_FOUND", "Community not found");
+  }
+  if (community.type === "PRIVATE") {
+    const membership = await prisma.communityMember.findUnique({
+      select: { status: true },
+      where: { communityId_userId: { communityId, userId } },
+    });
+    if (membership?.status !== "ACTIVE") {
+      throw new CommunityError("NOT_FOUND", "Community not found");
+    }
+  }
+
+  await prisma.communitySubscription.upsert({
+    create: { communityId, userId },
+    update: {},
+    where: { communityId_userId: { communityId, userId } },
+  });
+  logger.info({ communityId, userId }, "community subscribe");
+}
+
+export async function unsubscribeFromCommunity(
+  communityId: string,
+  userId: string
+): Promise<void> {
+  await prisma.communitySubscription.deleteMany({
+    where: { communityId, userId },
+  });
+  logger.info({ communityId, userId }, "community unsubscribe");
+}
+
+export async function isSubscribedToCommunity(
+  communityId: string,
+  userId: string
+): Promise<boolean> {
+  if (!userId) {
+    return false;
+  }
+  const subscription = await prisma.communitySubscription.findUnique({
+    select: { id: true },
+    where: { communityId_userId: { communityId, userId } },
+  });
+  return Boolean(subscription);
+}
+
+// Serializes every community-notification mutation for one community for the
+// rest of a transaction. The fan-out and leaveCommunity both take it, so a
+// leave cannot interleave with a fan-out and leave a departing member with a
+// notification (or vice versa). A transaction-scoped advisory lock is used
+// rather than SELECT ... FOR UPDATE on the community row: the fan-out runs
+// AFTER the post insert, which already holds FOR KEY SHARE on the community via
+// its foreign key, and upgrading that to FOR UPDATE would deadlock against a
+// concurrent publisher. A bare `SELECT pg_advisory_xact_lock(...)` returns
+// `void`, which Prisma's raw deserializer rejects; the outer select yields int.
+async function lockCommunityNotifications(
+  tx: Prisma.TransactionClient,
+  communityId: string
+): Promise<void> {
+  await tx.$queryRaw`SELECT 1 AS acquired FROM (SELECT pg_advisory_xact_lock(hashtext('community-notify'), hashtext(${communityId}))) AS lock`;
+}
+
+// The viewers a new post in `communityId` should notify: its subscribers minus
+// the author, minus anyone who cannot currently READ the community.
+//
+// The readability pass is load-bearing, not defensive. A subscription is
+// independent of membership, so a member of a PRIVATE community who subscribes
+// and then leaves keeps their row - without this filter the fan-out would push
+// the community's new posts, and their content, to a former member.
+//
+// For a PRIVATE community the membership condition is applied INSIDE the query,
+// before the fan-out cap: filtering after `take` would let stale subscriptions
+// (departed members) consume the cap and crowd out legitimate active members.
+// Non-private communities are readable by everyone, so they skip the filter.
+async function selectNotifiableSubscriberIds(
+  client: Prisma.TransactionClient,
+  communityId: string,
+  excludeUserId: string
+): Promise<string[]> {
+  const community = await client.community.findUnique({
+    select: { type: true },
+    where: { id: communityId },
+  });
+
+  const subscriptions = await client.communitySubscription.findMany({
+    select: { userId: true },
+    take: MAX_COMMUNITY_NOTIFY_FANOUT,
+    where: {
+      communityId,
+      ...(excludeUserId ? { userId: { not: excludeUserId } } : {}),
+      ...(community?.type === "PRIVATE"
+        ? {
+            user: {
+              communityMemberships: {
+                some: { communityId, status: "ACTIVE" as const },
+              },
+            },
+          }
+        : {}),
+    },
+  });
+  return subscriptions.map((sub) => sub.userId);
+}
+
+// The viewers to notify about a new post in `communityId`, excluding the
+// author (who already knows) and anyone who can no longer read it, capped for
+// safety. Read-only counterpart of the fan-out, used for diagnostics and tests.
+export async function getCommunitySubscriberIds(
+  communityId: string,
+  excludeUserId: string
+): Promise<string[]> {
+  return await selectNotifiableSubscriberIds(
+    prisma,
+    communityId,
+    excludeUserId
+  );
+}
+
+// Batched fan-out for a new community post, run inside the publisher's
+// transaction so a rollback leaves no notification behind. One rolling row per
+// (recipient, community) is folded in place: an unread COMMUNITY_POST row
+// already waiting is incremented and re-pointed at the newest post, and only
+// recipients without one get a fresh row. Returns the recipients who received a
+// NEW row, so the caller enqueues unread-counter bumps only for those (an
+// in-place increment on an already-unread row does not change the count).
+export async function notifyCommunitySubscribers(
+  tx: Prisma.TransactionClient,
+  input: { authorId: string; communityId: string; postId: string }
+): Promise<string[]> {
+  // Serialize fan-outs per community for the rest of this transaction. Two
+  // posts published at once would otherwise both read "no unread row" and each
+  // insert one, breaking the one-row-per-reader batching contract and
+  // double-incrementing the unread badge. Same lock leaveCommunity takes, so a
+  // leave cannot interleave with this fan-out.
+  await lockCommunityNotifications(tx, input.communityId);
+
+  const recipientIds = await selectNotifiableSubscriberIds(
+    tx,
+    input.communityId,
+    input.authorId
+  );
+  if (recipientIds.length === 0) {
+    return [];
+  }
+
+  const existing = await tx.notification.findMany({
+    select: { recipientId: true },
+    where: {
+      communityId: input.communityId,
+      read: false,
+      recipientId: { in: recipientIds },
+      type: "COMMUNITY_POST",
+    },
+  });
+  const { fold, fresh } = planCommunityNotification(
+    recipientIds,
+    existing.map((notification) => notification.recipientId)
+  );
+
+  if (fold.length > 0) {
+    await tx.notification.updateMany({
+      data: {
+        count: { increment: 1 },
+        createdAt: new Date(),
+        postId: input.postId,
+      },
+      where: {
+        communityId: input.communityId,
+        read: false,
+        recipientId: { in: fold },
+        type: "COMMUNITY_POST",
+      },
+    });
+  }
+
+  if (fresh.length > 0) {
+    await tx.notification.createMany({
+      data: fresh.map((recipientId) => ({
+        communityId: input.communityId,
+        count: 1,
+        issuerId: input.authorId,
+        postId: input.postId,
+        recipientId,
+        type: "COMMUNITY_POST" as const,
+      })),
+    });
+  }
+
+  return fresh;
+}
+
+// The communities the viewer follows AND may currently read. A subscription is
+// independent of membership, so a reader who subscribed to a private community
+// and later left would still hold the row - filtering by the readability rule
+// here keeps a private community's posts out of the Latest feed once access is
+// gone. Used by the Latest feed to pull subscribed posts into the timeline.
+export async function getSubscribedCommunityIds(
+  userId: string
+): Promise<string[]> {
+  if (!userId) {
+    return [];
+  }
+  const subscriptions = await prisma.communitySubscription.findMany({
+    select: { communityId: true },
+    where: {
+      community: {
+        OR: [
+          { type: { not: "PRIVATE" } },
+          { members: { some: { status: "ACTIVE", userId } } },
+        ],
+      },
+      userId,
+    },
+  });
+  return subscriptions.map((subscription) => subscription.communityId);
 }
 
 export async function approveMember(

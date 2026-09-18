@@ -84,7 +84,22 @@ export async function GET(request: Request) {
     }
 
     const category = getCommunityCategory(categoryKey);
-    const [counts, joined, stats] = await Promise.all([
+
+    // Everything here is independent of the listing, so it is issued as ONE
+    // batch rather than two sequential Promise.alls: splitting them put a whole
+    // extra database-pool round trip on the critical path of every discovery
+    // load. The sidebar is GLOBAL (its leaderboards and the viewer's own recent
+    // trail describe the wider directory, not the current query), so fetching it
+    // here means searching or filtering the grid never blanks it. All cached.
+    const [
+      counts,
+      joined,
+      stats,
+      popular,
+      topByAura,
+      activeCategory,
+      recentVisits,
+    ] = await Promise.all([
       getCachedCommunityCategoryCounts(),
       // Per-user, so deliberately not cached server-side: the viewer's own
       // membership must never lag a join/leave, and the query is a single
@@ -92,18 +107,11 @@ export async function GET(request: Request) {
       // it on the same mutations.
       userId ? getJoinedCommunities(userId) : Promise.resolve([]),
       getCachedCommunityDiscoveryStats(),
+      getCachedTopCommunities(),
+      getCachedTopCommunitiesByAura(),
+      getCachedMostActiveCategory(),
+      userId ? getRecentlyVisitedCommunities(userId) : Promise.resolve([]),
     ]);
-
-    // The sidebar is GLOBAL: its leaderboards and the viewer's own recent trail
-    // describe the wider directory, not the current query. Fetched once here so
-    // searching or filtering the grid never blanks it. Everything is cached.
-    const [popular, topByAura, activeCategory, recentVisits] =
-      await Promise.all([
-        getCachedTopCommunities(),
-        getCachedTopCommunitiesByAura(),
-        getCachedMostActiveCategory(),
-        userId ? getRecentlyVisitedCommunities(userId) : Promise.resolve([]),
-      ]);
     const sidebar = { activeCategory, popular, recentVisits, topByAura };
 
     // A search overrides the category filter: the query is the intent, so the

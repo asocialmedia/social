@@ -906,27 +906,30 @@ export async function claimOnce(
   }
 }
 
-// Anonymous viewers may bump a post's view count at most once per this window
-// (per hashed IP); signed-in viewers always count.
+// View deduplication windows: both anonymous clients (hashed IP) and signed-in
+// users (userId) deduplicate per post for 15 minutes. Repeat views after the
+// window reflect genuine return engagement, while short-interval refresh loops
+// or scripted pings are deduplicated atomically.
 const ANON_VIEW_DEDUP_TTL_SECONDS = 900;
+const USER_VIEW_DEDUP_TTL_SECONDS = 900;
 
 // Atomically claims the dedupe key and increments the counter in one script so
 // a duplicate claim can never race an increment (no double-count window).
 // KEYS[1] = dedupe key ("" when there is no viewer identity), KEYS[2] = the
-// set of posts with counters, KEYS[3] = the per-post counter. Returns the
-// current counter for a duplicate claim, or the new counter after INCR.
+// set of posts with counters, KEYS[3] = the per-post counter.
+// Returns a 2-element list: [wasIncremented (1 or 0), currentCounter].
 const CLAIM_AND_INCREMENT_SCRIPT = `
-local claimed = true
 if KEYS[1] ~= "" then
   local ok = redis.call("SET", KEYS[1], "1", "EX", tonumber(ARGV[1]), "NX")
   if not ok then
     local current = redis.call("GET", KEYS[3])
-    if current then return tonumber(current) end
-    return 0
+    if current then return {0, tonumber(current)} end
+    return {0, 0}
   end
 end
 redis.call("SADD", KEYS[2], ARGV[2])
-return redis.call("INCR", KEYS[3])
+local newCount = redis.call("INCR", KEYS[3])
+return {1, newCount}
 `;
 
 export const postViewsCache = {
@@ -969,29 +972,41 @@ export const postViewsCache = {
     viewer?: { userId?: string; viewerHash?: string }
   ): Promise<number> {
     try {
-      // Signed-in viewers count on every screenview - repeat views of a fleet
-      // or gust are real engagement. Only anonymous clients dedupe, via a per
-      // IP-hash claim (15 minutes) so guest refresh loops cannot pump counts.
-      // The claim and counter bump run in one atomic script so a duplicate
-      // claim can never double-count. Fails open (returns 0) when Redis is
-      // down so real views are never dropped by an infrastructure hiccup.
+      // Deduplicate views: signed-in viewers dedupe per user+post; anonymous
+      // viewers dedupe per hashed IP+post (15 minutes). Both fail open, so
+      // genuine views are never lost to an infrastructure hiccup.
       let dedupeKey = "";
-      if (!viewer?.userId && viewer?.viewerHash) {
+      let ttlSeconds = ANON_VIEW_DEDUP_TTL_SECONDS;
+      if (viewer?.userId) {
+        dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:u:${viewer.userId}`;
+        ttlSeconds = USER_VIEW_DEDUP_TTL_SECONDS;
+      } else if (viewer?.viewerHash) {
         dedupeKey = `${POST_VIEWS_KEY_PREFIX}seen:${postId}:a:${viewer.viewerHash}`;
+        ttlSeconds = ANON_VIEW_DEDUP_TTL_SECONDS;
       }
-      const newCount = Number(
-        await redis.eval(
-          CLAIM_AND_INCREMENT_SCRIPT,
-          3,
-          dedupeKey,
-          POST_VIEWS_SET,
-          `${POST_VIEWS_KEY_PREFIX}${postId}`,
-          ANON_VIEW_DEDUP_TTL_SECONDS,
-          postId
-        )
-      );
 
-      await enqueueViewIncrement(postId);
+      const evalResult = (await redis.eval(
+        CLAIM_AND_INCREMENT_SCRIPT,
+        3,
+        dedupeKey,
+        POST_VIEWS_SET,
+        `${POST_VIEWS_KEY_PREFIX}${postId}`,
+        ttlSeconds,
+        postId
+      )) as unknown;
+
+      let wasIncremented = true;
+      let newCount = 0;
+      if (Array.isArray(evalResult)) {
+        wasIncremented = Number(evalResult[0]) === 1;
+        newCount = Number(evalResult[1] || 0);
+      } else {
+        newCount = Number(evalResult || 0);
+      }
+
+      if (wasIncremented) {
+        await enqueueViewIncrement(postId);
+      }
 
       return newCount;
     } catch (error) {

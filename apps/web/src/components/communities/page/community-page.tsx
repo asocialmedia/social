@@ -23,6 +23,8 @@ interface ClientCommunityProps {
   } | null;
   slug: string;
   stats: CommunityStats;
+  // Whether the viewer follows this community's posts; drives the header bell.
+  subscribed: boolean;
 }
 
 // Community page shell. The center column holds the header + feed; the right
@@ -33,6 +35,7 @@ export default function ClientCommunity({
   membership,
   slug,
   stats,
+  subscribed,
 }: ClientCommunityProps) {
   const router = useRouter();
   const [matureAccepted, setMatureAccepted] = useState(false);
@@ -124,6 +127,7 @@ export default function ClientCommunity({
               community={community}
               members={stats.members}
               membership={membership}
+              subscribed={subscribed}
             />
             <CommunityFeed slug={slug} />
           </div>

@@ -16,6 +16,7 @@ import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useSearchHistory } from "@/components/search/use-search-history";
 import useDebounce from "@/hooks/use-debounce";
 import kyInstance from "@/lib/ky";
+import { getPostPath } from "@/lib/seo/seo";
 
 import { SearchCommandList } from "../../search/search-command-list";
 
@@ -147,7 +148,7 @@ export default function SearchField({
     (post: SearchPostResult) => {
       setOpen(false);
       addPostSearchMutation.mutate(post);
-      router.push(`/posts/${post.id}`);
+      router.push(getPostPath(post));
     },
     [addPostSearchMutation, router]
   );

@@ -21,8 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useRef, useState } from "react";
-import { useInView } from "react-intersection-observer";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import CommunityCard from "@/components/communities/card/community-card";
@@ -62,15 +61,13 @@ export default function ClientComm() {
   // The page's own scroll container, so the mobile top bar can fold away on
   // scroll down and return on scroll up like the home and explore feeds.
   const pageScrollRef = useRef<HTMLDivElement>(null);
+  const searchSentinelRef = useRef<HTMLDivElement>(null);
+  // True once the search field has pinned under the category strip. At rest the
+  // field sits on the brand art and must stay transparent so the two backdrop
+  // layers read as one continuous image; once stuck it needs an opaque band so
+  // scrolling rails pass cleanly beneath it.
+  const [isSearchStuck, setIsSearchStuck] = useState(false);
   const hideTopBar = useHideOnScroll(pageScrollRef);
-  // Sentinel parked where the search field sticks. While it is still in view
-  // the field is resting over the hero art and must stay transparent (a tint
-  // there reads as a stray band); once it scrolls off, the field is genuinely
-  // stuck over the content below and needs a surface to sit on.
-  const { inView: isSearchAtRest, ref: searchSentinelRef } = useInView({
-    rootMargin: "-52px 0px 0px 0px",
-    threshold: 0,
-  });
 
   // The input updates on every keystroke, but the query only fires on the
   // settled value. Without this each character typed would run the ILIKE scan
@@ -79,6 +76,44 @@ export default function ClientComm() {
   const debouncedSearch = useDebounce(search.trim(), 300);
   const isSearchPending = search.trim() !== debouncedSearch;
   const query = useInfiniteCommunitiesQuery({ category, q: debouncedSearch });
+
+  // Watch the zero-height sentinel just above the sticky search. The field is
+  // pinned exactly when the sentinel's top crosses the sticky offset (38px at
+  // base, 53px from `sm`, matching `top-9.5` / `sm:top-13.25`), so the band
+  // flips opaque at the same instant it sticks rather than a frame early.
+  //
+  // `query.isLoading` is the dependency that matters: on the cold load the
+  // component renders the skeleton first, so the first run finds both refs null
+  // and bails. Without a re-run the empty-dep array would be stale for the life
+  // of the page and the sticky search would stay permanently transparent.
+  useEffect(() => {
+    const sentinel = searchSentinelRef.current;
+    const scroller = pageScrollRef.current;
+    if (!sentinel || !scroller) {
+      return;
+    }
+    const update = () => {
+      const stickyTop = window.matchMedia("(min-width: 640px)").matches
+        ? 53
+        : 38;
+      // Sticky offsets are measured from the scroll container's padding box,
+      // not the viewport (the mobile top bar sits above the scroller).
+      const offset =
+        sentinel.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top;
+      setIsSearchStuck(offset <= stickyTop);
+    };
+    update();
+    scroller.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      scroller.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+    // isLoading is a TRIGGER, not a value read here: it flips exactly once,
+    // when the skeleton hands off to the real scroller the effect needs.
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton
+  }, [query.isLoading]);
   const pages = query.data?.pages ?? [];
   const communities = pages.flatMap((page) => page.communities);
   // Auras arrive as one id -> aura map covering every community on the response.
@@ -164,7 +199,7 @@ export default function ClientComm() {
   if (query.isLoading) {
     return (
       <>
-        <CommunitiesPageSkeleton />
+        <CommunitiesPageSkeleton isLoggedIn={isLoggedIn} />
         <MobileBottomNav />
         <CreateCommunityDialog
           onOpenChange={setIsCreateOpen}
@@ -174,6 +209,11 @@ export default function ClientComm() {
     );
   }
 
+  // Category filter: the generalized shelves lead the page and stay
+  // pinned to the top of the scroll area. Horizontally scrollable (the
+  // chips are `shrink-0`, so without overflow-x they push the page
+  // wider than the viewport); `overscroll-x-contain` keeps a swipe from
+  // chaining out to the page. Same treatment as the app's other chip/rail strips.
   return (
     <>
       {/* `communities-cq` makes this column the query container for the card
@@ -182,18 +222,14 @@ export default function ClientComm() {
         <CollapsibleTopBar hidden={hideTopBar}>
           <MobileTopBar />
         </CollapsibleTopBar>
-
         <div
-          className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto pb-24 lg:pb-0"
+          className={cn(
+            "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+            isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
+          )}
           ref={pageScrollRef}
         >
-          {/* Category filter: the generalized shelves lead the page and stay
-              pinned to the top of the scroll area. Horizontally scrollable (the
-              chips are `shrink-0`, so without overflow-x they push the page
-              wider than the viewport); `overscroll-x-contain` keeps a swipe
-              from chaining out to the page. Same treatment as the app's other
-              chip/rail strips. */}
-          <div className="hide-native-scrollbar sticky top-0 z-20 flex gap-1.5 overflow-x-auto overscroll-x-contain bg-[hsl(var(--background-alt))]/95 px-8 py-2.5 backdrop-blur-md">
+          <div className="hide-native-scrollbar sticky top-0 z-20 flex gap-1.5 overflow-x-auto overscroll-x-contain bg-[hsl(var(--background-alt))] px-8 py-1.5 backdrop-blur-md sm:py-2.5">
             {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
               const isActive = entry.key === category;
               const count = counts[entry.key];
@@ -224,18 +260,21 @@ export default function ClientComm() {
               );
             })}
           </div>
-
-          {/* Brand backdrop wrapper: the art sits behind the hero statement.
-              It is scoped to the hero alone rather than spanning the search and
-              rails as well, because it is a positioned wrapper and `position:
-              sticky` is constrained to its parent - widening this box would
-              shrink the sticky search's travel (see the note on the search
-              below). Masked on every edge and kept faint, so the type always
-              sits on a clean field - no vignette, no shadow behind the copy. */}
+          {/* Brand backdrop, part one: the art behind the hero statement.
+              The backdrop is split into two positioned layers - hero and top
+              rails - rather than one box spanning both, because the sticky
+              search between them must stay a direct child of the scroll
+              container (see the note on the search below). Masked on every edge
+              and kept faint, so the type always sits on a clean field - no
+              vignette, no shadow behind the copy. */}
           <div className="relative">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-hidden"
+              // Extends 4rem past the hero (the height of the search band) so
+              // the art carries behind the field rather than stopping at the
+              // hero's edge; the fade resolves to zero exactly where the
+              // top-rails layer below fades in, so the two read as one image.
+              className="pointer-events-none absolute inset-x-0 top-0 -bottom-16 overflow-hidden"
             >
               <Image
                 alt=""
@@ -246,9 +285,9 @@ export default function ClientComm() {
                 src={bannerAsm}
                 style={{
                   WebkitMaskImage:
-                    "linear-gradient(to bottom, transparent 0%, #000 8%, #000 88%, transparent 100%)",
+                    "linear-gradient(to bottom, transparent 0%, #000 10%, #000 78%, transparent 100%)",
                   maskImage:
-                    "linear-gradient(to bottom, transparent 0%, #000 8%, #000 88%, transparent 100%)",
+                    "linear-gradient(to bottom, transparent 0%, #000 10%, #000 78%, transparent 100%)",
                 }}
               />
             </div>
@@ -351,26 +390,17 @@ export default function ClientComm() {
               wrapper's bottom edge and was shoved straight up under the category
               strip, which sliced it in half. A direct child of the scroller is
               constrained by the whole scroll area, so the field now pins under
-              the strip and stays pinned over the directory.
+              the strip and stays pinned over the directory. */}
 
-              Sentinel: its position relative to the viewport (offset by the
-              category strip's height) is what tells the search field whether it
-              is resting or stuck. */}
+          {/* Sentinel: a zero-height marker that leaves the viewport exactly
+              when the search field pins, flipping the band opaque. */}
           <div aria-hidden="true" ref={searchSentinelRef} />
-
-          {/* Full-width search, directly below the statement. Pinned under the
-              category strip (top-13 = the strip's 52px) and, being a child of
-              the scroller, it stays pinned all the way down the directory. The
-              surface only fades in once the field is actually stuck - at rest
-              over the hero it stays transparent, so no band shows against the
-              art. The z-index sits below the strip's and the 2px of overlap
-              hides behind it rather than opening a seam. */}
           <div
             className={cn(
-              "sticky top-13 z-10 px-8 pt-2 pb-1 transition-colors duration-200 sm:py-2.5",
-              isSearchAtRest
-                ? "bg-transparent"
-                : "bg-[hsl(var(--background-alt))]/90 backdrop-blur-md"
+              "sticky top-9.5 z-10 px-8 pt-2 pb-2 before:pointer-events-none before:absolute before:inset-x-0 before:-top-3 before:h-3 sm:top-13.25 sm:py-2.5 sm:before:hidden",
+              isSearchStuck
+                ? "bg-[hsl(var(--background-alt))] before:bg-[hsl(var(--background-alt))]"
+                : "bg-transparent"
             )}
           >
             <div className="search-panel-3d flex items-center gap-3 px-4">
@@ -396,7 +426,6 @@ export default function ClientComm() {
               ) : null}
             </div>
           </div>
-
           {/* Each rail is rendered only when it has content, and the wrapper
               itself only when at least one does.
 
@@ -409,7 +438,32 @@ export default function ClientComm() {
               on mobile and only restored at `sm`. Desktop keeps its original
               tighter rhythm. */}
           {showTopRails ? (
+            // Brand backdrop, part two: the same art continues behind the top
+            // rails (Joined, Trending) and only there - "Growing fast" and the
+            // browse grid sit past it on the plain surface. `relative` scopes
+            // the art layer; the rails sit above it.
             <div className="relative flex flex-col gap-7 pt-7 sm:gap-8 sm:pt-5 sm:pb-8">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 overflow-hidden"
+              >
+                <Image
+                  alt=""
+                  className="object-cover opacity-20 dark:opacity-15"
+                  fill
+                  sizes="100vw"
+                  src={bannerAsm}
+                  style={{
+                    // Fade in at the top so the seam under the search band is
+                    // invisible, then fade out at the bottom where the plain
+                    // surface resumes.
+                    WebkitMaskImage:
+                      "linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%)",
+                    maskImage:
+                      "linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%)",
+                  }}
+                />
+              </div>
               {showJoinedRail ? (
                 <CommunityRail
                   communities={joined}
@@ -428,7 +482,6 @@ export default function ClientComm() {
               ) : null}
             </div>
           ) : null}
-
           {/* Growing fast sits past the backdrop, on the plain surface.
 
               `pt-7` (28px) plus the 4px every source hands over (see the
@@ -447,7 +500,6 @@ export default function ClientComm() {
               />
             </div>
           ) : null}
-
           {/* All communities: the browsable, paginated grid.
 
               `pt-8` on mobile is deliberate and larger than the 32px rail-to-rail
@@ -455,7 +507,7 @@ export default function ClientComm() {
               directory, so the heading needs to read as a new kind of section
               rather than one more rail. Desktop already separates them with its
               wider `pt-8 / pb-9` wrappers, so it needs no extra here. */}
-          <div className="px-8 pt-8 pb-10 sm:pt-0">
+          <div className="px-8 pt-8 pb-4 sm:pt-0 sm:pb-10">
             <div className="mb-3 flex items-center gap-2.5">
               <LayoutGrid
                 className="text-primary size-5 shrink-0"

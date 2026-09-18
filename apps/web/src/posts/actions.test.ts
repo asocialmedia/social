@@ -25,6 +25,11 @@ const notifications: {
   type: string;
 }[] = [];
 const enqueuedNotificationRecipients: string[] = [];
+let mockAuraLogsForPost: { amount: number; id: string; type: string }[] = [];
+let mockReversedAura: { openAmount: number; type: string }[] = [];
+let mockInvalidatedSignals: string[][] = [];
+let mockUnlinkedAuraLogs: string[] = [];
+let mockDeletedPosts: string[] = [];
 
 let postState: {
   explicitContent: boolean;
@@ -52,6 +57,11 @@ const tx = {
     }) => {
       auraLogs.push(args.data);
     },
+    findMany: () => mockAuraLogsForPost,
+    updateMany: (args: { where: { postId: string } }) => {
+      mockUnlinkedAuraLogs.push(args.where.postId);
+      return { count: 1 };
+    },
   },
   notification: {
     create: (args: {
@@ -66,6 +76,10 @@ const tx = {
     },
   },
   post: {
+    delete: (args: { where: { id: string } }) => {
+      mockDeletedPosts.push(args.where.id);
+      return { id: args.where.id, rootPostId: null, userId: AUTHOR_ID };
+    },
     findUnique: () => ({
       explicitContent: postState.explicitContent,
       id: POST_ID,
@@ -118,6 +132,7 @@ const tx = {
 const mockPrisma = {
   $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
   media: {
+    findMany: () => [],
     updateMany: () => ({ count: 0 }),
   },
   post: {
@@ -174,6 +189,7 @@ mock.module("@asm/db", () => ({
   }),
   enqueueMediaProcess: () => Promise.resolve(),
   enqueueMediaScan: () => Promise.resolve(),
+  enqueuePostDeleted: () => Promise.resolve(),
   enqueueShitposterCheck: () => Promise.resolve(),
   ensureStreamGroups: () => Promise.resolve(),
   getBlockingRedisClient: () => ({ duplicate: () => ({}) }),
@@ -185,6 +201,12 @@ mock.module("@asm/db", () => ({
   getUserDataSelect: () => ({ id: true }),
   grantShitposterBadgeIfQualified: () => Promise.resolve(false),
   hydrateViewCounts: (posts: unknown[]) => Promise.resolve(posts),
+  invalidateAuraSignals: (userIds: string[]) => {
+    mockInvalidatedSignals.push(userIds);
+    return Promise.resolve();
+  },
+  invalidateCommunityPostAggregates: () => Promise.resolve(),
+  invalidateCommunityStats: () => Promise.resolve(),
   isReservedUsername: () => false,
   jwtSessionCache: {
     get: () => Promise.resolve(null),
@@ -198,7 +220,13 @@ mock.module("@asm/db", () => ({
   publishTrendingSnapshot: () => Promise.resolve(),
   publishTypingStarted: () => Promise.resolve(),
   redis: { del: mockNoop, srem: mockNoop },
-  reverseExactAura: () => Promise.resolve(),
+  reverseExactAura: (
+    _t: unknown,
+    input: { openAmount: number; type: string }
+  ) => {
+    mockReversedAura.push(input);
+    return Promise.resolve({ amount: -input.openAmount });
+  },
   revokeBadge: () => Promise.resolve(true),
   settleVoteTransition: () => Promise.resolve({ auraDelta: 0 }),
   tagCache: {},
@@ -231,6 +259,11 @@ beforeEach(() => {
   auraLogs.length = 0;
   notifications.length = 0;
   enqueuedNotificationRecipients.length = 0;
+  mockAuraLogsForPost = [];
+  mockReversedAura = [];
+  mockInvalidatedSignals = [];
+  mockUnlinkedAuraLogs = [];
+  mockDeletedPosts = [];
   mockGetSession.mockClear();
   mockUpdateTag.mockClear();
   mockIncrementUnread.mockClear();
@@ -424,5 +457,82 @@ describe("updatePostModeration", () => {
     expect(auraLogs).toEqual([]);
     expect(notifications).toEqual([]);
     expect(enqueuedNotificationRecipients).toEqual([]);
+  });
+});
+
+describe("deletePost", () => {
+  test("rejects guests", async () => {
+    const { deletePost } = await import("./actions");
+    mockGetSession.mockImplementationOnce(() => null);
+
+    await expect(deletePost(POST_ID)).rejects.toThrow("Unauthorized");
+  });
+
+  test("rejects non-owner", async () => {
+    const { deletePost } = await import("./actions");
+    mockGetSession.mockImplementationOnce(() => ({
+      user: { id: "intruder", role: "user" },
+    }));
+
+    await expect(deletePost(POST_ID)).rejects.toThrow("Unauthorized");
+  });
+
+  test("rejects when the post does not exist", async () => {
+    const { deletePost } = await import("./actions");
+    mockGetSession.mockImplementationOnce(() => ({
+      user: { id: AUTHOR_ID, role: "user" },
+    }));
+
+    await expect(deletePost("non-existent-id")).rejects.toThrow(
+      "Post not found"
+    );
+  });
+
+  test("deletes post, unlinks aura logs, and reverses creation aura", async () => {
+    const { deletePost } = await import("./actions");
+    mockGetSession.mockImplementationOnce(() => ({
+      user: { id: AUTHOR_ID, role: "user" },
+    }));
+
+    mockAuraLogsForPost = [
+      { amount: 20, id: "log-1", type: "POST_CREATION" },
+      { amount: 15, id: "log-2", type: "POST_ATTACHMENT_BONUS" },
+    ];
+
+    await deletePost(POST_ID);
+
+    // Reversed both creation awards
+    expect(mockReversedAura).toEqual([
+      expect.objectContaining({ openAmount: 20, type: "POST_CREATION" }),
+      expect.objectContaining({
+        openAmount: 15,
+        type: "POST_ATTACHMENT_BONUS",
+      }),
+    ]);
+
+    // Unlinked remaining aura logs from the post before deletion
+    expect(mockUnlinkedAuraLogs).toEqual([POST_ID]);
+
+    // Authoritatively deleted post
+    expect(mockDeletedPosts).toEqual([POST_ID]);
+
+    // Invalidated aura signals for the author
+    expect(mockInvalidatedSignals).toEqual([[AUTHOR_ID]]);
+  });
+
+  test("deletes post cleanly when no creation aura was awarded", async () => {
+    const { deletePost } = await import("./actions");
+    mockGetSession.mockImplementationOnce(() => ({
+      user: { id: AUTHOR_ID, role: "user" },
+    }));
+
+    mockAuraLogsForPost = [];
+
+    await deletePost(POST_ID);
+
+    expect(mockReversedAura).toEqual([]);
+    expect(mockUnlinkedAuraLogs).toEqual([POST_ID]);
+    expect(mockDeletedPosts).toEqual([POST_ID]);
+    expect(mockInvalidatedSignals).toEqual([]);
   });
 });

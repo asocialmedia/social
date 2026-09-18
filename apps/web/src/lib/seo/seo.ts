@@ -13,6 +13,8 @@ export {
   getPostMediaUrl,
   getFullPostPath,
   getFullPostUrl,
+  buildPostRequestPath,
+  buildPostMediaRequestPath,
 } from "../posts/post-url";
 
 export function absoluteUrl(path: string): string {

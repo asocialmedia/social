@@ -1,10 +1,13 @@
-import { prisma } from "@asm/db";
+import { canViewCommunity, prisma } from "@asm/db";
 import { hlsBaseFromMasterKey } from "@asm/media";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { decideMediaAccess } from "@/lib/media/media-access";
+import {
+  decideMediaAccess,
+  resolveOwningCommunity,
+} from "@/lib/media/media-access";
 import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
@@ -74,11 +77,33 @@ export async function GET(
   // serving route.
   const ownership = await prisma.media.findUnique({
     select: {
+      // For comment-linked media the owning community is on the comment's parent
+      // post; resolveOwningCommunity walks to it below.
+      comment: {
+        select: {
+          post: {
+            select: {
+              community: { select: { id: true, type: true } },
+            },
+          },
+        },
+      },
       commentId: true,
       detectedMime: true,
       key: true,
       messageConversationId: true,
       mimeType: true,
+      post: {
+        select: {
+          community: {
+            select: {
+              id: true,
+              type: true,
+            },
+          },
+          communityId: true,
+        },
+      },
       postId: true,
       publishedKey: true,
       status: true,
@@ -95,9 +120,26 @@ export async function GET(
     ownership.messageConversationId,
     viewer?.id
   );
-  const decision = decideMediaAccess(ownership, viewer, {
-    isConversationMember,
-  });
+  const owningCommunity = resolveOwningCommunity(ownership);
+  const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
+  const isCommunityMember =
+    isPrivateCommunityPost && owningCommunity
+      ? await canViewCommunity(owningCommunity, viewer?.id ?? "")
+      : false;
+  const decision = decideMediaAccess(
+    {
+      commentId: ownership.commentId,
+      isPrivateCommunityPost,
+      messageConversationId: ownership.messageConversationId,
+      postId: ownership.postId,
+      userId: ownership.userId,
+    },
+    viewer,
+    {
+      isCommunityMember,
+      isConversationMember,
+    }
+  );
   if (!decision.allowed) {
     return new NextResponse("Media not found", { status: decision.status });
   }
@@ -161,23 +203,25 @@ export async function GET(
     let status = 200;
     const headers = new Headers();
     headers.set("Content-Type", mimeType);
-    // Post-linked media is immutable and safe to share-cache. Message-linked
-    // media is session-gated (membership + blocks can be revoked at any time),
-    // so it must never be stored: a cached copy would keep serving after a
-    // block, unfriend, or conversation deletion. Other private media keeps its
-    // short-lived private cache.
-    let cacheControl = "private, max-age=86400";
-    if (ownership.postId) {
-      cacheControl =
-        "public, max-age=31536000, immutable, stale-while-revalidate=86400";
-    } else if (ownership.messageConversationId) {
-      cacheControl = "private, no-store";
-    }
+    // Only public post-linked media is immutable and safe to share-cache.
+    // Everything else is viewer-gated - message media (membership + blocks can
+    // be revoked at any time), a private community's media, and comment/draft
+    // media - so it must never be stored: a cached copy would keep serving
+    // after a block, unfriend, deletion, or membership revocation. This mirrors
+    // the main serving route's policy so the two cannot drift.
+    const cacheControl =
+      ownership.postId && !isPrivateCommunityPost
+        ? "public, max-age=31536000, immutable, stale-while-revalidate=86400"
+        : "private, no-store";
     headers.set("Cache-Control", cacheControl);
     // HLS playlists must not be cached aggressively by shared caches so
     // takedowns propagate quickly; segments are content-addressed anyway. Only
     // public (post-linked) media may use the shared cache.
-    if (objectKey.endsWith(".m3u8") && ownership.postId) {
+    if (
+      objectKey.endsWith(".m3u8") &&
+      ownership.postId &&
+      !isPrivateCommunityPost
+    ) {
       headers.set("Cache-Control", "public, max-age=60");
     }
     headers.set("Accept-Ranges", "bytes");

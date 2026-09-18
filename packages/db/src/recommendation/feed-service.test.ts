@@ -31,6 +31,11 @@ let poolRows: {
 
 let fullPostRows: Record<string, { id: string }> = {};
 
+// Durable NOT_INTERESTED events the feed reads to build its exclusion list.
+// Served only to the NOT_INTERESTED lookup so the collaborative-signal readers
+// (which query positive events) stay unaffected.
+let notInterestedRows: { postId: string }[] = [];
+
 const mockPrisma = {
   bookmark: { findMany: mock(() => []) },
   comment: { findMany: mock(() => []) },
@@ -53,7 +58,14 @@ const mockPrisma = {
       return [...poolRows];
     }),
   },
-  recommendationEvent: { findMany: mock(() => []) },
+  recommendationEvent: {
+    findMany: mock((args?: FindManyArgs) => {
+      const where = args?.where as { eventType?: string } | undefined;
+      return where?.eventType === "NOT_INTERESTED"
+        ? [...notInterestedRows]
+        : [];
+    }),
+  },
   session: { findFirst: mock(() => null) },
   vote: { findMany: mock(() => []) },
 };
@@ -93,6 +105,7 @@ describe("getPersonalizedFeedPage", () => {
     deletedKeys.length = 0;
     storedProfiles.clear();
     poolRows = [];
+    notInterestedRows = [];
     lastPoolArgs = null;
     mockPrisma.comment.findMany.mockClear();
     mockPrisma.vote.findMany.mockClear();
@@ -200,6 +213,27 @@ describe("getPersonalizedFeedPage", () => {
     expect(mockPrisma.vote.findMany).not.toHaveBeenCalled();
     expect(mockPrisma.comment.findMany).not.toHaveBeenCalled();
   });
+
+  test("hard-excludes dismissed posts from the candidate pool", async () => {
+    const { getPersonalizedFeedPage } = await import("./feed-service");
+    notInterestedRows = [{ postId: "p-dismissed" }, { postId: "p-also" }];
+
+    await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
+
+    // The dismissal is enforced by the query, not only down-weighted in the
+    // profile - so the post can never be ranked back in on a later page load.
+    expect(lastPoolArgs?.where).toMatchObject({
+      id: { notIn: ["p-dismissed", "p-also"] },
+    });
+  });
+
+  test("omits the exclusion clause when nothing is dismissed", async () => {
+    const { getPersonalizedFeedPage } = await import("./feed-service");
+    await getPersonalizedFeedPage({ pageSize: 20, userId: "user-1" });
+    expect(
+      (lastPoolArgs?.where as { id?: unknown } | null)?.id
+    ).toBeUndefined();
+  });
 });
 
 describe("buildAndCacheProfile search history", () => {
@@ -270,6 +304,33 @@ describe("buildAndCacheProfile search history", () => {
     // Restore
     const restoreModule = await import("../../cache/search-cache");
     restoreModule.searchCache.getHistory = prev;
+  });
+});
+
+describe("getNotInterestedPostIds", () => {
+  beforeEach(() => {
+    notInterestedRows = [];
+  });
+
+  test("dedupes repeated dismissals of the same post", async () => {
+    const { getNotInterestedPostIds } = await import("./feed-service");
+    notInterestedRows = [
+      { postId: "p-1" },
+      { postId: "p-1" },
+      { postId: "p-2" },
+    ];
+    expect(await getNotInterestedPostIds("user-1")).toEqual(["p-1", "p-2"]);
+  });
+
+  test("returns nothing for a guest", async () => {
+    const { getNotInterestedPostIds } = await import("./feed-service");
+    notInterestedRows = [{ postId: "p-1" }];
+    expect(await getNotInterestedPostIds("")).toEqual([]);
+  });
+
+  test("returns nothing when the viewer has no dismissals", async () => {
+    const { getNotInterestedPostIds } = await import("./feed-service");
+    expect(await getNotInterestedPostIds("user-1")).toEqual([]);
   });
 });
 

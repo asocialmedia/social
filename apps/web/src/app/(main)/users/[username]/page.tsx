@@ -15,7 +15,7 @@ import ProfileSkeleton from "@/components/layouts/skeletons/profile-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
-import { getUserPostsForCrawl } from "@/lib/posts/server-feed";
+import { crawlPostHref, getUserPostsForCrawl } from "@/lib/posts/server-feed";
 import { absoluteUrl, excerpt } from "@/lib/seo/seo";
 
 import ClientProfile from "./client-profile";
@@ -198,7 +198,9 @@ async function ProfileContent({ params }: PageProps) {
           itemListElement: recentPosts.map((post, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            url: `${siteConfig.url}/posts/${post.id}`,
+            // Canonical, community-nested when applicable, matching the hidden
+            // anchors below rather than a /posts path the post redirects from.
+            url: crawlPostHref(post),
           })),
           name: `Posts by @${userData.username}`,
         }
@@ -220,7 +222,7 @@ async function ProfileContent({ params }: PageProps) {
           <ul>
             {recentPosts.map((p) => (
               <li key={p.id}>
-                <a href={`/posts/${p.id}`} tabIndex={-1}>
+                <a href={crawlPostHref(p)} tabIndex={-1}>
                   {p.content || p.id}
                 </a>
               </li>

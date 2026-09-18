@@ -9,77 +9,78 @@ datasource db {
 }
 
 model User {
-  id                    String                      @id @default(cuid())
-  aura                  Int                         @default(0)
-  username              String                      @unique
-  displayName           String
-  displayUsername       String?
-  email                 String?                     @unique
-  passwordHash          String?
-  googleId              String?                     @unique
-  githubId              String?                     @unique
-  discordId             String?                     @unique
-  twitterId             String?                     @unique
-  redditId              String?                     @unique
-  avatarUrl             String?
-  avatarKey             String?
-  avatarMediaId         String?                     @unique
-  avatarMedia           Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
-  bannerUrl             String?
-  bannerKey             String?
-  bannerMediaId         String?                     @unique
-  bannerMedia           Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
-  bio                   String?
-  githubUsername        String?
-  linkedinUsername      String?
-  twitterUsername       String?
-  redditUsername        String?
-  customDomain          String?
-  emailVerified         Boolean                     @default(false)
-  emailVerifiedAt       DateTime?
-  twoFactorEnabled      Boolean                     @default(false)
-  lastLoginMethod       String?
-  image                 String?
-  name                  String?
-  role                  String                      @default("user")
-  badge                 String?
-  badges                String[]                    @default([])
-  banned                Boolean                     @default(false)
-  banReason             String?
-  banExpires            DateTime?
-  sessions              Session[]
-  accounts              Account[]
-  twoFactor             TwoFactor?
-  passkeys              Passkey[]
-  usernameAliases       UsernameAlias[]
-  verifications         Verification[]
-  passwordResetTokens   PasswordResetToken[]
-  mentions              Mention[]
-  posts                 Post[]
-  following             Follow[]                    @relation("Following")
-  followers             Follow[]                    @relation("Followers")
-  bookmarks             Bookmark[]
-  comments              Comment[]
-  vote                  Vote[]
-  commentVotes          CommentVote[]
-  receivedNotifications Notification[]              @relation("Recipient")
-  issuedNotifications   Notification[]              @relation("Issuer")
-  hnbookmark            HNBookmark[]
-  postVisits            PostVisit[]
-  auraReceived          AuraLog[]                   @relation("AuraReceived")
-  auraIssued            AuraLog[]                   @relation("AuraIssued")
-  impersonatedSessions  Session[]                   @relation("ImpersonatedSessions")
-  messageIdentity       MessageIdentity?
-  messageMemberships    MessageConversationMember[]
-  messageKeys           MessageConversationKey[]
-  messagesSent          Message[]
-  blocksIssued          Block[]                     @relation("BlocksIssued")
-  blocksReceived        Block[]                     @relation("BlocksReceived")
-  recommendationEvents  RecommendationEvent[]
-  ownedCommunities      Community[]                 @relation("CommunityOwner")
-  communityMemberships  CommunityMember[]
-  communityVisits       CommunityVisit[]
-  communityJoinBonuses  CommunityJoinBonus[]
+  id                     String                      @id @default(cuid())
+  aura                   Int                         @default(0)
+  username               String                      @unique
+  displayName            String
+  displayUsername        String?
+  email                  String?                     @unique
+  passwordHash           String?
+  googleId               String?                     @unique
+  githubId               String?                     @unique
+  discordId              String?                     @unique
+  twitterId              String?                     @unique
+  redditId               String?                     @unique
+  avatarUrl              String?
+  avatarKey              String?
+  avatarMediaId          String?                     @unique
+  avatarMedia            Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerUrl              String?
+  bannerKey              String?
+  bannerMediaId          String?                     @unique
+  bannerMedia            Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  bio                    String?
+  githubUsername         String?
+  linkedinUsername       String?
+  twitterUsername        String?
+  redditUsername         String?
+  customDomain           String?
+  emailVerified          Boolean                     @default(false)
+  emailVerifiedAt        DateTime?
+  twoFactorEnabled       Boolean                     @default(false)
+  lastLoginMethod        String?
+  image                  String?
+  name                   String?
+  role                   String                      @default("user")
+  badge                  String?
+  badges                 String[]                    @default([])
+  banned                 Boolean                     @default(false)
+  banReason              String?
+  banExpires             DateTime?
+  sessions               Session[]
+  accounts               Account[]
+  twoFactor              TwoFactor?
+  passkeys               Passkey[]
+  usernameAliases        UsernameAlias[]
+  verifications          Verification[]
+  passwordResetTokens    PasswordResetToken[]
+  mentions               Mention[]
+  posts                  Post[]
+  following              Follow[]                    @relation("Following")
+  followers              Follow[]                    @relation("Followers")
+  bookmarks              Bookmark[]
+  comments               Comment[]
+  vote                   Vote[]
+  commentVotes           CommentVote[]
+  receivedNotifications  Notification[]              @relation("Recipient")
+  issuedNotifications    Notification[]              @relation("Issuer")
+  hnbookmark             HNBookmark[]
+  postVisits             PostVisit[]
+  auraReceived           AuraLog[]                   @relation("AuraReceived")
+  auraIssued             AuraLog[]                   @relation("AuraIssued")
+  impersonatedSessions   Session[]                   @relation("ImpersonatedSessions")
+  messageIdentity        MessageIdentity?
+  messageMemberships     MessageConversationMember[]
+  messageKeys            MessageConversationKey[]
+  messagesSent           Message[]
+  blocksIssued           Block[]                     @relation("BlocksIssued")
+  blocksReceived         Block[]                     @relation("BlocksReceived")
+  recommendationEvents   RecommendationEvent[]
+  ownedCommunities       Community[]                 @relation("CommunityOwner")
+  communityMemberships   CommunityMember[]
+  communityVisits        CommunityVisit[]
+  communityJoinBonuses   CommunityJoinBonus[]
+  communitySubscriptions CommunitySubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -449,37 +450,53 @@ model Tag {
 }
 
 model Community {
-  id            String               @id @default(cuid())
-  slug          String               @unique
+  id            String                  @id @default(cuid())
+  slug          String                  @unique
   name          String
   description   String
-  topics        String[]             @default([])
-  type          CommunityType        @default(PUBLIC)
-  mature        Boolean              @default(false)
-  accentColor   String               @default("slate")
+  topics        String[]                @default([])
+  type          CommunityType           @default(PUBLIC)
+  mature        Boolean                 @default(false)
+  accentColor   String                  @default("slate")
   ownerId       String
-  owner         User                 @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner         User                    @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   avatarUrl     String?
   avatarKey     String?
-  avatarMediaId String?              @unique
-  avatarMedia   Media?               @relation("CommunityAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  avatarMediaId String?                 @unique
+  avatarMedia   Media?                  @relation("CommunityAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
   bannerUrl     String?
   bannerKey     String?
-  bannerMediaId String?              @unique
-  bannerMedia   Media?               @relation("CommunityBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  bannerMediaId String?                 @unique
+  bannerMedia   Media?                  @relation("CommunityBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
   members       CommunityMember[]
   visits        CommunityVisit[]
   posts         Post[]
   postShares    CommunityPostShare[]
   joinBonuses   CommunityJoinBonus[]
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  subscriptions CommunitySubscription[]
+  notifications Notification[]
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
 
   @@index([createdAt])
   @@index([ownerId])
   @@index([type])
   @@index([topics], type: Gin)
   @@map("communities")
+}
+
+model CommunitySubscription {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([communityId, userId])
+  @@index([userId, createdAt])
+  @@index([communityId])
+  @@map("community_subscriptions")
 }
 
 model CommunityMember {
@@ -813,7 +830,10 @@ model Notification {
   post        Post?            @relation(fields: [postId], references: [id], onDelete: Cascade)
   commentId   String?
   comment     Comment?         @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  communityId String?
+  community   Community?       @relation(fields: [communityId], references: [id], onDelete: Cascade)
   type        NotificationType
+  count       Int              @default(1)
   read        Boolean          @default(false)
 
   createdAt DateTime @default(now())
@@ -822,13 +842,15 @@ model Notification {
   @@index([recipientId, read])
   @@index([recipientId, createdAt])
   @@index([issuerId, type, createdAt])
+  @@index([recipientId, communityId, type, read])
   @@map("notifications")
 }
 
 enum NotificationType {
   AMPLIFY
-  FOLLOW
   COMMENT
+  COMMUNITY_POST
+  FOLLOW
   MENTION
   MODERATION
   PUBLISHED

@@ -7,10 +7,14 @@ import {
   consumeRateLimit,
   createCommunity as createCommunityService,
   getCommunityCreationQuota,
+  invalidateCommunityCreationAggregates,
+  invalidateCommunityPopulationAggregates,
   invalidateCommunityStats,
   joinCommunity as joinCommunityService,
   leaveCommunity as leaveCommunityService,
   setMemberRole as setMemberRoleService,
+  subscribeToCommunity as subscribeToCommunityService,
+  unsubscribeFromCommunity as unsubscribeFromCommunityService,
 } from "@asm/db";
 import type {
   AssignableCommunityRole,
@@ -69,10 +73,17 @@ export async function createCommunity(input: unknown): Promise<CommunityData> {
 
   const parsed = createCommunitySchema.parse(input);
   try {
-    return await createCommunityService({
+    const community = await createCommunityService({
       ...parsed,
       ownerId: userId,
     });
+    // A new community moves every population-derived aggregate (hero totals,
+    // category counts, curated rails, sidebar rankings) and its own stats.
+    await Promise.all([
+      invalidateCommunityCreationAggregates(),
+      invalidateCommunityStats(community.id),
+    ]);
+    return community;
   } catch (error) {
     if (error instanceof CommunityError) {
       throw new TypeError(error.message, { cause: error });
@@ -98,13 +109,27 @@ export async function joinCommunity(
 ): Promise<{ status: "ACTIVE" | "PENDING" }> {
   const session = await getSessionFromApi();
   const userId = requireUser(session?.user?.id);
-  return joinCommunityService(communityId, userId);
+  const result = await joinCommunityService(communityId, userId);
+  // Only an ACTIVE join changes the roster; a PENDING request does not. Refresh
+  // the community's own member count plus the population-derived aggregates so
+  // the owner sees the joiner on their next read, not after the TTL expires.
+  if (result.status === "ACTIVE") {
+    await Promise.all([
+      invalidateCommunityStats(communityId),
+      invalidateCommunityPopulationAggregates(),
+    ]);
+  }
+  return result;
 }
 
 export async function leaveCommunity(communityId: string): Promise<void> {
   const session = await getSessionFromApi();
   const userId = requireUser(session?.user?.id);
   await leaveCommunityService(communityId, userId);
+  await Promise.all([
+    invalidateCommunityStats(communityId),
+    invalidateCommunityPopulationAggregates(),
+  ]);
 }
 
 export async function approveMember(
@@ -114,6 +139,12 @@ export async function approveMember(
   const session = await getSessionFromApi();
   const actorId = requireUser(session?.user?.id);
   await approveMemberService(communityId, actorId, targetUserId);
+  // Approval flips PENDING -> ACTIVE, so the member count and the discovery
+  // member total both move (the population aggregate covers the latter).
+  await Promise.all([
+    invalidateCommunityStats(communityId),
+    invalidateCommunityPopulationAggregates(),
+  ]);
 }
 
 export async function setMemberRole(
@@ -124,6 +155,22 @@ export async function setMemberRole(
   const session = await getSessionFromApi();
   const actorId = requireUser(session?.user?.id);
   await setMemberRoleService(communityId, actorId, targetUserId, role);
+}
+
+// Opt into a community's posts. Independent of membership for public
+// communities; the service enforces that a private community is members-only.
+export async function subscribeToCommunity(communityId: string): Promise<void> {
+  const session = await getSessionFromApi();
+  const userId = requireUser(session?.user?.id);
+  await subscribeToCommunityService(communityId, userId);
+}
+
+export async function unsubscribeFromCommunity(
+  communityId: string
+): Promise<void> {
+  const session = await getSessionFromApi();
+  const userId = requireUser(session?.user?.id);
+  await unsubscribeFromCommunityService(communityId, userId);
 }
 
 // Records a community page view. One row per (community, viewer), refreshed on

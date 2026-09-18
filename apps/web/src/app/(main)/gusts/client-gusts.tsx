@@ -141,15 +141,31 @@ export const ClientGusts: React.FC<ClientGustsProps> = () => {
       }
       setHiddenPostIds((current) => new Set([...current, postId]));
     };
+    const handleInterested = (event: Event) => {
+      const postId = (event as CustomEvent<{ postId?: string }>).detail?.postId;
+      if (!postId) {
+        return;
+      }
+      setHiddenPostIds((current) => {
+        if (!current.has(postId)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(postId);
+        return next;
+      });
+    };
     window.addEventListener(
       "recommendation:not-interested",
       handleNotInterested
     );
+    window.addEventListener("recommendation:interested", handleInterested);
     return () => {
       window.removeEventListener(
         "recommendation:not-interested",
         handleNotInterested
       );
+      window.removeEventListener("recommendation:interested", handleInterested);
     };
   }, []);
 
