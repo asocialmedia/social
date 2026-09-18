@@ -590,7 +590,10 @@ const MediaGalleryContent: React.FC<MediaGalleryContentProps> = ({
           return;
         }
         router.push(
-          `${getPostMediaPath({ id: item.postId }, 0)}?mediaId=${item.id}`
+          `${getPostMediaPath(
+            { community: item.post?.community ?? null, id: item.postId },
+            0
+          )}?mediaId=${item.id}`
         );
         return;
       }

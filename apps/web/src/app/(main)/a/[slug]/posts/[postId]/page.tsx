@@ -7,15 +7,16 @@ import {
   PostRoute,
 } from "@/components/posts/page/post-route";
 
-export interface PageProps {
-  params: Promise<{ postId: string; slug?: string }>;
+interface PageProps {
+  params: Promise<{ slug: string; postId: string }>;
 }
 
-// Global post detail. A community post reached on this path is permanently
-// redirected by the shared route to its canonical /a/<community>/posts/... home.
+// A community post's canonical home: /a/<community>/posts/<postId>. The shared
+// route checks the post really belongs to `slug` (and that the id/slug are the
+// canonical short forms), redirecting to the true address otherwise.
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
-  const { postId, slug } = await props.params;
-  return generatePostMetadata({ postId, slug });
+  const { slug, postId } = await props.params;
+  return generatePostMetadata({ communitySlug: slug, postId });
 }
 
 export default function Page(props: PageProps) {
@@ -27,6 +28,6 @@ export default function Page(props: PageProps) {
 }
 
 async function ResolvedPost({ params }: PageProps) {
-  const { postId, slug } = await params;
-  return <PostRoute params={{ postId, slug }} />;
+  const { slug, postId } = await params;
+  return <PostRoute params={{ communitySlug: slug, postId }} />;
 }

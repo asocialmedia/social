@@ -1,4 +1,6 @@
 import {
+  buildPostMediaRequestPath,
+  buildPostRequestPath,
   getFullPostPath,
   getPostMediaPath,
   getPostMediaUrl,
@@ -53,6 +55,57 @@ describe("post-url", () => {
     ).toBe("/gusts?id=video-123");
   });
 
+  test("nests a community post under its community namespace", () => {
+    expect(
+      getPostPath({
+        community: { slug: "anime" },
+        content: "Use of free will",
+        id: "4f2f26c7-447a-4c66-b02a-67f539c2ab18",
+      })
+    ).toBe("/a/anime/posts/4f2f26c7/use-of-free-will");
+
+    expect(
+      getPostPath({
+        community: { slug: "anime" },
+        content: "",
+        id: "4f2f26c7-447a-4c66-b02a-67f539c2ab18",
+      })
+    ).toBe("/a/anime/posts/4f2f26c7");
+
+    // A gust stays on the gust path even if a community is supplied.
+    expect(
+      getPostPath({
+        community: { slug: "anime" },
+        content: "Video post",
+        id: "video-123",
+        isGust: true,
+      })
+    ).toBe("/gusts?id=video-123");
+  });
+
+  test("builds canonical paths back from route params", () => {
+    expect(
+      buildPostRequestPath({
+        communitySlug: "anime",
+        postId: "4f2f26c7",
+        slug: "use-of-free-will",
+      })
+    ).toBe("/a/anime/posts/4f2f26c7/use-of-free-will");
+    expect(buildPostRequestPath({ postId: "4f2f26c7" })).toBe(
+      "/posts/4f2f26c7"
+    );
+    expect(
+      buildPostMediaRequestPath({
+        communitySlug: "anime",
+        index: 2,
+        postId: "4f2f26c7",
+      })
+    ).toBe("/a/anime/posts/4f2f26c7/media/2");
+    expect(buildPostMediaRequestPath({ index: 0, postId: "4f2f26c7" })).toBe(
+      "/posts/4f2f26c7/media/0"
+    );
+  });
+
   test("getFullPostPath generates unshortened UUID URLs", () => {
     expect(
       getFullPostPath({
@@ -66,6 +119,16 @@ describe("post-url", () => {
     expect(
       getPostMediaPath({ id: "50769dc7-447a-4c66-b02a-67f539c2ab18" }, 0)
     ).toBe("/posts/50769dc7/media/0");
+
+    expect(
+      getPostMediaPath(
+        {
+          community: { slug: "anime" },
+          id: "50769dc7-447a-4c66-b02a-67f539c2ab18",
+        },
+        0
+      )
+    ).toBe("/a/anime/posts/50769dc7/media/0");
   });
 
   test("getPostUrl and getPostMediaUrl generate absolute URLs", () => {

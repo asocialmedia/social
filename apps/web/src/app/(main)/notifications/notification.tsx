@@ -22,6 +22,7 @@ import type React from "react";
 
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import kyInstance from "@/lib/ky";
+import { getPostPath } from "@/lib/seo/seo";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 interface NotificationProps {
@@ -52,10 +53,24 @@ function getCommentAction(
   return "replied on your post";
 }
 
+// A notification's post link resolves to the canonical address: a community
+// post goes to its /a/<slug>/posts/... home, everything else to /posts/....
+function getNotificationPostHref(
+  notification: NotificationProps["notification"]
+): string {
+  const { post } = notification;
+  if (post?.id) {
+    return getPostPath(post);
+  }
+  return notification.postId
+    ? `/posts/${notification.postId}`
+    : "/notifications";
+}
+
 function getCommentHref(
   notification: NotificationProps["notification"]
 ): string {
-  const base = `/posts/${notification.postId}`;
+  const base = getNotificationPostHref(notification);
   return notification.comment
     ? `${base}?comment=${notification.comment.id}`
     : base;
@@ -69,7 +84,7 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     href: (notification) =>
       notification.comment
         ? getCommentHref(notification)
-        : `/posts/${notification.postId}`,
+        : getNotificationPostHref(notification),
     icon: Heart,
   },
   COMMENT: {
@@ -87,14 +102,14 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   MENTION: {
     action: () => "mentioned you",
     badgeClass: "bg-gradient-to-b from-[#a78bfa] to-[#7c3aed]",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: AtSign,
   },
   MODERATION: {
     action: (notification) =>
       notification.post?.isGust ? "flagged your gust" : "flagged your post",
     badgeClass: "bg-gradient-to-b from-amber-400 to-orange-500",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: ShieldAlert,
   },
   // Platform-persona notice: the pipeline finished publishing the upload.
@@ -102,7 +117,7 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
     action: (notification) =>
       notification.post?.isGust ? "your gust is live" : "your fleet is live",
     badgeClass: "bg-gradient-to-b from-emerald-400 to-teal-600",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: Sparkles,
   },
   // A post-to-post reply: the postId points at the response itself, so the
@@ -110,7 +125,7 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   REPLY: {
     action: () => "responded to your post",
     badgeClass: "bg-gradient-to-b from-sky-400 to-blue-600",
-    href: (notification) => `/posts/${notification.postId}`,
+    href: getNotificationPostHref,
     icon: CornerDownRight,
   },
   // Platform-persona notice: closed captions and transcript were generated.
@@ -120,8 +135,7 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
         ? "captions & transcript ready for your gust"
         : "captions & transcript ready for your post",
     badgeClass: "bg-gradient-to-b from-amber-400 to-orange-600",
-    href: (notification) =>
-      notification.postId ? `/posts/${notification.postId}` : "/notifications",
+    href: getNotificationPostHref,
     icon: Captions,
   },
 };

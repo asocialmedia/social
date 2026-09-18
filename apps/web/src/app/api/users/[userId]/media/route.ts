@@ -24,6 +24,9 @@ export async function GET(
       // the moderated banner.
       post: {
         select: {
+          // The community slug lets the gallery open a community post's media
+          // at its canonical /a/<slug>/posts/.../media/... address.
+          community: { select: { slug: true } },
           explicitContent: true,
           id: true,
           isGust: true,

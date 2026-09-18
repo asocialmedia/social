@@ -96,7 +96,15 @@ export default function CommunityFeed({ slug }: { slug: string }) {
           hasNextPage && !isFetchingNextPage && fetchNextPage()
         }
       >
-        <FeedView cacheKey={queryKey} posts={posts} sortBy="server" />
+        {/* Every post here belongs to this community, so the per-post a/<slug>
+            attribution is suppressed; it only earns its place outside the
+            community, on the global/ranked feeds. */}
+        <FeedView
+          cacheKey={queryKey}
+          posts={posts}
+          showCommunity={false}
+          sortBy="server"
+        />
         {isFetchingNextPage ? <LoadMoreSkeleton /> : null}
         {hasNextPage ? null : <FeedEnd />}
       </InfiniteScrollContainer>

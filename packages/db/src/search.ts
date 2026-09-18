@@ -66,6 +66,10 @@ export interface SearchPostResult {
   authorDisplayName: string;
   authorId: string;
   authorUsername: string;
+  // The owning community, or null for a global post. Shape matches the URL
+  // helper's target so a search result can build its canonical
+  // /a/<slug>/posts/... link directly.
+  community: { slug: string } | null;
   content: string;
   createdAt: Date;
   explicitContent: boolean;
@@ -156,6 +160,7 @@ export async function searchPosts(
         take: 1,
       },
       aura: true,
+      community: { select: { slug: true } },
       content: true,
       createdAt: true,
       explicitContent: true,
@@ -193,6 +198,7 @@ export async function searchPosts(
       authorDisplayName: post.user.displayName,
       authorId: post.user.id,
       authorUsername: post.user.username,
+      community: post.community,
       content: post.content,
       createdAt: post.createdAt,
       explicitContent: post.explicitContent,

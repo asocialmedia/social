@@ -174,6 +174,7 @@ export default function ResponseItem({
             <Link
               className="text-muted-foreground shrink-0 hover:underline"
               href={getPostPath({
+                community: response.community,
                 content: response.content,
                 id: response.id,
                 isGust: response.isGust,
@@ -249,6 +250,7 @@ export default function ResponseItem({
             <Link
               className="pill-3d-hover text-muted-foreground inline-flex h-8 items-center px-2 text-xs font-medium"
               href={getPostPath({
+                community: response.community,
                 content: response.content,
                 id: response.id,
                 isGust: response.isGust,

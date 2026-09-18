@@ -5,6 +5,7 @@ import {
   enqueuePostDeleted,
   getPostDataInclude,
   invalidateAuraSignals,
+  invalidateCommunityStats,
   POST_VIEWS_KEY_PREFIX,
   POST_VIEWS_SET,
   prisma,
@@ -272,6 +273,17 @@ export async function deletePost(id: string) {
       await publishResponseDeleted(deletedPost.rootPostId, deletedPost);
     } catch (error) {
       console.error("Failed to publish response-deleted event:", error);
+    }
+  }
+
+  // A deleted community post changes the community's aggregate aura and post
+  // count, so drop the cached stats so the sidebar reflects it on the next read
+  // (the create path already does this).
+  if (deletedPost.communityId) {
+    try {
+      await invalidateCommunityStats(deletedPost.communityId);
+    } catch (error) {
+      console.error("Failed to invalidate community stats:", error);
     }
   }
 

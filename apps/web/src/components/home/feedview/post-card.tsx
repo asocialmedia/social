@@ -94,6 +94,10 @@ interface PostCardProps {
   // narrow embedded columns (media page sidebar).
   mobileLayout?: boolean;
   post: ExtendedPostData;
+  // Inside a community's own feed the a/<slug> attribution is redundant, so it
+  // is suppressed there; elsewhere (home, profile, bookmarks) it still names
+  // the source community.
+  showCommunity?: boolean;
   // Ranked feeds add a short "Trending in a/<slug>" reason line beside the
   // community attribution; chronological feeds leave it off.
   showCommunityReason?: boolean;
@@ -317,6 +321,7 @@ interface PostContentProps {
   onToggleComments: () => void;
   onToggleExpand: () => void;
   post: ExtendedPostData;
+  showCommunity?: boolean;
   showCommunityReason?: boolean;
 }
 
@@ -331,6 +336,7 @@ const PostContent: React.FC<PostContentProps> = ({
   onToggleComments,
   onToggleExpand,
   post,
+  showCommunity = true,
   showCommunityReason = false,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -454,8 +460,9 @@ const PostContent: React.FC<PostContentProps> = ({
               ) : null}
 
               {/* Native community post: name the community it was published
-                  into. Ranked feeds add the reason line. */}
-              {post.community ? (
+                  into, unless we are already inside that community's feed.
+                  Ranked feeds add the reason line. */}
+              {post.community && showCommunity ? (
                 <CommunityAttribution
                   className="mt-2.5"
                   community={post.community}
@@ -794,6 +801,7 @@ const PostCard: React.FC<PostCardProps> = ({
   isJoined = false,
   mobileLayout = false,
   post: initialPost,
+  showCommunity = true,
   showCommunityReason = false,
 }) => {
   const { user } = useSession();
@@ -872,6 +880,7 @@ const PostCard: React.FC<PostCardProps> = ({
       onToggleComments={handleToggleComments}
       onToggleExpand={handleToggleExpand}
       post={post}
+      showCommunity={showCommunity}
       showCommunityReason={showCommunityReason}
     />
   );

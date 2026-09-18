@@ -176,6 +176,9 @@ export function getPostDataInclude(loggedInUserId: string) {
           },
           take: 1,
         },
+        // Lets the quoted parent row link a community parent to its canonical
+        // /a/<slug>/posts/... address.
+        community: { select: { slug: true } },
         content: true,
         createdAt: true,
         embeds: true,
@@ -282,6 +285,9 @@ export const notificationsInclude = {
   },
   post: {
     select: {
+      // The community slug lets a notification link a community post to its
+      // canonical /a/<slug>/posts/... address instead of the global path.
+      community: { select: { slug: true } },
       content: true,
       id: true,
       isGust: true,

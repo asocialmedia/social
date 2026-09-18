@@ -64,6 +64,9 @@ export function useJoinCommunityMutation(slug: string) {
       queryClient.invalidateQueries({ queryKey: ["community", slug] });
       queryClient.invalidateQueries({ queryKey: ["community-joined"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
+      // The roster gained (or, on leave, lost) a member, so any mounted members
+      // list must refetch rather than keep serving the pre-join page.
+      queryClient.invalidateQueries({ queryKey: ["community-members", slug] });
       toast({ description: "You're in", title: "Joined" });
     },
   });
@@ -86,6 +89,7 @@ export function useLeaveCommunityMutation(slug: string) {
       queryClient.invalidateQueries({ queryKey: ["community", slug] });
       queryClient.invalidateQueries({ queryKey: ["community-joined"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
+      queryClient.invalidateQueries({ queryKey: ["community-members", slug] });
       toast({ description: "You left the community", title: "Left" });
     },
   });

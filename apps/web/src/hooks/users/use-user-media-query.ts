@@ -10,6 +10,7 @@ import kyInstance from "@/lib/ky";
 // the moderation/explicit state on each tile.
 export type UserMediaItem = Media & {
   post: {
+    community: { slug: string } | null;
     explicitContent: boolean;
     id: string;
     isGust: boolean;

@@ -146,6 +146,47 @@ export async function invalidateCommunityStats(
   }
 }
 
+// Best-effort multi-key drop for one aggregate: the primary entry and its
+// longer-lived stale fallback. A missing key is a no-op; a Redis outage only
+// means the stale copy survives to its TTL.
+async function invalidateKeys(keys: string[]): Promise<void> {
+  const targets = keys.flatMap((key) => [key, `${key}:stale`]);
+  try {
+    await redis.del(...targets);
+  } catch (error) {
+    logger.warn(
+      { error: String(error), keys },
+      "community aggregate cache invalidate failed"
+    );
+  }
+}
+
+// Founding a community changes every population-derived aggregate: the hero's
+// community total, the category filter counts, and both the curated rails and
+// the sidebar rankings.
+export function invalidateCommunityCreationAggregates(): Promise<void> {
+  return invalidateKeys([
+    CATEGORY_COUNTS_CACHE_KEY,
+    DISCOVERY_STATS_CACHE_KEY,
+    SECTIONS_CACHE_KEY,
+    "community:top-by-aura",
+    "community:top-by-population",
+    "community:most-active-category",
+  ]);
+}
+
+// A join/leave/approve changes population, which reorders the rails, the
+// sidebar's popularity ranking, and the most-active category. The per-community
+// stats are dropped separately (they are keyed by id).
+export function invalidateCommunityPopulationAggregates(): Promise<void> {
+  return invalidateKeys([
+    DISCOVERY_STATS_CACHE_KEY,
+    SECTIONS_CACHE_KEY,
+    "community:top-by-population",
+    "community:most-active-category",
+  ]);
+}
+
 // Category counts for the discovery filter row, cached as one small map.
 export function getCachedCommunityCategoryCounts(): Promise<
   Record<string, number>

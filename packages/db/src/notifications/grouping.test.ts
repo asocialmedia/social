@@ -21,6 +21,7 @@ function createMockNotification(
       username: overrides.issuerId,
     },
     post: {
+      community: null,
       content: "Hello world post",
       id: overrides.postId ?? "post-1",
       isGust: false,

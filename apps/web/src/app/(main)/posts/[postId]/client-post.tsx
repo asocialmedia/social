@@ -273,7 +273,13 @@ const ClientPost: React.FC<ClientPostProps> = ({
                   View all posts
                 </Link>
               </div>
-              <HomeFeed excludePostId={post.id} variant="global" />
+              {/* On a community post, the related feed leads with that
+                  community's own posts before opening up to the platform. */}
+              <HomeFeed
+                communitySlug={post.community?.slug}
+                excludePostId={post.id}
+                variant="global"
+              />
               <div className="border-border/60 mt-4 border-t" />
             </div>
           </div>

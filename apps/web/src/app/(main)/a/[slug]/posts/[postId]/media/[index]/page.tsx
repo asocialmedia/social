@@ -8,18 +8,22 @@ import {
 } from "@/components/posts/page/post-media-route";
 
 interface PageProps {
-  params: Promise<{ postId: string; index: string }>;
+  params: Promise<{ slug: string; postId: string; index: string }>;
   searchParams: Promise<{ mediaId?: string }>;
 }
 
-// Global shareable media route. A community post reached here is permanently
-// redirected to its canonical /a/<community>/posts/.../media/... home.
+// A community post's canonical shareable media route:
+// /a/<community>/posts/<postId>/media/<index>.
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const [params, searchParams] = await Promise.all([
     props.params,
     props.searchParams,
   ]);
-  return generatePostMediaMetadata({ params, searchParams });
+  const { slug, postId, index } = params;
+  return generatePostMediaMetadata({
+    params: { communitySlug: slug, index, postId },
+    searchParams,
+  });
 }
 
 export default function Page(props: PageProps) {
@@ -35,5 +39,11 @@ async function ResolvedMedia(props: PageProps) {
     props.params,
     props.searchParams,
   ]);
-  return <PostMediaRoute params={params} searchParams={searchParams} />;
+  const { slug, postId, index } = params;
+  return (
+    <PostMediaRoute
+      params={{ communitySlug: slug, index, postId }}
+      searchParams={searchParams}
+    />
+  );
 }

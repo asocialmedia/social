@@ -118,6 +118,7 @@ describe("search cache", () => {
       authorDisplayName: "Bob",
       authorId: "bob-1",
       authorUsername: "bob",
+      community: null,
       content: "Bob thoughts",
       createdAt: new Date(),
       explicitContent: false,

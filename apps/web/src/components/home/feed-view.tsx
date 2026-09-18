@@ -21,8 +21,15 @@ const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
   cacheKey?: QueryKey;
+  // Extra ids to drop from the rendered feed, applied to both the server list
+  // and every cache-synced update. Used when a leading segment already shows a
+  // post that the trailing feed's own cache would reintroduce.
+  excludeIds?: ReadonlySet<string>;
   excludePostId?: string;
   posts: PostData[];
+  // Inside a community's own feed every post belongs to that community, so the
+  // per-post a/<slug> attribution is redundant and is suppressed there.
+  showCommunity?: boolean;
   // Ranked feeds (For-You, Trending) label a community post with a short
   // "Trending in a/<slug>" reason line; chronological feeds omit it.
   showCommunityReason?: boolean;
@@ -32,7 +39,9 @@ interface FeedViewProps {
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
+  excludeIds,
   excludePostId,
+  showCommunity = true,
   showCommunityReason = false,
   sortBy = "newest",
 }) => {
@@ -40,8 +49,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const queryClient = useQueryClient();
   const router = useRouter();
   const normalizedInitial = useMemo(
-    () => normalizePostsData(initialPosts ?? []),
-    [initialPosts]
+    () =>
+      normalizePostsData(initialPosts ?? []).filter(
+        (post) => !excludeIds?.has(post.id)
+      ),
+    [initialPosts, excludeIds]
   );
   const [posts, setPosts] = useState<PostData[]>(normalizedInitial);
 
@@ -79,6 +91,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                 )
               )
               .filter((post) => post.id !== excludePostId)
+              .filter((post) => !excludeIds?.has(post.id))
           );
 
           if (updatedPosts.length) {
@@ -95,7 +108,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [cacheKey, excludePostId, queryClient]);
+  }, [cacheKey, excludeIds, excludePostId, queryClient]);
 
   useEffect(() => {
     const handleNotInterested = (event: Event) => {
@@ -137,6 +150,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   // posts are adopted during render (the documented adjust-state pattern)
   // instead of from a cascading effect.
   const [syncInputs, setSyncInputs] = useState<{
+    excludeIds: ReadonlySet<string> | undefined;
     excludePostId: string | undefined;
     initialPosts: PostData[];
     posts: PostData[];
@@ -144,13 +158,15 @@ export const FeedView: React.FC<FeedViewProps> = ({
 
   if (
     syncInputs === null ||
+    syncInputs.excludeIds !== excludeIds ||
     syncInputs.excludePostId !== excludePostId ||
     syncInputs.initialPosts !== normalizedInitial ||
     syncInputs.posts !== posts
   ) {
     const safeInitial = (normalizedInitial || [])
       .filter(Boolean)
-      .filter((post) => post.id !== excludePostId);
+      .filter((post) => post.id !== excludePostId)
+      .filter((post) => !excludeIds?.has(post.id));
     const initialFirstId = safeInitial[0]?.id;
     const currentFirstId = posts[0]?.id;
     if (
@@ -162,27 +178,34 @@ export const FeedView: React.FC<FeedViewProps> = ({
         ...new Map(safeInitial.map((post) => [post.id, post])).values(),
       ];
       setSyncInputs({
+        excludeIds,
         excludePostId,
         initialPosts: normalizedInitial,
         posts: uniquePosts,
       });
       setPosts(uniquePosts);
     } else {
-      setSyncInputs({ excludePostId, initialPosts: normalizedInitial, posts });
+      setSyncInputs({
+        excludeIds,
+        excludePostId,
+        initialPosts: normalizedInitial,
+        posts,
+      });
     }
   }
 
   const sortedPosts = useMemo(() => {
-    if (sortBy === "server") {
-      return [...posts].filter(Boolean);
-    }
-    return [...posts]
+    const filtered = [...posts]
       .filter(Boolean)
-      .toSorted(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-  }, [posts, sortBy]);
+      .filter((post) => !excludeIds?.has(post.id));
+    if (sortBy === "server") {
+      return filtered;
+    }
+    return filtered.toSorted(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [posts, excludeIds, sortBy]);
 
   const threadGroups = useMemo(
     () => groupPostsIntoThreads(sortedPosts),
@@ -206,6 +229,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                   hasThreadParent={hasThreadParent}
                   isJoined={true}
                   post={post}
+                  showCommunity={showCommunity}
                   showCommunityReason={showCommunityReason}
                 />
               </RecommendationTracker>

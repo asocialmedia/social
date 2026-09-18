@@ -36,6 +36,7 @@ export function ResponseParentRow({
   const router = useRouter();
   const href = parent
     ? getPostPath({
+        community: parent.community,
         content: parent.content,
         id: parentPostId,
         isGust: parent.isGust,
