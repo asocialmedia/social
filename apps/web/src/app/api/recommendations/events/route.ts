@@ -98,21 +98,27 @@ export async function POST(request: Request) {
     );
   }
 
+  // A post can be deleted while a viewer still has it on screen, so an event
+  // for a missing post is stale telemetry, not a client error. Dropping just
+  // those events (and accepting the rest) is important: rejecting the whole
+  // batch would make the client re-queue it forever, so one deleted post would
+  // permanently stall every later event behind it.
   const postIds = [...new Set(events.map((event) => event.postId))];
   const posts = await prisma.post.findMany({
     select: { id: true },
     where: { id: { in: postIds } },
   });
   const existingPostIds = new Set(posts.map((post) => post.id));
-  if (existingPostIds.size !== postIds.length) {
-    return Response.json(
-      { error: "One or more posts were not found" },
-      { status: 404 }
-    );
+  const acceptedEvents = events.filter((event) =>
+    existingPostIds.has(event.postId)
+  );
+  if (acceptedEvents.length === 0) {
+    // Nothing left to record; report success so the batch is not retried.
+    return Response.json({ accepted: 0 });
   }
 
   await prisma.recommendationEvent.createMany({
-    data: events.map((event) => ({
+    data: acceptedEvents.map((event) => ({
       dedupeKey:
         event.eventType === "IMPRESSION"
           ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
@@ -127,22 +133,25 @@ export async function POST(request: Request) {
     skipDuplicates: true,
   });
   const eventCounts = Object.fromEntries(
-    [...new Set(events.map((event) => event.eventType))].map((eventType) => [
-      eventType,
-      events.filter((event) => event.eventType === eventType).length,
-    ])
+    [...new Set(acceptedEvents.map((event) => event.eventType))].map(
+      (eventType) => [
+        eventType,
+        acceptedEvents.filter((event) => event.eventType === eventType).length,
+      ]
+    )
   );
   logger.info(
     {
-      eventCount: events.length,
+      droppedCount: events.length - acceptedEvents.length,
+      eventCount: acceptedEvents.length,
       eventCounts,
       userId,
     },
     "recommendation events accepted"
   );
-  if (events.some((event) => event.eventType === "NOT_INTERESTED")) {
+  if (acceptedEvents.some((event) => event.eventType === "NOT_INTERESTED")) {
     void invalidateFypProfile(userId);
   }
 
-  return Response.json({ accepted: events.length });
+  return Response.json({ accepted: acceptedEvents.length });
 }

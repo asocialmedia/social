@@ -145,9 +145,14 @@ export function useSubmitPostMutation() {
       }
 
       // A community post (native or reshare) changes that community's feed and
-      // its aggregate stats, so refresh every community feed cache.
+      // its aggregate stats, so refresh every community feed cache. A native
+      // post also moves the community's post count, shown on the discovery
+      // grid's cards, so that listing is refreshed too.
       if (input.communityId || input.communitySharePostId) {
         void queryClient.invalidateQueries({ queryKey: ["community-feed"] });
+      }
+      if (input.communityId) {
+        void queryClient.invalidateQueries({ queryKey: ["communities"] });
       }
 
       queryClient.invalidateQueries({ queryKey: ["popularTags"] });

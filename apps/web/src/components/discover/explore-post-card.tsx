@@ -12,11 +12,23 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
+import {
+  EmbedSiteBadge,
+  embedImageProxyUrl,
+  useEmbedImageError,
+  youtubeEmbedThumbnail,
+} from "@/components/posts/embeds/embed-utils";
+import { parseStoredEmbeds } from "@/lib/link-embeds/shared";
+import type { LinkEmbed } from "@/lib/link-embeds/shared";
 import { getPostPath } from "@/lib/seo/seo";
 import { cn } from "@/lib/utils";
 import { getMediaImageSrcSet, getMediaProxyUrl } from "@/lib/utils/image-url";
 
 const DEFAULT_ASPECT = 4 / 5;
+// Link previews are landscape (YouTube's hqdefault is 16:9; OG cards are
+// typically ~1.91:1), so an embed tile uses a landscape frame instead of the
+// portrait default the native-media tiles fall back to.
+const EMBED_ASPECT = 16 / 9;
 
 const ExplorePostImage: React.FC<{ media: Media }> = ({ media }) => {
   const [isImageLoading, setIsImageLoading] = useState(true);
@@ -111,6 +123,65 @@ const ExplorePostVideo: React.FC<{
   );
 };
 
+// The previewable image for a link embed, if any. YouTube derives its poster
+// from the validated video id; a generic link uses its OG image. Null means the
+// embed has no visual (a plain link), which renders as a text row instead.
+export function embedImageUrl(embed: LinkEmbed): string | null {
+  if (embed.type === "youtube") {
+    return youtubeEmbedThumbnail(embed.videoId);
+  }
+  return embed.imageUrl ?? null;
+}
+
+// A link embed's visual for the masonry tile. The image is always served
+// through the SSRF-guarded proxy (raw third-party URLs never reach the
+// browser), and on load failure it falls back to the embed's text row so the
+// tile still communicates that it holds a link.
+export const ExplorePostEmbed: React.FC<{ embed: LinkEmbed }> = ({ embed }) => {
+  const rawImage = embedImageUrl(embed);
+  // `failed` is already true when there is no image at all, so this one check
+  // covers both "plain link" and "image that would not load".
+  const image = useEmbedImageError(rawImage);
+
+  if (image.failed || !rawImage) {
+    return (
+      <div className="flex h-full w-full flex-col justify-end gap-1 p-3">
+        <div className="flex items-center gap-1.5">
+          <EmbedSiteBadge siteName={embed.siteName} url={embed.url} />
+          <span className="text-muted-foreground truncate text-[11px]">
+            {embed.siteName ?? "Link"}
+          </span>
+        </div>
+        <p className="line-clamp-3 text-sm leading-snug font-medium">
+          {embed.title}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- proxied OG/YouTube thumbnail for responsive explore tiles */}
+      <img
+        alt={embed.title}
+        className="absolute inset-0 h-full w-full object-cover transition-all duration-300 group-hover:scale-105"
+        decoding="async"
+        loading="lazy"
+        onError={image.handleError}
+        sizes="(max-width: 768px) 50vw, 300px"
+        src={embedImageProxyUrl(rawImage)}
+      />
+      {/* Platform mark, mirroring the "Gust" chip's placement on a gust tile. */}
+      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-white backdrop-blur-md">
+        <EmbedSiteBadge siteName={embed.siteName} url={embed.url} />
+        <span className="text-[10px] font-semibold">
+          {embed.siteName ?? "Link"}
+        </span>
+      </div>
+    </>
+  );
+};
+
 interface ExplorePostCardProps {
   post: PostData;
 }
@@ -120,11 +191,18 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
   const isGustPost = Boolean(post.isGust);
+  // Link embeds are a first-class visual here, like native media: a text-only
+  // post that carries a YouTube/OG preview would otherwise render as a bare
+  // paragraph tile, hiding the preview it actually has.
+  const [embed] = parseStoredEmbeds(post.embeds);
+  const hasEmbed = Boolean(embed);
   let aspectRatio = DEFAULT_ASPECT;
   if (isGustPost) {
     aspectRatio = 9 / 16;
   } else if (media?.width && media?.height) {
     aspectRatio = media.width / media.height;
+  } else if (hasEmbed) {
+    aspectRatio = EMBED_ASPECT;
   }
   const href = getPostPath(post);
 
@@ -133,7 +211,13 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
     mediaContent = <ExplorePostImage media={media} />;
   } else if (media) {
     mediaContent = <ExplorePostVideo media={media} />;
+  } else if (embed) {
+    mediaContent = <ExplorePostEmbed embed={embed} />;
   }
+
+  // The visual frame shows whenever there is anything to show: native media, or
+  // a link embed.
+  const hasVisual = Boolean(media) || hasEmbed;
 
   // A moderated post never shows its media or content on the explore surface.
   if (post.moderated) {
@@ -155,7 +239,7 @@ const ExplorePostCard: React.FC<ExplorePostCardProps> = ({ post }) => {
       data-post-id={post.id}
     >
       <Link className="block" href={href}>
-        {media ? (
+        {hasVisual ? (
           <div
             className="bg-muted/20 relative w-full overflow-hidden"
             style={{ aspectRatio }}
