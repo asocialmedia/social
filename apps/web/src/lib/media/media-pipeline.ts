@@ -279,14 +279,16 @@ export async function createInitiatedUpload(input: {
         !existing.messageConversationId &&
         !existing.avatarOf &&
         !existing.bannerOf;
+      // A different audio overlay means the row's stored (or in-flight) bytes
+      // were baked with another track; reusing them would serve the wrong
+      // audio. Computed once here and required by EVERY reuse path below - the
+      // READY clone/reuse, the DELETED revival, and the in-flight re-attach -
+      // so a mismatched overlay always falls through to fresh processing.
+      const overlayMatches =
+        (existing.audioOverlayId ?? null) === (audioOverlayId ?? null);
 
       // Fast path 1: Existing row reached READY and publishedKey exists
       if (existing.status === "READY" && existing.publishedKey) {
-        // A different audio overlay means the stored bytes were baked with
-        // another track; reusing them would serve the wrong audio. Fall
-        // through to full processing so the overlay is re-baked.
-        const overlayMatches =
-          (existing.audioOverlayId ?? null) === (audioOverlayId ?? null);
         // Same image re-sent to the same thread: reuse the row (and refresh
         // dimensions) instead of cloning per send. A row linked to a
         // *different* conversation is "attached" by the check above, so it
@@ -450,6 +452,7 @@ export async function createInitiatedUpload(input: {
       // once its 24h delay elapses (cleanup skips attached rows, but a fresh
       // revival is unattached by definition).
       if (
+        overlayMatches &&
         existing.status === "DELETED" &&
         existing.publishedKey &&
         isUnattached
@@ -497,6 +500,7 @@ export async function createInitiatedUpload(input: {
       // Fast path 4: In-flight pipeline (SCANNING, PROCESSING, QUARANTINED)
       // for an unattached upload: re-attach to the existing processing job.
       if (
+        overlayMatches &&
         isUnattached &&
         (existing.status === "SCANNING" ||
           existing.status === "PROCESSING" ||

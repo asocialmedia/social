@@ -47,11 +47,19 @@ let privateCommunityId: string;
 let fanoutCommunityId: string;
 const fanoutPosts: string[] = [];
 
+// A far-past createdAt keeps these fixture posts OUT of the newest-N global
+// candidate pools that other integration suites (the For-You feed test) rank
+// over: a post that is concurrently ranked and then deleted by this suite's
+// cleanup makes that test intermittently see a short page. The notification
+// fan-out does not read createdAt, so an arbitrary timestamp is harmless here.
+const FANOUT_POST_CREATED_AT = new Date("2020-01-01T00:00:00.000Z");
+
 async function createFanoutPost(): Promise<string> {
   const post = await prisma.post.create({
     data: {
       communityId: fanoutCommunityId,
       content: "a community post",
+      createdAt: FANOUT_POST_CREATED_AT,
       userId: OWNER_ID,
     },
   });

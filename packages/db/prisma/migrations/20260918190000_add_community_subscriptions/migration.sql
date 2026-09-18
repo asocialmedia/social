@@ -1,7 +1,17 @@
 -- Community post subscriptions plus the batched COMMUNITY_POST notification
--- they drive. The schema sync (db push) is idempotent, but the enum addition is
--- guarded here so a re-run against an already-migrated database cannot fail,
--- matching the participant_role migration.
+-- they drive.
+--
+-- Locking: `notifications` can be large, so its new index is built CONCURRENTLY
+-- and its foreign key is added NOT VALID then validated (a validation scan
+-- takes only SHARE UPDATE EXCLUSIVE). `community_subscriptions` is a brand-new
+-- empty table, so its own indexes and foreign keys are built plainly.
+--
+-- Because PostgreSQL forbids CONCURRENTLY inside a transaction block, this whole
+-- file MUST be applied outside one. This repo applies schema SQL through
+-- `prisma db execute` (see docker/prisma-sync.sh), which does not wrap
+-- statements in a transaction. It would NOT be valid under `prisma migrate
+-- deploy`, which wraps each migration in a transaction; do not move this file
+-- to that path.
 
 DO $$
 BEGIN
@@ -15,12 +25,13 @@ BEGIN
 END $$;
 
 -- AlterTable: the batched community notification carries its community and a
--- fold count (always 1 for every other notification type).
-ALTER TABLE "notifications" ADD COLUMN     "communityId" TEXT,
-ADD COLUMN     "count" INTEGER NOT NULL DEFAULT 1;
+-- fold count (always 1 for every other notification type). Both ADD COLUMNs are
+-- metadata-only on PostgreSQL.
+ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "communityId" TEXT,
+ADD COLUMN IF NOT EXISTS "count" INTEGER NOT NULL DEFAULT 1;
 
 -- CreateTable
-CREATE TABLE "community_subscriptions" (
+CREATE TABLE IF NOT EXISTS "community_subscriptions" (
     "id" TEXT NOT NULL,
     "communityId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -29,23 +40,52 @@ CREATE TABLE "community_subscriptions" (
     CONSTRAINT "community_subscriptions_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "community_subscriptions_userId_createdAt_idx" ON "community_subscriptions"("userId", "createdAt");
+-- CreateIndex (new, empty table - no lock to avoid)
+CREATE INDEX IF NOT EXISTS "community_subscriptions_userId_createdAt_idx" ON "community_subscriptions"("userId", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "community_subscriptions_communityId_idx" ON "community_subscriptions"("communityId");
+CREATE INDEX IF NOT EXISTS "community_subscriptions_communityId_idx" ON "community_subscriptions"("communityId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "community_subscriptions_communityId_userId_key" ON "community_subscriptions"("communityId", "userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "community_subscriptions_communityId_userId_key" ON "community_subscriptions"("communityId", "userId");
 
--- CreateIndex
-CREATE INDEX "notifications_recipientId_communityId_type_read_idx" ON "notifications"("recipientId", "communityId", "type", "read");
+-- CreateIndex on the existing, possibly large notifications table.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "notifications_recipientId_communityId_type_read_idx" ON "notifications"("recipientId", "communityId", "type", "read");
 
--- AddForeignKey
-ALTER TABLE "community_subscriptions" ADD CONSTRAINT "community_subscriptions_communityId_fkey" FOREIGN KEY ("communityId") REFERENCES "communities"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (new, empty table)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'community_subscriptions_communityId_fkey'
+  ) THEN
+    ALTER TABLE "community_subscriptions" ADD CONSTRAINT "community_subscriptions_communityId_fkey" FOREIGN KEY ("communityId") REFERENCES "communities"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "community_subscriptions" ADD CONSTRAINT "community_subscriptions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'community_subscriptions_userId_fkey'
+  ) THEN
+    ALTER TABLE "community_subscriptions" ADD CONSTRAINT "community_subscriptions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "notifications" ADD CONSTRAINT "notifications_communityId_fkey" FOREIGN KEY ("communityId") REFERENCES "communities"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey on the existing notifications table, NOT VALID so it does not
+-- scan/lock the table while being added, then validated under SHARE UPDATE
+-- EXCLUSIVE.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'notifications_communityId_fkey'
+  ) THEN
+    ALTER TABLE "notifications"
+      ADD CONSTRAINT "notifications_communityId_fkey"
+      FOREIGN KEY ("communityId")
+      REFERENCES "communities"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE
+      NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE "notifications" VALIDATE CONSTRAINT "notifications_communityId_fkey";

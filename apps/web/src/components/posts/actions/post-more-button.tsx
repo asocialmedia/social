@@ -180,8 +180,14 @@ export default function PostMoreButton({
             void (async () => {
               clearRecommendationNotInterested(post.id);
               const pending = pendingHideRef.current.get(post.id);
-              pendingHideRef.current.delete(post.id);
               await pending;
+              // A newer hide may have replaced this one while we waited. Only
+              // clear the mapping and un-hide if this is still the latest hide
+              // for the post, otherwise the newer hide owns the lifecycle.
+              if (pendingHideRef.current.get(post.id) !== pending) {
+                return;
+              }
+              pendingHideRef.current.delete(post.id);
               unhideMutation.mutate(post.id);
             })();
           },

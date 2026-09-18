@@ -4,7 +4,10 @@ import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { decideMediaAccess } from "@/lib/media/media-access";
+import {
+  decideMediaAccess,
+  resolveOwningCommunity,
+} from "@/lib/media/media-access";
 import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
@@ -74,6 +77,17 @@ export async function GET(
   // serving route.
   const ownership = await prisma.media.findUnique({
     select: {
+      // For comment-linked media the owning community is on the comment's parent
+      // post; resolveOwningCommunity walks to it below.
+      comment: {
+        select: {
+          post: {
+            select: {
+              community: { select: { id: true, type: true } },
+            },
+          },
+        },
+      },
       commentId: true,
       detectedMime: true,
       key: true,
@@ -106,11 +120,11 @@ export async function GET(
     ownership.messageConversationId,
     viewer?.id
   );
-  const isPrivateCommunityPost =
-    Boolean(ownership.postId) && ownership.post?.community?.type === "PRIVATE";
+  const owningCommunity = resolveOwningCommunity(ownership);
+  const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
   const isCommunityMember =
-    isPrivateCommunityPost && ownership.post?.community
-      ? await canViewCommunity(ownership.post.community, viewer?.id ?? "")
+    isPrivateCommunityPost && owningCommunity
+      ? await canViewCommunity(owningCommunity, viewer?.id ?? "")
       : false;
   const decision = decideMediaAccess(
     {

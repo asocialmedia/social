@@ -3,7 +3,10 @@ import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
-import { decideMediaAccess } from "@/lib/media/media-access";
+import {
+  decideMediaAccess,
+  resolveOwningCommunity,
+} from "@/lib/media/media-access";
 import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
@@ -81,6 +84,18 @@ function resolveObjectKey(
 async function getMediaOwnership(mediaId: string) {
   return await prisma.media.findUnique({
     select: {
+      // For comment-linked media the owning community lives on the comment's
+      // parent post, so it is selected here too and resolved by
+      // resolveOwningCommunity below.
+      comment: {
+        select: {
+          post: {
+            select: {
+              community: { select: { id: true, type: true } },
+            },
+          },
+        },
+      },
       commentId: true,
       derivatives: { select: { durationMs: true } },
       messageConversationId: true,
@@ -178,11 +193,11 @@ export async function GET(
     ownership.messageConversationId,
     viewer?.id
   );
-  const isPrivateCommunityPost =
-    Boolean(ownership.postId) && ownership.post?.community?.type === "PRIVATE";
+  const owningCommunity = resolveOwningCommunity(ownership);
+  const isPrivateCommunityPost = owningCommunity?.type === "PRIVATE";
   const isCommunityMember =
-    isPrivateCommunityPost && ownership.post?.community
-      ? await canViewCommunity(ownership.post.community, viewer?.id ?? "")
+    isPrivateCommunityPost && owningCommunity
+      ? await canViewCommunity(owningCommunity, viewer?.id ?? "")
       : false;
   const decision = decideMediaAccess(
     {
@@ -394,12 +409,19 @@ export async function GET(
       const posterObject = await asmobClient.send(
         new GetObjectCommand({ Bucket: ASMOB_BUCKET, Key: posterKey })
       );
+      // A private community's poster must not be retained by the browser at
+      // all: access can be revoked (the member leaves), and a 24h-cached frame
+      // would keep rendering after that. Public post media stays immutable, and
+      // other private media (comment/message drafts) keeps its short cache.
+      let posterCacheControl = "private, max-age=86400";
+      if (ownership.postId && !isPrivateCommunityPost) {
+        posterCacheControl = "public, max-age=31536000, immutable";
+      } else if (isPrivateCommunityPost) {
+        posterCacheControl = "private, no-store";
+      }
       return new NextResponse(posterObject.Body as ReadableStream, {
         headers: {
-          "Cache-Control":
-            ownership.postId && !isPrivateCommunityPost
-              ? "public, max-age=31536000, immutable"
-              : "private, max-age=86400",
+          "Cache-Control": posterCacheControl,
           // Custom thumbnails copy the source image's content type; pipeline
           // posters are always jpeg.
           "Content-Type": posterObject.ContentType ?? "image/jpeg",

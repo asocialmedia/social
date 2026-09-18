@@ -24,7 +24,6 @@ const mockRedisSet = mock((key: string, value: string) => {
 mock.module("@asm/db", () => ({
   ...asmDbMockBase,
   prisma: {
-    ...asmDbMockBase.prisma,
     messageConversationMember: {
       findFirst: mockFindFirst,
       findUnique: mockFindUnique,
