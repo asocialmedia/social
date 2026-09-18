@@ -200,8 +200,14 @@ describe("search cache", () => {
   });
 
   it("deduplicates suggestions from the same client within cooldown window", async () => {
-    const testClient = "client-test-dedup-123";
-    const testQuery = "typescript tips";
+    // The dedupe claim key lives in Redis for 5 minutes, so fixed identifiers
+    // would make a second run of this suite (e.g. the pre-push hook after the
+    // pre-commit run) fail instead of asserting. A per-run suffix gives every
+    // execution a fresh claim while still exercising the same-client throttle.
+    const runId = Math.random().toString(36).slice(2, 10);
+    const testClient = `client-dedup-${runId}`;
+    const otherClient = `different-client-${runId}`;
+    const testQuery = `typescript tips ${runId}`;
 
     const first = await searchSuggestionsCache.addSuggestion(testQuery, {
       clientId: testClient,
@@ -215,9 +221,9 @@ describe("search cache", () => {
     expect(second).toBe(false);
 
     // Different client can still suggest it
-    const otherClient = await searchSuggestionsCache.addSuggestion(testQuery, {
-      clientId: "different-client-456",
+    const other = await searchSuggestionsCache.addSuggestion(testQuery, {
+      clientId: otherClient,
     });
-    expect(otherClient).toBe(true);
+    expect(other).toBe(true);
   });
 });
