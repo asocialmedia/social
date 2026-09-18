@@ -10,6 +10,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import UserTooltip from "@/components/layouts/user/user-tooltip";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
+import ExplicitContentGate from "@/components/posts/content/explicit-content-gate";
 import ModeratedNotice from "@/components/posts/content/moderated-notice";
 import PostLinkedContent from "@/components/posts/content/post-linked-content";
 import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
@@ -116,6 +117,24 @@ export default function ResponseItem({
   // is a no-op on a well-formed row.
   const post = normalizePostData(response) as PostData;
 
+  // Attachments and link embeds render as one column, then the whole column is
+  // wrapped by the explicit gate below when the reply is flagged.
+  const mediaAndEmbeds = (
+    <div className="flex flex-col gap-2.5">
+      {attachments.length > 0 ? (
+        <MediaPreviews
+          attachments={attachments}
+          forceMobile
+          interactive
+          post={post}
+        />
+      ) : null}
+      {embeds.length > 0 ? (
+        <PostLinkEmbeds className="" embeds={embeds} />
+      ) : null}
+    </div>
+  );
+
   return (
     <div
       className="relative scroll-mt-4 px-4 py-2.5"
@@ -203,18 +222,20 @@ export default function ResponseItem({
                 </div>
               ) : null}
 
-              {attachments.length > 0 ? (
+              {/* Media and embeds share one explicit gate, matching the feed
+                  card: an explicit reply must blur behind the same Continue,
+                  whether it carries native attachments or only a link preview. */}
+              {attachments.length > 0 || embeds.length > 0 ? (
                 <div className="mt-2.5 max-w-full overflow-hidden">
-                  <MediaPreviews
-                    attachments={attachments}
-                    forceMobile
-                    interactive
-                    post={post}
-                  />
+                  {post.explicitContent ? (
+                    <ExplicitContentGate revealKey={post.id}>
+                      {mediaAndEmbeds}
+                    </ExplicitContentGate>
+                  ) : (
+                    mediaAndEmbeds
+                  )}
                 </div>
               ) : null}
-
-              {post.embeds ? <PostLinkEmbeds embeds={embeds} /> : null}
 
               {post.tags?.length || post.mentions?.length ? (
                 <PostMeta

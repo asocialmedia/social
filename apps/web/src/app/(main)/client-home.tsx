@@ -180,8 +180,8 @@ const ClientHome: React.FC<ClientHomeProps> = () => {
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
-                      align="end"
-                      className="apple-panel min-w-52 p-1.5 shadow-none"
+                      align="start"
+                      className="min-w-52 p-1.5"
                     >
                       <DropdownMenuItem
                         aria-disabled="true"

@@ -13,6 +13,8 @@ import {
   joinCommunity,
   leaveCommunity,
   setMemberRole,
+  subscribeToCommunity,
+  unsubscribeFromCommunity,
 } from "./actions";
 
 // Community mutations. Each one refreshes the community caches and the global
@@ -91,6 +93,42 @@ export function useLeaveCommunityMutation(slug: string) {
       queryClient.invalidateQueries({ queryKey: ["communities"] });
       queryClient.invalidateQueries({ queryKey: ["community-members", slug] });
       toast({ description: "You left the community", title: "Left" });
+    },
+  });
+}
+
+// Opting into a community's posts. Independent of joining, so it invalidates
+// only the subscription state, the Latest feed (which interleaves subscribed
+// communities' posts), and the notifications that fan out from them.
+export function useCommunitySubscriptionMutation(
+  communityId: string,
+  slug: string
+) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (subscribe: boolean) =>
+      subscribe
+        ? subscribeToCommunity(communityId)
+        : unsubscribeFromCommunity(communityId),
+    onError() {
+      toast({
+        description: "Couldn't update notifications, try again?",
+        variant: "destructive",
+      });
+    },
+    onSuccess: (_data, subscribe) => {
+      // The Latest tab interleaves this community's posts based on the
+      // subscription, so the client feed must refetch. The bell's own state is
+      // mirrored locally by the button, matching the JoinButton pattern.
+      queryClient.invalidateQueries({ queryKey: ["post-feed", "latest"] });
+      toast({
+        description: subscribe
+          ? `You'll get new posts from a/${slug}`
+          : `Muted a/${slug}`,
+        title: subscribe ? "Notifications on" : "Notifications off",
+      });
     },
   });
 }

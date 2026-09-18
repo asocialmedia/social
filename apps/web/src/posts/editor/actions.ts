@@ -18,6 +18,7 @@ import {
   invalidateCommunityStats,
   invalidateFypProfile,
   MENTION_RECEIVED_AURA,
+  notifyCommunitySubscribers,
   POST_CREATION_AURA,
   POST_CREATION_MAX_AURA,
   postViewsCache,
@@ -217,6 +218,10 @@ export async function submitPost(input: ExtendedCreatePostInput) {
     );
 
     let publishedNotificationId: string | undefined;
+    // Subscribers who received a FRESH community-post notification row inside
+    // the transaction. Only these need an unread-counter bump afterward; a row
+    // that was folded in place was already unread.
+    let communityNotifyRecipients: string[] = [];
 
     const newPost = await prisma.$transaction(async (tx) => {
       // Server-side hard stop matching the composer's client cap: a crafted
@@ -542,6 +547,17 @@ export async function submitPost(input: ExtendedCreatePostInput) {
         });
       }
 
+      // A native community post notifies the community's subscribers, batched
+      // into one rolling row per reader. Runs in the same transaction so a
+      // rolled-back publish leaves no notification behind.
+      if (communityId) {
+        communityNotifyRecipients = await notifyCommunitySubscribers(tx, {
+          authorId: sessionData.user.id,
+          communityId,
+          postId: post.id,
+        });
+      }
+
       if (validatedInput.mentions.length > 0) {
         await Promise.all(
           validatedInput.mentions.map(async (userId) => {
@@ -653,6 +669,16 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       } catch (error) {
         console.error("Failed to invalidate community stats:", error);
       }
+    }
+
+    // Bump the unread badge for each subscriber who got a new notification row.
+    // Post-commit and best-effort, like the other fan-out events: a queue
+    // hiccup costs a stale badge, never the publish.
+    for (const recipientId of communityNotifyRecipients) {
+      // oxlint-disable-next-line promise/prefer-await-to-then, promise/prefer-await-to-callbacks
+      void enqueueNotificationCreated(recipientId).catch((error: unknown) => {
+        console.error("Failed to enqueue community notification event:", error);
+      });
     }
 
     // The media is now attached to a post, so the abandoned-upload cleanup jobs must not delete it.

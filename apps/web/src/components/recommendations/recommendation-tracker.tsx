@@ -70,11 +70,27 @@ export function trackRecommendationEvent(event: RecommendationEvent): void {
   }
 }
 
+// Tells every mounted ranked surface to drop this post right now. The durable
+// side of the dismissal is a server action (hideRecommendationPost), not a
+// queued telemetry event: the feed must hide instantly, and the write must be
+// undone reliably if the viewer taps Undo. Surfaces (the self-healing FeedView,
+// the gust reel) listen for this and remove the id locally.
 export function markRecommendationNotInterested(postId: string): void {
-  trackRecommendationEvent({ eventType: "NOT_INTERESTED", postId });
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent("recommendation:not-interested", {
+        detail: { postId },
+      })
+    );
+  }
+}
+
+// The inverse of markRecommendationNotInterested: undo restores the post to
+// every surface showing it, so a mis-tap does not require a reload.
+export function clearRecommendationNotInterested(postId: string): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("recommendation:interested", {
         detail: { postId },
       })
     );

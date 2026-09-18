@@ -60,6 +60,7 @@ export const asmDbMockBase = {
   invalidateFypProfile: () => Promise.resolve(),
   markUserOnline: () => Promise.resolve(),
   messageConversationInclude: {},
+  notifyCommunitySubscribers: () => Promise.resolve([]),
   postViewsCache: {},
   publishCommentCreated: () => Promise.resolve(),
   publishCommentDeleted: () => Promise.resolve(),

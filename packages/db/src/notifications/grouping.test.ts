@@ -13,6 +13,9 @@ function createMockNotification(
   return {
     comment: null,
     commentId: null,
+    community: null,
+    communityId: null,
+    count: 1,
     createdAt: new Date("2026-09-13T12:00:00.000Z"),
     issuer: {
       avatarUrl: `https://avatars.example.com/${overrides.issuerId}.jpg`,

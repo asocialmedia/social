@@ -2,7 +2,7 @@
 
 import type { CommunityCreationQuota } from "@asm/db";
 import { COMMUNITY_MAX_OWNED } from "@asm/db/communities";
-import { Flame, Lock, Sparkles } from "lucide-react";
+import { Flame, Lock } from "lucide-react";
 
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { cn, formatNumber } from "@/lib/utils";
@@ -104,15 +104,6 @@ export default function CommunityCreationGate({
               ? "You've cleared the bar."
               : `${formatNumber(remaining)} standing to the bar.`}
           </p>
-          {quota.nextBonus > 0 ? (
-            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-              <Sparkles
-                aria-hidden="true"
-                className="text-primary size-3.5 shrink-0"
-              />
-              Founding pays {formatNumber(quota.nextBonus)} aura.
-            </p>
-          ) : null}
         </div>
       )}
 

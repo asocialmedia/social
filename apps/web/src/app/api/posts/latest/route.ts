@@ -1,4 +1,9 @@
-import { getPostDataInclude, hydrateViewCounts, prisma } from "@asm/db";
+import {
+  getPostDataInclude,
+  getSubscribedCommunityIds,
+  hydrateViewCounts,
+  prisma,
+} from "@asm/db";
 import type { PostsPage, Prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
@@ -20,11 +25,28 @@ export async function GET(request: Request) {
   const pageSize =
     requestedTake > 0 ? Math.min(requestedTake, PAGE_SIZE) : PAGE_SIZE;
 
-  // Native community posts live in their community feed, not Latest; reshares
-  // onto the global feed have communityId null and still appear here.
-  const where: Prisma.PostWhereInput = excludeModerated
-    ? { communityId: null, isGust: false, moderated: false }
-    : { communityId: null, isGust: false };
+  // Latest is the global timeline: global posts (communityId null, which
+  // includes reshares) plus the posts of communities the viewer subscribes to,
+  // interleaved by time. Native community posts never appear here unless the
+  // viewer opted in, and the subscriber lookup already restricts to communities
+  // the viewer may currently read.
+  const subscribedCommunityIds = userId
+    ? await getSubscribedCommunityIds(userId)
+    : [];
+  const where: Prisma.PostWhereInput = {
+    isGust: false,
+    ...(excludeModerated ? { moderated: false } : {}),
+  };
+  if (subscribedCommunityIds.length > 0) {
+    where.OR = [
+      { communityId: null },
+      { communityId: { in: subscribedCommunityIds } },
+    ];
+  } else {
+    // No subscriptions (a guest, or a viewer who follows none): the plain
+    // global-posts constraint, so the common case stays one simple predicate.
+    where.communityId = null;
+  }
   const posts = await prisma.post.findMany({
     cursor: cursor ? { id: cursor } : undefined,
     include: getPostDataInclude(userId),

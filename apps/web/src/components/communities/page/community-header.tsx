@@ -11,6 +11,7 @@ import { formatNumber } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
 import JoinButton from "./join-button";
+import CommunityNotifyButton from "./notify-button";
 
 interface CommunityHeaderProps {
   community: CommunityData;
@@ -19,6 +20,8 @@ interface CommunityHeaderProps {
     status: "ACTIVE" | "PENDING";
   } | null;
   members: number;
+  // Whether the viewer follows this community's posts.
+  subscribed: boolean;
 }
 
 // Community banner + identity row. The banner is masked into the surface so it
@@ -28,6 +31,7 @@ export default function CommunityHeader({
   community,
   membership,
   members,
+  subscribed,
 }: CommunityHeaderProps) {
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
@@ -84,13 +88,15 @@ export default function CommunityHeader({
             priority
             slug={community.slug}
           />
-          {/* Join is the only action left here. Sharing moved to the browser's
-              own affordance, and posting lives on the persistent compose
-              button, which scopes itself to this community.
-              An owner cannot leave their own community, so the Join/Owner pill
-              is dead weight for them. */}
-          {membership?.role === "OWNER" ? null : (
-            <div className="flex flex-wrap items-center justify-end gap-2 pb-1">
+          {/* Two actions live here: Join, and the notify bell. Sharing moved to
+              the browser's own affordance and posting lives on the persistent
+              compose button, which scopes itself to this community.
+
+              An owner cannot leave their own community, so the Join pill is
+              dead weight for them - but the bell stays, because a subscribed
+              owner is still notified when other members post. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 pb-1">
+            {membership?.role === "OWNER" ? null : (
               <JoinButton
                 className="w-auto"
                 communityId={community.id}
@@ -98,8 +104,14 @@ export default function CommunityHeader({
                 isLoggedIn={isLoggedIn}
                 slug={community.slug}
               />
-            </div>
-          )}
+            )}
+            <CommunityNotifyButton
+              communityId={community.id}
+              initialSubscribed={subscribed}
+              isLoggedIn={isLoggedIn}
+              slug={community.slug}
+            />
+          </div>
         </div>
 
         <div className="mt-3">

@@ -12,6 +12,7 @@ import {
   forceInvalidatePostFeeds,
   repairStalePostCaches,
 } from "@/lib/posts/cache-sync";
+import { filterFeedPosts } from "@/lib/posts/feed-cache";
 import { normalizePostsData } from "@/lib/posts/post-normalize";
 
 import { groupPostsIntoThreads } from "./feed-thread-group";
@@ -56,6 +57,12 @@ export const FeedView: React.FC<FeedViewProps> = ({
     [initialPosts, excludeIds]
   );
   const [posts, setPosts] = useState<PostData[]>(normalizedInitial);
+  // Posts the viewer dismissed with "Not interested" this session. Kept out of
+  // every rebuild of `posts`, including the prop-sync below and any refetch
+  // that reintroduces them.
+  const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
 
   // Self-heal: stale `post.bookmarks` entries (pre-fix cache, persisted SSR
   // props, or optimistic drafts) crash `post.bookmarks.some` in production.
@@ -83,15 +90,13 @@ export const FeedView: React.FC<FeedViewProps> = ({
         });
 
         if (feedQueries.length > 0) {
-          const updatedPosts = normalizePostsData(
-            feedQueries
-              .flatMap(([, data]) =>
-                (data?.pages?.flatMap((page) => page.posts) || []).filter(
-                  Boolean
-                )
+          const updatedPosts = filterFeedPosts(
+            normalizePostsData(
+              feedQueries.flatMap(
+                ([, data]) => data?.pages?.flatMap((page) => page.posts) || []
               )
-              .filter((post) => post.id !== excludePostId)
-              .filter((post) => !excludeIds?.has(post.id))
+            ),
+            { dismissedIds, excludeIds, excludePostId }
           );
 
           if (updatedPosts.length) {
@@ -108,7 +113,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [cacheKey, excludeIds, excludePostId, queryClient]);
+  }, [cacheKey, dismissedIds, excludeIds, excludePostId, queryClient]);
 
   useEffect(() => {
     const handleNotInterested = (event: Event) => {
@@ -117,6 +122,15 @@ export const FeedView: React.FC<FeedViewProps> = ({
       if (!postId) {
         return;
       }
+      // Remember the dismissal locally. The cache and local list are both
+      // filtered below, but the prop-sync reconciliation (and any refetch that
+      // reintroduces the post) rebuilds `posts` from the server props, which
+      // still contain it - so without this set the post reappeared immediately
+      // when it happened to be the feed's first item. Filtering by this set in
+      // `sortedPosts` keeps it hidden for the session regardless.
+      setDismissedIds((current) =>
+        current.has(postId) ? current : new Set([...current, postId])
+      );
       setPosts((current) => current.filter((post) => post.id !== postId));
       queryClient.setQueriesData<{
         pageParams: unknown[];
@@ -134,15 +148,35 @@ export const FeedView: React.FC<FeedViewProps> = ({
         };
       });
     };
+    // Undo: drop the local dismissal and put the post back into the cache so it
+    // reappears in place without a refetch.
+    const handleInterested = (event: Event) => {
+      const { detail } = event as CustomEvent<{ postId?: string }>;
+      const postId = detail?.postId;
+      if (!postId) {
+        return;
+      }
+      setDismissedIds((current) => {
+        if (!current.has(postId)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(postId);
+        return next;
+      });
+    };
+
     window.addEventListener(
       "recommendation:not-interested",
       handleNotInterested
     );
+    window.addEventListener("recommendation:interested", handleInterested);
     return () => {
       window.removeEventListener(
         "recommendation:not-interested",
         handleNotInterested
       );
+      window.removeEventListener("recommendation:interested", handleInterested);
     };
   }, [cacheKey, queryClient]);
 
@@ -163,10 +197,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
     syncInputs.initialPosts !== normalizedInitial ||
     syncInputs.posts !== posts
   ) {
-    const safeInitial = (normalizedInitial || [])
-      .filter(Boolean)
-      .filter((post) => post.id !== excludePostId)
-      .filter((post) => !excludeIds?.has(post.id));
+    const safeInitial = filterFeedPosts(normalizedInitial || [], {
+      dismissedIds,
+      excludeIds,
+      excludePostId,
+    });
     const initialFirstId = safeInitial[0]?.id;
     const currentFirstId = posts[0]?.id;
     if (
@@ -195,9 +230,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }
 
   const sortedPosts = useMemo(() => {
-    const filtered = [...posts]
-      .filter(Boolean)
-      .filter((post) => !excludeIds?.has(post.id));
+    const filtered = filterFeedPosts(posts, { dismissedIds, excludeIds });
     if (sortBy === "server") {
       return filtered;
     }
@@ -205,7 +238,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [posts, excludeIds, sortBy]);
+  }, [posts, excludeIds, dismissedIds, sortBy]);
 
   const threadGroups = useMemo(
     () => groupPostsIntoThreads(sortedPosts),

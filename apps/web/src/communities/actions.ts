@@ -13,6 +13,8 @@ import {
   joinCommunity as joinCommunityService,
   leaveCommunity as leaveCommunityService,
   setMemberRole as setMemberRoleService,
+  subscribeToCommunity as subscribeToCommunityService,
+  unsubscribeFromCommunity as unsubscribeFromCommunityService,
 } from "@asm/db";
 import type {
   AssignableCommunityRole,
@@ -153,6 +155,22 @@ export async function setMemberRole(
   const session = await getSessionFromApi();
   const actorId = requireUser(session?.user?.id);
   await setMemberRoleService(communityId, actorId, targetUserId, role);
+}
+
+// Opt into a community's posts. Independent of membership for public
+// communities; the service enforces that a private community is members-only.
+export async function subscribeToCommunity(communityId: string): Promise<void> {
+  const session = await getSessionFromApi();
+  const userId = requireUser(session?.user?.id);
+  await subscribeToCommunityService(communityId, userId);
+}
+
+export async function unsubscribeFromCommunity(
+  communityId: string
+): Promise<void> {
+  const session = await getSessionFromApi();
+  const userId = requireUser(session?.user?.id);
+  await unsubscribeFromCommunityService(communityId, userId);
 }
 
 // Records a community page view. One row per (community, viewer), refreshed on

@@ -275,6 +275,17 @@ export const notificationsInclude = {
       parentId: true,
     },
   },
+  // Set on COMMUNITY_POST notifications: the community whose activity the
+  // notification batches, so the row can show the community's identity and
+  // link to its namespace instead of an individual author.
+  community: {
+    select: {
+      accentColor: true,
+      id: true,
+      name: true,
+      slug: true,
+    },
+  },
   issuer: {
     select: {
       avatarUrl: true,

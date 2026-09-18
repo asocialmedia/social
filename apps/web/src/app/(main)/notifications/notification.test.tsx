@@ -33,6 +33,9 @@ function createMockNotificationItem(
     allNotificationIds: allNotificationIds ?? [id],
     comment: null,
     commentId: null,
+    community: null,
+    communityId: null,
+    count: 1,
     createdAt: new Date("2026-09-13T12:00:00.000Z"),
     id,
     issuer: defaultIssuer,
@@ -40,6 +43,7 @@ function createMockNotificationItem(
     issuers: issuers ?? [defaultIssuer],
     post: postId
       ? {
+          community: null,
           content: "Snippet of user post",
           id: postId,
           isGust: false,
@@ -170,6 +174,72 @@ describe("Notification component (grouped rendering)", () => {
     expect(html).toContain("+");
     expect(html).toContain("4");
     expect(html).toContain('title="+4 others"');
+  });
+
+  test("names the community on a community post's engagement", () => {
+    const notif = createMockNotificationItem({
+      id: "notif-community-comment",
+      issuerId: "alice",
+      post: {
+        community: {
+          accentColor: "orange",
+          id: "community-1",
+          name: "Anime",
+          slug: "anime",
+        },
+        content: "Snippet of community post",
+        id: "post-1",
+        isGust: false,
+      },
+      type: "COMMENT",
+    });
+
+    const html = renderNotificationComponent(notif);
+    // The action reads as happening inside the community, not on the global
+    // feed, and links to the post's canonical community address.
+    expect(html).toMatch(/eddied on your post(?:<!-- -->)? in a\/anime/);
+    expect(html).toContain("/a/anime/posts/");
+  });
+
+  test("renders a batched community-post notification naming the community", () => {
+    const notif = createMockNotificationItem({
+      community: {
+        accentColor: "orange",
+        id: "community-1",
+        name: "Anime",
+        slug: "anime",
+      },
+      communityId: "community-1",
+      count: 3,
+      id: "notif-community-batch",
+      issuerId: "alice",
+      type: "COMMUNITY_POST",
+    });
+
+    const html = renderNotificationComponent(notif);
+    expect(html).toContain("posted");
+    expect(html).toContain("3 new fleets in a/anime");
+    // The batched row links to the community itself, not a single post.
+    expect(html).toContain('href="/a/anime"');
+  });
+
+  test("renders a single community-post as one new fleet", () => {
+    const notif = createMockNotificationItem({
+      community: {
+        accentColor: "orange",
+        id: "community-1",
+        name: "Anime",
+        slug: "anime",
+      },
+      communityId: "community-1",
+      count: 1,
+      id: "notif-community-single",
+      issuerId: "alice",
+      type: "COMMUNITY_POST",
+    });
+
+    const html = renderNotificationComponent(notif);
+    expect(html).toContain("posted a new fleet in a/anime");
   });
 
   test("renders eddie amplification text when comment is present", () => {

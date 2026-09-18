@@ -3,6 +3,7 @@ import {
   getCachedCommunityStats,
   getCommunityBySlug,
   getMembership,
+  isSubscribedToCommunity,
 } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
@@ -119,9 +120,12 @@ async function CommunityContent({ params }: PageProps) {
   // The owner is no longer fetched here: the sidebar's roster lists the founder
   // (with the owner badge) straight from the members API, so this second read
   // was the same person fetched twice.
-  const [stats, membership] = await Promise.all([
+  const [stats, membership, subscribed] = await Promise.all([
     getCachedCommunityStats(community.id),
     userId ? getMembership(community.id, userId) : Promise.resolve(null),
+    userId
+      ? isSubscribedToCommunity(community.id, userId)
+      : Promise.resolve(false),
   ]);
 
   const communityUrl = absoluteUrl(`/a/${community.slug}`);
@@ -191,6 +195,7 @@ async function CommunityContent({ params }: PageProps) {
         membership={membership}
         slug={community.slug}
         stats={stats}
+        subscribed={subscribed}
       />
       {crawlPosts.length > 0 ? (
         <nav aria-label={`Posts in a/${community.slug}`} className="sr-only">
