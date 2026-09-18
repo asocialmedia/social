@@ -198,7 +198,9 @@ async function ProfileContent({ params }: PageProps) {
           itemListElement: recentPosts.map((post, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            url: `${siteConfig.url}/posts/${post.id}`,
+            // Canonical, community-nested when applicable, matching the hidden
+            // anchors below rather than a /posts path the post redirects from.
+            url: crawlPostHref(post),
           })),
           name: `Posts by @${userData.username}`,
         }

@@ -8,6 +8,7 @@ import {
   getSubscribedCommunityIds,
   isSubscribedToCommunity,
   joinCommunity,
+  leaveCommunity,
   notifyCommunitySubscribers,
   prisma,
   subscribeToCommunity,
@@ -225,6 +226,70 @@ describe("community subscriptions", () => {
     expect(ids).toContain(publicCommunityId);
     // The follower never joined the private community they don't follow.
     expect(ids).not.toContain(privateCommunityId);
+  });
+
+  test("leaving a private community drops its subscription and notifications", async () => {
+    // STRANGER is an ACTIVE member of the private community (set up above) and
+    // subscribed to it. Seed a post notification so the cleanup has something to
+    // remove.
+    await subscribeToCommunity(privateCommunityId, STRANGER_ID);
+    const post = await prisma.post.create({
+      data: {
+        communityId: privateCommunityId,
+        content: "private post",
+        userId: OWNER_ID,
+      },
+    });
+    await prisma.notification.create({
+      data: {
+        communityId: privateCommunityId,
+        count: 1,
+        issuerId: OWNER_ID,
+        postId: post.id,
+        recipientId: STRANGER_ID,
+        type: "COMMUNITY_POST",
+      },
+    });
+
+    await leaveCommunity(privateCommunityId, STRANGER_ID);
+
+    // Read access is gone, so both the follow and the already-delivered
+    // notification (whose rendered body carries the post) must be gone too.
+    expect(await isSubscribedToCommunity(privateCommunityId, STRANGER_ID)).toBe(
+      false
+    );
+    expect(
+      await prisma.notification.count({
+        where: { communityId: privateCommunityId, recipientId: STRANGER_ID },
+      })
+    ).toBe(0);
+
+    await prisma.post.delete({ where: { id: post.id } });
+  });
+
+  test("the fan-out drops a stale subscription to a private community", async () => {
+    // Simulate the leak directly: a subscription row for a user with no ACTIVE
+    // membership (the state leave would have produced before cleanup existed).
+    await prisma.communitySubscription.upsert({
+      create: { communityId: privateCommunityId, userId: FOLLOWER_ID },
+      update: {},
+      where: {
+        communityId_userId: {
+          communityId: privateCommunityId,
+          userId: FOLLOWER_ID,
+        },
+      },
+    });
+
+    const notified = await getCommunitySubscriberIds(
+      privateCommunityId,
+      OWNER_ID
+    );
+    expect(notified).not.toContain(FOLLOWER_ID);
+
+    await prisma.communitySubscription.deleteMany({
+      where: { communityId: privateCommunityId, userId: FOLLOWER_ID },
+    });
   });
 });
 

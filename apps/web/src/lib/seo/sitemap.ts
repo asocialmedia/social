@@ -255,27 +255,29 @@ interface CommunityActivityRow {
 // community that only gained posts still reads as changed, which `updatedAt`
 // alone cannot express (inserting a post does not touch the community row).
 //
-// One joined aggregate riding the (communityId, createdAt) index on posts; the
-// LIMIT bounds it to the sitemap window instead of aggregating every community
-// on the platform. The route that serves this is CDN-cached, so the aggregate
-// runs rarely.
+// The newest post per community is fetched with a LATERAL subquery, not a
+// GROUP BY over the whole posts table: each lateral probe is an index read
+// (ORDER BY createdAt DESC LIMIT 1 on the (communityId, createdAt) index), so
+// the work is proportional to the number of communities in the window rather
+// than to their entire post history. The route that serves this is CDN-cached.
 async function getCommunityActivity(
   limit: number
 ): Promise<CommunityActivityRow[]> {
   return await prisma.$queryRaw<CommunityActivityRow[]>`
     SELECT
       c."slug" AS slug,
-      GREATEST(
-        c."updatedAt",
-        COALESCE(MAX(p."createdAt"), c."updatedAt")
-      ) AS lastmod
+      GREATEST(c."updatedAt", COALESCE(newest."createdAt", c."updatedAt")) AS lastmod
     FROM "communities" c
-    LEFT JOIN "posts" p
-      ON p."communityId" = c."id"
-      AND p."isGust" = false
-      AND p."moderated" = false
+    LEFT JOIN LATERAL (
+      SELECT p."createdAt"
+      FROM "posts" p
+      WHERE p."communityId" = c."id"
+        AND p."isGust" = false
+        AND p."moderated" = false
+      ORDER BY p."createdAt" DESC
+      LIMIT 1
+    ) AS newest ON true
     WHERE c."type" <> 'PRIVATE'::"CommunityType"
-    GROUP BY c."id"
     ORDER BY lastmod DESC
     LIMIT ${limit}
   `;

@@ -1,6 +1,8 @@
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 import type React from "react";
 
+import { cn } from "@/lib/utils";
+
 // Page-level fallback for /communities. Mirrors the real layout so the swap to
 // live content does not shift anything: the sticky category strip, the compact
 // hero statement with its action, the search field, the curated rails, and the
@@ -58,13 +60,27 @@ const CommunityRailSkeleton: React.FC<{ cards?: number }> = ({ cards = 4 }) => (
   </section>
 );
 
-const CommunitiesPageSkeleton: React.FC = () => (
+// `isLoggedIn` only changes the scroller's bottom padding, which must match the
+// live page exactly: the signed-in layout reserves `pb-24 lg:pb-0` for the
+// mobile dock, while a guest reserves `pb-44 lg:pb-20` for the guest auth bar.
+// It defaults to the signed-out spacing because the route-level loading.tsx
+// fallback cannot know the viewer's session without turning the static shell
+// dynamic; extra bottom padding is invisible, whereas too little would hide
+// content under the fixed bars. ClientComm passes the real value.
+const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
+  isLoggedIn = false,
+}) => (
   <>
     <div className="communities-cq border-border/60 flex min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x">
       {/* Mobile top bar */}
       <Skeleton className="h-12 w-full shrink-0 rounded-none lg:hidden" />
 
-      <div className="hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-24 lg:pb-0">
+      <div
+        className={cn(
+          "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+          isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
+        )}
+      >
         {/* Sticky category strip */}
         <div className="flex shrink-0 gap-1.5 px-8 py-1.5 sm:py-2.5">
           {["w-16", "w-24", "w-32", "w-20", "w-28", "w-36", "w-24", "w-20"].map(

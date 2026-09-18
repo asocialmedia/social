@@ -128,7 +128,10 @@ export async function generatePostMediaMetadata({
 
   const title = postTitle(post);
   const description = postDescription(post);
-  const mediaUrl = getPostMediaUrl(post, parsedIndex);
+  // Both preview values follow the RESOLVED attachment (the `?mediaId=` deep
+  // link can point at a different index than the URL segment), so the OG url and
+  // the OG image never describe two different media.
+  const mediaUrl = getPostMediaUrl(post, resolvedIndex);
   const mediaImage = getMediaImage(post, resolvedIndex);
 
   const ogImageUrl =

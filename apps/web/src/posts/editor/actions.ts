@@ -15,6 +15,7 @@ import {
   getPostDataInclude,
   HN_SHARE_BONUS_AURA,
   invalidateAuraSignals,
+  invalidateCommunityPostAggregates,
   invalidateCommunityStats,
   invalidateFypProfile,
   MENTION_RECEIVED_AURA,
@@ -660,12 +661,16 @@ export async function submitPost(input: ExtendedCreatePostInput) {
       return completePost;
     });
 
-    // A new community post changes the community's aggregate aura, so drop the
-    // cached stats so the sidebar reflects it on the next read. Best effort:
-    // a cache miss only means a stale count for a minute.
+    // A new community post changes the community's aggregate aura and the
+    // global post-derived aggregates (hero totals, top-by-aura), so drop both
+    // caches so the sidebar and discover hero reflect it on the next read. Best
+    // effort: a cache miss only means a stale count for a minute.
     if (communityId) {
       try {
-        await invalidateCommunityStats(communityId);
+        await Promise.all([
+          invalidateCommunityStats(communityId),
+          invalidateCommunityPostAggregates(),
+        ]);
       } catch (error) {
         console.error("Failed to invalidate community stats:", error);
       }

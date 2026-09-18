@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type * as React from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import {
@@ -63,6 +63,9 @@ export default function PostMoreButton({
   );
   const hideMutation = useHideRecommendationPostMutation();
   const unhideMutation = useUnhideRecommendationPostMutation();
+  // The in-flight durable hide per post, so Undo can wait for it before
+  // un-hiding (see handleNotInterested).
+  const pendingHideRef = useRef<Map<string, Promise<unknown>>>(new Map());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showModerationDialog, setShowModerationDialog] = useState(false);
@@ -155,14 +158,32 @@ export default function PostMoreButton({
       // Hide everywhere immediately, then persist. The toast's Undo reverses
       // both the local hide and the server write, so a mis-tap costs nothing.
       markRecommendationNotInterested(post.id);
-      hideMutation.mutate(post.id);
+      // Never-rejecting wrapper: the durable write is best-effort (the local
+      // hide already applied) and Undo awaits it, so a rejection must not
+      // surface as an unhandled promise.
+      const hidePromise = (async () => {
+        try {
+          await hideMutation.mutateAsync(post.id);
+        } catch {
+          // Local hide stands; the server write is best-effort.
+        }
+      })();
+      pendingHideRef.current.set(post.id, hidePromise);
       setIsOpen(false);
       setPopupOpen(false);
       toast({
         button: {
           onClick: () => {
-            clearRecommendationNotInterested(post.id);
-            unhideMutation.mutate(post.id);
+            // Undo must not overtake the hide: run the un-hide only once the
+            // hide has settled, or a slow hide could land last and re-mark the
+            // post NOT_INTERESTED after the viewer undid it.
+            void (async () => {
+              clearRecommendationNotInterested(post.id);
+              const pending = pendingHideRef.current.get(post.id);
+              pendingHideRef.current.delete(post.id);
+              await pending;
+              unhideMutation.mutate(post.id);
+            })();
           },
           title: "Undo",
         },

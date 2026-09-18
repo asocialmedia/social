@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const fakeRedis = {
   del: (..._keys: string[]) => Promise.resolve(1),
   get: (_key: string) => Promise.resolve<string | null>(null),
+  // Invalidations bump each key's generation so an in-flight compute skips its
+  // write; the test only needs the call to resolve.
+  incr: (_key: string) => Promise.resolve(1),
   set: (_key: string, _value: string, ..._args: (string | number)[]) =>
     Promise.resolve("OK"),
 };
@@ -25,6 +28,7 @@ mock.module("./service", () => ({
 const {
   invalidateCommunityCreationAggregates,
   invalidateCommunityPopulationAggregates,
+  invalidateCommunityPostAggregates,
   invalidateCommunityStats,
 } = await import("./aura");
 
@@ -37,9 +41,19 @@ function captureDeletes() {
   return deleted;
 }
 
+function captureGenerations() {
+  const bumped: string[] = [];
+  fakeRedis.incr = (key: string) => {
+    bumped.push(key);
+    return Promise.resolve(1);
+  };
+  return bumped;
+}
+
 describe("community aggregate invalidation", () => {
   beforeEach(() => {
     fakeRedis.del = () => Promise.resolve(1);
+    fakeRedis.incr = () => Promise.resolve(1);
   });
 
   test("drops the community's own stats key and its stale fallback", async () => {
@@ -67,5 +81,24 @@ describe("community aggregate invalidation", () => {
     expect(deleted).toContain("community:discovery-stats");
     expect(deleted).toContain("community:sections");
     expect(deleted).toContain("community:top-by-aura");
+  });
+
+  test("post aggregates drop the discovery total and top-by-aura", async () => {
+    const deleted = captureDeletes();
+    await invalidateCommunityPostAggregates();
+    expect(deleted).toContain("community:discovery-stats");
+    expect(deleted).toContain("community:top-by-aura");
+  });
+
+  test("invalidation bumps each key's generation so a racing compute skips its write", async () => {
+    captureDeletes();
+    const bumped = captureGenerations();
+    await invalidateCommunityPopulationAggregates();
+
+    // The generation must be bumped for exactly the keys being invalidated;
+    // otherwise a compute that began before the change would write its stale
+    // result back over the fresh state.
+    expect(bumped).toContain("community:discovery-stats:gen");
+    expect(bumped).toContain("community:sections:gen");
   });
 });

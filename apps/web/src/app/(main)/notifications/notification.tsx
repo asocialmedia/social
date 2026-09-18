@@ -123,9 +123,12 @@ const TYPE_CONFIG: Record<NotificationType, TypeConfig> = {
   // how many posts have landed since the row was last read. Links to the
   // community so the reader lands in the space, not on a single post.
   COMMUNITY_POST: {
+    // A folded row spans several authors, so the headline is community-level and
+    // carries no subject; only the single-post row is attributed to its author
+    // (via the shared issuer-name headline).
     action: (notification) =>
       notification.count > 1
-        ? `posted ${notification.count} new fleets in a/${notification.community?.slug ?? ""}`
+        ? `${notification.count} new fleets posted in a/${notification.community?.slug ?? ""}`
         : `posted a new fleet in a/${notification.community?.slug ?? ""}`,
     badgeClass: "bg-gradient-to-b from-violet-400 to-indigo-600",
     href: (notification) =>
@@ -253,17 +256,29 @@ function NotificationAvatars({
 
 function NotificationHeadline({
   action,
+  batchCount,
   communitySuffixText,
   isEddie,
   issuers,
   type,
 }: {
   action: string;
+  // >1 only for a folded COMMUNITY_POST row, whose activity spans several
+  // authors, so there is no single person to name.
+  batchCount: number;
   communitySuffixText: string;
   isEddie: boolean;
   issuers: NotificationData["issuer"][];
   type: NotificationType;
 }) {
+  if (batchCount > 1) {
+    return (
+      <p className="text-sm leading-snug">
+        <span className="text-muted-foreground">{action}</span>
+      </p>
+    );
+  }
+
   if (type !== "AMPLIFY" || issuers.length <= 1) {
     const [singleIssuer] = issuers;
     return (
@@ -380,6 +395,9 @@ export default function Notification({ notification }: NotificationProps) {
         <div className="min-w-0 flex-1">
           <NotificationHeadline
             action={action}
+            batchCount={
+              notification.type === "COMMUNITY_POST" ? notification.count : 0
+            }
             communitySuffixText={communitySuffix(notification)}
             isEddie={Boolean(notification.comment)}
             issuers={issuers}

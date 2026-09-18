@@ -69,10 +69,23 @@ export default function ClientComm() {
   const [isSearchStuck, setIsSearchStuck] = useState(false);
   const hideTopBar = useHideOnScroll(pageScrollRef);
 
+  // The input updates on every keystroke, but the query only fires on the
+  // settled value. Without this each character typed would run the ILIKE scan
+  // behind the backend search (and one round trip per keypress); 300ms is the
+  // same debounce the app's other search surfaces use.
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  const isSearchPending = search.trim() !== debouncedSearch;
+  const query = useInfiniteCommunitiesQuery({ category, q: debouncedSearch });
+
   // Watch the zero-height sentinel just above the sticky search. The field is
   // pinned exactly when the sentinel's top crosses the sticky offset (38px at
   // base, 53px from `sm`, matching `top-9.5` / `sm:top-13.25`), so the band
   // flips opaque at the same instant it sticks rather than a frame early.
+  //
+  // `query.isLoading` is the dependency that matters: on the cold load the
+  // component renders the skeleton first, so the first run finds both refs null
+  // and bails. Without a re-run the empty-dep array would be stale for the life
+  // of the page and the sticky search would stay permanently transparent.
   useEffect(() => {
     const sentinel = searchSentinelRef.current;
     const scroller = pageScrollRef.current;
@@ -97,15 +110,10 @@ export default function ClientComm() {
       scroller.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
-  }, []);
-
-  // The input updates on every keystroke, but the query only fires on the
-  // settled value. Without this each character typed would run the ILIKE scan
-  // behind the backend search (and one round trip per keypress); 300ms is the
-  // same debounce the app's other search surfaces use.
-  const debouncedSearch = useDebounce(search.trim(), 300);
-  const isSearchPending = search.trim() !== debouncedSearch;
-  const query = useInfiniteCommunitiesQuery({ category, q: debouncedSearch });
+    // isLoading is a TRIGGER, not a value read here: it flips exactly once,
+    // when the skeleton hands off to the real scroller the effect needs.
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton
+  }, [query.isLoading]);
   const pages = query.data?.pages ?? [];
   const communities = pages.flatMap((page) => page.communities);
   // Auras arrive as one id -> aura map covering every community on the response.
@@ -191,7 +199,7 @@ export default function ClientComm() {
   if (query.isLoading) {
     return (
       <>
-        <CommunitiesPageSkeleton />
+        <CommunitiesPageSkeleton isLoggedIn={isLoggedIn} />
         <MobileBottomNav />
         <CreateCommunityDialog
           onOpenChange={setIsCreateOpen}

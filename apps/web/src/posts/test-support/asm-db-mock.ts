@@ -56,6 +56,7 @@ export const asmDbMockBase = {
   getUserDataSelect: () => ({}),
   grantBadge: () => Promise.resolve(true),
   invalidateAuraSignals: () => Promise.resolve(),
+  invalidateCommunityPostAggregates: () => Promise.resolve(),
   invalidateCommunityStats: () => Promise.resolve(),
   invalidateFypProfile: () => Promise.resolve(),
   markUserOnline: () => Promise.resolve(),

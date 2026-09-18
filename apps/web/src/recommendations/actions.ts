@@ -34,16 +34,16 @@ export async function hideRecommendationPost(postId: string): Promise<void> {
 
   await requirePost(postId);
 
-  // One NOT_INTERESTED row per (user, post): a repeat dismiss (or a race with a
-  // second tab) must not stack duplicates, which would also eat the exclusion
-  // cap. Delete-then-create inside a transaction keeps it idempotent.
-  await prisma.$transaction(async (tx) => {
-    await tx.recommendationEvent.deleteMany({
-      where: { eventType: "NOT_INTERESTED", postId, userId },
-    });
-    await tx.recommendationEvent.create({
-      data: { eventType: "NOT_INTERESTED", postId, userId },
-    });
+  // One NOT_INTERESTED row per (user, post). A delete-then-create pair is NOT
+  // safe here: two tabs can both delete before either creates, leaving two
+  // rows, which then eat into the feed's exclusion cap. `dedupeKey` is the
+  // table's existing unique column, so an upsert on it is atomic - the second
+  // writer updates the (empty) row instead of inserting a duplicate.
+  const dedupeKey = `not_interested:${userId}:${postId}`;
+  await prisma.recommendationEvent.upsert({
+    create: { dedupeKey, eventType: "NOT_INTERESTED", postId, userId },
+    update: {},
+    where: { dedupeKey },
   });
 
   // The taste profile was built with this post's author/tags down-weighted;

@@ -24,7 +24,11 @@ export default function PostLinkEmbeds({
     return null;
   }
   return (
-    <div className={cn("mt-2.5 flex flex-col gap-2", className)}>
+    // `mt-2.5` is the default gap below the content (or media block). A caller
+    // that groups embeds into its own flex column passes a `className` (even an
+    // empty string) and owns the spacing; `cn` cannot cancel a class with an
+    // empty string, so the default is applied only when no className is given.
+    <div className={cn("flex flex-col gap-2", className ?? "mt-2.5")}>
       {embeds
         .slice(0, 5)
         .map((embed) =>

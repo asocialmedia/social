@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { redis } from "../src/redis";
 import type { SearchPostResult, SearchUserResult } from "../src/search";
 
@@ -84,6 +86,25 @@ const SEARCH_HISTORY_TTL = 60 * 60 * 24 * 30; // 30 days
 const SUGGESTIONS_TTL = 60 * 60 * 24 * 7; // 7 days
 const MAX_HISTORY_ITEMS = 10;
 const MAX_SUGGESTIONS = 100;
+// Suggestions must look like genuine search terms: 2-50 chars, no URLs or domain names,
+// and no HTML/script tags or SQL probes.
+const URL_OR_DOMAIN_REGEX =
+  /https?:\/\/|www\.|\.(?:com|net|org|xyz|io|cc|co|ru|cn|top|biz|info)(?:\/|\s|$)/i;
+const HTML_OR_PROBE_REGEX = /<[^>]+>|--|;\s*drop\s+|union\s+select/i;
+
+export function isValidSearchSuggestion(query: string): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || trimmed.length > 50) {
+    return false;
+  }
+  if (URL_OR_DOMAIN_REGEX.test(trimmed)) {
+    return false;
+  }
+  if (HTML_OR_PROBE_REGEX.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
 
 export const searchSuggestionsCache = {
   async addPostToHistory(
@@ -122,13 +143,31 @@ export const searchSuggestionsCache = {
     }
   },
 
-  async addSuggestion(query: string): Promise<void> {
+  async addSuggestion(
+    query: string,
+    options?: { clientId?: string }
+  ): Promise<boolean> {
     try {
-      if (!query.trim()) {
-        return;
+      if (!isValidSearchSuggestion(query)) {
+        return false;
       }
 
       const normalizedQuery = query.toLowerCase().trim();
+
+      // Deduplicate suggestion score bumps per client/IP (5-minute window) so
+      // a single automated client cannot pump scores into global autocomplete.
+      if (options?.clientId) {
+        const claimHash = createHash("sha256")
+          .update(normalizedQuery)
+          .digest("hex")
+          .slice(0, 16);
+        const claimKey = `search:sugg:claim:${claimHash}:${options.clientId}`;
+        const claimed = await redis.set(claimKey, "1", "EX", 300, "NX");
+        if (claimed !== "OK") {
+          return false;
+        }
+      }
+
       const key = "search:suggestions";
 
       const pipeline = redis.pipeline();
@@ -137,8 +176,10 @@ export const searchSuggestionsCache = {
       pipeline.expire(key, SUGGESTIONS_TTL);
 
       await pipeline.exec();
+      return true;
     } catch (error) {
       console.error("Error adding search suggestion:", error);
+      return false;
     }
   },
 
