@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { mediaError } from "@/lib/media/media-responses";
 import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import {
   ASMOB_BUCKET,
@@ -136,19 +137,19 @@ export async function GET(
 ): Promise<NextResponse | Response> {
   const { mediaId } = await context.params;
   if (!mediaId) {
-    return new NextResponse("Media ID is required", { status: 400 });
+    return mediaError("Media ID is required", 400);
   }
 
   const media = await getMediaObject(mediaId);
 
   if (!media) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
 
   // Lifecycle: bytes exist publicly only after the pipeline says so (or for
   // legacy rows). Quarantined/scanning/processing content is never served.
   if (!isServableMedia(media)) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
 
   // Authorization: post attachments are public, comment media needs a
@@ -159,7 +160,7 @@ export async function GET(
   // "protected" row.
   const ownership = await getMediaOwnership(mediaId);
   if (!ownership) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
@@ -171,16 +172,16 @@ export async function GET(
     isConversationMember,
   });
   if (!decision.allowed) {
-    return new NextResponse(
+    return mediaError(
       decision.status === 401 ? "Unauthorized" : "Media not found",
-      { status: decision.status }
+      decision.status
     );
   }
 
   // SVG / PDF / code payloads have no support at any level - not inline, not
   // download. Reject before touching storage.
   if (isBlockedMediaMime(ownership.mimeType)) {
-    return new NextResponse("Unsupported media type", { status: 415 });
+    return mediaError("Unsupported media type", 415);
   }
 
   try {
@@ -426,15 +427,13 @@ export async function GET(
       // (seen in prod as NoSuchBucket). Map to 404 so the client gets a clean
       // missing-asset response instead of a 500 that floods logs.
       if (upstream.status === 404) {
-        return new NextResponse("Media not found", { status: 404 });
+        return mediaError("Media not found", 404);
       }
 
       // Storage overloaded (disk full on rustfs volume – "Storage resources are
       // insufficient" -> 500). Return 503 so clients/CDN can retry, don't log as 500.
       if (upstream.status === 500) {
-        return new NextResponse("Storage temporarily unavailable", {
-          status: 503,
-        });
+        return mediaError("Storage temporarily unavailable", 503);
       }
 
       // A valid partial response must be 206 with a Content-Range. Reject a
@@ -460,7 +459,7 @@ export async function GET(
     }
 
     if (!response.Body) {
-      return new NextResponse("Media content not found", { status: 404 });
+      return mediaError("Media content not found", 404);
     }
 
     const headers = new Headers();
@@ -547,7 +546,7 @@ export async function GET(
         error.name === "NoSuchBucket" ||
         error.$metadata.httpStatusCode === 404)
     ) {
-      return new NextResponse("Media not found", { status: 404 });
+      return mediaError("Media not found", 404);
     }
     if (
       error instanceof S3ServiceException &&
@@ -557,9 +556,7 @@ export async function GET(
         "Storage resources are insufficient"
       )
     ) {
-      return new NextResponse("Storage temporarily unavailable", {
-        status: 503,
-      });
+      return mediaError("Storage temporarily unavailable", 503);
     }
     const logger = getWebLogger();
     const payload = { error, mediaId };
@@ -570,6 +567,6 @@ export async function GET(
     }
     // Deliberately opaque: internal error details (storage endpoints, keys)
     // must never reach the client.
-    return new NextResponse("Internal Server Error", { status: 500 });
+    return mediaError("Internal Server Error", 500);
   }
 }
