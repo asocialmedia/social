@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   canViewCommunity,
@@ -302,14 +309,35 @@ describe("community subscriptions", () => {
 });
 
 describe("community post notification fan-out", () => {
-  test("excludes the author and returns the fresh recipients", async () => {
+  // Each case owns the notification state it asserts on. The fan-out's behavior
+  // depends on which unread rows already exist, so a shared fixture would make
+  // these pass only when run in file order (and fail under a name filter). A
+  // clean slate per test keeps fresh/fold/row-count independent of order.
+  beforeEach(async () => {
+    await prisma.notification.deleteMany({
+      where: { communityId: fanoutCommunityId },
+    });
+  });
+
+  test("excludes the author and creates one unread row per subscriber", async () => {
     const postId = await createFanoutPost();
     const fresh = await runFanout(postId);
-    // The follower is notified; the author is not.
+
+    // The follower gets a fresh row; the author is not notified.
     expect(fresh).toEqual([FOLLOWER_ID]);
+    const rows = await prisma.notification.findMany({
+      where: { communityId: fanoutCommunityId, recipientId: FOLLOWER_ID },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.count).toBe(1);
+    expect(rows[0]?.postId).toBe(postId);
+    expect(rows[0]?.read).toBe(false);
   });
 
   test("folds a second post into the unread row instead of adding another", async () => {
+    // Seed exactly the state this case is about: one unread row already waiting.
+    await runFanout(await createFanoutPost());
+
     const postId = await createFanoutPost();
     const fresh = await runFanout(postId);
 
@@ -325,10 +353,13 @@ describe("community post notification fan-out", () => {
   });
 
   test("starts a fresh row after the previous one is read", async () => {
+    // Seed a read row, so the next fan-out has nothing to fold into.
+    await runFanout(await createFanoutPost());
     await prisma.notification.updateMany({
       data: { read: true },
       where: { communityId: fanoutCommunityId, recipientId: FOLLOWER_ID },
     });
+
     const postId = await createFanoutPost();
     const fresh = await runFanout(postId);
 
@@ -339,6 +370,7 @@ describe("community post notification fan-out", () => {
     expect(rows).toHaveLength(2);
     const unread = rows.find((row) => !row.read);
     expect(unread?.count).toBe(1);
+    expect(unread?.postId).toBe(postId);
   });
 
   test("getCommunitySubscriberIds excludes the given author", async () => {

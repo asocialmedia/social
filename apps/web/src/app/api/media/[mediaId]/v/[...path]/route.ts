@@ -203,18 +203,16 @@ export async function GET(
     let status = 200;
     const headers = new Headers();
     headers.set("Content-Type", mimeType);
-    // Post-linked media is immutable and safe to share-cache. Message-linked
-    // media is session-gated (membership + blocks can be revoked at any time),
-    // so it must never be stored: a cached copy would keep serving after a
-    // block, unfriend, or conversation deletion. Other private media keeps its
-    // short-lived private cache.
-    let cacheControl = "private, max-age=86400";
-    if (ownership.postId && !isPrivateCommunityPost) {
-      cacheControl =
-        "public, max-age=31536000, immutable, stale-while-revalidate=86400";
-    } else if (ownership.messageConversationId || isPrivateCommunityPost) {
-      cacheControl = "private, no-store";
-    }
+    // Only public post-linked media is immutable and safe to share-cache.
+    // Everything else is viewer-gated - message media (membership + blocks can
+    // be revoked at any time), a private community's media, and comment/draft
+    // media - so it must never be stored: a cached copy would keep serving
+    // after a block, unfriend, deletion, or membership revocation. This mirrors
+    // the main serving route's policy so the two cannot drift.
+    const cacheControl =
+      ownership.postId && !isPrivateCommunityPost
+        ? "public, max-age=31536000, immutable, stale-while-revalidate=86400"
+        : "private, no-store";
     headers.set("Cache-Control", cacheControl);
     // HLS playlists must not be cached aggressively by shared caches so
     // takedowns propagate quickly; segments are content-addressed anyway. Only

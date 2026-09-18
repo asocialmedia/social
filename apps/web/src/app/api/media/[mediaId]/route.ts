@@ -351,7 +351,13 @@ export async function GET(
       return new NextResponse("WEBVTT\n\n", {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=60",
+          // Only public post-linked media may use a shared cache; this fallback
+          // is still a viewer-gated response (comment/message/draft/private),
+          // so it must not be stored.
+          "Cache-Control":
+            ownership.postId && !isPrivateCommunityPost
+              ? "public, max-age=60"
+              : "private, no-store",
           "Content-Type": "text/vtt; charset=utf-8",
           "X-Content-Type-Options": "nosniff",
         },
@@ -394,12 +400,16 @@ export async function GET(
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="#18181b"><rect width="640" height="360" fill="#18181b"/></svg>`;
         return new NextResponse(svg, {
           headers: {
-            // Short-lived: this placeholder only exists while the pipeline's
-            // poster encode is in flight (row READY, poster pending). The
-            // real frame typically lands within seconds - a long max-age
-            // here pinned the gray box on feed cards for a full minute
-            // after the poster became servable.
-            "Cache-Control": "public, max-age=3",
+            // Short-lived for public post media: this placeholder only exists
+            // while the pipeline's poster encode is in flight (row READY,
+            // poster pending), and a long max-age pinned the gray box on feed
+            // cards for a full minute after the real frame became servable.
+            // Viewer-gated media (comment/message/draft/private community)
+            // must not be stored at all.
+            "Cache-Control":
+              ownership.postId && !isPrivateCommunityPost
+                ? "public, max-age=3"
+                : "private, no-store",
             "Content-Type": "image/svg+xml",
             "X-Content-Type-Options": "nosniff",
           },
