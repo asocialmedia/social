@@ -8,6 +8,11 @@ import ClientPost from "@/app/(main)/posts/[postId]/client-post";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  POST_MATCH_CANDIDATE_LIMIT,
+  selectPostMatch,
+} from "@/lib/posts/post-match";
+import type { PostMatchIdentity } from "@/lib/posts/post-match";
 import { getRecentPostsForCrawl } from "@/lib/posts/server-feed";
 import {
   absoluteUrl,
@@ -27,33 +32,41 @@ export interface PostRouteParams {
   slug?: string;
 }
 
-export const getPost = cache(async (postId: string, loggedInUser: string) => {
-  let post = await prisma.post.findUnique({
-    include: getPostDataInclude(loggedInUser),
-    where: {
-      id: postId,
-    },
-  });
-
-  if (!post && postId.length >= 8) {
-    const matches = await prisma.post.findMany({
+export const getPost = cache(
+  async (
+    postId: string,
+    loggedInUser: string,
+    identity: PostMatchIdentity = {}
+  ) => {
+    let post = await prisma.post.findUnique({
       include: getPostDataInclude(loggedInUser),
-      take: 2,
       where: {
-        id: { startsWith: postId },
+        id: postId,
       },
     });
-    if (matches.length === 1) {
-      post = matches[0] ?? null;
+
+    if (!post && postId.length >= 8) {
+      // The 8-char short id is a cuid timestamp prefix, so two posts created in
+      // the same millisecond share it. Fetch the candidates and let the slug
+      // (or the requested media row) pick the intended one, instead of 404ing
+      // on an ambiguous prefix.
+      const matches = await prisma.post.findMany({
+        include: getPostDataInclude(loggedInUser),
+        take: POST_MATCH_CANDIDATE_LIMIT,
+        where: {
+          id: { startsWith: postId },
+        },
+      });
+      post = selectPostMatch(matches, identity);
     }
-  }
 
-  if (!post) {
-    notFound();
-  }
+    if (!post) {
+      notFound();
+    }
 
-  return post;
-});
+    return post;
+  }
+);
 
 // Resolves the post and enforces the single canonical address. A community
 // post must live under its community (`/a/<slug>/posts/...`); a global post or
@@ -62,7 +75,9 @@ export const getPost = cache(async (postId: string, loggedInUser: string) => {
 // full id instead of the short one - permanently redirects to the canonical.
 async function resolveCanonicalPost(params: PostRouteParams) {
   const session = await getSessionFromApi();
-  const post = await getPost(params.postId, session?.user?.id ?? "");
+  const post = await getPost(params.postId, session?.user?.id ?? "", {
+    slug: params.slug,
+  });
 
   if (post.isGust) {
     permanentRedirect(`/gusts?id=${post.id}`);
@@ -86,7 +101,9 @@ export async function generatePostMetadata(
   // OUTSIDE this try.
   let post: Awaited<ReturnType<typeof getPost>>;
   try {
-    post = await getPost(params.postId, session?.user?.id ?? "");
+    post = await getPost(params.postId, session?.user?.id ?? "", {
+      slug: params.slug,
+    });
   } catch {
     notFound();
   }

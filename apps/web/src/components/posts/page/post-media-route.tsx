@@ -52,7 +52,11 @@ async function resolveCanonicalMedia(
   }
   const parsedIndex = Math.trunc(Number(params.index));
   const session = await getSessionFromApi();
-  const post = await getPost(params.postId, session?.user?.id ?? "");
+  // mediaId (when present) disambiguates a short-id prefix shared by two posts
+  // created in the same millisecond.
+  const post = await getPost(params.postId, session?.user?.id ?? "", {
+    mediaId,
+  });
 
   const canonicalPath = getPostMediaPath(post, parsedIndex);
   if (
@@ -100,7 +104,9 @@ export async function generatePostMediaMetadata({
   const parsedIndex = Math.trunc(Number(index));
 
   const session = await getSessionFromApi();
-  const post = await getPost(postId, session?.user?.id ?? "");
+  const post = await getPost(postId, session?.user?.id ?? "", {
+    mediaId: searchParams.mediaId,
+  });
   const canonicalPath = getPostMediaPath(post, parsedIndex);
   // Enforce the canonical namespace in metadata too, so a crawler that lands on
   // the global path for a community post follows the redirect rather than

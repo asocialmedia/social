@@ -419,6 +419,21 @@ const PostContent: React.FC<PostContentProps> = ({
           parentPostId={post.parentPostId as string}
         />
       ) : null}
+      {/* Native community post: the community is the card's top-left context,
+          set above the avatar so the space it belongs to reads first, before
+          the author. Suppressed inside that community's own feed, where the
+          attribution is redundant; ranked feeds add the reason line. */}
+      {post.community && showCommunity ? (
+        <CommunityAttribution
+          className="mb-2.5"
+          community={post.community}
+          reason={
+            showCommunityReason
+              ? `Trending in a/${post.community.slug}`
+              : undefined
+          }
+        />
+      ) : null}
       <div className="flex items-start gap-3">
         {(!detail || isThreadChild) && (
           <div className="relative flex w-9 shrink-0 flex-col items-center self-stretch sm:w-10">
@@ -486,21 +501,6 @@ const PostContent: React.FC<PostContentProps> = ({
                 <div className="hn-story-solid mt-3 overflow-hidden">
                   <HNStoryCard hnStory={post.hnStoryShare} />
                 </div>
-              ) : null}
-
-              {/* Native community post: name the community it was published
-                  into, unless we are already inside that community's feed.
-                  Ranked feeds add the reason line. */}
-              {post.community && showCommunity ? (
-                <CommunityAttribution
-                  className="mt-2.5"
-                  community={post.community}
-                  reason={
-                    showCommunityReason
-                      ? `Trending in a/${post.community.slug}`
-                      : undefined
-                  }
-                />
               ) : null}
 
               {/* Reshare of a community post onto the global feed: attribute
