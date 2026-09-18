@@ -243,6 +243,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           select: {
             commentId: true,
             id: true,
+            messageConversationId: true,
             postId: true,
             status: true,
             userId: true,
@@ -261,6 +262,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
                   m.userId === sessionData.user.id &&
                   m.postId === null &&
                   m.commentId === null &&
+                  m.messageConversationId === null &&
                   // Rejected, deleted, and failed media can never ride into
                   // a post; claimable statuses come from the pipeline
                   // contract so serving gates and this check cannot drift.
@@ -418,6 +420,7 @@ export async function submitPost(input: ExtendedCreatePostInput) {
           where: {
             commentId: null,
             id: { in: validatedInput.mediaIds },
+            messageConversationId: null,
             postId: null,
             status: { in: [...CLAIMABLE_STATUSES] },
             userId: sessionData.user.id,

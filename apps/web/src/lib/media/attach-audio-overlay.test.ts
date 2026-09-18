@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 // attachAudioOverlay lives in media-pipeline but only touches @asm/db for
 // state, so the DB surface is mocked wholesale (repo-wide pattern for route/
 // pipeline tests) and the real @asm/media + upload-policy modules stay live.
@@ -18,6 +20,7 @@ interface PrismaQuery {
 }
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
   Prisma: { DbNull: null },
   cancelMediaCleanup: () => Promise.resolve(),
   consumeRateLimit: mock(() => ({ allowed: true })),

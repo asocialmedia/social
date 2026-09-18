@@ -133,6 +133,11 @@ export async function extractAudioTrack(
     const proc = Bun.spawn(
       [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-protocol_whitelist",
+        "file,crypto,data",
         "-y",
         "-i",
         sourcePath,
@@ -170,6 +175,11 @@ export async function detectAudioActivity(audioPath: string): Promise<boolean> {
     const proc = Bun.spawn(
       [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-protocol_whitelist",
+        "file,crypto,data",
         "-i",
         audioPath,
         "-af",
@@ -227,6 +237,11 @@ async function transcribeViaGemini(
     const proc = Bun.spawn(
       [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-protocol_whitelist",
+        "file,crypto,data",
         "-y",
         "-i",
         audioPath,
@@ -454,6 +469,8 @@ async function probeAudioDuration(mediaPath: string): Promise<number | null> {
         "ffprobe",
         "-v",
         "error",
+        "-protocol_whitelist",
+        "file,crypto,data",
         "-show_entries",
         "format=duration",
         "-of",

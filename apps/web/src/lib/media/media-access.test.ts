@@ -64,4 +64,31 @@ describe("decideMediaAccess", () => {
     expect(result.allowed).toBe(false);
     expect(!result.allowed && result.status).toBe(404);
   });
+
+  test("private community post media requires active community membership", () => {
+    const media = {
+      commentId: null,
+      isPrivateCommunityPost: true,
+      postId: "p-private",
+      userId: "user-1",
+    };
+
+    // Guests are denied with 404
+    const guest = decideMediaAccess(media, null);
+    expect(guest.allowed).toBe(false);
+    expect(!guest.allowed && guest.status).toBe(404);
+
+    // Non-members are denied with 404
+    const nonMember = decideMediaAccess(media, other, {
+      isCommunityMember: false,
+    });
+    expect(nonMember.allowed).toBe(false);
+    expect(!nonMember.allowed && nonMember.status).toBe(404);
+
+    // Active community members are allowed
+    const member = decideMediaAccess(media, other, {
+      isCommunityMember: true,
+    });
+    expect(member.allowed).toBe(true);
+  });
 });

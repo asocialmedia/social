@@ -1,4 +1,4 @@
-import { MediaType, prisma } from "@asm/db";
+import { communityVisibilityWhere, MediaType, prisma } from "@asm/db";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -37,7 +37,10 @@ export async function GET(
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: pageSize + 1,
     where: {
-      post: { userId },
+      post: {
+        userId,
+        ...communityVisibilityWhere(session.user.id),
+      },
       type: {
         in: [MediaType.IMAGE, MediaType.VIDEO, MediaType.AUDIO],
       },

@@ -164,6 +164,37 @@ export async function createInitiatedUpload(input: {
     );
   }
 
+  // Audio overlay (gust sound) validation: only VIDEO uploads can carry an overlay,
+  // and the overlay must be an owned, ready AUDIO upload that is not already attached.
+  if (audioOverlayId) {
+    if (mediaType !== "VIDEO") {
+      throw new UploadPolicyError(
+        "Audio overlays can only be applied to video uploads",
+        400
+      );
+    }
+    const overlay = await prisma.media.findFirst({
+      select: { id: true, status: true, type: true, userId: true },
+      where: { id: audioOverlayId },
+    });
+    if (!overlay || overlay.userId !== userId || overlay.type !== "AUDIO") {
+      throw new UploadPolicyError("Sound track not found", 404);
+    }
+    if (overlay.status !== "READY") {
+      throw new UploadPolicyError("Sound track is not ready yet", 409);
+    }
+    const alreadyAttached = await prisma.media.findFirst({
+      select: { id: true },
+      where: { audioOverlayId },
+    });
+    if (alreadyAttached) {
+      throw new UploadPolicyError(
+        "That sound is already attached to another gust",
+        409
+      );
+    }
+  }
+
   // Burst guard independent of the edge IP tier: protects workers from a
   // scripted loop of initiate/finalize pairs on one account.
   const burst = await consumeRateLimit({
@@ -312,47 +343,58 @@ export async function createInitiatedUpload(input: {
         // a READY clone with no playable variants.
         if (overlayMatches) {
           const cloned = await prisma.$transaction(async (tx) => {
-            const created = await tx.media.create({
-              data: {
-                aiGenerated: existing.aiGenerated,
-                aiProvenance: (existing.aiProvenance ??
-                  Prisma.DbNull) as Prisma.InputJsonValue,
-                blurDataUrl: existing.blurDataUrl,
-                captionsKey: existing.captionsKey,
-                claimedMime: existing.claimedMime,
-                customThumbnailKey: null,
-                detectedMime: existing.detectedMime,
-                encoderVersion: existing.encoderVersion,
-                exifStripped: existing.exifStripped,
-                hasHls: existing.hasHls,
-                height: height ?? existing.height ?? null,
-                key: existing.key,
-                messageConversationId: messageConversationId ?? null,
-                mimeType: existing.mimeType,
-                originalName: sanitizeDisplayName(fileName),
-                pipelineVersion: existing.pipelineVersion,
-                platform: existing.platform,
-                processedAt: new Date(),
-                publishedKey: existing.publishedKey,
-                semanticTags: existing.semanticTags,
-                sha256: existing.sha256,
-                size: existing.size,
-                status: "READY",
-                techMetadata: (existing.techMetadata ??
-                  Prisma.DbNull) as Prisma.InputJsonValue,
-                thumbnailHeight: existing.thumbnailHeight,
-                thumbnailKey: existing.thumbnailKey,
-                thumbnailWidth: existing.thumbnailWidth,
-                transcript: existing.transcript,
-                type: existing.type,
-                uploaderDisplayName: existing.uploaderDisplayName,
-                uploaderUsername: existing.uploaderUsername,
-                url: existing.url,
-                userId,
-                width: width ?? existing.width ?? null,
-                ...(audioOverlayId ? { audioOverlayId } : {}),
-              },
-            });
+            let created;
+            try {
+              created = await tx.media.create({
+                data: {
+                  aiGenerated: existing.aiGenerated,
+                  aiProvenance: (existing.aiProvenance ??
+                    Prisma.DbNull) as Prisma.InputJsonValue,
+                  blurDataUrl: existing.blurDataUrl,
+                  captionsKey: existing.captionsKey,
+                  claimedMime: existing.claimedMime,
+                  customThumbnailKey: null,
+                  detectedMime: existing.detectedMime,
+                  encoderVersion: existing.encoderVersion,
+                  exifStripped: existing.exifStripped,
+                  hasHls: existing.hasHls,
+                  height: height ?? existing.height ?? null,
+                  key: existing.key,
+                  messageConversationId: messageConversationId ?? null,
+                  mimeType: existing.mimeType,
+                  originalName: sanitizeDisplayName(fileName),
+                  pipelineVersion: existing.pipelineVersion,
+                  platform: existing.platform,
+                  processedAt: new Date(),
+                  publishedKey: existing.publishedKey,
+                  semanticTags: existing.semanticTags,
+                  sha256: existing.sha256,
+                  size: existing.size,
+                  status: "READY",
+                  techMetadata: (existing.techMetadata ??
+                    Prisma.DbNull) as Prisma.InputJsonValue,
+                  thumbnailHeight: existing.thumbnailHeight,
+                  thumbnailKey: existing.thumbnailKey,
+                  thumbnailWidth: existing.thumbnailWidth,
+                  transcript: existing.transcript,
+                  type: existing.type,
+                  uploaderDisplayName: existing.uploaderDisplayName,
+                  uploaderUsername: existing.uploaderUsername,
+                  url: existing.url,
+                  userId,
+                  width: width ?? existing.width ?? null,
+                  ...(audioOverlayId ? { audioOverlayId } : {}),
+                },
+              });
+            } catch (error: unknown) {
+              if ((error as { code?: string }).code === "P2002") {
+                throw new UploadPolicyError(
+                  "That sound is already attached to another gust",
+                  409
+                );
+              }
+              throw error;
+            }
 
             // Mirror any pre-computed derivative variants
             const existingDerivatives = await tx.mediaDerivative.findMany({
@@ -516,26 +558,37 @@ export async function createInitiatedUpload(input: {
     }
   }
 
-  const media = await prisma.media.create({
-    data: {
-      // New-flow rows carry no legacy URL/key; serving falls back to the
-      // pipeline's publishedKey + derivatives instead.
-      claimedMime: declaredMime.toLowerCase(),
-      key: "",
-      mimeType: declaredMime.toLowerCase(),
-      originalName: sanitizeDisplayName(fileName),
-      sha256: sha256 ?? null,
-      size: fileSize,
-      status: "UPLOADING",
-      type: mediaType,
-      url: "",
-      userId,
-      ...(audioOverlayId ? { audioOverlayId } : {}),
-      ...(messageConversationId ? { messageConversationId } : {}),
-      ...(width ? { width } : {}),
-      ...(height ? { height } : {}),
-    },
-  });
+  let media;
+  try {
+    media = await prisma.media.create({
+      data: {
+        // New-flow rows carry no legacy URL/key; serving falls back to the
+        // pipeline's publishedKey + derivatives instead.
+        claimedMime: declaredMime.toLowerCase(),
+        key: "",
+        mimeType: declaredMime.toLowerCase(),
+        originalName: sanitizeDisplayName(fileName),
+        sha256: sha256 ?? null,
+        size: fileSize,
+        status: "UPLOADING",
+        type: mediaType,
+        url: "",
+        userId,
+        ...(audioOverlayId ? { audioOverlayId } : {}),
+        ...(messageConversationId ? { messageConversationId } : {}),
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+      },
+    });
+  } catch (error: unknown) {
+    if ((error as { code?: string }).code === "P2002") {
+      throw new UploadPolicyError(
+        "That sound is already attached to another gust",
+        409
+      );
+    }
+    throw error;
+  }
 
   // The quarantine key embeds the generated id, so patch the row once with
   // its final key. Keys stay deterministic and content-free.

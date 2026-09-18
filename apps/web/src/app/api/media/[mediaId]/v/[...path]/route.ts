@@ -1,4 +1,4 @@
-import { prisma } from "@asm/db";
+import { canViewCommunity, prisma } from "@asm/db";
 import { hlsBaseFromMasterKey } from "@asm/media";
 import { GetObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
@@ -79,6 +79,17 @@ export async function GET(
       key: true,
       messageConversationId: true,
       mimeType: true,
+      post: {
+        select: {
+          community: {
+            select: {
+              id: true,
+              type: true,
+            },
+          },
+          communityId: true,
+        },
+      },
       postId: true,
       publishedKey: true,
       status: true,
@@ -95,9 +106,26 @@ export async function GET(
     ownership.messageConversationId,
     viewer?.id
   );
-  const decision = decideMediaAccess(ownership, viewer, {
-    isConversationMember,
-  });
+  const isPrivateCommunityPost =
+    Boolean(ownership.postId) && ownership.post?.community?.type === "PRIVATE";
+  const isCommunityMember =
+    isPrivateCommunityPost && ownership.post?.community
+      ? await canViewCommunity(ownership.post.community, viewer?.id ?? "")
+      : false;
+  const decision = decideMediaAccess(
+    {
+      commentId: ownership.commentId,
+      isPrivateCommunityPost,
+      messageConversationId: ownership.messageConversationId,
+      postId: ownership.postId,
+      userId: ownership.userId,
+    },
+    viewer,
+    {
+      isCommunityMember,
+      isConversationMember,
+    }
+  );
   if (!decision.allowed) {
     return new NextResponse("Media not found", { status: decision.status });
   }
@@ -167,17 +195,21 @@ export async function GET(
     // block, unfriend, or conversation deletion. Other private media keeps its
     // short-lived private cache.
     let cacheControl = "private, max-age=86400";
-    if (ownership.postId) {
+    if (ownership.postId && !isPrivateCommunityPost) {
       cacheControl =
         "public, max-age=31536000, immutable, stale-while-revalidate=86400";
-    } else if (ownership.messageConversationId) {
+    } else if (ownership.messageConversationId || isPrivateCommunityPost) {
       cacheControl = "private, no-store";
     }
     headers.set("Cache-Control", cacheControl);
     // HLS playlists must not be cached aggressively by shared caches so
     // takedowns propagate quickly; segments are content-addressed anyway. Only
     // public (post-linked) media may use the shared cache.
-    if (objectKey.endsWith(".m3u8") && ownership.postId) {
+    if (
+      objectKey.endsWith(".m3u8") &&
+      ownership.postId &&
+      !isPrivateCommunityPost
+    ) {
       headers.set("Cache-Control", "public, max-age=60");
     }
     headers.set("Accept-Ranges", "bytes");

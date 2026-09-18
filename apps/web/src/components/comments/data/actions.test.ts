@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
+
 import { deleteComment, submitComment } from "./actions";
 
 const POST_ID = "post1";
@@ -112,8 +114,11 @@ const mockTx = {
     findMany: (args: { where: { id: { in: string[] } } }) =>
       Promise.resolve(
         (args.where.id.in ?? []).map((id) => ({
+          commentId: null,
           id,
+          messageConversationId: null,
           mimeType: "image/png",
+          postId: null,
           status: "READY",
           type: "IMAGE",
           userId: COMMENTER_ID,
@@ -236,6 +241,63 @@ const mockPrisma = {
 const mockPublish = mock(async () => {});
 
 mock.module("@asm/db", () => ({
+  ...asmDbMockBase,
+  applyFlatAward: async (
+    tx: typeof mockTx,
+    args: {
+      actorId: string;
+      baseAmount: number;
+      commentId?: string;
+      postId?: string;
+      recipientId: string;
+      type: string;
+    }
+  ) => {
+    await tx.user.update({
+      data: { aura: { increment: args.baseAmount } },
+      where: { id: args.recipientId },
+    });
+    await tx.auraLog.create({
+      data: {
+        amount: args.baseAmount,
+        commentId: args.commentId,
+        issuerId: args.actorId,
+        postId: args.postId,
+        targetUserId: args.recipientId,
+        type: args.type,
+        userId: args.recipientId,
+      },
+    });
+    return { amount: args.baseAmount };
+  },
+  applyWeightedAward: async (
+    tx: typeof mockTx,
+    args: {
+      actorId: string;
+      baseAmount: number;
+      commentId?: string;
+      postId?: string;
+      recipientId: string;
+      type: string;
+    }
+  ) => {
+    await tx.user.update({
+      data: { aura: { increment: args.baseAmount } },
+      where: { id: args.recipientId },
+    });
+    await tx.auraLog.create({
+      data: {
+        amount: args.baseAmount,
+        commentId: args.commentId,
+        issuerId: args.actorId,
+        postId: args.postId,
+        targetUserId: args.recipientId,
+        type: args.type,
+        userId: args.recipientId,
+      },
+    });
+    return { amount: args.baseAmount };
+  },
   cancelMediaCleanup: mockPublish,
   enqueueNotificationCreated: mockPublish,
   enqueueNotificationDeleted: mockPublish,
@@ -247,6 +309,37 @@ mock.module("@asm/db", () => ({
   publishCommentDeleted: mockPublish,
   publishResponseCreated: mockPublish,
   publishResponseDeleted: mockPublish,
+  reverseExactAura: async (
+    tx: typeof mockTx,
+    args: {
+      amount?: number;
+      commentId?: string;
+      issuerId?: string;
+      openAmount?: number;
+      postId?: string;
+      recipientId: string;
+      targetUserId?: string;
+      type?: string;
+    }
+  ) => {
+    const amt = args.openAmount ?? args.amount ?? 0;
+    await tx.user.update({
+      data: { aura: { decrement: amt } },
+      where: { id: args.recipientId },
+    });
+    await tx.auraLog.create({
+      data: {
+        amount: -amt,
+        commentId: args.commentId,
+        issuerId: args.issuerId,
+        postId: args.postId,
+        targetUserId: args.targetUserId ?? args.recipientId,
+        type: args.type,
+        userId: args.recipientId,
+      },
+    });
+    return { amount: amt };
+  },
 }));
 
 mock.module("next/cache", () => ({
@@ -356,6 +449,69 @@ describe("submitComment", () => {
 
     expect(state.commenterAura).toBe(1);
     expect(state.authorAura).toBe(1);
+  });
+
+  test("rejects attaching media owned by another user or unowned", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
+
+    // Mock media owned by someone else or null
+    const originalFindMany = mockTx.media.findMany;
+    mockTx.media.findMany = () =>
+      Promise.resolve([
+        {
+          commentId: null,
+          id: "media-unowned",
+          messageConversationId: null,
+          mimeType: "image/png",
+          postId: null,
+          status: "READY",
+          type: "IMAGE",
+          userId: null,
+        },
+      ]);
+
+    try {
+      await expect(
+        submitComment({
+          content: "stealing unowned media",
+          mediaIds: ["media-unowned"],
+          post,
+        })
+      ).rejects.toThrow("Eddies support images and GIFs only");
+    } finally {
+      mockTx.media.findMany = originalFindMany;
+    }
+  });
+
+  test("rejects attaching media already bound to a post, comment, or message", async () => {
+    mockGetSession.mockResolvedValueOnce({ user: { id: COMMENTER_ID } });
+
+    const originalFindMany = mockTx.media.findMany;
+    mockTx.media.findMany = () =>
+      Promise.resolve([
+        {
+          commentId: null,
+          id: "media-dm",
+          messageConversationId: "conv-123",
+          mimeType: "image/png",
+          postId: null,
+          status: "READY",
+          type: "IMAGE",
+          userId: COMMENTER_ID,
+        },
+      ]);
+
+    try {
+      await expect(
+        submitComment({
+          content: "leaking dm media in comment",
+          mediaIds: ["media-dm"],
+          post,
+        })
+      ).rejects.toThrow("Eddies support images and GIFs only");
+    } finally {
+      mockTx.media.findMany = originalFindMany;
+    }
   });
 
   test("commenting on your own post awards no aura to the author", async () => {

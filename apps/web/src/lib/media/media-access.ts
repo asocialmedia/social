@@ -22,6 +22,7 @@ export interface MediaOwnership {
   commentId: string | null;
   messageConversationId?: string | null;
   userId: string | null;
+  isPrivateCommunityPost?: boolean;
 }
 
 export interface MediaViewer {
@@ -32,6 +33,8 @@ export interface MediaAccessOptions {
   // Whether the viewer is a member of media.messageConversationId (and not
   // blocked). Resolved by the caller via message-media-access.ts.
   isConversationMember?: boolean;
+  // Whether the viewer is an active member of the private community hosting the post.
+  isCommunityMember?: boolean;
 }
 
 export type MediaAccessDecision =
@@ -44,6 +47,12 @@ export function decideMediaAccess(
   options: MediaAccessOptions = {}
 ): MediaAccessDecision {
   if (media.postId) {
+    if (
+      media.isPrivateCommunityPost &&
+      (!viewer || !options.isCommunityMember)
+    ) {
+      return { allowed: false, status: 404 };
+    }
     return { allowed: true };
   }
 

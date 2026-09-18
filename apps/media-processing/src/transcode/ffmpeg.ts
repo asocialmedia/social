@@ -151,6 +151,8 @@ export async function probeMedia(inputPath: string): Promise<ProbeResult> {
       "ffprobe",
       "-v",
       "error",
+      "-protocol_whitelist",
+      "file,crypto,data",
       "-print_format",
       "json",
       "-show_format",
@@ -262,7 +264,16 @@ export async function runFfmpeg(
   }, timeoutMs);
 
   const proc = Bun.spawn(
-    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", ...args],
+    [
+      "ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-protocol_whitelist",
+      "file,crypto,data",
+      "-y",
+      ...args,
+    ],
     {
       stderr: "pipe",
       stdout: "ignore",
@@ -300,6 +311,8 @@ export async function extractGrayPixels(
       "-hide_banner",
       "-loglevel",
       "error",
+      "-protocol_whitelist",
+      "file,crypto,data",
       "-ss",
       String(Math.max(0, seekSec)),
       "-i",
@@ -435,6 +448,8 @@ async function extractAudioSpectrum(
       "-hide_banner",
       "-loglevel",
       "error",
+      "-protocol_whitelist",
+      "file,crypto,data",
       "-ss",
       String(Math.max(0, seekSec)),
       "-t",
@@ -492,6 +507,8 @@ async function extractPcmBands(
       "-hide_banner",
       "-loglevel",
       "error",
+      "-protocol_whitelist",
+      "file,crypto,data",
       "-ss",
       String(Math.max(0, seekSec)),
       "-t",
