@@ -33,6 +33,20 @@ export default defineConfig({
         "eslint/no-unused-vars": "off",
       },
     },
+    {
+      // Expo Metro bundler standard config requires CommonJS globals.
+      files: ["apps/mobile/metro.config.js"],
+      rules: {
+        "unicorn/prefer-module": "off",
+      },
+    },
+    {
+      // React Native and Expo use string values for certain component style props (e.g. StatusBar).
+      files: ["apps/mobile/**"],
+      rules: {
+        "react/style-prop-object": "off",
+      },
+    },
   ],
   rules: {
     complexity: "off",

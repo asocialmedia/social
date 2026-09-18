@@ -61,8 +61,8 @@ const CommunityRailSkeleton: React.FC<{ cards?: number }> = ({ cards = 4 }) => (
 );
 
 // `isLoggedIn` only changes the scroller's bottom padding, which must match the
-// live page exactly: the signed-in layout reserves `pb-24 lg:pb-0` for the
-// mobile dock, while a guest reserves `pb-44 lg:pb-20` for the guest auth bar.
+// live page exactly: the signed-in layout reserves `pb-16 lg:pb-0` for the
+// mobile dock, while a guest reserves `pb-24 lg:pb-12` for the guest auth bar.
 // It defaults to the signed-out spacing because the route-level loading.tsx
 // fallback cannot know the viewer's session without turning the static shell
 // dynamic; extra bottom padding is invisible, whereas too little would hide
@@ -78,7 +78,7 @@ const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
       <div
         className={cn(
           "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
-          isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
+          isLoggedIn ? "pb-16 lg:pb-0" : "pb-24 lg:pb-12"
         )}
       >
         {/* Sticky category strip */}
@@ -121,7 +121,7 @@ const CommunitiesPageSkeleton: React.FC<{ isLoggedIn?: boolean }> = ({
         </div>
 
         {/* Browse grid */}
-        <div className="px-8 pb-4 sm:pb-10">
+        <div className="px-8 pb-0 sm:pb-10">
           <div className="mb-3 flex items-center gap-2.5">
             <Skeleton className="size-5 rounded-md" />
             <Skeleton className="h-5 w-36 rounded-md" />
