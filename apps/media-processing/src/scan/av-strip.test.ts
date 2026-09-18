@@ -154,43 +154,52 @@ describe("planAvStrip", () => {
 });
 
 describe("stripAvContainerMetadata", () => {
-  test("every supported container loses identifying metadata and keeps streams", async () => {
-    await Bun.$`mkdir -p ${WORK_DIR}`.quiet();
-    for (const spec of CASES) {
-      const inputPath = await encodeFixture(spec);
-      const outputPath = `${WORK_DIR}/stripped-${spec.container}.${spec.extension}`;
-      createdFiles.push(outputPath);
+  // Heavy integration test: 7 real ffmpeg encodes (3 with libx264 video)
+  // plus probes and remuxes. The 5s default bun timeout is routinely
+  // exceeded under parallel load; the per-operation timeouts inside are
+  // 30s, so cap the test well above worst-case instead. (Options go last:
+  // this is the (label, fn, options) overload in the pinned bun-types.)
+  test(
+    "every supported container loses identifying metadata and keeps streams",
+    async () => {
+      await Bun.$`mkdir -p ${WORK_DIR}`.quiet();
+      for (const spec of CASES) {
+        const inputPath = await encodeFixture(spec);
+        const outputPath = `${WORK_DIR}/stripped-${spec.container}.${spec.extension}`;
+        createdFiles.push(outputPath);
 
-      // Sanity: the fixture carries the tags before scrubbing. ffmpeg writes
-      // no global metadata into some containers (Ogg comments live in
-      // per-stream OpusTags/VorbisComment headers, not -metadata globals), so
-      // the canary is conditional: whenever the fixture DID carry a title,
-      // the scrubbed output must have dropped it.
-      const before = await probeTags(inputPath);
-      const fixtureCarriedTags = before.formatTags.title !== undefined;
-      if (fixtureCarriedTags) {
-        expect(before.formatTags.title).toBe("SECRET-TITLE");
+        // Sanity: the fixture carries the tags before scrubbing. ffmpeg writes
+        // no global metadata into some containers (Ogg comments live in
+        // per-stream OpusTags/VorbisComment headers, not -metadata globals), so
+        // the canary is conditional: whenever the fixture DID carry a title,
+        // the scrubbed output must have dropped it.
+        const before = await probeTags(inputPath);
+        const fixtureCarriedTags = before.formatTags.title !== undefined;
+        if (fixtureCarriedTags) {
+          expect(before.formatTags.title).toBe("SECRET-TITLE");
+        }
+
+        await stripAvContainerMetadata({
+          container: spec.container,
+          inputPath,
+          outputPath,
+          timeoutMs: 30_000,
+        });
+
+        const after = await probeTags(outputPath);
+        if (fixtureCarriedTags) {
+          expect(after.formatTags.title).toBeUndefined();
+        }
+        expect(after.formatTags.artist).toBeUndefined();
+        expect(after.formatTags.comment).toBeUndefined();
+        // The media payload must survive the copy.
+        expect(after.streamCount).toBeGreaterThan(0);
+        // The output is a real, playable file, not a zero-byte stub.
+        expect(Bun.file(outputPath).size).toBeGreaterThan(0);
       }
-
-      await stripAvContainerMetadata({
-        container: spec.container,
-        inputPath,
-        outputPath,
-        timeoutMs: 30_000,
-      });
-
-      const after = await probeTags(outputPath);
-      if (fixtureCarriedTags) {
-        expect(after.formatTags.title).toBeUndefined();
-      }
-      expect(after.formatTags.artist).toBeUndefined();
-      expect(after.formatTags.comment).toBeUndefined();
-      // The media payload must survive the copy.
-      expect(after.streamCount).toBeGreaterThan(0);
-      // The output is a real, playable file, not a zero-byte stub.
-      expect(Bun.file(outputPath).size).toBeGreaterThan(0);
-    }
-  });
+    },
+    { timeout: 60_000 }
+  );
 
   test("mp4 output is faststarted (moov before mdat)", async () => {
     await Bun.$`mkdir -p ${WORK_DIR}`.quiet();
