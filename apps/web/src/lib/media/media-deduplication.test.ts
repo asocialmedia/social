@@ -5,6 +5,8 @@ import { computeFileSha256 } from "./media-upload-client";
 let mediaFindFirstImpl: (args: unknown) => unknown = () => null;
 let mediaCreateArgs: unknown = null;
 let mediaUpdateArgs: unknown = null;
+let mediaUpdateManyImpl: (args: unknown) => unknown = () => ({ count: 1 });
+let mediaUpdateManyArgs: unknown[] = [];
 let derivativeCreateManyArgs: unknown = null;
 let cancelCleanupCalls: string[] = [];
 let scheduledCleanups: string[] = [];
@@ -32,6 +34,10 @@ const prismaMock = {
         id: "updated-media-id",
         ...(args as { data: Record<string, unknown> }).data,
       };
+    }),
+    updateMany: mock((args: unknown) => {
+      mediaUpdateManyArgs.push(args);
+      return mediaUpdateManyImpl(args);
     }),
   },
   mediaDerivative: {
@@ -89,6 +95,8 @@ beforeEach(() => {
   mediaFindFirstImpl = () => null;
   mediaCreateArgs = null;
   mediaUpdateArgs = null;
+  mediaUpdateManyImpl = () => ({ count: 1 });
+  mediaUpdateManyArgs = [];
   derivativeCreateManyArgs = null;
   cancelCleanupCalls = [];
   scheduledCleanups = [];
@@ -281,5 +289,115 @@ describe("createInitiatedUpload deduplication", () => {
     expect(derivArgs.data.length).toBe(1);
     expect(derivArgs.data[0]?.variant).toBe("720p");
     expect(derivArgs.data[0]?.mediaId).toBe("new-media-id");
+  });
+
+  test("message upload claims an unlinked READY row instead of returning it bare", async () => {
+    // Regression: the generic unattached reuse used to hand the existing id
+    // back without binding it, so the sender rendered the image while the
+    // peer 404d on every fetch with no working retry.
+    mediaFindFirstImpl = () => ({
+      avatarOf: null,
+      bannerOf: null,
+      commentId: null,
+      id: "abandoned-draft-id",
+      messageConversationId: null,
+      postId: null,
+      publishedKey: "media/abandoned-draft-id.png",
+      sha256: TEST_SHA256,
+      size: 1024,
+      status: "READY",
+      type: "IMAGE",
+      userId: USER_ID,
+    });
+
+    const result = await createInitiatedUpload({
+      declaredMime: "image/png",
+      fileName: "chat.png",
+      fileSize: 1024,
+      height: 768,
+      messageConversationId: "convo-1",
+      purpose: "message",
+      sha256: TEST_SHA256,
+      userId: USER_ID,
+      width: 1024,
+    });
+
+    expect(result.deduplicated).toBe(true);
+    expect(result.mediaId).toBe("abandoned-draft-id");
+    expect(result.uploadUrl).toBeNull();
+    // The claim binds the row to the thread (conditional on still-unlinked).
+    expect(mediaUpdateManyArgs.length).toBe(1);
+    const claim = mediaUpdateManyArgs[0] as {
+      data: { messageConversationId: string };
+      where: { id: string };
+    };
+    expect(claim.data.messageConversationId).toBe("convo-1");
+    expect(claim.where.id).toBe("abandoned-draft-id");
+  });
+
+  test("lost claim falls through to a fresh linked row, never the bare id", async () => {
+    mediaFindFirstImpl = () => ({
+      avatarOf: null,
+      bannerOf: null,
+      commentId: null,
+      id: "raced-draft-id",
+      messageConversationId: null,
+      postId: null,
+      publishedKey: "media/raced-draft-id.png",
+      sha256: TEST_SHA256,
+      size: 1024,
+      status: "READY",
+      type: "IMAGE",
+      userId: USER_ID,
+    });
+    // Another conversation won the race: the conditional update matches nothing.
+    mediaUpdateManyImpl = () => ({ count: 0 });
+
+    const result = await createInitiatedUpload({
+      declaredMime: "image/png",
+      fileName: "chat.png",
+      fileSize: 1024,
+      messageConversationId: "convo-1",
+      purpose: "message",
+      sha256: TEST_SHA256,
+      userId: USER_ID,
+    });
+
+    // Falls through to the clone path, which carries the new link.
+    expect(result.mediaId).toBe("new-media-id");
+    const createArgs = mediaCreateArgs as {
+      data: { messageConversationId: string | null };
+    };
+    expect(createArgs.data.messageConversationId).toBe("convo-1");
+  });
+
+  test("non-message upload keeps the legacy bare reuse of unlinked rows", async () => {
+    mediaFindFirstImpl = () => ({
+      avatarOf: null,
+      bannerOf: null,
+      commentId: null,
+      id: "abandoned-draft-id",
+      messageConversationId: null,
+      postId: null,
+      publishedKey: "media/abandoned-draft-id.png",
+      sha256: TEST_SHA256,
+      size: 1024,
+      status: "READY",
+      type: "IMAGE",
+      userId: USER_ID,
+    });
+
+    const result = await createInitiatedUpload({
+      declaredMime: "image/png",
+      fileName: "post.png",
+      fileSize: 1024,
+      purpose: "post",
+      sha256: TEST_SHA256,
+      userId: USER_ID,
+    });
+
+    expect(result.deduplicated).toBe(true);
+    expect(result.mediaId).toBe("abandoned-draft-id");
+    expect(mediaUpdateManyArgs.length).toBe(0);
   });
 });
