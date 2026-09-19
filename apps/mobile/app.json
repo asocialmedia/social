@@ -2,20 +2,24 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.0.25",
+    "version": "0.0.26",
     "description": "The open social platform you'll ever need. Open source, cozy, and slightly unhinged.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "asocialmedia",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "associatedDomains": ["webcredentials:asocialmedia.cc"],
+      "associatedDomains": [
+        "webcredentials:asocialmedia.cc"
+      ],
       "bundleIdentifier": "cc.asocialmedia.mobile",
       "supportsTablet": true
     },
     "android": {
       "package": "cc.asocialmedia.mobile",
-      "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"],
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#00000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
