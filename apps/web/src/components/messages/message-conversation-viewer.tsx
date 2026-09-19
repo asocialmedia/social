@@ -667,56 +667,24 @@ export function ConversationMediaViewer({
             : ""}
         </span>
 
-        <div className="pointer-events-auto z-40 flex flex-col gap-2 border-t border-white/10 bg-black/80 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
-          {/* Shown whenever there is more than one image OR older history to
-              reach, so a lone image with unseen older media is never a dead
-              end (the Oldest button is the escape hatch). */}
-          {items.length > 1 || hasOlder ? (
-            <div className="flex items-center gap-3">
-              {hasOlder ? (
-                <button
-                  aria-label="Load all older images"
-                  className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-white/20 disabled:opacity-60"
-                  disabled={loadingOldest}
-                  onClick={() => {
-                    void handleJumpToOldest();
-                  }}
-                  type="button"
-                >
-                  {loadingOldest ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <ChevronLeft className="size-3.5" />
-                  )}
-                  Oldest
-                </button>
-              ) : null}
-              {items.length > 1 ? (
-                <>
-                  <input
-                    aria-label="Image position"
-                    className="h-1 min-w-0 flex-1 cursor-pointer accent-[#ff9500] disabled:opacity-50"
-                    disabled={loadingOldest}
-                    max={items.length - 1}
-                    min={0}
-                    onChange={(event) => {
-                      const next = items[Number(event.target.value)];
-                      if (next) {
-                        selectKey(next.flatKey);
-                      }
-                    }}
-                    type="range"
-                    value={Math.max(0, activeIndex)}
-                  />
-                  <span
-                    aria-hidden
-                    className="shrink-0 text-xs text-white/80 tabular-nums"
-                  >
-                    {activeIndex + 1} / {items.length}
-                  </span>
-                </>
-              ) : null}
-            </div>
+        <div className="pointer-events-auto z-40 flex items-center gap-2 border-t border-white/10 bg-black/80 px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+          {hasOlder ? (
+            <button
+              aria-label="Load all older images"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+              disabled={loadingOldest}
+              onClick={() => {
+                void handleJumpToOldest();
+              }}
+              type="button"
+            >
+              {loadingOldest ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <ChevronLeft className="size-3.5" />
+              )}
+              Oldest
+            </button>
           ) : null}
           {activeIndex >= 0 ? (
             <Filmstrip
