@@ -81,6 +81,11 @@ import { usePresence } from "@/lib/messages/use-presence";
 import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
 import { cn } from "@/lib/utils";
 
+import {
+  pagesToDropForViewerHistory,
+  trimOldestPages,
+} from "./viewer-history-window";
+
 interface MessageThreadProps {
   conversationId: string;
   onBack: () => void;
@@ -141,6 +146,10 @@ export function MessageThread({
   // Ids currently in flight for viewer discovery whose resolution will be
   // classified into the scan cache. Membership shrinks to empty as each lands.
   const pendingScanRef = useRef(new Set<string>());
+  // The viewer's current media position, reported up so the thread can bound
+  // loaded history. Only updates while the viewer is open and navigating, so it
+  // never causes transcript re-renders during normal scrolling.
+  const [viewerPosition, setViewerPosition] = useState({ index: 0, total: 0 });
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -574,6 +583,13 @@ export function MessageThread({
   const { fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage } =
     messagesQuery;
   useEffect(() => {
+    // While the fullscreen viewer is open the transcript is frozen behind it,
+    // and the viewer drives history loads itself. Letting the transcript's
+    // near-top auto-loader fire here would race the viewer's window trim
+    // (prepend, then immediately drop the same pages).
+    if (mediaViewerKey) {
+      return;
+    }
     if (
       virtualItems.length > 0 &&
       virtualItems[0].index < 4 &&
@@ -586,6 +602,7 @@ export function MessageThread({
     fetchPreviousPage,
     hasPreviousPage,
     isFetchingPreviousPage,
+    mediaViewerKey,
     virtualItems,
   ]);
 
@@ -612,22 +629,99 @@ export function MessageThread({
     if (!hasPreviousPage || isFetchingPreviousPage) {
       return;
     }
-    const loadedCount = allMessages.length;
+    // Identify the new messages by id, not by a length delta: the history
+    // window may trim oldest pages concurrently, so a length comparison would
+    // mis-slice the decrypt subset.
+    const known = new Set(allMessages.map((message) => message.id));
     const result = await fetchPreviousPage();
     const nextMessages = (result.data?.pages ?? []).flatMap(
       (page) => page.messages
     );
-    const added = nextMessages.length - loadedCount;
-    if (added > 0) {
-      requestDecryptMessages(nextMessages.slice(0, added));
+    const added = nextMessages.filter((message) => !known.has(message.id));
+    if (added.length > 0) {
+      requestDecryptMessages(added);
     }
   }, [
-    allMessages.length,
+    allMessages,
     fetchPreviousPage,
     hasPreviousPage,
     isFetchingPreviousPage,
     requestDecryptMessages,
   ]);
+
+  const handleViewerPosition = useCallback((index: number, total: number) => {
+    setViewerPosition((current) =>
+      current.index === index && current.total === total
+        ? current
+        : { index, total }
+    );
+  }, []);
+
+  // Bound the viewer's loaded history: once the active image is far from the
+  // oldest loaded one, drop the dead pages below it. Gated so it can never
+  // orphan the anchor or race the boundary loader (see viewer-history-window).
+  useEffect(() => {
+    if (!mediaViewerKey || isFetchingPreviousPage) {
+      return;
+    }
+    const {data} = messagesQuery;
+    if (!data) {
+      return;
+    }
+    const drop = pagesToDropForViewerHistory({
+      activeIndex: viewerPosition.index,
+      anchorMessageId: messageIdFromFlatKey(mediaViewerKey),
+      findPageIndex: (id) =>
+        data.pages.findIndex((page) =>
+          page.messages.some((message) => message.id === id)
+        ),
+      pageCount: data.pages.length,
+    });
+    if (drop <= 0) {
+      return;
+    }
+    queryClient.setQueryData<InfiniteData<MessagePage, string | undefined>>(
+      ["messages", conversationId] as const,
+      (old) => {
+        if (!old) {
+          return old;
+        }
+        const { pages, pageParams } = trimOldestPages(
+          old.pages,
+          old.pageParams,
+          drop
+        );
+        return { ...old, pageParams, pages };
+      }
+    );
+  }, [
+    conversationId,
+    isFetchingPreviousPage,
+    mediaViewerKey,
+    messagesQuery.data,
+    queryClient,
+    viewerPosition,
+  ]);
+
+  // Close the viewer and land the transcript on the image the user was viewing.
+  // Trimming while open can shift message indices, so re-anchor explicitly
+  // instead of trusting the old scroll offset.
+  const closeViewer = useCallback(() => {
+    const anchorId = mediaViewerKey
+      ? messageIdFromFlatKey(mediaViewerKey)
+      : null;
+    setMediaViewerKey(null);
+    if (!anchorId) {
+      return;
+    }
+    const index = messageIndexById.get(anchorId);
+    if (index === undefined) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      rowVirtualizer.scrollToIndex(index, { align: "center" });
+    });
+  }, [mediaViewerKey, messageIndexById, rowVirtualizer]);
 
   // Jump to the newest message and clear the badge. Optimistically marks the
   // viewport pinned so followOnAppend resumes tracking immediately, without
@@ -918,8 +1012,9 @@ export function MessageThread({
             isFetchingOlder={isFetchingPreviousPage}
             messages={allMessages}
             onActive={handleViewerActive}
-            onClose={() => setMediaViewerKey(null)}
+            onClose={closeViewer}
             onLoadOlder={loadOlderMedia}
+            onPosition={handleViewerPosition}
           />
         ) : null}
       </div>

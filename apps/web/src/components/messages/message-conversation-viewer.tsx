@@ -286,6 +286,7 @@ interface ConversationMediaViewerProps {
   onActive: (flatKey: string, direction: MediaNavDirection) => void;
   onClose: () => void;
   onLoadOlder: () => void;
+  onPosition: (activeIndex: number, total: number) => void;
 }
 
 // Conversation-wide fullscreen viewer. Mounts exactly one image at a time and
@@ -302,6 +303,7 @@ export function ConversationMediaViewer({
   onActive,
   onClose,
   onLoadOlder,
+  onPosition,
 }: ConversationMediaViewerProps) {
   const index = useConversationMediaIndex(messages);
   const { indexByKey, items } = index;
@@ -347,6 +349,12 @@ export function ConversationMediaViewer({
   // put instead of shifting out from under the user.
   const activeIndex = indexByKey.get(activeKey) ?? -1;
   const item = activeIndex >= 0 ? items[activeIndex] : undefined;
+
+  // Report the current position to the thread so it can bound loaded history
+  // without the viewer needing to know about React Query pages.
+  useEffect(() => {
+    onPosition(activeIndex, items.length);
+  }, [activeIndex, items.length, onPosition]);
 
   const selectKey = useCallback(
     (flatKey: string) => {
