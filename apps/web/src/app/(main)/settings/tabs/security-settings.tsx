@@ -44,6 +44,7 @@ import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
 import { cn } from "@/lib/utils";
 
+import MessageRecoveryCard from "./message-recovery-card";
 import { requiresFreshSession } from "./security-passkey-utils";
 import SecuritySessionsCard from "./security-sessions-card";
 
@@ -827,6 +828,8 @@ export default function SecuritySettings({
             </div>
           )}
         </SettingsCard>
+
+        <MessageRecoveryCard />
 
         <div className="min-w-0 md:col-span-2 lg:col-span-4">
           <SecuritySessionsCard currentSessionId={currentSessionId} />
