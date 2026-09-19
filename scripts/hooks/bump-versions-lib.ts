@@ -21,6 +21,11 @@ export interface AppJson {
 
 export interface BumpContext {
   fileExists: (pkgPath: string) => Promise<boolean>;
+  // Runs the repo formatter over the files the bump rewrote. JSON.stringify
+  // always expands arrays, while oxfmt collapses short ones - without this the
+  // bump and the very next `lint` command disagree, leaving the tree dirty
+  // after every commit. Optional so tests can omit it.
+  formatFiles?: (filePaths: string[]) => Promise<void>;
   getStagedFiles: () => Promise<string[]>;
   readLockfile?: (lockPath: string) => Promise<string>;
   readPackageJson: (pkgPath: string) => Promise<PackageJson>;
@@ -261,11 +266,13 @@ async function bumpVersions(
   });
 
   // Only now touch disk and the index.
+  const writtenFiles: string[] = [];
   for (const { pkg, pkgPath } of packageWrites) {
     // eslint-disable-next-line no-await-in-loop
     await context.writePackageJson(pkgPath, pkg);
     // eslint-disable-next-line no-await-in-loop
     await context.stageFile(pkgPath);
+    writtenFiles.push(pkgPath);
   }
 
   // Keep the committed lockfile's workspace versions in step with the manifests
@@ -303,6 +310,19 @@ async function bumpVersions(
     }
     // eslint-disable-next-line no-await-in-loop
     await context.stageFile(appPath);
+    writtenFiles.push(appPath);
+  }
+
+  // Format, then re-stage, so the committed bytes are the formatter's output
+  // and `lint` (which runs later in the same pre-commit) has nothing left to
+  // change. Re-staging is needed because the formatter rewrites bytes that were
+  // already staged above.
+  if (context.formatFiles && writtenFiles.length > 0) {
+    await context.formatFiles(writtenFiles);
+    for (const filePath of writtenFiles) {
+      // eslint-disable-next-line no-await-in-loop
+      await context.stageFile(filePath);
+    }
   }
 }
 
@@ -367,6 +387,22 @@ function createRuntimeContext(repoRoot: string): BumpContext {
         return true;
       } catch {
         return false;
+      }
+    },
+    // Run the repo's formatter so bump output matches what `lint` expects.
+    // A formatter failure must not block the commit, so it is best-effort: the
+    // version bump has already succeeded either way.
+    formatFiles: async (filePaths) => {
+      const oxfmt = path.join(repoRoot, "node_modules", ".bin", "oxfmt");
+      try {
+        const proc = Bun.spawn([oxfmt, "--write", ...filePaths], {
+          cwd: repoRoot,
+          stderr: "pipe",
+          stdout: "pipe",
+        });
+        await proc.exited;
+      } catch {
+        /* formatter unavailable - leave the written JSON as-is */
       }
     },
     getStagedFiles: async () => {
