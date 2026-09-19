@@ -17,6 +17,7 @@ export interface MessageAttachmentDraft {
   height: number | null;
   id: string;
   kind: MessageAttachmentKind;
+  mediaId?: string;
   mediaUrl?: string;
   objectUrl: string;
   progress: number;

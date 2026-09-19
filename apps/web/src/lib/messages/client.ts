@@ -227,6 +227,7 @@ export async function fetchMessages(
 export interface MessageMediaUpload {
   height: number | null;
   kind: "gif" | "image";
+  mediaId: string;
   url: string;
   width: number | null;
 }
@@ -238,6 +239,9 @@ export interface MessageMediaUploadOptions {
   // Fires as the pipeline advances through scan/process, so the tile can label
   // the current phase.
   onStage?: (stage: UploadStage) => void;
+  // Reports the media id as soon as the server row exists, so the composer can
+  // discard it if the sender removes the attachment before sending.
+  onMediaId?: (mediaId: string) => void;
   // Aborts the upload when the sender removes the attachment or unmounts.
   signal?: AbortSignal;
 }
@@ -260,6 +264,7 @@ export async function uploadMessageMedia(
   const result = await uploadMediaFile(file, {
     height: dimensions?.height ?? null,
     messageConversationId: conversationId,
+    onMediaId: options.onMediaId,
     onProgress: options.onProgress,
     onStage: options.onStage,
     purpose: "message",
@@ -272,9 +277,28 @@ export async function uploadMessageMedia(
   return {
     height: dimensions?.height ?? null,
     kind,
+    mediaId: result.mediaId,
     url: `/api/media/${result.mediaId}`,
     width: dimensions?.width ?? null,
   };
+}
+
+// Best-effort discard for a staged message attachment the sender removed before
+// sending. The endpoint refuses rows the caller does not own, and detaches the
+// conversation link so the normal cleanup job can reclaim the objects and
+// quota; failures are non-fatal (the abandoned-upload sweep is the backstop).
+export async function discardMessageMedia(mediaId: string): Promise<void> {
+  try {
+    await fetch(`/api/media/${mediaId}/message-discard`, {
+      credentials: "same-origin",
+      // keepalive lets the request survive a navigation/unmount, so a staged
+      // attachment is still reclaimed when the sender leaves the thread.
+      keepalive: true,
+      method: "DELETE",
+    });
+  } catch {
+    // Best-effort: a dropped discard request is not worth interrupting the UI.
+  }
 }
 
 // Natural image dimensions from the file's first frame, so the sender can

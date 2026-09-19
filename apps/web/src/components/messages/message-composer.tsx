@@ -284,9 +284,10 @@ export function MessageComposer({
           };
           // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
           const ok = await sendPayload(payload);
-          // Drop exactly this group: groups already sent must never be resent
-          // if a later one fails and the sender retries.
-          removeAttachments(group.attachmentIds);
+          // Drop exactly this group without server-discarding it: these media
+          // ids now back sent messages, and removing only this group keeps a
+          // failed later group retryable without resending earlier ones.
+          removeAttachments(group.attachmentIds, { discard: false });
           if (!ok) {
             setSending(false);
             return;

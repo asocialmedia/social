@@ -487,6 +487,10 @@ export async function uploadMediaFile(
     signal?: AbortSignal;
     onProgress?: (percent: number) => void;
     onStage?: (stage: UploadStage) => void;
+    // Reports the server-assigned media id as soon as initiate/dedup returns,
+    // before the bytes are even uploaded. Lets staging UIs discard a server row
+    // if the user removes the attachment mid-flight.
+    onMediaId?: (mediaId: string) => void;
     // Post attachments can become publishable after finalization: storage
     // bytes are immutable in quarantine and serving remains blocked until
     // the pipeline marks them READY. Other callers retain the old wait.
@@ -555,6 +559,9 @@ export async function uploadMediaFile(
     status: UploadStatus;
     uploadUrl: string | null;
   };
+  // Surface the id before any byte transfer so callers can discard the row if
+  // the user cancels while it is still in flight.
+  options.onMediaId?.(mediaId);
 
   // Instant deduplication cache hit: existing media is already processed & READY
   if (initialStatus === "READY" && !uploadUrl) {

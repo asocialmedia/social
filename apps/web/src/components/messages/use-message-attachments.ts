@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import { toast } from "@/lib/gooey-toast";
-import { uploadMessageMedia } from "@/lib/messages/client";
+import { discardMessageMedia, uploadMessageMedia } from "@/lib/messages/client";
 
 import type {
   GroupedMessageAttachments,
@@ -72,6 +72,9 @@ export function useMessageAttachments(conversationId: string) {
   const [attachments, dispatch] = useReducer(attachmentReducer, []);
   const controllersRef = useRef(new Map<string, AbortController>());
   const progressRef = useRef(new Map<string, number>());
+  // Server media ids keyed by draft id, captured as soon as the row exists (see
+  // onMediaId) so a removal can discard it even while bytes are still in flight.
+  const mediaIdsRef = useRef(new Map<string, string>());
   const attachmentsRef = useRef(attachments);
 
   useEffect(() => {
@@ -82,11 +85,16 @@ export function useMessageAttachments(conversationId: string) {
 
   useEffect(
     () => () => {
-      // Unmount: abort in-flight uploads and release every preview URL.
+      // Unmount: abort in-flight uploads, discard any server rows the sender
+      // staged but never sent, and release every preview URL.
       for (const controller of controllersRef.current.values()) {
         controller.abort();
       }
       controllersRef.current.clear();
+      for (const mediaId of mediaIdsRef.current.values()) {
+        void discardMessageMedia(mediaId);
+      }
+      mediaIdsRef.current.clear();
       for (const attachment of attachmentsRef.current) {
         URL.revokeObjectURL(attachment.objectUrl);
       }
@@ -117,6 +125,14 @@ export function useMessageAttachments(conversationId: string) {
           draft.kind,
           conversationId,
           {
+            onMediaId: (mediaId) => {
+              mediaIdsRef.current.set(draft.id, mediaId);
+              dispatch({
+                id: draft.id,
+                patch: { mediaId },
+                type: "update",
+              });
+            },
             onProgress: (percent) => {
               // Progress events fire far more often than the UI needs; only
               // commit a render when the integer percentage actually moves.
@@ -156,6 +172,13 @@ export function useMessageAttachments(conversationId: string) {
         progressRef.current.delete(draft.id);
         if (controller.signal.aborted) {
           return;
+        }
+        // A failed/aborted transfer leaves a server row behind; reclaim it since
+        // it can never be sent.
+        const failedMediaId = mediaIdsRef.current.get(draft.id);
+        mediaIdsRef.current.delete(draft.id);
+        if (failedMediaId) {
+          void discardMessageMedia(failedMediaId);
         }
         dispatch({
           id: draft.id,
@@ -215,22 +238,31 @@ export function useMessageAttachments(conversationId: string) {
     [startUpload]
   );
 
-  const removeAttachments = useCallback((ids: string[]) => {
-    const idSet = new Set(ids);
-    for (const id of ids) {
-      controllersRef.current.get(id)?.abort();
-      controllersRef.current.delete(id);
-      progressRef.current.delete(id);
-    }
-    for (const attachment of attachmentsRef.current) {
-      if (idSet.has(attachment.id)) {
-        URL.revokeObjectURL(attachment.objectUrl);
+  const removeAttachments = useCallback(
+    (ids: string[], options?: { discard?: boolean }) => {
+      const shouldDiscard = options?.discard ?? true;
+      const idSet = new Set(ids);
+      for (const id of ids) {
+        controllersRef.current.get(id)?.abort();
+        controllersRef.current.delete(id);
+        progressRef.current.delete(id);
+        const mediaId = mediaIdsRef.current.get(id);
+        mediaIdsRef.current.delete(id);
+        if (shouldDiscard && mediaId) {
+          void discardMessageMedia(mediaId);
+        }
       }
-    }
-    for (const id of ids) {
-      dispatch({ id, type: "remove" });
-    }
-  }, []);
+      for (const attachment of attachmentsRef.current) {
+        if (idSet.has(attachment.id)) {
+          URL.revokeObjectURL(attachment.objectUrl);
+        }
+      }
+      for (const id of ids) {
+        dispatch({ id, type: "remove" });
+      }
+    },
+    []
+  );
 
   const removeAttachment = useCallback(
     (id: string) => {
@@ -244,6 +276,12 @@ export function useMessageAttachments(conversationId: string) {
       controllersRef.current.get(id)?.abort();
       controllersRef.current.delete(id);
       progressRef.current.delete(id);
+      const previousMediaId = mediaIdsRef.current.get(id);
+      mediaIdsRef.current.delete(id);
+      if (previousMediaId) {
+        // The replaced upload is never sent; reclaim it instead of orphaning it.
+        void discardMessageMedia(previousMediaId);
+      }
       const target = attachmentsRef.current.find(
         (attachment) => attachment.id === id
       );
@@ -286,6 +324,10 @@ export function useMessageAttachments(conversationId: string) {
     }
     controllersRef.current.clear();
     progressRef.current.clear();
+    for (const mediaId of mediaIdsRef.current.values()) {
+      void discardMessageMedia(mediaId);
+    }
+    mediaIdsRef.current.clear();
     for (const attachment of attachmentsRef.current) {
       URL.revokeObjectURL(attachment.objectUrl);
     }
