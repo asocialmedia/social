@@ -126,25 +126,36 @@ describe("buildConversationMediaIndex", () => {
     expect(second.items[0]).toBe(first.items[0]);
   });
 
-  test("drops cached items whose message is no longer present", () => {
-    const before = messages("m1", "m2");
+  test("drops cached items when a message is deleted in place", () => {
+    // Same array identity across calls, so the WeakMap cache is genuinely
+    // exercised (mutating the element, not replacing the list).
+    const list: ConversationMediaMessage[] = [
+      { deletedAt: null, id: "m1" },
+      { deletedAt: null, id: "m2" },
+    ];
     const entries = {
       m1: mediaPayload(["/api/media/a"]),
       m2: mediaPayload(["/api/media/b"]),
     };
-    buildConversationMediaIndex(before, lookup(entries));
-    // Deleting m2 in place keeps the same array identity but removes its media.
-    const deleted = before.map((message) =>
-      message.id === "m2" ? { ...message, deletedAt: new Date() } : message
-    );
-    const after = buildConversationMediaIndex(deleted, lookup(entries));
+    const [, firstM2] = buildConversationMediaIndex(
+      list,
+      lookup(entries)
+    ).items;
+    const [, second] = list;
+
+    second.deletedAt = new Date();
+    const after = buildConversationMediaIndex(list, lookup(entries));
     expect(after.items.map((item) => item.flatKey)).toEqual(["m1:0"]);
-    // Re-adding m2 must build a fresh item rather than serve the pruned one.
-    const restored = buildConversationMediaIndex(before, lookup(entries));
+
+    // Restoring the message must rebuild a fresh item, proving the cached one
+    // was pruned rather than resurrected.
+    second.deletedAt = null;
+    const restored = buildConversationMediaIndex(list, lookup(entries));
     expect(restored.items.map((item) => item.flatKey)).toEqual([
       "m1:0",
       "m2:0",
     ]);
+    expect(restored.items[1]).not.toBe(firstM2);
   });
 
   test("carries the decryptor revision through", () => {

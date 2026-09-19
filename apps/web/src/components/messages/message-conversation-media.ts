@@ -20,7 +20,6 @@ export interface ConversationMediaMessage {
 }
 
 export interface ConversationMediaItem {
-  caption?: string;
   // `${messageId}:${imageIndex}` - stable across pagination, decrypt ticks, and
   // re-renders, so navigation anchors never drift when items are prepended.
   flatKey: string;
@@ -62,8 +61,9 @@ const cachesByMessages = new WeakMap<
 >();
 
 // Builds the ordered index, reusing item objects from the per-array cache so an
-// unchanged attachment keeps its identity. Structural sharing stops the
-// viewer's image and filmstrip from remounting on unrelated decrypt ticks.
+// unchanged attachment keeps its identity. Remounts are already prevented by
+// keying consumers on `flatKey`; identity reuse additionally lets memoized
+// consumers skip re-rendering on unrelated decrypt ticks.
 export function buildConversationMediaIndex(
   messages: readonly ConversationMediaMessage[],
   getPayload: (id: string) => DecryptEntry | undefined,
@@ -96,7 +96,6 @@ export function buildConversationMediaIndex(
       let item = cache.get(flatKey);
       if (!item) {
         item = {
-          caption: payload.content,
           flatKey,
           height: image.height,
           imageIndex,

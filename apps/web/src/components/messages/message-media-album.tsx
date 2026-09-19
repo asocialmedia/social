@@ -65,7 +65,7 @@ function AlbumTile({
   image: MediaImageRef;
   index: number;
   kind: "gif" | "image";
-  onClick: () => void;
+  onClick?: () => void;
   style: React.CSSProperties;
   total: number;
 }) {
@@ -115,7 +115,7 @@ function AlbumTile({
         />
       )}
 
-      {status === "error" ? null : (
+      {status === "error" || !onClick ? null : (
         <button
           aria-label={`Open image ${index + 1} of ${total}`}
           className="absolute inset-0 z-10 outline-hidden focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-inset"
@@ -138,12 +138,16 @@ function AlbumGrid({
 }: {
   images: MediaImageRef[];
   kind: "gif" | "image";
-  onOpen: (index: number) => void;
+  onOpen?: (index: number) => void;
 }) {
   const count = images.length;
   if (count === 1) {
     return (
-      <SingleImage image={images[0]} kind={kind} onClick={() => onOpen(0)} />
+      <SingleImage
+        image={images[0]}
+        kind={kind}
+        onClick={onOpen ? () => onOpen(0) : undefined}
+      />
     );
   }
 
@@ -167,7 +171,7 @@ function AlbumGrid({
             index={index}
             key={`${index}-${image.url}`}
             kind={kind}
-            onClick={() => onOpen(index)}
+            onClick={onOpen ? () => onOpen(index) : undefined}
             style={{
               gridColumn: `${placement.col + 1} / span ${placement.colSpan}`,
               gridRow: `${placement.row + 1} / span ${placement.rowSpan}`,
@@ -189,7 +193,7 @@ function SingleImage({
 }: {
   image: MediaImageRef;
   kind: "gif" | "image";
-  onClick: () => void;
+  onClick?: () => void;
 }) {
   const { attempt, handleError, handleLoad, retry, src, status } =
     useMediaSource(image, kind);
@@ -234,7 +238,7 @@ function SingleImage({
           unoptimized
         />
       )}
-      {status === "error" ? null : (
+      {status === "error" || !onClick ? null : (
         <button
           aria-label={kind === "gif" ? "Open GIF" : "Open image"}
           className="absolute inset-0 z-10 rounded-[inherit] outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
@@ -270,7 +274,13 @@ export function MessageMediaAlbum({
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <AlbumGrid images={images} kind={content.kind} onOpen={handleOpen} />
+      <AlbumGrid
+        images={images}
+        kind={content.kind}
+        // Without the thread's viewer provider the grid is display-only, so a
+        // tile can never be an interactive dead button.
+        onOpen={openConversationMedia ? handleOpen : undefined}
+      />
       {caption ? (
         <p className="min-w-0 px-0.5 text-sm break-words whitespace-pre-wrap">
           {caption}
