@@ -332,10 +332,14 @@ describe("createInitiatedUpload deduplication", () => {
     expect(mediaUpdateManyArgs.length).toBe(1);
     const claim = mediaUpdateManyArgs[0] as {
       data: { messageConversationId: string };
-      where: { id: string };
+      where: { id: string; status: string };
     };
     expect(claim.data.messageConversationId).toBe("convo-1");
     expect(claim.where.id).toBe("abandoned-draft-id");
+    // The claim must re-check READY: an orphan-cleanup sweep may have flipped
+    // the row between our read and the write, and claiming a dead row would
+    // hand back an id that can never become servable.
+    expect(claim.where.status).toBe("READY");
   });
 
   test("lost claim falls through to a fresh linked row, never the bare id", async () => {

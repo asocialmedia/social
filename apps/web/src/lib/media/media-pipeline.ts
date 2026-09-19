@@ -342,6 +342,11 @@ export async function createInitiatedUpload(input: {
                     { messageConversationId },
                   ],
                   id: existing.id,
+                  // Re-check READY at claim time: an orphan-cleanup sweep may
+                  // have flipped the row to DELETED between our read and this
+                  // write. Claiming a dead row would hand back an id whose
+                  // status poll can never reach READY.
+                  status: "READY",
                 },
               });
               claimed = result.count > 0;
