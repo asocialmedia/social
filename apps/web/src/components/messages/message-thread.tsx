@@ -694,7 +694,7 @@ export function MessageThread({
     if (!mediaViewerKey || isFetchingPreviousPage || olderWalkRef.current) {
       return;
     }
-    const { data } = messagesQuery;
+    const {data} = messagesQuery;
     if (!data) {
       return;
     }
@@ -725,14 +725,13 @@ export function MessageThread({
       }
     );
   }, [
-	conversationId,
-	isFetchingPreviousPage,
-	mediaViewerKey,
-	messagesQuery.data,
-	queryClient,
-	viewerPosition,
-	messagesQuery
-]);
+    conversationId,
+    isFetchingPreviousPage,
+    mediaViewerKey,
+    messagesQuery.data,
+    queryClient,
+    viewerPosition,
+  ]);
 
   // Close the viewer and land the transcript on the image the user was viewing.
   // Trimming while open can shift message indices, so re-anchor explicitly
