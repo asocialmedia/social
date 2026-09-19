@@ -1,9 +1,10 @@
 // 1:1 native port of web MobileTopBar
 // (components/layouts/navigation/mobile/mobile-top-bar.tsx).
 // Left: avatar (signed in) or spacer (guest). Center: asm logo pinned to the
-// bar's centerline, linking home. Right: notification bell with unread badge
-// + search (signed in) or a premium Log in pill (guest). UI-only: session,
-// unread count, and search are props; no API calls.
+// bar's centerline via a full-size centered overlay, linking home. Right:
+// notification bell with unread badge + search (signed in) or a white
+// gradient Log in pill (guest). UI-only: session, unread count, and search
+// are props; no API calls.
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,10 +18,11 @@ import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import {
   ICON_BUTTON_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_LIGHT,
-  LOGIN_BUTTON_PRESSED_SHADOWS,
-  LOGIN_BUTTON_SHADOWS,
   useAppTheme,
 } from "@/theme";
+
+const WHITE_PILL_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 1.5px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(0, 0, 0, 0.18), 0 2px 5px rgba(0, 0, 0, 0.18)";
 
 interface MobileHeaderProps {
   onSearchPress?: () => void;
@@ -67,21 +69,26 @@ export function MobileHeader({
           ) : null}
         </View>
 
-        {/* Pinned to the bar's own centerline, like web's absolute centering. */}
-        <Pressable
-          hitSlop={6}
-          onPress={() => router.push("/")}
-          style={styles.logoHit}
-        >
-          <Image
-            accessibilityLabel="asocialmedia"
-            contentFit="contain"
-            source={asmLogo}
-            style={styles.logo}
-          />
-        </Pressable>
+        {/* Full-bar centered overlay: the logo sits on the bar's centerline
+            no matter how wide the side columns are (same as web). Touches
+            pass through everywhere except the logo itself. */}
+        <View pointerEvents="box-none" style={styles.centerOverlay}>
+          <Pressable hitSlop={6} onPress={() => router.push("/")}>
+            <Image
+              accessibilityLabel="asocialmedia"
+              contentFit="contain"
+              source={asmLogo}
+              style={styles.logo}
+            />
+          </Pressable>
+        </View>
 
-        <View style={[styles.sideRight, { width: user ? 88 : 40 }]}>
+        <View
+          style={[
+            styles.sideRight,
+            user ? styles.sideRightUser : styles.sideRightGuest,
+          ]}
+        >
           {user ? (
             <>
               <Pressable hitSlop={6} onPress={() => router.push("/")}>
@@ -98,7 +105,12 @@ export function MobileHeader({
                   >
                     <Bell color={theme.passkeyIcon} size={20} />
                     {unreadCount > 0 ? (
-                      <View style={styles.badge}>
+                      <View
+                        style={[
+                          styles.badge,
+                          { borderColor: theme.containerBg },
+                        ]}
+                      >
                         <LinearGradient
                           colors={["#ff9500", "#e65500"]}
                           end={{ x: 0.5, y: 1 }}
@@ -137,16 +149,12 @@ export function MobileHeader({
                 <View
                   style={[
                     styles.loginPill,
-                    {
-                      boxShadow: pressed
-                        ? LOGIN_BUTTON_PRESSED_SHADOWS
-                        : LOGIN_BUTTON_SHADOWS,
-                    },
+                    { boxShadow: WHITE_PILL_SHADOWS },
                     pressed && styles.pressedShift,
                   ]}
                 >
                   <LinearGradient
-                    colors={["#ff9500", "#e65500"]}
+                    colors={["#ffffff", "#ececec"]}
                     end={{ x: 0.5, y: 1 }}
                     start={{ x: 0.5, y: 0 }}
                     style={styles.loginPillGradient}
@@ -171,6 +179,7 @@ const styles = StyleSheet.create({
   },
   badge: {
     borderRadius: 9999,
+    borderWidth: 1,
     overflow: "hidden",
     position: "absolute",
     right: -10,
@@ -195,9 +204,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 8,
+    minHeight: 56,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    position: "relative",
+  },
+  centerOverlay: {
+    alignItems: "center",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   iconBtn: {
     alignItems: "center",
@@ -217,7 +235,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   loginPillText: {
-    color: "#ffffff",
+    color: "#e65500",
     fontFamily: "SofiaProBold",
     fontSize: 12,
     fontWeight: "normal",
@@ -225,11 +243,6 @@ const styles = StyleSheet.create({
   logo: {
     height: 36,
     width: 48,
-  },
-  logoHit: {
-    left: "50%",
-    position: "absolute",
-    transform: [{ translateX: -24 }],
   },
   pressedShift: {
     opacity: 0.88,
@@ -239,6 +252,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     width: 40,
+    zIndex: 1,
   },
   sideRight: {
     alignItems: "center",
@@ -246,5 +260,12 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "flex-end",
     marginLeft: "auto",
+    zIndex: 1,
+  },
+  sideRightGuest: {
+    flexShrink: 0,
+  },
+  sideRightUser: {
+    width: 88,
   },
 });

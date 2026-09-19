@@ -1,21 +1,41 @@
 // 1:1 native port of web GuestAuthBar
-// (components/layouts/shell/guest-auth-bar.tsx). Orange gradient bar shown
-// to guests: "Log in to start posting on asocialmedia" + white Log in pill
-// and Sign up buttons. UI-only: no scroll-hiding, no routing guards.
+// (components/layouts/shell/guest-auth-bar.tsx), mobile arrangement:
+// centered copy stacked above the Log in / Sign up row, orange horizontal
+// gradient, top border + inner bevel, white-gradient Log in pill and gray
+// 3D Sign up pill. UI-only: no scroll-hiding, no routing guards.
 
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SOCIAL_PRESSED_SHADOWS, SOCIAL_SHADOWS } from "@/theme";
+const BANNER_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.4), 0 -2px 8px rgba(0, 0, 0, 0.18)";
+
+const WHITE_PILL_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 1.5px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(0, 0, 0, 0.18), 0 2px 5px rgba(0, 0, 0, 0.18)";
+
+const GRAY_3D_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1.5px 2px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 1px rgba(255, 255, 255, 0.35), 0 3px 5px rgba(0, 0, 0, 0.12), 0 8px 16px -4px rgba(0, 0, 0, 0.2)";
+
+const GRAY_3D_PRESSED_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.12)";
 
 export function GuestAuthBar() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.docked, { paddingBottom: insets.bottom }]}>
+    <View
+      style={[
+        styles.docked,
+        {
+          borderTopColor: "rgba(255, 149, 0, 0.25)",
+          boxShadow: BANNER_SHADOWS,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
       <LinearGradient
         colors={["#ff9500", "#e65500"]}
         end={{ x: 1, y: 0 }}
@@ -35,16 +55,19 @@ export function GuestAuthBar() {
             {({ pressed }) => (
               <View
                 style={[
-                  styles.loginBtn,
-                  {
-                    boxShadow: pressed
-                      ? SOCIAL_PRESSED_SHADOWS
-                      : SOCIAL_SHADOWS,
-                  },
+                  styles.pill,
+                  { boxShadow: WHITE_PILL_SHADOWS },
                   pressed && styles.pressedShift,
                 ]}
               >
-                <Text style={styles.loginBtnText}>Log in</Text>
+                <LinearGradient
+                  colors={["#ffffff", "#ececec"]}
+                  end={{ x: 0.5, y: 1 }}
+                  start={{ x: 0.5, y: 0 }}
+                  style={styles.pillGradient}
+                >
+                  <Text style={styles.loginBtnText}>Log in</Text>
+                </LinearGradient>
               </View>
             )}
           </Pressable>
@@ -52,16 +75,23 @@ export function GuestAuthBar() {
             {({ pressed }) => (
               <View
                 style={[
-                  styles.signupBtn,
+                  styles.pill,
                   {
                     boxShadow: pressed
-                      ? SOCIAL_PRESSED_SHADOWS
-                      : SOCIAL_SHADOWS,
+                      ? GRAY_3D_PRESSED_SHADOWS
+                      : GRAY_3D_SHADOWS,
                   },
                   pressed && styles.pressedShift,
                 ]}
               >
-                <Text style={styles.signupBtnText}>Sign up</Text>
+                <LinearGradient
+                  colors={["#4a4a4a", "#333333"]}
+                  end={{ x: 0.5, y: 1 }}
+                  start={{ x: 0.5, y: 0 }}
+                  style={styles.pillGradient}
+                >
+                  <Text style={styles.signupBtnText}>Sign up</Text>
+                </LinearGradient>
               </View>
             )}
           </Pressable>
@@ -80,31 +110,17 @@ const styles = StyleSheet.create({
   },
   banner: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
+    flexDirection: "column",
+    gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   copy: {
-    flex: 1,
-    minWidth: 0,
+    alignItems: "center",
+    width: "100%",
   },
   docked: {
-    // inset 0 0 0 1px rgba(255,255,255,.25), inner lip, and drop shadow
-    // mirror the web .btn-3d bevel on the banner.
-    shadowColor: "#000000",
-    shadowOffset: { height: -2, width: 0 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-  },
-  loginBtn: {
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderRadius: 9999,
-    height: 36,
-    justifyContent: "center",
-    paddingHorizontal: 20,
+    borderTopWidth: 1,
   },
   loginBtnText: {
     color: "#e65500",
@@ -112,17 +128,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
   },
-  pressedShift: {
-    opacity: 0.88,
-    transform: [{ translateY: 1 }],
+  pill: {
+    borderRadius: 9999,
   },
-  signupBtn: {
+  pillGradient: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.18)",
     borderRadius: 9999,
     height: 36,
     justifyContent: "center",
     paddingHorizontal: 20,
+  },
+  pressedShift: {
+    opacity: 0.88,
+    transform: [{ translateY: 1 }],
   },
   signupBtnText: {
     color: "#ffffff",
@@ -135,11 +153,13 @@ const styles = StyleSheet.create({
     fontFamily: "SofiaProReg",
     fontSize: 12,
     fontWeight: "normal",
+    textAlign: "center",
   },
   title: {
     color: "#ffffff",
     fontFamily: "SofiaProBold",
     fontSize: 14,
     fontWeight: "normal",
+    textAlign: "center",
   },
 });
