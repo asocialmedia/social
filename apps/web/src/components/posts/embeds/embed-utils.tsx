@@ -15,6 +15,22 @@ export function embedImageProxyUrl(rawUrl: string): string {
   return `/api/link-preview/image?url=${encodeURIComponent(rawUrl)}`;
 }
 
+// A YouTube video id is strictly 11 chars of the base64url alphabet; anything
+// else must never reach an image/player URL.
+const YOUTUBE_ID_SAFE = /^[A-Za-z0-9_-]{11}$/;
+
+// The deterministic poster frame for a YouTube embed, or null when the id is
+// missing/malformed. Shared so the facade player and the explore tile derive
+// the same thumbnail from the same rule.
+export function youtubeEmbedThumbnail(
+  videoId: string | null | undefined
+): string | null {
+  if (!videoId || !YOUTUBE_ID_SAFE.test(videoId)) {
+    return null;
+  }
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
 // Platform-aware origin badge: renders the brand mark (YouTube/Spotify/GitHub
 // /X/Reddit) when the URL or siteName resolves to a known platform, otherwise
 // falls back to a single-letter tile. No favicon fetch (privacy), just the

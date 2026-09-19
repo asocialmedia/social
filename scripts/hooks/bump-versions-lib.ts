@@ -10,12 +10,64 @@ export interface PackageJson {
   [key: string]: unknown;
 }
 
+export interface AppJson {
+  expo?: {
+    version?: string;
+    [key: string]: unknown;
+  };
+  version?: string;
+  [key: string]: unknown;
+}
+
 export interface BumpContext {
   fileExists: (pkgPath: string) => Promise<boolean>;
   getStagedFiles: () => Promise<string[]>;
+  readLockfile?: (lockPath: string) => Promise<string>;
   readPackageJson: (pkgPath: string) => Promise<PackageJson>;
+  readAppJson?: (appPath: string) => Promise<AppJson>;
   stageFile: (filePath: string) => Promise<void>;
+  writeLockfile?: (lockPath: string, content: string) => Promise<void>;
   writePackageJson: (pkgPath: string, pkg: PackageJson) => Promise<void>;
+  writeAppJson?: (appPath: string, app: AppJson) => Promise<void>;
+}
+
+// The lockfile is JSONC (bun writes trailing commas), so parse-and-reserialize
+// would reformat the whole file. Target the workspace blocks textually instead.
+export const LOCKFILE_PATH = "bun.lock";
+
+/**
+ * Rewrites the recorded `version` of each workspace block in a bun.lock string.
+ * Only the first `"version"` after the workspace's own block header is touched,
+ * which is the workspace version, never a dependency range.
+ */
+export function updateLockfileWorkspaceVersions(
+  content: string,
+  versions: Map<string, string>
+): string {
+  let updated = content;
+
+  for (const [workspacePath, version] of versions) {
+    const blockStart = updated.indexOf(`"${workspacePath}": {`);
+    if (blockStart === -1) {
+      continue;
+    }
+
+    const versionKey = '"version": "';
+    const valueStart =
+      updated.indexOf(versionKey, blockStart) + versionKey.length;
+    if (valueStart < versionKey.length) {
+      continue;
+    }
+
+    const valueEnd = updated.indexOf('"', valueStart);
+    if (valueEnd === -1) {
+      continue;
+    }
+
+    updated = `${updated.slice(0, valueStart)}${version}${updated.slice(valueEnd)}`;
+  }
+
+  return updated;
 }
 
 interface GitCommandResult {
@@ -78,7 +130,7 @@ export function hasRootChanges(stagedFiles: string[]): boolean {
   );
 }
 
-function getVersionTargets(changedPackages: Set<string>): string[] {
+export function getVersionTargets(changedPackages: Set<string>): string[] {
   const targets = new Set<string>(["package.json"]);
 
   for (const pkg of changedPackages) {
@@ -89,35 +141,168 @@ function getVersionTargets(changedPackages: Set<string>): string[] {
   return [...targets];
 }
 
-async function bumpVersion(
-  pkgPath: string,
+export function getAppJsonTargets(changedPackages: Set<string>): string[] {
+  const targets = new Set<string>();
+
+  for (const pkg of changedPackages) {
+    targets.add(path.join("apps", pkg, "app.json"));
+  }
+
+  return [...targets];
+}
+
+function getAppJsonVersion(app: AppJson): string | undefined {
+  return (
+    app.expo?.version ??
+    (typeof app.version === "string" ? app.version : undefined)
+  );
+}
+
+const MOBILE_PACKAGE_PATH = path.join("apps", "mobile", "package.json");
+const MOBILE_APP_JSON_PATH = path.join("apps", "mobile", "app.json");
+
+async function readPackageTargets(
+  targets: string[],
   context: BumpContext
-): Promise<boolean> {
-  if (!(await context.fileExists(pkgPath))) {
-    return false;
+): Promise<Map<string, PackageJson>> {
+  const packages = new Map<string, PackageJson>();
+
+  for (const target of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await context.fileExists(target))) {
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const pkg = await context.readPackageJson(target);
+    if (typeof pkg.version !== "string") {
+      throw new TypeError(`Missing version in ${target}`);
+    }
+    packages.set(target, pkg);
   }
 
-  const pkg = await context.readPackageJson(pkgPath);
-  if (typeof pkg.version !== "string") {
-    throw new TypeError(`Missing version in ${pkgPath}`);
+  return packages;
+}
+
+async function readAppTargets(
+  targets: string[],
+  context: BumpContext
+): Promise<Map<string, AppJson>> {
+  const apps = new Map<string, AppJson>();
+
+  for (const target of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await context.fileExists(target))) {
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const app = context.readAppJson
+      ? await context.readAppJson(target)
+      : ((await context.readPackageJson(target)) as unknown as AppJson);
+    if (typeof getAppJsonVersion(app) !== "string") {
+      throw new TypeError(`Missing version in ${target}`);
+    }
+    apps.set(target, app);
   }
 
-  pkg.version = bumpPatchVersion(pkg.version);
-  await context.writePackageJson(pkgPath, pkg);
-  await context.stageFile(pkgPath);
-
-  return true;
+  return apps;
 }
 
 async function bumpVersions(
   changedPackages: Set<string>,
   context: BumpContext
 ): Promise<void> {
-  const targets = getVersionTargets(changedPackages);
+  const packageTargets = getVersionTargets(changedPackages);
+  const appTargets = getAppJsonTargets(changedPackages);
 
-  for (const target of targets) {
+  // Read and validate every manifest before writing or staging anything, so a
+  // malformed target leaves the repository and index untouched.
+  const packages = await readPackageTargets(packageTargets, context);
+  const apps = await readAppTargets(appTargets, context);
+
+  // Drive both mobile manifests from one canonical version so a pre-existing
+  // package.json/app.json mismatch is repaired instead of carried forward.
+  const mobileCanonical =
+    packages.get(MOBILE_PACKAGE_PATH)?.version ??
+    (apps.has(MOBILE_APP_JSON_PATH)
+      ? getAppJsonVersion(apps.get(MOBILE_APP_JSON_PATH) as AppJson)
+      : undefined);
+  const mobileNextVersion =
+    typeof mobileCanonical === "string"
+      ? bumpPatchVersion(mobileCanonical)
+      : undefined;
+
+  const packageWrites = [...packages.entries()].map(([pkgPath, pkg]) => ({
+    pkg: {
+      ...pkg,
+      version:
+        pkgPath === MOBILE_PACKAGE_PATH && mobileNextVersion
+          ? mobileNextVersion
+          : bumpPatchVersion(pkg.version),
+    },
+    pkgPath,
+  }));
+
+  const appWrites = [...apps.entries()].map(([appPath, app]) => {
+    const nextVersion =
+      appPath === MOBILE_APP_JSON_PATH && mobileNextVersion
+        ? mobileNextVersion
+        : bumpPatchVersion(getAppJsonVersion(app) as string);
+
+    if (app.expo && typeof app.expo.version === "string") {
+      return {
+        app: { ...app, expo: { ...app.expo, version: nextVersion } },
+        appPath,
+      };
+    }
+    if (typeof app.version === "string") {
+      return { app: { ...app, version: nextVersion }, appPath };
+    }
+    return { app, appPath };
+  });
+
+  // Only now touch disk and the index.
+  for (const { pkg, pkgPath } of packageWrites) {
     // eslint-disable-next-line no-await-in-loop
-    await bumpVersion(target, context);
+    await context.writePackageJson(pkgPath, pkg);
+    // eslint-disable-next-line no-await-in-loop
+    await context.stageFile(pkgPath);
+  }
+
+  // Keep the committed lockfile's workspace versions in step with the manifests
+  // it mirrors, otherwise every commit leaves the lock recording the previous
+  // release and tools that read workspace metadata report the wrong version.
+  if (context.readLockfile && context.writeLockfile) {
+    const lockVersions = new Map<string, string>();
+    for (const { pkg, pkgPath } of packageWrites) {
+      const workspacePath = path.dirname(pkgPath);
+      if (workspacePath !== ".") {
+        lockVersions.set(workspacePath, pkg.version);
+      }
+    }
+
+    if (lockVersions.size > 0 && (await context.fileExists(LOCKFILE_PATH))) {
+      const lockContent = await context.readLockfile(LOCKFILE_PATH);
+      const nextLockContent = updateLockfileWorkspaceVersions(
+        lockContent,
+        lockVersions
+      );
+      if (nextLockContent !== lockContent) {
+        await context.writeLockfile(LOCKFILE_PATH, nextLockContent);
+        await context.stageFile(LOCKFILE_PATH);
+      }
+    }
+  }
+
+  for (const { app, appPath } of appWrites) {
+    if (context.writeAppJson) {
+      // eslint-disable-next-line no-await-in-loop
+      await context.writeAppJson(appPath, app);
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      await context.writePackageJson(appPath, app as unknown as PackageJson);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await context.stageFile(appPath);
   }
 }
 
@@ -204,6 +389,12 @@ function createRuntimeContext(repoRoot: string): BumpContext {
       const content = await readFile(path.join(repoRoot, pkgPath), "utf-8");
       return JSON.parse(content) as PackageJson;
     },
+    readAppJson: async (appPath) => {
+      const content = await readFile(path.join(repoRoot, appPath), "utf-8");
+      return JSON.parse(content) as AppJson;
+    },
+    readLockfile: (lockPath) =>
+      readFile(path.join(repoRoot, lockPath), "utf-8"),
     stageFile: async (filePath) => {
       const result = await runGitCommand(repoRoot, ["add", filePath]);
       if (result.exitCode !== 0) {
@@ -217,6 +408,15 @@ function createRuntimeContext(repoRoot: string): BumpContext {
         path.join(repoRoot, pkgPath),
         `${JSON.stringify(pkg, null, 2)}\n`
       );
+    },
+    writeAppJson: async (appPath, app) => {
+      await writeFile(
+        path.join(repoRoot, appPath),
+        `${JSON.stringify(app, null, 2)}\n`
+      );
+    },
+    writeLockfile: async (lockPath, content) => {
+      await writeFile(path.join(repoRoot, lockPath), content);
     },
   };
 }

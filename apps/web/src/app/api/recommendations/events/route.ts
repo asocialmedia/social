@@ -27,6 +27,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isForeignKeyError(error: unknown): boolean {
+  return isRecord(error) && error.code === "P2003";
+}
+
 function parseEvent(value: unknown): RecommendationEventInput | null {
   if (!isRecord(value)) {
     return null;
@@ -98,51 +102,85 @@ export async function POST(request: Request) {
     );
   }
 
+  // A post can be deleted while a viewer still has it on screen, so an event
+  // for a missing post is stale telemetry, not a client error. Dropping just
+  // those events (and accepting the rest) is important: rejecting the whole
+  // batch would make the client re-queue it forever, so one deleted post would
+  // permanently stall every later event behind it.
   const postIds = [...new Set(events.map((event) => event.postId))];
   const posts = await prisma.post.findMany({
     select: { id: true },
     where: { id: { in: postIds } },
   });
   const existingPostIds = new Set(posts.map((post) => post.id));
-  if (existingPostIds.size !== postIds.length) {
-    return Response.json(
-      { error: "One or more posts were not found" },
-      { status: 404 }
-    );
+  let acceptedEvents = events.filter((event) =>
+    existingPostIds.has(event.postId)
+  );
+  if (acceptedEvents.length === 0) {
+    // Nothing left to record; report success so the batch is not retried.
+    return Response.json({ accepted: 0 });
   }
 
-  await prisma.recommendationEvent.createMany({
-    data: events.map((event) => ({
-      dedupeKey:
-        event.eventType === "IMPRESSION"
-          ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
-          : undefined,
-      durationMs: event.durationMs,
-      eventType: event.eventType,
-      postId: event.postId,
-      sessionId: session.session?.id,
-      userId,
-      value: event.value,
-    })),
-    skipDuplicates: true,
-  });
+  const insertEvents = (eventList: RecommendationEventInput[]) =>
+    prisma.recommendationEvent.createMany({
+      data: eventList.map((event) => ({
+        dedupeKey:
+          event.eventType === "IMPRESSION"
+            ? `impression:${userId}:${event.postId}:${new Date().toISOString().slice(0, 10)}`
+            : undefined,
+        durationMs: event.durationMs,
+        eventType: event.eventType,
+        postId: event.postId,
+        sessionId: session.session?.id,
+        userId,
+        value: event.value,
+      })),
+      skipDuplicates: true,
+    });
+
+  try {
+    await insertEvents(acceptedEvents);
+  } catch (error) {
+    // The existence check above and this insert are separate queries, so a post
+    // can be deleted in between and trip the foreign key, which would reject the
+    // whole batch. Re-check once and retry with only the posts that still exist;
+    // anything else is a genuine failure and is rethrown.
+    if (!isForeignKeyError(error)) {
+      throw error;
+    }
+    const remainingPosts = await prisma.post.findMany({
+      select: { id: true },
+      where: { id: { in: acceptedEvents.map((event) => event.postId) } },
+    });
+    const remainingPostIds = new Set(remainingPosts.map((post) => post.id));
+    acceptedEvents = acceptedEvents.filter((event) =>
+      remainingPostIds.has(event.postId)
+    );
+    if (acceptedEvents.length === 0) {
+      return Response.json({ accepted: 0 });
+    }
+    await insertEvents(acceptedEvents);
+  }
   const eventCounts = Object.fromEntries(
-    [...new Set(events.map((event) => event.eventType))].map((eventType) => [
-      eventType,
-      events.filter((event) => event.eventType === eventType).length,
-    ])
+    [...new Set(acceptedEvents.map((event) => event.eventType))].map(
+      (eventType) => [
+        eventType,
+        acceptedEvents.filter((event) => event.eventType === eventType).length,
+      ]
+    )
   );
   logger.info(
     {
-      eventCount: events.length,
+      droppedCount: events.length - acceptedEvents.length,
+      eventCount: acceptedEvents.length,
       eventCounts,
       userId,
     },
     "recommendation events accepted"
   );
-  if (events.some((event) => event.eventType === "NOT_INTERESTED")) {
+  if (acceptedEvents.some((event) => event.eventType === "NOT_INTERESTED")) {
     void invalidateFypProfile(userId);
   }
 
-  return Response.json({ accepted: events.length });
+  return Response.json({ accepted: acceptedEvents.length });
 }

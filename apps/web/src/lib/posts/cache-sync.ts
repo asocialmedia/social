@@ -333,6 +333,41 @@ export function forceInvalidatePostFeeds(queryClient: QueryClient): void {
   }
 }
 
+// Removes a deleted post from every infinite feed page cached under `queryKey`,
+// preserving cursors and later pages. Returns true when a page actually held
+// it, so a caller can skip a redundant refetch. Used by the delete flow for the
+// community feeds, which the post-feed-only cleanup never touched.
+export function removePostFromFeedCache(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  postId: string
+): boolean {
+  let removed = false;
+  queryClient.setQueriesData<{
+    pageParams: unknown[];
+    pages: { nextCursor: string | null; posts: { id: string }[] }[];
+  }>({ queryKey: queryKey as unknown[] }, (oldData) => {
+    if (!oldData?.pages) {
+      return oldData;
+    }
+    const hasPost = oldData.pages.some((page) =>
+      page.posts?.some((post) => post.id === postId)
+    );
+    if (!hasPost) {
+      return oldData;
+    }
+    removed = true;
+    return {
+      ...oldData,
+      pages: oldData.pages.map((page) => ({
+        ...page,
+        posts: page.posts.filter((post) => post.id !== postId),
+      })),
+    };
+  });
+  return removed;
+}
+
 export function invalidateStalePostCaches(queryClient: QueryClient): boolean {
   const staleKeys = new Set<string>();
   const cache = queryClient.getQueryCache();

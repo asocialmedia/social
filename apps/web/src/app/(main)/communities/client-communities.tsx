@@ -78,8 +78,8 @@ export default function ClientComm() {
   const query = useInfiniteCommunitiesQuery({ category, q: debouncedSearch });
 
   // Watch the zero-height sentinel just above the sticky search. The field is
-  // pinned exactly when the sentinel's top crosses the sticky offset (38px at
-  // base, 53px from `sm`, matching `top-9.5` / `sm:top-13.25`), so the band
+  // pinned exactly when the sentinel's top crosses the sticky offset (46px at
+  // base, 54px from `sm`, matching `top-[46px]` / `sm:top-[54px]`), so the band
   // flips opaque at the same instant it sticks rather than a frame early.
   //
   // `query.isLoading` is the dependency that matters: on the cold load the
@@ -94,8 +94,8 @@ export default function ClientComm() {
     }
     const update = () => {
       const stickyTop = window.matchMedia("(min-width: 640px)").matches
-        ? 53
-        : 38;
+        ? 54
+        : 46;
       // Sticky offsets are measured from the scroll container's padding box,
       // not the viewport (the mobile top bar sits above the scroller).
       const offset =
@@ -110,10 +110,8 @@ export default function ClientComm() {
       scroller.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
-    // isLoading is a TRIGGER, not a value read here: it flips exactly once,
-    // when the skeleton hands off to the real scroller the effect needs.
-    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton
-  }, [query.isLoading]);
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton or top bar collapses
+  }, [hideTopBar, query.isLoading]);
   const pages = query.data?.pages ?? [];
   const communities = pages.flatMap((page) => page.communities);
   // Auras arrive as one id -> aura map covering every community on the response.
@@ -225,56 +223,50 @@ export default function ClientComm() {
         <div
           className={cn(
             "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
-            isLoggedIn ? "pb-24 lg:pb-0" : "pb-44 lg:pb-20"
+            isLoggedIn ? "pb-16 lg:pb-0" : "pb-24 lg:pb-12"
           )}
           ref={pageScrollRef}
         >
-          <div className="hide-native-scrollbar sticky top-0 z-20 flex gap-1.5 overflow-x-auto overscroll-x-contain bg-[hsl(var(--background-alt))] px-8 py-1.5 backdrop-blur-md sm:py-2.5">
-            {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
-              const isActive = entry.key === category;
-              const count = counts[entry.key];
-              return (
-                <button
-                  className={cn(
-                    // Rounded-square chips, not pills, so the filter row reads
-                    // as a control strip rather than a row of badges.
-                    "flex shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-sm whitespace-nowrap transition-all duration-200 ease-out",
-                    isActive
-                      ? "pill-nav-active"
-                      : "pill-3d-hover text-muted-foreground hover:text-foreground border-transparent"
-                  )}
-                  key={entry.key}
-                  onClick={() => setCategory(entry.key)}
-                  type="button"
-                >
-                  {entry.label}
-                  <span
+          <div className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/95 backdrop-blur-md">
+            <div className="hide-native-scrollbar flex gap-1.5 overflow-x-auto overscroll-x-contain px-8 py-1.5 sm:py-2.5">
+              {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
+                const isActive = entry.key === category;
+                const count = counts[entry.key];
+                return (
+                  <button
                     className={cn(
-                      "text-xs tabular-nums",
-                      isActive ? "opacity-70" : "text-muted-foreground/70"
+                      // Rounded-square chips, not pills, so the filter row reads
+                      // as a control strip rather than a row of badges.
+                      "flex shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-sm whitespace-nowrap transition-all duration-200 ease-out",
+                      isActive
+                        ? "pill-nav-active"
+                        : "pill-3d-hover text-muted-foreground hover:text-foreground border-transparent"
                     )}
+                    key={entry.key}
+                    onClick={() => setCategory(entry.key)}
+                    type="button"
                   >
-                    {count === undefined ? "—" : formatNumber(count)}
-                  </span>
-                </button>
-              );
-            })}
+                    {entry.label}
+                    <span
+                      className={cn(
+                        "text-xs tabular-nums",
+                        isActive ? "opacity-70" : "text-muted-foreground/70"
+                      )}
+                    >
+                      {count === undefined ? "—" : formatNumber(count)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           {/* Brand backdrop, part one: the art behind the hero statement.
-              The backdrop is split into two positioned layers - hero and top
-              rails - rather than one box spanning both, because the sticky
-              search between them must stay a direct child of the scroll
-              container (see the note on the search below). Masked on every edge
-              and kept faint, so the type always sits on a clean field - no
-              vignette, no shadow behind the copy. */}
-          <div className="relative">
+              Masked on every edge and kept faint, so the type always sits on a
+              clean field - no vignette, no shadow behind the copy. */}
+          <div className="relative overflow-hidden">
             <div
               aria-hidden="true"
-              // Extends 4rem past the hero (the height of the search band) so
-              // the art carries behind the field rather than stopping at the
-              // hero's edge; the fade resolves to zero exactly where the
-              // top-rails layer below fades in, so the two read as one image.
-              className="pointer-events-none absolute inset-x-0 top-0 -bottom-16 overflow-hidden"
+              className="pointer-events-none absolute inset-0 overflow-hidden"
             >
               <Image
                 alt=""
@@ -397,9 +389,9 @@ export default function ClientComm() {
           <div aria-hidden="true" ref={searchSentinelRef} />
           <div
             className={cn(
-              "sticky top-9.5 z-10 px-8 pt-2 pb-2 before:pointer-events-none before:absolute before:inset-x-0 before:-top-3 before:h-3 sm:top-13.25 sm:py-2.5 sm:before:hidden",
+              "sticky top-[46px] z-10 px-8 pt-2 pb-2 transition-colors duration-150 sm:top-[54px] sm:py-2.5",
               isSearchStuck
-                ? "bg-[hsl(var(--background-alt))] before:bg-[hsl(var(--background-alt))]"
+                ? "bg-[hsl(var(--background-alt))]/95 backdrop-blur-md"
                 : "bg-transparent"
             )}
           >
@@ -507,7 +499,7 @@ export default function ClientComm() {
               directory, so the heading needs to read as a new kind of section
               rather than one more rail. Desktop already separates them with its
               wider `pt-8 / pb-9` wrappers, so it needs no extra here. */}
-          <div className="px-8 pt-8 pb-4 sm:pt-0 sm:pb-10">
+          <div className="px-8 pt-8 pb-0 sm:pt-0 sm:pb-10">
             <div className="mb-3 flex items-center gap-2.5">
               <LayoutGrid
                 className="text-primary size-5 shrink-0"

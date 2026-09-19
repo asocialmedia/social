@@ -83,11 +83,17 @@ describe("community aggregate invalidation", () => {
     expect(deleted).toContain("community:top-by-aura");
   });
 
-  test("post aggregates drop the discovery total and top-by-aura", async () => {
+  test("post aggregates drop the post-derived caches", async () => {
     const deleted = captureDeletes();
     await invalidateCommunityPostAggregates();
     expect(deleted).toContain("community:discovery-stats");
     expect(deleted).toContain("community:top-by-aura");
+    // The most-active category is measured by POST count, so a post add/delete
+    // must drop it too.
+    expect(deleted).toContain("community:most-active-category");
+    // The category filter counts communities, not posts, so it must NOT be
+    // dropped here.
+    expect(deleted).not.toContain("community:category-counts");
   });
 
   test("invalidation bumps each key's generation so a racing compute skips its write", async () => {

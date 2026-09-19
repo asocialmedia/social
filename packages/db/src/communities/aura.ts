@@ -224,12 +224,17 @@ export function invalidateCommunityCreationAggregates(): Promise<void> {
   ]);
 }
 
-// A post being published or deleted moves the hero's post total and the
-// highest-aura community ranking, on top of the community's own stats (dropped
-// separately by id). Without this the discovery totals and the "Top by aura"
-// sidebar list stay stale until their TTL.
+// A post being published or deleted moves three post-derived aggregates: the
+// hero's post total, the highest-aura community ranking, and the most-active
+// category (which is measured by POST count, not community count). The
+// community's own stats are dropped separately by id. Without this each stayed
+// stale until its TTL.
 export function invalidateCommunityPostAggregates(): Promise<void> {
-  return invalidateKeys([DISCOVERY_STATS_CACHE_KEY, "community:top-by-aura"]);
+  return invalidateKeys([
+    DISCOVERY_STATS_CACHE_KEY,
+    "community:most-active-category",
+    "community:top-by-aura",
+  ]);
 }
 
 // A join/leave/approve changes population, which reorders the rails, the

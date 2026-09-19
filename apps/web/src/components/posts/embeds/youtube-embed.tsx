@@ -4,7 +4,11 @@ import { useState } from "react";
 
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
-import { embedImageProxyUrl, useEmbedImageError } from "./embed-utils";
+import {
+  embedImageProxyUrl,
+  useEmbedImageError,
+  youtubeEmbedThumbnail,
+} from "./embed-utils";
 
 // YouTube preview: a click-to-play facade (thumbnail + play button) that
 // swaps to the youtube-nocookie player on demand. Nothing from Google loads
@@ -12,18 +16,13 @@ import { embedImageProxyUrl, useEmbedImageError } from "./embed-utils";
 // against the strict 11-char base64url alphabet, so the iframe src is
 // always exactly /embed/<id>.
 
-const YOUTUBE_ID_SAFE = /^[A-Za-z0-9_-]{11}$/;
-
 export function YouTubeEmbed({ embed }: { embed: LinkEmbed }) {
   const [playing, setPlaying] = useState(false);
   const videoId = embed.videoId ?? "";
-  const idSafe = YOUTUBE_ID_SAFE.test(videoId);
-  const thumbnail = idSafe
-    ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
-    : null;
+  const thumbnail = youtubeEmbedThumbnail(videoId);
   const image = useEmbedImageError(thumbnail);
 
-  if (!idSafe) {
+  if (!thumbnail) {
     return null;
   }
 

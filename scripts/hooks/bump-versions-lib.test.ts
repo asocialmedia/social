@@ -6,19 +6,32 @@ import path from "node:path";
 import {
   bumpPatchVersion,
   determineChangedPackages,
+  getAppJsonTargets,
+  getVersionTargets,
   hasRootChanges,
   runBumpVersions,
   runBumpVersionWithContext,
+  updateLockfileWorkspaceVersions,
 } from "./bump-versions-lib";
-import type { PackageJson } from "./bump-versions-lib";
+import type { AppJson, PackageJson } from "./bump-versions-lib";
 
 async function writePackageJson(filePath: string, pkg: PackageJson) {
   await writeFile(filePath, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
+async function writeAppJson(filePath: string, app: AppJson) {
+  await writeFile(filePath, `${JSON.stringify(app, null, 2)}\n`);
+}
+
 async function readVersion(filePath: string) {
   const content = await readFile(filePath, "utf-8");
   return (JSON.parse(content) as PackageJson).version;
+}
+
+async function readAppVersion(filePath: string) {
+  const content = await readFile(filePath, "utf-8");
+  const app = JSON.parse(content) as AppJson;
+  return app.expo?.version ?? app.version;
 }
 
 describe("bumpPatchVersion", () => {
@@ -58,6 +71,81 @@ describe("determineChangedPackages", () => {
     const changed = determineChangedPackages(stagedFiles);
 
     expect([...changed].toSorted()).toEqual(["auth", "db", "ui", "web"]);
+  });
+});
+
+describe("getVersionTargets", () => {
+  test("generates version targets including root and changed workspaces", () => {
+    const targets = getVersionTargets(new Set(["mobile", "ui"]));
+    expect(targets.toSorted()).toEqual([
+      "apps/mobile/package.json",
+      "apps/ui/package.json",
+      "package.json",
+      "packages/mobile/package.json",
+      "packages/ui/package.json",
+    ]);
+  });
+});
+
+describe("getAppJsonTargets", () => {
+  test("generates app.json paths for changed apps", () => {
+    const targets = getAppJsonTargets(new Set(["mobile", "ui"]));
+    expect(targets.toSorted()).toEqual([
+      "apps/mobile/app.json",
+      "apps/ui/app.json",
+    ]);
+  });
+
+  test("returns empty array when no packages changed", () => {
+    expect(getAppJsonTargets(new Set())).toEqual([]);
+  });
+});
+
+describe("updateLockfileWorkspaceVersions", () => {
+  const lockfile = [
+    "{",
+    '  "lockfileVersion": 1,',
+    '  "workspaces": {',
+    '    "apps/web": {',
+    '      "name": "@asm/web",',
+    '      "version": "1.4.73",',
+    '      "dependencies": {',
+    '        "react": "^19.2.8",',
+    "      },",
+    "    },",
+    '    "apps/mobile": {',
+    '      "name": "@asocialmedia/mobile",',
+    '      "version": "0.0.3",',
+    "    },",
+    "  },",
+    "}",
+    "",
+  ].join("\n");
+
+  test("updates only the targeted workspace versions", () => {
+    const updated = updateLockfileWorkspaceVersions(
+      lockfile,
+      new Map([
+        ["apps/web", "1.4.74"],
+        ["apps/mobile", "0.0.4"],
+      ])
+    );
+
+    expect(updated).toContain('"version": "1.4.74"');
+    expect(updated).toContain('"version": "0.0.4"');
+    // Dependency ranges are untouched.
+    expect(updated).toContain('"react": "^19.2.8"');
+    expect(updated).not.toContain('"version": "1.4.73"');
+    expect(updated).not.toContain('"version": "0.0.3"');
+  });
+
+  test("ignores workspace paths that are not present in the lock", () => {
+    expect(
+      updateLockfileWorkspaceVersions(
+        lockfile,
+        new Map([["apps/missing", "9.9.9"]])
+      )
+    ).toBe(lockfile);
   });
 });
 
@@ -235,6 +323,186 @@ describe("runBumpVersionWithContext", () => {
     );
     expect(stagedByScript.size).toBe(0);
   });
+
+  test("bumps app.json alongside package.json when mobile app has changes", async () => {
+    await mkdir(path.join(sandboxDir, "apps", "mobile"), { recursive: true });
+    await writePackageJson(
+      path.join(sandboxDir, "apps", "mobile", "package.json"),
+      {
+        name: "mobile",
+        version: "0.0.1",
+      }
+    );
+    await writeAppJson(path.join(sandboxDir, "apps", "mobile", "app.json"), {
+      expo: {
+        name: "asocialmedia",
+        version: "0.0.1",
+      },
+    });
+
+    stagedFiles = new Set(["apps/mobile/src/index.tsx"]);
+
+    await runBumpVersionWithContext({
+      fileExists: (pkgPath) =>
+        Bun.file(path.join(sandboxDir, pkgPath)).exists(),
+      getStagedFiles: () => Promise.resolve([...stagedFiles]),
+      readPackageJson: async (pkgPath) =>
+        JSON.parse(
+          await readFile(path.join(sandboxDir, pkgPath), "utf-8")
+        ) as PackageJson,
+      readAppJson: async (appPath) =>
+        JSON.parse(
+          await readFile(path.join(sandboxDir, appPath), "utf-8")
+        ) as AppJson,
+      stageFile: (filePath) => {
+        stagedByScript.add(filePath);
+        return Promise.resolve();
+      },
+      writePackageJson: async (pkgPath, pkg) => {
+        await writeFile(
+          path.join(sandboxDir, pkgPath),
+          `${JSON.stringify(pkg, null, 2)}\n`
+        );
+      },
+      writeAppJson: async (appPath, app) => {
+        await writeFile(
+          path.join(sandboxDir, appPath),
+          `${JSON.stringify(app, null, 2)}\n`
+        );
+      },
+    });
+
+    expect(await readVersion(path.join(sandboxDir, "package.json"))).toBe(
+      "1.0.2"
+    );
+    expect(
+      await readVersion(path.join(sandboxDir, "apps", "mobile", "package.json"))
+    ).toBe("0.0.2");
+    expect(
+      await readAppVersion(path.join(sandboxDir, "apps", "mobile", "app.json"))
+    ).toBe("0.0.2");
+    expect(
+      await readVersion(path.join(sandboxDir, "apps", "docs", "package.json"))
+    ).toBe("0.0.1");
+
+    expect([...stagedByScript].toSorted()).toEqual([
+      "apps/mobile/app.json",
+      "apps/mobile/package.json",
+      "package.json",
+    ]);
+  });
+
+  test("keeps bun.lock workspace versions in sync with the bumped manifests", async () => {
+    await writeFile(
+      path.join(sandboxDir, "bun.lock"),
+      [
+        "{",
+        '  "workspaces": {',
+        '    "apps/web": {',
+        '      "name": "web",',
+        '      "version": "1.0.1",',
+        "    },",
+        "  },",
+        "}",
+        "",
+      ].join("\n")
+    );
+    stagedFiles = new Set(["apps/web/src/app/page.tsx"]);
+
+    await runBumpVersionWithContext({
+      fileExists: (pkgPath) =>
+        Bun.file(path.join(sandboxDir, pkgPath)).exists(),
+      getStagedFiles: () => Promise.resolve([...stagedFiles]),
+      readLockfile: (lockPath) =>
+        readFile(path.join(sandboxDir, lockPath), "utf-8"),
+      readPackageJson: async (pkgPath) =>
+        JSON.parse(
+          await readFile(path.join(sandboxDir, pkgPath), "utf-8")
+        ) as PackageJson,
+      stageFile: (filePath) => {
+        stagedByScript.add(filePath);
+        return Promise.resolve();
+      },
+      writeLockfile: async (lockPath, content) => {
+        await writeFile(path.join(sandboxDir, lockPath), content);
+      },
+      writePackageJson: async (pkgPath, pkg) => {
+        await writeFile(
+          path.join(sandboxDir, pkgPath),
+          `${JSON.stringify(pkg, null, 2)}\n`
+        );
+      },
+    });
+
+    const lock = await readFile(path.join(sandboxDir, "bun.lock"), "utf-8");
+    expect(lock).toContain('"version": "1.0.2"');
+    expect(stagedByScript.has("bun.lock")).toBe(true);
+  });
+
+  test("does not bump mobile app.json when only other apps are staged", async () => {
+    await mkdir(path.join(sandboxDir, "apps", "mobile"), { recursive: true });
+    await writePackageJson(
+      path.join(sandboxDir, "apps", "mobile", "package.json"),
+      {
+        name: "mobile",
+        version: "0.0.1",
+      }
+    );
+    await writeAppJson(path.join(sandboxDir, "apps", "mobile", "app.json"), {
+      expo: {
+        name: "asocialmedia",
+        version: "0.0.1",
+      },
+    });
+
+    stagedFiles = new Set(["apps/web/src/app/page.tsx"]);
+
+    await runBumpVersionWithContext({
+      fileExists: (pkgPath) =>
+        Bun.file(path.join(sandboxDir, pkgPath)).exists(),
+      getStagedFiles: () => Promise.resolve([...stagedFiles]),
+      readPackageJson: async (pkgPath) =>
+        JSON.parse(
+          await readFile(path.join(sandboxDir, pkgPath), "utf-8")
+        ) as PackageJson,
+      readAppJson: async (appPath) =>
+        JSON.parse(
+          await readFile(path.join(sandboxDir, appPath), "utf-8")
+        ) as AppJson,
+      stageFile: (filePath) => {
+        stagedByScript.add(filePath);
+        return Promise.resolve();
+      },
+      writePackageJson: async (pkgPath, pkg) => {
+        await writeFile(
+          path.join(sandboxDir, pkgPath),
+          `${JSON.stringify(pkg, null, 2)}\n`
+        );
+      },
+      writeAppJson: async (appPath, app) => {
+        await writeFile(
+          path.join(sandboxDir, appPath),
+          `${JSON.stringify(app, null, 2)}\n`
+        );
+      },
+    });
+
+    expect(await readVersion(path.join(sandboxDir, "package.json"))).toBe(
+      "1.0.2"
+    );
+    expect(
+      await readVersion(path.join(sandboxDir, "apps", "web", "package.json"))
+    ).toBe("1.0.2");
+    expect(
+      await readVersion(path.join(sandboxDir, "apps", "mobile", "package.json"))
+    ).toBe("0.0.1");
+    expect(
+      await readAppVersion(path.join(sandboxDir, "apps", "mobile", "app.json"))
+    ).toBe("0.0.1");
+
+    expect(stagedByScript.has("apps/mobile/app.json")).toBe(false);
+    expect(stagedByScript.has("apps/mobile/package.json")).toBe(false);
+  });
 });
 
 interface SpawnResult {
@@ -372,5 +640,31 @@ describe("bumpVersion error cases", () => {
         },
       })
     ).rejects.toThrow("Missing version in package.json");
+  });
+
+  test("throws if version is missing in app.json", async () => {
+    await expect(
+      runBumpVersionWithContext({
+        fileExists: () => Promise.resolve(true),
+        getStagedFiles: () => Promise.resolve(["apps/mobile/src/index.tsx"]),
+        readPackageJson: () =>
+          Promise.resolve({ name: "mobile", version: "0.0.1" }),
+        readAppJson: () =>
+          Promise.resolve({
+            expo: {
+              name: "mobile",
+            },
+          }),
+        stageFile: async () => {
+          // no-op
+        },
+        writePackageJson: async () => {
+          // no-op
+        },
+        writeAppJson: async () => {
+          // no-op
+        },
+      })
+    ).rejects.toThrow("Missing version in apps/mobile/app.json");
   });
 });
