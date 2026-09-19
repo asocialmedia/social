@@ -2,9 +2,9 @@
 // (components/layouts/navigation/mobile/mobile-top-bar.tsx).
 // Left: avatar (signed in) or spacer (guest). Center: asm logo pinned to the
 // bar's centerline via a full-size centered overlay, linking home. Right:
-// notification bell with unread badge + search (signed in) or a white
-// gradient Log in pill (guest). UI-only: session, unread count, and search
-// are props; no API calls.
+// notification bell with unread badge + search (signed in) or a premium
+// (orange 3D) Log in pill (guest). UI-only: session, unread count, and
+// search are props; no API calls.
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -18,11 +18,10 @@ import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import {
   ICON_BUTTON_SHADOWS_DARK,
   ICON_BUTTON_SHADOWS_LIGHT,
+  LOGIN_BUTTON_PRESSED_SHADOWS,
+  LOGIN_BUTTON_SHADOWS,
   useAppTheme,
 } from "@/theme";
-
-const WHITE_PILL_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 1.5px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(0, 0, 0, 0.18), 0 2px 5px rgba(0, 0, 0, 0.18)";
 
 interface MobileHeaderProps {
   onSearchPress?: () => void;
@@ -149,12 +148,16 @@ export function MobileHeader({
                 <View
                   style={[
                     styles.loginPill,
-                    { boxShadow: WHITE_PILL_SHADOWS },
+                    {
+                      boxShadow: pressed
+                        ? LOGIN_BUTTON_PRESSED_SHADOWS
+                        : LOGIN_BUTTON_SHADOWS,
+                    },
                     pressed && styles.pressedShift,
                   ]}
                 >
                   <LinearGradient
-                    colors={["#ffffff", "#ececec"]}
+                    colors={["#ff9500", "#e65500"]}
                     end={{ x: 0.5, y: 1 }}
                     start={{ x: 0.5, y: 0 }}
                     style={styles.loginPillGradient}
@@ -235,7 +238,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   loginPillText: {
-    color: "#e65500",
+    color: "#ffffff",
     fontFamily: "SofiaProBold",
     fontSize: 12,
     fontWeight: "normal",
