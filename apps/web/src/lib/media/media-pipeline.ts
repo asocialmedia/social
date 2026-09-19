@@ -320,22 +320,66 @@ export async function createInitiatedUpload(input: {
           };
         }
         if (overlayMatches && isUnattached) {
-          // An unattached draft already exists (e.g. author uploaded in another tab
-          // or cancelled before post): reuse it directly and extend its TTL.
-          if (purpose !== "message") {
+          // A message upload must never receive an unlinked row: the sender
+          // (owner) would render it while the peer fails the
+          // conversation-access check on every fetch — a permanently
+          // one-sided message with no working retry. Claim the draft for this
+          // thread with the same conditional update as the in-flight path; on
+          // a lost claim fall through so a fresh linked row is created below
+          // instead of handing back an id the peer cannot fetch.
+          if (messageConversationId) {
+            let claimed = false;
             try {
-              await scheduleMediaCleanup(existing.id);
+              const result = await prisma.media.updateMany({
+                data: {
+                  messageConversationId,
+                  ...(width ? { width } : {}),
+                  ...(height ? { height } : {}),
+                },
+                where: {
+                  OR: [
+                    { messageConversationId: null },
+                    { messageConversationId },
+                  ],
+                  id: existing.id,
+                  // Re-check READY at claim time: an orphan-cleanup sweep may
+                  // have flipped the row to DELETED between our read and this
+                  // write. Claiming a dead row would hand back an id whose
+                  // status poll can never reach READY.
+                  status: "READY",
+                },
+              });
+              claimed = result.count > 0;
             } catch (error) {
-              console.error("Failed to schedule media cleanup:", error);
+              console.error("Failed to link deduplicated media:", error);
             }
+            if (claimed) {
+              return {
+                deduplicated: true,
+                extension: sanitizeExtension(extensionGuess),
+                mediaId: existing.id,
+                status: "READY",
+                uploadUrl: null,
+              };
+            }
+          } else {
+            // An unattached draft already exists (e.g. author uploaded in another tab
+            // or cancelled before post): reuse it directly and extend its TTL.
+            if (purpose !== "message") {
+              try {
+                await scheduleMediaCleanup(existing.id);
+              } catch (error) {
+                console.error("Failed to schedule media cleanup:", error);
+              }
+            }
+            return {
+              deduplicated: true,
+              extension: sanitizeExtension(extensionGuess),
+              mediaId: existing.id,
+              status: "READY",
+              uploadUrl: null,
+            };
           }
-          return {
-            deduplicated: true,
-            extension: sanitizeExtension(extensionGuess),
-            mediaId: existing.id,
-            status: "READY",
-            uploadUrl: null,
-          };
         }
 
         // Fast path 2: Existing row is attached to another post/comment (or
