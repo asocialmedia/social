@@ -222,7 +222,12 @@ services:
 
   openobserve-dev:
     container_name: asmdev-openobserve
-    image: public.ecr.aws/zinclabs/openobserve-enterprise:v0.40.27
+    # Must stay on the v1.x line: the shared dev volume's metadata DB is already
+    # migrated to schema 77, and v0.40.x only knows schema 21. Starting an older
+    # image against this volume panics with "DB_SCHEMA_VERSION mismatch" and
+    # crash-loops, because the newer migrations are applied but their files do
+    # not exist in the old binary. Schema migrations are one-way.
+    image: public.ecr.aws/zinclabs/openobserve-enterprise:v1.0.3
     ports:
       - "5080:5080"
     environment:
@@ -236,12 +241,10 @@ services:
       - openobserve_data_dev:/data
     networks:
       - dev_network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:5080/healthz || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+    # NOTE: v1.x ships a minimal image (only /openobserve + CA certs - no shell,
+    # curl, wget or busybox), so the old `curl -fsS /healthz` probe can never run
+    # and would pin the container at "unhealthy" forever. Nothing depends_on this
+    # service's health, so the probe is intentionally omitted.
     restart: unless-stopped
 
 networks:
