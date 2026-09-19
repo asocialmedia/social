@@ -15,6 +15,14 @@
 - don't use `/* */` comments, instead use `//` for single-line and multi-line comments
 - use git for version control, and commit your changes with descriptive commit messages in the format of `feat`: New feature, `fix`: Bug fix, `docs`: Documentation, `style`: Formatting, `refactor`: Code change, `test`: Adding tests, `chore`: Maintenance, `perf`: Performance, `ci`: Continuous integration, `build`: Build system, `revert`: Revert changes, `wip`: Work in progress example: `feat[MODULE]: Add new module`
 
+# E2EE:
+
+Anything that changes how message keys are derived, stored, wrapped, or recovered must keep all three of these true in the same PR — a change missing one is how a recoverable account became permanently stranding:
+
+1. **The server can never derive a key.** Only ciphertext, salts, iteration counts, and verifier hashes may be persisted. Never store a raw secret, master key, or private key (see `apps/web/src/lib/messages/crypto.ts`). Guarded by "the stored row alone cannot decrypt the backup" in `crypto.test.ts`.
+2. **A user can always recover on a fresh device.** If a key material source is device-only, it must also be displayable and re-enterable (see the messages recovery card and locked screen). A secret the user was never shown is not a recovery mechanism.
+3. **A lost key degrades, never bricks.** When a key is unrecoverable, there must be a self-scoped reset path that loses only the resetting account's own history and leaves the peer's intact (`DELETE /api/messages/identity`, and versioned wraps in `MessageConversationKey`).
+
 # UI:
 
 Every raised surface in this app is the same construction: a hairline outer edge, a bright inner lip that catches light, on a surface one step above the page. These recipes live in `packages/ui/styles/globals.css`, inside `@layer components`:
