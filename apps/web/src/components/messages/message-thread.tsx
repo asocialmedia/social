@@ -78,6 +78,7 @@ import {
   shouldCatchUp,
 } from "@/lib/messages/use-messages-realtime";
 import { usePresence } from "@/lib/messages/use-presence";
+import { createViewerScanCache } from "@/lib/messages/viewer-scan-cache";
 import { cn } from "@/lib/utils";
 
 interface MessageThreadProps {
@@ -131,6 +132,15 @@ export function MessageThread({
   // closures. Kept in sync in one place (the scroll listener) so the two can
   // never disagree.
   const pinnedRef = useRef(true);
+  // Remembers messages the viewer already decrypted to non-media, so repeated
+  // navigation over an imageless stretch does not re-derive their keys. See
+  // viewer-scan-cache.ts. Created once via useState for a stable identity that
+  // is legal to read in callbacks.
+  // eslint-disable-next-line react/hook-use-state -- one-time instance; the setter is intentionally unused
+  const [viewerScanCache] = useState(() => createViewerScanCache());
+  // Ids currently in flight for viewer discovery whose resolution will be
+  // classified into the scan cache. Membership shrinks to empty as each lands.
+  const pendingScanRef = useRef(new Set<string>());
 
   const { data: detail } = useQuery({
     queryFn: () => fetchConversationDetail(conversationId),
@@ -383,7 +393,8 @@ export function MessageThread({
 
   // Decrypt a window of transcript around the viewer's active image so adjacent
   // media is discovered. Shared by the viewer's centered window (via
-  // requestViewerWindow) and by the older-page loader.
+  // requestViewerWindow) and by the older-page loader. Ids already proven
+  // non-media are skipped so a text-heavy stretch is never re-derived.
   const requestDecryptRange = useCallback(
     (start: number, end: number) => {
       if (!detail || !rootKeyStore || !userId) {
@@ -394,15 +405,24 @@ export function MessageThread({
       const items: DecryptItem[] = [];
       for (let index = from; index <= to; index += 1) {
         const message = allMessages[index];
-        if (message && !message.deletedAt) {
+        if (message && !message.deletedAt && !viewerScanCache.has(message.id)) {
           items.push(toDecryptItem(message));
+          pendingScanRef.current.add(message.id);
         }
       }
       if (items.length > 0) {
         messageDecryptor.request(items, { getBaseKey });
       }
     },
-    [allMessages, detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
+    [
+      allMessages,
+      detail,
+      getBaseKey,
+      rootKeyStore,
+      toDecryptItem,
+      userId,
+      viewerScanCache,
+    ]
   );
 
   // Decrypt an explicit list of messages (already-resolved objects, so callers
@@ -414,15 +434,16 @@ export function MessageThread({
       }
       const items: DecryptItem[] = [];
       for (const message of messages) {
-        if (!message.deletedAt) {
+        if (!message.deletedAt && !viewerScanCache.has(message.id)) {
           items.push(toDecryptItem(message));
+          pendingScanRef.current.add(message.id);
         }
       }
       if (items.length > 0) {
         messageDecryptor.request(items, { getBaseKey });
       }
     },
-    [detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
+    [detail, getBaseKey, rootKeyStore, toDecryptItem, userId, viewerScanCache]
   );
 
   // Center the viewer's decrypt window on its active image; `extend` widens it
@@ -454,13 +475,43 @@ export function MessageThread({
 
   // Healed keys (re-provisioned identity, first wrapped-key post) must retry
   // payloads that previously failed. Dropping the errors makes both the
-  // request effect and each row's self-heal re-queue them.
+  // request effect and each row's self-heal re-queue them. The viewer scan
+  // cache is dropped too: under new keys a previously non-media resolution is
+  // no longer trustworthy.
   useEffect(() => {
     if (!detail || !rootKeyStore || !userId) {
       return;
     }
     messageDecryptor.clearErrors();
-  }, [detail, rootKeyStore, userId]);
+    viewerScanCache.clear();
+    pendingScanRef.current.clear();
+  }, [detail, rootKeyStore, userId, viewerScanCache]);
+
+  // Classify viewer discovery results into the scan cache without re-rendering:
+  // a plain decryptor subscription (not useSyncExternalStore) runs on every
+  // version bump, records ids that resolved to non-media, and drops ids that
+  // resolved to media or errored. The pending set is only the viewer's recent
+  // window, so this stays O(window) and empties itself as results land.
+  useEffect(() => {
+    const classify = () => {
+      if (pendingScanRef.current.size === 0) {
+        return;
+      }
+      for (const id of pendingScanRef.current) {
+        const entry = messageDecryptor.get(id);
+        if (entry === undefined || entry === "pending") {
+          continue;
+        }
+        pendingScanRef.current.delete(id);
+        if (entry !== "error" && entry.type !== "media") {
+          viewerScanCache.mark(id);
+        }
+      }
+    };
+    const unsubscribe = messageDecryptor.subscribe(classify);
+    classify();
+    return unsubscribe;
+  }, [viewerScanCache]);
 
   // Start pinned to the latest message. The scroll element only exists once
   // `detail` resolves (before that the skeleton renders), so this must key on
@@ -543,10 +594,13 @@ export function MessageThread({
       if (!detail || !rootKeyStore || !userId) {
         return;
       }
+      // A retry may resolve differently, so forget any prior scan verdict.
+      viewerScanCache.delete(message.id);
+      pendingScanRef.current.delete(message.id);
       messageDecryptor.retry(message.id);
       requestDecrypt(message);
     },
-    [detail, requestDecrypt, rootKeyStore, userId]
+    [detail, requestDecrypt, rootKeyStore, userId, viewerScanCache]
   );
 
   // Load one older page on demand for the viewer's "Load older images"
