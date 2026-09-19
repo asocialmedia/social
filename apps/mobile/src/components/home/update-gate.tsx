@@ -9,7 +9,6 @@
 import * as Application from "expo-application";
 import Constants from "expo-constants";
 import { Directory, File, Paths } from "expo-file-system";
-import { getContentUriAsync } from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -136,7 +135,7 @@ export function UpdateGate() {
           },
         }
       );
-      const contentUri = await getContentUriAsync(file.uri);
+      const { contentUri } = file;
       logInfo("update.download_done", { version });
       await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
         data: contentUri,
