@@ -146,6 +146,10 @@ export function MessageThread({
   // Ids currently in flight for viewer discovery whose resolution will be
   // classified into the scan cache. Membership shrinks to empty as each lands.
   const pendingScanRef = useRef(new Set<string>());
+  // Serializes older-page loads: the jump-to-oldest loop and the boundary
+  // auto-loader both call through here, and concurrent fetchPreviousPage calls
+  // would race the cursor.
+  const loadingOlderRef = useRef(false);
   // The viewer's current media position, reported up so the thread can bound
   // loaded history. Only updates while the viewer is open and navigating, so it
   // never causes transcript re-renders during normal scrolling.
@@ -625,22 +629,32 @@ export function MessageThread({
   // cannot be pulled in wholesale just by opening an image. The prepended page
   // is decrypted explicitly: it sits above the visible window, so the normal
   // viewport-driven decrypt effect would not reach it.
-  const loadOlderMedia = useCallback(async () => {
-    if (!hasPreviousPage || isFetchingPreviousPage) {
-      return;
+  const loadOlderMedia = useCallback(async (): Promise<boolean> => {
+    if (!hasPreviousPage || isFetchingPreviousPage || loadingOlderRef.current) {
+      return false;
     }
+    loadingOlderRef.current = true;
     // Identify the new messages by id, not by a length delta: the history
     // window may trim oldest pages concurrently, so a length comparison would
     // mis-slice the decrypt subset.
     const known = new Set(allMessages.map((message) => message.id));
-    const result = await fetchPreviousPage();
+    let result: Awaited<ReturnType<typeof fetchPreviousPage>> | null = null;
+    try {
+      result = await fetchPreviousPage();
+    } catch {
+      loadingOlderRef.current = false;
+      return false;
+    }
+    loadingOlderRef.current = false;
     const nextMessages = (result.data?.pages ?? []).flatMap(
       (page) => page.messages
     );
     const added = nextMessages.filter((message) => !known.has(message.id));
     if (added.length > 0) {
       requestDecryptMessages(added);
+      return true;
     }
+    return false;
   }, [
     allMessages,
     fetchPreviousPage,
@@ -664,7 +678,7 @@ export function MessageThread({
     if (!mediaViewerKey || isFetchingPreviousPage) {
       return;
     }
-    const {data} = messagesQuery;
+    const { data } = messagesQuery;
     if (!data) {
       return;
     }
@@ -701,6 +715,7 @@ export function MessageThread({
     messagesQuery.data,
     queryClient,
     viewerPosition,
+    messagesQuery,
   ]);
 
   // Close the viewer and land the transcript on the image the user was viewing.

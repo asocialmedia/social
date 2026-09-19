@@ -285,7 +285,10 @@ interface ConversationMediaViewerProps {
   messages: readonly ConversationMediaMessage[];
   onActive: (flatKey: string, direction: MediaNavDirection) => void;
   onClose: () => void;
-  onLoadOlder: () => void;
+  // Loads one older page. Resolves true when the loaded transcript actually
+  // grew (so the "jump to oldest" loop knows to keep going) and false at the
+  // start of history.
+  onLoadOlder: () => Promise<boolean> | boolean;
   onPosition: (activeIndex: number, total: number) => void;
 }
 
@@ -326,7 +329,27 @@ export function ConversationMediaViewer({
   }
   const extending =
     extension && extension.count === items.length ? extension.direction : null;
-  const preloadedRef = useRef(new Set<string>());
+  // Jump-to-oldest walks the remaining history in bounded steps. `cancel` is
+  // flipped by close/unmount so the loop stops immediately.
+  const [loadingOldest, setLoadingOldest] = useState(false);
+  const jumpCancelRef = useRef(false);
+  const jumpRunRef = useRef(false);
+  // Mirrors of props the async jump loop reads, so it never captures a stale
+  // closure across the many awaits.
+  const onLoadOlderRef = useRef(onLoadOlder);
+  const hasOlderRef = useRef(hasOlder);
+  const itemsRef = useRef(items);
+  const selectKeyRef = useRef<(flatKey: string) => void>(() => {
+    /* empty */
+  });
+  useEffect(() => {
+    onLoadOlderRef.current = onLoadOlder;
+    hasOlderRef.current = hasOlder;
+    itemsRef.current = items;
+  }, [hasOlder, items, onLoadOlder]);
+  // Insertion-ordered set of preloaded URLs (Map so the oldest can be evicted
+  // first when the cap is reached).
+  const preloadedRef = useRef(new Map<string, true>());
   // Set once reaching the oldest known image so a page that turns out to
   // contain no media cannot chain-load older history; reset on leaving the
   // boundary so a later visit can request again.
@@ -393,11 +416,56 @@ export function ConversationMediaViewer({
       const direction: MediaNavDirection = delta > 0 ? "newer" : "older";
       setExtension({ count: items.length, direction });
       if (direction === "older") {
-        onLoadOlder();
+        void onLoadOlder();
       }
       onActive(activeKey, direction);
     },
     [activeIndex, activeKey, items, onActive, onLoadOlder, selectKey]
+  );
+
+  // Keep the async jump loop pointed at the latest selectKey without capturing
+  // a stale closure.
+  useEffect(() => {
+    selectKeyRef.current = selectKey;
+  }, [selectKey]);
+
+  // Walk the rest of the conversation's history in bounded steps, then land on
+  // the oldest image. Stops on close/unmount, at the start of history, or after
+  // a hard cap so a pathological thread can never lock the tab.
+  const handleJumpToOldest = useCallback(async () => {
+    if (jumpRunRef.current) {
+      return;
+    }
+    jumpRunRef.current = true;
+    jumpCancelRef.current = false;
+    setLoadingOldest(true);
+    let guard = 0;
+    try {
+      while (hasOlderRef.current && !jumpCancelRef.current && guard < 200) {
+        // oxlint-disable-next-line no-await-in-loop -- sequential page walk
+        const grew = await onLoadOlderRef.current();
+        if (!grew) {
+          break;
+        }
+        guard += 1;
+      }
+    } catch {
+      // Best-effort: a failed page fetch just ends the walk.
+    }
+    const [oldest] = itemsRef.current;
+    if (oldest && !jumpCancelRef.current) {
+      selectKeyRef.current(oldest.flatKey);
+    }
+    jumpRunRef.current = false;
+    setLoadingOldest(false);
+  }, []);
+
+  // Cancel an in-flight jump when the viewer closes or unmounts.
+  useEffect(
+    () => () => {
+      jumpCancelRef.current = true;
+    },
+    []
   );
 
   // Reaching the oldest known image pulls one more page of history so the strip
@@ -411,7 +479,7 @@ export function ConversationMediaViewer({
       return;
     }
     boundaryRequestedRef.current = true;
-    onLoadOlder();
+    void onLoadOlder();
   }, [activeIndex, hasOlder, isFetchingOlder, onLoadOlder]);
 
   // Keep the decrypt window centered on wherever the viewer currently is. The
@@ -434,10 +502,16 @@ export function ConversationMediaViewer({
       if (preloadedRef.current.has(src)) {
         continue;
       }
+      // Insertion-ordered Map: evict the oldest preloaded URL instead of
+      // clearing the whole set, so a long scroll does not re-fetch recent
+      // neighbors it already warmed.
       if (preloadedRef.current.size >= PRELOAD_CACHE_CAP) {
-        preloadedRef.current.clear();
+        const oldest = preloadedRef.current.keys().next().value;
+        if (oldest !== undefined) {
+          preloadedRef.current.delete(oldest);
+        }
       }
-      preloadedRef.current.add(src);
+      preloadedRef.current.set(src, true);
       const image = new window.Image();
       image.decoding = "async";
       image.src = src;
@@ -471,6 +545,11 @@ export function ConversationMediaViewer({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Let interactive controls (the scrubber) own their own arrow keys.
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select")) {
+        return;
+      }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         step(-1);
@@ -573,12 +652,6 @@ export function ConversationMediaViewer({
                 <ChevronRight className="h-6 w-6" />
               )}
             </button>
-            <span
-              aria-hidden
-              className="pointer-events-none absolute bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white backdrop-blur-md"
-            >
-              {activeIndex + 1} / {items.length}
-            </span>
           </>
         ) : null}
 
@@ -590,7 +663,50 @@ export function ConversationMediaViewer({
             : ""}
         </span>
 
-        <div className="pointer-events-auto z-40 flex items-center border-t border-white/10 bg-black/80 px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+        <div className="pointer-events-auto z-40 flex flex-col gap-2 border-t border-white/10 bg-black/80 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+          {items.length > 1 ? (
+            <div className="flex items-center gap-3">
+              {hasOlder ? (
+                <button
+                  aria-label="Load all older images"
+                  className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+                  disabled={loadingOldest}
+                  onClick={() => {
+                    void handleJumpToOldest();
+                  }}
+                  type="button"
+                >
+                  {loadingOldest ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <ChevronLeft className="size-3.5" />
+                  )}
+                  Oldest
+                </button>
+              ) : null}
+              <input
+                aria-label="Image position"
+                className="h-1 min-w-0 flex-1 cursor-pointer accent-[#ff9500] disabled:opacity-50"
+                disabled={loadingOldest}
+                max={items.length - 1}
+                min={0}
+                onChange={(event) => {
+                  const next = items[Number(event.target.value)];
+                  if (next) {
+                    selectKey(next.flatKey);
+                  }
+                }}
+                type="range"
+                value={Math.max(0, activeIndex)}
+              />
+              <span
+                aria-hidden
+                className="shrink-0 text-xs text-white/80 tabular-nums"
+              >
+                {activeIndex + 1} / {items.length}
+              </span>
+            </div>
+          ) : null}
           <Filmstrip
             activeIndex={activeIndex}
             items={items}
