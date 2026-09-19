@@ -37,7 +37,6 @@ import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-botto
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
 import CommunitiesPageSkeleton from "@/components/layouts/skeletons/communities-page-skeleton";
-import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import useDebounce from "@/hooks/use-debounce";
 import { useHideOnScroll } from "@/hooks/use-hide-on-scroll";
@@ -62,10 +61,26 @@ export default function ClientComm() {
   // scroll down and return on scroll up like the home and explore feeds.
   const pageScrollRef = useRef<HTMLDivElement>(null);
   const searchSentinelRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Boundary markers for the ambient wash, in priority order: the wash runs
+  // from the page top through the FIRST rail that renders (joined, else
+  // trending, else growing fast), then hands off to the plain surface. Refereed
+  // rather than hardcoded so the edge is measured, never a guess.
+  const joinedRailRef = useRef<HTMLDivElement>(null);
+  const trendingRailRef = useRef<HTMLDivElement>(null);
+  const growingRailRef = useRef<HTMLDivElement>(null);
+  const searchBandRef = useRef<HTMLDivElement>(null);
+  // Live-measured heights. The category strip's real height varies with the
+  // device's font metrics (two phones do not round the same), so the search
+  // band's sticky offset is never a constant. The wash height is where the
+  // first rail ends.
+  const [stripH, setStripH] = useState(0);
+  const [washH, setWashH] = useState(0);
   // True once the search field has pinned under the category strip. At rest the
-  // field sits on the brand art and must stay transparent so the two backdrop
-  // layers read as one continuous image; once stuck it needs an opaque band so
-  // scrolling rails pass cleanly beneath it.
+  // field sits on the brand wash and must stay transparent so the art reads as
+  // one continuous image; once stuck it needs an opaque band so scrolling
+  // rails pass cleanly beneath it.
   const [isSearchStuck, setIsSearchStuck] = useState(false);
   const hideTopBar = useHideOnScroll(pageScrollRef);
 
@@ -77,10 +92,14 @@ export default function ClientComm() {
   const isSearchPending = search.trim() !== debouncedSearch;
   const query = useInfiniteCommunitiesQuery({ category, q: debouncedSearch });
 
-  // Watch the zero-height sentinel just above the sticky search. The field is
-  // pinned exactly when the sentinel's top crosses the sticky offset (46px at
-  // base, 54px from `sm`, matching `top-[46px]` / `sm:top-[54px]`), so the band
-  // flips opaque at the same instant it sticks rather than a frame early.
+  // Watch the zero-height sentinel just above the sticky search. The field
+  // pins exactly when the scroller has travelled past the sentinel's in-flow
+  // position minus the category strip's height - all layout values
+  // (`offsetTop`, `offsetHeight`, `scrollTop`), so there is no viewport-rect
+  // math, no breakpoint mirror, and no fractional-DPR rounding to drift. The
+  // strip height is measured live and published to state so the band's sticky
+  // offset tracks it exactly; a constant leaves a hairline gap on any device
+  // whose chip row rounds to a different height.
   //
   // `query.isLoading` is the dependency that matters: on the cold load the
   // component renders the skeleton first, so the first run finds both refs null
@@ -89,29 +108,56 @@ export default function ClientComm() {
   useEffect(() => {
     const sentinel = searchSentinelRef.current;
     const scroller = pageScrollRef.current;
-    if (!sentinel || !scroller) {
+    const strip = stripRef.current;
+    if (!sentinel || !scroller || !strip) {
       return;
     }
     const update = () => {
-      const stickyTop = window.matchMedia("(min-width: 640px)").matches
-        ? 54
-        : 46;
-      // Sticky offsets are measured from the scroll container's padding box,
-      // not the viewport (the mobile top bar sits above the scroller).
-      const offset =
-        sentinel.getBoundingClientRect().top -
-        scroller.getBoundingClientRect().top;
-      setIsSearchStuck(offset <= stickyTop);
+      const h = strip.offsetHeight;
+      setStripH(h);
+      setIsSearchStuck(scroller.scrollTop >= sentinel.offsetTop - h - 1);
     };
     update();
     scroller.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
+    const observer = new ResizeObserver(update);
+    observer.observe(strip);
     return () => {
       scroller.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
+      observer.disconnect();
     };
-    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton or top bar collapses
-  }, [hideTopBar, query.isLoading]);
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton
+  }, [query.isLoading]);
+
+  // Bound the ambient wash to the first rail section. One continuous image
+  // layer (never two faded copies with a dead seam), ending where the first
+  // rendered rail ends - joined if the viewer has any, then trending, then
+  // growing fast. A `ResizeObserver` on the content wrapper re-measures
+  // whenever pagination, filtering, or the rails themselves change the layout.
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+    const update = () => {
+      const end =
+        joinedRailRef.current ??
+        trendingRailRef.current ??
+        growingRailRef.current ??
+        searchBandRef.current;
+      if (end) {
+        // Full strength through the whole first rail, then dissolve across the
+        // standard 28px inter-section gap so the art is gone by the time the
+        // next section's heading begins - it never sits in the fade over a card
+        // or over the following heading.
+        setWashH(end.offsetTop + end.offsetHeight + 28);
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(content);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- re-run when the scroller mounts after the loading skeleton
+  }, [query.isLoading]);
   const pages = query.data?.pages ?? [];
   const communities = pages.flatMap((page) => page.communities);
   // Auras arrive as one id -> aura map covering every community on the response.
@@ -198,7 +244,7 @@ export default function ClientComm() {
     return (
       <>
         <CommunitiesPageSkeleton isLoggedIn={isLoggedIn} />
-        <MobileBottomNav />
+        <MobileBottomNav hidden={false} />
         <CreateCommunityDialog
           onOpenChange={setIsCreateOpen}
           open={isCreateOpen}
@@ -222,73 +268,94 @@ export default function ClientComm() {
         </CollapsibleTopBar>
         <div
           className={cn(
-            "hide-native-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+            // `overscroll-y-contain` is load-bearing on touch devices: without
+            // it a fling into the top/bottom edge chains out of this nested
+            // scroller into the document (rubber-band + URL-bar resize). The
+            // whole scroller then translates under its own sticky bands, so the
+            // category strip slides up out of view and the search band gets
+            // sliced in half while both hide-on-scroll signals oscillate.
+            // Containing the overscroll keeps the bounce inside this container
+            // (which has nothing further to give), so the stickies stay put.
+            // `relative` scopes the ambient wash below to this scroll area.
+            "hide-native-scrollbar relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain",
             isLoggedIn ? "pb-16 lg:pb-0" : "pb-24 lg:pb-12"
           )}
           ref={pageScrollRef}
         >
-          <div className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/95 backdrop-blur-md">
-            <div className="hide-native-scrollbar flex gap-1.5 overflow-x-auto overscroll-x-contain px-8 py-1.5 sm:py-2.5">
-              {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
-                const isActive = entry.key === category;
-                const count = counts[entry.key];
-                return (
-                  <button
-                    className={cn(
-                      // Rounded-square chips, not pills, so the filter row reads
-                      // as a control strip rather than a row of badges.
-                      "flex shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-sm whitespace-nowrap transition-all duration-200 ease-out",
-                      isActive
-                        ? "pill-nav-active"
-                        : "pill-3d-hover text-muted-foreground hover:text-foreground border-transparent"
-                    )}
-                    key={entry.key}
-                    onClick={() => setCategory(entry.key)}
-                    type="button"
-                  >
-                    {entry.label}
-                    <span
-                      className={cn(
-                        "text-xs tabular-nums",
-                        isActive ? "opacity-70" : "text-muted-foreground/70"
-                      )}
-                    >
-                      {count === undefined ? "—" : formatNumber(count)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Single ambient brand wash for the top of the page: hero, search,
+              and the first rail, then it hands off to the plain surface below.
+              One continuous layer (never two faded copies with a dead seam),
+              with its height measured from the first rail's real end. Mask
+              fades are px-anchored so short and tall content both keep a clean
+              entry under the category strip and a clean exit. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 overflow-hidden"
+            style={washH > 0 ? { height: washH } : undefined}
+          >
+            <Image
+              alt=""
+              className="object-cover opacity-20 dark:opacity-15"
+              fill
+              priority
+              sizes="100vw"
+              src={bannerAsm}
+              style={{
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, transparent 0, #000 96px, #000 calc(100% - 28px), transparent 100%)",
+                maskImage:
+                  "linear-gradient(to bottom, transparent 0, #000 96px, #000 calc(100% - 28px), transparent 100%)",
+              }}
+            />
           </div>
-          {/* Brand backdrop, part one: the art behind the hero statement.
-              Masked on every edge and kept faint, so the type always sits on a
-              clean field - no vignette, no shadow behind the copy. */}
-          <div className="relative overflow-hidden">
+          {/* Content rides above the wash. Plain `relative` (no z-index, no
+              stacking context) so the sticky bands below still stick against
+              the scroller over their full range. */}
+          <div className="relative" ref={contentRef}>
             <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-hidden"
+              className="sticky top-0 z-20 bg-[hsl(var(--background-alt))]/95 backdrop-blur-md"
+              ref={stripRef}
             >
-              <Image
-                alt=""
-                className="object-cover opacity-20 dark:opacity-15"
-                fill
-                priority
-                sizes="100vw"
-                src={bannerAsm}
-                style={{
-                  WebkitMaskImage:
-                    "linear-gradient(to bottom, transparent 0%, #000 10%, #000 78%, transparent 100%)",
-                  maskImage:
-                    "linear-gradient(to bottom, transparent 0%, #000 10%, #000 78%, transparent 100%)",
-                }}
-              />
+              <div className="hide-native-scrollbar flex gap-1.5 overflow-x-auto overscroll-x-contain px-8 py-1.5 sm:py-2.5">
+                {COMMUNITY_DISCOVERY_CATEGORIES.map((entry) => {
+                  const isActive = entry.key === category;
+                  const count = counts[entry.key];
+                  return (
+                    <button
+                      className={cn(
+                        // Rounded-square chips, not pills, so the filter row reads
+                        // as a control strip rather than a row of badges.
+                        "flex shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-sm whitespace-nowrap transition-all duration-200 ease-out",
+                        isActive
+                          ? "pill-nav-active"
+                          : "pill-3d-hover text-muted-foreground hover:text-foreground border-transparent"
+                      )}
+                      key={entry.key}
+                      onClick={() => setCategory(entry.key)}
+                      type="button"
+                    >
+                      {entry.label}
+                      <span
+                        className={cn(
+                          "text-xs tabular-nums",
+                          isActive ? "opacity-70" : "text-muted-foreground/70"
+                        )}
+                      >
+                        {count === undefined ? "—" : formatNumber(count)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-
             {/* Hero statement, sitting directly under the category strip so the
-                directory is reachable without scrolling a full screen. */}
-            <header className="relative px-8 pt-8 pb-4 sm:pb-6">
-              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
-                {/* Statement, anchored to the top-left. Each line is its own
+              directory is reachable without scrolling a full screen. It reads
+              off the scroller-level wash above - no local art layer, so the
+              type always sits on a clean field with no vignette behind it. */}
+            <div className="relative">
+              <header className="relative px-8 pt-8 pb-4 sm:pb-6">
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-5">
+                  {/* Statement, anchored to the top-left. Each line is its own
                     flex row so the inline brand mark centres against the type by
                     layout rather than hand-tuned baseline offsets.
 
@@ -296,129 +363,138 @@ export default function ClientComm() {
                     line-break is decided on the content width, so the block
                     still wraps the stat panel below it on narrow screens, then
                     grows to fill the row so the (i) can ride the right edge. */}
-                <div className="min-w-0 flex-auto">
-                  {/* The statement and, when the aura gate is unmet, the (i)
+                  <div className="min-w-0 flex-auto">
+                    {/* The statement and, when the aura gate is unmet, the (i)
                       that explains it. `justify-between` pins the mark to the
                       row's right edge instead of tucking it against the
                       headline. */}
-                  <div className="flex items-start justify-between gap-3">
-                    <h1 className="text-foreground flex flex-col items-start text-3xl leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
-                      <span>Discover your</span>
-                      <span className="flex items-center gap-[0.16em]">
-                        <span>next</span>
-                        <Image
-                          alt="asocialmedia"
-                          className="h-[1.2em] w-auto shrink-0"
-                          priority
-                          src={zephImage}
-                        />
-                        <span>community</span>
-                      </span>
-                    </h1>
-                    <CommunityCreationInfo
-                      className="mt-1 xl:hidden"
-                      quota={creationQuota.data}
-                    />
-                  </div>
-                  <p className="text-muted-foreground mt-3 max-w-lg text-sm sm:text-base">
-                    Find a new space to play, chill, and hang out.
-                  </p>
-                  {/* The right rail is the create home on wide screens; below
+                    <div className="flex items-start justify-between gap-3">
+                      <h1 className="text-foreground flex flex-col items-start text-3xl leading-[1.06] font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
+                        <span>Discover your</span>
+                        <span className="flex items-center gap-[0.16em]">
+                          <span>next</span>
+                          <Image
+                            alt="asocialmedia"
+                            className="h-[1.2em] w-auto shrink-0"
+                            priority
+                            src={zephImage}
+                          />
+                          <span>community</span>
+                        </span>
+                      </h1>
+                      <CommunityCreationInfo
+                        className="mt-1 xl:hidden"
+                        quota={creationQuota.data}
+                      />
+                    </div>
+                    <p className="text-muted-foreground mt-3 max-w-lg text-sm sm:text-base">
+                      Find a new space to play, chill, and hang out.
+                    </p>
+                    {/* The right rail is the create home on wide screens; below
                       xl it is absent, so the hero carries the action. It
                       renders nothing when the gate is unmet. */}
-                  <div className="mt-5 w-full xl:hidden">
-                    <CommunityCreateButton
-                      onCreate={handleCreate}
-                      quota={creationQuota.data}
-                    />
+                    <div className="mt-5 w-full xl:hidden">
+                      <CommunityCreateButton
+                        onCreate={handleCreate}
+                        quota={creationQuota.data}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {/* Right corner: the directory's headline totals as one
+                  {/* Right corner: the directory's headline totals as one
                     cohesive stat panel on the app's raised 3D surface. Each
                     column shares the same internal grid (icon + label on top,
                     number beneath) so the three line up across the row. The
                     panel hugs its content at every width - never stretched
                     edge-to-edge on mobile, just left-aligned under the
                     statement. */}
-                <dl className="sidebar-subcard flex shrink-0 items-start gap-5 rounded-2xl px-5 py-4 sm:gap-7">
-                  {[
-                    {
-                      icon: Users,
-                      label: "Communities",
-                      value: stats.communities,
-                    },
-                    { icon: UserRound, label: "Members", value: stats.members },
-                    { icon: FileText, label: "Posts", value: stats.posts },
-                  ].map((stat) => (
-                    <div
-                      className="flex min-w-0 flex-col gap-1"
-                      key={stat.label}
-                    >
-                      <dt className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
-                        <stat.icon
-                          aria-hidden="true"
-                          className="text-primary size-3.5 shrink-0"
-                          fill="currentColor"
-                        />
-                        {stat.label}
-                      </dt>
-                      <dd className="text-foreground text-2xl leading-none font-extrabold tabular-nums sm:text-3xl">
-                        {formatNumber(stat.value)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            </header>
-          </div>
-
-          {/* Sentinel and search are deliberately OUTSIDE the backdrop wrapper
-              above, as direct children of the scroll container. `position:
-              sticky` is constrained to its parent's box, and the backdrop
-              wrapper only spans the hero - so while the field lived inside it,
-              the sticky had almost no room to travel. For a signed-out visitor
-              (who sees no curated rails) the field sat flush against that
-              wrapper's bottom edge and was shoved straight up under the category
-              strip, which sliced it in half. A direct child of the scroller is
-              constrained by the whole scroll area, so the field now pins under
-              the strip and stays pinned over the directory. */}
-
-          {/* Sentinel: a zero-height marker that leaves the viewport exactly
-              when the search field pins, flipping the band opaque. */}
-          <div aria-hidden="true" ref={searchSentinelRef} />
-          <div
-            className={cn(
-              "sticky top-[46px] z-10 px-8 pt-2 pb-2 transition-colors duration-150 sm:top-[54px] sm:py-2.5",
-              isSearchStuck
-                ? "bg-[hsl(var(--background-alt))]/95 backdrop-blur-md"
-                : "bg-transparent"
-            )}
-          >
-            <div className="search-panel-3d flex items-center gap-3 px-4">
-              <Search className="text-muted-foreground size-4 shrink-0" />
-              <input
-                aria-label="Search communities"
-                autoComplete="off"
-                className="text-foreground placeholder:text-muted-foreground h-12 w-full min-w-0 bg-transparent text-sm outline-none"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search communities"
-                type="text"
-                value={search}
-              />
-              {search ? (
-                <button
-                  aria-label="Clear search"
-                  className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1 transition-colors"
-                  onClick={() => setSearch("")}
-                  type="button"
-                >
-                  <X className="size-4" />
-                </button>
-              ) : null}
+                  <dl className="sidebar-subcard flex shrink-0 items-start gap-5 rounded-2xl px-5 py-4 sm:gap-7">
+                    {[
+                      {
+                        icon: Users,
+                        label: "Communities",
+                        value: stats.communities,
+                      },
+                      {
+                        icon: UserRound,
+                        label: "Members",
+                        value: stats.members,
+                      },
+                      { icon: FileText, label: "Posts", value: stats.posts },
+                    ].map((stat) => (
+                      <div
+                        className="flex min-w-0 flex-col gap-1"
+                        key={stat.label}
+                      >
+                        <dt className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                          <stat.icon
+                            aria-hidden="true"
+                            className="text-primary size-3.5 shrink-0"
+                            fill="currentColor"
+                          />
+                          {stat.label}
+                        </dt>
+                        <dd className="text-foreground text-2xl leading-none font-extrabold tabular-nums sm:text-3xl">
+                          {formatNumber(stat.value)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </header>
             </div>
-          </div>
-          {/* Each rail is rendered only when it has content, and the wrapper
+
+            {/* Sentinel and search stay direct children of the content wrapper
+              (which spans the whole scroll area), never inside a short
+              section: `position: sticky` is constrained to its parent's box,
+              so housing the field in the hero would shove it straight up under
+              the category strip and slice it in half. */}
+
+            {/* Sentinel: a zero-height marker whose in-flow position (minus the
+              measured strip height) is exactly where the search field pins,
+              flipping the band opaque. */}
+            <div aria-hidden="true" ref={searchSentinelRef} />
+            <div
+              className={cn(
+                // The sticky offset is driven by the measured strip height (see
+                // `stripH`): the band tucks 1px under the higher-z category
+                // strip, sealing the subpixel crack where fractional-DPR
+                // rounding would otherwise leak scrolling content through as a
+                // visible gap-line. The top 1px is band padding, never content,
+                // so nothing is clipped. `top-[45px]` / `sm:top-[53px]` stay as
+                // the SSR/no-measure fallback.
+                "sticky top-[45px] z-10 px-8 pt-2 pb-2 transition-colors duration-150 sm:top-[53px] sm:py-2.5",
+                isSearchStuck
+                  ? "bg-[hsl(var(--background-alt))]/95 backdrop-blur-md"
+                  : "bg-transparent"
+              )}
+              ref={searchBandRef}
+              style={stripH > 0 ? { top: stripH - 1 } : undefined}
+            >
+              <div className="search-panel-3d flex items-center gap-3 px-4">
+                <Search className="text-muted-foreground size-4 shrink-0" />
+                <input
+                  aria-label="Search communities"
+                  autoComplete="off"
+                  className="text-foreground placeholder:text-muted-foreground h-12 w-full min-w-0 bg-transparent text-sm outline-none"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search communities"
+                  type="text"
+                  value={search}
+                />
+                {search ? (
+                  <button
+                    aria-label="Clear search"
+                    className="text-muted-foreground hover:text-foreground shrink-0 rounded-full p-1 transition-colors"
+                    onClick={() => setSearch("")}
+                    type="button"
+                  >
+                    <X className="size-4" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {/* Each rail is rendered only when it has content, and the wrapper
               itself only when at least one does.
 
               The vertical rhythm on mobile is 32px between every section, and
@@ -429,52 +505,34 @@ export default function ClientComm() {
               on the wrapper would stack a second 4px, so its padding is omitted
               on mobile and only restored at `sm`. Desktop keeps its original
               tighter rhythm. */}
-          {showTopRails ? (
-            // Brand backdrop, part two: the same art continues behind the top
-            // rails (Joined, Trending) and only there - "Growing fast" and the
-            // browse grid sit past it on the plain surface. `relative` scopes
-            // the art layer; the rails sit above it.
-            <div className="relative flex flex-col gap-7 pt-7 sm:gap-8 sm:pt-5 sm:pb-8">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 overflow-hidden"
-              >
-                <Image
-                  alt=""
-                  className="object-cover opacity-20 dark:opacity-15"
-                  fill
-                  sizes="100vw"
-                  src={bannerAsm}
-                  style={{
-                    // Fade in at the top so the seam under the search band is
-                    // invisible, then fade out at the bottom where the plain
-                    // surface resumes.
-                    WebkitMaskImage:
-                      "linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%)",
-                    maskImage:
-                      "linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%)",
-                  }}
-                />
+            {showTopRails ? (
+              // The top rails (Joined, Trending) read off the scroller-level
+              // wash - no local art layer, so the hero, the search field and the
+              // rails all sit on one continuous image with no seams.
+              <div className="flex flex-col gap-7 pt-7 sm:gap-8 sm:pt-5 sm:pb-8">
+                {showJoinedRail ? (
+                  <div ref={joinedRailRef}>
+                    <CommunityRail
+                      communities={joined}
+                      icon={Users}
+                      auras={auras}
+                      title="Joined communities"
+                    />
+                  </div>
+                ) : null}
+                {showTrendingRail ? (
+                  <div ref={trendingRailRef}>
+                    <CommunityRail
+                      communities={sections.trending}
+                      icon={Flame}
+                      auras={auras}
+                      title="Trending communities"
+                    />
+                  </div>
+                ) : null}
               </div>
-              {showJoinedRail ? (
-                <CommunityRail
-                  communities={joined}
-                  icon={Users}
-                  auras={auras}
-                  title="Joined communities"
-                />
-              ) : null}
-              {showTrendingRail ? (
-                <CommunityRail
-                  communities={sections.trending}
-                  icon={Flame}
-                  auras={auras}
-                  title="Trending communities"
-                />
-              ) : null}
-            </div>
-          ) : null}
-          {/* Growing fast sits past the backdrop, on the plain surface.
+            ) : null}
+            {/* Growing fast sits past the backdrop, on the plain surface.
 
               `pt-7` (28px) plus the 4px every source hands over (see the
               top-rails wrapper above) is the same 32px rhythm, whatever precedes
@@ -482,66 +540,67 @@ export default function ClientComm() {
               own 4px track padding completes the 32px this rail sits in; the grid
               below then adds its own `pt-8` on top of that hand-off. Desktop
               keeps its original pt-8 / pb-9. */}
-          {showGrowingRail ? (
-            <div className="pt-7 pb-7 sm:pt-8 sm:pb-9">
-              <CommunityRail
-                communities={sections.growing}
-                icon={Zap}
-                auras={auras}
-                title="Growing fast"
-              />
-            </div>
-          ) : null}
-          {/* All communities: the browsable, paginated grid.
+            {showGrowingRail ? (
+              <div className="pt-7 pb-7 sm:pt-8 sm:pb-9" ref={growingRailRef}>
+                <CommunityRail
+                  communities={sections.growing}
+                  icon={Zap}
+                  auras={auras}
+                  title="Growing fast"
+                />
+              </div>
+            ) : null}
+            {/* All communities: the browsable, paginated grid.
 
               `pt-8` on mobile is deliberate and larger than the 32px rail-to-rail
               rhythm: this is where the curated rails hand off to the browsable
               directory, so the heading needs to read as a new kind of section
               rather than one more rail. Desktop already separates them with its
               wider `pt-8 / pb-9` wrappers, so it needs no extra here. */}
-          <div className="px-8 pt-8 pb-0 sm:pt-0 sm:pb-10">
-            <div className="mb-3 flex items-center gap-2.5">
-              <LayoutGrid
-                className="text-primary size-5 shrink-0"
-                fill="currentColor"
-              />
-              <h2 className="text-foreground text-lg font-bold tracking-tight">
-                {browseHeading}
-              </h2>
-            </div>
+            <div className="px-8 pt-8 pb-0 sm:pt-0 sm:pb-10">
+              <div className="mb-3 flex items-center gap-2.5">
+                <LayoutGrid
+                  className="text-primary size-5 shrink-0"
+                  fill="currentColor"
+                />
+                <h2 className="text-foreground text-lg font-bold tracking-tight">
+                  {browseHeading}
+                </h2>
+              </div>
 
-            {/* Result count: the filter's total, not the rendered page size. */}
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-muted-foreground text-sm">
-                <span className="text-foreground font-semibold tabular-nums">
-                  {formatNumber(total)}
-                </span>{" "}
-                Results Found
-              </p>
-              {(query.isFetching && !query.isFetchingNextPage) ||
-              isSearchPending ? (
-                <span className="text-muted-foreground text-xs">
-                  Refreshing…
-                </span>
+              {/* Result count: the filter's total, not the rendered page size. */}
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-muted-foreground text-sm">
+                  <span className="text-foreground font-semibold tabular-nums">
+                    {formatNumber(total)}
+                  </span>{" "}
+                  Results Found
+                </p>
+                {(query.isFetching && !query.isFetchingNextPage) ||
+                isSearchPending ? (
+                  <span className="text-muted-foreground text-xs">
+                    Refreshing…
+                  </span>
+                ) : null}
+              </div>
+
+              <CommunityGrid
+                auras={auras}
+                communities={communities}
+                isSearching={isSearching}
+                label={activeLabel}
+                onCreate={handleCreate}
+              />
+
+              {communities.length > 0 && query.hasNextPage ? (
+                <InfiniteScrollContainer
+                  className="pt-6"
+                  onBottomReached={handleLoadMore}
+                >
+                  <CommunityLoadMore />
+                </InfiniteScrollContainer>
               ) : null}
             </div>
-
-            <CommunityGrid
-              auras={auras}
-              communities={communities}
-              isSearching={isSearching}
-              label={activeLabel}
-              onCreate={handleCreate}
-            />
-
-            {communities.length > 0 && query.hasNextPage ? (
-              <InfiniteScrollContainer
-                className="pt-6"
-                onBottomReached={handleLoadMore}
-              >
-                <LoadMoreSkeleton />
-              </InfiniteScrollContainer>
-            ) : null}
           </div>
         </div>
       </div>
@@ -553,12 +612,41 @@ export default function ClientComm() {
         sidebar={sidebar}
       />
 
-      <MobileBottomNav />
+      {/* Same hide signal as the collapsible top bar above, so the dock and
+          the top chrome move in lockstep instead of flickering against each
+          other on separate scroll listeners. */}
+      <MobileBottomNav hidden={hideTopBar} />
       <CreateCommunityDialog
         onOpenChange={setIsCreateOpen}
         open={isCreateOpen}
       />
     </>
+  );
+}
+
+// Pagination placeholder shaped like the grid it extends: two community-card
+// boxes at the same rhythm. The shared LoadMoreSkeleton renders tall post
+// cards (avatar row + bento media), which read as a huge blank overflow gap
+// under the last community while the next page loads on slow mobile links.
+function CommunityLoadMore() {
+  return (
+    <div aria-hidden="true" className="community-grid">
+      {[0, 1].map((index) => (
+        <div
+          className="sidebar-subcard flex animate-pulse flex-col overflow-hidden rounded-2xl"
+          key={`community-load-more-${index}`}
+        >
+          <div className="bg-muted h-28 w-full sm:h-36" />
+          <div className="flex flex-1 flex-col px-4 pb-4 sm:px-5 sm:pb-5">
+            <div className="bg-muted -mt-8 size-14 rounded-xl sm:-mt-10 sm:size-18" />
+            <div className="bg-muted mt-3 h-5 w-2/3 rounded-md" />
+            <div className="bg-muted mt-1.5 h-3.5 w-1/3 rounded-md" />
+            <div className="bg-muted mt-2 h-4 w-full rounded-md" />
+            <div className="bg-muted mt-1.5 h-4 w-4/5 rounded-md" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

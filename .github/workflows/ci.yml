@@ -238,6 +238,7 @@ jobs:
           build-args: |
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_URL=https://asocialmedia.cc' || '' }}
             ${{ matrix.app == 'web' && 'NEXT_PUBLIC_AUTH_URL=https://auth.asocialmedia.cc' || '' }}
+            ${{ matrix.app == 'web' && 'NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAEuKQSsPABv2HAdA' || '' }}
 
       - name: Resolve deploy targets
         id: deploy-targets
@@ -474,12 +475,16 @@ jobs:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          # Only read for a JKS keystore; the release keystore is PKCS12, which
-          # carries a single password, so the script derives the key password
-          # from the store password and ignores this. Supplied so the JKS path
-          # stays usable without another workflow edit if the key is ever
-          # migrated.
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Metro inlines EXPO_PUBLIC_* into the JS bundle at build time, so
+          # everything here is public inside the shipped APK. An unset entry
+          # resolves to an empty string, letting the app's own defaults (or its
+          # "no telemetry" path) take over - so these are safe to leave unset.
+          EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_OTEL_ENDPOINT: ${{ vars.EXPO_PUBLIC_OTEL_ENDPOINT }}
+          # Ingestion-only credential: must be able to write telemetry and
+          # nothing else. Never an account credential.
+          EXPO_PUBLIC_OTEL_TOKEN: ${{ secrets.EXPO_PUBLIC_OTEL_TOKEN }}
         run: bun apps/mobile/scripts/build-android-apk.ts
 
       - name: Upload APK artifact
