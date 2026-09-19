@@ -31,6 +31,7 @@ export { isAudioTechMetadata, isVideoTechMetadata } from "./types";
 
 export {
   DEFAULT_LIMITS,
+  MAX_MESSAGE_ATTACHMENTS,
   MAX_POST_ATTACHMENTS,
   maxBytesForType,
   resolveMediaLimits,

@@ -128,7 +128,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.4.80",
+      "version": "1.4.82",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -305,7 +305,7 @@
     },
     "packages/media": {
       "name": "@asm/media",
-      "version": "1.0.30",
+      "version": "1.0.32",
       "devDependencies": {
         "@asm/config": "workspace:*",
         "@types/bun": "^1.4.0",

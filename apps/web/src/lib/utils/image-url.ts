@@ -224,3 +224,27 @@ export function getMessageMediaVariantUrl(
   }
   return getMediaVariantUrl(id, pickMessageImageVariant(width));
 }
+
+// Extracts the media id from either media-payload form: the original proxy path
+// (/api/media/<id>) or a derivative path (/api/media/<id>/v/<name>). Returns
+// null for external/malformed URLs so callers can suppress attachment actions.
+const MESSAGE_MEDIA_ID_RE = /^\/api\/media\/(?<id>[A-Za-z0-9_-]+)(?:\/|$)/;
+
+export function getMessageMediaId(url: string): string | null {
+  return MESSAGE_MEDIA_ID_RE.exec(url)?.groups?.id ?? null;
+}
+
+// Fullscreen display URL for a message attachment. Raster images prefer the
+// original-resolution WebP derivative (the variant route falls back to the
+// published original when it does not exist), while GIFs stay on the original
+// so their animation is preserved.
+export function getMessageMediaViewerUrl(url: string, kind: string): string {
+  const id = getMessageMediaId(url);
+  if (!id) {
+    return url;
+  }
+  if (kind === "gif") {
+    return `/api/media/${id}`;
+  }
+  return getMediaVariantUrl(id, "orig-img-webp.webp");
+}

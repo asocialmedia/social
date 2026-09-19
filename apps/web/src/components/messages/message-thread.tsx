@@ -46,6 +46,7 @@ import type { MessagePayload } from "@/lib/messages/crypto";
 import {
   exportPublicKeyJwk,
   generateFingerprint,
+  getMediaImages,
   importPublicKeyJwk,
   importRatchetBaseKey,
   publicKeyBase64ToJwk,
@@ -1090,7 +1091,11 @@ function mediaLabel(payload: MessagePayload): string {
     return "Shared a post";
   }
   if (payload.type === "media") {
-    return payload.kind === "gif" ? "Shared a GIF" : "Shared an image";
+    if (payload.kind === "gif") {
+      return "Shared a GIF";
+    }
+    const count = getMediaImages(payload).length;
+    return count > 1 ? `Shared ${count} images` : "Shared an image";
   }
   return truncateQuote(payload.content);
 }

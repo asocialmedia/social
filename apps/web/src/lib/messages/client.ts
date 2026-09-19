@@ -5,6 +5,7 @@ import type {
 } from "@asm/db";
 
 import { uploadMediaFile } from "@/lib/media/media-upload-client";
+import type { UploadStage } from "@/lib/media/media-upload-client";
 
 import {
   encryptMessage,
@@ -230,22 +231,39 @@ export interface MessageMediaUpload {
   width: number | null;
 }
 
+export interface MessageMediaUploadOptions {
+  // Fires as the bytes go up (0-100), letting the staging strip render a real
+  // progress bar instead of a spinner.
+  onProgress?: (percent: number) => void;
+  // Fires as the pipeline advances through scan/process, so the tile can label
+  // the current phase.
+  onStage?: (stage: UploadStage) => void;
+  // Aborts the upload when the sender removes the attachment or unmounts.
+  signal?: AbortSignal;
+}
+
 export async function uploadMessageMedia(
   file: File,
   kind: "gif" | "image",
-  conversationId: string
+  conversationId: string,
+  options: MessageMediaUploadOptions = {}
 ): Promise<MessageMediaUpload> {
   // Message attachments live inside E2EE ciphertext and can't be linked to a
   // post, so the pipeline skips post-linking; they still go through the full
   // scan -> publish lifecycle. The stored URL is the app proxy path, never a
   // raw object-storage address. The row is bound to the conversation so the
   // peer passes the serving gate; natural dimensions ride along in the
-  // encrypted payload so receivers reserve the bubble box up front.
+  // encrypted payload so receivers reserve the bubble box up front. The await
+  // resolves only once the pipeline is READY: the serving route gates on that
+  // status, so sending earlier would hand the peer a 404.
   const dimensions = await readImageDimensions(file);
   const result = await uploadMediaFile(file, {
     height: dimensions?.height ?? null,
     messageConversationId: conversationId,
+    onProgress: options.onProgress,
+    onStage: options.onStage,
     purpose: "message",
+    signal: options.signal,
     width: dimensions?.width ?? null,
   });
   if (result.status === "REJECTED") {

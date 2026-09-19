@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { MAX_MESSAGE_ATTACHMENTS } from "@asm/media";
+
 import {
   decryptMessage,
   decryptMessageWithBaseKey,
@@ -14,6 +16,7 @@ import {
   generateFingerprint,
   generateIdentityKeyPair,
   generateRootKey,
+  getMediaImages,
   hashAccountSecret,
   importPrivateKeyJwk,
   importPublicKeyJwk,
@@ -404,6 +407,180 @@ describe("message ratchet", () => {
       url: "/api/media/cm123abc/v/md-webp.webp",
       width: 704,
     });
+  });
+
+  test("grouped media album round-trips with a caption", async () => {
+    const rootKey = generateRootKey();
+    const payload = {
+      content: "vacation pics",
+      images: [
+        { height: 240, url: "/api/media/cm1", width: 320 },
+        { height: 480, url: "/api/media/cm2", width: 640 },
+      ],
+      kind: "image" as const,
+      type: "media" as const,
+    };
+    const encrypted = await encryptMessage(
+      rootKey,
+      SENDER_ID,
+      0,
+      CONVO_ID,
+      payload
+    );
+    const decrypted = await decryptMessage(
+      rootKey,
+      SENDER_ID,
+      CONVO_ID,
+      encrypted
+    );
+    expect(decrypted).toEqual(payload);
+  });
+
+  test("rejects a media album with no images", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { images: [], kind: "image", type: "media" },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects a media album over the attachment cap", async () => {
+    const rootKey = generateRootKey();
+    const images = Array.from(
+      { length: MAX_MESSAGE_ATTACHMENTS + 1 },
+      (_, index) => ({ url: `/api/media/cm${index}` })
+    );
+    const tampered = {
+      ciphertext: await encryptRaw(
+        { images, kind: "image", type: "media" },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects an album entry with a hostile url", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          images: [
+            { url: "/api/media/cm1" },
+            { url: ["javascript", "alert(1)"].join(":") },
+          ],
+          kind: "image",
+          type: "media",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects an album entry with hostile dimensions", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          images: [{ height: 0, url: "/api/media/cm1", width: 320 }],
+          kind: "image",
+          type: "media",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects an album whose images field is null", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          images: null,
+          kind: "image",
+          type: "media",
+          url: "/api/media/cm1",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("rejects a non-string media caption", async () => {
+    const rootKey = generateRootKey();
+    const tampered = {
+      ciphertext: await encryptRaw(
+        {
+          content: 42,
+          images: [{ url: "/api/media/cm1" }],
+          kind: "image",
+          type: "media",
+        },
+        rootKey,
+        0,
+        "AAAAAAAAAAAAAAAAAAAAAA=="
+      ),
+      iv: "AAAAAAAAAAAAAAAAAAAAAA==",
+      ratchetIndex: 0,
+    };
+    await expect(
+      decryptMessage(rootKey, SENDER_ID, CONVO_ID, tampered)
+    ).rejects.toThrow();
+  });
+
+  test("getMediaImages normalizes both media shapes", () => {
+    expect(
+      getMediaImages({
+        height: 240,
+        kind: "image",
+        type: "media",
+        url: "/api/media/legacy",
+        width: 320,
+      })
+    ).toEqual([{ height: 240, url: "/api/media/legacy", width: 320 }]);
+
+    const images = [
+      { url: "/api/media/a" },
+      { height: 10, url: "/api/media/b", width: 20 },
+    ];
+    expect(getMediaImages({ images, kind: "image", type: "media" })).toEqual(
+      images
+    );
   });
 
   // Built at runtime so the no-script-url lint rule cannot flag the literal.
