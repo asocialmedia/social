@@ -44,6 +44,11 @@ const THUMB_STRIDE = THUMB_SIZE + THUMB_GAP;
 // Cap on remembered preloaded URLs. Only raster neighbors are preloaded, so
 // this bounds an intentionally small cache.
 const PRELOAD_CACHE_CAP = 128;
+// Consecutive older pages the boundary auto-loader will pull while parked on the
+// oldest known image without finding any media, before it stops. Keeps an
+// imageless tail from silently streaming in the whole conversation while still
+// walking past a few empty pages.
+const MAX_BOUNDARY_MISSES = 3;
 
 // Streams a media row back as a forced download. Module scope because React
 // Compiler cannot lower a `throw` inside a component-level try block (see
@@ -85,12 +90,12 @@ function StageImage({
   return (
     <>
       {status === "loading" ? (
-        <span className="absolute inset-0 animate-pulse bg-white/5" />
+        <span className="bg-muted/50 absolute inset-0 animate-pulse" />
       ) : null}
       {status === "error" ? (
         <span className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-          <ImageOff className="size-6 text-white/70" />
-          <span className="text-sm text-white/80">
+          <ImageOff className="text-muted-foreground size-6" />
+          <span className="text-muted-foreground text-sm">
             Couldn&apos;t load this image.
           </span>
           <button
@@ -151,9 +156,9 @@ function Thumb({
       aria-current={active}
       aria-label={`Open image ${position} of ${total}`}
       className={cn(
-        "absolute top-0 overflow-hidden rounded-md bg-zinc-900 transition-[opacity,box-shadow] duration-200",
+        "bg-muted absolute top-0 overflow-hidden rounded-md transition-[opacity,box-shadow] duration-200",
         active
-          ? "z-10 opacity-100 ring-2 ring-white"
+          ? "ring-muted-foreground z-10 opacity-100 ring-2 ring-inset"
           : "opacity-60 hover:opacity-100 focus-visible:opacity-100"
       )}
       onClick={onClick}
@@ -286,8 +291,7 @@ interface ConversationMediaViewerProps {
   onActive: (flatKey: string, direction: MediaNavDirection) => void;
   onClose: () => void;
   // Loads one older page. Resolves true when the loaded transcript actually
-  // grew (so the "jump to oldest" loop knows to keep going) and false at the
-  // start of history.
+  // grew, so the boundary loader knows whether it made progress.
   onLoadOlder: () => Promise<boolean> | boolean;
   onPosition: (activeIndex: number, total: number) => void;
 }
@@ -329,31 +333,13 @@ export function ConversationMediaViewer({
   }
   const extending =
     extension && extension.count === items.length ? extension.direction : null;
-  // Jump-to-oldest walks the remaining history in bounded steps. `cancel` is
-  // flipped by close/unmount so the loop stops immediately.
-  const [loadingOldest, setLoadingOldest] = useState(false);
-  const jumpCancelRef = useRef(false);
-  const jumpRunRef = useRef(false);
-  // Mirrors of props the async jump loop reads, so it never captures a stale
-  // closure across the many awaits.
-  const onLoadOlderRef = useRef(onLoadOlder);
-  const hasOlderRef = useRef(hasOlder);
-  const itemsRef = useRef(items);
-  const selectKeyRef = useRef<(flatKey: string) => void>(() => {
-    /* empty */
-  });
-  useEffect(() => {
-    onLoadOlderRef.current = onLoadOlder;
-    hasOlderRef.current = hasOlder;
-    itemsRef.current = items;
-  }, [hasOlder, items, onLoadOlder]);
   // Insertion-ordered set of preloaded URLs (Map so the oldest can be evicted
   // first when the cap is reached).
   const preloadedRef = useRef(new Map<string, true>());
-  // Set once reaching the oldest known image so a page that turns out to
-  // contain no media cannot chain-load older history; reset on leaving the
-  // boundary so a later visit can request again.
-  const boundaryRequestedRef = useRef(false);
+  // Consecutive older pages pulled while parked on the oldest known image that
+  // turned out to hold no media. Reset whenever the media list grows and when
+  // the user leaves the boundary.
+  const boundaryMissesRef = useRef(0);
 
   // Fail-safe: if a boundary extension discovers no further media, clear the
   // spinner after a beat so an arrow can never spin forever.
@@ -388,8 +374,6 @@ export function ConversationMediaViewer({
       if (nextIndex === undefined) {
         return;
       }
-      // A manual selection takes over from any in-flight jump-to-oldest walk.
-      jumpCancelRef.current = true;
       const currentIndex = indexByKey.get(activeKey);
       const direction: MediaNavDirection =
         currentIndex !== undefined && nextIndex < currentIndex
@@ -408,8 +392,6 @@ export function ConversationMediaViewer({
       if (activeIndex < 0) {
         return;
       }
-      // Manual stepping takes over from any in-flight jump-to-oldest walk.
-      jumpCancelRef.current = true;
       const target = items[activeIndex + delta];
       if (target) {
         selectKey(target.flatKey);
@@ -427,62 +409,24 @@ export function ConversationMediaViewer({
     [activeIndex, activeKey, items, onActive, onLoadOlder, selectKey]
   );
 
-  // Keep the async jump loop pointed at the latest selectKey without capturing
-  // a stale closure.
-  useEffect(() => {
-    selectKeyRef.current = selectKey;
-  }, [selectKey]);
-
-  // Walk the rest of the conversation's history in bounded steps, then land on
-  // the oldest image. Stops on close/unmount, at the start of history, or after
-  // a hard cap so a pathological thread can never lock the tab.
-  const handleJumpToOldest = useCallback(async () => {
-    if (jumpRunRef.current) {
-      return;
-    }
-    jumpRunRef.current = true;
-    jumpCancelRef.current = false;
-    setLoadingOldest(true);
-    let guard = 0;
-    try {
-      while (hasOlderRef.current && !jumpCancelRef.current && guard < 200) {
-        // oxlint-disable-next-line no-await-in-loop -- sequential page walk
-        const grew = await onLoadOlderRef.current();
-        if (!grew) {
-          break;
-        }
-        guard += 1;
-      }
-    } catch {
-      // Best-effort: a failed page fetch just ends the walk.
-    }
-    const [oldest] = itemsRef.current;
-    if (oldest && !jumpCancelRef.current) {
-      selectKeyRef.current(oldest.flatKey);
-    }
-    jumpRunRef.current = false;
-    setLoadingOldest(false);
-  }, []);
-
-  // Cancel an in-flight jump when the viewer closes or unmounts.
-  useEffect(
-    () => () => {
-      jumpCancelRef.current = true;
-    },
-    []
-  );
-
   // Reaching the oldest known image pulls one more page of history so the strip
-  // keeps extending as the user walks back through the conversation.
+  // keeps extending as the user walks back through the conversation. Bounded:
+  // after a few consecutive pages with no media the walk stops, so an imageless
+  // tail cannot silently stream in the entire thread. Any new media (a change
+  // in the media count) resets the budget, and leaving the boundary resets it.
   useEffect(() => {
     if (activeIndex !== 0) {
-      boundaryRequestedRef.current = false;
+      boundaryMissesRef.current = 0;
       return;
     }
-    if (!hasOlder || isFetchingOlder || boundaryRequestedRef.current) {
+    if (
+      !hasOlder ||
+      isFetchingOlder ||
+      boundaryMissesRef.current >= MAX_BOUNDARY_MISSES
+    ) {
       return;
     }
-    boundaryRequestedRef.current = true;
+    boundaryMissesRef.current += 1;
     void onLoadOlder();
   }, [activeIndex, hasOlder, isFetchingOlder, onLoadOlder]);
 
@@ -583,7 +527,7 @@ export function ConversationMediaViewer({
   return (
     <Dialog onOpenChange={onClose} open>
       <DialogContent
-        className="flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-black p-0 [&>button:last-child]:hidden"
+        className="bg-background text-foreground flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 [&>button:last-child]:hidden"
         onClick={(event) => event.stopPropagation()}
       >
         <VisuallyHidden>
@@ -603,7 +547,7 @@ export function ConversationMediaViewer({
               total={items.length}
             />
           ) : (
-            <span className="text-sm text-white/80">
+            <span className="text-muted-foreground text-sm">
               This image is no longer available.
             </span>
           )}
@@ -611,7 +555,7 @@ export function ConversationMediaViewer({
 
         <button
           aria-label="Close viewer"
-          className="absolute top-3 left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px"
+          className="border-border/60 bg-background/70 text-foreground hover:bg-background/90 absolute top-3 left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-md transition-transform duration-150 hover:scale-105 active:scale-90"
           onClick={onClose}
           type="button"
         >
@@ -620,7 +564,7 @@ export function ConversationMediaViewer({
 
         <button
           aria-label="Download image"
-          className="absolute top-3 right-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px disabled:opacity-50"
+          className="border-border/60 bg-background/70 text-foreground hover:bg-background/90 absolute top-3 right-3 z-50 flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-md transition-transform duration-150 hover:scale-105 active:scale-90 disabled:opacity-50 disabled:hover:scale-100"
           disabled={downloading || !item}
           onClick={() => {
             void handleDownload();
@@ -634,7 +578,7 @@ export function ConversationMediaViewer({
           <>
             <button
               aria-label="Previous image"
-              className="absolute top-1/2 left-3 z-50 -translate-y-1/2 rounded-full bg-black/50 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px"
+              className="border-border/60 bg-background/70 text-foreground hover:bg-background/90 absolute top-1/2 left-3 z-50 flex -translate-y-1/2 items-center justify-center rounded-full border p-2.5 backdrop-blur-md transition-transform duration-150 hover:scale-105 active:scale-90"
               onClick={() => step(-1)}
               type="button"
             >
@@ -646,7 +590,7 @@ export function ConversationMediaViewer({
             </button>
             <button
               aria-label="Next image"
-              className="absolute top-1/2 right-3 z-50 -translate-y-1/2 rounded-full bg-black/50 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px"
+              className="border-border/60 bg-background/70 text-foreground hover:bg-background/90 absolute top-1/2 right-3 z-50 flex -translate-y-1/2 items-center justify-center rounded-full border p-2.5 backdrop-blur-md transition-transform duration-150 hover:scale-105 active:scale-90"
               onClick={() => step(1)}
               type="button"
             >
@@ -667,25 +611,7 @@ export function ConversationMediaViewer({
             : ""}
         </span>
 
-        <div className="pointer-events-auto z-40 flex items-center gap-2 border-t border-white/10 bg-black/80 px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
-          {hasOlder ? (
-            <button
-              aria-label="Load all older images"
-              className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-white/20 disabled:opacity-60"
-              disabled={loadingOldest}
-              onClick={() => {
-                void handleJumpToOldest();
-              }}
-              type="button"
-            >
-              {loadingOldest ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <ChevronLeft className="size-3.5" />
-              )}
-              Oldest
-            </button>
-          ) : null}
+        <div className="border-border/60 bg-background/90 pointer-events-auto z-40 flex items-center gap-2 border-t px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
           {activeIndex >= 0 ? (
             <Filmstrip
               activeIndex={activeIndex}
