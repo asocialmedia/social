@@ -59,6 +59,13 @@ const defaultDecrypt: DecryptImpl = (item, baseKey) =>
     item.message
   );
 
+// Whether a terminal entry is a decrypted media payload. Media entries are the
+// expensive-to-reproduce class (they back the fullscreen viewer's index), so
+// they are evicted only once no text/post/error entry is left to drop.
+function isMediaEntry(entry: DecryptEntry): boolean {
+  return typeof entry === "object" && entry.type === "media";
+}
+
 export interface MessageDecryptor {
   clearErrors: () => void;
   configureScope: (scopeKey: string) => void;
@@ -117,19 +124,44 @@ export function createDecryptor(
     });
   }
 
+  // Two-pass eviction over the insertion-ordered entry map: prefer dropping the
+  // oldest text/post/error entry, and fall back to the oldest media entry so a
+  // media-heavy thread still respects the cap.
+  //
+  // Media completion order is arbitrary, so a media payload can become terminal
+  // while the text entries it should lose to are still pending. Evicting media
+  // at that instant would defeat the whole point, so while any work is still
+  // queued or in flight the fallback is deferred. A hard overshoot ceiling
+  // guarantees the cache stays bounded even under sustained scroll, and once the
+  // queue drains the cap is enforced (oldest media first).
+  const EVICT_HARD_OVERSHOOT = 256;
+
   function evictIfNeeded(): void {
     while (entries.size > cacheCap) {
-      let evicted = false;
+      let victim: string | undefined;
       for (const [id, entry] of entries) {
-        if (entry !== "pending" && !inFlight.has(id)) {
-          entries.delete(id);
-          evicted = true;
+        if (entry !== "pending" && !inFlight.has(id) && !isMediaEntry(entry)) {
+          victim = id;
           break;
         }
       }
-      if (!evicted) {
+      if (victim === undefined) {
+        const workPending = queued.size > 0 || inFlight.size > 0;
+        if (workPending && entries.size <= cacheCap + EVICT_HARD_OVERSHOOT) {
+          break;
+        }
+        for (const [id, entry] of entries) {
+          if (entry !== "pending" && !inFlight.has(id)) {
+            victim = id;
+            break;
+          }
+        }
+      }
+      // Nothing evictable (everything pending/in-flight): stop rather than spin.
+      if (victim === undefined) {
         break;
       }
+      entries.delete(victim);
     }
   }
 
@@ -171,9 +203,13 @@ export function createDecryptor(
       return;
     }
     entries.set(id, payload ?? "error");
-    evictIfNeeded();
+    // Release this run's slot before deciding on eviction: the just-finished
+    // item is no longer in flight, so the "still working" guard in
+    // evictIfNeeded sees only genuinely pending work and the final completion
+    // can enforce the cap.
     inFlight.delete(id);
     active -= 1;
+    evictIfNeeded();
     scheduleNotify();
     pump();
   }

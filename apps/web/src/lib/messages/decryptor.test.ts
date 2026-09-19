@@ -247,6 +247,43 @@ describe("message decryptor", () => {
     expect(decryptor.get("d")).toEqual(TEXT);
   });
 
+  const MEDIA: MessagePayload = {
+    images: [{ height: 10, url: "/api/media/x", width: 10 }],
+    kind: "image",
+    type: "media",
+  };
+
+  test("evicts text before media when both are over the cap", async () => {
+    // Insertion order m1, t1, m2, t2. Cap 3: the least-recently-inserted entry
+    // is media (m1), but the oldest TEXT (t1) must be dropped instead so media
+    // survives. (A blind FIFO would evict m1 here.)
+    const decryptor = createDecryptor({
+      cacheCap: 3,
+      decrypt: (decryptItem) =>
+        Promise.resolve(decryptItem.message.id.startsWith("m") ? MEDIA : TEXT),
+    });
+    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    decryptor.request([item("m1"), item("t1"), item("m2"), item("t2")], keys);
+    await settle();
+    expect(decryptor.get("t1")).toBeUndefined();
+    expect(decryptor.get("t2")).toEqual(TEXT);
+    expect(decryptor.get("m1")).toEqual(MEDIA);
+    expect(decryptor.get("m2")).toEqual(MEDIA);
+  });
+
+  test("falls back to evicting the oldest media when media alone exceeds the cap", async () => {
+    const decryptor = createDecryptor({
+      cacheCap: 2,
+      decrypt: () => Promise.resolve(MEDIA),
+    });
+    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    decryptor.request([item("m1"), item("m2"), item("m3")], keys);
+    await settle();
+    expect(decryptor.get("m1")).toBeUndefined();
+    expect(decryptor.get("m2")).toEqual(MEDIA);
+    expect(decryptor.get("m3")).toEqual(MEDIA);
+  });
+
   test("scope reset drops the cache and re-decrypts on demand", async () => {
     let calls = 0;
     const decryptor = createDecryptor({
