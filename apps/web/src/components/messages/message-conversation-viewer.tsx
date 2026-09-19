@@ -306,6 +306,18 @@ export function ConversationMediaViewer({
   const stripRef = useRef<HTMLDivElement | null>(null);
   const preloadedRef = useRef(new Set<string>());
 
+  // Fail-safe: if a boundary extension discovers no further media, clear the
+  // spinner after a beat so an arrow can never spin forever.
+  useEffect(() => {
+    if (!extension) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setExtension((current) => (current === extension ? null : current));
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [extension]);
+
   // Re-resolve the numeric position from the key every render: discovering
   // older media prepends items, and keying by flatKey keeps the current image
   // put instead of shifting out from under the user.
