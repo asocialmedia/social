@@ -181,7 +181,7 @@ function AlbumGrid({
 
   return (
     <div
-      className="grid w-[min(24rem,80vw,100%)] gap-1 overflow-hidden rounded-2xl"
+      className="grid w-96 max-w-[80vw] min-w-0 gap-1 overflow-hidden rounded-2xl"
       style={{
         aspectRatio: `${layout.cols} / ${layout.rows}`,
         gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
@@ -227,7 +227,7 @@ function SingleImage({
 
   return (
     <div
-      className="relative w-[min(24rem,80vw,100%)] overflow-hidden rounded-2xl bg-black/15 text-left"
+      className="relative w-96 max-w-[80vw] min-w-0 overflow-hidden rounded-2xl bg-black/15 text-left"
       style={{ aspectRatio }}
     >
       {status === "loading" ? (
