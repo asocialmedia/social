@@ -211,6 +211,8 @@ jobs:
     outputs:
       matrix: ${{ steps.changed-apps.outputs.matrix }}
       has-app-changes: ${{ steps.changed-apps.outputs.has-app-changes }}
+      has-mobile-changes: ${{ steps.changed-apps.outputs.has-mobile-changes }}
+      selected-apps: ${{ steps.changed-apps.outputs.selected-apps }}
     steps:
       - name: Resolve changed apps from merged PR
         id: changed-apps
@@ -281,15 +283,21 @@ jobs:
               ? appEntries
               : appEntries.filter(({ app }) => changedFiles.some((file) => file.startsWith(`apps/${app}/`)))
 
+            const hasMobileChanges = changedFiles.some((file) => file.startsWith('apps/mobile/'))
+            core.setOutput('has-mobile-changes', hasMobileChanges ? 'true' : 'false')
+            core.info(`Mobile app changes: ${hasMobileChanges}`)
+
             if (selectedApps.length === 0) {
               core.setOutput('matrix', JSON.stringify({ include: [] }))
               core.setOutput('has-app-changes', 'false')
+              core.setOutput('selected-apps', '')
               core.info(`No app-specific changes detected; skipping Docker builds.`)
               return
             }
 
             core.setOutput('matrix', JSON.stringify({ include: selectedApps }))
             core.setOutput('has-app-changes', 'true')
+            core.setOutput('selected-apps', selectedApps.map(({ app }) => app).join(','))
             core.info(`Selected Docker image builds: ${selectedApps.map(({ app }) => app).join(', ')}`)
 
   build-and-push:
@@ -419,13 +427,15 @@ jobs:
             health_enabled="true"
           fi
 
-          echo "app_id=${app_id}" >> "$GITHUB_OUTPUT"
-          echo "health_url=${health_url}" >> "$GITHUB_OUTPUT"
-          echo "health_initial_delay=${health_initial_delay}" >> "$GITHUB_OUTPUT"
-          echo "health_retries=${health_retries}" >> "$GITHUB_OUTPUT"
-          echo "health_retry_interval=${health_retry_interval}" >> "$GITHUB_OUTPUT"
-          echo "deploy_enabled=${deploy_enabled}" >> "$GITHUB_OUTPUT"
-          echo "health_enabled=${health_enabled}" >> "$GITHUB_OUTPUT"
+          {
+            echo "app_id=${app_id}"
+            echo "health_url=${health_url}"
+            echo "health_initial_delay=${health_initial_delay}"
+            echo "health_retries=${health_retries}"
+            echo "health_retry_interval=${health_retry_interval}"
+            echo "deploy_enabled=${deploy_enabled}"
+            echo "health_enabled=${health_enabled}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Trigger Dokploy deployment via API
         if: success() && steps.deploy-targets.outputs.deploy_enabled == 'true'
@@ -540,6 +550,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      should-run: ${{ steps.resolve-prisma.outputs.should-run }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -811,3 +823,218 @@ jobs:
 
           echo "Timed out waiting for Prisma sync deployment to finish."
           exit 1
+
+  build-mobile-apk:
+    name: Build Android APK
+    needs:
+      - quality
+      - detect-pr-merge
+      - determine-build-matrix
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-mobile-changes == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Get bun store path
+        id: bun-cache
+        shell: bash
+        run: |
+          echo "store_path=$(bun pm cache dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Bun cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ steps.bun-cache.outputs.store_path }}
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-store-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-store-
+
+      - name: Restore node_modules
+        uses: actions/cache@v5
+        id: node-modules-restore
+        with:
+          path: |
+            **/node_modules
+            !**/node_modules/.cache
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-node-modules-
+
+      - name: Install dependencies
+        if: steps.node-modules-restore.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate native Android project
+        working-directory: apps/mobile
+        run: bunx expo prebuild --platform android --no-install --clean
+
+      - name: Build Android Release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Package and checksum APK
+        id: package-apk
+        shell: bash
+        run: |
+          MOBILE_VERSION=$(jq -r '.version' apps/mobile/package.json)
+          APK_SRC="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_SRC" ]; then
+            APK_SRC=$(find apps/mobile/android/app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          fi
+
+          if [ -z "$APK_SRC" ] || [ ! -f "$APK_SRC" ]; then
+            echo "Error: Generated APK not found"
+            exit 1
+          fi
+
+          mkdir -p build-artifacts
+          APK_NAME="asocialmedia-v${MOBILE_VERSION}.apk"
+          cp "$APK_SRC" "build-artifacts/${APK_NAME}"
+
+          cd build-artifacts
+          sha256sum "${APK_NAME}" > "${APK_NAME}.sha256"
+          cd ..
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-apk
+          path: |
+            build-artifacts/*.apk
+            build-artifacts/*.sha256
+          retention-days: 7
+
+  create-release:
+    name: Create GitHub Release
+    needs:
+      - quality
+      - detect-pr-merge
+      - determine-build-matrix
+      - build-and-push
+      - prisma-sync
+      - build-mobile-apk
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') && (needs.build-mobile-apk.result == 'success' || needs.build-mobile-apk.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Download mobile APK artifact
+        if: needs.determine-build-matrix.outputs.has-mobile-changes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-apk
+          path: build-artifacts
+
+      - name: Collect PR and commit metadata
+        id: collect-meta
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const prNumber = Number('${{ needs.detect-pr-merge.outputs.merge-pr-number }}');
+            let commits = [];
+            let authors = [];
+            let prTitle = '';
+            let prUrl = '';
+
+            if (prNumber) {
+              try {
+                const prRes = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                prTitle = prRes.data?.title || '';
+                prUrl = prRes.data?.html_url || '';
+                const prCommits = await github.paginate(github.rest.pulls.listCommits, {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  per_page: 100,
+                });
+                commits = prCommits.map((c) => ({
+                  sha: c.sha,
+                  message: c.commit.message,
+                  author: c.author?.login || c.commit.author?.name || 'unknown',
+                  authorUrl: c.author?.html_url || '',
+                }));
+                authors = [...new Set(commits.map((c) => c.author).filter((a) => a !== 'unknown'))];
+              } catch (err) {
+                core.warning(`Failed to fetch PR commits: ${err.message}`);
+              }
+            }
+
+            if (commits.length === 0) {
+              const headCommit = context.payload?.head_commit;
+              if (headCommit) {
+                commits.push({
+                  sha: headCommit.id,
+                  message: headCommit.message,
+                  author: headCommit.author?.username || headCommit.author?.name || context.actor,
+                });
+                authors = [headCommit.author?.username || context.actor];
+              }
+            }
+
+            core.setOutput('commits_json', JSON.stringify(commits));
+            core.setOutput('authors_json', JSON.stringify(authors));
+            core.setOutput('pr_title', prTitle);
+            core.setOutput('pr_url', prUrl);
+
+      - name: Generate release notes
+        id: release-notes
+        env:
+          PR_NUMBER: ${{ needs.detect-pr-merge.outputs.merge-pr-number }}
+          PR_TITLE: ${{ steps.collect-meta.outputs.pr_title }}
+          PR_URL: ${{ steps.collect-meta.outputs.pr_url }}
+          COMMITS_JSON: ${{ steps.collect-meta.outputs.commits_json }}
+          AUTHORS_JSON: ${{ steps.collect-meta.outputs.authors_json }}
+          SELECTED_APPS: ${{ needs.determine-build-matrix.outputs.selected-apps }}
+          PRISMA_SYNC_BUILT: ${{ needs.prisma-sync.outputs.should-run }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          ARTIFACT_DIR: build-artifacts
+          OUTPUT_FILE: release-notes.md
+        run: bun scripts/release/prepare-release-metadata.ts
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release-notes.outputs.tag_name }}
+          name: Release ${{ steps.release-notes.outputs.tag_name }}
+          body_path: ${{ steps.release-notes.outputs.notes_path }}
+          draft: false
+          prerelease: false
+          files: |
+            build-artifacts/*.apk
+            build-artifacts/*.sha256
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

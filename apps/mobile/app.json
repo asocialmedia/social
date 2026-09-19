@@ -2,17 +2,20 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "1.0.0",
+    "version": "0.0.3",
+    "description": "The open social platform you'll ever need. Open source, cozy, and slightly unhinged.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "asocialmedia",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "cc.asocialmedia.mobile",
+      "supportsTablet": true
     },
     "android": {
+      "package": "cc.asocialmedia.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#00000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,9 +31,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#00000000",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 140
         }
       ]
     ],

@@ -75,14 +75,36 @@ const newLdPath = [...emulatorLibDirs, existingLdPath]
   .filter(Boolean)
   .join(":");
 
-console.log(`Starting Android emulator: @${targetAvd}`);
+// Discover host Vulkan ICDs for NixOS hardware acceleration
+const hostVulkanIcds = [
+  "/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json",
+  "/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json",
+].filter(existsSync);
+const defaultVkIcd = hostVulkanIcds.join(":");
 
-const child = spawn(emulatorBin, [`@${targetAvd}`, ...extraArgs], {
+const hasGpuArg = extraArgs.includes("-gpu");
+const spawnArgs = [
+  `@${targetAvd}`,
+  ...(hasGpuArg ? [] : ["-gpu", "host"]),
+  ...extraArgs,
+];
+
+console.log(
+  `Starting Android emulator: @${targetAvd} with GPU acceleration (host)`
+);
+
+const child = spawn(emulatorBin, spawnArgs, {
   stdio: "inherit",
   env: {
     ...process.env,
     LD_LIBRARY_PATH: newLdPath,
     QT_QPA_PLATFORM: process.env.QT_QPA_PLATFORM ?? "xcb",
+    ...(defaultVkIcd
+      ? {
+          VK_DRIVER_FILES: process.env.VK_DRIVER_FILES ?? defaultVkIcd,
+          VK_ICD_FILENAMES: process.env.VK_ICD_FILENAMES ?? defaultVkIcd,
+        }
+      : {}),
   },
 });
 
