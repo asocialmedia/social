@@ -900,7 +900,33 @@ describe("account backup secret", () => {
     const wrongVerifier = await hashAccountSecret(generateAccountSecret());
     expect(wrongVerifier.toLowerCase()).not.toBe(masterKeyHash.toLowerCase());
   });
+
+  test("the stored row alone cannot decrypt the backup", async () => {
+    // The security property the verifier design exists to provide: a database
+    // reader who holds the entire identity row still cannot recover the private
+    // key. This is the invariant that must never regress — it is what
+    // distinguishes the current scheme from the legacy one, where the stored
+    // hash WAS the KDF input.
+    const pair = await generateIdentityKeyPair();
+    const privateKeyJwk = await exportPrivateKeyJwk(pair.privateKey);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const secret = generateAccountSecret();
+    const masterKeyHash = await hashAccountSecret(secret);
+    const masterKey = await deriveMasterKey(secret, salt, 100_000);
+    const backup = await encryptWithMasterKey(
+      masterKey,
+      JSON.stringify(privateKeyJwk)
+    );
+
+    // Everything a DB reader has: the ciphertext, the IV, the salt, the
+    // iteration count, and the verifier hash. The only derivation the row
+    // enables is the legacy one (hash as KDF input), which must fail on a v2
+    // row because the real key came from the raw secret.
+    const rowDerived = await deriveMasterKey(masterKeyHash, salt, 100_000);
+    await expect(decryptWithMasterKey(rowDerived, backup)).rejects.toThrow();
+  });
 });
+
 describe("passkey PRF backup key", () => {
   test("derives a key that round-trips the backup and rejects the wrong PRF", async () => {
     const pair = await generateIdentityKeyPair();
