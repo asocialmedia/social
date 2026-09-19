@@ -73,6 +73,7 @@ import {
 import { useDecryptEntry } from "@/lib/messages/use-decrypt-entry";
 import {
   findMyWrappedKey,
+  findMyWrappedKeys,
   findPeerPublicKey,
   useRootKeyStore,
 } from "@/lib/messages/use-decryption";
@@ -288,32 +289,34 @@ export function MessageThread({
     [conversationId]
   );
 
-  // Resolves (via the decryptor's per-conversation cache) the imported
-  // ratchet base key every queued message in this thread funnels through.
-  const getBaseKey = useCallback(
-    async (targetConversationId: string): Promise<CryptoKey | null> => {
+  // Resolves (via the decryptor's per-conversation cache) the imported ratchet
+  // base keys every queued message in this thread funnels through: one per
+  // root-key epoch this device can still unwrap, newest first, so a message
+  // sent before an identity rotation stays readable.
+  const getBaseKeys = useCallback(
+    async (targetConversationId: string): Promise<CryptoKey[]> => {
       if (
         !detail ||
         !rootKeyStore ||
         !userId ||
         targetConversationId !== conversationId
       ) {
-        return null;
+        return [];
       }
-      const wrapped = findMyWrappedKey(detail.keys, userId);
+      const wrappedKeys = findMyWrappedKeys(detail.keys, userId);
       const peerPublicKey = findPeerPublicKey(detail.conversation, userId);
-      if (!wrapped || !peerPublicKey) {
-        return null;
+      if (wrappedKeys.length === 0 || !peerPublicKey) {
+        return [];
       }
       try {
-        const rootKey = await rootKeyStore.getRootKey(
+        const rootKeys = await rootKeyStore.getRootKeys(
           conversationId,
-          wrapped,
+          wrappedKeys,
           peerPublicKey
         );
-        return await importRatchetBaseKey(rootKey);
+        return await Promise.all(rootKeys.map(importRatchetBaseKey));
       } catch {
-        return null;
+        return [];
       }
     },
     [conversationId, detail, rootKeyStore, userId]
@@ -404,14 +407,14 @@ export function MessageThread({
     for (let index = last + 1; index <= end; index += 1) {
       push(allMessages[index]);
     }
-    messageDecryptor.request(items, { getBaseKey });
+    messageDecryptor.request(items, { getBaseKeys });
     // virtualRangeKey re-runs this on scroll; request() itself is a cheap skip
     // for cached, queued, and in-flight ids.
   }, [
     allMessages,
     conversationId,
     detail,
-    getBaseKey,
+    getBaseKeys,
     rootKeyStore,
     toDecryptItem,
     userId,
@@ -425,7 +428,7 @@ export function MessageThread({
   const requestDecrypt = useCallback(
     (message: MessageData | undefined) => {
       // Hold the request until the thread's prerequisites exist. Queueing
-      // before then makes getBaseKey resolve null, which the decryptor records
+      // before then makes getBaseKeys resolve empty, which the decryptor records
       // as a terminal "error" and the row briefly renders a Retry button
       // instead of its loading skeleton (the key-healing effect clears it, so
       // this is only a transient flicker). The request effect re-runs once
@@ -433,9 +436,9 @@ export function MessageThread({
       if (!message || !detail || !rootKeyStore || !userId) {
         return;
       }
-      messageDecryptor.request([toDecryptItem(message)], { getBaseKey });
+      messageDecryptor.request([toDecryptItem(message)], { getBaseKeys });
     },
-    [detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
+    [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId]
   );
 
   // Open the conversation-wide viewer at a tile's image. Stable identity so the
@@ -467,13 +470,13 @@ export function MessageThread({
         }
       }
       if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKey });
+        messageDecryptor.request(items, { getBaseKeys });
       }
     },
     [
       allMessages,
       detail,
-      getBaseKey,
+      getBaseKeys,
       rootKeyStore,
       toDecryptItem,
       userId,
@@ -496,10 +499,10 @@ export function MessageThread({
         }
       }
       if (items.length > 0) {
-        messageDecryptor.request(items, { getBaseKey });
+        messageDecryptor.request(items, { getBaseKeys });
       }
     },
-    [detail, getBaseKey, rootKeyStore, toDecryptItem, userId, viewerScanCache]
+    [detail, getBaseKeys, rootKeyStore, toDecryptItem, userId, viewerScanCache]
   );
 
   // Center the viewer's decrypt window on its active image; `extend` widens it

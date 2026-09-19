@@ -115,6 +115,12 @@ model MessageIdentity {
   masterKeyHash       String?
   salt                String
   kdfIterations       Int
+  // Which mechanism derives the backup key for this row. `manual-secret` is the
+  // original scheme (random 64-char secret held in device storage); `passkey-prf`
+  // derives it from a WebAuthn PRF output, so the credential syncs with the
+  // user's platform account and no human-managed secret can be lost. Existing
+  // rows default to manual-secret and keep working unchanged.
+  backupMethod        String   @default("manual-secret")
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -156,10 +162,17 @@ model MessageConversationKey {
   ownerUser      User                @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   encryptedKey   String
   iv             String
+  // Root-key epoch. A member may hold several wraps for the same conversation:
+  // an identity reset (lost device secret) mints a fresh root and appends a new
+  // version, while older wraps stay readable so the peer keeps its history.
+  // Readers select the wrap matching the message's keyVersion; payloads without
+  // one are epoch 1. Append-only — a wrap is never overwritten.
+  version        Int                 @default(1)
   ratchetCounter Int                 @default(0)
   createdAt      DateTime            @default(now())
 
-  @@unique([conversationId, ownerUserId])
+  @@unique([conversationId, ownerUserId, version])
+  @@index([conversationId, ownerUserId])
   @@map("message_conversation_keys")
 }
 

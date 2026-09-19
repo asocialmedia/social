@@ -34,6 +34,9 @@ export interface MessageIdentityPayload {
 export interface WrappedKeyPayload {
   encryptedKey: EncryptedBlob;
   ownerUserId: string;
+  // Root-key epoch this wrap belongs to. Omitted on legacy payloads, which are
+  // epoch 1.
+  version?: number;
 }
 
 export interface ConversationDetailResponse {
@@ -489,13 +492,18 @@ export function appendMessageToLastPage<
 // and the other member's public key. Memoized per conversation so the
 // expensive ECDH+HKDF only runs once per session.
 export function createRootKeyStore(privateKey: CryptoKey) {
-  const cache = new Map<string, Promise<Uint8Array>>();
+  const cache = new Map<string, Promise<Uint8Array[]>>();
 
-  function getRootKey(
+  // Unwraps every one of my wraps for the conversation, newest epoch first, so
+  // a message sent under any epoch the member can still read is decryptable. A
+  // wrap created for a superseded identity fails to unwrap (its ECDH pairing no
+  // longer holds) and is dropped from the candidate list rather than failing the
+  // whole set; only a conversation where nothing unwraps rejects.
+  function getRootKeys(
     conversationId: string,
-    myWrappedKey: EncryptedBlob,
+    myWrappedKeys: { encryptedKey: EncryptedBlob; version: number }[],
     peerPublicKeyBase64: string
-  ): Promise<Uint8Array> {
+  ): Promise<Uint8Array[]> {
     const cached = cache.get(conversationId);
     if (cached) {
       return cached;
@@ -503,7 +511,34 @@ export function createRootKeyStore(privateKey: CryptoKey) {
     const promise = (async () => {
       const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
       const peerKey = await importPublicKey(peerPublicKey);
-      return unwrapRootKey(privateKey, peerKey, conversationId, myWrappedKey);
+      const ordered = [...myWrappedKeys].toSorted(
+        (left, right) => right.version - left.version
+      );
+      // Independent unwraps, one per epoch: run them together and keep the ones
+      // that succeed, dropping wraps left over from a superseded identity.
+      const unwrapped = await Promise.all(
+        ordered.map(async (wrapped) => {
+          try {
+            return await unwrapRootKey(
+              privateKey,
+              peerKey,
+              conversationId,
+              wrapped.encryptedKey
+            );
+          } catch {
+            return null;
+          }
+        })
+      );
+      const roots = unwrapped.filter(
+        (root): root is Uint8Array => root !== null
+      );
+      if (roots.length === 0) {
+        throw new Error(
+          `No unwrappable conversation key for ${conversationId}`
+        );
+      }
+      return roots;
     })();
     cache.set(conversationId, promise);
     // A rejected derivation must not poison the cache forever: drop the entry
@@ -521,7 +556,7 @@ export function createRootKeyStore(privateKey: CryptoKey) {
     return promise;
   }
 
-  return { getRootKey };
+  return { getRootKeys };
 }
 
 // Wraps the root key for a peer during conversation creation.
@@ -548,9 +583,10 @@ function importPublicKey(jwk: JsonWebKey): Promise<CryptoKey> {
 
 // Makes sure a conversation has wrapped root keys for both members, then
 // returns the unwrapped root key. Handles the heal cases: a conversation
-// created before this device had keys (both missing → generate + wrap both),
-// or a crash that left only one member's key posted (unwrap mine → wrap for
-// the peer). Idempotent: posting keys upserts.
+// created before this device had keys (both missing → generate + wrap both), a
+// crash that left only one member's key posted (unwrap mine → wrap for the
+// peer), and an identity reset (my old wraps no longer unwrap → rotate to a
+// new epoch and wrap it for both). Idempotent: posting keys is append-only.
 export async function ensureConversationKeys(
   conversation: MessageConversationData,
   privateKey: CryptoKey,
@@ -566,38 +602,56 @@ export async function ensureConversationKeys(
   const peerPublicKey = await publicKeyBase64ToJwk(peerPublicKeyBase64);
   const peerKey = await importPublicKey(peerPublicKey);
 
-  const myKey = conversation.keys.find((key) => key.ownerUserId === myUserId);
-  const peerKeyRow = conversation.keys.find(
-    (key) => key.ownerUserId === peer.userId
-  );
-
-  if (myKey && peerKeyRow) {
-    return unwrapRootKey(privateKey, peerKey, conversation.id, {
-      ciphertext: myKey.encryptedKey,
-      iv: myKey.iv,
-    });
-  }
-
-  if (myKey) {
-    const rootKey = await unwrapRootKey(privateKey, peerKey, conversation.id, {
-      ciphertext: myKey.encryptedKey,
-      iv: myKey.iv,
-    });
-    const wrappedForPeer = await wrapRootKey(
-      privateKey,
-      peerKey,
-      conversation.id,
-      rootKey
+  // Newest epoch first. The first wrap I can actually unwrap is my current
+  // epoch; a wrap left over from a superseded identity simply fails to unwrap
+  // and falls through. If none unwrap (I reset and lost the old key), the loop
+  // ends and we rotate below. Sequential on purpose: each iteration's await
+  // depends on the previous failure, and the first success exits the loop.
+  const myKeys = conversation.keys
+    .filter((key) => key.ownerUserId === myUserId)
+    .toSorted((left, right) => (right.version ?? 1) - (left.version ?? 1));
+  // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
+  for (const myKey of myKeys) {
+    let rootKey: Uint8Array;
+    try {
+      rootKey = await unwrapRootKey(privateKey, peerKey, conversation.id, {
+        ciphertext: myKey.encryptedKey,
+        iv: myKey.iv,
+      });
+    } catch {
+      continue;
+    }
+    const version = myKey.version ?? 1;
+    // Heal a missing peer wrap for this exact epoch (a crash between posting
+    // the two entries, or a peer who has not fetched the rotation yet). The
+    // wrap is symmetric, so one blob serves both entries.
+    const peerHasEpoch = conversation.keys.some(
+      (key) => key.ownerUserId === peer.userId && (key.version ?? 1) === version
     );
-    await postConversationKeys(conversation.id, [
-      { encryptedKey: wrappedForPeer, ownerUserId: peer.userId },
-    ]);
+    if (!peerHasEpoch) {
+      const wrappedForPeer = await wrapRootKey(
+        privateKey,
+        peerKey,
+        conversation.id,
+        rootKey
+      );
+      await postConversationKeys(conversation.id, [
+        { encryptedKey: wrappedForPeer, ownerUserId: peer.userId, version },
+      ]);
+    }
     return rootKey;
   }
+  // oxlint-enable no-await-in-loop
 
+  // Nothing unwraps: this device's identity changed (reset) since these wraps
+  // were made. Rotate to a fresh epoch so new messages work for both members,
+  // while the peer's older wraps stay intact and keep their history readable.
+  let maxVersion = 0;
+  for (const key of conversation.keys) {
+    maxVersion = Math.max(maxVersion, key.version ?? 1);
+  }
+  const nextVersion = maxVersion + 1;
   const rootKey = generateRootKey();
-  // The wrap is symmetric (both members derive the same shared secret), so one
-  // encrypted blob serves both entries - no need to derive and wrap twice.
   const wrapped = await wrapRootKey(
     privateKey,
     peerKey,
@@ -605,8 +659,8 @@ export async function ensureConversationKeys(
     rootKey
   );
   await postConversationKeys(conversation.id, [
-    { encryptedKey: wrapped, ownerUserId: myUserId },
-    { encryptedKey: wrapped, ownerUserId: peer.userId },
+    { encryptedKey: wrapped, ownerUserId: myUserId, version: nextVersion },
+    { encryptedKey: wrapped, ownerUserId: peer.userId, version: nextVersion },
   ]);
   return rootKey;
 }

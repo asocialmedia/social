@@ -32,7 +32,12 @@ function makeConversation(
 ) {
   return {
     id,
-    keys: [] as { encryptedKey: string; iv: string; ownerUserId: string }[],
+    keys: [] as {
+      encryptedKey: string;
+      iv: string;
+      ownerUserId: string;
+      version?: number;
+    }[],
     members: [
       {
         user: { id: me.id, messageIdentity: { publicKey: me.publicKeyBase64 } },
@@ -73,21 +78,66 @@ describe("createRootKeyStore", () => {
     );
 
     const store = createRootKeyStore(alice.pair.privateKey);
-    const unwrapped1 = await store.getRootKey(
+    const unwrapped1 = await store.getRootKeys(
       "convo-1",
-      wrappedForAlice,
+      [{ encryptedKey: wrappedForAlice, version: 1 }],
       bob.publicKeyBase64
     );
-    const unwrapped2 = await store.getRootKey(
+    const unwrapped2 = await store.getRootKeys(
       "convo-1",
-      wrappedForAlice,
+      [{ encryptedKey: wrappedForAlice, version: 1 }],
       bob.publicKeyBase64
     );
-    expect(Buffer.from(unwrapped1).equals(Buffer.from(rootKey))).toBe(true);
-    // Memoized: the second call returns the exact same Uint8Array reference
-    // as the first (the cached promise resolves to one instance).
+    expect(Buffer.from(unwrapped1[0]).equals(Buffer.from(rootKey))).toBe(true);
+    // Memoized: the second call returns the exact same array reference as the
+    // first (the cached promise resolves to one instance).
     expect(unwrapped2).toBe(unwrapped1);
-    expect(Buffer.from(unwrapped2).equals(Buffer.from(rootKey))).toBe(true);
+    expect(Buffer.from(unwrapped2[0]).equals(Buffer.from(rootKey))).toBe(true);
+  });
+
+  test("offers one root per epoch, newest first, dropping stale wraps", async () => {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    // A prior identity of Alice's, whose wraps her current key cannot unwrap.
+    const oldAlice = await makeIdentity();
+    const oldRoot = generateRootKey();
+    const newRoot = generateRootKey();
+
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    // v1 was wrapped for oldAlice (stale after a reset); v2 for current Alice.
+    const v1 = await wrapRootKey(
+      oldAlice.pair.privateKey,
+      bobKey,
+      "convo-1",
+      oldRoot
+    );
+    const v2 = await wrapRootKey(
+      alice.pair.privateKey,
+      bobKey,
+      "convo-1",
+      newRoot
+    );
+
+    const store = createRootKeyStore(alice.pair.privateKey);
+    const roots = await store.getRootKeys(
+      // Deliberately out of order: the store must sort newest-first itself.
+      "convo-1",
+      [
+        { encryptedKey: v1, version: 1 },
+        { encryptedKey: v2, version: 2 },
+      ],
+      bob.publicKeyBase64
+    );
+    // v1 is dropped (unwrappable only by the superseded identity), v2 survives.
+    expect(roots).toHaveLength(1);
+    expect(Buffer.from(roots[0]).equals(Buffer.from(newRoot))).toBe(true);
   });
 });
 
@@ -234,6 +284,110 @@ describe("ensureConversationKeys", () => {
     // Only the peer's missing key is posted.
     expect(postedKeys).toHaveLength(1);
     expect(postedKeys[0].ownerUserId).toBe(bob.id);
+  });
+
+  test("rotates to a new epoch when the identity changed and no wrap unwraps", async () => {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    // The identity that actually made the stored wrap; Alice has since reset.
+    const oldAlice = await makeIdentity();
+    const convo = makeConversation("convo-rotate", alice, bob);
+
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const staleA = await wrapRootKey(
+      oldAlice.pair.privateKey,
+      bobKey,
+      "convo-rotate",
+      generateRootKey()
+    );
+    const staleB = await wrapRootKey(
+      oldAlice.pair.privateKey,
+      bobKey,
+      "convo-rotate",
+      generateRootKey()
+    );
+    convo.keys = [
+      {
+        encryptedKey: staleA.ciphertext,
+        iv: staleA.iv,
+        ownerUserId: alice.id,
+        version: 1,
+      },
+      {
+        encryptedKey: staleB.ciphertext,
+        iv: staleB.iv,
+        ownerUserId: bob.id,
+        version: 1,
+      },
+    ];
+
+    const rootKey = await ensureConversationKeys(
+      convo as never,
+      alice.pair.privateKey,
+      alice.id
+    );
+
+    // A fresh root is returned and wrapped for both members at the next epoch.
+    expect(rootKey).not.toBeNull();
+    expect(postedKeys).toHaveLength(2);
+    const versions = postedKeys.map(
+      (key) => (key as { version?: number }).version
+    );
+    expect(versions).toEqual([2, 2]);
+    const owners = postedKeys.map((key) => key.ownerUserId).toSorted();
+    expect(owners).toEqual([alice.id, bob.id].toSorted());
+  });
+
+  test("heals a peer wrap missing for the current epoch only", async () => {
+    const alice = await makeIdentity();
+    const bob = await makeIdentity();
+    const convo = makeConversation("convo-epoch-heal", alice, bob);
+    const rootKey = generateRootKey();
+
+    const bobPub = await publicKeyBase64ToJwk(bob.publicKeyBase64);
+    const bobKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      bobPub,
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const wrappedForAlice = await wrapRootKey(
+      alice.pair.privateKey,
+      bobKey,
+      "convo-epoch-heal",
+      rootKey
+    );
+    // Alice already holds epoch 2; the peer's epoch-2 wrap never landed. The
+    // stale epoch-1 peer wrap must not satisfy the check.
+    convo.keys = [
+      {
+        encryptedKey: wrappedForAlice.ciphertext,
+        iv: wrappedForAlice.iv,
+        ownerUserId: alice.id,
+        version: 2,
+      },
+    ];
+
+    const unwrapped = await ensureConversationKeys(
+      convo as never,
+      alice.pair.privateKey,
+      alice.id
+    );
+    expect(
+      Buffer.from(unwrapped ?? new Uint8Array()).equals(Buffer.from(rootKey))
+    ).toBe(true);
+    // Exactly the peer's missing epoch-2 wrap is posted.
+    expect(postedKeys).toHaveLength(1);
+    expect(postedKeys[0].ownerUserId).toBe(bob.id);
+    expect((postedKeys[0] as { version?: number }).version).toBe(2);
   });
 });
 

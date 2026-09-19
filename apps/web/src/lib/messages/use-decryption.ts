@@ -27,6 +27,25 @@ export function findMyWrappedKey(
   return mine?.encryptedKey ?? null;
 }
 
+// Every wrap belonging to `userId`, so the root-key store can offer one root
+// per root-key epoch (identity reset appends a new one). Newest first.
+export function findMyWrappedKeys(
+  keys: {
+    encryptedKey: EncryptedBlob;
+    ownerUserId: string;
+    version?: number;
+  }[],
+  userId: string
+): { encryptedKey: EncryptedBlob; version: number }[] {
+  return keys
+    .filter((key) => key.ownerUserId === userId)
+    .toSorted((left, right) => (right.version ?? 1) - (left.version ?? 1))
+    .map(({ encryptedKey, version }) => ({
+      encryptedKey,
+      version: version ?? 1,
+    }));
+}
+
 // The other member's public identity key (base64).
 export function findPeerPublicKey(
   conversation: MessageConversationData,

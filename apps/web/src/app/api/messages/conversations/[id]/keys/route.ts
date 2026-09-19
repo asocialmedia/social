@@ -9,6 +9,8 @@ export interface WrappedKeyPayload {
     iv: string;
   };
   ownerUserId: string;
+  // Root-key epoch. Omitted by legacy clients, which means epoch 1.
+  version?: number;
 }
 
 export async function POST(
@@ -53,16 +55,41 @@ export async function POST(
     }
   }
 
-  // Create-only: a wrapped key may never be overwritten. Once a key exists for
-  // an owner it is immutable, so a re-run (heal path, concurrent retry) is a
-  // no-op instead of replacing the ciphertext the peer relies on.
-  await prisma.messageConversationKey.createMany({
-    data: keys.map((key) => ({
+  // Epochs are conversation-wide: both members' wraps for a version denote the
+  // same root, so the ceiling is the conversation's highest version, not a
+  // per-owner one. Accept the next epoch (current max + 1) or any already-seen
+  // version (a no-op idempotent heal); reject a backwards or absurdly jumped
+  // version. Appends cannot clobber an existing wrap thanks to the
+  // (conversationId, ownerUserId, version) unique index plus skipDuplicates.
+  const highest = await prisma.messageConversationKey.findFirst({
+    orderBy: { version: "desc" },
+    select: { version: true },
+    where: { conversationId: id },
+  });
+  const maxVersion = highest?.version ?? 0;
+
+  const rows = keys.map((key) => {
+    const version = key.version ?? 1;
+    if (!Number.isInteger(version) || version < 1 || version > maxVersion + 1) {
+      return null;
+    }
+    return {
       conversationId: id,
       encryptedKey: key.encryptedKey.ciphertext,
       iv: key.encryptedKey.iv,
       ownerUserId: key.ownerUserId,
-    })),
+      version,
+    };
+  });
+  if (rows.some((row) => row === null)) {
+    return Response.json({ error: "Invalid key version" }, { status: 409 });
+  }
+
+  // Create-only: a wrapped key may never be overwritten. Once a key exists for
+  // an (owner, version) it is immutable, so a re-run (heal path, concurrent
+  // retry) is a no-op instead of replacing the ciphertext the peer relies on.
+  await prisma.messageConversationKey.createMany({
+    data: rows as NonNullable<(typeof rows)[number]>[],
     skipDuplicates: true,
   });
 

@@ -132,6 +132,41 @@ SQL
   bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file "$DROP_TRGM_SQL"
   rm -f "$DROP_TRGM_SQL"
 
+  # Message conversation keys gained a per-epoch `version` column, so a member
+  # can hold several wraps of the same conversation (an identity reset appends
+  # a new epoch while stale wraps stay readable for the peer's history). The
+  # old one-wrap-per-owner unique index must therefore become
+  # (conversationId, ownerUserId, version). Prisma expresses that as DROP INDEX,
+  # which the destructive-diff guard below (correctly) refuses, and it demands
+  # --accept-data-loss for the new unique constraint because it cannot prove a
+  # brand-new column is duplicate-free. Handle it here instead, manually and
+  # idempotently: add the columns, build the replacement indexes CONCURRENTLY
+  # (no write lock on a large table; `db execute` runs without a wrapping
+  # transaction, so CONCURRENTLY is valid), then drop the superseded index.
+  # Every existing row takes version = 1, and the old unique index already
+  # guaranteed one row per (conversationId, ownerUserId), so the new unique
+  # index cannot conflict and no row data is read or lost.
+  echo "Migrating message conversation keys to per-epoch versioned wraps..."
+  MSG_KEY_VERSION_SQL="$(mktemp "${TMPDIR:-/tmp}/msg-key-version.XXXXXX.sql")"
+  trap 'rm -f "$DROP_TRGM_SQL" "$MSG_KEY_VERSION_SQL"' EXIT
+  cat > "$MSG_KEY_VERSION_SQL" <<'SQL'
+ALTER TABLE "message_identities"
+  ADD COLUMN IF NOT EXISTS "backupMethod" TEXT NOT NULL DEFAULT 'manual-secret';
+
+ALTER TABLE "message_conversation_keys"
+  ADD COLUMN IF NOT EXISTS "version" INTEGER NOT NULL DEFAULT 1;
+
+CREATE INDEX IF NOT EXISTS "message_conversation_keys_conversationId_ownerUserId_idx"
+  ON "message_conversation_keys"("conversationId", "ownerUserId");
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "message_conversation_keys_conversationId_ownerUserId_versio_key"
+  ON "message_conversation_keys"("conversationId", "ownerUserId", "version");
+
+DROP INDEX IF EXISTS "message_conversation_keys_conversationId_ownerUserId_key";
+SQL
+  bunx prisma db execute --config "$PRISMA_CONFIG_PATH" --file "$MSG_KEY_VERSION_SQL"
+  rm -f "$MSG_KEY_VERSION_SQL"
+
   # Prisma db push refuses to apply additive changes that introduce unique
   # constraints on fresh columns: its "might be data loss" heuristic cannot
   # prove the brand-new columns hold no duplicates, so it demands

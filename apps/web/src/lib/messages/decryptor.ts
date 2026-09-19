@@ -33,7 +33,12 @@ export interface DecryptItem {
 }
 
 export interface DecryptorKeySource {
-  getBaseKey: (conversationId: string) => Promise<CryptoKey | null>;
+  // Candidate ratchet base keys for a conversation, newest root-key epoch
+  // first. A member can hold several wraps after an identity reset rotates the
+  // conversation to a new epoch, and a message's epoch is only discoverable by
+  // attempting decryption, so the decryptor tries each in order. A wrong root
+  // fails the AES-GCM tag cleanly. Empty means the key is not available yet.
+  getBaseKeys: (conversationId: string) => Promise<CryptoKey[]>;
 }
 
 export type DecryptImpl = (
@@ -97,7 +102,7 @@ export function createDecryptor(
   // Imported HKDF base keys, one per conversation: skips the importKey
   // round-trip for every message after the first without changing the
   // derived keys. Scoped to the identity generation like the payloads.
-  const baseKeys = new Map<string, Promise<CryptoKey | null>>();
+  const baseKeys = new Map<string, Promise<CryptoKey[]>>();
   let active = 0;
   let version = 0;
   let flushScheduled = false;
@@ -214,41 +219,59 @@ export function createDecryptor(
     pump();
   }
 
-  // Resolves the conversation's cached base key, then decrypts. A missing
-  // base key (unknown conversation keys) is a terminal "error", not a throw.
+  // Resolves the conversation's cached candidate base keys, then decrypts with
+  // the epoch each was wrapped under. A missing key set (unknown conversation
+  // keys) is a terminal "error", not a throw.
   async function resolvePayload(
     item: DecryptItem
   ): Promise<MessagePayload | null> {
     if (!lastKeys) {
       return null;
     }
-    let baseKey = baseKeys.get(item.conversationId);
-    if (!baseKey) {
-      baseKey = lastKeys.getBaseKey(item.conversationId);
-      baseKeys.set(item.conversationId, baseKey);
-      // Neither a rejected unwrap nor a resolved `null` may poison the cache
-      // forever. `null` means the key is not available *yet* (identity still
+    let candidates = baseKeys.get(item.conversationId);
+    if (!candidates) {
+      candidates = lastKeys.getBaseKeys(item.conversationId);
+      baseKeys.set(item.conversationId, candidates);
+      // Neither a rejected unwrap nor an empty list may poison the cache
+      // forever. Empty means the keys are not available *yet* (identity still
       // provisioning, first wrapped key not in), so caching it would keep every
-      // later request in terminal "error" even after the key arrives and
+      // later request in terminal "error" even after the keys arrive and
       // clearErrors()/retry() are called. Drop the entry so the next request
       // retries; the identity check avoids deleting a newer promise.
       void (async () => {
-        let resolved: CryptoKey | null = null;
+        let resolved: CryptoKey[] = [];
         try {
-          resolved = await baseKey;
+          resolved = await candidates;
         } catch {
-          resolved = null;
+          resolved = [];
         }
-        if (!resolved && baseKeys.get(item.conversationId) === baseKey) {
+        if (
+          resolved.length === 0 &&
+          baseKeys.get(item.conversationId) === candidates
+        ) {
           baseKeys.delete(item.conversationId);
         }
       })();
     }
-    const resolved = await baseKey;
-    if (!resolved) {
+    const resolved = await candidates;
+    if (resolved.length === 0) {
       return null;
     }
-    return decrypt(item, resolved);
+    // Newest epoch first. The wrong root fails the AES-GCM tag, so a message
+    // sent under an older epoch simply falls through to its own key. Bounded by
+    // the number of epochs a member holds (one per identity reset). Sequential
+    // on purpose: each attempt awaits the previous failure, and the first
+    // success returns.
+    // oxlint-disable no-await-in-loop -- ordered epoch probe with early exit
+    for (const candidate of resolved) {
+      try {
+        return await decrypt(item, candidate);
+      } catch {
+        // Try the next epoch.
+      }
+    }
+    // oxlint-enable no-await-in-loop
+    return null;
   }
 
   return {

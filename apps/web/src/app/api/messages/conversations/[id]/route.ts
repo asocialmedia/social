@@ -36,6 +36,7 @@ export async function GET(
         iv: key.iv,
       },
       ownerUserId: key.ownerUserId,
+      version: key.version,
     })),
     mySentCount,
   });

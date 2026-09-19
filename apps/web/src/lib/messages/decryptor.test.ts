@@ -71,7 +71,7 @@ describe("message decryptor", () => {
         return gate.promise;
       },
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     let notifies = 0;
     decryptor.subscribe(() => {
       notifies += 1;
@@ -114,7 +114,7 @@ describe("message decryptor", () => {
         });
       },
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
 
     decryptor.request(
       [item("first"), item("second"), item("third"), item("fourth")],
@@ -148,7 +148,7 @@ describe("message decryptor", () => {
           : Promise.resolve(TEXT);
       },
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
 
     decryptor.request([item("a"), item("a"), item("bad")], keys);
     await settle();
@@ -176,7 +176,7 @@ describe("message decryptor", () => {
       },
     });
     decryptor.request([item("a")], {
-      getBaseKey: () => Promise.resolve(null),
+      getBaseKeys: () => Promise.resolve([]),
     });
     await settle();
     expect(calls).toBe(0);
@@ -195,7 +195,7 @@ describe("message decryptor", () => {
           : Promise.resolve(TEXT);
       },
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
 
     decryptor.configureScope("user-1");
     decryptor.request([item("old")], keys);
@@ -223,7 +223,7 @@ describe("message decryptor", () => {
         return Promise.reject(new Error("nope"));
       },
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     decryptor.request([item("a")], keys);
     await settle();
     expect(decryptor.get("a")).toBe("error");
@@ -238,7 +238,7 @@ describe("message decryptor", () => {
       cacheCap: 3,
       decrypt: () => Promise.resolve(TEXT),
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     decryptor.request([item("a"), item("b"), item("c"), item("d")], keys);
     await settle();
     expect(decryptor.get("a")).toBeUndefined();
@@ -262,7 +262,7 @@ describe("message decryptor", () => {
       decrypt: (decryptItem) =>
         Promise.resolve(decryptItem.message.id.startsWith("m") ? MEDIA : TEXT),
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     decryptor.request([item("m1"), item("t1"), item("m2"), item("t2")], keys);
     await settle();
     expect(decryptor.get("t1")).toBeUndefined();
@@ -276,7 +276,7 @@ describe("message decryptor", () => {
       cacheCap: 2,
       decrypt: () => Promise.resolve(MEDIA),
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     decryptor.request([item("m1"), item("m2"), item("m3")], keys);
     await settle();
     expect(decryptor.get("m1")).toBeUndefined();
@@ -294,7 +294,7 @@ describe("message decryptor", () => {
       decrypt: (decryptItem) =>
         Promise.resolve(decryptItem.message.id.startsWith("m") ? MEDIA : TEXT),
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     decryptor.request([item("m0"), item("t1"), item("t2")], keys);
     await settle();
     expect(decryptor.get("m0")).toEqual(MEDIA);
@@ -308,7 +308,7 @@ describe("message decryptor", () => {
         return Promise.resolve(TEXT);
       },
     });
-    const keys = { getBaseKey: () => Promise.resolve({} as CryptoKey) };
+    const keys = { getBaseKeys: () => Promise.resolve([{} as CryptoKey]) };
     decryptor.configureScope("user-1");
     decryptor.request([item("a")], keys);
     await settle();
@@ -345,7 +345,7 @@ describe("message decryptor", () => {
           message: { ...second, id: "m2", senderId: "alice" },
         },
       ],
-      { getBaseKey: () => Promise.resolve(baseKey) }
+      { getBaseKeys: () => Promise.resolve([baseKey]) }
     );
     await waitFor(
       () =>
@@ -353,5 +353,54 @@ describe("message decryptor", () => {
     );
     expect(decryptor.get("m1")).toEqual({ content: "one", type: "text" });
     expect(decryptor.get("m2")).toEqual({ content: "two", type: "text" });
+  });
+
+  test("falls back to an older epoch when a message predates a key rotation", async () => {
+    // After an identity reset rotates the conversation, a member holds the new
+    // root plus the old one. Messages sent before the rotation must still
+    // decrypt: the newest key fails its AES-GCM tag and the older one succeeds.
+    const oldRoot = generateRootKey();
+    const newRoot = generateRootKey();
+    const [newBase, oldBase] = await Promise.all([
+      importRatchetBaseKey(newRoot),
+      importRatchetBaseKey(oldRoot),
+    ]);
+    const decryptor = createDecryptor();
+    const oldMessage = await encryptMessage(oldRoot, "alice", 0, CONVO_ID, {
+      content: "before reset",
+      type: "text",
+    });
+    const newMessage = await encryptMessage(newRoot, "alice", 1, CONVO_ID, {
+      content: "after reset",
+      type: "text",
+    });
+
+    decryptor.request(
+      [
+        {
+          conversationId: CONVO_ID,
+          message: { ...oldMessage, id: "old", senderId: "alice" },
+        },
+        {
+          conversationId: CONVO_ID,
+          message: { ...newMessage, id: "new", senderId: "alice" },
+        },
+      ],
+      // Newest epoch first, exactly what the root-key store returns.
+      { getBaseKeys: () => Promise.resolve([newBase, oldBase]) }
+    );
+    await waitFor(
+      () =>
+        decryptor.get("old") !== "pending" && decryptor.get("new") !== "pending"
+    );
+
+    expect(decryptor.get("old")).toEqual({
+      content: "before reset",
+      type: "text",
+    });
+    expect(decryptor.get("new")).toEqual({
+      content: "after reset",
+      type: "text",
+    });
   });
 });

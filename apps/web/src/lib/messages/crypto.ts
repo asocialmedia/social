@@ -152,6 +152,49 @@ export interface EncryptedBlob {
   iv: string;
 }
 
+// Derives the identity backup key from a WebAuthn PRF output. The PRF extension
+// yields a stable 256-bit secret from the authenticator for a fixed input, so
+// unlike the manual-secret scheme there is nothing for the user to store: the
+// credential lives in their platform keychain (and syncs with iCloud/Google
+// when it is a synced passkey). The output is fed straight into PBKDF2 as the
+// base key, so the full entropy reaches the KDF with no encoding round-trip.
+// The server never sees the PRF output — only the encrypted backup and a
+// verifier hash.
+export async function deriveBackupKeyFromPrf(
+  prfOutput: Uint8Array,
+  salt: Uint8Array,
+  iterations = KDF_ITERATIONS
+): Promise<CryptoKey> {
+  const baseKey = await globalThis.crypto.subtle.importKey(
+    "raw",
+    toBufferSource(prfOutput),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return globalThis.crypto.subtle.deriveKey(
+    { hash: "SHA-256", iterations, name: "PBKDF2", salt: toBufferSource(salt) },
+    baseKey,
+    { length: 256, name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+// Verifier for a PRF-derived backup: SHA-256 of the PRF output, hex. Stored
+// with the identity (like masterKeyHash for the manual scheme) so the client
+// can confirm the authenticator released the expected bytes before attempting
+// decryption, without the server learning anything that yields the key.
+export async function hashPrfOutput(prfOutput: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    toBufferSource(prfOutput)
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function encryptWithMasterKey(
   masterKey: CryptoKey,
   plaintext: string

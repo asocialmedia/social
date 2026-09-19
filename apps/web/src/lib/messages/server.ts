@@ -124,16 +124,19 @@ export function unreadMessageWhere(params: {
 // counter existed, so take the max of the two. The unique
 // (conversationId, senderId, ratchetIndex) constraint still guards concurrent
 // sends that race between the read and the create.
+//
+// A member can hold several wraps (one per root-key epoch, see
+// MessageConversationKey.version); only the newest epoch is active, so its
+// counter is the one to read.
 export async function nextRatchetIndex(
   conversationId: string,
   senderId: string
 ): Promise<number> {
   const [key, sentCount] = await Promise.all([
-    prisma.messageConversationKey.findUnique({
+    prisma.messageConversationKey.findFirst({
+      orderBy: { version: "desc" },
       select: { ratchetCounter: true },
-      where: {
-        conversationId_ownerUserId: { conversationId, ownerUserId: senderId },
-      },
+      where: { conversationId, ownerUserId: senderId },
     }),
     prisma.message.count({ where: { conversationId, senderId } }),
   ]);
