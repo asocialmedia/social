@@ -110,81 +110,133 @@ export function getAppJsonTargets(changedPackages: Set<string>): string[] {
   return [...targets];
 }
 
-async function bumpVersion(
-  pkgPath: string,
-  context: BumpContext
-): Promise<boolean> {
-  if (!(await context.fileExists(pkgPath))) {
-    return false;
-  }
-
-  const pkg = await context.readPackageJson(pkgPath);
-  if (typeof pkg.version !== "string") {
-    throw new TypeError(`Missing version in ${pkgPath}`);
-  }
-
-  pkg.version = bumpPatchVersion(pkg.version);
-  await context.writePackageJson(pkgPath, pkg);
-  await context.stageFile(pkgPath);
-
-  return true;
+function getAppJsonVersion(app: AppJson): string | undefined {
+  return (
+    app.expo?.version ??
+    (typeof app.version === "string" ? app.version : undefined)
+  );
 }
 
-async function bumpAppJsonVersion(
-  appPath: string,
+const MOBILE_PACKAGE_PATH = path.join("apps", "mobile", "package.json");
+const MOBILE_APP_JSON_PATH = path.join("apps", "mobile", "app.json");
+
+async function readPackageTargets(
+  targets: string[],
   context: BumpContext
-): Promise<boolean> {
-  if (!(await context.fileExists(appPath))) {
-    return false;
+): Promise<Map<string, PackageJson>> {
+  const packages = new Map<string, PackageJson>();
+
+  for (const target of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await context.fileExists(target))) {
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const pkg = await context.readPackageJson(target);
+    if (typeof pkg.version !== "string") {
+      throw new TypeError(`Missing version in ${target}`);
+    }
+    packages.set(target, pkg);
   }
 
-  const app = context.readAppJson
-    ? await context.readAppJson(appPath)
-    : ((await context.readPackageJson(appPath)) as unknown as AppJson);
+  return packages;
+}
 
-  const currentVersion =
-    app.expo?.version ??
-    (typeof app.version === "string" ? app.version : undefined);
+async function readAppTargets(
+  targets: string[],
+  context: BumpContext
+): Promise<Map<string, AppJson>> {
+  const apps = new Map<string, AppJson>();
 
-  if (typeof currentVersion !== "string") {
-    throw new TypeError(`Missing version in ${appPath}`);
+  for (const target of targets) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await context.fileExists(target))) {
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const app = context.readAppJson
+      ? await context.readAppJson(target)
+      : ((await context.readPackageJson(target)) as unknown as AppJson);
+    if (typeof getAppJsonVersion(app) !== "string") {
+      throw new TypeError(`Missing version in ${target}`);
+    }
+    apps.set(target, app);
   }
 
-  const nextVersion = bumpPatchVersion(currentVersion);
-
-  if (app.expo && typeof app.expo.version === "string") {
-    app.expo.version = nextVersion;
-  }
-  if (typeof app.version === "string") {
-    app.version = nextVersion;
-  }
-
-  if (context.writeAppJson) {
-    await context.writeAppJson(appPath, app);
-  } else {
-    await context.writePackageJson(appPath, app as unknown as PackageJson);
-  }
-
-  await context.stageFile(appPath);
-
-  return true;
+  return apps;
 }
 
 async function bumpVersions(
   changedPackages: Set<string>,
   context: BumpContext
 ): Promise<void> {
-  const targets = getVersionTargets(changedPackages);
+  const packageTargets = getVersionTargets(changedPackages);
+  const appTargets = getAppJsonTargets(changedPackages);
 
-  for (const target of targets) {
+  // Read and validate every manifest before writing or staging anything, so a
+  // malformed target leaves the repository and index untouched.
+  const packages = await readPackageTargets(packageTargets, context);
+  const apps = await readAppTargets(appTargets, context);
+
+  // Drive both mobile manifests from one canonical version so a pre-existing
+  // package.json/app.json mismatch is repaired instead of carried forward.
+  const mobileCanonical =
+    packages.get(MOBILE_PACKAGE_PATH)?.version ??
+    (apps.has(MOBILE_APP_JSON_PATH)
+      ? getAppJsonVersion(apps.get(MOBILE_APP_JSON_PATH) as AppJson)
+      : undefined);
+  const mobileNextVersion =
+    typeof mobileCanonical === "string"
+      ? bumpPatchVersion(mobileCanonical)
+      : undefined;
+
+  const packageWrites = [...packages.entries()].map(([pkgPath, pkg]) => ({
+    pkg: {
+      ...pkg,
+      version:
+        pkgPath === MOBILE_PACKAGE_PATH && mobileNextVersion
+          ? mobileNextVersion
+          : bumpPatchVersion(pkg.version),
+    },
+    pkgPath,
+  }));
+
+  const appWrites = [...apps.entries()].map(([appPath, app]) => {
+    const nextVersion =
+      appPath === MOBILE_APP_JSON_PATH && mobileNextVersion
+        ? mobileNextVersion
+        : bumpPatchVersion(getAppJsonVersion(app) as string);
+
+    if (app.expo && typeof app.expo.version === "string") {
+      return {
+        app: { ...app, expo: { ...app.expo, version: nextVersion } },
+        appPath,
+      };
+    }
+    if (typeof app.version === "string") {
+      return { app: { ...app, version: nextVersion }, appPath };
+    }
+    return { app, appPath };
+  });
+
+  // Only now touch disk and the index.
+  for (const { pkg, pkgPath } of packageWrites) {
     // eslint-disable-next-line no-await-in-loop
-    await bumpVersion(target, context);
+    await context.writePackageJson(pkgPath, pkg);
+    // eslint-disable-next-line no-await-in-loop
+    await context.stageFile(pkgPath);
   }
 
-  const appTargets = getAppJsonTargets(changedPackages);
-  for (const appTarget of appTargets) {
+  for (const { app, appPath } of appWrites) {
+    if (context.writeAppJson) {
+      // eslint-disable-next-line no-await-in-loop
+      await context.writeAppJson(appPath, app);
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      await context.writePackageJson(appPath, app as unknown as PackageJson);
+    }
     // eslint-disable-next-line no-await-in-loop
-    await bumpAppJsonVersion(appTarget, context);
+    await context.stageFile(appPath);
   }
 }
 

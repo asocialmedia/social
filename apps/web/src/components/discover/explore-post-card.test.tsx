@@ -4,7 +4,11 @@ import { renderToString } from "react-dom/server";
 
 import type { LinkEmbed } from "@/lib/link-embeds/shared";
 
-import { ExplorePostEmbed, embedImageUrl } from "./explore-post-card";
+import {
+  ExplorePostEmbed,
+  embedImageUrl,
+  selectPreviewEmbed,
+} from "./explore-post-card";
 
 const youtubeEmbed: LinkEmbed = {
   description: "By JustZando",
@@ -53,6 +57,21 @@ describe("embedImageUrl", () => {
 
   test("returns null for a link with no image", () => {
     expect(embedImageUrl(plainLink)).toBeNull();
+  });
+});
+
+describe("selectPreviewEmbed", () => {
+  test("prefers the first embed with a visual over an earlier plain link", () => {
+    expect(selectPreviewEmbed([plainLink, linkWithImage])).toBe(linkWithImage);
+    expect(selectPreviewEmbed([plainLink, youtubeEmbed])).toBe(youtubeEmbed);
+  });
+
+  test("falls back to the first embed when none are visual", () => {
+    expect(selectPreviewEmbed([plainLink])).toBe(plainLink);
+  });
+
+  test("returns undefined for an empty list", () => {
+    expect(selectPreviewEmbed([])).toBeUndefined();
   });
 });
 

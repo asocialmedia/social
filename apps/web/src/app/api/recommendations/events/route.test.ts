@@ -129,6 +129,43 @@ describe("POST /api/recommendations/events", () => {
     });
   });
 
+  test("retries once when a post is deleted between the check and the insert", async () => {
+    // Both posts pass the existence check, then post-1 is deleted before the
+    // batch insert, which trips the foreign key.
+    existingPosts = [{ id: "post-1" }, { id: "post-2" }];
+    findPosts
+      .mockResolvedValueOnce([{ id: "post-1" }, { id: "post-2" }])
+      .mockResolvedValueOnce([{ id: "post-2" }]);
+    createMany.mockRejectedValueOnce({ code: "P2003" });
+
+    const response = await POST(
+      request({
+        events: [
+          { eventType: "VIEW_START", postId: "post-1" },
+          { eventType: "VIEW_START", postId: "post-2" },
+        ],
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ accepted: 1 });
+    expect(createMany).toHaveBeenCalledTimes(2);
+    expect(createMany).toHaveBeenLastCalledWith({
+      data: [
+        {
+          dedupeKey: undefined,
+          durationMs: undefined,
+          eventType: "VIEW_START",
+          postId: "post-2",
+          sessionId: undefined,
+          userId: "user-1",
+          value: undefined,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
   test("accepts (and drops) an all-stale batch without a 404", async () => {
     existingPosts = [];
 

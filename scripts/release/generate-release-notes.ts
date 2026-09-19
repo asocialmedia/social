@@ -43,6 +43,13 @@ export interface ReleaseNotesOptions {
 const DEFAULT_HEADER_IMAGE =
   "https://img.przknv.cc/t/Assets_zephyr-githubanner.jpg";
 
+// PR titles and commit subjects come from GitHub and are untrusted. Escape the
+// Markdown metacharacters that could otherwise break out of the generated link
+// or inject formatting/links into the published release notes.
+function escapeMarkdown(value: string): string {
+  return value.replaceAll(/([\\`*_{}[\]()<>|~])/gu, "\\$1");
+}
+
 export function formatReleaseNotes(options: ReleaseNotesOptions): string {
   const headerUrl = options.headerImageUrl || DEFAULT_HEADER_IMAGE;
 
@@ -55,7 +62,9 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
   // PR context and contributors
   const metaLines: string[] = [];
   if (options.prNumber) {
-    const titlePart = options.prTitle ? ` - ${options.prTitle}` : "";
+    const titlePart = options.prTitle
+      ? ` - ${escapeMarkdown(options.prTitle)}`
+      : "";
     const prLink = options.prUrl
       ? `[#${options.prNumber}${titlePart}](${options.prUrl})`
       : `#${options.prNumber}${titlePart}`;
@@ -64,7 +73,7 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
 
   if (options.authors.length > 0) {
     const formattedAuthors = options.authors
-      .map((author) => (author.startsWith("@") ? author : `@${author}`))
+      .map((author) => `@${escapeMarkdown(author.replace(/^@/, ""))}`)
       .join(", ");
     metaLines.push(`> **Contributors:** ${formattedAuthors}`);
   }
@@ -80,10 +89,11 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
   if (options.commits.length > 0) {
     const commitLines = options.commits.map((commit) => {
       const shortSha = commit.sha.slice(0, 7);
-      const cleanMessage = commit.message.split("\n")[0].trim();
+      const cleanMessage = escapeMarkdown(commit.message.split("\n")[0].trim());
+      const authorName = escapeMarkdown(commit.author.replace(/^@/, ""));
       const authorText = commit.authorUrl
-        ? `by [@${commit.author.replace(/^@/, "")}](${commit.authorUrl})`
-        : `by @${commit.author.replace(/^@/, "")}`;
+        ? `by [@${authorName}](${commit.authorUrl})`
+        : `by @${authorName}`;
       return `- ${cleanMessage} (\`${shortSha}\`) ${authorText}`;
     });
     sections.push(commitLines.join("\n"));

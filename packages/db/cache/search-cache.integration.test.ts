@@ -44,21 +44,26 @@ describe("search cache redis integration", () => {
     const history = await searchSuggestionsCache.getHistory(testUserId);
     expect(history.length).toBe(3);
 
-    // Latest added is at the top
-    expect(history[0]?.type).toBe("query");
-    if (history[0]?.type === "query") {
-      expect(history[0].resultCount).toBe(15);
-      expect(history[0].searchedAt).toBeDefined();
+    // The three writes can land in the same millisecond, and a Redis sorted set
+    // orders equal-score members lexicographically rather than by insertion
+    // order, so assert on membership and per-type metadata instead of position.
+    const queryEntry = history.find((item) => item.type === "query");
+    expect(queryEntry?.type).toBe("query");
+    if (queryEntry?.type === "query") {
+      expect(queryEntry.resultCount).toBe(15);
+      expect(queryEntry.searchedAt).toBeDefined();
     }
 
-    expect(history[1]?.type).toBe("post");
-    if (history[1]?.type === "post") {
-      expect(history[1].searchedAt).toBeDefined();
+    const postEntry = history.find((item) => item.type === "post");
+    expect(postEntry?.type).toBe("post");
+    if (postEntry?.type === "post") {
+      expect(postEntry.searchedAt).toBeDefined();
     }
 
-    expect(history[2]?.type).toBe("user");
-    if (history[2]?.type === "user") {
-      expect(history[2].searchedAt).toBeDefined();
+    const userEntry = history.find((item) => item.type === "user");
+    expect(userEntry?.type).toBe("user");
+    if (userEntry?.type === "user") {
+      expect(userEntry.searchedAt).toBeDefined();
     }
 
     // Remove user

@@ -85,7 +85,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "1.0.2",
+      "version": "0.0.3",
       "dependencies": {
         "@expo/ui": "~57.0.18",
         "@tailwindcss/postcss": "^4.3.3",
