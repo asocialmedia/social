@@ -11,13 +11,16 @@ import {
   MessageSquareQuote,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
+import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { useMessageAttachments } from "@/components/messages/use-message-attachments";
 import { toast } from "@/lib/gooey-toast";
 import {
   MessagesApiError,
@@ -25,14 +28,16 @@ import {
   ensureConversationKeys,
   sendEncryptedMessage,
   sendTypingIndicator,
-  uploadMessageMedia,
 } from "@/lib/messages/client";
-import type {
-  ConversationDetailResponse,
-  MessageMediaUpload,
-} from "@/lib/messages/client";
+import type { ConversationDetailResponse } from "@/lib/messages/client";
 import type { MessagePayload } from "@/lib/messages/crypto";
 import { cn } from "@/lib/utils";
+
+// Cropper is heavy; only pull it in when a sender edits an image.
+const MessageImageEditDialog = dynamic(
+  () => import("@/components/messages/message-image-edit-dialog"),
+  { ssr: false }
+);
 
 interface MessageComposerProps {
   conversation: ConversationDetailResponse;
@@ -94,11 +99,30 @@ export function MessageComposer({
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [sendingMedia, setSendingMedia] = useState(false);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastTypingRef = useRef(0);
+
+  const conversationId = conversation.conversation.id;
+
+  const {
+    addFiles,
+    attachments,
+    canSend,
+    isUploading,
+    readyGroups,
+    removeAttachment,
+    removeAttachments,
+    replaceAttachmentFile,
+    retryAttachment,
+  } = useMessageAttachments(conversationId);
+
+  const editingAttachment = attachments.find(
+    (attachment) => attachment.id === editingId
+  );
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -225,115 +249,130 @@ export function MessageComposer({
 
   const handleSend = useCallback(async () => {
     const content = text.trim();
-    if (!content || sending || !user || !privateKey || !peer) {
+    if (sending) {
+      return;
+    }
+    if (attachments.length === 0 && !content) {
+      return;
+    }
+    // Attachments must all be uploaded and READY before any goes out: the
+    // serving route gates on that status, so a premature send would hand the
+    // peer a 404.
+    if (attachments.length > 0 && !canSend) {
+      return;
+    }
+    if (!user || !privateKey || !peer) {
       return;
     }
 
     setSending(true);
     try {
-      const payload = replyTarget
-        ? {
-            content,
-            replyToId: replyTarget.id,
-            replyToSenderId: replyTarget.senderId,
-            type: "text" as const,
-          }
-        : { content, type: "text" as const };
-      const ok = await sendPayload(payload);
-      // Clear the sending flag BEFORE focusing: the textarea is disabled while
-      // `busy`, and a disabled element cannot receive focus, so focusing first
-      // was a no-op. The frame callback then runs after React has re-enabled
-      // it, so the caret actually lands. preventScroll keeps the just-scrolled
-      // transcript from being yanked by the browser focusing the composer.
-      setSending(false);
-      if (ok) {
-        requestAnimationFrame(() => {
-          textareaRef.current?.focus({ preventScroll: true });
-        });
-      }
-    } catch (error) {
-      // Reset before rethrowing so the sending flag clears on the failure
-      // path too (replaces the previous `finally` clause).
-      setSending(false);
-      throw error;
-    }
-  }, [peer, privateKey, replyTarget, sendPayload, sending, text, user]);
-
-  const handleSendMedia = useCallback(
-    async (media: MessageMediaUpload) => {
-      if (sendingMedia || sending) {
-        return;
-      }
-      setSendingMedia(true);
-      try {
-        await sendPayload(
-          {
-            height: media.height ?? undefined,
-            kind: media.kind,
+      if (readyGroups.length > 0) {
+        let first = true;
+        for (const group of readyGroups) {
+          const payload: MessagePayload = {
+            content: first && content ? content : undefined,
+            images: group.images,
+            kind: group.kind,
             type: "media",
-            url: media.url,
-            width: media.width ?? undefined,
-          },
-          // Media is its own message; keep any typed draft and active reply.
-          { preserveInput: true }
-        );
-      } catch (error) {
-        // Reset before rethrowing so the flag clears on the failure path too
-        // (replaces the previous `finally` clause).
-        setSendingMedia(false);
-        throw error;
+            ...(first && replyTarget
+              ? {
+                  replyToId: replyTarget.id,
+                  replyToSenderId: replyTarget.senderId,
+                }
+              : {}),
+          };
+          // oxlint-disable-next-line no-await-in-loop -- album groups share one ratchet sequence, so they must be encrypted and sent in order.
+          const ok = await sendPayload(payload);
+          // Drop exactly this group: groups already sent must never be resent
+          // if a later one fails and the sender retries.
+          removeAttachments(group.attachmentIds);
+          if (!ok) {
+            setSending(false);
+            return;
+          }
+          first = false;
+        }
+      } else {
+        const payload = replyTarget
+          ? {
+              content,
+              replyToId: replyTarget.id,
+              replyToSenderId: replyTarget.senderId,
+              type: "text" as const,
+            }
+          : { content, type: "text" as const };
+        const ok = await sendPayload(payload);
+        if (!ok) {
+          setSending(false);
+          return;
+        }
       }
-      setSendingMedia(false);
+    } catch {
+      // sendPayload surfaces its own failures via toast; just release the flag
+      // so the composer stays usable.
+      setSending(false);
+      return;
+    }
+    // Clear the sending flag BEFORE focusing: the textarea is disabled while
+    // `busy`, and a disabled element cannot receive focus, so focusing first
+    // was a no-op. The frame callback then runs after React has re-enabled
+    // it, so the caret actually lands. preventScroll keeps the just-scrolled
+    // transcript from being yanked by the browser focusing the composer.
+    setSending(false);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  }, [
+    attachments.length,
+    canSend,
+    peer,
+    privateKey,
+    readyGroups,
+    removeAttachments,
+    replyTarget,
+    sendPayload,
+    sending,
+    text,
+    user,
+  ]);
+
+  const handleFilesSelected = useCallback(
+    (files: FileList | File[] | null) => {
+      const list = files ? [...files] : [];
+      if (list.length > 0) {
+        addFiles(list);
+      }
     },
-    [sendPayload, sending, sendingMedia]
+    [addFiles]
   );
 
-  const conversationId = conversation.conversation.id;
-
-  const handleFileSelected = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      handleFilesSelected(event.target.files);
       event.target.value = "";
-      if (!file) {
-        return;
-      }
-      if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
-        toast({
-          description: "Messages support images and GIFs only.",
-          title: "Unsupported File",
-          variant: "destructive",
-        });
-        return;
-      }
-      try {
-        const media = await uploadMessageMedia(file, "image", conversationId);
-        await handleSendMedia(media);
-      } catch {
-        toast({
-          description: "Couldn't upload that image, try again?",
-          title: "Upload Failed",
-          variant: "destructive",
-        });
-      }
     },
-    [conversationId, handleSendMedia]
+    [handleFilesSelected]
   );
 
   const handleGifSelect = useCallback(
     async (gif: KlipyGif) => {
       setGifPickerOpen(false);
       try {
-        const blob = await fetch(gif.url).then((response) => {
-          if (!response.ok) {
-            throw new Error("Failed to fetch GIF");
-          }
-          return response.blob();
-        });
+        const response = await fetch(gif.url);
+        if (!response.ok) {
+          toast({
+            description: "Couldn't add that GIF, try another?",
+            title: "GIF Failed",
+            variant: "destructive",
+          });
+          return;
+        }
+        const blob = await response.blob();
         const file = new File([blob], `${gif.slug || "gif"}.gif`, {
           type: "image/gif",
         });
-        const media = await uploadMessageMedia(file, "gif", conversationId);
-        await handleSendMedia(media);
+        addFiles([file]);
       } catch {
         toast({
           description: "Couldn't add that GIF, try another?",
@@ -342,8 +381,48 @@ export function MessageComposer({
         });
       }
     },
-    [conversationId, handleSendMedia]
+    [addFiles]
   );
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    if (event.dataTransfer.types.includes("Files")) {
+      event.preventDefault();
+      setDragActive(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    // Ignore leaves that stay inside the composer (fired when moving between
+    // child elements), so the highlight does not flicker.
+    if (event.currentTarget.contains(event.relatedTarget as Node)) {
+      return;
+    }
+    setDragActive(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragActive(false);
+      handleFilesSelected(event.dataTransfer.files);
+    },
+    [handleFilesSelected]
+  );
+
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const { files } = event.clipboardData ?? {};
+      if (files && files.length > 0) {
+        event.preventDefault();
+        handleFilesSelected(files);
+      }
+    },
+    [handleFilesSelected]
+  );
+
+  const handleEditAttachment = useCallback((id: string) => {
+    setEditingId(id);
+  }, []);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -361,10 +440,24 @@ export function MessageComposer({
     [handleSend]
   );
 
-  const busy = sending || sendingMedia;
+  const busy = sending;
+  // Send is allowed with a caption, an album, or both; an album must be fully
+  // uploaded (and error-free) before it goes out.
+  const sendDisabled =
+    busy ||
+    isUploading ||
+    (attachments.length > 0 ? !canSend : text.trim().length === 0);
 
   return (
-    <div className="border-border/60 shrink-0 border-t px-4 py-3">
+    <div
+      className={cn(
+        "border-border/60 shrink-0 border-t px-4 py-3 transition-colors",
+        dragActive && "bg-[#ff9500]/5"
+      )}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {replyTarget ? (
         <div className="border-border/60 bg-muted/40 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <MessageSquareQuote className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
@@ -404,13 +497,24 @@ export function MessageComposer({
         </div>
       ) : null}
 
-      <div className="reels-input flex items-center gap-2 rounded-2xl! px-3 py-2">
+      <MessageAttachmentStrip
+        attachments={attachments}
+        onEdit={handleEditAttachment}
+        onRemove={removeAttachment}
+        onRetry={retryAttachment}
+      />
+
+      <div className="reels-input relative flex items-center gap-2 rounded-2xl! px-3 py-2">
+        {dragActive ? (
+          <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-[#ff9500]/70 bg-black/5 text-xs font-medium text-[#ff9500]">
+            Drop images to attach
+          </span>
+        ) : null}
         <input
           accept="image/*"
           className="hidden"
-          onChange={(event) => {
-            void handleFileSelected(event);
-          }}
+          multiple
+          onChange={handleFileInputChange}
           ref={fileInputRef}
           type="file"
         />
@@ -432,6 +536,7 @@ export function MessageComposer({
             }
           }}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={`Message ${peer?.user.displayName ?? "them"}…`}
           ref={textareaRef}
           rows={1}
@@ -468,7 +573,7 @@ export function MessageComposer({
         <button
           aria-label="Send message"
           className="follow-btn-3d flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-          disabled={busy || text.trim().length === 0}
+          disabled={sendDisabled}
           onClick={() => {
             void handleSend();
           }}
@@ -485,6 +590,18 @@ export function MessageComposer({
           )}
         </button>
       </div>
+
+      {editingAttachment ? (
+        <MessageImageEditDialog
+          file={editingAttachment.file}
+          kind={editingAttachment.kind}
+          objectUrl={editingAttachment.objectUrl}
+          onClose={() => setEditingId(null)}
+          onSave={(file) => {
+            replaceAttachmentFile(editingAttachment.id, file);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
