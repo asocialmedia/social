@@ -8,6 +8,7 @@ import {
   decideMediaAccess,
   resolveOwningCommunity,
 } from "@/lib/media/media-access";
+import { mediaError } from "@/lib/media/media-responses";
 import {
   DERIVATIVE_MIME_BY_EXT,
   parseVariantRequest,
@@ -70,7 +71,7 @@ export async function GET(
 ): Promise<Response> {
   const { mediaId, path: rawPath } = await context.params;
   if (!mediaId || !Array.isArray(rawPath)) {
-    return new NextResponse("Not found", { status: 400 });
+    return mediaError("Not found", 400);
   }
 
   // Ownership/visibility is read fresh (never cached), mirroring the main
@@ -112,7 +113,7 @@ export async function GET(
     where: { id: mediaId },
   });
   if (!ownership || ownership.status !== "READY") {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
   const session = await getSessionFromApi();
   const viewer = session?.user ?? null;
@@ -141,12 +142,12 @@ export async function GET(
     }
   );
   if (!decision.allowed) {
-    return new NextResponse("Media not found", { status: decision.status });
+    return mediaError("Media not found", decision.status);
   }
 
   const parsed = parseVariantRequest(rawPath);
   if (!parsed) {
-    return new NextResponse("Not found", { status: 404 });
+    return mediaError("Not found", 404);
   }
 
   try {
@@ -158,7 +159,7 @@ export async function GET(
         where: { kind: "hls", mediaId, variant: "master" },
       });
       if (!master) {
-        return new NextResponse("Not found", { status: 404 });
+        return mediaError("Not found", 404);
       }
       objectKey = `${hlsBaseFromMasterKey(master.key)}/${parsed.hlsFile}`;
     } else {
@@ -185,11 +186,11 @@ export async function GET(
       // (legacy rows, GIFs, exotic formats) serves its published original
       // instead of 404ing, so callers can always point at a variant URL.
       if (ownership.status !== "READY") {
-        return new NextResponse("Not found", { status: 404 });
+        return mediaError("Not found", 404);
       }
       objectKey = ownership.publishedKey ?? (ownership.key || null);
       if (!objectKey) {
-        return new NextResponse("Not found", { status: 404 });
+        return mediaError("Not found", 404);
       }
       mimeType =
         ownership.detectedMime ??
@@ -253,7 +254,7 @@ export async function GET(
         })
       );
       if (!response.Body) {
-        return new NextResponse("Not found", { status: 404 });
+        return mediaError("Not found", 404);
       }
       if (response.ContentLength) {
         headers.set("Content-Length", String(response.ContentLength));
@@ -280,7 +281,7 @@ export async function GET(
     // asset, not a server fault - clients get the same shape as an unknown
     // media id.
     if (isObjectNotFoundError(error)) {
-      return new NextResponse("Not found", { status: 404 });
+      return mediaError("Not found", 404);
     }
     const logger = getWebLogger();
     if (logger) {

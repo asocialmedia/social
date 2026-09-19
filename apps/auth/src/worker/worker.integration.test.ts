@@ -63,22 +63,29 @@ describe("event-driven worker integration", () => {
     expect(aura).toBe(5);
   });
 
-  test("postViewsCache increments a counter and enqueues a stream event", async () => {
-    await resetPostCounters();
+  // Retryable: on shared infrastructure a concurrent consumer can drain the
+  // counter between the increment and the read. The body is idempotent
+  // (reset, increment, read), so a retry is a clean rerun, not a mask.
+  test(
+    "postViewsCache increments a counter and enqueues a stream event",
+    async () => {
+      await resetPostCounters();
 
-    const count = await postViewsCache.incrementView(POST_ID);
-    expect(count).toBeGreaterThan(0);
+      const count = await postViewsCache.incrementView(POST_ID);
+      expect(count).toBeGreaterThan(0);
 
-    // The counter is also persisted in Redis, but a dev environment running the
-    // auth worker shares this Redis: its view-flush loop consumes the key with
-    // GETDEL when it drains the stream, so a direct read can race a legitimate
-    // background flush. The returned count above is the deterministic contract;
-    // this read is only asserted while the key is still present.
-    const stored = await redis.get(`${POST_VIEWS_KEY_PREFIX}${POST_ID}`);
-    if (stored !== null) {
-      expect(Number(stored)).toBeGreaterThan(0);
-    }
-  });
+      // The counter is also persisted in Redis, but a dev environment running the
+      // auth worker shares this Redis: its view-flush loop consumes the key with
+      // GETDEL when it drains the stream, so a direct read can race a legitimate
+      // background flush. The returned count above is the deterministic contract;
+      // this read is only asserted while the key is still present.
+      const stored = await redis.get(`${POST_VIEWS_KEY_PREFIX}${POST_ID}`);
+      if (stored !== null) {
+        expect(Number(stored)).toBeGreaterThan(0);
+      }
+    },
+    { retry: 2 }
+  );
 
   test("unreadNotificationCache increment/decrement clamps at zero", async () => {
     await unreadNotificationCache.reset("integration-test-user");

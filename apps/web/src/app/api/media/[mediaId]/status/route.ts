@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { mediaJsonError } from "@/lib/media/media-responses";
 import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 
 // Lightweight lifecycle polling for the composer: the frontend uploads
@@ -15,7 +16,7 @@ export async function GET(
 ): Promise<Response> {
   const { mediaId } = await context.params;
   if (!mediaId) {
-    return Response.json({ error: "Media ID is required" }, { status: 400 });
+    return mediaJsonError("Media ID is required", 400);
   }
 
   const media = await prisma.media.findUnique({
@@ -34,7 +35,7 @@ export async function GET(
     where: { id: mediaId },
   });
   if (!media) {
-    return Response.json({ error: "Media not found" }, { status: 404 });
+    return mediaJsonError("Media not found", 404);
   }
 
   const session = await getSessionFromApi();
@@ -45,10 +46,7 @@ export async function GET(
   );
   const decision = decideMediaAccess(media, viewer, { isConversationMember });
   if (!decision.allowed) {
-    return Response.json(
-      { error: "Media not found" },
-      { status: decision.status }
-    );
+    return mediaJsonError("Media not found", decision.status);
   }
 
   return NextResponse.json({

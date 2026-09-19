@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { decideMediaAccess } from "@/lib/media/media-access";
+import { mediaError, mediaJsonError } from "@/lib/media/media-responses";
 import { resolveMessageMediaMembership } from "@/lib/media/message-media-access";
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
 import { getWebLogger } from "@/lib/otel";
@@ -23,7 +24,7 @@ export async function GET(
   const session = await getSessionFromApi();
   const user = session?.user;
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return mediaJsonError("Unauthorized", 401);
   }
 
   const { mediaId } = await ctx.params;
@@ -42,7 +43,7 @@ export async function GET(
     where: { id: mediaId },
   });
   if (!media) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
 
   // Lifecycle gate — mirrors the main serving route's isServableMedia.
@@ -55,14 +56,14 @@ export async function GET(
     media.status === "DELETED" ||
     media.status === "FAILED"
   ) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
   if (
     media.status !== "READY" &&
     !media.publishedKey &&
     media.key.length === 0
   ) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
 
   const decision = decideMediaAccess(media, user, {
@@ -72,21 +73,21 @@ export async function GET(
     ),
   });
   if (!decision.allowed) {
-    return new NextResponse(
+    return mediaError(
       decision.status === 401 ? "Unauthorized" : "Media not found",
-      { status: decision.status }
+      decision.status
     );
   }
 
   // SVG / PDF / code payloads have no support at any level - downloads are
   // rejected too, not just inline rendering.
   if (isBlockedMediaMime(media.mimeType)) {
-    return new NextResponse("Unsupported media type", { status: 415 });
+    return mediaError("Unsupported media type", 415);
   }
 
   const objectKey = media.publishedKey || media.key;
   if (!objectKey) {
-    return new NextResponse("Media not found", { status: 404 });
+    return mediaError("Media not found", 404);
   }
 
   try {
@@ -97,7 +98,7 @@ export async function GET(
       })
     );
     if (!response.Body) {
-      return new NextResponse("Media content not found", { status: 404 });
+      return mediaError("Media content not found", 404);
     }
 
     const body =
@@ -132,7 +133,7 @@ export async function GET(
       error instanceof S3ServiceException &&
       (error.name === "NoSuchKey" || error.$metadata.httpStatusCode === 404)
     ) {
-      return new NextResponse("Media not found", { status: 404 });
+      return mediaError("Media not found", 404);
     }
     const logger = getWebLogger();
     if (logger) {
