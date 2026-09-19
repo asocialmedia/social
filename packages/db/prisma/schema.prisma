@@ -9,78 +9,79 @@ datasource db {
 }
 
 model User {
-  id                     String                      @id @default(cuid())
-  aura                   Int                         @default(0)
-  username               String                      @unique
-  displayName            String
-  displayUsername        String?
-  email                  String?                     @unique
-  passwordHash           String?
-  googleId               String?                     @unique
-  githubId               String?                     @unique
-  discordId              String?                     @unique
-  twitterId              String?                     @unique
-  redditId               String?                     @unique
-  avatarUrl              String?
-  avatarKey              String?
-  avatarMediaId          String?                     @unique
-  avatarMedia            Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
-  bannerUrl              String?
-  bannerKey              String?
-  bannerMediaId          String?                     @unique
-  bannerMedia            Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
-  bio                    String?
-  githubUsername         String?
-  linkedinUsername       String?
-  twitterUsername        String?
-  redditUsername         String?
-  customDomain           String?
-  emailVerified          Boolean                     @default(false)
-  emailVerifiedAt        DateTime?
-  twoFactorEnabled       Boolean                     @default(false)
-  lastLoginMethod        String?
-  image                  String?
-  name                   String?
-  role                   String                      @default("user")
-  badge                  String?
-  badges                 String[]                    @default([])
-  banned                 Boolean                     @default(false)
-  banReason              String?
-  banExpires             DateTime?
-  sessions               Session[]
-  accounts               Account[]
-  twoFactor              TwoFactor?
-  passkeys               Passkey[]
-  usernameAliases        UsernameAlias[]
-  verifications          Verification[]
-  passwordResetTokens    PasswordResetToken[]
-  mentions               Mention[]
-  posts                  Post[]
-  following              Follow[]                    @relation("Following")
-  followers              Follow[]                    @relation("Followers")
-  bookmarks              Bookmark[]
-  comments               Comment[]
-  vote                   Vote[]
-  commentVotes           CommentVote[]
-  receivedNotifications  Notification[]              @relation("Recipient")
-  issuedNotifications    Notification[]              @relation("Issuer")
-  hnbookmark             HNBookmark[]
-  postVisits             PostVisit[]
-  auraReceived           AuraLog[]                   @relation("AuraReceived")
-  auraIssued             AuraLog[]                   @relation("AuraIssued")
-  impersonatedSessions   Session[]                   @relation("ImpersonatedSessions")
-  messageIdentity        MessageIdentity?
-  messageMemberships     MessageConversationMember[]
-  messageKeys            MessageConversationKey[]
-  messagesSent           Message[]
-  blocksIssued           Block[]                     @relation("BlocksIssued")
-  blocksReceived         Block[]                     @relation("BlocksReceived")
-  recommendationEvents   RecommendationEvent[]
-  ownedCommunities       Community[]                 @relation("CommunityOwner")
-  communityMemberships   CommunityMember[]
-  communityVisits        CommunityVisit[]
-  communityJoinBonuses   CommunityJoinBonus[]
-  communitySubscriptions CommunitySubscription[]
+  id                        String                      @id @default(cuid())
+  aura                      Int                         @default(0)
+  username                  String                      @unique
+  displayName               String
+  displayUsername           String?
+  email                     String?                     @unique
+  passwordHash              String?
+  googleId                  String?                     @unique
+  githubId                  String?                     @unique
+  discordId                 String?                     @unique
+  twitterId                 String?                     @unique
+  redditId                  String?                     @unique
+  avatarUrl                 String?
+  avatarKey                 String?
+  avatarMediaId             String?                     @unique
+  avatarMedia               Media?                      @relation("UserAvatar", fields: [avatarMediaId], references: [id], onDelete: SetNull)
+  bannerUrl                 String?
+  bannerKey                 String?
+  bannerMediaId             String?                     @unique
+  bannerMedia               Media?                      @relation("UserBanner", fields: [bannerMediaId], references: [id], onDelete: SetNull)
+  bio                       String?
+  githubUsername            String?
+  linkedinUsername          String?
+  twitterUsername           String?
+  redditUsername            String?
+  customDomain              String?
+  emailVerified             Boolean                     @default(false)
+  emailVerifiedAt           DateTime?
+  twoFactorEnabled          Boolean                     @default(false)
+  lastLoginMethod           String?
+  image                     String?
+  name                      String?
+  role                      String                      @default("user")
+  badge                     String?
+  badges                    String[]                    @default([])
+  banned                    Boolean                     @default(false)
+  banReason                 String?
+  banExpires                DateTime?
+  sessions                  Session[]
+  accounts                  Account[]
+  twoFactor                 TwoFactor?
+  passkeys                  Passkey[]
+  usernameAliases           UsernameAlias[]
+  verifications             Verification[]
+  passwordResetTokens       PasswordResetToken[]
+  mentions                  Mention[]
+  posts                     Post[]
+  following                 Follow[]                    @relation("Following")
+  followers                 Follow[]                    @relation("Followers")
+  bookmarks                 Bookmark[]
+  comments                  Comment[]
+  vote                      Vote[]
+  commentVotes              CommentVote[]
+  receivedNotifications     Notification[]              @relation("Recipient")
+  issuedNotifications       Notification[]              @relation("Issuer")
+  hnbookmark                HNBookmark[]
+  postVisits                PostVisit[]
+  auraReceived              AuraLog[]                   @relation("AuraReceived")
+  auraIssued                AuraLog[]                   @relation("AuraIssued")
+  impersonatedSessions      Session[]                   @relation("ImpersonatedSessions")
+  messageIdentity           MessageIdentity?
+  messageRecoveryCredential MessageRecoveryCredential?
+  messageMemberships        MessageConversationMember[]
+  messageKeys               MessageConversationKey[]
+  messagesSent              Message[]
+  blocksIssued              Block[]                     @relation("BlocksIssued")
+  blocksReceived            Block[]                     @relation("BlocksReceived")
+  recommendationEvents      RecommendationEvent[]
+  ownedCommunities          Community[]                 @relation("CommunityOwner")
+  communityMemberships      CommunityMember[]
+  communityVisits           CommunityVisit[]
+  communityJoinBonuses      CommunityJoinBonus[]
+  communitySubscriptions    CommunitySubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -109,23 +110,57 @@ model UsernameAlias {
 }
 
 model MessageIdentity {
-  userId              String   @id
-  publicKey           String
-  encryptedPrivateKey String
-  masterKeyHash       String?
-  salt                String
-  kdfIterations       Int
+  userId                 String   @id
+  publicKey              String
+  encryptedPrivateKey    String
+  masterKeyHash          String?
+  salt                   String
+  kdfIterations          Int
   // Which mechanism derives the backup key for this row. `manual-secret` is the
   // original scheme (random 64-char secret held in device storage); `passkey-prf`
   // derives it from a WebAuthn PRF output, so the credential syncs with the
   // user's platform account and no human-managed secret can be lost. Existing
   // rows default to manual-secret and keep working unchanged.
-  backupMethod        String   @default("manual-secret")
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  backupMethod           String   @default("manual-secret")
+  // A SECOND backup copy of the private key, encrypted under a key derived from
+  // the recovery credential's PRF output. Stored alongside the manual-secret
+  // backup rather than replacing it, so enrolling a passkey can never lock out
+  // a device that only holds the manual secret. Both are ciphertext; the server
+  // can derive neither. `prfVerifier` is the SHA-256 of the PRF output, used to
+  // confirm the authenticator released the expected bytes before decrypting.
+  prfEncryptedPrivateKey String?
+  prfVerifier            String?
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@map("message_identities")
+}
+
+// A WebAuthn credential registered solely for messages backup recovery — NOT a
+// sign-in passkey, and deliberately separate from `Passkey` so removing a
+// sign-in method can never silently destroy E2EE recovery (or vice versa).
+//
+// The credential's PRF output derives the messages backup key on the client.
+// The server stores only what it needs to build assertion options and verify
+// the signature; the PRF output itself never leaves the device. One credential
+// per user: a second enrollment replaces the first, since the backup key is
+// re-wrapped under the newly derived key at the same time.
+model MessageRecoveryCredential {
+  userId       String   @id
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // base64url credential id, returned in allowCredentials.
+  credentialId String   @unique
+  // COSE public key (base64url), used to verify assertions.
+  publicKey    String
+  // Signature counter, advanced on each successful assertion to reject replays.
+  counter      Int      @default(0)
+  // Comma-separated authenticator transports, for the browser's `get()` hint.
+  transports   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("message_recovery_credentials")
 }
 
 model MessageConversation {
