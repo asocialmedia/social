@@ -1,5 +1,6 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import {
   AlertCircle,
   ArrowLeft,
@@ -63,6 +64,7 @@ function getInputShadow(hasError: boolean, isFocused: boolean): string {
 
 export default function LoginScreen() {
   const { isDark, theme } = useAppTheme();
+  const router = useRouter();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -418,7 +420,10 @@ export default function LoginScreen() {
 
                 {/* Auxiliary links: Forgot password & Need help */}
                 <View className="mt-0.5 mb-3 flex-row items-center justify-end">
-                  <Pressable hitSlop={4}>
+                  <Pressable
+                    hitSlop={4}
+                    onPress={() => router.push("/(auth)/reset-password")}
+                  >
                     <Text
                       className="text-xs"
                       style={[styles.fontMedium, { color: theme.auxLink }]}
@@ -435,7 +440,10 @@ export default function LoginScreen() {
                   >
                     or
                   </Text>
-                  <Pressable hitSlop={4}>
+                  <Pressable
+                    hitSlop={4}
+                    onPress={() => router.push("/(auth)/help")}
+                  >
                     <Text
                       className="text-xs"
                       style={[styles.fontMedium, { color: theme.auxLink }]}
@@ -519,7 +527,10 @@ export default function LoginScreen() {
 
                 {/* Sign Up Link */}
                 <View className="mt-5 items-center">
-                  <Pressable hitSlop={6}>
+                  <Pressable
+                    hitSlop={6}
+                    onPress={() => router.push("/(auth)/signup")}
+                  >
                     <Text
                       className="text-sm text-[#ff9500]"
                       style={styles.fontMedium}
