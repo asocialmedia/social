@@ -123,6 +123,11 @@ jobs:
       merge-pr-number: ${{ steps.pr-check.outputs.pr-number }}
       quality-already-passed: ${{ steps.pr-check.outputs.quality-already-passed }}
     steps:
+      # The script below lives in the repository, so it must be checked out:
+      # each job gets a fresh, empty workspace.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Check whether commit came from merged PR
         id: pr-check
         uses: actions/github-script@v8
@@ -142,6 +147,11 @@ jobs:
       has-mobile-changes: ${{ steps.changed-apps.outputs.has-mobile-changes }}
       selected-apps: ${{ steps.changed-apps.outputs.selected-apps }}
     steps:
+      # The script below lives in the repository, so it must be checked out:
+      # each job gets a fresh, empty workspace.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Resolve changed apps from merged PR
         id: changed-apps
         uses: actions/github-script@v8

@@ -32,7 +32,7 @@ module.exports = async function determineBuildMatrix({
 }) {
   const { owner, repo } = context.repo;
 
-  const changedFiles = await selectChangedFiles({
+  const { files: changedFiles, truncated } = await selectChangedFiles({
     context,
     github,
     owner,
@@ -44,12 +44,21 @@ module.exports = async function determineBuildMatrix({
   } else {
     core.info(`Push changed ${changedFiles.length} files.`);
   }
+  if (truncated) {
+    // The file list was capped, so any specific change could be missing. Build
+    // everything rather than guess wrong.
+    core.warning(
+      `Changed-file list was truncated at ${changedFiles.length}; building all targets.`
+    );
+  }
 
-  const shouldBuildAll = changedFiles.some(
-    (file) =>
-      TRIGGER_ALL_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
-      TRIGGER_ALL_FILES.has(file)
-  );
+  const shouldBuildAll =
+    truncated ||
+    changedFiles.some(
+      (file) =>
+        TRIGGER_ALL_PREFIXES.some((prefix) => file.startsWith(prefix)) ||
+        TRIGGER_ALL_FILES.has(file)
+    );
 
   const selectedApps = shouldBuildAll
     ? APP_ENTRIES
@@ -57,9 +66,12 @@ module.exports = async function determineBuildMatrix({
         changedFiles.some((file) => file.startsWith(`apps/${app}/`))
       );
 
-  const hasMobileChanges = changedFiles.some(
-    (file) => file.startsWith("apps/mobile/") || MOBILE_TRIGGER_FILES.has(file)
-  );
+  const hasMobileChanges =
+    truncated ||
+    changedFiles.some(
+      (file) =>
+        file.startsWith("apps/mobile/") || MOBILE_TRIGGER_FILES.has(file)
+    );
   core.setOutput("has-mobile-changes", hasMobileChanges ? "true" : "false");
   core.info(`Mobile app changes: ${hasMobileChanges}`);
 

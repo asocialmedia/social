@@ -7,28 +7,43 @@
 # Requires: DOKPLOY_API_URL, DOKPLOY_API_TOKEN, DOKPLOY_PRISMA_APP_ID
 set -eu
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./dokploy-api.sh
+. "${SCRIPT_DIR}/dokploy-api.sh"
+
 if [ -z "${DOKPLOY_API_URL:-}" ] || [ -z "${DOKPLOY_API_TOKEN:-}" ] || [ -z "${DOKPLOY_PRISMA_APP_ID:-}" ]; then
   echo "Missing Dokploy configuration. Set DOKPLOY_API_URL, DOKPLOY_API_TOKEN and DOKPLOY_PRISMA_APP_ID secrets."
   exit 1
 fi
 
-API_URL="${DOKPLOY_API_URL%/}"
-case "${API_URL}" in
-  http://*) API_URL="https://${API_URL#http://}" ;;
-esac
+API_URL="$(dokploy_base_url "${DOKPLOY_API_URL}")"
 APP_ID="${DOKPLOY_PRISMA_APP_ID}"
 
-BASELINE=$(curl -sS -L \
+# The baseline must be read reliably: an empty value means "no deployment yet",
+# so mistaking a failed request for an empty list would let the wait loop below
+# match a stale deployment and report success before the new run starts.
+if ! BASELINE_RESPONSE=$(dokploy_curl -sS \
   --retry 3 \
   --retry-delay 3 \
   --retry-connrefused \
   "${API_URL}/api/deployment.all?applicationId=${APP_ID}" \
   -H 'accept: application/json' \
-  -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
-  | jq -r 'if type == "array" and length > 0 then .[0].deploymentId else "" end' 2>/dev/null || true)
+  -H "x-api-key: ${DOKPLOY_API_TOKEN}"); then
+  echo "Failed to fetch the current deployment list from Dokploy." >&2
+  exit 1
+fi
+
+if ! printf '%s' "${BASELINE_RESPONSE}" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  echo "Dokploy deployment.all did not return a JSON array; refusing to continue." >&2
+  printf '%s\n' "${BASELINE_RESPONSE}" | head -c 300 >&2
+  echo "" >&2
+  exit 1
+fi
+
+BASELINE=$(printf '%s' "${BASELINE_RESPONSE}" | jq -r 'if length > 0 then .[0].deploymentId else "" end')
 echo "Baseline deployment (pre-trigger): ${BASELINE:-none}"
 
-curl -L -X 'POST' \
+dokploy_curl -X 'POST' \
   --retry 3 \
   --retry-delay 5 \
   --retry-connrefused \
@@ -42,7 +57,7 @@ curl -L -X 'POST' \
 echo "Prisma sync container triggered for application ${APP_ID}."
 
 fetch_deployments() {
-  curl -sS -L \
+  dokploy_curl -sS \
     --retry 2 \
     --retry-delay 3 \
     --retry-connrefused \
@@ -53,7 +68,7 @@ fetch_deployments() {
 }
 
 fetch_logs() {
-  curl -sS -L \
+  dokploy_curl -sS \
     --retry 2 \
     --retry-delay 3 \
     --retry-connrefused \

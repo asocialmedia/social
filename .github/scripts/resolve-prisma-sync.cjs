@@ -25,7 +25,7 @@ module.exports = async function resolvePrismaSync({
   prNumber,
 }) {
   const { owner, repo } = context.repo;
-  const changedFiles = await selectChangedFiles({
+  const { files: changedFiles, truncated } = await selectChangedFiles({
     context,
     github,
     owner,
@@ -40,9 +40,18 @@ module.exports = async function resolvePrismaSync({
       TRIGGER_FILES.has(file)
   );
 
-  core.setOutput("should-run", relevant.length > 0 ? "true" : "false");
+  // A capped file list could have hidden a schema change, so treat truncation as
+  // "needs syncing" rather than skipping it.
+  const shouldRun = truncated || relevant.length > 0;
+  if (truncated) {
+    core.warning(
+      `Changed-file list was truncated at ${changedFiles.length}; running Prisma sync.`
+    );
+  }
+
+  core.setOutput("should-run", shouldRun ? "true" : "false");
   core.setOutput("needed-files", relevant.join(", "));
   core.info(
-    `Prisma sync ${relevant.length > 0 ? "needed" : "skipped"}. Changed files: ${changedFiles.join(", ")}`
+    `Prisma sync ${shouldRun ? "needed" : "skipped"}. Changed files: ${changedFiles.join(", ")}`
   );
 };

@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 # Triggers a Dokploy redeploy for one application.
 #
-# Dokploy is often configured with a scheme-less host (dokploy.example.com/api),
-# so a bare http:// is upgraded to https://. Requires the DOKPLOY_API_URL,
-# DOKPLOY_API_TOKEN and DOKPLOY_APP_ID env vars; exits 0 without deploying when
-# the application id is unset (e.g. the optional worker app).
+# The API URL may be configured without a scheme and is normalised to HTTPS via
+# the shared helper, so the API token is never sent in cleartext. Requires the
+# DOKPLOY_API_URL, DOKPLOY_API_TOKEN and DOKPLOY_APP_ID env vars; exits 0 without
+# deploying when the application id is unset (e.g. the optional worker app).
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./dokploy-api.sh
+. "${SCRIPT_DIR}/dokploy-api.sh"
 
 if [ -z "${DOKPLOY_API_URL:-}" ] || [ -z "${DOKPLOY_API_TOKEN:-}" ] || [ -z "${DOKPLOY_APP_ID:-}" ]; then
   echo "Dokploy deploy skipped: DOKPLOY_API_URL, DOKPLOY_API_TOKEN and DOKPLOY_APP_ID must all be set."
   exit 0
 fi
 
-API_URL="${DOKPLOY_API_URL%/}"
-case "${API_URL}" in
-  http://*) API_URL="https://${API_URL#http://}" ;;
-esac
+API_URL="$(dokploy_base_url "${DOKPLOY_API_URL}")"
 
-curl -L -X 'POST' \
+dokploy_curl -X 'POST' \
   --retry 3 \
   --retry-delay 5 \
   --retry-connrefused \

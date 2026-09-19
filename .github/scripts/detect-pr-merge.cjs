@@ -29,7 +29,14 @@ module.exports = async function detectPrMerge({ github, context, core }) {
         repo,
       });
       const pr = prResponse.data;
-      if (pr?.merged_at && pr.base.ref === "main") {
+      // The message's PR number is only a hint: a later push could mention an
+      // unrelated merged PR. Confirm this push is that PR's merge commit before
+      // trusting it; otherwise fall through to the commit-scoped lookup below.
+      if (
+        pr?.merged_at &&
+        pr.base.ref === "main" &&
+        pr.merge_commit_sha === commitSha
+      ) {
         mergedPr = pr;
       }
     } catch (error) {

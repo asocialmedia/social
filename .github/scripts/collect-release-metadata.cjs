@@ -1,3 +1,15 @@
+// A push payload's head_commit.author carries a login (`username`) but no
+// profile URL, unlike the commits API. Build one so direct-push release notes
+// still link the author, and only for a well-formed login: the value is
+// interpolated into Markdown, so a malformed one must not be trusted.
+const GITHUB_LOGIN = /^[A-Za-z0-9-]+$/u;
+
+function authorProfileUrl(username) {
+  return typeof username === "string" && GITHUB_LOGIN.test(username)
+    ? `https://github.com/${username}`
+    : "";
+}
+
 function commitFromApi(commit) {
   return {
     author: commit.author?.login || commit.commit.author?.name || "unknown",
@@ -52,10 +64,11 @@ module.exports = async function collectReleaseMetadata({
   if (commits.length === 0) {
     const headCommit = context.payload?.head_commit;
     if (headCommit) {
-      const author =
-        headCommit.author?.username || headCommit.author?.name || context.actor;
+      const username = headCommit.author?.username;
+      const author = username || headCommit.author?.name || context.actor;
       commits.push({
         author,
+        authorUrl: authorProfileUrl(username),
         message: headCommit.message,
         sha: headCommit.id,
       });

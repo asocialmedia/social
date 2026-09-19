@@ -6,10 +6,15 @@
 //   ANDROID_KEYSTORE_BASE64   base64 of the .keystore (CI only; local uses the file)
 //   ANDROID_KEYSTORE_PASSWORD store password
 //   ANDROID_KEY_ALIAS         key alias
+//   ANDROID_KEY_PASSWORD      key password, JKS only (ignored for PKCS12)
 //
-// The keystore is PKCS12, which carries a single password, so the key password
-// is always the store password. Supplying a distinct key password is impossible
-// on PKCS12 and silently produces an undecryptable key.
+// Both keystore formats are supported:
+//   PKCS12 - carries a single password, so the key password is always the store
+//            password. keytool silently discards a distinct -keypass at
+//            creation, and supplying one at build time yields an undecryptable
+//            key (`Given final block not properly padded`).
+//   JKS    - may carry a key password distinct from the store password; it is
+//            read from ANDROID_KEY_PASSWORD/keypass.txt and verified up front.
 import {
   access,
   copyFile,
@@ -58,6 +63,7 @@ async function readCredentialFile(name: string): Promise<string | null> {
 interface ResolvedKeystore {
   cleanup: () => Promise<void>;
   keyAlias: string;
+  keyPassword: string;
   /** Where the keystore lives now; copied into android/app/ after prebuild. */
   sourcePath: string;
   storePassword: string;
@@ -86,12 +92,16 @@ async function resolveKeystorePath(): Promise<{
   }
 
   const scratch = await mkdtemp(path.join(tmpdir(), "asm-android-keystore-"));
-  const decoded = path.join(scratch, "release.keystore");
-  await writeFile(decoded, Buffer.from(base64, "base64"));
-  return {
-    cleanup: () => rm(scratch, { force: true, recursive: true }),
-    path: decoded,
-  };
+  const cleanup = () => rm(scratch, { force: true, recursive: true });
+  try {
+    const decoded = path.join(scratch, "release.keystore");
+    await writeFile(decoded, Buffer.from(base64, "base64"));
+    return { cleanup, path: decoded };
+  } catch (error) {
+    // Never leave a decoded production keystore behind.
+    await cleanup();
+    throw error;
+  }
 }
 
 async function keystoreType(
@@ -113,6 +123,38 @@ async function keystoreType(
   return match[1];
 }
 
+/**
+ * Proves a JKS key can actually be decrypted with the given key password.
+ *
+ * Only meaningful for JKS: `keytool` ignores `-srckeypass` for PKCS12 (it warns
+ * and falls back to the store password), so a PKCS12 probe always succeeds.
+ * Gradle otherwise only reports a bad key password as
+ * `KeytoolException: ... Given final block not properly padded` after a full
+ * ~3 minute build, so fail fast here instead.
+ */
+async function assertKeyReadable(
+  keystorePath: string,
+  storePassword: string,
+  keyPassword: string,
+  keyAlias: string
+): Promise<void> {
+  const scratch = await mkdtemp(path.join(tmpdir(), "asm-key-probe-"));
+  const probe = path.join(scratch, "probe.jks");
+  try {
+    const result =
+      await $`keytool -importkeystore -srckeystore ${keystorePath} -srcstorepass ${storePassword} -srcalias ${keyAlias} -srckeypass ${keyPassword} -destkeystore ${probe} -deststoretype jks -deststorepass probe-password -destkeypass probe-password`
+        .nothrow()
+        .quiet();
+    if (result.exitCode !== 0) {
+      fail(
+        `The keystore's private key cannot be decrypted with the configured credentials.\n\n${result.stderr.toString().trim()}`
+      );
+    }
+  } finally {
+    await rm(scratch, { force: true, recursive: true });
+  }
+}
+
 async function resolveKeystore(): Promise<ResolvedKeystore> {
   const storePassword =
     process.env.ANDROID_KEYSTORE_PASSWORD?.trim() ??
@@ -120,6 +162,10 @@ async function resolveKeystore(): Promise<ResolvedKeystore> {
   const keyAlias =
     process.env.ANDROID_KEY_ALIAS?.trim() ??
     (await readCredentialFile("alias.txt"));
+  // Only meaningful for JKS; PKCS12 has no second password to supply.
+  const explicitKeyPassword =
+    process.env.ANDROID_KEY_PASSWORD?.trim() ??
+    (await readCredentialFile("keypass.txt"));
 
   if (!storePassword) {
     fail(
@@ -134,21 +180,42 @@ async function resolveKeystore(): Promise<ResolvedKeystore> {
 
   step("Verifying signing credentials");
   const { cleanup, path: sourcePath } = await resolveKeystorePath();
-  const type = await keystoreType(sourcePath, storePassword);
 
-  if (type.toUpperCase() !== "PKCS12") {
-    // JKS allows a distinct key password; PKCS12 does not. Nothing in this repo
-    // uses JKS, so refusing avoids silently signing with the wrong key.
+  try {
+    const type = await keystoreType(sourcePath, storePassword);
+    const normalizedType = type.toUpperCase();
+
+    let keyPassword: string;
+    if (normalizedType === "PKCS12") {
+      // A PKCS12 keystore carries a single password, and keytool silently
+      // ignores any distinct -keypass supplied at creation. The store password
+      // is the only value that can open the key, so a separate key password is
+      // not just unnecessary here - using one produces an undecryptable key.
+      keyPassword = storePassword;
+      if (explicitKeyPassword && explicitKeyPassword !== storePassword) {
+        console.warn(
+          "ANDROID_KEY_PASSWORD differs from the store password, but this PKCS12 keystore has a single password; using the store password."
+        );
+      }
+      console.log(
+        "Keystore type: PKCS12 - using the store password as the key password."
+      );
+    } else if (normalizedType === "JKS") {
+      // JKS can carry a key password distinct from the store password.
+      keyPassword = explicitKeyPassword ?? storePassword;
+      await assertKeyReadable(sourcePath, storePassword, keyPassword, keyAlias);
+      console.log("Keystore type: JKS - key password verified.");
+    } else {
+      fail(`Unsupported keystore type ${type}; expected PKCS12 or JKS.`);
+    }
+
+    return { cleanup, keyAlias, keyPassword, sourcePath, storePassword };
+  } catch (error) {
+    // Any validation failure must not strand a decoded production keystore in
+    // the scratch directory.
     await cleanup();
-    fail(
-      `Unexpected keystore type ${type}; this build expects a PKCS12 keystore.`
-    );
+    throw error;
   }
-  console.log(
-    "Keystore type: PKCS12 - using the store password as the key password."
-  );
-
-  return { cleanup, keyAlias, sourcePath, storePassword };
 }
 
 function findApksigner(): string {
@@ -187,7 +254,7 @@ async function assertTooling(): Promise<void> {
 
 async function main(): Promise<void> {
   await assertTooling();
-  const { cleanup, keyAlias, sourcePath, storePassword } =
+  const { cleanup, keyAlias, keyPassword, sourcePath, storePassword } =
     await resolveKeystore();
   const abi = process.env.ASM_ANDROID_ABI ?? DEFAULT_ABI;
 
@@ -213,7 +280,7 @@ async function main(): Promise<void> {
       .env({
         ...process.env,
         ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_ALIAS: keyAlias,
-        ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_PASSWORD: storePassword,
+        ORG_GRADLE_PROJECT_ASM_UPLOAD_KEY_PASSWORD: keyPassword,
         ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_FILE: "release.keystore",
         ORG_GRADLE_PROJECT_ASM_UPLOAD_STORE_PASSWORD: storePassword,
       });
@@ -254,8 +321,11 @@ async function main(): Promise<void> {
     console.log(`Version:  v${version}`);
     console.log(`\nInstall with: adb install -r "${destination}"`);
   } finally {
-    // Removes the scratch dir the CI keystore was decoded into.
+    // Remove every provisioned copy of the production keystore, on success and
+    // failure alike: the scratch dir the CI secret was decoded into, and the
+    // copy the Gradle build signed with.
     await cleanup();
+    await rm(path.join(APP_DIR, "release.keystore"), { force: true });
   }
 }
 
