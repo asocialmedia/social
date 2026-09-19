@@ -22,11 +22,52 @@ export interface AppJson {
 export interface BumpContext {
   fileExists: (pkgPath: string) => Promise<boolean>;
   getStagedFiles: () => Promise<string[]>;
+  readLockfile?: (lockPath: string) => Promise<string>;
   readPackageJson: (pkgPath: string) => Promise<PackageJson>;
   readAppJson?: (appPath: string) => Promise<AppJson>;
   stageFile: (filePath: string) => Promise<void>;
+  writeLockfile?: (lockPath: string, content: string) => Promise<void>;
   writePackageJson: (pkgPath: string, pkg: PackageJson) => Promise<void>;
   writeAppJson?: (appPath: string, app: AppJson) => Promise<void>;
+}
+
+// The lockfile is JSONC (bun writes trailing commas), so parse-and-reserialize
+// would reformat the whole file. Target the workspace blocks textually instead.
+export const LOCKFILE_PATH = "bun.lock";
+
+/**
+ * Rewrites the recorded `version` of each workspace block in a bun.lock string.
+ * Only the first `"version"` after the workspace's own block header is touched,
+ * which is the workspace version, never a dependency range.
+ */
+export function updateLockfileWorkspaceVersions(
+  content: string,
+  versions: Map<string, string>
+): string {
+  let updated = content;
+
+  for (const [workspacePath, version] of versions) {
+    const blockStart = updated.indexOf(`"${workspacePath}": {`);
+    if (blockStart === -1) {
+      continue;
+    }
+
+    const versionKey = '"version": "';
+    const valueStart =
+      updated.indexOf(versionKey, blockStart) + versionKey.length;
+    if (valueStart < versionKey.length) {
+      continue;
+    }
+
+    const valueEnd = updated.indexOf('"', valueStart);
+    if (valueEnd === -1) {
+      continue;
+    }
+
+    updated = `${updated.slice(0, valueStart)}${version}${updated.slice(valueEnd)}`;
+  }
+
+  return updated;
 }
 
 interface GitCommandResult {
@@ -227,6 +268,31 @@ async function bumpVersions(
     await context.stageFile(pkgPath);
   }
 
+  // Keep the committed lockfile's workspace versions in step with the manifests
+  // it mirrors, otherwise every commit leaves the lock recording the previous
+  // release and tools that read workspace metadata report the wrong version.
+  if (context.readLockfile && context.writeLockfile) {
+    const lockVersions = new Map<string, string>();
+    for (const { pkg, pkgPath } of packageWrites) {
+      const workspacePath = path.dirname(pkgPath);
+      if (workspacePath !== ".") {
+        lockVersions.set(workspacePath, pkg.version);
+      }
+    }
+
+    if (lockVersions.size > 0 && (await context.fileExists(LOCKFILE_PATH))) {
+      const lockContent = await context.readLockfile(LOCKFILE_PATH);
+      const nextLockContent = updateLockfileWorkspaceVersions(
+        lockContent,
+        lockVersions
+      );
+      if (nextLockContent !== lockContent) {
+        await context.writeLockfile(LOCKFILE_PATH, nextLockContent);
+        await context.stageFile(LOCKFILE_PATH);
+      }
+    }
+  }
+
   for (const { app, appPath } of appWrites) {
     if (context.writeAppJson) {
       // eslint-disable-next-line no-await-in-loop
@@ -327,6 +393,8 @@ function createRuntimeContext(repoRoot: string): BumpContext {
       const content = await readFile(path.join(repoRoot, appPath), "utf-8");
       return JSON.parse(content) as AppJson;
     },
+    readLockfile: (lockPath) =>
+      readFile(path.join(repoRoot, lockPath), "utf-8"),
     stageFile: async (filePath) => {
       const result = await runGitCommand(repoRoot, ["add", filePath]);
       if (result.exitCode !== 0) {
@@ -346,6 +414,9 @@ function createRuntimeContext(repoRoot: string): BumpContext {
         path.join(repoRoot, appPath),
         `${JSON.stringify(app, null, 2)}\n`
       );
+    },
+    writeLockfile: async (lockPath, content) => {
+      await writeFile(path.join(repoRoot, lockPath), content);
     },
   };
 }

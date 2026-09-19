@@ -4,7 +4,7 @@ type AppConfig = Record<string, unknown> & {
   android?: Record<string, unknown>;
 };
 
-const {version} = appJson.expo;
+const { version } = appJson.expo;
 const [major = 0, minor = 0, patch = 0] = version
   .split(".")
   .map((part) => Math.trunc(Number(part)) || 0);
