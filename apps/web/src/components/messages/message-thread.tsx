@@ -33,7 +33,15 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { MessageBubble } from "@/components/messages/message-bubble";
 import { MessageComposer } from "@/components/messages/message-composer";
+import {
+  mediaFlatKey,
+  messageIdFromFlatKey,
+} from "@/components/messages/message-conversation-media";
+import { ConversationMediaViewer } from "@/components/messages/message-conversation-viewer";
+import type { MediaNavDirection } from "@/components/messages/message-conversation-viewer";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
+import { ConversationMediaViewerProvider } from "@/components/messages/message-media-viewer-context";
+import type { OpenConversationMedia } from "@/components/messages/message-media-viewer-context";
 import { MessageThreadSkeleton } from "@/components/messages/messages-skeleton";
 import {
   appendMessageToLastPage,
@@ -85,6 +93,10 @@ const ESTIMATED_ROW_SIZE = 80;
 // The decrypt window extends this many rows beyond the viewport each way;
 // history outside it is not requested until scrolled near.
 const DECRYPT_PREFETCH_ROWS = 64;
+// When the media viewer is open, decrypt this many transcript rows either side
+// of the active image so adjacent media is discovered. Bounded, so a sparse
+// conversation cannot make the viewer decrypt the whole history at once.
+const VIEWER_DECRYPT_RADIUS = 40;
 
 export function MessageThread({
   conversationId,
@@ -104,6 +116,10 @@ export function MessageThread({
     senderName?: string;
   } | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
+  // flatKey (`messageId:imageIndex`) of the image the conversation-wide viewer
+  // is anchored on, or null when closed. Stored as a key, not an index, so
+  // older pages prepending never shifts the current image.
+  const [mediaViewerKey, setMediaViewerKey] = useState<string | null>(null);
   // Whether the viewport is pinned to the newest message, and how many peer
   // messages have arrived since it last was (the Telegram-style badge).
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
@@ -167,6 +183,16 @@ export function MessageThread({
   // so rows can skip re-rendering on append but must re-render on prepend to
   // resolve a parent that just became available. See the row memo comparator.
   const historyVersion = messagesQuery.data?.pages.length ?? 0;
+
+  // Transcript position by message id, used to center the viewer's decrypt
+  // window on the active image.
+  const messageIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [index, message] of allMessages.entries()) {
+      map.set(message.id, index);
+    }
+    return map;
+  }, [allMessages]);
 
   const peer = detail?.conversation.members.find(
     (member) => member.userId !== user?.id
@@ -346,6 +372,66 @@ export function MessageThread({
     [detail, getBaseKey, rootKeyStore, toDecryptItem, userId]
   );
 
+  // Open the conversation-wide viewer at a tile's image. Stable identity so the
+  // provider value never changes and media tiles never re-render from it.
+  const openConversationMedia = useCallback<OpenConversationMedia>(
+    ({ imageIndex, messageId }) => {
+      setMediaViewerKey(mediaFlatKey(messageId, imageIndex));
+    },
+    []
+  );
+
+  // Decrypt a window of transcript around the viewer's active image so adjacent
+  // media is discovered. `extend` widens the window in the direction the user
+  // is trying to move when they hit the end of the known media list. request()
+  // is idempotent and cheap for cached/queued/in-flight ids, so calling this on
+  // every navigation is fine.
+  const requestViewerWindow = useCallback(
+    (messageId: string, extend: MediaNavDirection) => {
+      if (!detail || !rootKeyStore || !userId) {
+        return;
+      }
+      const base = messageIndexById.get(messageId);
+      if (base === undefined) {
+        return;
+      }
+      let start = Math.max(0, base - VIEWER_DECRYPT_RADIUS);
+      let end = Math.min(allMessages.length - 1, base + VIEWER_DECRYPT_RADIUS);
+      if (extend === "older") {
+        start = Math.max(0, base - VIEWER_DECRYPT_RADIUS * 2);
+      } else if (extend === "newer") {
+        end = Math.min(
+          allMessages.length - 1,
+          base + VIEWER_DECRYPT_RADIUS * 2
+        );
+      }
+      const items: DecryptItem[] = [];
+      for (let index = start; index <= end; index += 1) {
+        const message = allMessages[index];
+        if (message && !message.deletedAt) {
+          items.push(toDecryptItem(message));
+        }
+      }
+      messageDecryptor.request(items, { getBaseKey });
+    },
+    [
+      allMessages,
+      detail,
+      getBaseKey,
+      messageIndexById,
+      rootKeyStore,
+      toDecryptItem,
+      userId,
+    ]
+  );
+
+  const handleViewerActive = useCallback(
+    (flatKey: string, direction: MediaNavDirection) => {
+      requestViewerWindow(messageIdFromFlatKey(flatKey), direction);
+    },
+    [requestViewerWindow]
+  );
+
   // Healed keys (re-provisioned identity, first wrapped-key post) must retry
   // payloads that previously failed. Dropping the errors makes both the
   // request effect and each row's self-heal re-queue them.
@@ -442,6 +528,15 @@ export function MessageThread({
     },
     [detail, requestDecrypt, rootKeyStore, userId]
   );
+
+  // Load one older page on demand for the viewer's "Load older images"
+  // affordance. The viewer never pages history on its own, so a long thread
+  // cannot be pulled in wholesale just by opening an image.
+  const loadOlderMedia = useCallback(() => {
+    if (hasPreviousPage && !isFetchingPreviousPage) {
+      void fetchPreviousPage();
+    }
+  }, [fetchPreviousPage, hasPreviousPage, isFetchingPreviousPage]);
 
   // Jump to the newest message and clear the badge. Optimistically marks the
   // viewport pinned so followOnAppend resumes tracking immediately, without
@@ -612,118 +707,132 @@ export function MessageThread({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
-      <ThreadHeader
-        conversation={detail}
-        onBack={onBack}
-        onToggleRail={onToggleRail}
-        peer={peer}
-        peerPresence={peerPresence}
-        peerTyping={peerTyping}
-        privateKey={privateKey}
-      />
+    <ConversationMediaViewerProvider value={openConversationMedia}>
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        <ThreadHeader
+          conversation={detail}
+          onBack={onBack}
+          onToggleRail={onToggleRail}
+          peer={peer}
+          peerPresence={peerPresence}
+          peerTyping={peerTyping}
+          privateKey={privateKey}
+        />
 
-      <div className="relative min-h-0 flex-1">
-        <div
-          className="hide-native-scrollbar h-full overflow-y-auto"
-          ref={scrollRef}
-        >
-          {allMessages.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <div className="px-6 py-5">
-                <p className="text-muted-foreground text-sm">
-                  Say hi to {peer?.displayName ?? "them"}
-                </p>
-                <p className="text-muted-foreground/70 mt-1 text-xs">
-                  Messages here are end-to-end encrypted.
-                </p>
+        <div className="relative min-h-0 flex-1">
+          <div
+            className="hide-native-scrollbar h-full overflow-y-auto"
+            ref={scrollRef}
+          >
+            {allMessages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <div className="px-6 py-5">
+                  <p className="text-muted-foreground text-sm">
+                    Say hi to {peer?.displayName ?? "them"}
+                  </p>
+                  <p className="text-muted-foreground/70 mt-1 text-xs">
+                    Messages here are end-to-end encrypted.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  height: `${rowVirtualizer.getTotalSize()}px`,
+                  position: "relative",
+                  width: "100%",
+                }}
+              >
+                {virtualItems.map((virtualItem) => {
+                  const message = allMessages[virtualItem.index];
+                  if (!message) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      data-index={virtualItem.index}
+                      key={virtualItem.key}
+                      ref={rowVirtualizer.measureElement}
+                      style={{
+                        left: 0,
+                        position: "absolute",
+                        top: 0,
+                        transform: `translateY(${virtualItem.start}px)`,
+                        width: "100%",
+                      }}
+                    >
+                      <VirtualRow
+                        historyVersion={historyVersion}
+                        message={message}
+                        messagesById={messagesById}
+                        myUserId={userId ?? ""}
+                        onReply={handleReply}
+                        onRequest={requestDecrypt}
+                        onRetry={retryDecrypt}
+                        peerName={peer?.displayName ?? "them"}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {peerTyping ? (
+            <div className="pointer-events-none absolute bottom-2 left-4">
+              <div className="bg-muted/40 rounded-2xl rounded-bl-md px-3.5 py-2.5">
+                <TypingDots />
               </div>
             </div>
-          ) : (
-            <div
-              style={{
-                height: `${rowVirtualizer.getTotalSize()}px`,
-                position: "relative",
-                width: "100%",
-              }}
+          ) : null}
+
+          {!pinnedToBottom && allMessages.length > 0 ? (
+            <button
+              aria-label={
+                arrivalCount > 0
+                  ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
+                  : "Scroll to latest messages"
+              }
+              className="apple-panel motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
+              onClick={jumpToBottom}
+              title="Scroll to latest"
+              type="button"
             >
-              {virtualItems.map((virtualItem) => {
-                const message = allMessages[virtualItem.index];
-                if (!message) {
-                  return null;
-                }
-                return (
-                  <div
-                    data-index={virtualItem.index}
-                    key={virtualItem.key}
-                    ref={rowVirtualizer.measureElement}
-                    style={{
-                      left: 0,
-                      position: "absolute",
-                      top: 0,
-                      transform: `translateY(${virtualItem.start}px)`,
-                      width: "100%",
-                    }}
-                  >
-                    <VirtualRow
-                      historyVersion={historyVersion}
-                      message={message}
-                      messagesById={messagesById}
-                      myUserId={userId ?? ""}
-                      onReply={handleReply}
-                      onRequest={requestDecrypt}
-                      onRetry={retryDecrypt}
-                      peerName={peer?.displayName ?? "them"}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
+              <ArrowDown className="h-5 w-5" />
+              {arrivalCount > 0 ? (
+                <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
+                  {formatArrivalCount(arrivalCount)}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
         </div>
 
-        {peerTyping ? (
-          <div className="pointer-events-none absolute bottom-2 left-4">
-            <div className="bg-muted/40 rounded-2xl rounded-bl-md px-3.5 py-2.5">
-              <TypingDots />
-            </div>
-          </div>
-        ) : null}
+        <MessageComposer
+          conversation={detail}
+          replyTarget={replyTarget}
+          onReplyCancel={() => setReplyTarget(null)}
+          onSent={() => {
+            scheduleRead();
+            // Sending always returns the user to the newest message, even from
+            // mid-history, matching every mainstream chat client.
+            jumpToBottom();
+          }}
+        />
 
-        {!pinnedToBottom && allMessages.length > 0 ? (
-          <button
-            aria-label={
-              arrivalCount > 0
-                ? `Scroll to ${arrivalCount} new message${arrivalCount === 1 ? "" : "s"}`
-                : "Scroll to latest messages"
-            }
-            className="apple-panel motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 absolute right-4 bottom-4 z-10 flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition-transform duration-150 outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] active:scale-95"
-            onClick={jumpToBottom}
-            title="Scroll to latest"
-            type="button"
-          >
-            <ArrowDown className="h-5 w-5" />
-            {arrivalCount > 0 ? (
-              <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] px-1 text-[10px] font-semibold text-white tabular-nums shadow-sm">
-                {formatArrivalCount(arrivalCount)}
-              </span>
-            ) : null}
-          </button>
+        {mediaViewerKey ? (
+          <ConversationMediaViewer
+            anchorKey={mediaViewerKey}
+            hasOlder={hasPreviousPage}
+            isFetchingOlder={isFetchingPreviousPage}
+            messages={allMessages}
+            onActive={handleViewerActive}
+            onClose={() => setMediaViewerKey(null)}
+            onLoadOlder={loadOlderMedia}
+          />
         ) : null}
       </div>
-
-      <MessageComposer
-        conversation={detail}
-        replyTarget={replyTarget}
-        onReplyCancel={() => setReplyTarget(null)}
-        onSent={() => {
-          scheduleRead();
-          // Sending always returns the user to the newest message, even from
-          // mid-history, matching every mainstream chat client.
-          jumpToBottom();
-        }}
-      />
-    </div>
+    </ConversationMediaViewerProvider>
   );
 }
 

@@ -1,54 +1,25 @@
 "use client";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@asm/ui/shadui/dialog";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
+import { ImageOff } from "lucide-react";
 import Image from "next/image";
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { toast } from "@/lib/gooey-toast";
 import type { MediaImageRef, MessagePayload } from "@/lib/messages/crypto";
 import { getMediaImages } from "@/lib/messages/crypto";
 import { cn } from "@/lib/utils";
-import {
-  getMessageMediaId,
-  getMessageMediaVariantUrl,
-  getMessageMediaViewerUrl,
-} from "@/lib/utils/image-url";
+import { getMessageMediaVariantUrl } from "@/lib/utils/image-url";
 
 import { getAlbumLayout } from "./message-album-layout";
+import { useOpenConversationMedia } from "./message-media-viewer-context";
 
 // Bento layouts for grouped albums live in message-album-layout.ts (pure, so
 // the shapes are unit-tested). Each count from 2 to 10 has a bespoke layout;
 // count 1 renders at its natural aspect ratio instead.
-
-// Streams a media row back as a forced download. Lives at module scope because
-// React Compiler cannot lower a `throw` inside a component-level try block (see
-// media-viewer.tsx for the same constraint).
-async function downloadMediaById(mediaId: string): Promise<void> {
-  const response = await fetch(`/api/media/download/${mediaId}`);
-  if (response.status === 429) {
-    throw new Error("Too Many Downloads");
-  }
-  if (!response.ok) {
-    throw new Error("Download failed");
-  }
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = mediaId;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
-}
+//
+// The fullscreen experience is owned by the thread (see
+// message-conversation-viewer.tsx): a tile just opens the conversation-wide
+// viewer at its own image, so users can page through every image in the thread.
 
 type LoadStatus = "error" | "loaded" | "loading";
 
@@ -275,183 +246,23 @@ function SingleImage({
   );
 }
 
-// Fullscreen album viewer. Deliberately lighter than the feed's MediaViewer:
-// message attachments carry no post/derivative metadata, so this only needs
-// prev/next, download, and keyboard navigation.
-function MessageMediaViewer({
-  images,
-  initialIndex,
-  kind,
-  onClose,
-}: {
-  images: MediaImageRef[];
-  initialIndex: number;
-  kind: "gif" | "image";
-  onClose: () => void;
-}) {
-  const [index, setIndex] = useState(initialIndex);
-  const current = images[index];
-  const [status, setStatus] = useState<LoadStatus>("loading");
-  const [downloading, setDownloading] = useState(false);
-
-  const goPrevious = useCallback(() => {
-    setIndex((value) => (value > 0 ? value - 1 : images.length - 1));
-    setStatus("loading");
-  }, [images.length]);
-
-  const goNext = useCallback(() => {
-    setIndex((value) => (value < images.length - 1 ? value + 1 : 0));
-    setStatus("loading");
-  }, [images.length]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        goPrevious();
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        goNext();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goNext, goPrevious]);
-
-  const handleDownload = useCallback(async () => {
-    if (!current || downloading) {
-      return;
-    }
-    const mediaId = getMessageMediaId(current.url);
-    if (!mediaId) {
-      toast({ title: "Download Failed", variant: "destructive" });
-      return;
-    }
-    setDownloading(true);
-    try {
-      await downloadMediaById(mediaId);
-    } catch (error) {
-      const tooMany =
-        error instanceof Error && error.message === "Too Many Downloads";
-      toast({
-        description: tooMany
-          ? "Slow down a bit, then try again"
-          : "Couldn't download that file, try again?",
-        title: tooMany ? "Too Many Downloads" : "Download Failed",
-        variant: "destructive",
-      });
-    }
-    setDownloading(false);
-  }, [current, downloading]);
-
-  if (!current) {
-    return null;
-  }
-
-  const viewerSrc = getMessageMediaViewerUrl(current.url, kind);
-
-  return (
-    <Dialog onOpenChange={onClose} open>
-      <DialogContent
-        className="flex h-[100dvh] max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-black p-0 [&>button:last-child]:hidden"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <VisuallyHidden>
-          <DialogTitle>Shared image</DialogTitle>
-          <DialogDescription>
-            {kind === "gif" ? "Shared GIF" : "Shared image"} {index + 1} of{" "}
-            {images.length}
-          </DialogDescription>
-        </VisuallyHidden>
-
-        <div className="relative flex min-h-0 flex-1 items-center justify-center">
-          {status === "loading" ? (
-            <span className="absolute inset-0 animate-pulse bg-white/5" />
-          ) : null}
-          <Image
-            alt={`Image ${index + 1} of ${images.length}`}
-            className={cn(
-              "object-contain transition-opacity duration-200",
-              status === "loaded" ? "opacity-100" : "opacity-0"
-            )}
-            fill
-            key={`${current.url}-${index}`}
-            onError={() => setStatus("error")}
-            onLoad={() => setStatus("loaded")}
-            priority
-            sizes="100vw"
-            src={viewerSrc}
-            unoptimized
-          />
-          {status === "error" ? (
-            <span className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm text-white/80">
-                Couldn&apos;t load this image.
-              </span>
-            </span>
-          ) : null}
-        </div>
-
-        <button
-          aria-label="Close viewer"
-          className="absolute top-3 left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px"
-          onClick={onClose}
-          type="button"
-        >
-          <X className="h-5 w-5" />
-        </button>
-
-        <button
-          aria-label="Download image"
-          className="absolute top-3 right-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px disabled:opacity-50"
-          disabled={downloading}
-          onClick={() => {
-            void handleDownload();
-          }}
-          type="button"
-        >
-          <Download className="h-5 w-5" />
-        </button>
-
-        {images.length > 1 ? (
-          <>
-            <button
-              aria-label="Previous image"
-              className="absolute top-1/2 left-3 z-50 -translate-y-1/2 rounded-full bg-black/50 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px"
-              onClick={goPrevious}
-              type="button"
-            >
-              <ChevronLeft className="h-6 w-6" />
-            </button>
-            <button
-              aria-label="Next image"
-              className="absolute top-1/2 right-3 z-50 -translate-y-1/2 rounded-full bg-black/50 p-2.5 text-white backdrop-blur-md transition-all hover:bg-black/70 active:translate-y-px"
-              onClick={goNext}
-              type="button"
-            >
-              <ChevronRight className="h-6 w-6" />
-            </button>
-            <span
-              aria-live="polite"
-              className="absolute bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white backdrop-blur-md"
-            >
-              {index + 1} / {images.length}
-            </span>
-          </>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function MessageMediaAlbum({
   content,
+  messageId,
 }: {
   content: Extract<MessagePayload, { type: "media" }>;
+  messageId: string;
 }) {
   const images = getMediaImages(content);
-  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const openConversationMedia = useOpenConversationMedia();
   const caption = content.content?.trim();
+
+  const handleOpen = useCallback(
+    (imageIndex: number) => {
+      openConversationMedia?.({ imageIndex, messageId });
+    },
+    [messageId, openConversationMedia]
+  );
 
   if (images.length === 0) {
     return null;
@@ -459,20 +270,12 @@ export function MessageMediaAlbum({
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <AlbumGrid images={images} kind={content.kind} onOpen={setViewerIndex} />
+      <AlbumGrid images={images} kind={content.kind} onOpen={handleOpen} />
       {caption ? (
         <p className="min-w-0 px-0.5 text-sm break-words whitespace-pre-wrap">
           {caption}
         </p>
       ) : null}
-      {viewerIndex === null ? null : (
-        <MessageMediaViewer
-          images={images}
-          initialIndex={viewerIndex}
-          kind={content.kind}
-          onClose={() => setViewerIndex(null)}
-        />
-      )}
     </div>
   );
 }

@@ -123,7 +123,7 @@ export function MessageBubble({
       );
     }
     if (content.type === "media") {
-      return <MessageMediaAlbum content={content} />;
+      return <MessageMediaAlbum content={content} messageId={message.id} />;
     }
     return <PostEmbed postId={content.postId} mine={mine} />;
   }
