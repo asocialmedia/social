@@ -133,12 +133,14 @@ function Thumb({
   item,
   onClick,
   position,
+  style,
   total,
 }: {
   active: boolean;
   item: ConversationMediaItem;
   onClick: () => void;
   position: number;
+  style: React.CSSProperties;
   total: number;
 }) {
   const src =
@@ -156,7 +158,7 @@ function Thumb({
           : "opacity-60 hover:opacity-100 focus-visible:opacity-100"
       )}
       onClick={onClick}
-      style={{ height: THUMB_SIZE, left: 0, width: THUMB_SIZE }}
+      style={{ ...style, height: THUMB_SIZE, left: 0, width: THUMB_SIZE }}
       type="button"
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- tiny session-gated thumb, no optimizer possible */}
@@ -210,7 +212,7 @@ function Filmstrip({
 
   return (
     <div
-      className="flex-1 [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
+      className="min-w-0 flex-1 [scrollbar-width:none] overflow-x-auto overscroll-x-contain [&::-webkit-scrollbar]:hidden"
       ref={scrollRef}
     >
       <div
@@ -256,6 +258,7 @@ function Filmstrip({
               key={item.flatKey}
               onClick={() => onSelect(item.flatKey)}
               position={virtualItem.index - offset + 1}
+              style={style}
               total={items.length}
             />
           );
