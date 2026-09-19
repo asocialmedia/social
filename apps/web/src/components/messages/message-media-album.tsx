@@ -9,6 +9,7 @@ import {
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
 import Image from "next/image";
+import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { toast } from "@/lib/gooey-toast";
@@ -21,10 +22,11 @@ import {
   getMessageMediaViewerUrl,
 } from "@/lib/utils/image-url";
 
-// One bubble can carry a grouped album; beyond this many tiles the grid shows a
-// "+N" overlay instead of growing unbounded. All images remain reachable in the
-// fullscreen viewer (prev/next).
-const MAX_GRID_TILES = 6;
+import { getAlbumLayout } from "./message-album-layout";
+
+// Bento layouts for grouped albums live in message-album-layout.ts (pure, so
+// the shapes are unit-tested). Each count from 2 to 10 has a bespoke layout;
+// count 1 renders at its natural aspect ratio instead.
 
 // Streams a media row back as a forced download. Lives at module scope because
 // React Compiler cannot lower a `throw` inside a component-level try block (see
@@ -79,22 +81,22 @@ function useMediaSource(image: MediaImageRef, kind: "gif" | "image") {
   return { attempt, handleError, handleLoad, retry, src, status };
 }
 
-// Fixed-width grid tile. Object-cover keeps every cell a tidy square so mixed
-// orientations line up; the full (uncropped) image is available in the viewer.
+// One bento cell. `object-cover` fills the assigned rectangle so mixed
+// orientations tile cleanly; the uncropped image is available in the viewer.
 function AlbumTile({
-  className,
   image,
+  index,
   kind,
   onClick,
-  overlayCount,
-  sizes,
+  style,
+  total,
 }: {
-  className?: string;
   image: MediaImageRef;
+  index: number;
   kind: "gif" | "image";
   onClick: () => void;
-  overlayCount?: number;
-  sizes: string;
+  style: React.CSSProperties;
+  total: number;
 }) {
   const { attempt, handleError, handleLoad, retry, src, status } =
     useMediaSource(image, kind);
@@ -103,7 +105,10 @@ function AlbumTile({
   // a dedicated overlay button opens the viewer. Nesting a Retry button inside
   // an outer open button would be invalid HTML (and unreachable for a11y tools).
   return (
-    <div className={cn("relative overflow-hidden bg-black/15", className)}>
+    <div
+      className="relative min-h-0 min-w-0 overflow-hidden bg-black/15"
+      style={style}
+    >
       {status === "loading" ? (
         <span className="bg-muted/60 absolute inset-0 animate-pulse" />
       ) : null}
@@ -130,7 +135,7 @@ function AlbumTile({
           key={attempt}
           onError={handleError}
           onLoad={handleLoad}
-          sizes={sizes}
+          sizes="(max-width: 640px) 90vw, 320px"
           src={src}
           // Session-gated media can't be fetched by the server-side Image
           // optimizer (no viewer cookies), so sources are pre-sized pipeline
@@ -139,16 +144,10 @@ function AlbumTile({
         />
       )}
 
-      {overlayCount ? (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 text-base font-semibold text-white">
-          +{overlayCount}
-        </span>
-      ) : null}
-
       {status === "error" ? null : (
         <button
-          aria-label={kind === "gif" ? "Open GIF" : "Open image"}
-          className="absolute inset-0 z-10 rounded-[inherit] outline-hidden focus-visible:ring-2 focus-visible:ring-white/80"
+          aria-label={`Open image ${index + 1} of ${total}`}
+          className="absolute inset-0 z-10 outline-hidden focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-inset"
           onClick={onClick}
           type="button"
         />
@@ -157,16 +156,10 @@ function AlbumTile({
   );
 }
 
-function gridColumns(count: number): string {
-  if (count === 1) {
-    return "grid-cols-1";
-  }
-  if (count <= 4) {
-    return "grid-cols-2";
-  }
-  return "grid-cols-3";
-}
-
+// Bento collage for a grouped album. The grid's aspect ratio equals its
+// column/row count, so every base cell is square and each tile is an exact
+// rectangle of cells (see ALBUM_LAYOUTS). Senders can attach up to 10 images,
+// and every count from 2 to 10 has a bespoke layout.
 function AlbumGrid({
   images,
   kind,
@@ -183,32 +176,35 @@ function AlbumGrid({
     );
   }
 
-  const visible = count > MAX_GRID_TILES ? MAX_GRID_TILES : count;
-  const hidden = count - visible;
-  const isThree = count === 3;
-  const sizes =
-    count > 4
-      ? "(max-width: 640px) 30vw, 84px"
-      : "(max-width: 640px) 40vw, 126px";
+  const layout = getAlbumLayout(count);
+  const visible = images.slice(0, layout.placements.length);
 
   return (
-    <div className={cn("grid w-64 max-w-full gap-1", gridColumns(count))}>
-      {images.slice(0, visible).map((image, index) => (
-        <AlbumTile
-          className={cn(
-            "aspect-square rounded-md first:rounded-tl-xl last:rounded-br-xl",
-            isThree && index === 0 && "col-span-2 aspect-[2/1]"
-          )}
-          image={image}
-          key={`${index}-${image.url}`}
-          kind={kind}
-          onClick={() => onOpen(index)}
-          overlayCount={
-            index === visible - 1 && hidden > 0 ? hidden : undefined
-          }
-          sizes={sizes}
-        />
-      ))}
+    <div
+      className="grid w-72 max-w-full gap-1 overflow-hidden rounded-xl"
+      style={{
+        aspectRatio: `${layout.cols} / ${layout.rows}`,
+        gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+      }}
+    >
+      {visible.map((image, index) => {
+        const placement = layout.placements[index];
+        return (
+          <AlbumTile
+            image={image}
+            index={index}
+            key={`${index}-${image.url}`}
+            kind={kind}
+            onClick={() => onOpen(index)}
+            style={{
+              gridColumn: `${placement.col + 1} / span ${placement.colSpan}`,
+              gridRow: `${placement.row + 1} / span ${placement.rowSpan}`,
+            }}
+            total={count}
+          />
+        );
+      })}
     </div>
   );
 }
