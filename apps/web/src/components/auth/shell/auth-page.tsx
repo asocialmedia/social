@@ -28,7 +28,7 @@ export default function AuthPage({ initialMode }: { initialMode: AuthMode }) {
     <AnimatePresence>
       <motion.div
         animate="visible"
-        className="bg-background relative flex min-h-screen overflow-hidden"
+        className="bg-background relative flex min-h-dvh overflow-hidden"
         initial="hidden"
         transition={{ duration: 0.6, ease: "easeOut" }}
         variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}

@@ -92,7 +92,7 @@ function LoginErrorContent() {
     <AnimatePresence>
       <motion.div
         animate={{ opacity: 1 }}
-        className="from-background via-background/95 to-background relative min-h-screen w-full overflow-hidden bg-gradient-to-br"
+        className="from-background via-background/95 to-background relative min-h-dvh w-full overflow-hidden bg-gradient-to-br"
         exit={{ opacity: 0 }}
         initial={{ opacity: 0 }}
       >
@@ -102,7 +102,7 @@ function LoginErrorContent() {
           <div className="absolute bottom-0 left-1/2 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-pink-500/10 blur-[100px]" />
         </div>
 
-        <div className="relative flex min-h-screen items-center justify-center p-4">
+        <div className="relative flex min-h-dvh items-center justify-center p-4">
           <motion.div
             animate={{ opacity: 1, y: 0 }}
             className="border-border/50 bg-background/60 w-full max-w-md rounded-lg border p-8 shadow-lg backdrop-blur-xl"
