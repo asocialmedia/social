@@ -131,6 +131,7 @@ export async function fetchIdentity(): Promise<{
 }
 
 export async function saveIdentity(payload: {
+  backupMethod?: string;
   encryptedPrivateKey: string;
   kdfIterations: number;
   masterKeyHash: string;
@@ -142,6 +143,22 @@ export async function saveIdentity(payload: {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     method: "POST",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+}
+
+// Drops this account's server-side identity and its own conversation-key wraps
+// so the next bootstrap provisions a fresh keypair. The escape hatch for a
+// device that lost the backup secret. Messages are untouched: the caller's
+// pre-reset history becomes unreadable to them, while the peer's own wraps
+// remain, so the peer keeps the full history. Callers must confirm with the
+// user before invoking this.
+export async function resetMessageIdentity(): Promise<void> {
+  const response = await fetch("/api/messages/identity", {
+    credentials: "same-origin",
+    method: "DELETE",
   });
   if (!response.ok) {
     throw await parseError(response);

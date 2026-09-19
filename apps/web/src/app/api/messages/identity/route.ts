@@ -4,6 +4,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import { parseJsonBody } from "@/lib/messages/server";
 
 export interface MessageIdentityPayload {
+  backupMethod?: string;
   createdAt: string;
   encryptedPrivateKey: string;
   kdfIterations: number;
@@ -28,6 +29,7 @@ export async function GET() {
   }
 
   const payload: MessageIdentityPayload = {
+    backupMethod: identity.backupMethod,
     createdAt: identity.createdAt.toISOString(),
     encryptedPrivateKey: identity.encryptedPrivateKey,
     kdfIterations: identity.kdfIterations,
@@ -109,5 +111,47 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Failed to save message identity:", error);
     return Response.json({ error: "Failed to save identity" }, { status: 500 });
+  }
+}
+
+// Re-provisions a lost identity. This is the escape hatch for a device that no
+// longer holds the backup secret: the stored backup cannot be decrypted without
+// it, so the only way forward is to start a new keypair. The reset is strictly
+// self-scoped:
+//
+//   - Only the caller's identity row is deleted (`where.userId = user.id`).
+//   - Only the caller's own conversation-key wraps are deleted. The peer's wraps
+//     are left untouched, so the other member keeps reading the full history.
+//   - Messages are never touched. The caller's pre-reset history becomes
+//     unreadable to them (the root keys its wraps held are gone), which the UI
+//     discloses before confirming; the peer's copy is unaffected.
+//
+// The next bootstrap sees no identity and provisions a fresh one, and
+// ensureConversationKeys rotates to a new epoch on the next send.
+export async function DELETE() {
+  const session = await getSessionFromApi();
+  const user = session?.user;
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const [, keys] = await prisma.$transaction([
+      prisma.messageIdentity.deleteMany({ where: { userId: user.id } }),
+      // Both conditions are required: the owner filter keeps other members'
+      // wraps, and the conversationId foreign key means a wrap without a live
+      // conversation is already gone via cascade.
+      prisma.messageConversationKey.deleteMany({
+        where: { ownerUserId: user.id },
+      }),
+    ]);
+
+    return Response.json({ ok: true, removedKeys: keys.count });
+  } catch (error) {
+    console.error("Failed to reset message identity:", error);
+    return Response.json(
+      { error: "Failed to reset identity" },
+      { status: 500 }
+    );
   }
 }

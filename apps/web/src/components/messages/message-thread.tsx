@@ -547,6 +547,10 @@ export function MessageThread({
       return;
     }
     messageDecryptor.clearErrors();
+    // The key store's identity changes on an unlock or an identity reset, so
+    // drop the decryptor's cached per-conversation roots too. Without this a
+    // reset would keep decrypting with the superseded identity's epochs.
+    messageDecryptor.clearKeys();
     viewerScanCache.clear();
     pendingScanRef.current.clear();
   }, [detail, rootKeyStore, userId, viewerScanCache]);

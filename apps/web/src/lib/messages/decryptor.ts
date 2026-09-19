@@ -73,6 +73,11 @@ function isMediaEntry(entry: DecryptEntry): boolean {
 
 export interface MessageDecryptor {
   clearErrors: () => void;
+  // Drops the cached per-conversation base keys so the next request re-resolves
+  // them from the supplied key source. Called when the identity changes (an
+  // identity reset), where retaining the previous epoch's roots would keep
+  // decrypting with keys the new identity is not meant to use.
+  clearKeys: () => void;
   configureScope: (scopeKey: string) => void;
   get: (id: string) => DecryptEntry | undefined;
   getVersion: () => number;
@@ -286,6 +291,10 @@ export function createDecryptor(
       if (cleared) {
         notify();
       }
+    },
+
+    clearKeys(): void {
+      baseKeys.clear();
     },
 
     configureScope(key: string): void {

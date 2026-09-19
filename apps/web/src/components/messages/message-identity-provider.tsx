@@ -12,10 +12,15 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { fetchIdentity, saveIdentity } from "@/lib/messages/client";
+import {
+  fetchIdentity,
+  resetMessageIdentity,
+  saveIdentity,
+} from "@/lib/messages/client";
 import type { MessageIdentityPayload } from "@/lib/messages/client";
 import {
   KDF_ITERATIONS,
+  clearStoredPrivateKey,
   decryptWithMasterKey,
   deriveMasterKey,
   encryptWithMasterKey,
@@ -56,6 +61,11 @@ interface MessageIdentityContextValue {
   // Unlocks a locked identity with a user-supplied recovery secret, persisting
   // it on this device so the prompt does not recur.
   unlock: (secret: string) => Promise<void>;
+  // Destroys this account's server identity + own key wraps and provisions a
+  // fresh one. The escape hatch when the recovery secret is gone. The caller
+  // must have already confirmed with the user: existing messages become
+  // unreadable to this account (the peer's copy is unaffected).
+  reset: () => Promise<void>;
 }
 
 const MessageIdentityContext =
@@ -112,6 +122,7 @@ export function MessageIdentityProvider({
     );
 
     await saveIdentity({
+      backupMethod: "manual-secret",
       encryptedPrivateKey: `${backup.iv}.${backup.ciphertext}`,
       kdfIterations: KDF_ITERATIONS,
       masterKeyHash,
@@ -303,6 +314,28 @@ export function MessageIdentityProvider({
     return () => clearTimeout(timer);
   }, [bootstrap]);
 
+  // Destroys the stored identity and this account's own conversation-key wraps,
+  // clears every device-local copy, then re-provisions. Used only after the
+  // user has been warned that pre-reset messages become unreadable to them; the
+  // peer's wraps are untouched by the server, so their history survives.
+  const reset = useCallback(async (): Promise<void> => {
+    if (!user) {
+      return;
+    }
+    await resetMessageIdentity();
+    // Clear the cached private key and the backup secret so the fresh identity
+    // starts from nothing, and arm the one-time reveal for the new secret.
+    await clearStoredPrivateKey(user.id);
+    recoverySecretSeenRef.current = false;
+    setPrivateKey(null);
+    setIdentity(null);
+    setIdentityError(null);
+    setRecoverySecret(null);
+    // Provision the replacement. bootstrap sees no local key and no server
+    // identity, so it mints a fresh keypair.
+    await bootstrap();
+  }, [bootstrap, user]);
+
   const value = useMemo(
     () => ({
       dismissRecoverySecret,
@@ -310,6 +343,7 @@ export function MessageIdentityProvider({
       identity,
       privateKey,
       recoverySecret,
+      reset,
       status,
       unlock,
     }),
@@ -319,6 +353,7 @@ export function MessageIdentityProvider({
       identityError,
       privateKey,
       recoverySecret,
+      reset,
       status,
       unlock,
     ]

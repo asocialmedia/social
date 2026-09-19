@@ -322,6 +322,34 @@ describe("message decryptor", () => {
     expect(decryptor.get("a")).toEqual(TEXT);
   });
 
+  test("clearKeys re-resolves base keys on the next request", async () => {
+    // An identity reset changes the available epochs; the cached roots from the
+    // previous identity must not survive it.
+    let keyCalls = 0;
+    const keys = {
+      getBaseKeys: () => {
+        keyCalls += 1;
+        return Promise.resolve([{} as CryptoKey]);
+      },
+    };
+    const decryptor = createDecryptor({
+      decrypt: () => Promise.resolve(TEXT),
+    });
+    decryptor.request([item("a")], keys);
+    await settle();
+    expect(keyCalls).toBe(1);
+
+    // Still cached: a second request for a different message reuses the keys.
+    decryptor.request([item("b")], keys);
+    await settle();
+    expect(keyCalls).toBe(1);
+
+    decryptor.clearKeys();
+    decryptor.request([item("c")], keys);
+    await settle();
+    expect(keyCalls).toBe(2);
+  });
+
   test("end-to-end with real crypto through the default path", async () => {
     const rootKey = generateRootKey();
     const baseKey = await importRatchetBaseKey(rootKey);

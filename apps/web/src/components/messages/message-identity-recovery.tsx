@@ -1,5 +1,15 @@
 "use client";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@asm/ui/shadui/alert-dialog";
 import { Button } from "@asm/ui/shadui/button";
 import {
   Dialog,
@@ -14,19 +24,85 @@ import { useCallback, useState } from "react";
 
 import { toast } from "@/lib/gooey-toast";
 
+// Confirmation for the destructive "start over" path. Shared by the locked
+// screen and the settings recovery card so the warning copy cannot drift
+// between the two entries. Explains exactly what is lost (this account's old
+// messages) and what is not (the other person's copy).
+export function ResetIdentityDialog({
+  onConfirm,
+  onOpenChange,
+  open,
+}: {
+  onConfirm: () => Promise<void>;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const confirm = useCallback(async () => {
+    setBusy(true);
+    try {
+      await onConfirm();
+      onOpenChange(false);
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't reset messages",
+        title: "Reset failed",
+        variant: "destructive",
+      });
+    }
+    setBusy(false);
+  }, [onConfirm, onOpenChange]);
+
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={open}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Start messages over?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You&apos;ll get a new messages key. Messages sent or received before
+            this point can no longer be read on your account — they stay on the
+            other person&apos;s device and are not deleted. This can&apos;t be
+            undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={busy}
+            onClick={(event) => {
+              // Keep the dialog mounted until the async reset resolves so the
+              // busy state is visible and a failure can surface as a toast.
+              event.preventDefault();
+              void confirm();
+            }}
+          >
+            {busy ? "Resetting…" : "Reset messages"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 // Shown when the server holds an identity this device cannot unlock: the raw
 // backup secret is missing (cleared storage, a different origin, a new device).
 // The private key cannot be derived without it, and the server stores only a
 // hash, so user input is the only path. Mirrors the locked error status from
 // MessageIdentityProvider.
 export function MessageIdentityLocked({
+  onReset,
   onUnlock,
 }: {
+  onReset: () => Promise<void>;
   onUnlock: (secret: string) => Promise<void>;
 }) {
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
 
   const handleSubmit = useCallback(
     async (event: React.FormEvent) => {
@@ -96,12 +172,30 @@ export function MessageIdentityLocked({
           >
             {busy ? "Unlocking…" : "Unlock messages"}
           </Button>
-          <p className="text-muted-foreground mt-3 text-[11px]">
-            Your secret never leaves this device. Without it, existing encrypted
-            messages can&apos;t be recovered.
-          </p>
+
+          <div className="border-border/50 mt-4 border-t pt-3">
+            <p className="text-muted-foreground text-[11px]">
+              Don&apos;t have the secret? You can start over with a new key.
+              Messages from before will no longer be readable to you.
+            </p>
+            <Button
+              className="mt-2 w-full"
+              disabled={busy}
+              onClick={() => setResetOpen(true)}
+              type="button"
+              variant="outline"
+            >
+              Start over
+            </Button>
+          </div>
         </form>
       </div>
+
+      <ResetIdentityDialog
+        onConfirm={onReset}
+        onOpenChange={setResetOpen}
+        open={resetOpen}
+      />
     </div>
   );
 }

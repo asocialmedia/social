@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { GET, POST } from "./route";
+import { DELETE, GET, POST } from "./route";
 
 type Session = { user: { id: string } } | null;
 const mockGetSession = mock((): Session => ({ user: { id: "user1" } }));
 
 type IdentityRow = {
+  backupMethod?: string;
   createdAt: Date;
   encryptedPrivateKey: string;
   kdfIterations: number;
@@ -18,14 +19,22 @@ type IdentityRow = {
 const mockFindUnique = mock((): IdentityRow | Promise<IdentityRow> => null);
 const mockCreate = mock(() => ({}));
 
+// Reset path: the route issues both deletes in one $transaction array.
+const mockIdentityDeleteMany = mock(() => ({ count: 1 }));
+const mockKeysDeleteMany = mock(() => ({ count: 2 }));
+const mockTransaction = mock((ops: unknown[]) => Promise.all(ops));
+
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
 
 mock.module("@asm/db", () => ({
   prisma: {
+    $transaction: mockTransaction,
+    messageConversationKey: { deleteMany: mockKeysDeleteMany },
     messageIdentity: {
       create: mockCreate,
+      deleteMany: mockIdentityDeleteMany,
       findUnique: mockFindUnique,
     },
   },
@@ -189,5 +198,48 @@ describe("POST /api/messages/identity", () => {
     );
     expect(res.status).toBe(409);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/messages/identity", () => {
+  beforeEach(() => {
+    mockGetSession.mockClear();
+    mockIdentityDeleteMany.mockClear();
+    mockKeysDeleteMany.mockClear();
+    mockTransaction.mockClear();
+    mockGetSession.mockReturnValue({ user: { id: "user1" } });
+    mockIdentityDeleteMany.mockReturnValue({ count: 1 });
+    mockKeysDeleteMany.mockReturnValue({ count: 2 });
+  });
+
+  test("requires auth", async () => {
+    mockGetSession.mockReturnValueOnce(null);
+    const res = await DELETE();
+    expect(res.status).toBe(401);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  test("deletes only the caller's identity row", async () => {
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    const identityArgs = mockIdentityDeleteMany.mock.calls[0]?.[0] as {
+      where: { userId: string };
+    };
+    // Self-scoped: the owner filter means no other account's identity can be
+    // touched by this endpoint.
+    expect(identityArgs.where).toEqual({ userId: "user1" });
+  });
+
+  test("deletes only the caller's own key wraps, leaving the peer's intact", async () => {
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, removedKeys: 2 });
+    const keysArgs = mockKeysDeleteMany.mock.calls[0]?.[0] as {
+      where: Record<string, unknown>;
+    };
+    // Scoped by owner only. Any conversation-wide filter would delete the
+    // peer's wraps and destroy their history, which the reset must never do.
+    expect(keysArgs.where).toEqual({ ownerUserId: "user1" });
+    expect(keysArgs.where).not.toHaveProperty("conversationId");
   });
 });
