@@ -116,7 +116,7 @@ function StageImage({
           key={attempt}
           onError={() => setStatus("error")}
           onLoad={() => setStatus("loaded")}
-          priority
+          preload
           sizes="100vw"
           src={src}
           unoptimized
@@ -190,7 +190,7 @@ function Filmstrip({
 }) {
   const offset = hasOlder ? 1 : 0;
   const count = items.length + offset;
-  // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream recipe); thumbs are keyed and memo-stable on their own props
+  // oxlint-disable-next-line react/incompatible-library -- useVirtualizer returns unmemoizable measuring/scroll handles by design (upstream recipe); the strip is small and keyed on flatKey, so remounts are already prevented
   const virtualizer = useVirtualizer({
     count,
     estimateSize: () => THUMB_STRIDE,
@@ -301,6 +301,14 @@ export function ConversationMediaViewer({
     count: number;
     direction: MediaNavDirection;
   } | null>(null);
+  // A stale extension must not resurface its spinner if the list later shrinks
+  // back to the count it was recorded at. Drop it whenever the length changes
+  // (React's derive-state-during-render pattern; no effect needed).
+  const [extensionLength, setExtensionLength] = useState(items.length);
+  if (extensionLength !== items.length) {
+    setExtensionLength(items.length);
+    setExtension(null);
+  }
   const extending =
     extension && extension.count === items.length ? extension.direction : null;
   const stripRef = useRef<HTMLDivElement | null>(null);
@@ -346,6 +354,11 @@ export function ConversationMediaViewer({
 
   const step = useCallback(
     (delta: number) => {
+      // An unresolved anchor (payload evicted between open and first render)
+      // must not let "+1" teleport to the first image.
+      if (activeIndex < 0) {
+        return;
+      }
       const target = items[activeIndex + delta];
       if (target) {
         selectKey(target.flatKey);
@@ -520,13 +533,21 @@ export function ConversationMediaViewer({
               )}
             </button>
             <span
-              aria-live="polite"
+              aria-hidden
               className="pointer-events-none absolute bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white backdrop-blur-md"
             >
               {activeIndex + 1} / {items.length}
             </span>
           </>
         ) : null}
+
+        {/* Single polite announcement for screen readers, kept separate from
+            the visible counter so it does not fire on every unrelated update. */}
+        <span aria-live="polite" className="sr-only">
+          {item
+            ? `${item.kind === "gif" ? "GIF" : "Image"} ${activeIndex + 1} of ${items.length}`
+            : ""}
+        </span>
 
         <div className="pointer-events-auto z-40 flex items-center gap-2 border-t border-white/10 bg-black/80 px-3 py-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
           <Filmstrip
